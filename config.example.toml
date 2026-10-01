@@ -1,0 +1,26 @@
+# Run from the neobeep directory. Paths are relative to the working directory.
+listen = "127.0.0.1:4433"
+# Bind only your Rayfish interface as an additional listener, if desired:
+# additional_listen = ["[YOUR_RAYFISH_IPV6]:4433"]
+# Testing only: omit this setting to require authentication.
+# testing_user = "owner"
+web_enabled = true # HTTP browser UI on the same address/port (TCP)
+certificate = ".dev/localhost.pem"
+private_key = ".dev/localhost-key.pem"
+database = ".dev/neobeep.db"
+model = "openai:your-model-name"
+# OpenAI-compatible endpoint: self-hosted vLLM, LiteLLM, etc.
+provider_url = "http://127.0.0.1:8000/"
+# Optional for an unauthenticated LOCAL model endpoint. Remote keys stay server-side.
+# provider_key_env = "NEOBEEP_MODEL_KEY"
+# Optional: enable Firecrawl web search. The key stays in the server environment.
+# firecrawl_key_env = "FIRECRAWL_API_KEY"
+
+[[users]]
+id = "owner"
+token_env = "NEOBEEP_TOKEN"
+
+# Give each user a different random bearer token (at least 32 characters).
+# [[users]]
+# id = "another-user"
+# token_env = "NEOBEEP_OTHER_TOKEN"
