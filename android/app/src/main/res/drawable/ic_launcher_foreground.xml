@@ -3,25 +3,73 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Content centered in safe zone: 108dp canvas, ~72dp content area centered at 54,54 -->
-    <!-- Chat bubble — lime highlight, smooth rounded shape -->
+    <!-- Adaptive icon: 108dp canvas, safe zone is centered 72dp (18-90 range).
+         Character centered at 54,54. Bubble spans roughly 28-80 horizontal, 22-72 vertical. -->
+
+    <!-- Chat bubble drop shadow — offset 2px down for 3D depth -->
+    <path
+        android:fillColor="#072018"
+        android:pathData="M31,33c0,-6.6 5.4,-12 12,-12h10.5c6.6,0 12,5.4 12,12v12c0,6.6 -5.4,12 -12,12h-6l-8.2,7.2c-1,0.85 -2.5,0.1 -2.5,-1.15v-6.05h-2.8c-6.6,0 -12,-5.4 -12,-12z" />
+
+    <!-- Chat bubble body — Lime -->
     <path
         android:fillColor="#C8F06A"
-        android:pathData="M32,28c0,-5 4,-9 9,-9h12c5,0 9,4 9,9v15c0,5 -4,9 -9,9h-8.2l-8.7,7.8c-0.75,0.67 -1.8,0.08 -1.8,-0.9v-6.9h-2.3c-5,0 -9,-4 -9,-9z" />
-    <!-- Left eye — oval, moss green -->
+        android:pathData="M29,31c0,-6.6 5.4,-12 12,-12h10.5c6.6,0 12,5.4 12,12v12c0,6.6 -5.4,12 -12,12h-6.5l-7.8,6.8c-0.95,0.82 -2.4,0.1 -2.4,-1.1v-5.7h-2.8c-6.6,0 -12,-5.4 -12,-12z" />
+
+    <!-- Bubble top highlight — glossy shine for 3D feel -->
     <path
-        android:fillColor="#176B5B"
-        android:pathData="M45,33.8a3.3,4.5 0,1 0,0 9a3.3,4.5 0,1 0,0 -9" />
-    <!-- Right eye — oval, moss green -->
+        android:fillColor="#DFFAA0"
+        android:fillAlpha="0.55"
+        android:pathData="M33,27C34,22.5 38,19.5 41,19.5h10.5c3.5,0 7,1.8 9,4.5C58,22 55,20.5 51.5,20.5h-10.5c-4,0 -7.5,2.5 -8,6.5z" />
+
+    <!-- Left eye — rounded pill, Ink -->
     <path
-        android:fillColor="#176B5B"
-        android:pathData="M57,33.8a3.3,4.5 0,1 0,0 9a3.3,4.5 0,1 0,0 -9" />
-    <!-- Left eye highlight -->
+        android:fillColor="#0D1410"
+        android:pathData="M38,32c0,-1.5 1.2,-2.7 2.7,-2.7c1.5,0 2.7,1.2 2.7,2.7v7.5c0,1.5 -1.2,2.7 -2.7,2.7c-1.5,0 -2.7,-1.2 -2.7,-2.7z" />
+
+    <!-- Right eye — rounded pill, Ink -->
     <path
-        android:fillColor="#D9F99D"
-        android:pathData="M43.8,35.3a1.2,1.2 0,1 0,0 2.4a1.2,1.2 0,1 0,0 -2.4" />
-    <!-- Right eye highlight -->
+        android:fillColor="#0D1410"
+        android:pathData="M49.5,32c0,-1.5 1.2,-2.7 2.7,-2.7c1.5,0 2.7,1.2 2.7,2.7v7.5c0,1.5 -1.2,2.7 -2.7,2.7c-1.5,0 -2.7,-1.2 -2.7,-2.7z" />
+
+    <!-- Left eye pupil — Moss, positioned lower for friendly gaze -->
     <path
-        android:fillColor="#D9F99D"
-        android:pathData="M55.8,35.3a1.2,1.2 0,1 0,0 2.4a1.2,1.2 0,1 0,0 -2.4" />
+        android:fillColor="#3B9B7A"
+        android:pathData="M39,34.5a1.8,2.2 0,1 0,0 4.4a1.8,2.2 0,1 0,0 -4.4" />
+
+    <!-- Right eye pupil — Moss -->
+    <path
+        android:fillColor="#3B9B7A"
+        android:pathData="M50.5,34.5a1.8,2.2 0,1 0,0 4.4a1.8,2.2 0,1 0,0 -4.4" />
+
+    <!-- Left eye glint — white sparkle, upper-left -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M39.5,32.2a1.05,1.05 0,1 0,0 2.1a1.05,1.05 0,1 0,0 -2.1" />
+
+    <!-- Right eye glint — white sparkle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M51,32.2a1.05,1.05 0,1 0,0 2.1a1.05,1.05 0,1 0,0 -2.1" />
+
+    <!-- Mouth — friendly curved smile -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M40,45Q44,49.5 46.5,49.5Q49,49.5 53,45"
+        android:strokeColor="#0D1410"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round" />
+
+    <!-- Left cheek blush — subtle Moss tint -->
+    <path
+        android:fillColor="#3B9B7A"
+        android:fillAlpha="0.22"
+        android:pathData="M34,41a3.3,2 0,1 0,0 4a3.3,2 0,1 0,0 -4" />
+
+    <!-- Right cheek blush — subtle Moss tint -->
+    <path
+        android:fillColor="#3B9B7A"
+        android:fillAlpha="0.22"
+        android:pathData="M55.5,41a3.3,2 0,1 0,0 4a3.3,2 0,1 0,0 -4" />
+
 </vector>

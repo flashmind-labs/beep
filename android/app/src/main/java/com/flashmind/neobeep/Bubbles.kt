@@ -13,13 +13,25 @@ import android.provider.Settings
 object Bubbles {
     private const val CHANNEL = "assistant-chat"
     private const val SHORTCUT = "beep-assistant"
+    fun canBubble(context: Context): Boolean {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (!manager.areNotificationsEnabled()) return false
+        return manager.areBubblesAllowed() || manager.areBubblesEnabled()
+    }
     fun show(context: Context): Boolean {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled()) return false
-        val channel = NotificationChannel(CHANNEL, "Assistant conversation", NotificationManager.IMPORTANCE_DEFAULT)
+        val channel = NotificationChannel(CHANNEL, "Assistant conversation", NotificationManager.IMPORTANCE_HIGH)
         channel.description = "Keep your assistant in a floating conversation bubble"
         channel.setAllowBubbles(true)
         manager.createNotificationChannel(channel)
+        // Check if bubbles are actually allowed after channel creation
+        val existing = manager.getNotificationChannel(CHANNEL)
+        if (existing != null && !existing.canBubble()) {
+            // Bubbles not enabled for this channel — open settings
+            settings(context)
+            return false
+        }
         val person = Person.Builder().setName("Beep").setBot(true).setImportant(true)
             .setIcon(Icon.createWithResource(context, R.drawable.ic_beep)).build()
         val user = Person.Builder().setName("You").setKey("self").setBot(false).build()

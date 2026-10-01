@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <application android:name=".BeepApplication" android:label="Beep"
         android:icon="@mipmap/ic_launcher" android:theme="@style/Theme.Beep"
         android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules"
@@ -14,5 +16,7 @@
         <activity android:name=".BubbleActivity" android:exported="false"
             android:resizeableActivity="true" android:allowEmbedded="true"
             android:documentLaunchMode="always" android:windowSoftInputMode="adjustResize" />
+        <service android:name=".NotificationService" android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

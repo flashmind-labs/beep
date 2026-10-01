@@ -20,6 +20,7 @@ class ChatRepository(private val storage: LocalStorage) {
     val settings = MutableStateFlow(storage.loadSettings())
     val connection = MutableStateFlow(if (settings.value.configured) "Checking connection…" else "Connect your assistant")
     val connected = MutableStateFlow(false)
+    private var reconnectJob: Job? = null
     init { if (settings.value.configured) reconnect() }
 
     private fun update(transform: (ChatState) -> ChatState) = synchronized(lock) {
@@ -81,20 +82,37 @@ class ChatRepository(private val storage: LocalStorage) {
         if (changedAccount) update { ChatState() }
         connected.value = true
         scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
+        NotificationService.start(storage.context)
         connection.value = connectionLabel(config)
         resumePending()
         runCatching { syncHistory(config) }
     }
-    fun reconnect() { scope.launch {
-        try {
-            QuicApi(settings.value).json("GET", "/v1/health")
-            connected.value = true; scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }; connection.value = connectionLabel(settings.value); resumePending()
-            runCatching { syncHistory(settings.value) }
-        } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            connected.value = false; connection.value = "Can’t reach your server"
+    fun reconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            var attempt = 0
+            while (isActive) {
+                try {
+                    connection.value = if (attempt > 0) "Reconnecting… (attempt ${attempt + 1})" else "Checking connection…"
+                    QuicApi(settings.value).json("GET", "/v1/health")
+                    connected.value = true
+                    scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
+                    NotificationService.start(storage.context)
+                    connection.value = connectionLabel(settings.value)
+                    resumePending()
+                    runCatching { syncHistory(settings.value) }
+                    return@launch
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    attempt++
+                    connected.value = false
+                    connection.value = if (attempt < 5) "Reconnecting…" else "Can’t reach your server · tap to retry"
+                    if (attempt >= 10) return@launch
+                    delay(minOf(1000L * attempt, 15000L))
+                }
+            }
         }
-    } }
+    }
     private fun resumePending() { state.value.conversations.filter { it.busy }.forEach { launchRun(it.id) } }
     fun send(text: String) {
         val chat = state.value.current
@@ -144,7 +162,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     failures++
                     connected.value = false; connection.value = "Connection interrupted"
                     updateChat(id) { it.copy(status = "", error = if (failures < 4) "Reconnecting…" else (error.message ?: "Connection failed. Tap Retry.")) }
-                    if (failures >= 4) break
+                    if (failures >= 4) { reconnect(); break }
                     delay(1000L shl (failures - 1))
                 }
             }

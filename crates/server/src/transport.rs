@@ -201,6 +201,59 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
     };
     let path = request.uri().path();
     let method = request.method().as_str();
+    if method == "GET" && path == "/v1/notifications" {
+        stream
+            .send_response(
+                Response::builder()
+                    .header("content-type", "application/x-ndjson")
+                    .header("cache-control", "no-store")
+                    .body(())?,
+            )
+            .await?;
+        let mut rx = app.notifications.subscribe();
+        let user = user.to_owned();
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                    let mut line = serde_json::to_vec(&json!({"type":"heartbeat"}))?;
+                    line.push(b'\n');
+                    if let Err(_) = tokio::time::timeout(
+                        Duration::from_secs(10),
+                        stream.send_data(Bytes::from(line)),
+                    ).await {
+                        break;
+                    }
+                }
+                result = rx.recv() => {
+                    match result {
+                        Ok(event) => {
+                            // Only forward notifications for the authenticated user.
+                            let parsed: Value = match serde_json::from_str(&event) {
+                                Ok(v) => v,
+                                Err(_) => continue,
+                            };
+                            if parsed.get("user").and_then(Value::as_str) != Some(&user) {
+                                continue;
+                            }
+                            let mut line = Vec::from(event.as_bytes());
+                            line.push(b'\n');
+                            match tokio::time::timeout(
+                                Duration::from_secs(10),
+                                stream.send_data(Bytes::from(line)),
+                            ).await {
+                                Ok(Ok(())) => {}
+                                _ => break,
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            }
+        }
+        stream.finish().await?;
+        return Ok(());
+    }
     if method == "GET" && path == "/v1/sessions" {
         return reply(
             &mut stream,

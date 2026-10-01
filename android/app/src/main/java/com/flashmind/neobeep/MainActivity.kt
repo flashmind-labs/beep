@@ -84,21 +84,13 @@ private val TextDim = Color(0xFF4A5A50)
 open class MainActivity : ComponentActivity() {
     protected open val bubble = false
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        if (it && Bubbles.show(this)) moveTaskToBack(true) else Bubbles.settings(this)
+        if (it) { Bubbles.show(this); moveTaskToBack(true) } else Bubbles.settings(this)
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // Default to bubble mode: if this is a fresh launcher tap (not already in bubble),
-        // try to launch as a bubble and move the full activity to the background.
-        if (!bubble && savedInstanceState == null) {
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else if (Bubbles.show(this)) {
-                moveTaskToBack(true)
-            }
-        }
         val repository = (application as BeepApplication).repository
+        intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Moss, onPrimary = Ink,
                 background = Ink, surface = Surface, onSurface = TextPrimary, secondaryContainer = Elevated,

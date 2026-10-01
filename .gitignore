@@ -11,3 +11,4 @@ config.toml
 /android/local.properties
 /android/**/build/
 /android/app/src/main/jniLibs/
+android/app/src/main/assets/testing-profile.json
