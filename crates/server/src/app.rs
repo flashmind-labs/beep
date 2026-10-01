@@ -22,6 +22,7 @@ pub struct App {
     provider: Arc<dyn LlmProvider>,
     model: Model,
     search: Option<Arc<crate::search::SearchTool>>,
+    composio: Option<Arc<crate::composio::ComposioClient>>,
     active: Mutex<HashMap<String, CancellationToken>>,
 }
 
@@ -50,6 +51,17 @@ impl App {
         model: Model,
         search: Option<Arc<crate::search::SearchTool>>,
     ) -> Arc<Self> {
+        Self::with_tools(store, auth, provider, model, search, None)
+    }
+
+    pub fn with_tools(
+        store: Store,
+        auth: Auth,
+        provider: Arc<dyn LlmProvider>,
+        model: Model,
+        search: Option<Arc<crate::search::SearchTool>>,
+        composio: Option<Arc<crate::composio::ComposioClient>>,
+    ) -> Arc<Self> {
         let (notifications, _) = broadcast::channel(64);
         Arc::new(Self {
             store,
@@ -58,6 +70,7 @@ impl App {
             provider,
             model,
             search,
+            composio,
             active: Mutex::new(HashMap::new()),
         })
     }
@@ -163,6 +176,9 @@ impl App {
         let mut registry = tools::registry(self.store.clone(), user);
         if let Some(search) = &self.search {
             registry.register(search.clone());
+        }
+        if let Some(composio) = &self.composio {
+            crate::composio::register(&mut registry, composio.clone(), user);
         }
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)

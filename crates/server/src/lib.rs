@@ -1,5 +1,6 @@
 pub mod app;
 pub mod client;
+pub mod composio;
 pub mod config;
 pub mod scheduler;
 pub mod search;

@@ -22,6 +22,7 @@ pub struct Config {
     pub provider_url: String,
     pub provider_key_env: Option<String>,
     pub firecrawl_key_env: Option<String>,
+    pub composio_key_env: Option<String>,
     pub users: Vec<UserConfig>,
 }
 
