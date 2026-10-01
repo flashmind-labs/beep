@@ -427,6 +427,45 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
             return reply(&mut stream, StatusCode::OK, json!({"unregistered":unregistered})).await;
         }
     }
+    if method == "POST" && path == "/v1/location" {
+        let body = read_body(&mut stream, 4096).await?;
+        let Some(body) = body else {
+            return reply(
+                &mut stream,
+                StatusCode::PAYLOAD_TOO_LARGE,
+                json!({"error":"body exceeds 4 KiB"}),
+            )
+            .await;
+        };
+        let parsed: Value = match serde_json::from_slice(&body) {
+            Ok(v) => v,
+            Err(_) => {
+                return reply(
+                    &mut stream,
+                    StatusCode::BAD_REQUEST,
+                    json!({"error":"invalid JSON"}),
+                )
+                .await;
+            }
+        };
+        let latitude = parsed.get("latitude").and_then(Value::as_f64);
+        let longitude = parsed.get("longitude").and_then(Value::as_f64);
+        let accuracy = parsed.get("accuracy").and_then(Value::as_f64).unwrap_or(0.0);
+        match (latitude, longitude) {
+            (Some(lat), Some(lng)) => {
+                app.store.update_location(&user, lat, lng, accuracy).await?;
+                return reply(&mut stream, StatusCode::OK, json!({"updated":true})).await;
+            }
+            _ => {
+                return reply(
+                    &mut stream,
+                    StatusCode::BAD_REQUEST,
+                    json!({"error":"expected {\"latitude\": f64, \"longitude\": f64, \"accuracy\": f64}"}),
+                )
+                .await;
+            }
+        }
+    }
     if method == "GET" && path == "/v1/health" {
         let protocol = if matches!(stream, Stream::Quic(_)) {
             "h3"

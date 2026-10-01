@@ -1,55 +1,35 @@
 use crate::app::{App, Message};
 use crate::store::CreateRun;
 use chrono::{Datelike, Timelike, Utc};
+use cron::Schedule;
+use std::str::FromStr;
 use std::sync::Arc;
 
-/// Minimal 5-field cron matcher: minute hour day-of-month month day-of-week
-/// Supports: *, specific numbers, comma-separated lists, ranges (1-5), steps (*/5)
+/// Check if a 5-field POSIX cron expression matches the current minute.
+/// Converts to the 7-field format (sec min hour dom month dow year) expected by the `cron` crate.
 fn cron_matches(expression: &str, now: &chrono::DateTime<chrono::Utc>) -> bool {
     let fields: Vec<&str> = expression.split_whitespace().collect();
     if fields.len() != 5 {
         return false;
     }
-    let values = [
-        now.minute(),
-        now.hour(),
-        now.day(),
-        now.month(),
-        now.weekday().num_days_from_sunday(),
-    ];
-    fields
-        .iter()
-        .zip(values.iter())
-        .all(|(field, &value)| field_matches(field, value))
-}
-
-fn field_matches(field: &str, value: u32) -> bool {
-    if field == "*" {
-        return true;
+    // Prepend seconds ("0") and append year ("*") to form a 7-field expression.
+    let seven_field = format!("0 {} *", expression);
+    let schedule = match Schedule::from_str(&seven_field) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    // Check if the schedule has an upcoming occurrence within the current minute.
+    // We look at the next occurrence after (now - 30s) and see if it falls within the same minute.
+    let window_start = *now - chrono::Duration::seconds(30);
+    if let Some(next) = schedule.after(&window_start).next() {
+        next.minute() == now.minute()
+            && next.hour() == now.hour()
+            && next.day() == now.day()
+            && next.month() == now.month()
+            && next.year() == now.year()
+    } else {
+        false
     }
-    field.split(',').any(|part| {
-        if let Some((range, step)) = part.split_once('/') {
-            let step: u32 = step.parse().unwrap_or(1);
-            if step == 0 {
-                return false;
-            }
-            if range == "*" {
-                return value % step == 0;
-            }
-            if let Some((lo, hi)) = range.split_once('-') {
-                let lo: u32 = lo.parse().unwrap_or(0);
-                let hi: u32 = hi.parse().unwrap_or(0);
-                return value >= lo && value <= hi && (value - lo) % step == 0;
-            }
-            return false;
-        }
-        if let Some((lo, hi)) = part.split_once('-') {
-            let lo: u32 = lo.parse().unwrap_or(0);
-            let hi: u32 = hi.parse().unwrap_or(0);
-            return value >= lo && value <= hi;
-        }
-        part.parse::<u32>().ok() == Some(value)
-    })
 }
 
 pub async fn run(app: Arc<App>) {

@@ -226,6 +226,10 @@ impl App {
         };
         // Notify registered devices before persisting completion.
         self.notify_run_complete(user, run, status).await;
+        // If this was a cron-triggered run, log its completion.
+        if message.starts_with("[Scheduled:") {
+            let _ = self.store.log_cron_finish(&run.id, status, "").await;
+        }
         // Persist state and the terminal event together before clients observe completion.
         self.store
             .finish(user, run, Some(&conversation), status)
