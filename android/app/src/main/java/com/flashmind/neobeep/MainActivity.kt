@@ -321,7 +321,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
         }) { padding ->
             ChatScreen(state.current, repository, Modifier.padding(padding).fillMaxSize(), compact = bubble)
         }
-    } // end Chat screen
+    } // end ModalNavigationDrawer
+    } // end Screen.Chat
     } // end when
     } // end Crossfade
     // Browser overlay
@@ -570,19 +571,27 @@ private fun ConnectionDot(connected: Boolean, status: String) {
 
 @Composable
 fun BeepAvatar(isThinking: Boolean, modifier: Modifier = Modifier) {
-    val infiniteTransition = rememberInfiniteTransition(label = "beep-avatar")
     Box(modifier.size(32.dp).background(Elevated, CircleShape), contentAlignment = Alignment.Center) {
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-            repeat(3) { index ->
-                val offset by infiniteTransition.animateFloat(
-                    initialValue = 0f, targetValue = if (isThinking) -4f else 0f,
-                    animationSpec = if (isThinking) infiniteRepeatable(
-                        animation = tween(400, delayMillis = index * 120, easing = EaseInOutCubic),
-                        repeatMode = RepeatMode.Reverse
-                    ) else tween(0), label = "dot-bounce-$index"
-                )
-                Canvas(Modifier.size(5.dp).graphicsLayer { translationY = offset }) {
-                    drawCircle(Lime)
+        if (isThinking) {
+            val infiniteTransition = rememberInfiniteTransition(label = "beep-avatar")
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                repeat(3) { index ->
+                    val offset by infiniteTransition.animateFloat(
+                        initialValue = 0f, targetValue = -4f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(400, delayMillis = index * 120, easing = EaseInOutCubic),
+                            repeatMode = RepeatMode.Reverse
+                        ), label = "dot-bounce-$index"
+                    )
+                    Canvas(Modifier.size(5.dp).graphicsLayer { translationY = offset }) {
+                        drawCircle(Lime)
+                    }
+                }
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                repeat(3) {
+                    Canvas(Modifier.size(5.dp)) { drawCircle(Lime) }
                 }
             }
         }

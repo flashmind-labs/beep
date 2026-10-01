@@ -217,10 +217,10 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
                 _ = tokio::time::sleep(Duration::from_secs(30)) => {
                     let mut line = serde_json::to_vec(&json!({"type":"heartbeat"}))?;
                     line.push(b'\n');
-                    if let Err(_) = tokio::time::timeout(
+                    if tokio::time::timeout(
                         Duration::from_secs(10),
                         stream.send_data(Bytes::from(line)),
-                    ).await {
+                    ).await.is_err() {
                         break;
                     }
                 }
@@ -452,7 +452,13 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
         let longitude = parsed.get("longitude").and_then(Value::as_f64);
         let accuracy = parsed.get("accuracy").and_then(Value::as_f64).unwrap_or(0.0);
         match (latitude, longitude) {
-            (Some(lat), Some(lng)) => {
+            (Some(lat), Some(lng))
+                if (-90.0..=90.0).contains(&lat)
+                    && (-180.0..=180.0).contains(&lng)
+                    && lat.is_finite()
+                    && lng.is_finite()
+                    && accuracy.is_finite() =>
+            {
                 app.store.update_location(&user, lat, lng, accuracy).await?;
                 return reply(&mut stream, StatusCode::OK, json!({"updated":true})).await;
             }

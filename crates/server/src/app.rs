@@ -150,10 +150,10 @@ impl App {
         });
         // Best-effort: ignore send errors (no active receivers).
         let _ = self.notifications.send(event.to_string());
-        if let Ok(tokens) = self.store.device_tokens(user).await {
-            if !tokens.is_empty() {
-                tracing::info!(user, run_id=%run.id, status, devices=tokens.len(), "would send push notification");
-            }
+        if let Ok(tokens) = self.store.device_tokens(user).await
+            && !tokens.is_empty()
+        {
+            tracing::info!(user, run_id=%run.id, status, devices=tokens.len(), "would send push notification");
         }
     }
 
