@@ -1,6 +1,7 @@
 pub mod app;
 pub mod client;
 pub mod config;
+pub mod scheduler;
 pub mod search;
 pub mod store;
 pub mod tools;

@@ -56,6 +56,24 @@ impl Store {
                     prompt TEXT NOT NULL, schedule TEXT NOT NULL,
                     enabled INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                    PRIMARY KEY(user_id, id));
+                CREATE TABLE IF NOT EXISTS cron_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL, cron_id TEXT NOT NULL,
+                    run_id TEXT, started_at TEXT NOT NULL, finished_at TEXT,
+                    status TEXT NOT NULL DEFAULT 'running',
+                    error TEXT NOT NULL DEFAULT '');
+                CREATE TABLE IF NOT EXISTS devices (
+                    user_id TEXT NOT NULL, device_id TEXT NOT NULL, fcm_token TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                    PRIMARY KEY(user_id, device_id));
+                CREATE TABLE IF NOT EXISTS mcp_connections (
+                    user_id TEXT NOT NULL, id TEXT NOT NULL,
+                    provider TEXT NOT NULL, label TEXT NOT NULL,
+                    config TEXT NOT NULL DEFAULT '{}',
+                    credentials TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'disconnected',
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
                     PRIMARY KEY(user_id, id));",
             )?;
             Ok(())
@@ -380,6 +398,236 @@ impl Store {
             .call::<_, _, rusqlite::Error>(move |db| {
                 Ok(db.execute(
                     "DELETE FROM crons WHERE user_id=? AND id=?",
+                    params![user, id],
+                )? > 0)
+            })
+            .await?)
+    }
+
+    pub async fn register_device(&self, user: &str, device_id: &str, fcm_token: &str) -> Result<()> {
+        let (user, device_id, fcm_token) = (user.to_owned(), device_id.to_owned(), fcm_token.to_owned());
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO devices (user_id, device_id, fcm_token) VALUES (?, ?, ?) ON CONFLICT(user_id, device_id) DO UPDATE SET fcm_token=excluded.fcm_token, created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+                    params![user, device_id, fcm_token],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn unregister_device(&self, user: &str, device_id: &str) -> Result<bool> {
+        let (user, device_id) = (user.to_owned(), device_id.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                Ok(db.execute(
+                    "DELETE FROM devices WHERE user_id=? AND device_id=?",
+                    params![user, device_id],
+                )? > 0)
+            })
+            .await?)
+    }
+
+    pub async fn due_crons(&self) -> Result<Vec<(String, Value)>> {
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(|db| {
+                let mut stmt = db.prepare(
+                    "SELECT user_id, id, label, prompt, schedule FROM crons WHERE enabled=1",
+                )?;
+                let rows = stmt
+                    .query_map([], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            json!({
+                                "id": r.get::<_, String>(1)?,
+                                "label": r.get::<_, String>(2)?,
+                                "prompt": r.get::<_, String>(3)?,
+                                "schedule": r.get::<_, String>(4)?,
+                            }),
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    pub async fn log_cron_start(&self, user: &str, cron_id: &str, run_id: &str) -> Result<()> {
+        let (user, cron_id, run_id) = (user.to_owned(), cron_id.to_owned(), run_id.to_owned());
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO cron_logs (user_id, cron_id, run_id, started_at, status) VALUES (?, ?, ?, datetime('now'), 'running')",
+                    params![user, cron_id, run_id],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn log_cron_finish(&self, run_id: &str, status: &str, error: &str) -> Result<()> {
+        let (run_id, status, error) = (run_id.to_owned(), status.to_owned(), error.to_owned());
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "UPDATE cron_logs SET finished_at=datetime('now'), status=?, error=? WHERE run_id=?",
+                    params![status, error, run_id],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn cron_last_run(&self, user: &str, cron_id: &str) -> Result<Option<String>> {
+        let (user, cron_id) = (user.to_owned(), cron_id.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT started_at FROM cron_logs WHERE user_id=? AND cron_id=? ORDER BY id DESC LIMIT 1",
+                    params![user, cron_id],
+                    |r| r.get(0),
+                )
+                .optional()
+            })
+            .await?)
+    }
+
+    pub async fn device_tokens(&self, user: &str) -> Result<Vec<String>> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare("SELECT fcm_token FROM devices WHERE user_id=?")?;
+                let rows = stmt
+                    .query_map([user], |r| r.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    pub async fn list_mcp_connections(&self, user: &str) -> Result<Vec<Value>> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT id, provider, label, status, created_at FROM mcp_connections WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
+                )?;
+                let rows = stmt
+                    .query_map([user], |r| {
+                        Ok(json!({
+                            "id": r.get::<_,String>(0)?,
+                            "provider": r.get::<_,String>(1)?,
+                            "label": r.get::<_,String>(2)?,
+                            "status": r.get::<_,String>(3)?,
+                            "created_at": r.get::<_,String>(4)?,
+                        }))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    pub async fn get_mcp_connection(&self, user: &str, id: &str) -> Result<Option<Value>> {
+        let (user, id) = (user.to_owned(), id.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT id, provider, label, config, credentials, status FROM mcp_connections WHERE user_id=? AND id=?",
+                    params![user, id],
+                    |r| {
+                        Ok(json!({
+                            "id": r.get::<_,String>(0)?,
+                            "provider": r.get::<_,String>(1)?,
+                            "label": r.get::<_,String>(2)?,
+                            "config": r.get::<_,String>(3)?,
+                            "credentials": r.get::<_,String>(4)?,
+                            "status": r.get::<_,String>(5)?,
+                        }))
+                    },
+                )
+                .optional()
+            })
+            .await?)
+    }
+
+    pub async fn create_mcp_connection(
+        &self,
+        user: &str,
+        provider: &str,
+        label: &str,
+        config: &str,
+    ) -> Result<String> {
+        if provider.is_empty() || provider.len() > 100 {
+            bail!("provider must be 1–100 characters");
+        }
+        if label.is_empty() || label.len() > 200 {
+            bail!("label must be 1–200 characters");
+        }
+        if serde_json::from_str::<Value>(config).is_err() {
+            bail!("config must be valid JSON");
+        }
+        let id = Uuid::new_v4().to_string();
+        let (user, id_clone, provider, label, config) = (
+            user.to_owned(),
+            id.clone(),
+            provider.to_owned(),
+            label.to_owned(),
+            config.to_owned(),
+        );
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO mcp_connections (user_id, id, provider, label, config) VALUES (?, ?, ?, ?, ?)",
+                    params![user, id_clone, provider, label, config],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(id)
+    }
+
+    pub async fn update_mcp_credentials(
+        &self,
+        user: &str,
+        id: &str,
+        credentials: &str,
+        status: &str,
+    ) -> Result<bool> {
+        let (user, id, credentials, status) = (
+            user.to_owned(),
+            id.to_owned(),
+            credentials.to_owned(),
+            status.to_owned(),
+        );
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                Ok(db.execute(
+                    "UPDATE mcp_connections SET credentials=?, status=? WHERE user_id=? AND id=?",
+                    params![credentials, status, user, id],
+                )? > 0)
+            })
+            .await?)
+    }
+
+    pub async fn delete_mcp_connection(&self, user: &str, id: &str) -> Result<bool> {
+        let (user, id) = (user.to_owned(), id.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                Ok(db.execute(
+                    "DELETE FROM mcp_connections WHERE user_id=? AND id=?",
                     params![user, id],
                 )? > 0)
             })

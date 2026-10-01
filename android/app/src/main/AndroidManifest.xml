@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application android:name=".BeepApplication" android:label="Beep"
-        android:icon="@drawable/ic_beep" android:theme="@style/Theme.Beep"
+        android:icon="@mipmap/ic_launcher" android:theme="@style/Theme.Beep"
         android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">

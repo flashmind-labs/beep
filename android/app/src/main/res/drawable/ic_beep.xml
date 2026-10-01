@@ -1,5 +1,30 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
-    <path android:fillColor="#176B5B" android:pathData="M24,1a23,23 0,1 0,0 46a23,23 0,1 0,0 -46" />
-    <path android:fillColor="#D9F99D" android:pathData="M12,14Q12,10 16,10L32,10Q36,10 36,14L36,29Q36,33 32,33L24,33L17,39L17,33L16,33Q12,33 12,29Z" />
-    <path android:fillColor="#176B5B" android:pathData="M18,18h4v7h-4zM27,18h4v7h-4z" />
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- Background circle — dark green -->
+    <path
+        android:fillColor="#0D1410"
+        android:pathData="M24,1a23,23 0,1 0,0 46a23,23 0,1 0,0 -46" />
+    <!-- Chat bubble — lime highlight, smooth rounded shape -->
+    <path
+        android:fillColor="#C8F06A"
+        android:pathData="M14,13c0,-3.3 2.7,-6 6,-6h8c3.3,0 6,2.7 6,6v10c0,3.3 -2.7,6 -6,6h-5.5l-5.8,5.2c-0.5,0.45 -1.2,0.05 -1.2,-0.6v-4.6h-1.5c-3.3,0 -6,-2.7 -6,-6z" />
+    <!-- Left eye — oval, moss green -->
+    <path
+        android:fillColor="#176B5B"
+        android:pathData="M20,16.5a2.2,3 0,1 0,0 6a2.2,3 0,1 0,0 -6" />
+    <!-- Right eye — oval, moss green -->
+    <path
+        android:fillColor="#176B5B"
+        android:pathData="M28,16.5a2.2,3 0,1 0,0 6a2.2,3 0,1 0,0 -6" />
+    <!-- Left eye highlight — small circle for glint -->
+    <path
+        android:fillColor="#D9F99D"
+        android:pathData="M19.2,17.5a0.8,0.8 0,1 0,0 1.6a0.8,0.8 0,1 0,0 -1.6" />
+    <!-- Right eye highlight — small circle for glint -->
+    <path
+        android:fillColor="#D9F99D"
+        android:pathData="M27.2,17.5a0.8,0.8 0,1 0,0 1.6a0.8,0.8 0,1 0,0 -1.6" />
 </vector>

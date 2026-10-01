@@ -109,6 +109,14 @@ impl App {
         .await;
     }
 
+    pub async fn notify_run_complete(&self, user: &str, run: &Run, status: &str) {
+        if let Ok(tokens) = self.store.device_tokens(user).await {
+            if !tokens.is_empty() {
+                tracing::info!(user, run_id=%run.id, status, devices=tokens.len(), "would send push notification");
+            }
+        }
+    }
+
     async fn execute(
         &self,
         user: &str,
@@ -189,6 +197,8 @@ impl App {
                 self.store.append(&run.id, data).await?;
             }
         };
+        // Notify registered devices before persisting completion.
+        self.notify_run_complete(user, run, status).await;
         // Persist state and the terminal event together before clients observe completion.
         self.store
             .finish(user, run, Some(&conversation), status)

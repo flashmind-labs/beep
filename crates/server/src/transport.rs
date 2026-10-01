@@ -311,6 +311,69 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
             }
         }
     }
+    if path == "/v1/devices" {
+        if method == "POST" {
+            let body = read_body(&mut stream, 4096).await?;
+            let Some(body) = body else {
+                return reply(
+                    &mut stream,
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    json!({"error":"body exceeds 4 KiB"}),
+                )
+                .await;
+            };
+            let parsed: Value = match serde_json::from_slice(&body) {
+                Ok(v) => v,
+                Err(_) => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":"invalid JSON"}),
+                    )
+                    .await;
+                }
+            };
+            let device_id = parsed.get("device_id").and_then(Value::as_str).unwrap_or("");
+            let fcm_token = parsed.get("fcm_token").and_then(Value::as_str).unwrap_or("");
+            if device_id.is_empty() || fcm_token.is_empty() {
+                return reply(
+                    &mut stream,
+                    StatusCode::BAD_REQUEST,
+                    json!({"error":"expected {\"device_id\": \"...\", \"fcm_token\": \"...\"}"}),
+                )
+                .await;
+            }
+            app.store.register_device(&user, device_id, fcm_token).await?;
+            return reply(&mut stream, StatusCode::OK, json!({"registered":true})).await;
+        }
+        if method == "DELETE" {
+            let body = read_body(&mut stream, 4096).await?;
+            let Some(body) = body else {
+                return reply(
+                    &mut stream,
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    json!({"error":"body exceeds 4 KiB"}),
+                )
+                .await;
+            };
+            let device_id = match serde_json::from_slice::<Value>(&body)
+                .ok()
+                .and_then(|v| v.get("device_id")?.as_str().map(|s| s.to_owned()))
+            {
+                Some(id) if !id.is_empty() => id,
+                _ => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":"expected {\"device_id\": \"...\"}"}),
+                    )
+                    .await;
+                }
+            };
+            let unregistered = app.store.unregister_device(&user, &device_id).await?;
+            return reply(&mut stream, StatusCode::OK, json!({"unregistered":unregistered})).await;
+        }
+    }
     if method == "GET" && path == "/v1/health" {
         let protocol = if matches!(stream, Stream::Quic(_)) {
             "h3"
@@ -471,6 +534,126 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
             let updated = app
                 .store
                 .update_cron(&user, cron_id, enabled, label, schedule)
+                .await?;
+            return reply(
+                &mut stream,
+                if updated {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                },
+                json!({"updated":updated}),
+            )
+            .await;
+        }
+    }
+    if path == "/v1/integrations" {
+        if method == "GET" {
+            return reply(
+                &mut stream,
+                StatusCode::OK,
+                json!({"integrations":app.store.list_mcp_connections(&user).await?}),
+            )
+            .await;
+        }
+        if method == "POST" {
+            let body = read_body(&mut stream, 65536).await?;
+            let Some(body) = body else {
+                return reply(
+                    &mut stream,
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    json!({"error":"body exceeds 64 KiB"}),
+                )
+                .await;
+            };
+            let parsed: Value = match serde_json::from_slice(&body) {
+                Ok(v) => v,
+                Err(_) => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":"invalid JSON"}),
+                    )
+                    .await;
+                }
+            };
+            let provider = parsed.get("provider").and_then(Value::as_str).unwrap_or("");
+            let label = parsed.get("label").and_then(Value::as_str).unwrap_or("");
+            let config = parsed
+                .get("config")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "{}".to_string());
+            match app
+                .store
+                .create_mcp_connection(&user, provider, label, &config)
+                .await
+            {
+                Ok(id) => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::CREATED,
+                        json!({"id":id,"provider":provider,"label":label,"status":"disconnected"}),
+                    )
+                    .await;
+                }
+                Err(error) => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":error.to_string()}),
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+    if segments.len() >= 3 && segments[0] == "v1" && segments[1] == "integrations" {
+        let integration_id = segments[2];
+        if method == "DELETE" && segments.len() == 3 {
+            let deleted = app.store.delete_mcp_connection(&user, integration_id).await?;
+            return reply(
+                &mut stream,
+                if deleted {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                },
+                json!({"deleted":deleted}),
+            )
+            .await;
+        }
+        if method == "PUT" && segments.len() == 4 && segments[3] == "credentials" {
+            let body = read_body(&mut stream, 65536).await?;
+            let Some(body) = body else {
+                return reply(
+                    &mut stream,
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    json!({"error":"body exceeds 64 KiB"}),
+                )
+                .await;
+            };
+            let parsed: Value = match serde_json::from_slice(&body) {
+                Ok(v) => v,
+                Err(_) => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":"invalid JSON"}),
+                    )
+                    .await;
+                }
+            };
+            let credentials = parsed
+                .get("credentials")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "{}".to_string());
+            let status = parsed
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("connected");
+            let updated = app
+                .store
+                .update_mcp_credentials(&user, integration_id, &credentials, status)
                 .await?;
             return reply(
                 &mut stream,
