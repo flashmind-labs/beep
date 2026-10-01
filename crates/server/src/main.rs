@@ -70,6 +70,8 @@ async fn main() -> Result<()> {
         })
         .transpose()?;
     let app = App::with_search(store, auth, provider, model, search);
+    let scheduler_app = app.clone();
+    tokio::spawn(async move { neobeep_server::scheduler::run(scheduler_app).await });
     let mut endpoints = Vec::new();
     let mut listeners = tokio::task::JoinSet::new();
     for address in std::iter::once(config.listen).chain(config.additional_listen) {

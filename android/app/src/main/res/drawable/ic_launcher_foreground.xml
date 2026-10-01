@@ -1,0 +1,27 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Content centered in safe zone: 108dp canvas, ~72dp content area centered at 54,54 -->
+    <!-- Chat bubble — lime highlight, smooth rounded shape -->
+    <path
+        android:fillColor="#C8F06A"
+        android:pathData="M32,28c0,-5 4,-9 9,-9h12c5,0 9,4 9,9v15c0,5 -4,9 -9,9h-8.2l-8.7,7.8c-0.75,0.67 -1.8,0.08 -1.8,-0.9v-6.9h-2.3c-5,0 -9,-4 -9,-9z" />
+    <!-- Left eye — oval, moss green -->
+    <path
+        android:fillColor="#176B5B"
+        android:pathData="M45,33.8a3.3,4.5 0,1 0,0 9a3.3,4.5 0,1 0,0 -9" />
+    <!-- Right eye — oval, moss green -->
+    <path
+        android:fillColor="#176B5B"
+        android:pathData="M57,33.8a3.3,4.5 0,1 0,0 9a3.3,4.5 0,1 0,0 -9" />
+    <!-- Left eye highlight -->
+    <path
+        android:fillColor="#D9F99D"
+        android:pathData="M43.8,35.3a1.2,1.2 0,1 0,0 2.4a1.2,1.2 0,1 0,0 -2.4" />
+    <!-- Right eye highlight -->
+    <path
+        android:fillColor="#D9F99D"
+        android:pathData="M55.8,35.3a1.2,1.2 0,1 0,0 2.4a1.2,1.2 0,1 0,0 -2.4" />
+</vector>

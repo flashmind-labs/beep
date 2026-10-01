@@ -80,6 +80,7 @@ class ChatRepository(private val storage: LocalStorage) {
         settings.value = config
         if (changedAccount) update { ChatState() }
         connected.value = true
+        scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
         connection.value = connectionLabel(config)
         resumePending()
         runCatching { syncHistory(config) }
@@ -87,7 +88,7 @@ class ChatRepository(private val storage: LocalStorage) {
     fun reconnect() { scope.launch {
         try {
             QuicApi(settings.value).json("GET", "/v1/health")
-            connected.value = true; connection.value = connectionLabel(settings.value); resumePending()
+            connected.value = true; scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }; connection.value = connectionLabel(settings.value); resumePending()
             runCatching { syncHistory(settings.value) }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
@@ -174,6 +175,31 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     suspend fun toggleCron(id: String, enabled: Boolean) {
         QuicApi(settings.value).json("PATCH", "/v1/crons/$id", JSONObject().put("enabled", enabled).toString())
+    }
+
+    data class McpConnection(val id: String, val provider: String, val label: String, val status: String)
+    suspend fun listIntegrations(): List<McpConnection> {
+        val result = JSONObject(QuicApi(settings.value).json("GET", "/v1/integrations"))
+        val arr = result.getJSONArray("integrations")
+        return (0 until arr.length()).map { arr.getJSONObject(it).let { c ->
+            McpConnection(c.getString("id"), c.getString("provider"), c.getString("label"), c.getString("status"))
+        } }
+    }
+    suspend fun createIntegration(provider: String, label: String, config: String = "{}") {
+        QuicApi(settings.value).json("POST", "/v1/integrations",
+            JSONObject().put("provider", provider).put("label", label).put("config", config).toString())
+    }
+    suspend fun uploadCredentials(id: String, credentials: String) {
+        QuicApi(settings.value).json("PUT", "/v1/integrations/$id/credentials",
+            JSONObject().put("credentials", JSONObject(credentials)).put("status", "connected").toString())
+    }
+    suspend fun deleteIntegration(id: String) {
+        QuicApi(settings.value).json("DELETE", "/v1/integrations/$id")
+    }
+
+    suspend fun registerDevice(deviceId: String, fcmToken: String) {
+        QuicApi(settings.value).json("POST", "/v1/devices",
+            JSONObject().put("device_id", deviceId).put("fcm_token", fcmToken).toString())
     }
 
     private fun event(id: String, event: JSONObject) {

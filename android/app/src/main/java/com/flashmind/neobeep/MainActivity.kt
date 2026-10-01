@@ -8,11 +8,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.*
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -78,11 +84,20 @@ private val TextDim = Color(0xFF4A5A50)
 open class MainActivity : ComponentActivity() {
     protected open val bubble = false
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        if (it) Bubbles.show(this) else Bubbles.settings(this)
+        if (it && Bubbles.show(this)) moveTaskToBack(true) else Bubbles.settings(this)
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Default to bubble mode: if this is a fresh launcher tap (not already in bubble),
+        // try to launch as a bubble and move the full activity to the background.
+        if (!bubble && savedInstanceState == null) {
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else if (Bubbles.show(this)) {
+                moveTaskToBack(true)
+            }
+        }
         val repository = (application as BeepApplication).repository
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Moss, onPrimary = Ink,
@@ -94,15 +109,21 @@ open class MainActivity : ComponentActivity() {
                 BeepApp(repository, bubble, onFloat = {
                     if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else if (!Bubbles.show(this)) Bubbles.settings(this)
-                }, onExpand = { startActivity(Intent(this, MainActivity::class.java)) }, onBubbleSettings = { Bubbles.settings(this) })
+                    } else if (Bubbles.show(this)) {
+                        if (!bubble) moveTaskToBack(true)
+                    } else Bubbles.settings(this)
+                }, onExpand = {
+                    startActivity(Intent(this, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    })
+                }, onBubbleSettings = { Bubbles.settings(this) })
             }
         }
     }
 }
 class BubbleActivity : MainActivity() { override val bubble = true }
 
-private enum class Screen { Chat, Memories, Crons }
+private enum class Screen { Chat, Memories, Crons, Integrations }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -124,6 +145,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
     }
     if (screen == Screen.Memories && !bubble) { MemoriesScreen(repository, onBack = { screen = Screen.Chat }); return }
     if (screen == Screen.Crons && !bubble) { CronsScreen(repository, onBack = { screen = Screen.Chat }); return }
+    if (screen == Screen.Integrations && !bubble) { IntegrationsScreen(repository, onBack = { screen = Screen.Chat }); return }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     LaunchedEffect(drawerOpen) { if (drawerOpen) { repository.refreshHistory(); drawerState.open() } else drawerState.close() }
     LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
@@ -159,6 +181,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
                     colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Surface),
                     selected = false, onClick = { screen = Screen.Crons; drawerOpen = false },
                     modifier = Modifier.padding(horizontal = 12.dp))
+                NavigationDrawerItem(label = { Text("Integrations", fontSize = 14.sp) },
+                    icon = { Icon(Icons.Outlined.Extension, null, Modifier.size(18.dp)) },
+                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Surface),
+                    selected = false, onClick = { screen = Screen.Integrations; drawerOpen = false },
+                    modifier = Modifier.padding(horizontal = 12.dp))
                 Spacer(Modifier.height(8.dp))
                 TextButton(onClick = onBubbleSettings, modifier = Modifier.padding(horizontal = 16.dp)) {
                     Icon(Icons.Outlined.BubbleChart, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Floating chat settings")
@@ -170,7 +197,17 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
             }
         }
     }) {
-        Scaffold(containerColor = Ink, topBar = {
+        Scaffold(containerColor = Ink, floatingActionButton = {
+            if (!bubble && state.current.messages.isNotEmpty()) {
+                SmallFloatingActionButton(
+                    onClick = { repository.newChat() },
+                    containerColor = Elevated,
+                    contentColor = Lime,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.padding(bottom = 72.dp)
+                ) { Icon(Icons.Outlined.Add, "New conversation", Modifier.size(20.dp)) }
+            }
+        }, topBar = {
             if (bubble) {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Beep", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
@@ -240,28 +277,46 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             }
         } else if (chat.messages.isEmpty()) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 24.dp), verticalArrangement = Arrangement.Center) {
-                Surface(shape = RoundedCornerShape(18.dp), color = Elevated) {
-                    Icon(painterResource(R.drawable.ic_beep), null, tint = Color.Unspecified, modifier = Modifier.padding(12.dp).size(48.dp))
+                Box(contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(96.dp).background(
+                        Brush.radialGradient(listOf(Moss.copy(alpha = 0.25f), Color.Transparent)),
+                        shape = CircleShape))
+                    Surface(shape = RoundedCornerShape(18.dp), color = Elevated) {
+                        Icon(painterResource(R.drawable.ic_beep), null, tint = Color.Unspecified, modifier = Modifier.padding(12.dp).size(48.dp))
+                    }
                 }
                 Spacer(Modifier.height(24.dp))
                 Text("A little help.\nRight here.", fontSize = 36.sp, lineHeight = 42.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1).sp)
                 Spacer(Modifier.height(12.dp))
                 Text("Find an answer. Untangle a thought.\nKeep something worth remembering.", color = TextMuted, lineHeight = 23.sp)
                 Spacer(Modifier.height(30.dp))
-                Suggestion("Remember something", "Remember that I prefer short, practical answers.", Icons.Outlined.BookmarkBorder) { draft = it }
-                Spacer(Modifier.height(10.dp))
-                Suggestion("Search the web", "Search the web for ", Icons.Outlined.Search) { draft = it }
+                val suggestionsVisible = remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) { delay(300); suggestionsVisible.value = true }
+                listOf(
+                    Triple("Remember something", "Remember that I prefer short, practical answers.", Icons.Outlined.BookmarkBorder),
+                    Triple("Search the web", "Search the web for ", Icons.Outlined.Search),
+                    Triple("Set a reminder", "Remind me to ", Icons.Outlined.Alarm),
+                ).forEachIndexed { index, (title, prompt, icon) ->
+                    AnimatedVisibility(visible = suggestionsVisible.value,
+                        enter = fadeIn(tween(400, delayMillis = index * 120)) + slideInVertically(tween(400, delayMillis = index * 120)) { it / 3 }) {
+                        Suggestion(title, prompt, icon) { draft = it }
+                    }
+                    if (index < 2) Spacer(Modifier.height(10.dp))
+                }
             }
         } else {
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 22.dp)) {
                 items(chat.messages, key = { it.id }) { message ->
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (message.role == "user") Alignment.End else Alignment.Start) {
-                        if (message.role == "assistant" && !compact) Text("BEEP", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, color = Moss, modifier = Modifier.padding(bottom = 7.dp))
-                        Surface(color = if (message.role == "user") Elevated else Color.Transparent,
+                    Column(Modifier.fillMaxWidth().animateItem(), horizontalAlignment = if (message.role == "user") Alignment.End else Alignment.Start) {
+                        if (message.role == "assistant" && !compact) Text("BEEP", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, color = Lime, modifier = Modifier.padding(bottom = 7.dp))
+                        Surface(color = if (message.role == "user") Color(0xFF1A2E24) else Color.Transparent,
                             shape = RoundedCornerShape(20.dp, 20.dp, if (message.role == "user") 5.dp else 20.dp, 20.dp),
-                            modifier = if (message.role == "user") Modifier.widthIn(max = 320.dp) else Modifier.fillMaxWidth()) {
+                            modifier = if (message.role == "user") Modifier.fillMaxWidth(0.85f)
+                            else Modifier.fillMaxWidth().drawBehind {
+                                drawLine(Moss, Offset(0f, 0f), Offset(0f, size.height), strokeWidth = 2.dp.toPx())
+                            }.padding(start = 10.dp)) {
                             SelectionContainer {
-                                Text(remember(message.text) { formattedMessage(message.text) }, modifier = Modifier.padding(if (message.role == "user") (if (compact) 10.dp else 16.dp) else 0.dp), fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
+                                Text(remember(message.text) { formattedMessage(message.text) }, modifier = Modifier.padding(if (message.role == "user") (if (compact) 10.dp else 16.dp) else 4.dp), fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
                             }
                         }
                         if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) CopyReply(message.text, compact)
@@ -269,18 +324,33 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 }
             }
         }
-        if (!followLatest && chat.messages.isNotEmpty()) {
-            TextButton(onClick = { scope.launch { list.animateScrollToItem(chat.messages.lastIndex); followLatest = true } }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+        AnimatedVisibility(visible = !followLatest && chat.messages.isNotEmpty(),
+            enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically(),
+            modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            TextButton(onClick = { scope.launch { list.animateScrollToItem(chat.messages.lastIndex); followLatest = true } }) {
                 Icon(Icons.Outlined.ArrowDownward, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Latest reply", fontSize = 12.sp)
             }
         }
-        if (chat.status.isNotEmpty() || chat.tool.isNotEmpty()) Row(Modifier.padding(horizontal = 22.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
-            Spacer(Modifier.width(9.dp)); Text(chat.tool.ifEmpty { chat.status }, color = Moss, fontSize = 12.sp, maxLines = 2)
+        AnimatedVisibility(visible = chat.status.isNotEmpty() || chat.tool.isNotEmpty(),
+            enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Row(Modifier.padding(horizontal = 22.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                PulsingDots()
+                Spacer(Modifier.width(10.dp))
+                if (chat.tool.isNotEmpty()) {
+                    Surface(shape = RoundedCornerShape(6.dp), color = Elevated) {
+                        Text(chat.tool, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Lime, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Monospace)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(chat.status, color = TextMuted, fontSize = 12.sp, maxLines = 2)
+            }
         }
-        if (chat.error.isNotEmpty()) Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(chat.error, fontSize = 12.sp, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f), maxLines = 4)
-            if (chat.busy) TextButton(onClick = repository::retry) { Text("Retry") }
+        AnimatedVisibility(visible = chat.error.isNotEmpty(),
+            enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(chat.error, fontSize = 12.sp, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f), maxLines = 4)
+                if (chat.busy) TextButton(onClick = repository::retry) { Text("Retry") }
+            }
         }
         Row(Modifier.padding(horizontal = if (compact) 8.dp else 16.dp, vertical = if (compact) 4.dp else 10.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             OutlinedTextField(value = draft, onValueChange = { if (it.toByteArray().size <= 32768) draft = it },
@@ -291,7 +361,8 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit() }),
                 trailingIcon = {
                     if (chat.busy) IconButton(onClick = repository::cancel) { Icon(Icons.Outlined.StopCircle, "Stop reply", tint = Moss) }
-                    else FilledIconButton(onClick = { submit() }, enabled = draft.isNotBlank(), modifier = Modifier.padding(4.dp).size(48.dp)) {
+                    else FilledIconButton(onClick = { submit() }, enabled = draft.isNotBlank(), modifier = Modifier.padding(4.dp).size(48.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Lime, contentColor = Ink)) {
                         Icon(Icons.AutoMirrored.Outlined.Send, "Send message", modifier = Modifier.size(19.dp))
                     }
                 })
@@ -316,16 +387,40 @@ private fun CopyReply(text: String, compact: Boolean) {
     }
 }
 
-// A deliberately small, safe Markdown subset: links, emphasis, inline code and headings.
+private val CodeBlockBg = Color(0xFF121A16)
+
+// A deliberately small, safe Markdown subset: links, emphasis, inline code, headings, and fenced code blocks.
 private fun formattedMessage(text: String) = buildAnnotatedString {
-    val tokens = Regex("""\[([^\]]+)\]\((https?://[^\s)]+)\)|(https?://[^\s<>]+)|\*\*(.+?)\*\*|`([^`\n]+)`""")
-    text.split('\n').forEachIndexed { index, line ->
-        if (index > 0) append("\n")
+    val inlineTokens = Regex("""\[([^\]]+)\]\((https?://[^\s)]+)\)|(https?://[^\s<>]+)|\*\*(.+?)\*\*|`([^`\n]+)`""")
+    val fencePattern = Regex("""^```(\w*)""")
+    val lines = text.split('\n')
+    var i = 0
+    var firstLine = true
+    while (i < lines.size) {
+        val fenceMatch = fencePattern.find(lines[i])
+        if (fenceMatch != null) {
+            if (!firstLine) append("\n")
+            // Collect fenced code block content
+            i++ // skip opening fence
+            val codeLines = mutableListOf<String>()
+            while (i < lines.size && !lines[i].startsWith("```")) {
+                codeLines.add(lines[i]); i++
+            }
+            if (i < lines.size) i++ // skip closing fence
+            withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, background = CodeBlockBg)) {
+                append(codeLines.joinToString("\n"))
+            }
+            firstLine = false
+            continue
+        }
+        if (!firstLine) append("\n")
+        firstLine = false
+        val line = lines[i]; i++
         val heading = Regex("^#{1,4} +").find(line)
-        val content = line.removePrefix(heading?.value.orEmpty()).replace(Regex("^[-*] +"), "• ")
+        val content = line.removePrefix(heading?.value.orEmpty()).replace(Regex("^[-*] +"), "\u2022 ")
         pushStyle(if (heading != null) SpanStyle(fontWeight = FontWeight.SemiBold, fontSize = 18.sp) else SpanStyle())
         var offset = 0
-        for (match in tokens.findAll(content)) {
+        for (match in inlineTokens.findAll(content)) {
             append(content.substring(offset, match.range.first))
             when {
                 match.groups[4] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(match.groups[4]!!.value) }
@@ -345,14 +440,35 @@ private fun formattedMessage(text: String) = buildAnnotatedString {
 }
 
 @Composable
+private fun PulsingDots() {
+    val infiniteTransition = rememberInfiniteTransition(label = "dots")
+    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { index ->
+            val alpha by infiniteTransition.animateFloat(
+                initialValue = 0.3f, targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(500, easing = LinearEasing, delayMillis = index * 150),
+                    repeatMode = RepeatMode.Reverse
+                ), label = "dot$index"
+            )
+            Box(Modifier.size(5.dp).background(Moss.copy(alpha = alpha), CircleShape))
+        }
+    }
+}
+
+@Composable
 private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: (String) -> Unit) {
-    Surface(onClick = { onClick(prompt) }, shape = RoundedCornerShape(16.dp), color = Elevated, modifier = Modifier.fillMaxWidth()) {
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "suggestion-scale")
+    Surface(onClick = { pressed = true; onClick(prompt) }, shape = RoundedCornerShape(16.dp), color = Elevated,
+        modifier = Modifier.fillMaxWidth().graphicsLayer { scaleX = scale; scaleY = scale }) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = Moss, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(12.dp))
             Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             Icon(Icons.Outlined.NorthEast, null, tint = Moss, modifier = Modifier.size(16.dp))
         }
     }
+    LaunchedEffect(pressed) { if (pressed) { delay(200); pressed = false } }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -501,6 +617,99 @@ private fun CreateCronDialog(onDismiss: () -> Unit, onCreate: (String, String, S
         } },
         confirmButton = { Button(onClick = { if (label.isNotBlank() && prompt.isNotBlank() && schedule.isNotBlank()) onCreate(label, prompt, schedule) },
             enabled = label.isNotBlank() && prompt.isNotBlank() && schedule.isNotBlank()) { Text("Create") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun IntegrationsScreen(repository: ChatRepository, onBack: () -> Unit) {
+    var integrations by remember { mutableStateOf<List<ChatRepository.McpConnection>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf("") }
+    var showCreate by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    fun refresh() { scope.launch {
+        loading = true; error = ""
+        try { integrations = withContext(Dispatchers.IO) { repository.listIntegrations() } }
+        catch (e: Exception) { error = e.message.orEmpty() }
+        finally { loading = false }
+    } }
+    LaunchedEffect(Unit) { refresh() }
+    if (showCreate) {
+        CreateIntegrationDialog(onDismiss = { showCreate = false }, onCreate = { provider, label ->
+            scope.launch {
+                try { withContext(Dispatchers.IO) { repository.createIntegration(provider, label) }; showCreate = false; refresh() }
+                catch (e: Exception) { error = e.message.orEmpty() }
+            }
+        })
+    }
+    Scaffold(containerColor = Ink, topBar = {
+        TopAppBar(title = { Text("Integrations", fontSize = 18.sp) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+            actions = { IconButton(onClick = { showCreate = true }) { Icon(Icons.Outlined.Add, "New integration") } },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
+    }) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+            if (loading) Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
+            else if (integrations.isEmpty()) Text("No integrations yet.\nConnect services like email, calendar, and more.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
+            else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(integrations, key = { it.id }) { integration ->
+                    Surface(shape = RoundedCornerShape(10.dp), color = Elevated, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+                            Column(Modifier.weight(1f)) {
+                                Text(integration.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.height(3.dp))
+                                Text(integration.provider, fontSize = 12.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.height(4.dp))
+                                Text(integration.status, fontSize = 11.sp,
+                                    color = if (integration.status == "connected") Moss else TextDim,
+                                    fontWeight = FontWeight.Medium)
+                            }
+                            IconButton(onClick = { scope.launch {
+                                try { withContext(Dispatchers.IO) { repository.deleteIntegration(integration.id) }; refresh() }
+                                catch (e: Exception) { error = e.message.orEmpty() }
+                            } }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Outlined.Delete, "Delete", Modifier.size(16.dp), tint = TextDim)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreateIntegrationDialog(onDismiss: () -> Unit, onCreate: (String, String) -> Unit) {
+    val providers = listOf("fastmail", "composio", "custom")
+    var selectedProvider by remember { mutableStateOf(providers[0]) }
+    var label by remember { mutableStateOf("") }
+    var expanded by remember { mutableStateOf(false) }
+    AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
+        title = { Text("New integration", fontSize = 18.sp, fontWeight = FontWeight.Medium) },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                OutlinedTextField(selectedProvider, {}, readOnly = true, label = { Text("Provider") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
+                        unfocusedBorderColor = Border, focusedBorderColor = Moss))
+                ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    providers.forEach { provider ->
+                        DropdownMenuItem(text = { Text(provider) }, onClick = { selectedProvider = provider; expanded = false })
+                    }
+                }
+            }
+            OutlinedTextField(label, { label = it }, label = { Text("Label") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("My Email") },
+                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
+                    unfocusedBorderColor = Border, focusedBorderColor = Moss))
+        } },
+        confirmButton = { Button(onClick = { if (label.isNotBlank()) onCreate(selectedProvider, label) },
+            enabled = label.isNotBlank()) { Text("Create") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }

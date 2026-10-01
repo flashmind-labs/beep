@@ -82,6 +82,14 @@ class LocalStorage(private val context: Context) {
         ChatState(conversations, json.optString("selected"))
     }.getOrElse { ChatState() }
 
+    fun deviceId(): String {
+        val existing = prefs.getString("device_id", null)
+        if (existing != null) return existing
+        val id = UUID.randomUUID().toString()
+        prefs.edit().putString("device_id", id).apply()
+        return id
+    }
+
     fun saveState(state: ChatState) {
         val list = JSONArray()
         state.conversations.forEach { c ->
