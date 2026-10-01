@@ -69,7 +69,16 @@ async fn main() -> Result<()> {
             neobeep_server::search::SearchTool::new(key).map(Arc::new)
         })
         .transpose()?;
-    let app = App::with_search(store, auth, provider, model, search);
+    let composio = config
+        .composio_key_env
+        .as_ref()
+        .map(|name| {
+            let key = std::env::var(name)
+                .with_context(|| format!("missing Composio key environment variable {name}"))?;
+            neobeep_server::composio::ComposioClient::new(key).map(Arc::new)
+        })
+        .transpose()?;
+    let app = App::with_tools(store, auth, provider, model, search, composio);
     let scheduler_app = app.clone();
     tokio::spawn(async move { neobeep_server::scheduler::run(scheduler_app).await });
     let mut endpoints = Vec::new();
