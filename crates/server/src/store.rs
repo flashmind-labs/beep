@@ -67,6 +67,9 @@ impl Store {
                     user_id TEXT NOT NULL, device_id TEXT NOT NULL, fcm_token TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
                     PRIMARY KEY(user_id, device_id));
+                CREATE TABLE IF NOT EXISTS locations (
+                    user_id TEXT PRIMARY KEY, latitude REAL NOT NULL, longitude REAL NOT NULL,
+                    accuracy REAL NOT NULL, updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));
                 CREATE TABLE IF NOT EXISTS mcp_connections (
                     user_id TEXT NOT NULL, id TEXT NOT NULL,
                     provider TEXT NOT NULL, label TEXT NOT NULL,
@@ -630,6 +633,48 @@ impl Store {
                     "DELETE FROM mcp_connections WHERE user_id=? AND id=?",
                     params![user, id],
                 )? > 0)
+            })
+            .await?)
+    }
+
+    pub async fn update_location(
+        &self,
+        user: &str,
+        latitude: f64,
+        longitude: f64,
+        accuracy: f64,
+    ) -> Result<()> {
+        let user = user.to_owned();
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO locations (user_id, latitude, longitude, accuracy, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) ON CONFLICT(user_id) DO UPDATE SET latitude=excluded.latitude, longitude=excluded.longitude, accuracy=excluded.accuracy, updated_at=excluded.updated_at",
+                    params![user, latitude, longitude, accuracy],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_location(&self, user: &str) -> Result<Option<Value>> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT latitude, longitude, accuracy, updated_at FROM locations WHERE user_id=?",
+                    params![user],
+                    |r| {
+                        Ok(json!({
+                            "latitude": r.get::<_, f64>(0)?,
+                            "longitude": r.get::<_, f64>(1)?,
+                            "accuracy": r.get::<_, f64>(2)?,
+                            "updated_at": r.get::<_, String>(3)?,
+                        }))
+                    },
+                )
+                .optional()
             })
             .await?)
     }
