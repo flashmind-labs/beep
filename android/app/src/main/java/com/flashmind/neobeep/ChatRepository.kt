@@ -11,6 +11,8 @@ class BeepApplication : Application() {
     val repository by lazy { ChatRepository(LocalStorage(this)) }
 }
 
+data class AppIntent(val app: String, val uri: String, val fallbackUrl: String)
+
 class ChatRepository(private val storage: LocalStorage) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
@@ -20,7 +22,10 @@ class ChatRepository(private val storage: LocalStorage) {
     val settings = MutableStateFlow(storage.loadSettings())
     val connection = MutableStateFlow(if (settings.value.configured) "Checking connection…" else "Connect your assistant")
     val connected = MutableStateFlow(false)
+    val pendingIntent = MutableStateFlow<AppIntent?>(null)
+    val browserUrl = MutableStateFlow<String?>(null)
     private var reconnectJob: Job? = null
+    private var locationJob: Job? = null
     init { if (settings.value.configured) reconnect() }
 
     private fun update(transform: (ChatState) -> ChatState) = synchronized(lock) {
@@ -220,6 +225,26 @@ class ChatRepository(private val storage: LocalStorage) {
             JSONObject().put("device_id", deviceId).put("fcm_token", fcmToken).toString())
     }
 
+    suspend fun updateLocation(latitude: Double, longitude: Double, accuracy: Float) {
+        QuicApi(settings.value).json("POST", "/v1/location",
+            JSONObject().put("latitude", latitude).put("longitude", longitude).put("accuracy", accuracy.toDouble()).toString())
+    }
+
+    fun startLocationUpdates(getLocation: suspend () -> Triple<Double, Double, Float>?) {
+        locationJob?.cancel()
+        locationJob = scope.launch {
+            while (isActive) {
+                if (connected.value) {
+                    try {
+                        val loc = getLocation()
+                        if (loc != null) updateLocation(loc.first, loc.second, loc.third)
+                    } catch (_: Exception) {}
+                }
+                delay(5 * 60 * 1000L)
+            }
+        }
+    }
+
     private fun event(id: String, event: JSONObject) {
         val sequence = event.optLong("seq", -1)
         updateChat(id) { chat ->
@@ -234,7 +259,22 @@ class ChatRepository(private val storage: LocalStorage) {
                     next = next.copy(messages = if (existing == null) chat.messages + message else chat.messages.map { if (it.id == messageId) message else it }, status = "Replying…", tool = "")
                 }
                 "tool_started" -> next = next.copy(tool = event.optString("description", "Using a tool…"), status = "Working…")
-                "tool_result" -> next = next.copy(tool = if (event.optBoolean("success")) "Done" else "Tool didn’t complete")
+                "tool_result" -> {
+                    next = next.copy(tool = if (event.optBoolean("success")) "Done" else "Tool didn’t complete")
+                    val output = event.optString("output", "")
+                    if (output.contains("\"action\"")) {
+                        try {
+                            val outputJson = JSONObject(output)
+                            when (outputJson.optString("action")) {
+                                "open_app" -> pendingIntent.value = AppIntent(
+                                    app = outputJson.optString("app", ""),
+                                    uri = outputJson.optString("uri", ""),
+                                    fallbackUrl = outputJson.optString("fallback_url", ""))
+                                "open_browser" -> browserUrl.value = outputJson.optString("url", "")
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
                 "error" -> next = next.copy(error = event.optString("message", "The assistant couldn’t finish."))
                 "run_finished" -> {
                     val status = event.getString("status")

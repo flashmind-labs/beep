@@ -2,13 +2,24 @@ package com.flashmind.neobeep
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.*
+import androidx.compose.animation.core.EaseInOutCubic
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
@@ -86,10 +97,63 @@ open class MainActivity : ComponentActivity() {
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         if (it) { Bubbles.show(this); moveTaskToBack(true) } else Bubbles.settings(this)
     }
+    private val locationPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        if (grants.values.any { it }) startLocationUpdates()
+    }
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private fun startLocationUpdates() {
+        val repository = (application as BeepApplication).repository
+        val locationManager = getSystemService(LocationManager::class.java) ?: return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        val provider = when {
+            Build.VERSION.SDK_INT >= 31 && locationManager.isProviderEnabled(LocationManager.FUSED_PROVIDER) -> LocationManager.FUSED_PROVIDER
+            locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+            else -> return
+        }
+        try {
+            locationManager.requestLocationUpdates(provider, 5 * 60 * 1000L, 50f, object : LocationListener {
+                override fun onLocationChanged(location: Location) {}
+            })
+        } catch (_: Exception) {}
+        repository.startLocationUpdates {
+            try {
+                val loc = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                if (loc != null) Triple(loc.latitude, loc.longitude, loc.accuracy) else null
+            } catch (_: Exception) { null }
+        }
+    }
+    override fun onResume() {
+        super.onResume()
+        val repository = (application as BeepApplication).repository
+        if (repository.settings.value.configured && !repository.connected.value) repository.reconnect()
+    }
+    override fun onDestroy() {
+        super.onDestroy()
+        networkCallback?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val repository = (application as BeepApplication).repository
+        // Network change listener for auto-reconnect
+        val cm = getSystemService(ConnectivityManager::class.java)
+        networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                if (repository.settings.value.configured && !repository.connected.value) repository.reconnect()
+            }
+        }
+        cm.registerNetworkCallback(NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(), networkCallback!!)
+        // Request location permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            startLocationUpdates()
+        } else {
+            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
         intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Moss, onPrimary = Ink,
@@ -124,20 +188,34 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
     val config by repository.settings.collectAsStateWithLifecycle()
     val status by repository.connection.collectAsStateWithLifecycle()
     val connected by repository.connected.collectAsStateWithLifecycle()
+    val pendingAppIntent by repository.pendingIntent.collectAsStateWithLifecycle()
+    val browserUrlState by repository.browserUrl.collectAsStateWithLifecycle()
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var drawerOpen by remember { mutableStateOf(false) }
     var bubbleMenu by remember { mutableStateOf(false) }
     var historyQuery by rememberSaveable { mutableStateOf("") }
     var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
+    // Handle pending app launch intents
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(pendingAppIntent) {
+        pendingAppIntent?.let { intent ->
+            AppLauncher.launch(context, intent.app, intent.uri, intent.fallbackUrl)
+            repository.pendingIntent.value = null
+        }
+    }
     if (settingsOpen || !config.configured) {
         ConnectionScreen(config, canGoBack = config.configured, onBack = { settingsOpen = false }, onConnect = {
             withContext(Dispatchers.IO) { repository.connect(it) }; settingsOpen = false
         })
         return
     }
-    if (screen == Screen.Memories && !bubble) { MemoriesScreen(repository, onBack = { screen = Screen.Chat }); return }
-    if (screen == Screen.Crons && !bubble) { CronsScreen(repository, onBack = { screen = Screen.Chat }); return }
-    if (screen == Screen.Integrations && !bubble) { IntegrationsScreen(repository, onBack = { screen = Screen.Chat }); return }
+    val activeScreen = if (bubble) Screen.Chat else screen
+    Crossfade(targetState = activeScreen, animationSpec = tween(300), label = "screen-transition") { currentScreen ->
+        when (currentScreen) {
+            Screen.Memories -> MemoriesScreen(repository, onBack = { screen = Screen.Chat })
+            Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat })
+            Screen.Integrations -> IntegrationsScreen(repository, onBack = { screen = Screen.Chat })
+            Screen.Chat -> {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     LaunchedEffect(drawerOpen) { if (drawerOpen) { repository.refreshHistory(); drawerState.open() } else drawerState.close() }
     LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
@@ -183,7 +261,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
                     Icon(Icons.Outlined.BubbleChart, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Floating chat settings")
                 }
             }
-            Text(status, fontSize = 11.sp, color = Moss, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+            Row(Modifier.padding(horizontal = 24.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                ConnectionDot(connected, status); Spacer(Modifier.width(6.dp))
+                Text(status, fontSize = 11.sp, color = Moss)
+            }
             TextButton(onClick = { settingsOpen = true; drawerOpen = false }, modifier = Modifier.padding(16.dp)) {
                 Icon(Icons.Outlined.Settings, null); Spacer(Modifier.width(8.dp)); Text("Connection settings")
             }
@@ -223,7 +304,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
                     Column {
                         Text("Beep", fontWeight = FontWeight.Bold, fontSize = 21.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(6.dp).background(if (connected) Moss else Color(0xFFE85A4A), CircleShape))
+                            ConnectionDot(connected, status)
                             Spacer(Modifier.width(5.dp))
                             Text(if (connected) "Here to help" else "Tap to reconnect", fontSize = 11.sp, color = Moss,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -240,8 +321,18 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
         }) { padding ->
             ChatScreen(state.current, repository, Modifier.padding(padding).fillMaxSize(), compact = bubble)
         }
+    } // end Chat screen
+    } // end when
+    } // end Crossfade
+    // Browser overlay
+    AnimatedVisibility(visible = browserUrlState != null,
+        enter = fadeIn() + slideInVertically { it },
+        exit = fadeOut() + slideOutVertically { it }) {
+        browserUrlState?.let { url ->
+            BrowserScreen(url = url, onClose = { repository.browserUrl.value = null },
+                onContentExtracted = { /* content available for future use */ })
+        }
     }
-
 }
 
 @Composable
@@ -300,7 +391,14 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 22.dp)) {
                 items(chat.messages, key = { it.id }) { message ->
                     Column(Modifier.fillMaxWidth().animateItem(), horizontalAlignment = if (message.role == "user") Alignment.End else Alignment.Start) {
-                        if (message.role == "assistant" && !compact) Text("BEEP", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, color = Lime, modifier = Modifier.padding(bottom = 7.dp))
+                        if (message.role == "assistant" && !compact) {
+                            val isLastAssistant = chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 7.dp)) {
+                                BeepAvatar(isThinking = isLastAssistant && chat.busy)
+                                Spacer(Modifier.width(8.dp))
+                                Text("BEEP", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, color = Lime)
+                            }
+                        }
                         Surface(color = if (message.role == "user") Color(0xFF1A2E24) else Color.Transparent,
                             shape = RoundedCornerShape(20.dp, 20.dp, if (message.role == "user") 5.dp else 20.dp, 20.dp),
                             modifier = if (message.role == "user") Modifier.fillMaxWidth(0.85f)
@@ -308,7 +406,11 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                                 drawLine(Moss, Offset(0f, 0f), Offset(0f, size.height), strokeWidth = 2.dp.toPx())
                             }.padding(start = 10.dp)) {
                             SelectionContainer {
-                                Text(remember(message.text) { formattedMessage(message.text) }, modifier = Modifier.padding(if (message.role == "user") (if (compact) 10.dp else 16.dp) else 4.dp), fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
+                                val isStreaming = message.role == "assistant" && chat.busy && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
+                                val textLen = message.text.length
+                                val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
+                                val displayText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
+                                Text(remember(displayText) { formattedMessage(displayText) }, modifier = Modifier.padding(if (message.role == "user") (if (compact) 10.dp else 16.dp) else 4.dp), fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
                             }
                         }
                         if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) CopyReply(message.text, compact)
@@ -326,7 +428,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
         AnimatedVisibility(visible = chat.status.isNotEmpty() || chat.tool.isNotEmpty(),
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Row(Modifier.padding(horizontal = 22.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                PulsingDots()
+                BeepAvatar(isThinking = true, modifier = Modifier)
                 Spacer(Modifier.width(10.dp))
                 if (chat.tool.isNotEmpty()) {
                     Surface(shape = RoundedCornerShape(6.dp), color = Elevated) {
@@ -353,9 +455,15 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit() }),
                 trailingIcon = {
                     if (chat.busy) IconButton(onClick = repository::cancel) { Icon(Icons.Outlined.StopCircle, "Stop reply", tint = Moss) }
-                    else FilledIconButton(onClick = { submit() }, enabled = draft.isNotBlank(), modifier = Modifier.padding(4.dp).size(48.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Lime, contentColor = Ink)) {
-                        Icon(Icons.AutoMirrored.Outlined.Send, "Send message", modifier = Modifier.size(19.dp))
+                    else {
+                        var sendPulse by remember { mutableStateOf(false) }
+                        val sendScale by animateFloatAsState(if (sendPulse) 1.2f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "send-pulse")
+                        LaunchedEffect(sendPulse) { if (sendPulse) { delay(150); sendPulse = false } }
+                        FilledIconButton(onClick = { sendPulse = true; submit() }, enabled = draft.isNotBlank(),
+                            modifier = Modifier.padding(4.dp).size(48.dp).graphicsLayer { scaleX = sendScale; scaleY = sendScale },
+                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Lime, contentColor = Ink)) {
+                            Icon(Icons.AutoMirrored.Outlined.Send, "Send message", modifier = Modifier.size(19.dp))
+                        }
                     }
                 })
         }
@@ -444,6 +552,39 @@ private fun PulsingDots() {
                 ), label = "dot$index"
             )
             Box(Modifier.size(5.dp).background(Moss.copy(alpha = alpha), CircleShape))
+        }
+    }
+}
+
+@Composable
+private fun ConnectionDot(connected: Boolean, status: String) {
+    val reconnecting = !connected && status.contains("Reconnecting", ignoreCase = true)
+    if (reconnecting) {
+        val infiniteTransition = rememberInfiniteTransition(label = "reconnect-dot")
+        val alpha by infiniteTransition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "reconnect-alpha")
+        Box(Modifier.size(6.dp).background(Color(0xFFE8B84A).copy(alpha = alpha), CircleShape))
+    } else {
+        Box(Modifier.size(6.dp).background(if (connected) Moss else Color(0xFFE85A4A), CircleShape))
+    }
+}
+
+@Composable
+fun BeepAvatar(isThinking: Boolean, modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "beep-avatar")
+    Box(modifier.size(32.dp).background(Elevated, CircleShape), contentAlignment = Alignment.Center) {
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+            repeat(3) { index ->
+                val offset by infiniteTransition.animateFloat(
+                    initialValue = 0f, targetValue = if (isThinking) -4f else 0f,
+                    animationSpec = if (isThinking) infiniteRepeatable(
+                        animation = tween(400, delayMillis = index * 120, easing = EaseInOutCubic),
+                        repeatMode = RepeatMode.Reverse
+                    ) else tween(0), label = "dot-bounce-$index"
+                )
+                Canvas(Modifier.size(5.dp).graphicsLayer { translationY = offset }) {
+                    drawCircle(Lime)
+                }
+            }
         }
     }
 }
