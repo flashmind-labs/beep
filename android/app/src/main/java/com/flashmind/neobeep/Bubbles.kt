@@ -16,12 +16,12 @@ object Bubbles {
     fun show(context: Context): Boolean {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled()) return false
-        // Delete and recreate to ensure correct settings (importance can't be changed after creation)
-        manager.deleteNotificationChannel(CHANNEL)
-        val channel = NotificationChannel(CHANNEL, "Assistant conversation", NotificationManager.IMPORTANCE_DEFAULT)
-        channel.description = "Keep your assistant in a floating conversation bubble"
-        channel.setAllowBubbles(true)
-        manager.createNotificationChannel(channel)
+        if (manager.getNotificationChannel(CHANNEL) == null) {
+            val channel = NotificationChannel(CHANNEL, "Assistant conversation", NotificationManager.IMPORTANCE_DEFAULT)
+            channel.description = "Keep your assistant in a floating conversation bubble"
+            channel.setAllowBubbles(true)
+            manager.createNotificationChannel(channel)
+        }
         val person = Person.Builder().setName("Beep").setBot(true).setImportant(true)
             .setIcon(Icon.createWithResource(context, R.drawable.ic_beep)).build()
         val user = Person.Builder().setName("You").setKey("self").setBot(false).build()
@@ -29,15 +29,11 @@ object Bubbles {
         context.getSystemService(ShortcutManager::class.java).addDynamicShortcuts(listOf(
             ShortcutInfo.Builder(context, SHORTCUT).setShortLabel("Beep")
                 .setIcon(Icon.createWithResource(context, R.drawable.ic_beep))
-                // Include both participants; this is a human-to-assistant conversation.
-                // A shortcut listing only bot participants is excluded from conversations.
                 .setPersons(arrayOf(user, person)).setLongLived(true).setIntent(main).build()
         ))
         val intent = Intent(context, BubbleActivity::class.java).setAction(Intent.ACTION_VIEW)
             .setData(Uri.parse("neobeep://assistant"))
         val bubble = Notification.BubbleMetadata.Builder(
-            // Android embeds this activity by adding launch options to the intent.
-            // Bubble PendingIntents must be mutable; the target is always explicit.
             PendingIntent.getActivity(context, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or
                 if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0),
             Icon.createWithResource(context, R.drawable.ic_beep)
