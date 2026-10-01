@@ -15,6 +15,8 @@ provider_url = "http://127.0.0.1:8000/"
 # provider_key_env = "NEOBEEP_MODEL_KEY"
 # Optional: enable Firecrawl web search. The key stays in the server environment.
 # firecrawl_key_env = "FIRECRAWL_API_KEY"
+# Optional: enable Composio integration for 250+ third-party tools (Gmail, Slack, GitHub, etc.)
+# composio_key_env = "COMPOSIO_API_KEY"
 
 [[users]]
 id = "owner"
