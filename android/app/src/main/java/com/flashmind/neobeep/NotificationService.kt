@@ -16,7 +16,7 @@ class NotificationService : Service() {
     companion object {
         private const val CHANNEL_FOREGROUND = "beep_foreground"
         private const val CHANNEL_MESSAGES = "beep_messages"
-        private const val FOREGROUND_ID = 1
+        private const val FOREGROUND_ID = 99
         private var nextId = 1000
 
         fun start(context: Context) {
