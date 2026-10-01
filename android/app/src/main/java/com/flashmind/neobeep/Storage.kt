@@ -36,7 +36,7 @@ data class ChatState(val conversations: List<Conversation> = listOf(Conversation
     val current get() = conversations.firstOrNull { it.id == selected } ?: conversations.first()
 }
 
-class LocalStorage(private val context: Context) {
+class LocalStorage(internal val context: Context) {
     private val prefs = context.getSharedPreferences("connection", Context.MODE_PRIVATE)
     private val file = AtomicFile(File(context.filesDir, "conversations.json"))
     private fun key(): SecretKey {

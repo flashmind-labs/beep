@@ -12,12 +12,13 @@ use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
 pub struct App {
     pub store: Store,
     pub auth: Auth,
+    pub notifications: broadcast::Sender<String>,
     provider: Arc<dyn LlmProvider>,
     model: Model,
     search: Option<Arc<crate::search::SearchTool>>,
@@ -49,9 +50,11 @@ impl App {
         model: Model,
         search: Option<Arc<crate::search::SearchTool>>,
     ) -> Arc<Self> {
+        let (notifications, _) = broadcast::channel(64);
         Arc::new(Self {
             store,
             auth,
+            notifications,
             provider,
             model,
             search,
@@ -110,6 +113,30 @@ impl App {
     }
 
     pub async fn notify_run_complete(&self, user: &str, run: &Run, status: &str) {
+        // Build a title from the session's first message (truncated).
+        let title = match self.store.sessions(user).await {
+            Ok(sessions) => sessions
+                .iter()
+                .find(|s| s["id"].as_str() == Some(&run.session_id))
+                .and_then(|s| s["title"].as_str().map(|t| t.to_owned()))
+                .unwrap_or_else(|| "Run finished".to_owned()),
+            Err(_) => "Run finished".to_owned(),
+        };
+        let body = match status {
+            "completed" => "Your request completed successfully.".to_owned(),
+            "cancelled" => "The run was cancelled.".to_owned(),
+            "timed_out" => "The run timed out.".to_owned(),
+            other => format!("Run ended with status: {other}"),
+        };
+        let event = json!({
+            "type": "notification",
+            "user": user,
+            "title": title,
+            "body": body,
+            "conversation_id": run.session_id,
+        });
+        // Best-effort: ignore send errors (no active receivers).
+        let _ = self.notifications.send(event.to_string());
         if let Ok(tokens) = self.store.device_tokens(user).await {
             if !tokens.is_empty() {
                 tracing::info!(user, run_id=%run.id, status, devices=tokens.len(), "would send push notification");
