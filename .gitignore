@@ -1,0 +1,13 @@
+/target/
+/.dev/
+/.firecrawl/
+.env
+*.db
+*.db-shm
+*.db-wal
+config.toml
+/android/.gradle/
+/android/.kotlin/
+/android/local.properties
+/android/**/build/
+/android/app/src/main/jniLibs/

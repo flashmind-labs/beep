@@ -1,0 +1,388 @@
+use anyhow::{Result, bail};
+use flashmind::core::Conversation;
+use rusqlite::{OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use tokio_rusqlite::Connection;
+use uuid::Uuid;
+
+#[derive(Clone)]
+pub struct Store(Connection);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Event {
+    pub seq: i64,
+    pub run_id: String,
+    #[serde(flatten)]
+    pub data: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Run {
+    pub id: String,
+    pub session_id: String,
+    pub status: String,
+}
+
+pub enum CreateRun {
+    Created(Run),
+    Existing(Run),
+    Conflict,
+}
+
+impl Store {
+    pub async fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let db = Connection::open(path).await?;
+        db.call::<_, _, rusqlite::Error>(|db| {
+            db.execute_batch(
+                "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
+                CREATE TABLE IF NOT EXISTS sessions (
+                    user_id TEXT NOT NULL, id TEXT NOT NULL, conversation TEXT NOT NULL,
+                    PRIMARY KEY(user_id, id));
+                CREATE TABLE IF NOT EXISTS runs (
+                    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_id TEXT NOT NULL,
+                    request_id TEXT NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL,
+                    UNIQUE(user_id, request_id));
+                CREATE UNIQUE INDEX IF NOT EXISTS one_active_run
+                    ON runs(user_id, session_id) WHERE status = 'running';
+                CREATE TABLE IF NOT EXISTS events (
+                    run_id TEXT NOT NULL REFERENCES runs(id), seq INTEGER NOT NULL,
+                    data TEXT NOT NULL, PRIMARY KEY(run_id, seq));
+                CREATE TABLE IF NOT EXISTS memories (
+                    user_id TEXT NOT NULL, key TEXT NOT NULL, content TEXT NOT NULL,
+                    PRIMARY KEY(user_id, key));
+                CREATE TABLE IF NOT EXISTS crons (
+                    user_id TEXT NOT NULL, id TEXT NOT NULL, label TEXT NOT NULL,
+                    prompt TEXT NOT NULL, schedule TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                    PRIMARY KEY(user_id, id));",
+            )?;
+            Ok(())
+        })
+        .await?;
+        Ok(Self(db))
+    }
+
+    // Called once before accepting requests. A server restart never silently repeats tools.
+    pub async fn recover(&self) -> Result<()> {
+        self.0
+            .call::<_, _, rusqlite::Error>(|db| {
+                let tx = db.transaction()?;
+                tx.execute(
+                    "INSERT INTO events (run_id, seq, data)
+                SELECT id, COALESCE((SELECT MAX(seq) FROM events WHERE run_id=runs.id), 0)+1,
+                '{\"type\":\"run_finished\",\"status\":\"interrupted\"}'
+                FROM runs WHERE status='running'",
+                    [],
+                )?;
+                tx.execute(
+                    "UPDATE runs SET status='interrupted' WHERE status='running'",
+                    [],
+                )?;
+                tx.commit()?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn create_run(
+        &self,
+        user: &str,
+        session: &str,
+        request: &str,
+        message: &str,
+    ) -> Result<CreateRun> {
+        let (user, session, request, message) = (
+            user.to_owned(),
+            session.to_owned(),
+            request.to_owned(),
+            message.to_owned(),
+        );
+        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
+            let tx = db.transaction()?;
+            let existing = tx.query_row(
+                "SELECT id, session_id, status, message FROM runs WHERE user_id=? AND request_id=?",
+                params![user, request], |r| Ok((Run { id:r.get(0)?, session_id:r.get(1)?, status:r.get(2)? }, r.get::<_,String>(3)?))
+            ).optional()?;
+            if let Some((run, original)) = existing {
+                return Ok(if run.session_id == session && original == message { CreateRun::Existing(run) } else { CreateRun::Conflict });
+            }
+            let busy: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE user_id=? AND session_id=? AND status='running')", params![user, session], |r| r.get(0))?;
+            if busy { return Ok(CreateRun::Conflict); }
+            let active: i64 = tx.query_row("SELECT COUNT(*) FROM runs WHERE status='running'", [], |r| r.get(0))?;
+            if active >= 16 { return Ok(CreateRun::Conflict); }
+            let run = Run { id: Uuid::new_v4().to_string(), session_id: session, status: "running".into() };
+            tx.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?, 'running')", params![run.id, user, run.session_id, request, message])?;
+            tx.execute("INSERT INTO events VALUES (?, 1, ?)", params![run.id, json!({"type":"run_started", "session_id":run.session_id}).to_string()])?;
+            tx.commit()?;
+            Ok(CreateRun::Created(run))
+        }).await?)
+    }
+
+    pub async fn run(&self, user: &str, id: &str) -> Result<Option<Run>> {
+        let (user, id) = (user.to_owned(), id.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT id, session_id, status FROM runs WHERE user_id=? AND id=?",
+                    params![user, id],
+                    |r| {
+                        Ok(Run {
+                            id: r.get(0)?,
+                            session_id: r.get(1)?,
+                            status: r.get(2)?,
+                        })
+                    },
+                )
+                .optional()
+            })
+            .await?)
+    }
+
+    pub async fn sessions(&self, user: &str) -> Result<Vec<Value>> {
+        let user = user.to_owned();
+        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
+            let mut statement = db.prepare(
+                "SELECT s.id, COALESCE((SELECT substr(message,1,80) FROM runs r WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.rowid LIMIT 1), 'Conversation') FROM sessions s WHERE s.user_id=? ORDER BY s.rowid DESC LIMIT 200"
+            )?;
+            let rows = statement.query_map([user], |row| Ok(json!({"id":row.get::<_, String>(0)?, "title":row.get::<_, String>(1)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        }).await?)
+    }
+
+    pub async fn conversation(&self, user: &str, session: &str) -> Result<Option<Conversation>> {
+        let (user, session) = (user.to_owned(), session.to_owned());
+        let raw: Option<String> = self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT conversation FROM sessions WHERE user_id=? AND id=?",
+                    params![user, session],
+                    |r| r.get(0),
+                )
+                .optional()
+            })
+            .await?;
+        raw.map(|s| serde_json::from_str(&s).map_err(Into::into))
+            .transpose()
+    }
+
+    pub async fn append(&self, run: &str, data: Value) -> Result<()> {
+        let (run, data) = (run.to_owned(), data.to_string());
+        self.0.call::<_, _, rusqlite::Error>(move |db| {
+            db.execute("INSERT INTO events SELECT ?, COALESCE(MAX(seq),0)+1, ? FROM events WHERE run_id=?", params![run,data,run])?;
+            Ok(())
+        }).await?;
+        Ok(())
+    }
+
+    pub async fn events(&self, run: &str, after: i64) -> Result<Vec<Event>> {
+        let run = run.to_owned();
+        let rows = self.0.call::<_, _, rusqlite::Error>(move |db| {
+            let mut stmt = db.prepare("SELECT seq, run_id, data FROM events WHERE run_id=? AND seq>? ORDER BY seq LIMIT 256")?;
+            let rows = stmt.query_map(params![run,after], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        }).await?;
+        rows.into_iter()
+            .map(|(seq, run_id, data)| {
+                Ok(Event {
+                    seq,
+                    run_id,
+                    data: serde_json::from_str(&data)?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn finish(
+        &self,
+        user: &str,
+        run: &Run,
+        conversation: Option<&Conversation>,
+        status: &str,
+    ) -> Result<()> {
+        let (user, run, status) = (user.to_owned(), run.clone(), status.to_owned());
+        let conversation = conversation.map(serde_json::to_string).transpose()?;
+        self.0.call::<_, _, rusqlite::Error>(move |db| {
+            let tx = db.transaction()?;
+            if let Some(conversation) = conversation {
+                tx.execute("INSERT INTO sessions VALUES (?, ?, ?) ON CONFLICT(user_id,id) DO UPDATE SET conversation=excluded.conversation", params![user,run.session_id,conversation])?;
+            }
+            tx.execute("INSERT INTO events SELECT ?, COALESCE(MAX(seq),0)+1, ? FROM events WHERE run_id=?", params![run.id,json!({"type":"run_finished","status":status}).to_string(),run.id])?;
+            tx.execute("UPDATE runs SET status=? WHERE id=? AND user_id=?", params![status,run.id,user])?;
+            tx.commit()?;
+            Ok(())
+        }).await?;
+        Ok(())
+    }
+
+    pub async fn remember(&self, user: &str, key: &str, content: &str) -> Result<()> {
+        if key.is_empty() || key.len() > 100 || content.is_empty() || content.len() > 4000 {
+            bail!("memory key/content length out of range");
+        }
+        let (user, key, content) = (user.to_owned(), key.to_owned(), content.to_owned());
+        self.0.call::<_, _, rusqlite::Error>(move |db| {
+            db.execute("INSERT INTO memories VALUES (?, ?, ?) ON CONFLICT(user_id,key) DO UPDATE SET content=excluded.content",params![user,key,content])?;
+            Ok(())
+        }).await?;
+        Ok(())
+    }
+
+    pub async fn recall(&self, user: &str, query: &str) -> Result<Value> {
+        let (user, query) = (user.to_owned(), query.to_owned());
+        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
+            let mut stmt = db.prepare("SELECT key,content FROM memories WHERE user_id=? AND (instr(lower(key),lower(?))>0 OR instr(lower(content),lower(?))>0) ORDER BY key LIMIT 50")?;
+            let rows = stmt.query_map(params![user,query,query], |r| Ok(json!({"key":r.get::<_,String>(0)?,"content":r.get::<_,String>(1)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(json!(rows))
+        }).await?)
+    }
+
+    pub async fn forget(&self, user: &str, key: &str) -> Result<bool> {
+        let (user, key) = (user.to_owned(), key.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                Ok(db.execute(
+                    "DELETE FROM memories WHERE user_id=? AND key=?",
+                    params![user, key],
+                )? > 0)
+            })
+            .await?)
+    }
+
+    pub async fn list_memories(&self, user: &str) -> Result<Vec<Value>> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT key, content FROM memories WHERE user_id=? ORDER BY key LIMIT 500",
+                )?;
+                let rows = stmt
+                    .query_map([user], |r| {
+                        Ok(json!({"key":r.get::<_,String>(0)?,"content":r.get::<_,String>(1)?}))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    pub async fn list_crons(&self, user: &str) -> Result<Vec<Value>> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT id, label, prompt, schedule, enabled, created_at FROM crons WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
+                )?;
+                let rows = stmt
+                    .query_map([user], |r| {
+                        Ok(json!({
+                            "id": r.get::<_,String>(0)?,
+                            "label": r.get::<_,String>(1)?,
+                            "prompt": r.get::<_,String>(2)?,
+                            "schedule": r.get::<_,String>(3)?,
+                            "enabled": r.get::<_,bool>(4)?,
+                            "created_at": r.get::<_,String>(5)?,
+                        }))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    pub async fn create_cron(
+        &self,
+        user: &str,
+        label: &str,
+        prompt: &str,
+        schedule: &str,
+    ) -> Result<String> {
+        if label.is_empty() || label.len() > 200 {
+            bail!("cron label must be 1–200 characters");
+        }
+        if prompt.is_empty() || prompt.len() > 4000 {
+            bail!("cron prompt must be 1–4000 characters");
+        }
+        if schedule.is_empty() || schedule.len() > 100 {
+            bail!("cron schedule must be 1–100 characters");
+        }
+        let id = Uuid::new_v4().to_string();
+        let (user, id_clone, label, prompt, schedule) = (
+            user.to_owned(),
+            id.clone(),
+            label.to_owned(),
+            prompt.to_owned(),
+            schedule.to_owned(),
+        );
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO crons (user_id, id, label, prompt, schedule) VALUES (?, ?, ?, ?, ?)",
+                    params![user, id_clone, label, prompt, schedule],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(id)
+    }
+
+    pub async fn update_cron(
+        &self,
+        user: &str,
+        id: &str,
+        enabled: Option<bool>,
+        label: Option<&str>,
+        schedule: Option<&str>,
+    ) -> Result<bool> {
+        let (user, id) = (user.to_owned(), id.to_owned());
+        let set_enabled = enabled;
+        let label = label.map(|s| s.to_owned());
+        let schedule = schedule.map(|s| s.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let tx = db.transaction()?;
+                let mut changed = false;
+                if let Some(enabled) = set_enabled {
+                    changed |= tx.execute(
+                        "UPDATE crons SET enabled=? WHERE user_id=? AND id=?",
+                        params![enabled, user, id],
+                    )? > 0;
+                }
+                if let Some(label) = &label {
+                    changed |= tx.execute(
+                        "UPDATE crons SET label=? WHERE user_id=? AND id=?",
+                        params![label, user, id],
+                    )? > 0;
+                }
+                if let Some(schedule) = &schedule {
+                    changed |= tx.execute(
+                        "UPDATE crons SET schedule=? WHERE user_id=? AND id=?",
+                        params![schedule, user, id],
+                    )? > 0;
+                }
+                tx.commit()?;
+                Ok(changed)
+            })
+            .await?)
+    }
+
+    pub async fn delete_cron(&self, user: &str, id: &str) -> Result<bool> {
+        let (user, id) = (user.to_owned(), id.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                Ok(db.execute(
+                    "DELETE FROM crons WHERE user_id=? AND id=?",
+                    params![user, id],
+                )? > 0)
+            })
+            .await?)
+    }
+}

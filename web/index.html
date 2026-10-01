@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0D1410"><title>Beep</title>
+  <link rel="icon" href="data:,"><link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Beep home"><span class="beep-icon" aria-hidden="true">••</span><span class="brand-text">beep</span></a>
+    <button id="new-chat" class="new-chat">＋ <span>New chat</span></button>
+    <nav id="conversations" aria-label="Conversations"></nav>
+    <div class="sidebar-links">
+      <button id="nav-memories" class="sidebar-link"><span class="link-icon">M</span>Memories</button>
+      <button id="nav-crons" class="sidebar-link"><span class="link-icon">C</span>Automations</button>
+    </div>
+    <div class="sidebar-bottom"><button id="connection-button" class="connection"><span id="status-dot" class="status-dot"></span><span id="connection-label">Connect</span></button></div>
+  </aside>
+  <main>
+    <section id="view-chat" class="view active">
+      <header><h1 id="chat-title">New chat</h1><button id="mobile-drawer" class="icon-btn" aria-label="Conversations">☰</button><button id="mobile-new" class="icon-btn" aria-label="New chat">＋</button></header>
+      <section id="messages" class="messages" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></section>
+      <section id="welcome" class="welcome"><div class="welcome-mark" aria-hidden="true">••</div><p class="welcome-title">What's on your mind?</p><div class="suggestions"><button data-prompt="Help me think through something.">Think it through <span>&#8599;</span></button><button data-prompt="What can you help me with?">What can you do? <span>&#8599;</span></button></div></section>
+      <div class="composer-area"><div id="notice" role="status" hidden></div><div id="activity" class="activity" role="status"></div><form id="composer"><label class="sr-only" for="message">Message Beep</label><textarea id="message" placeholder="Message Beep..." rows="1" maxlength="32768"></textarea><button id="send" type="submit" aria-label="Send">&#8593;</button><button id="stop" type="button" hidden>Stop</button></form></div>
+    </section>
+    <section id="view-memories" class="view">
+      <header><h1>Memories</h1><button class="back-btn" data-view="chat">&#8592; Chat</button></header>
+      <div class="view-body"><div class="view-toolbar"><input id="memory-search" type="text" placeholder="Search memories..." class="search-input"><span id="memory-count" class="count-label"></span></div><div id="memory-list" class="item-list"></div><p id="memory-empty" class="empty-state" hidden>No memories stored yet. Beep remembers things you ask it to.</p></div>
+    </section>
+    <section id="view-crons" class="view">
+      <header><h1>Automations</h1><button class="back-btn" data-view="chat">&#8592; Chat</button></header>
+      <div class="view-body"><div class="view-toolbar"><button id="new-cron" class="small-btn">＋ New</button><span id="cron-count" class="count-label"></span></div><div id="cron-list" class="item-list"></div><p id="cron-empty" class="empty-state" hidden>No automations yet. Schedule tasks for Beep to run on a timer.</p>
+      <dialog id="cron-dialog"><form id="cron-form"><h2>New automation</h2><label for="cron-label">Name</label><input id="cron-label" required placeholder="Morning briefing"><label for="cron-schedule">Schedule (cron)</label><input id="cron-schedule" required placeholder="0 9 * * *"><label for="cron-prompt">Prompt</label><textarea id="cron-prompt" required rows="3" placeholder="Give me a quick summary of..."></textarea><div class="dialog-actions"><button type="button" id="cron-cancel" class="secondary-btn">Cancel</button><button type="submit" class="primary-btn">Create</button></div><p id="cron-error" role="alert"></p></form></dialog></div>
+    </section>
+  </main>
+  <dialog id="connection-dialog"><form id="connect-form"><button id="close-dialog" type="button" class="dialog-close" aria-label="Close">&#215;</button><div class="beep-icon dialog-icon" aria-hidden="true">••</div><h2>Connect to your Beep</h2><p>Enter your app token to start.</p><label for="token">App token</label><input id="token" type="password" autocomplete="off" spellcheck="false" required placeholder="Paste your app token"><p class="token-note">Kept in this tab's session only.</p><p id="connect-error" role="alert"></p><button id="connect-submit" class="primary-btn" type="submit">Connect</button><button id="disconnect" class="secondary-btn" type="button" hidden>Disconnect</button></form></dialog>
+</body>
+</html>

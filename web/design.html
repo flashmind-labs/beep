@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beep — design playground</title><link rel="icon" href="data:,">
+<link rel="stylesheet" href="/design.css"><script type="module" src="/design.js"></script>
+</head>
+<body>
+<header class="masthead"><a class="brand" href="/design"><span class="mark">••</span>beep<span class="lab">DESIGN PLAYGROUND</span></a><a class="back" href="/">Open live chat ↗</a></header>
+<main>
+<section class="intro"><div><p class="eyebrow">LESS INTERFACE. MORE CONVERSATION.</p><h1>A little assistant.<br>A little more <em>you.</em></h1></div><p class="intro-note">Three ways Beep could feel.<br>Try the same conversation in each, then decide what belongs in your pocket.</p></section>
+<div class="workspace">
+<aside class="controls">
+<h2>01 <span>Choose a direction</span></h2>
+<div class="directions" role="group" aria-label="Visual direction">
+<button class="direction selected" data-theme="grove" aria-pressed="true"><span class="swatches grove"><i></i><i></i><i></i></span><span><strong>Grove</strong><small>Quiet, warm, familiar</small></span><span class="choice">↗</span></button>
+<button class="direction" data-theme="ink" aria-pressed="false"><span class="swatches ink"><i></i><i></i><i></i></span><span><strong>After hours</strong><small>Focused, dark, understated</small></span><span class="choice">↗</span></button>
+<button class="direction" data-theme="pop" aria-pressed="false"><span class="swatches pop"><i></i><i></i><i></i></span><span><strong>Peach</strong><small>Bright, playful, expressive</small></span><span class="choice">↗</span></button>
+</div>
+<h2>02 <span>Try a moment</span></h2>
+<div class="moments" role="group" aria-label="Conversation state"><button data-state="welcome">First chat</button><button data-state="answer" class="selected">An answer</button><button data-state="search">Searching</button><button data-state="offline">Offline</button></div>
+<label class="toggle"><input id="compact" type="checkbox" checked><span>Keep the bubble compact</span><span class="switch"></span></label>
+<div class="intent"><span class="mini-label">THE IDEA</span><h3 id="direction-title">A calm little companion.</h3><p id="direction-description"></p><div id="palette" class="palette"></div></div>
+</aside>
+<section class="preview-area" aria-label="Interactive app previews">
+<div class="preview-top"><span><span class="live-dot"></span>Interactive concept</span><span>Sample content · no messages sent</span></div>
+<div class="stage" data-theme="grove" data-state="answer">
+<div class="device-column"><div class="preview-label"><strong>The full app</strong><span>A place to settle in</span></div><div class="phone"><div class="statusbar"><span>9:41</span><span>▰ ▰</span></div><div class="app full-app"><div class="app-header"><button class="icon history" aria-label="Preview conversations">☰</button><span class="app-brand"><span class="avatar">••</span>Beep</span><button class="icon new-chat" aria-label="Preview new chat">＋</button></div><div class="chat-body"></div><form class="composer"><input aria-label="Full app message preview" placeholder="Ask anything…"><button aria-label="Preview full app send">↑</button></form><div class="home-indicator"></div></div></div></div>
+<div class="device-column"><div class="preview-label"><strong>The quick bubble</strong><span>A moment, then back to life</span></div><div class="context-phone"><div class="statusbar"><span>9:41</span><span>▰ ▰</span></div><div class="background-app" aria-hidden="true"><p>THURSDAY, OCTOBER 1</p><h3>Room for<br>the good stuff.</h3><div class="calendar-card"><small>UP NEXT · 10:30</small><strong>Make something useful</strong><span>Design time / 45 min</span></div><div class="calendar-lines"></div><div class="calendar-lines short"></div></div><button class="floating-avatar" aria-label="Open or close bubble">••</button><div class="bubble app"><div class="app-header"><span class="app-brand">Beep<span class="ready-dot"></span></span><div class="header-actions"><button class="icon expand" aria-label="Focus full app preview">↗</button><button class="icon more" aria-label="Bubble options" aria-expanded="false">⋮</button></div><div class="bubble-menu" hidden><button class="new-chat">New chat</button><button class="history">Conversations</button><button class="close-bubble">Close bubble</button></div></div><div class="chat-body"></div><form class="composer"><input aria-label="Bubble message preview" placeholder="Ask anything…"><button aria-label="Preview bubble send">↑</button></form></div><div class="home-indicator"></div></div></div>
+</div>
+<div class="principles"><div><span>01</span><p><strong>One job for the bubble.</strong> Ask, read, get back to what you were doing.</p></div><div><span>02</span><p><strong>Show progress, quietly.</strong> Search and connection states appear only when useful.</p></div><div><span>03</span><p><strong>Let the answer breathe.</strong> Sources stay close. Extra controls stay out of the way.</p></div></div>
+</section>
+</div>
+<section class="decision"><div><p class="eyebrow">LET’S SHAPE IT</p><h2>What would you keep?</h2><p id="tradeoff"></p></div><div class="notes"><label for="notes">Your notes <span>Saved in this browser</span></label><textarea id="notes" rows="3" placeholder="I like Grove’s colors, but Peach’s little character…"></textarea><div class="decision-actions"><button id="share">Copy this direction ↗</button><span id="feedback" role="status"></span></div></div></section>
+</main>
+<dialog id="history-dialog"><div class="dialog-heading"><h2>Conversations</h2><button id="close-history" class="icon" aria-label="Close conversations">×</button></div><p>History belongs here, outside the quick chat.</p><button class="sample-chat">A quieter afternoon <span>Today ↗</span></button><button class="sample-chat">Ideas worth keeping <span>Yesterday ↗</span></button><small>Illustrative history for this design preview.</small></dialog>
+</body></html>
