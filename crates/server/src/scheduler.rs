@@ -56,10 +56,10 @@ async fn tick(app: &Arc<App>) -> anyhow::Result<()> {
 
         // Check if already ran this minute
         if let Ok(Some(last)) = app.store.cron_last_run(&user_id, id).await {
-            if let Ok(last_time) = chrono::DateTime::parse_from_rfc3339(&last) {
-                if now.signed_duration_since(last_time).num_seconds() < 55 {
-                    continue;
-                }
+            if let Ok(last_time) = chrono::DateTime::parse_from_rfc3339(&last)
+                && now.signed_duration_since(last_time).num_seconds() < 55
+            {
+                continue;
             }
             // Also try the SQLite datetime() format
             if let Ok(last_time) =

@@ -34,7 +34,8 @@ impl ComposioClient {
             .get(format!("{}/apps", self.base))
             .header("x-api-key", &self.key)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         let data: Value = response.json().await?;
         Ok(data.get("items").and_then(Value::as_array).cloned().unwrap_or_default())
     }
@@ -46,7 +47,8 @@ impl ComposioClient {
             .query(&[("appNames", app_name), ("limit", "20")])
             .header("x-api-key", &self.key)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         let data: Value = response.json().await?;
         Ok(data.get("items").and_then(Value::as_array).cloned().unwrap_or_default())
     }
@@ -66,7 +68,8 @@ impl ComposioClient {
                 "input": params,
             }))
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         let data: Value = response.json().await?;
         Ok(data)
     }
@@ -78,7 +81,8 @@ impl ComposioClient {
             .query(&[("user_uuid", entity_id)])
             .header("x-api-key", &self.key)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         let data: Value = response.json().await?;
         Ok(data.get("items").and_then(Value::as_array).cloned().unwrap_or_default())
     }
@@ -99,7 +103,8 @@ impl ComposioClient {
                 "redirectUrl": redirect_url,
             }))
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         let data: Value = response.json().await?;
         Ok(data)
     }

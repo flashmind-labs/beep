@@ -77,7 +77,11 @@ impl Store {
                     credentials TEXT NOT NULL DEFAULT '{}',
                     status TEXT NOT NULL DEFAULT 'disconnected',
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-                    PRIMARY KEY(user_id, id));",
+                    PRIMARY KEY(user_id, id));
+                CREATE INDEX IF NOT EXISTS idx_cron_logs_user_cron
+                    ON cron_logs(user_id, cron_id);
+                CREATE INDEX IF NOT EXISTS idx_runs_user_session
+                    ON runs(user_id, session_id);",
             )?;
             Ok(())
         })
