@@ -1,6 +1,7 @@
 use crate::{
     config::Auth,
-    store::{CreateRun, Run, Store},
+    protocol::{DeviceAnswer, DeviceQuery, Notice, Run, RunEvent},
+    store::{CreateRun, Store},
     tools,
 };
 use anyhow::Result;
@@ -12,7 +13,6 @@ use flashmind::{
 };
 use futures::StreamExt;
 use serde::Deserialize;
-use serde_json::{Value, json};
 use std::{collections::HashMap, fmt::Write, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, broadcast, oneshot};
 use uuid::Uuid;
@@ -20,14 +20,21 @@ use uuid::Uuid;
 pub struct App {
     pub store: Store,
     pub auth: Auth,
-    pub notifications: broadcast::Sender<String>,
+    pub notifications: broadcast::Sender<UserNotice>,
     provider: Arc<dyn LlmProvider>,
     model: Model,
     search: Option<Arc<crate::search::SearchTool>>,
     composio_key: Option<String>,
     mcp: Option<McpRegistry>,
     active: Mutex<HashMap<String, CancellationToken>>,
-    device_queries: Mutex<HashMap<String, oneshot::Sender<Value>>>,
+    device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
+}
+
+/// A `Notice` addressed to one user's open notification streams.
+#[derive(Debug, Clone)]
+pub struct UserNotice {
+    pub user: String,
+    pub notice: Notice,
 }
 
 #[derive(Deserialize)]
@@ -136,9 +143,9 @@ impl App {
     pub async fn device_query(
         &self,
         run_id: &str,
-        query: Value,
+        query: DeviceQuery,
         timeout_secs: u64,
-    ) -> Result<Value> {
+    ) -> Result<DeviceAnswer> {
         let query_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.device_queries
@@ -148,18 +155,17 @@ impl App {
         self.store
             .append(
                 run_id,
-                json!({
-                    "type": "device_query",
-                    "query_id": query_id,
-                    "query": query,
-                }),
+                &RunEvent::DeviceQuery {
+                    query_id: query_id.clone(),
+                    query,
+                },
             )
             .await?;
         let result = tokio::time::timeout(Duration::from_secs(timeout_secs), rx).await;
         // Clean up on timeout or channel close.
         self.device_queries.lock().await.remove(&query_id);
         match result {
-            Ok(Ok(value)) => Ok(value),
+            Ok(Ok(answer)) => Ok(answer),
             Ok(Err(_)) => anyhow::bail!("device query channel closed without a response"),
             Err(_) => anyhow::bail!("device query timed out after {timeout_secs}s"),
         }
@@ -167,9 +173,9 @@ impl App {
 
     /// Called by the device-result endpoint to deliver a response for a pending
     /// device query. Returns `true` if the query_id was found and resolved.
-    pub async fn resolve_device_query(&self, query_id: &str, result: Value) -> bool {
+    pub async fn resolve_device_query(&self, query_id: &str, answer: DeviceAnswer) -> bool {
         if let Some(tx) = self.device_queries.lock().await.remove(query_id) {
-            tx.send(result).is_ok()
+            tx.send(answer).is_ok()
         } else {
             false
         }
@@ -179,9 +185,9 @@ impl App {
         // Build a title from the session's first message (truncated).
         let title = match self.store.sessions(user).await {
             Ok(sessions) => sessions
-                .iter()
-                .find(|s| s["id"].as_str() == Some(&run.session_id))
-                .and_then(|s| s["title"].as_str().map(|t| t.to_owned()))
+                .into_iter()
+                .find(|s| s.id == run.session_id)
+                .map(|s| s.title)
                 .unwrap_or_else(|| "Run finished".to_owned()),
             Err(_) => "Run finished".to_owned(),
         };
@@ -191,15 +197,16 @@ impl App {
             "timed_out" => "The run timed out.".to_owned(),
             other => format!("Run ended with status: {other}"),
         };
-        let event = json!({
-            "type": "notification",
-            "user": user,
-            "title": title,
-            "body": body,
-            "conversation_id": run.session_id,
-        });
+        let notice = UserNotice {
+            user: user.to_owned(),
+            notice: Notice {
+                title,
+                body,
+                session_id: run.session_id.clone(),
+            },
+        };
         // Best-effort: ignore send errors (no active receivers).
-        let _ = self.notifications.send(event.to_string());
+        let _ = self.notifications.send(notice);
         if let Ok(tokens) = self.store.device_tokens(user).await
             && !tokens.is_empty()
         {
@@ -250,9 +257,7 @@ impl App {
         {
             let _ = writeln!(ctx, "Memories:");
             for mem in memories.iter().take(15) {
-                if let (Some(key), Some(content)) = (mem["key"].as_str(), mem["content"].as_str()) {
-                    let _ = writeln!(ctx, "- {key}: {content}");
-                }
+                let _ = writeln!(ctx, "- {}: {}", mem.key, mem.content);
             }
             has_content = true;
         }
@@ -341,9 +346,7 @@ impl App {
                     event = stream.next() => event,
                 };
                 let data = match event {
-                    Some(AgentEvent::TextDelta(delta)) => {
-                        json!({"type":"text_delta","delta":delta})
-                    }
+                    Some(AgentEvent::TextDelta(delta)) => RunEvent::TextDelta { delta },
                     Some(AgentEvent::ToolStart {
                         name,
                         id,
@@ -354,7 +357,11 @@ impl App {
                             cancel.cancel();
                             break "tool_limit";
                         }
-                        json!({"type":"tool_started","name":name,"call_id":id,"description":humanized})
+                        RunEvent::ToolStarted {
+                            name,
+                            call_id: id,
+                            description: humanized,
+                        }
                     }
                     Some(AgentEvent::ToolResult {
                         name,
@@ -362,20 +369,28 @@ impl App {
                         output,
                         success,
                         ..
-                    }) => {
-                        json!({"type":"tool_result","name":name,"call_id":id,"output":output,"success":success})
-                    }
-                    Some(AgentEvent::Usage(usage)) => json!({"type":"usage","usage":usage}),
+                    }) => RunEvent::ToolResult {
+                        name,
+                        call_id: id,
+                        output,
+                        success,
+                    },
+                    Some(AgentEvent::Usage(usage)) => RunEvent::Usage { usage },
                     Some(AgentEvent::Done(_)) => break "completed",
                     Some(AgentEvent::Error(_)) => {
                         // Provider errors can contain upstream response details. Keep them off the wire.
-                        self.store.append(&run.id,json!({"type":"error","message":"The model request failed. Check server provider configuration."})).await?;
+                        let error = RunEvent::Error {
+                            message:
+                                "The model request failed. Check server provider configuration."
+                                    .to_owned(),
+                        };
+                        self.store.append(&run.id, &error).await?;
                         break "failed";
                     }
                     None => break "failed",
                     _ => continue,
                 };
-                self.store.append(&run.id, data).await?;
+                self.store.append(&run.id, &data).await?;
             }
         };
         if is_cron {

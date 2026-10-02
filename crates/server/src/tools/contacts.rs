@@ -1,4 +1,7 @@
-use crate::app::App;
+use crate::{
+    app::App,
+    protocol::{DeviceAnswer, DeviceQuery},
+};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
@@ -35,18 +38,12 @@ impl Tool for ContactsTool {
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let name = ctx.args.get("name").and_then(Value::as_str).unwrap_or("");
-        let query = json!({
-            "action": "query_contacts",
-            "name": name,
-        });
+        let query = DeviceQuery::Contacts {
+            name: name.to_owned(),
+        };
         match self.app.device_query(&self.run_id, query, 10).await {
-            Ok(result) => {
-                if result.get("error").is_some() {
-                    Ok(ToolResult::failure(ctx.tool_call_id, result.to_string()))
-                } else {
-                    Ok(ToolResult::success(ctx.tool_call_id, result.to_string()))
-                }
-            }
+            Ok(DeviceAnswer::Ok { output }) => Ok(ToolResult::success(ctx.tool_call_id, output)),
+            Ok(DeviceAnswer::Err { message }) => Ok(ToolResult::failure(ctx.tool_call_id, message)),
             Err(e) => Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 format!("Could not reach the user's device: {e}"),
