@@ -99,6 +99,7 @@ function render() {
   const msgs = chat?.messages || [];
   for (let idx = 0; idx < msgs.length; idx++) {
     const message = msgs[idx]; const div = document.createElement('div'); div.className = `message ${message.role}`;
+    div.style.animationDelay = `${Math.min(idx * 30, 200)}ms`;
     const text = message.text || (message.role === 'assistant' ? 'Thinking...' : '');
     if (message.role === 'assistant') {
       renderMarkdown(div, text);

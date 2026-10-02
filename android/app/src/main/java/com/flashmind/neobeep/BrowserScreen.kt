@@ -22,8 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 
-private val BrowserBar = Color(0xFF151D18)
-private val BrowserBorder = Color(0xFF2A3830)
+private val BrowserBar = Color(0xFF121916)
+private val BrowserBorder = Color(0xFF243028)
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -35,7 +35,7 @@ fun BrowserScreen(url: String, onClose: () -> Unit, onContentExtracted: (String)
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().background(Color(0xFF0D1410))) {
+    Column(Modifier.fillMaxSize().background(Color(0xFF0A0E0C))) {
         // Top bar
         Surface(color = BrowserBar, shadowElevation = 4.dp) {
             Column {
@@ -50,7 +50,7 @@ fun BrowserScreen(url: String, onClose: () -> Unit, onContentExtracted: (String)
                         Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Forward", Modifier.size(20.dp))
                     }
                     Surface(
-                        color = Color(0xFF1C2620),
+                        color = Color(0xFF1A231E),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                     ) {

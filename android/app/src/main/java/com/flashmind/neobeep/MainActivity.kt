@@ -22,6 +22,7 @@ import androidx.compose.animation.core.EaseInOutCubic
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -82,13 +83,13 @@ private fun java.io.InputStream.readProfileBytes(): ByteArray {
     return buffer.copyOf(count)
 }
 
-private val Ink = Color(0xFF0D1410)
-private val Surface = Color(0xFF151D18)
-private val Elevated = Color(0xFF1C2620)
-private val Border = Color(0xFF2A3830)
+private val Ink = Color(0xFF0A0E0C)
+private val Surface = Color(0xFF121916)
+private val Elevated = Color(0xFF1A231E)
+private val Border = Color(0xFF243028)
 private val Moss = Color(0xFF3B9B7A)
-private val Lime = Color(0xFFC8F06A)
-private val TextPrimary = Color(0xFFE2E8E0)
+private val Coral = Color(0xFFF07A6A)
+private val TextPrimary = Color(0xFFE4EAE2)
 private val TextMuted = Color(0xFF7A8A80)
 private val TextDim = Color(0xFF4A5A50)
 
@@ -290,7 +291,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 SmallFloatingActionButton(
                     onClick = { repository.newChat() },
                     containerColor = Elevated,
-                    contentColor = Lime,
+                    contentColor = Coral,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.padding(bottom = 72.dp)
                 ) { Icon(Icons.Outlined.Add, "New conversation", Modifier.size(20.dp)) }
@@ -412,22 +413,20 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 7.dp)) {
                                 BeepAvatar(isThinking = isLastAssistant && chat.busy)
                                 Spacer(Modifier.width(8.dp))
-                                Text("BEEP", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, color = Lime)
+                                Text("BEEP", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, color = Coral)
                             }
                         }
-                        Surface(color = if (message.role == "user") Color(0xFF1A2E24) else Color.Transparent,
+                        Surface(color = if (message.role == "user") Color.Transparent else Color.Transparent,
                             shape = RoundedCornerShape(20.dp, 20.dp, if (message.role == "user") 5.dp else 20.dp, 20.dp),
-                            modifier = if (message.role == "user") Modifier.fillMaxWidth(0.85f)
-                            else Modifier.fillMaxWidth().drawBehind {
-                                drawLine(Moss, Offset(0f, 0f), Offset(0f, size.height), strokeWidth = 2.dp.toPx())
-                            }.padding(start = 10.dp)) {
-                            SelectionContainer {
-                                val isStreaming = message.role == "assistant" && chat.busy && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
-                                val textLen = message.text.length
-                                val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
-                                val displayText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
-                                Text(remember(displayText) { formattedMessage(displayText) }, modifier = Modifier.padding(if (message.role == "user") (if (compact) 10.dp else 16.dp) else 4.dp), fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
-                            }
+                            modifier = if (message.role == "user") Modifier.fillMaxWidth(0.85f).background(
+                                Brush.linearGradient(listOf(Color(0xFF182A22), Color(0xFF14201A))),
+                                RoundedCornerShape(20.dp, 20.dp, 5.dp, 20.dp))
+                            else Modifier.fillMaxWidth()) {
+                            val isStreaming = message.role == "assistant" && chat.busy && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
+                            val textLen = message.text.length
+                            val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
+                            val displayText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
+                            MessageContent(displayText, message.role, compact)
                         }
                         if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) CopyReply(message.text, compact)
                     }
@@ -448,7 +447,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 Spacer(Modifier.width(10.dp))
                 if (chat.tool.isNotEmpty()) {
                     Surface(shape = RoundedCornerShape(6.dp), color = Elevated) {
-                        Text(chat.tool, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Lime, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Monospace)
+                        Text(chat.tool, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Coral, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Monospace)
                     }
                     Spacer(Modifier.width(8.dp))
                 }
@@ -462,26 +461,32 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 if (chat.busy) TextButton(onClick = repository::retry) { Text("Retry") }
             }
         }
-        Row(Modifier.padding(horizontal = if (compact) 8.dp else 16.dp, vertical = if (compact) 4.dp else 10.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        Row(Modifier.padding(horizontal = if (compact) 8.dp else 14.dp, vertical = if (compact) 4.dp else 8.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             OutlinedTextField(value = draft, onValueChange = { if (it.toByteArray().size <= 32768) draft = it },
-                modifier = Modifier.weight(1f), placeholder = { Text("Ask anything…", fontSize = 14.sp) },
+                modifier = Modifier.weight(1f), placeholder = { Text("Ask anything…", fontSize = 14.sp, color = TextDim) },
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
-                    unfocusedBorderColor = Border, focusedBorderColor = Moss),
-                shape = RoundedCornerShape(if (compact) 20.dp else 26.dp), maxLines = if (compact) 3 else 5,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit() }),
-                trailingIcon = {
-                    if (chat.busy) IconButton(onClick = repository::cancel) { Icon(Icons.Outlined.StopCircle, "Stop reply", tint = Moss) }
-                    else {
-                        var sendPulse by remember { mutableStateOf(false) }
-                        val sendScale by animateFloatAsState(if (sendPulse) 1.2f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "send-pulse")
-                        LaunchedEffect(sendPulse) { if (sendPulse) { delay(150); sendPulse = false } }
-                        FilledIconButton(onClick = { sendPulse = true; submit() }, enabled = draft.isNotBlank(),
-                            modifier = Modifier.padding(4.dp).size(48.dp).graphicsLayer { scaleX = sendScale; scaleY = sendScale },
-                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Lime, contentColor = Ink)) {
-                            Icon(Icons.AutoMirrored.Outlined.Send, "Send message", modifier = Modifier.size(19.dp))
-                        }
-                    }
-                })
+                    unfocusedBorderColor = Color.Transparent, focusedBorderColor = Moss.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(if (compact) 20.dp else 24.dp), maxLines = if (compact) 3 else 6,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit() }))
+            Spacer(Modifier.width(8.dp))
+            if (chat.busy) {
+                FilledIconButton(onClick = repository::cancel,
+                    modifier = Modifier.size(48.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF2A1A1A), contentColor = Color(0xFFE85A4A))) {
+                    Icon(Icons.Outlined.StopCircle, "Stop reply", modifier = Modifier.size(22.dp))
+                }
+            } else {
+                var sendPulse by remember { mutableStateOf(false) }
+                val sendScale by animateFloatAsState(if (sendPulse) 1.15f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "send-pulse")
+                LaunchedEffect(sendPulse) { if (sendPulse) { delay(150); sendPulse = false } }
+                FilledIconButton(onClick = { sendPulse = true; submit() }, enabled = draft.isNotBlank(),
+                    modifier = Modifier.size(48.dp).graphicsLayer { scaleX = sendScale; scaleY = sendScale },
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Coral, contentColor = Ink,
+                        disabledContainerColor = Elevated, disabledContentColor = TextDim)) {
+                    Icon(Icons.AutoMirrored.Outlined.Send, "Send message", modifier = Modifier.size(19.dp))
+                }
+            }
         }
 
     }
@@ -503,44 +508,189 @@ private fun CopyReply(text: String, compact: Boolean) {
     }
 }
 
-private val CodeBlockBg = Color(0xFF121A16)
+// ── Rich message rendering ──────────────────────────────────────────────────
 
-// A deliberately small, safe Markdown subset: links, emphasis, inline code, headings, and fenced code blocks.
-private fun formattedMessage(text: String) = buildAnnotatedString {
-    val inlineTokens = Regex("""\[([^\]]+)\]\((https?://[^\s)]+)\)|(https?://[^\s<>]+)|\*\*(.+?)\*\*|`([^`\n]+)`""")
-    val fencePattern = Regex("""^```(\w*)""")
+private val CodeBlockBg = Color(0xFF0B100E)
+private val CodeBlockHeader = Color(0xFF080C0A)
+private val TableHeaderBg = Color(0xFF080C0A)
+private val TableAltRow = Color(0xFF0E1510)
+
+private sealed class MsgBlock {
+    data class Text(val content: String) : MsgBlock()
+    data class Code(val language: String, val code: String) : MsgBlock()
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : MsgBlock()
+    data class Quote(val content: String) : MsgBlock()
+    data object Rule : MsgBlock()
+}
+
+private fun parseBlocks(text: String): List<MsgBlock> {
+    val blocks = mutableListOf<MsgBlock>()
     val lines = text.split('\n')
     var i = 0
-    var firstLine = true
+    val pending = StringBuilder()
+    fun flush() { if (pending.isNotEmpty()) { blocks.add(MsgBlock.Text(pending.toString().trimEnd())); pending.clear() } }
     while (i < lines.size) {
-        val fenceMatch = fencePattern.find(lines[i])
-        if (fenceMatch != null) {
-            if (!firstLine) append("\n")
-            // Collect fenced code block content
-            i++ // skip opening fence
-            val codeLines = mutableListOf<String>()
-            while (i < lines.size && !lines[i].startsWith("```")) {
-                codeLines.add(lines[i]); i++
-            }
-            if (i < lines.size) i++ // skip closing fence
-            withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, background = CodeBlockBg)) {
-                append(codeLines.joinToString("\n"))
-            }
-            firstLine = false
+        val line = lines[i]
+        if (line.trimStart().startsWith("```")) {
+            flush()
+            val lang = line.trimStart().removePrefix("```").trim()
+            i++
+            val code = StringBuilder()
+            while (i < lines.size && !lines[i].trimStart().startsWith("```")) { if (code.isNotEmpty()) code.append('\n'); code.append(lines[i]); i++ }
+            if (i < lines.size) i++
+            blocks.add(MsgBlock.Code(lang, code.toString()))
             continue
         }
+        if (line.matches(Regex("^\\s*[-*_]{3,}\\s*$")) && pending.isBlank()) { flush(); blocks.add(MsgBlock.Rule); i++; continue }
+        if (line.trimStart().startsWith("|") && line.trimEnd().endsWith("|")) {
+            val tableLines = mutableListOf(line)
+            var j = i + 1
+            while (j < lines.size && lines[j].trimStart().startsWith("|") && lines[j].trimEnd().endsWith("|")) { tableLines.add(lines[j]); j++ }
+            if (tableLines.size >= 3 && tableLines[1].contains("---")) {
+                flush()
+                val headers = tableLines[0].split("|").filter { it.isNotBlank() }.map { it.trim() }
+                val rows = tableLines.drop(2).map { row -> row.split("|").filter { it.isNotBlank() }.map { it.trim() } }
+                blocks.add(MsgBlock.Table(headers, rows)); i = j; continue
+            }
+        }
+        if (line.trimStart().startsWith("> ") || line.trimStart() == ">") {
+            flush()
+            val quoteLines = mutableListOf<String>()
+            while (i < lines.size && (lines[i].trimStart().startsWith("> ") || lines[i].trimStart() == ">")) {
+                quoteLines.add(lines[i].trimStart().removePrefix("> ").removePrefix(">")); i++
+            }
+            blocks.add(MsgBlock.Quote(quoteLines.joinToString("\n"))); continue
+        }
+        if (pending.isNotEmpty()) pending.append('\n')
+        pending.append(line); i++
+    }
+    flush()
+    return blocks
+}
+
+@Composable
+private fun MessageContent(text: String, role: String, compact: Boolean) {
+    val blocks = remember(text) { parseBlocks(text) }
+    val padding = if (role == "user") (if (compact) 10.dp else 16.dp) else if (compact) 4.dp else 6.dp
+    Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp)) {
+        blocks.forEach { block ->
+            when (block) {
+                is MsgBlock.Text -> SelectionContainer {
+                    Text(remember(block.content) { formattedMessage(block.content) },
+                        fontSize = if (compact) 14.sp else 15.5.sp, lineHeight = if (compact) 21.sp else 24.sp)
+                }
+                is MsgBlock.Code -> CodeBlockView(block.language, block.code, compact)
+                is MsgBlock.Table -> TableView(block.headers, block.rows, compact)
+                is MsgBlock.Quote -> BlockQuoteView(block.content, compact)
+                MsgBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Border.copy(alpha = 0.5f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodeBlockView(language: String, code: String, compact: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
+    Surface(shape = RoundedCornerShape(12.dp), color = CodeBlockBg,
+        modifier = Modifier.fillMaxWidth(), shadowElevation = 2.dp) {
+        Column {
+            Row(Modifier.fillMaxWidth().background(CodeBlockHeader, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (language.isNotBlank()) {
+                    Surface(shape = RoundedCornerShape(4.dp), color = Border.copy(alpha = 0.4f)) {
+                        Text(language, Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                            fontSize = 10.sp, color = TextMuted, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp)
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                Row(Modifier.clickable {
+                    context.getSystemService(android.content.ClipboardManager::class.java)
+                        .setPrimaryClip(android.content.ClipData.newPlainText("Code", code))
+                    copied = true
+                }.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, null,
+                        Modifier.size(13.dp), tint = if (copied) Moss else TextDim)
+                    Spacer(Modifier.width(5.dp))
+                    Text(if (copied) "Copied" else "Copy", fontSize = 11.sp, color = if (copied) Moss else TextDim)
+                }
+            }
+            SelectionContainer {
+                Text(code, modifier = Modifier.horizontalScroll(rememberScrollState()).padding(14.dp),
+                    fontFamily = FontFamily.Monospace, fontSize = if (compact) 12.sp else 13.sp,
+                    lineHeight = if (compact) 18.sp else 20.sp, color = Color(0xFFD4E0D8))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableView(headers: List<String>, rows: List<List<String>>, compact: Boolean) {
+    Surface(shape = RoundedCornerShape(10.dp), color = CodeBlockBg,
+        modifier = Modifier.fillMaxWidth(), shadowElevation = 1.dp) {
+        Column(Modifier.horizontalScroll(rememberScrollState())) {
+            Row(Modifier.background(TableHeaderBg, RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)).padding(vertical = 10.dp, horizontal = 4.dp)) {
+                headers.forEach { header ->
+                    SelectionContainer {
+                        Text(header, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
+                            fontSize = if (compact) 11.sp else 12.sp, fontWeight = FontWeight.SemiBold,
+                            color = Coral.copy(alpha = 0.85f), maxLines = 2, letterSpacing = 0.3.sp)
+                    }
+                }
+            }
+            HorizontalDivider(color = Border.copy(alpha = 0.4f), thickness = 0.5.dp)
+            rows.forEachIndexed { index, row ->
+                Row(Modifier.then(if (index % 2 == 1) Modifier.background(TableAltRow) else Modifier).padding(vertical = 9.dp, horizontal = 4.dp)) {
+                    row.forEach { cell ->
+                        SelectionContainer {
+                            Text(cell, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
+                                fontSize = if (compact) 11.sp else 12.sp, color = TextPrimary,
+                                lineHeight = if (compact) 16.sp else 18.sp, maxLines = 4)
+                        }
+                    }
+                }
+                if (index < rows.lastIndex) HorizontalDivider(color = Border.copy(alpha = 0.15f), thickness = 0.5.dp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BlockQuoteView(content: String, compact: Boolean) {
+    Surface(shape = RoundedCornerShape(6.dp), color = Elevated.copy(alpha = 0.4f),
+        modifier = Modifier.fillMaxWidth().drawBehind {
+            drawRoundRect(Moss.copy(alpha = 0.6f), size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+        }) {
+        SelectionContainer {
+            Text(remember(content) { formattedMessage(content) },
+                modifier = Modifier.padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+                fontSize = if (compact) 13.sp else 14.sp, lineHeight = if (compact) 19.sp else 22.sp,
+                color = TextMuted)
+        }
+    }
+}
+
+// Inline markdown: links, bold, strikethrough, inline code, headings, bullets, numbered lists.
+private fun formattedMessage(text: String) = buildAnnotatedString {
+    val inlineTokens = Regex("""\[([^\]]+)\]\((https?://[^\s)]+)\)|(https?://[^\s<>]+)|\*\*(.+?)\*\*|~~(.+?)~~|`([^`\n]+)`""")
+    val lines = text.split('\n')
+    var firstLine = true
+    for (line in lines) {
         if (!firstLine) append("\n")
         firstLine = false
-        val line = lines[i]; i++
         val heading = Regex("^#{1,4} +").find(line)
-        val content = line.removePrefix(heading?.value.orEmpty()).replace(Regex("^[-*] +"), "\u2022 ")
-        pushStyle(if (heading != null) SpanStyle(fontWeight = FontWeight.SemiBold, fontSize = 18.sp) else SpanStyle())
+        val content = line.removePrefix(heading?.value.orEmpty())
+            .replace(Regex("^[-*] +"), "\u2022 ")
+        pushStyle(if (heading != null) SpanStyle(fontWeight = FontWeight.Bold, fontSize = 17.sp, letterSpacing = (-0.3).sp) else SpanStyle())
         var offset = 0
         for (match in inlineTokens.findAll(content)) {
             append(content.substring(offset, match.range.first))
             when {
                 match.groups[4] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(match.groups[4]!!.value) }
-                match.groups[5] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Elevated)) { append(match.groups[5]!!.value) }
+                match.groups[5] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = TextMuted)) { append(match.groups[5]!!.value) }
+                match.groups[6] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0xFF1A1614), color = Color(0xFFF09888), fontSize = 13.sp)) { append("\u200A${match.groups[6]!!.value}\u200A") }
                 else -> {
                     val url = (match.groups[2]?.value ?: match.groups[3]!!.value).trimEnd('.', ',', ';')
                     withLink(LinkAnnotation.Url(url, TextLinkStyles(style = SpanStyle(color = Moss, textDecoration = TextDecoration.Underline)))) {
@@ -599,14 +749,14 @@ fun BeepAvatar(isThinking: Boolean, modifier: Modifier = Modifier) {
                         ), label = "dot-bounce-$index"
                     )
                     Canvas(Modifier.size(5.dp).graphicsLayer { translationY = offset }) {
-                        drawCircle(Lime)
+                        drawCircle(Coral)
                     }
                 }
             }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
                 repeat(3) {
-                    Canvas(Modifier.size(5.dp)) { drawCircle(Lime) }
+                    Canvas(Modifier.size(5.dp)) { drawCircle(Coral) }
                 }
             }
         }

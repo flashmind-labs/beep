@@ -4,20 +4,20 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Base fill — Ink -->
+    <!-- Base fill -->
     <path
-        android:fillColor="#0D1410"
+        android:fillColor="#0A0E0C"
         android:pathData="M0,0h108v108H0z" />
 
-    <!-- Subtle radial glow — dark Moss vignette behind character -->
+    <!-- Subtle radial glow -->
     <path
-        android:fillColor="#132E24"
+        android:fillColor="#102820"
         android:fillAlpha="0.5"
         android:pathData="M54,54m-42,0a42,42 0,1 1,84 0a42,42 0,1 1,-84 0" />
 
-    <!-- Inner glow — slightly lighter core -->
+    <!-- Inner glow -->
     <path
-        android:fillColor="#1A3D30"
+        android:fillColor="#18382C"
         android:fillAlpha="0.35"
         android:pathData="M54,54m-28,0a28,28 0,1 1,56 0a28,28 0,1 1,-56 0" />
 

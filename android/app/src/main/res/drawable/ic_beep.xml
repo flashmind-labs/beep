@@ -4,29 +4,29 @@
     android:viewportWidth="48"
     android:viewportHeight="48">
 
-    <!-- Background circle — Ink -->
+    <!-- Background circle -->
     <path
-        android:fillColor="#0D1410"
+        android:fillColor="#0A0E0C"
         android:pathData="M24,0C37.25,0 48,10.75 48,24C48,37.25 37.25,48 24,48C10.75,48 0,37.25 0,24C0,10.75 10.75,0 24,0Z" />
 
-    <!-- Chat bubble body — Moss green, rounded rectangle with tail -->
+    <!-- Chat bubble body -->
     <path
         android:fillColor="#3B9B7A"
         android:pathData="M10,15C10,12.24 12.24,10 15,10L33,10C35.76,10 38,12.24 38,15L38,27C38,29.76 35.76,32 33,32L23,32L16.5,37C15.8,37.53 14.8,37.03 14.8,36.15L14.8,32C12.13,32 10,29.76 10,27Z" />
 
-    <!-- Dot left — Lime (center 18, 21; r=1.6) -->
+    <!-- Dot left — Coral -->
     <path
-        android:fillColor="#C8F06A"
+        android:fillColor="#F07A6A"
         android:pathData="M16.4,21A1.6,1.6 0,1,1 19.6,21A1.6,1.6 0,1,1 16.4,21Z" />
 
-    <!-- Dot center — Lime (center 24, 21; r=1.6) -->
+    <!-- Dot center — Coral -->
     <path
-        android:fillColor="#C8F06A"
+        android:fillColor="#F07A6A"
         android:pathData="M22.4,21A1.6,1.6 0,1,1 25.6,21A1.6,1.6 0,1,1 22.4,21Z" />
 
-    <!-- Dot right — Lime (center 30, 21; r=1.6) -->
+    <!-- Dot right — Coral -->
     <path
-        android:fillColor="#C8F06A"
+        android:fillColor="#F07A6A"
         android:pathData="M28.4,21A1.6,1.6 0,1,1 31.6,21A1.6,1.6 0,1,1 28.4,21Z" />
 
 </vector>
