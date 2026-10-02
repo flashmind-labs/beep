@@ -1,6 +1,6 @@
-use std::{collections::HashSet, net::SocketAddr, path::PathBuf};
+use std::{collections::HashSet, path::PathBuf};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -8,23 +8,17 @@ use subtle::ConstantTimeEq;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    pub listen: SocketAddr,
-    #[serde(default)]
-    pub additional_listen: Vec<SocketAddr>,
-    #[serde(default)]
-    pub web_enabled: bool,
+    pub secret_key: Option<PathBuf>,
     /// Explicit shared account for credential-free development. Disabled by default.
     pub testing_user: Option<String>,
-    pub certificate: PathBuf,
-    pub private_key: PathBuf,
     pub database: PathBuf,
     pub model: String,
     #[serde(default)]
     pub provider_url: Option<String>,
-    pub provider_key_env: Option<String>,
-    pub firecrawl_key_env: Option<String>,
-    pub composio_key_env: Option<String>,
-    pub fastmail_token_env: Option<String>,
+    pub provider_key: Option<String>,
+    pub firecrawl_key: Option<String>,
+    pub composio_key: Option<String>,
+    pub fastmail_token: Option<String>,
     pub users: Vec<UserConfig>,
 }
 
@@ -32,7 +26,7 @@ pub struct Config {
 #[serde(deny_unknown_fields)]
 pub struct UserConfig {
     pub id: String,
-    pub token_env: String,
+    pub token: String,
 }
 
 pub struct Auth {
@@ -70,15 +64,8 @@ impl Auth {
             config
                 .users
                 .iter()
-                .map(|user| {
-                    Ok((
-                        user.id.clone(),
-                        std::env::var(&user.token_env).with_context(|| {
-                            format!("missing token environment variable {}", user.token_env)
-                        })?,
-                    ))
-                })
-                .collect::<Result<_>>()?,
+                .map(|user| (user.id.clone(), user.token.clone()))
+                .collect(),
         )?;
         if let Some(user) = &config.testing_user {
             ensure!(

@@ -1,4 +1,4 @@
-package com.flashmind.neobeep
+package com.flashmind.beep
 
 import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -22,7 +22,7 @@ class ChatFlowTest {
         device.wakeUp()
         device.executeShellCommand("wm dismiss-keyguard")
         // Test-only profile is pushed by the developer; it is never embedded in either APK.
-        val raw = device.executeShellCommand("cat /sdcard/Download/neobeep-test.json")
+        val raw = device.executeShellCommand("cat /sdcard/Download/beep-test.json")
         val config = ConnectionSettings.fromJson(raw)
         LocalStorage(context).apply { saveSettings(config); saveState(ChatState()) }
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
@@ -46,9 +46,9 @@ class ChatFlowTest {
         device.pressHome()
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         assertTrue(device.wait(Until.hasObject(By.textContains(secondReply)), 5000))
-        device.executeShellCommand("pm grant com.flashmind.neobeep android.permission.POST_NOTIFICATIONS")
+        device.executeShellCommand("pm grant com.flashmind.beep android.permission.POST_NOTIFICATIONS")
         // Equivalent to the user allowing bubbles in Android's app settings.
-        device.executeShellCommand("cmd notification set_bubbles com.flashmind.neobeep 1")
+        device.executeShellCommand("cmd notification set_bubbles com.flashmind.beep 1")
         device.findObject(By.desc("Float chat")).click()
         // System bubble launch is asynchronous; dismiss our explanatory dialog if present.
         device.wait(Until.hasObject(By.text("Got it")), 1500)
@@ -56,7 +56,7 @@ class ChatFlowTest {
         Thread.sleep(1500)
         // Actual bubble activity must open, not just a successful notification post.
         val activity = device.executeShellCommand("dumpsys activity activities")
-        assertTrue("Expected Android to launch BubbleActivity", activity.contains("com.flashmind.neobeep/.BubbleActivity"))
+        assertTrue("Expected Android to launch BubbleActivity", activity.contains("com.flashmind.beep/.BubbleActivity"))
         assertTrue(device.wait(Until.hasObject(By.desc("Open full app")), 5000))
         device.takeScreenshot(java.io.File(context.filesDir, "bubble-test.png"))
         assertFalse("Bubble keeps copy actions out of the way", device.hasObject(By.text("Copy reply")))

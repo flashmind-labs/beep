@@ -1,4 +1,4 @@
-package com.flashmind.neobeep
+package com.flashmind.beep
 
 import android.app.PendingIntent
 import android.content.Intent

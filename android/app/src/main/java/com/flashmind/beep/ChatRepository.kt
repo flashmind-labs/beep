@@ -1,4 +1,4 @@
-package com.flashmind.neobeep
+package com.flashmind.beep
 
 import android.Manifest
 import android.app.Application
@@ -93,34 +93,19 @@ class ChatRepository(private val storage: LocalStorage) {
             loadHistory(state.value.current.id, config)
     }
     private suspend fun connectionLabel(config: ConnectionSettings): String {
-        val proto = if (config.transport == "http") "HTTP" else "QUIC"
         val mode = JSONObject(serverApi(config).json("GET", "/v1/auth")).optString("mode")
-        return if (mode == "testing") "Testing · shared account · $proto" else "Connected · $proto"
+        return if (mode == "testing") "Testing · shared account" else "Connected"
     }
     fun newChat() = update { state ->
         val chat = Conversation(); state.copy(conversations = listOf(chat) + state.conversations, selected = chat.id)
     }
     suspend fun connect(config: ConnectionSettings) {
-        require(config.configured) { "Enter your server and TLS hostname." }
+        require(config.configured) { "Enter your server's node ID." }
         connection.value = "Connecting…"
-        // Try the requested transport, fall back to HTTP if QUIC fails.
-        val effective = if (config.transport != "http") {
-            try {
-                val health = JSONObject(serverApi(config).json("GET", "/v1/health"))
-                check(health.optString("status") == "ok")
-                config
-            } catch (_: Exception) {
-                val httpConfig = config.copy(transport = "http")
-                val health = JSONObject(serverApi(httpConfig).json("GET", "/v1/health"))
-                check(health.optString("status") == "ok") { "Server not reachable over QUIC or HTTP." }
-                httpConfig
-            }
-        } else {
-            val health = JSONObject(serverApi(config).json("GET", "/v1/health"))
-            check(health.optString("status") == "ok") { "Server not reachable." }
-            config
-        }
-        val changedAccount = settings.value.address != effective.address || settings.value.token != effective.token
+        val health = JSONObject(serverApi(config).json("GET", "/v1/health"))
+        check(health.optString("status") == "ok") { "Server not reachable." }
+        val effective = config
+        val changedAccount = settings.value.nodeId != effective.nodeId || settings.value.token != effective.token
         synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
         storage.saveSettings(effective)
         settings.value = effective
@@ -139,18 +124,7 @@ class ChatRepository(private val storage: LocalStorage) {
             while (isActive) {
                 try {
                     connection.value = if (attempt > 0) "Reconnecting… (attempt ${attempt + 1})" else "Checking connection…"
-                    // Try current transport, fall back to HTTP if QUIC fails on first attempt.
-                    val current = settings.value
-                    try {
-                        serverApi(current).json("GET", "/v1/health")
-                    } catch (_: Exception) {
-                        if (current.transport != "http") {
-                            val httpConfig = current.copy(transport = "http")
-                            serverApi(httpConfig).json("GET", "/v1/health")
-                            storage.saveSettings(httpConfig)
-                            settings.value = httpConfig
-                        } else throw Exception("Server not reachable")
-                    }
+                    serverApi(settings.value).json("GET", "/v1/health")
                     connected.value = true
                     scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
                     NotificationService.start(storage.context)

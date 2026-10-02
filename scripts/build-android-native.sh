@@ -11,6 +11,6 @@ export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ndk_dir/toolchains/llvm/prebu
 export CC_aarch64_linux_android="$CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"
 export AR_aarch64_linux_android="$ndk_dir/toolchains/llvm/prebuilt/$ndk_host/bin/llvm-ar"
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo build -q -p neobeep-android --target aarch64-linux-android --release
+cargo build -q -p beep-android --target aarch64-linux-android --release
 mkdir -p android/app/src/main/jniLibs/arm64-v8a
-cp target/aarch64-linux-android/release/libneobeep_android.so android/app/src/main/jniLibs/arm64-v8a/
+cp target/aarch64-linux-android/release/libbeep_android.so android/app/src/main/jniLibs/arm64-v8a/

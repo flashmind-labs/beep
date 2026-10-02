@@ -2,156 +2,124 @@ use crate::{
     app::{App, Message},
     store::CreateRun,
 };
-use anyhow::{Context, Result};
-use bytes::{Buf, Bytes, BytesMut};
+use anyhow::Result;
+use bytes::{Bytes, BytesMut};
 use chrono::Utc;
 use cron::Schedule;
 use http::{Request, Response, StatusCode};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use iroh::endpoint::Connection;
+use iroh::protocol::AcceptError;
 use serde_json::{Value, json};
-use std::{io::BufReader, net::SocketAddr, path::Path, str::FromStr, sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
-type QuicStream = h3::server::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>;
-pub(crate) enum Stream {
-    Quic(Box<QuicStream>),
-    Http {
-        body: hyper::body::Incoming,
-        headers: Option<tokio::sync::oneshot::Sender<Response<()>>>,
-        data: tokio::sync::mpsc::Sender<Bytes>,
-    },
+pub const ALPN: &[u8] = b"beep/1";
+
+pub(crate) struct Stream {
+    send: iroh::endpoint::SendStream,
+    recv: iroh::endpoint::RecvStream,
 }
 impl Stream {
     async fn recv_data(&mut self) -> Result<Option<Bytes>> {
-        match self {
-            Self::Quic(stream) => Ok(stream
-                .recv_data()
-                .await?
-                .map(|mut b| b.copy_to_bytes(b.remaining()))),
-            Self::Http { body, .. } => {
-                use http_body_util::BodyExt;
-                while let Some(frame) = body.frame().await {
-                    if let Ok(bytes) = frame?.into_data() {
-                        return Ok(Some(bytes));
-                    }
-                }
-                Ok(None)
+        let mut buf = vec![0u8; 8192];
+        match self.recv.read(&mut buf).await? {
+            Some(n) => {
+                buf.truncate(n);
+                Ok(Some(Bytes::from(buf)))
             }
+            None => Ok(None),
         }
     }
     async fn send_response(&mut self, response: Response<()>) -> Result<()> {
-        match self {
-            Self::Quic(stream) => stream.send_response(response).await?,
-            Self::Http { headers, .. } => {
-                headers
-                    .take()
-                    .context("headers already sent")?
-                    .send(response)
-                    .map_err(|_| anyhow::anyhow!("client disconnected"))?;
-            }
-        }
+        let status = response.status().as_u16();
+        self.send.write_all(&status.to_be_bytes()).await?;
         Ok(())
     }
     async fn send_data(&mut self, bytes: Bytes) -> Result<()> {
-        match self {
-            Self::Quic(stream) => stream.send_data(bytes).await?,
-            Self::Http { data, .. } => data
-                .send(bytes)
-                .await
-                .map_err(|_| anyhow::anyhow!("client disconnected"))?,
-        }
+        self.send.write_all(&bytes).await?;
         Ok(())
     }
     async fn finish(&mut self) -> Result<()> {
-        if let Self::Quic(stream) = self {
-            stream.finish().await?;
+        self.send.finish().map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct BeepHandler {
+    app: Arc<App>,
+}
+
+impl std::fmt::Debug for BeepHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BeepHandler").finish()
+    }
+}
+
+impl BeepHandler {
+    pub fn new(app: Arc<App>) -> Self {
+        Self { app }
+    }
+}
+
+impl iroh::protocol::ProtocolHandler for BeepHandler {
+    async fn accept(&self, connection: Connection) -> std::result::Result<(), AcceptError> {
+        let connections = Arc::new(tokio::sync::Semaphore::new(32));
+        loop {
+            let (send, recv) = match connection.accept_bi().await {
+                Ok(streams) => streams,
+                Err(_) => break,
+            };
+            let Ok(permit) = connections.clone().try_acquire_owned() else {
+                continue;
+            };
+            let app = self.app.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                if let Err(error) = handle_iroh_stream(app, send, recv).await {
+                    tracing::debug!(%error, "iroh request ended");
+                }
+            });
         }
         Ok(())
     }
 }
 
-pub fn certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
-    let mut reader = BufReader::new(std::fs::File::open(path)?);
-    let certs = rustls_pemfile::certs(&mut reader).collect::<std::io::Result<Vec<_>>>()?;
-    anyhow::ensure!(!certs.is_empty(), "no certificates in PEM file");
-    Ok(certs)
-}
-
-pub fn private_key(path: &Path) -> Result<PrivateKeyDer<'static>> {
-    rustls_pemfile::private_key(&mut BufReader::new(std::fs::File::open(path)?))?
-        .context("no private key in PEM file")
-}
-
-pub fn endpoint(
-    addr: SocketAddr,
-    certs: Vec<CertificateDer<'static>>,
-    key: PrivateKeyDer<'static>,
-) -> Result<quinn::Endpoint> {
-    let mut tls = rustls::ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(certs, key)?;
-    tls.alpn_protocols = vec![b"h3".to_vec()];
-    // No 0-RTT: authenticated mutations must not be replayable as TLS early data.
-    tls.max_early_data_size = 0;
-    let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(tls)?;
-    let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
-    let mut transport = quinn::TransportConfig::default();
-    transport.max_concurrent_bidi_streams(32u32.into());
-    transport.max_idle_timeout(Some(Duration::from_secs(60).try_into()?));
-    config.transport_config(Arc::new(transport));
-    Ok(quinn::Endpoint::server(config, addr)?)
-}
-
-pub async fn serve(endpoint: quinn::Endpoint, app: Arc<App>) -> Result<()> {
-    // Bound unauthenticated connection work as well as authenticated run concurrency.
-    let connections = Arc::new(tokio::sync::Semaphore::new(128));
-    while let Some(incoming) = endpoint.accept().await {
-        let Ok(permit) = connections.clone().try_acquire_owned() else {
-            incoming.refuse();
-            continue;
-        };
-        let app = app.clone();
-        tokio::spawn(async move {
-            let _permit = permit;
-            let result: Result<()> = async {
-                let connection = tokio::time::timeout(Duration::from_secs(10), incoming).await??;
-                let mut h3 =
-                    h3::server::Connection::new(h3_quinn::Connection::new(connection)).await?;
-                while let Some(resolver) = h3.accept().await? {
-                    let app = app.clone();
-                    tokio::spawn(async move {
-                        let result: Result<()> = async {
-                            let (request, stream) = tokio::time::timeout(
-                                Duration::from_secs(10),
-                                resolver.resolve_request(),
-                            )
-                            .await??;
-                            handle(app, request, Stream::Quic(Box::new(stream))).await
-                        }
-                        .await;
-                        if let Err(error) = result {
-                            tracing::debug!(%error,"HTTP/3 request ended");
-                        }
-                    });
-                }
-                Ok(())
-            }
-            .await;
-            if let Err(error) = result {
-                tracing::debug!(%error,"QUIC connection ended");
-            }
-        });
+async fn handle_iroh_stream(
+    app: Arc<App>,
+    send: iroh::endpoint::SendStream,
+    mut recv: iroh::endpoint::RecvStream,
+) -> Result<()> {
+    let mut len_buf = [0u8; 4];
+    tokio::time::timeout(Duration::from_secs(10), recv.read_exact(&mut len_buf))
+        .await
+        .map_err(|_| anyhow::anyhow!("request header read timed out"))??;
+    let header_len = u32::from_be_bytes(len_buf) as usize;
+    anyhow::ensure!(header_len <= 8192, "request header too large");
+    let mut header_buf = vec![0u8; header_len];
+    tokio::time::timeout(Duration::from_secs(10), recv.read_exact(&mut header_buf))
+        .await
+        .map_err(|_| anyhow::anyhow!("request header read timed out"))??;
+    let header: Value = serde_json::from_slice(&header_buf)?;
+    let method = header["m"].as_str().unwrap_or("GET");
+    let path = header["p"].as_str().unwrap_or("/");
+    let auth = header["a"].as_str().unwrap_or("");
+    let mut builder = Request::builder().method(method).uri(path);
+    if !auth.is_empty() {
+        builder = builder.header("authorization", auth);
     }
-    Ok(())
+    let request = builder.body(())?;
+    let stream = Stream { send, recv };
+    handle(app, request, stream).await
 }
 
 async fn read_body(stream: &mut Stream, limit: usize) -> Result<Option<Bytes>> {
     let result = tokio::time::timeout(Duration::from_secs(10), async {
         let mut body = BytesMut::new();
-        while let Some(mut chunk) = stream.recv_data().await? {
-            if body.len() + chunk.remaining() > limit {
+        while let Some(chunk) = stream.recv_data().await? {
+            if body.len() + chunk.len() > limit {
                 return Ok::<_, anyhow::Error>(None);
             }
-            body.extend_from_slice(&chunk.copy_to_bytes(chunk.remaining()));
+            body.extend_from_slice(&chunk);
         }
         Ok(Some(body.freeze()))
     })
@@ -547,15 +515,10 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
         return reply(&mut stream, StatusCode::OK, json!({"saved": saved})).await;
     }
     if method == "GET" && path == "/v1/health" {
-        let protocol = if matches!(stream, Stream::Quic(_)) {
-            "h3"
-        } else {
-            "http"
-        };
         return reply(
             &mut stream,
             StatusCode::OK,
-            json!({"status":"ok","protocol":protocol,"version":1}),
+            json!({"status":"ok","protocol":"iroh","version":1}),
         )
         .await;
     }

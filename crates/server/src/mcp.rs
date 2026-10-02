@@ -1,4 +1,4 @@
-//! Fastmail MCP integration for the neobeep server.
+//! Fastmail MCP integration for the beep server.
 //!
 //! Connects to Fastmail's official MCP server using a bearer token and
 //! exposes its tools (email, contacts, calendar) to the agent.

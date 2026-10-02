@@ -1,4 +1,4 @@
-package com.flashmind.neobeep
+package com.flashmind.beep
 
 import android.app.*
 import android.content.Context
@@ -11,7 +11,7 @@ import android.os.Build
 import android.provider.Settings
 
 object Bubbles {
-    private const val CHANNEL = "assistant-chat"
+    private const val CHANNEL = "beep-bubble"
     private const val SHORTCUT = "beep-assistant"
     fun show(context: Context): Boolean {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -32,7 +32,7 @@ object Bubbles {
                 .setPersons(arrayOf(user, person)).setLongLived(true).setIntent(main).build()
         ))
         val intent = Intent(context, BubbleActivity::class.java).setAction(Intent.ACTION_VIEW)
-            .setData(Uri.parse("neobeep://assistant"))
+            .setData(Uri.parse("beep://assistant"))
         val bubble = Notification.BubbleMetadata.Builder(
             PendingIntent.getActivity(context, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or
                 if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0),

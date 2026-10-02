@@ -1,23 +1,25 @@
 use anyhow::{Context, Result};
+use beep_server::{
+    app::App,
+    config::{Auth, Config},
+    store::Store,
+    transport,
+};
 use flashmind::{
     llm::{OpenAiProvider, OpenRouterProvider},
     types::{LlmProvider, Model, Provider},
 };
-use neobeep_server::{
-    app::App,
-    config::{Auth, Config},
-    store::Store,
-    transport, web,
-};
+use iroh::SecretKey;
+use iroh::endpoint::presets;
+use iroh::protocol::Router;
 use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "neobeep_server=info".into()),
+                .unwrap_or_else(|_| "beep_server=info".into()),
         )
         .init();
     let config_path = std::env::args()
@@ -28,19 +30,10 @@ async fn main() -> Result<()> {
     )?;
     let auth = Auth::from_config(&config)?;
     let model: Model = config.model.parse()?;
-    let key = config
-        .provider_key_env
-        .as_ref()
-        .map(|name| {
-            let key = std::env::var(name)
-                .with_context(|| format!("missing provider key environment variable {name}"))?;
-            anyhow::ensure!(!key.trim().is_empty(), "provider key must not be empty");
-            Ok::<_, anyhow::Error>(key)
-        })
-        .transpose()?;
+    let key = config.provider_key.as_deref();
     let provider: Arc<dyn LlmProvider> = match model.provider {
         Provider::OpenRouter => Arc::new(OpenRouterProvider::new(
-            key.context("OpenRouter requires provider_key_env")?,
+            key.context("OpenRouter requires provider_key")?.to_owned(),
         )),
         Provider::OpenAi => {
             let url = config
@@ -65,58 +58,59 @@ async fn main() -> Result<()> {
     let store = Store::open(&config.database).await?;
     store.recover().await?;
     let search = config
-        .firecrawl_key_env
+        .firecrawl_key
         .as_ref()
-        .map(|name| {
-            let key = std::env::var(name)
-                .with_context(|| format!("missing search key environment variable {name}"))?;
-            neobeep_server::search::SearchTool::new(key).map(Arc::new)
-        })
+        .map(|key| beep_server::search::SearchTool::new(key.clone()).map(Arc::new))
         .transpose()?;
     let composio = config
-        .composio_key_env
+        .composio_key
         .as_ref()
-        .map(|name| {
-            let key = std::env::var(name)
-                .with_context(|| format!("missing Composio key environment variable {name}"))?;
-            neobeep_server::composio::ComposioClient::new(key).map(Arc::new)
-        })
+        .map(|key| beep_server::composio::ComposioClient::new(key.clone()).map(Arc::new))
         .transpose()?;
     let mcp = config
-        .fastmail_token_env
-        .as_ref()
-        .map(|name| {
-            let token = std::env::var(name)
-                .with_context(|| format!("missing Fastmail token environment variable {name}"))?;
-            anyhow::ensure!(!token.trim().is_empty(), "Fastmail token must not be empty");
-            Ok::<_, anyhow::Error>(neobeep_server::mcp::fastmail_registry(token))
-        })
-        .transpose()?;
+        .fastmail_token
+        .as_deref()
+        .map(|token| beep_server::mcp::fastmail_registry(token.to_owned()));
     let app = App::with_tools(store, auth, provider, model, search, composio, mcp);
     let scheduler_app = app.clone();
-    tokio::spawn(async move { neobeep_server::scheduler::run(scheduler_app).await });
-    let mut endpoints = Vec::new();
-    let mut listeners = tokio::task::JoinSet::new();
-    for address in std::iter::once(config.listen).chain(config.additional_listen) {
-        let listener = tokio::net::TcpListener::bind(address).await?;
-        listeners.spawn(web::serve(listener, app.clone(), config.web_enabled));
-        tracing::info!(%address, web=config.web_enabled, "HTTP/1.1 listening on TCP");
-        let endpoint = transport::endpoint(
-            address,
-            transport::certificates(&config.certificate)?,
-            transport::private_key(&config.private_key)?,
-        )?;
-        tracing::info!(address=%endpoint.local_addr()?,"Neobeep listening on HTTP/3 over QUIC (UDP)");
-        listeners.spawn(transport::serve(endpoint.clone(), app.clone()));
-        endpoints.push(endpoint);
-    }
-    tokio::select! {
-        result = listeners.join_next() => { if let Some(result) = result { result??; } },
-        result = tokio::signal::ctrl_c() => { result?; }
-    }
-    for endpoint in endpoints {
-        endpoint.close(0u32.into(), b"server shutdown");
-    }
+    tokio::spawn(async move { beep_server::scheduler::run(scheduler_app).await });
+
+    let secret_key = match &config.secret_key {
+        Some(path) => match std::fs::read_to_string(path) {
+            Ok(data) => data.trim().parse::<SecretKey>()?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                let key = SecretKey::generate();
+                if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    std::fs::create_dir_all(parent)?;
+                }
+                let hex: String = key.to_bytes().iter().map(|b| format!("{b:02x}")).collect();
+                std::fs::write(path, &hex)?;
+                tracing::info!("generated new secret key at {}", path.display());
+                key
+            }
+            Err(err) => return Err(err).context("reading secret key"),
+        },
+        None => SecretKey::generate(),
+    };
+
+    let endpoint = iroh::Endpoint::builder(presets::N0)
+        .secret_key(secret_key)
+        .bind()
+        .await?;
+
+    let node_id = endpoint.id();
+    tracing::info!(%node_id, "iroh endpoint bound");
+
+    let handler = transport::BeepHandler::new(app.clone());
+    let router = Router::builder(endpoint)
+        .accept(transport::ALPN, handler)
+        .spawn();
+
+    let addr = router.endpoint().addr();
+    tracing::info!(?addr, "listening");
+
+    tokio::signal::ctrl_c().await?;
+    router.shutdown().await?;
     app.shutdown().await;
     Ok(())
 }

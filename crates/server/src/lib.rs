@@ -8,4 +8,3 @@ pub mod search;
 pub mod store;
 pub mod tools;
 pub mod transport;
-pub mod web;

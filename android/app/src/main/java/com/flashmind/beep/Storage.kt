@@ -1,4 +1,4 @@
-package com.flashmind.neobeep
+package com.flashmind.beep
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
@@ -15,12 +15,12 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-data class ConnectionSettings(val address: String = "", val hostname: String = "", val token: String = "", val ca: String = "", val transport: String = "quic") {
-    val configured get() = address.isNotBlank() && (hostname.isNotBlank() || transport == "http")
+data class ConnectionSettings(val nodeId: String = "", val token: String = "") {
+    val configured get() = nodeId.isNotBlank()
     companion object {
         fun fromJson(raw: String): ConnectionSettings {
             val json = JSONObject(raw)
-            return ConnectionSettings(json.getString("address"), json.optString("hostname", ""), json.optString("token"), json.optString("ca"), json.optString("transport", "quic"))
+            return ConnectionSettings(json.getString("node_id"), json.optString("token"))
         }
     }
 }
@@ -45,17 +45,17 @@ class LocalStorage(internal val context: Context) {
     private val file = AtomicFile(File(context.filesDir, "conversations.json"))
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey("neobeep-token", null) as? SecretKey)?.let { return it }
+        (store.getKey("beep-token", null) as? SecretKey)?.let { return it }
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder("neobeep-token", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            init(KeyGenParameterSpec.Builder("beep-token", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
     fun loadSettings(): ConnectionSettings {
-        if (!prefs.contains("address") && BuildConfig.DEBUG) {
+        if (!prefs.contains("nodeId") && BuildConfig.DEBUG) {
             runCatching {
                 context.assets.open("testing-profile.json").bufferedReader().use { ConnectionSettings.fromJson(it.readText()) }
-            }.getOrNull()?.let { return it }
+            }.getOrNull()?.takeIf { it.configured }?.let { saveSettings(it); return it }
         }
         val encrypted = prefs.getString("token", "").orEmpty()
         val token = if (encrypted.isEmpty()) "" else runCatching {
@@ -64,13 +64,13 @@ class LocalStorage(internal val context: Context) {
                 init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
             }.doFinal(bytes.copyOfRange(12, bytes.size)).toString(Charsets.UTF_8)
         }.getOrDefault("")
-        return ConnectionSettings(prefs.getString("address", "").orEmpty(), prefs.getString("hostname", "").orEmpty(), token, prefs.getString("ca", "").orEmpty(), prefs.getString("transport", "quic").orEmpty())
+        return ConnectionSettings(prefs.getString("nodeId", "").orEmpty(), token)
     }
     fun saveSettings(settings: ConnectionSettings) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
         val encrypted = Base64.encodeToString(cipher.iv + cipher.doFinal(settings.token.toByteArray()), Base64.NO_WRAP)
-        check(prefs.edit().putString("address", settings.address).putString("hostname", settings.hostname)
-            .putString("token", encrypted).putString("ca", settings.ca).putString("transport", settings.transport).commit()) { "Could not save connection" }
+        check(prefs.edit().putString("nodeId", settings.nodeId)
+            .putString("token", encrypted).commit()) { "Could not save connection" }
     }
     fun loadState(): ChatState = runCatching {
         val json = JSONObject(file.openRead().bufferedReader().use { it.readText() })

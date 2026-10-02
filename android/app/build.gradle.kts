@@ -4,11 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
-    namespace = "com.flashmind.neobeep"
+    namespace = "com.flashmind.beep"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
     defaultConfig {
-        applicationId = "com.flashmind.neobeep"
+        applicationId = "com.flashmind.beep"
         minSdk = 30
         targetSdk = 36
         versionCode = 5
@@ -38,7 +38,6 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.glance:glance-material3:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250107")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
@@ -52,6 +51,6 @@ val buildNative by tasks.registering(Exec::class) {
     inputs.files(fileTree("../../crates/quic-client") { exclude("target/**") })
     inputs.files(fileTree("../../crates/android-bridge") { exclude("target/**") })
     inputs.file("../../Cargo.lock")
-    outputs.file("src/main/jniLibs/arm64-v8a/libneobeep_android.so")
+    outputs.file("src/main/jniLibs/arm64-v8a/libbeep_android.so")
 }
 tasks.named("preBuild").configure { dependsOn(buildNative) }
