@@ -25,7 +25,9 @@ data class ConnectionSettings(val address: String = "", val hostname: String = "
     }
 }
 
-data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String)
+data class Card(val type: String, val data: JSONObject)
+
+data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList())
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = "New conversation",
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
@@ -75,7 +77,13 @@ class LocalStorage(internal val context: Context) {
             val c = list.getJSONObject(index)
             val messages = c.getJSONArray("messages")
             Conversation(c.getString("id"), c.getString("title"), (0 until messages.length()).map { i ->
-                val m = messages.getJSONObject(i); ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"))
+                val m = messages.getJSONObject(i)
+                val cardsArr = m.optJSONArray("cards")
+                val cards = if (cardsArr != null) (0 until cardsArr.length()).map { ci ->
+                    val card = cardsArr.getJSONObject(ci)
+                    Card(card.getString("type"), card.getJSONObject("data"))
+                } else emptyList()
+                ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards)
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"), c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"))
         }
         check(conversations.isNotEmpty())
@@ -98,7 +106,15 @@ class LocalStorage(internal val context: Context) {
         val list = JSONArray()
         state.conversations.forEach { c ->
             val messages = JSONArray()
-            c.messages.forEach { m -> messages.put(JSONObject().put("id", m.id).put("role", m.role).put("text", m.text)) }
+            c.messages.forEach { m ->
+                val msg = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text)
+                if (m.cards.isNotEmpty()) {
+                    val cardsArr = JSONArray()
+                    m.cards.forEach { card -> cardsArr.put(JSONObject().put("type", card.type).put("data", card.data)) }
+                    msg.put("cards", cardsArr)
+                }
+                messages.put(msg)
+            }
             list.put(JSONObject().put("id", c.id).put("title", c.title).put("messages", messages)
                 .put("runId", c.runId).put("cursor", c.cursor).put("requestId", c.requestId)
                 .put("pendingText", c.pendingText).put("status", c.status).put("cancelRequested", c.cancelRequested))

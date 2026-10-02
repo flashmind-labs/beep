@@ -2,6 +2,7 @@ package com.flashmind.neobeep
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -23,7 +24,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.core.*
@@ -446,6 +449,12 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             val displayText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
                             MessageContent(displayText, message.role, compact)
                         }
+                        if (message.cards.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().animateContentSize()) {
+                                message.cards.forEach { card -> CardView(card, repository, compact) }
+                            }
+                        }
                         if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) CopyReply(message.text, compact)
                     }
                     } // end AnimatedVisibility
@@ -598,6 +607,138 @@ private fun parseBlocks(text: String): List<MsgBlock> {
     }
     flush()
     return blocks
+}
+
+@Composable
+private fun PlaceCard(data: org.json.JSONObject, compact: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val name = data.optString("name", "Unknown place")
+    val rating = data.optDouble("rating", 0.0)
+    val address = data.optString("address", "")
+    val lat = data.optDouble("latitude", 0.0)
+    val lng = data.optDouble("longitude", 0.0)
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Elevated,
+        modifier = Modifier.fillMaxWidth().animateContentSize()
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(name, fontWeight = FontWeight.Bold, fontSize = if (compact) 14.sp else 15.sp, color = TextPrimary)
+            if (rating > 0) {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val fullStars = rating.toInt()
+                    repeat(fullStars) {
+                        Icon(Icons.Outlined.Star, null, Modifier.size(14.dp), tint = Coral)
+                    }
+                    repeat(5 - fullStars) {
+                        Icon(Icons.Outlined.StarBorder, null, Modifier.size(14.dp), tint = TextDim)
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text("%.1f".format(rating), fontSize = 12.sp, color = TextMuted)
+                }
+            }
+            if (address.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(address, fontSize = if (compact) 12.sp else 13.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = {
+                    val uri = if (lat != 0.0 && lng != 0.0) "geo:$lat,$lng?q=${Uri.encode(name)}"
+                    else "geo:0,0?q=${Uri.encode(name)}"
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
+                },
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, Moss.copy(alpha = 0.6f)),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier.height(34.dp)
+            ) {
+                Icon(Icons.Outlined.Map, null, Modifier.size(14.dp), tint = Moss)
+                Spacer(Modifier.width(6.dp))
+                Text("Open in Maps", fontSize = 12.sp, color = Moss)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LinkCard(data: org.json.JSONObject, onBrowse: (String) -> Unit, compact: Boolean) {
+    val title = data.optString("title", "")
+    val description = data.optString("description", "")
+    val url = data.optString("url", "")
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Elevated,
+        modifier = Modifier.fillMaxWidth().clickable(enabled = url.isNotBlank()) { onBrowse(url) }.animateContentSize()
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            if (title.isNotBlank()) {
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = if (compact) 13.sp else 14.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            if (description.isNotBlank()) {
+                if (title.isNotBlank()) Spacer(Modifier.height(3.dp))
+                Text(description, fontSize = if (compact) 12.sp else 13.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            if (url.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Link, null, Modifier.size(12.dp), tint = Moss)
+                    Spacer(Modifier.width(4.dp))
+                    Text(url.removePrefix("https://").removePrefix("http://").take(40), fontSize = 11.sp, color = Moss, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepository) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val buttonsArr = data.optJSONArray("buttons") ?: return
+    val buttons = (0 until buttonsArr.length()).map { buttonsArr.getJSONObject(it) }
+
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        buttons.forEachIndexed { index, button ->
+            val label = button.optString("label", "Action")
+            val action = button.optString("action", "")
+            val isPrimary = index == 0
+            OutlinedButton(
+                onClick = {
+                    when (action) {
+                        "open_browser" -> repository.browserUrl.value = button.optString("url", "")
+                        "open_maps" -> {
+                            val query = button.optString("query", label)
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}")))
+                        }
+                        "open_app" -> repository.pendingIntent.value = AppIntent(
+                            app = button.optString("app", ""),
+                            uri = button.optString("uri", ""),
+                            fallbackUrl = button.optString("fallback_url", ""))
+                    }
+                },
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, if (isPrimary) Coral.copy(alpha = 0.7f) else Moss.copy(alpha = 0.5f)),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(label, fontSize = 13.sp, color = if (isPrimary) Coral else Moss)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CardView(card: Card, repository: ChatRepository, compact: Boolean) {
+    when (card.type) {
+        "place" -> PlaceCard(card.data, compact)
+        "link" -> LinkCard(card.data, onBrowse = { repository.browserUrl.value = it }, compact)
+        "action_buttons" -> ActionButtonRow(card.data, repository)
+    }
 }
 
 @Composable

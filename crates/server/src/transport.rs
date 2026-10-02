@@ -573,6 +573,51 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
             )
             .await;
         }
+        if method == "POST" && segments.get(3) == Some(&"device-result") && segments.len() == 4 {
+            let body = read_body(&mut stream, 65536).await?;
+            let Some(body) = body else {
+                return reply(
+                    &mut stream,
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    json!({"error":"body exceeds 64 KiB"}),
+                )
+                .await;
+            };
+            let parsed: Value = match serde_json::from_slice(&body) {
+                Ok(v) => v,
+                Err(_) => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":"invalid JSON"}),
+                    )
+                    .await;
+                }
+            };
+            let query_id = match parsed.get("query_id").and_then(Value::as_str) {
+                Some(id) if !id.is_empty() => id,
+                _ => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":"expected {\"query_id\": \"...\", \"result\": {...}}"}),
+                    )
+                    .await;
+                }
+            };
+            let result = parsed.get("result").cloned().unwrap_or(Value::Null);
+            let resolved = app.resolve_device_query(query_id, result).await;
+            return reply(
+                &mut stream,
+                if resolved {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                },
+                json!({"resolved": resolved}),
+            )
+            .await;
+        }
         if method == "GET" && segments.get(3) == Some(&"events") && segments.len() == 4 {
             let mut after = match request.uri().query() {
                 None => 0,

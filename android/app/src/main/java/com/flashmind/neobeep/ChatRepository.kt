@@ -246,6 +246,34 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
 
+    private fun executeDeviceQuery(query: JSONObject): JSONObject {
+        val action = query.optString("action", "unknown")
+        return JSONObject().put("error", "not_implemented").put("action", action)
+    }
+
+    private suspend fun sendDeviceResult(runId: String, queryId: String, result: JSONObject) {
+        val body = JSONObject().put("query_id", queryId).put("result", result)
+        QuicApi(settings.value).json("POST", "/v1/runs/$runId/device-result", body.toString())
+    }
+
+    private fun extractCardsFromText(message: ChatMessage): ChatMessage {
+        val cardPattern = Regex("""\{[^{}]*"type"\s*:\s*"card"[^{}]*\}""")
+        val matches = cardPattern.findAll(message.text)
+        val cards = mutableListOf<Card>()
+        var cleanText = message.text
+        for (match in matches) {
+            try {
+                val json = JSONObject(match.value)
+                if (json.optString("type") == "card") {
+                    cards.add(Card(json.getString("card_type"), json.getJSONObject("card_data")))
+                    cleanText = cleanText.replace(match.value, "")
+                }
+            } catch (_: Exception) {}
+        }
+        if (cards.isEmpty()) return message
+        return message.copy(text = cleanText.trim(), cards = message.cards + cards)
+    }
+
     private fun event(id: String, event: JSONObject) {
         val sequence = event.optLong("seq", -1)
         updateChat(id) { chat ->
@@ -263,7 +291,7 @@ class ChatRepository(private val storage: LocalStorage) {
                 "tool_result" -> {
                     next = next.copy(tool = if (event.optBoolean("success")) "Done" else "Tool didn’t complete")
                     val output = event.optString("output", "")
-                    if (output.contains("\"action\"")) {
+                    if (output.contains("\"action\"") || output.contains("\"type\"")) {
                         try {
                             val outputJson = JSONObject(output)
                             when (outputJson.optString("action")) {
@@ -273,13 +301,39 @@ class ChatRepository(private val storage: LocalStorage) {
                                     fallbackUrl = outputJson.optString("fallback_url", ""))
                                 "open_browser" -> browserUrl.value = outputJson.optString("url", "")
                             }
+                            if (outputJson.optString("type") == "card") {
+                                val card = Card(outputJson.getString("card_type"), outputJson.getJSONObject("card_data"))
+                                val messageId = "assistant-${chat.runId}"
+                                val existing = next.messages.find { it.id == messageId }
+                                if (existing != null) {
+                                    next = next.copy(messages = next.messages.map {
+                                        if (it.id == messageId) it.copy(cards = it.cards + card) else it
+                                    })
+                                } else {
+                                    next = next.copy(messages = next.messages + ChatMessage(messageId, "assistant", "", listOf(card)))
+                                }
+                            }
                         } catch (_: Exception) {}
+                    }
+                }
+                "device_query" -> {
+                    val queryId = event.getString("query_id")
+                    val query = event.getJSONObject("query")
+                    scope.launch {
+                        runCatching {
+                            val result = executeDeviceQuery(query)
+                            sendDeviceResult(chat.runId, queryId, result)
+                        }
                     }
                 }
                 "error" -> next = next.copy(error = event.optString("message", "The assistant couldn’t finish."))
                 "run_finished" -> {
                     val status = event.getString("status")
-                    next = next.copy(runId = "", status = "", tool = "", cancelRequested = false, error = when (status) {
+                    // Extract any card JSON embedded in assistant text
+                    val messageId = "assistant-${chat.runId}"
+                    next = next.copy(
+                        messages = next.messages.map { if (it.id == messageId) extractCardsFromText(it) else it },
+                        runId = "", status = "", tool = "", cancelRequested = false, error = when (status) {
                         "completed" -> ""
                         "cancelled" -> "Stopped"
                         "interrupted" -> "The server restarted. Send a new message to continue."
