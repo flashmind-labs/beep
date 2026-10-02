@@ -5,10 +5,7 @@ use beep_server::{
     store::Store,
     transport,
 };
-use flashmind::{
-    llm::{OpenAiProvider, OpenRouterProvider},
-    types::{LlmProvider, Model, Provider},
-};
+use flashmind::{llm::OpenRouterProvider, types::Model};
 use iroh::SecretKey;
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
@@ -16,12 +13,9 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "beep_server=info".into()),
-        )
-        .init();
+    logforth::starter_log::stderr().apply();
+    log::set_max_level(log::LevelFilter::Debug);
+
     let config_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "config.toml".into());
@@ -30,24 +24,12 @@ async fn main() -> Result<()> {
     )?;
     let auth = Auth::from_config(&config)?;
     let model: Model = config.model.parse()?;
-    let key = config.provider_key.as_deref();
-    let provider: Arc<dyn LlmProvider> = match model.provider {
-        Provider::OpenRouter => Arc::new(OpenRouterProvider::new(
-            key.context("OpenRouter requires provider_key")?.to_owned(),
-        )),
-        Provider::OpenAi => {
-            let url = config
-                .provider_url
-                .as_deref()
-                .context("OpenAI provider requires provider_url")?;
-            let mut builder = OpenAiProvider::builder(url);
-            if let Some(key) = key {
-                builder = builder.api_key(key);
-            }
-            Arc::new(builder.build()?)
-        }
-        _ => anyhow::bail!("This server supports openai: and openrouter: models"),
-    };
+    let key = config
+        .provider_key
+        .as_deref()
+        .context("provider_key is required for OpenRouter")?;
+    let provider = Arc::new(OpenRouterProvider::new(key.to_owned()));
+
     if let Some(parent) = config
         .database
         .parent()
@@ -71,7 +53,7 @@ async fn main() -> Result<()> {
         .fastmail_token
         .as_deref()
         .map(|token| beep_server::mcp::fastmail_registry(token.to_owned()));
-    let app = App::with_tools(store, auth, provider, model, search, composio, mcp);
+    let app = App::new(store, auth, provider, model, search, composio, mcp);
     let scheduler_app = app.clone();
     tokio::spawn(async move { beep_server::scheduler::run(scheduler_app).await });
 
@@ -85,7 +67,7 @@ async fn main() -> Result<()> {
                 }
                 let hex: String = key.to_bytes().iter().map(|b| format!("{b:02x}")).collect();
                 std::fs::write(path, &hex)?;
-                tracing::info!("generated new secret key at {}", path.display());
+                log::info!("generated new secret key at {}", path.display());
                 key
             }
             Err(err) => return Err(err).context("reading secret key"),
@@ -99,7 +81,7 @@ async fn main() -> Result<()> {
         .await?;
 
     let node_id = endpoint.id();
-    tracing::info!(%node_id, "iroh endpoint bound");
+    log::info!("iroh endpoint bound; node_id={node_id}");
 
     let handler = transport::BeepHandler::new(app.clone());
     let router = Router::builder(endpoint)
@@ -107,7 +89,7 @@ async fn main() -> Result<()> {
         .spawn();
 
     let addr = router.endpoint().addr();
-    tracing::info!(?addr, "listening");
+    log::info!("listening; addr={addr:?}");
 
     tokio::signal::ctrl_c().await?;
     router.shutdown().await?;

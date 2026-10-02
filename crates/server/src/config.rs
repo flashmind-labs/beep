@@ -13,8 +13,6 @@ pub struct Config {
     pub testing_user: Option<String>,
     pub database: PathBuf,
     pub model: String,
-    #[serde(default)]
-    pub provider_url: Option<String>,
     pub provider_key: Option<String>,
     pub firecrawl_key: Option<String>,
     pub composio_key: Option<String>,
