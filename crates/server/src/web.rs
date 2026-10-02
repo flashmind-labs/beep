@@ -24,6 +24,7 @@ fn full(status: StatusCode, mime: &str, content: impl Into<Bytes>) -> Response<B
         .unwrap()
 }
 fn headers(response: &mut Response<Body>) {
+    let has_csp = response.headers().contains_key("content-security-policy");
     for (key, value) in [
         ("cache-control", "no-store"),
         ("x-content-type-options", "nosniff"),
@@ -33,6 +34,9 @@ fn headers(response: &mut Response<Body>) {
             "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         ),
     ] {
+        if key == "content-security-policy" && has_csp {
+            continue;
+        }
         response.headers_mut().insert(
             http::header::HeaderName::from_static(key),
             http::HeaderValue::from_static(value),
@@ -83,6 +87,18 @@ async fn request(app: Arc<App>, request: Request<Incoming>) -> Result<Response<B
                 "text/html; charset=utf-8",
                 include_str!("../../../web/index.html"),
             ),
+            "/ui-mockups" | "/ui-mockups.html" => {
+                let mut r = full(
+                    StatusCode::OK,
+                    "text/html; charset=utf-8",
+                    include_str!("../../../web/ui-mockups.html"),
+                );
+                r.headers_mut().insert(
+                    http::header::HeaderName::from_static("content-security-policy"),
+                    http::HeaderValue::from_static("default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; object-src 'none'"),
+                );
+                r
+            }
             "/design" | "/design/" => full(
                 StatusCode::OK,
                 "text/html; charset=utf-8",

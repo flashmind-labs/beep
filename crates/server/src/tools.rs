@@ -81,8 +81,12 @@ impl Tool for CronTool {
     }
     fn description(&self) -> &str {
         match self.variant {
-            "cron_create" => "Create a scheduled automation. Uses standard 5-field POSIX cron (minute hour day-of-month month day-of-week) in the user's local timezone. Set once=true for one-time reminders that auto-disable after firing.",
-            "cron_list" => "List the user's existing scheduled automations with their IDs, labels, schedules, and enabled status.",
+            "cron_create" => {
+                "Create a scheduled automation. Uses standard 5-field POSIX cron (minute hour day-of-month month day-of-week) in the user's local timezone. Set once=true for one-time reminders that auto-disable after firing."
+            }
+            "cron_list" => {
+                "List the user's existing scheduled automations with their IDs, labels, schedules, and enabled status."
+            }
             "cron_delete" => "Delete a scheduled automation by its ID.",
             _ => "",
         }
@@ -116,18 +120,34 @@ impl Tool for CronTool {
         let output = match self.variant {
             "cron_create" => {
                 let label = ctx.args.get("label").and_then(Value::as_str).unwrap_or("");
-                let schedule = ctx.args.get("schedule").and_then(Value::as_str).unwrap_or("");
+                let schedule = ctx
+                    .args
+                    .get("schedule")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let prompt = ctx.args.get("prompt").and_then(Value::as_str).unwrap_or("");
-                let once = ctx.args.get("once").and_then(Value::as_bool).unwrap_or(false);
+                let once = ctx
+                    .args
+                    .get("once")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 if label.is_empty() || schedule.is_empty() || prompt.is_empty() {
-                    return Ok(ToolResult::failure(ctx.tool_call_id, "label, schedule, and prompt are all required"));
+                    return Ok(ToolResult::failure(
+                        ctx.tool_call_id,
+                        "label, schedule, and prompt are all required",
+                    ));
                 }
                 // Validate the cron expression by converting to 7-field and parsing
                 let seven = format!("0 {} *", schedule);
                 if cron::Schedule::from_str(&seven).is_err() {
-                    return Ok(ToolResult::failure(ctx.tool_call_id, "Invalid cron expression. Use 5-field POSIX format: minute hour day month weekday. Example: '0 9 * * *' for daily at 9 AM."));
+                    return Ok(ToolResult::failure(
+                        ctx.tool_call_id,
+                        "Invalid cron expression. Use 5-field POSIX format: minute hour day month weekday. Example: '0 9 * * *' for daily at 9 AM.",
+                    ));
                 }
-                self.store.create_cron_ex(&self.user, label, schedule, prompt, once).await?;
+                self.store
+                    .create_cron_ex(&self.user, label, schedule, prompt, once)
+                    .await?;
                 json!({"created": true, "label": label, "schedule": schedule, "once": once})
             }
             "cron_list" => {
@@ -181,7 +201,8 @@ impl Tool for OpenAppTool {
         let action = ctx.args.get("action").and_then(Value::as_str).unwrap_or("");
         let uri_override = ctx.args.get("uri").and_then(Value::as_str);
 
-        let (intent_action, default_uri, fallback_url, package) = match app.to_lowercase().as_str() {
+        let (intent_action, default_uri, fallback_url, package) = match app.to_lowercase().as_str()
+        {
             "spotify" => (
                 "android.intent.action.VIEW",
                 "spotify:",
@@ -236,12 +257,7 @@ impl Tool for OpenAppTool {
                 "https://calendar.google.com/",
                 "com.google.android.calendar",
             ),
-            _ => (
-                "android.intent.action.VIEW",
-                "",
-                "",
-                "",
-            ),
+            _ => ("android.intent.action.VIEW", "", "", ""),
         };
 
         let uri = uri_override.unwrap_or(default_uri);
@@ -315,7 +331,11 @@ impl Tool for OpenBrowserTool {
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let url = ctx.args.get("url").and_then(Value::as_str).unwrap_or("");
-        let extract_content = ctx.args.get("extract_content").and_then(Value::as_bool).unwrap_or(false);
+        let extract_content = ctx
+            .args
+            .get("extract_content")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
         let output = json!({
             "action": "open_browser",

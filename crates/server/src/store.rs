@@ -88,14 +88,29 @@ impl Store {
             // Migrations for existing databases
             let has_col = |table: &str, col: &str| -> rusqlite::Result<bool> {
                 let mut stmt = db.prepare(&format!("PRAGMA table_info({})", table))?;
-                let found = stmt.query_map([], |r| r.get::<_, String>(1))?.any(|r| r.as_deref() == Ok(col));
+                let found = stmt
+                    .query_map([], |r| r.get::<_, String>(1))?
+                    .any(|r| r.as_deref() == Ok(col));
                 Ok(found)
             };
             if !has_col("crons", "run_once")? {
-                db.execute_batch("ALTER TABLE crons ADD COLUMN run_once INTEGER NOT NULL DEFAULT 0;")?;
+                db.execute_batch(
+                    "ALTER TABLE crons ADD COLUMN run_once INTEGER NOT NULL DEFAULT 0;",
+                )?;
             }
             if !has_col("locations", "timezone")? {
-                db.execute_batch("ALTER TABLE locations ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC';")?;
+                db.execute_batch(
+                    "ALTER TABLE locations ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC';",
+                )?;
+            }
+            if !has_col("crons", "last_run_at")? {
+                db.execute_batch("ALTER TABLE crons ADD COLUMN last_run_at TEXT;")?;
+            }
+            if !has_col("crons", "last_status")? {
+                db.execute_batch("ALTER TABLE crons ADD COLUMN last_status TEXT;")?;
+            }
+            if !has_col("crons", "last_error")? {
+                db.execute_batch("ALTER TABLE crons ADD COLUMN last_error TEXT;")?;
             }
             Ok(())
         })
@@ -316,7 +331,7 @@ impl Store {
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
-                    "SELECT id, label, prompt, schedule, enabled, created_at, run_once FROM crons WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
+                    "SELECT id, label, prompt, schedule, enabled, created_at, run_once, last_run_at, last_status, last_error FROM crons WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
                 )?;
                 let rows = stmt
                     .query_map([user], |r| {
@@ -328,6 +343,9 @@ impl Store {
                             "enabled": r.get::<_,bool>(4)?,
                             "created_at": r.get::<_,String>(5)?,
                             "run_once": r.get::<_,bool>(6)?,
+                            "last_run_at": r.get::<_,Option<String>>(7)?,
+                            "last_status": r.get::<_,Option<String>>(8)?,
+                            "last_error": r.get::<_,Option<String>>(9)?,
                         }))
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -343,7 +361,8 @@ impl Store {
         schedule: &str,
         prompt: &str,
     ) -> Result<String> {
-        self.create_cron_ex(user, label, schedule, prompt, false).await
+        self.create_cron_ex(user, label, schedule, prompt, false)
+            .await
     }
 
     pub async fn create_cron_ex(
@@ -424,6 +443,23 @@ impl Store {
             .await?)
     }
 
+    pub async fn toggle_cron(&self, user: &str, id: &str) -> Result<Option<bool>> {
+        let (user, id) = (user.to_owned(), id.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let new_enabled: Option<bool> = db
+                    .query_row(
+                        "UPDATE crons SET enabled = 1 - enabled WHERE user_id=? AND id=? RETURNING enabled",
+                        params![user, id],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                Ok(new_enabled)
+            })
+            .await?)
+    }
+
     pub async fn delete_cron(&self, user: &str, id: &str) -> Result<bool> {
         let (user, id) = (user.to_owned(), id.to_owned());
         Ok(self
@@ -437,8 +473,14 @@ impl Store {
             .await?)
     }
 
-    pub async fn register_device(&self, user: &str, device_id: &str, fcm_token: &str) -> Result<()> {
-        let (user, device_id, fcm_token) = (user.to_owned(), device_id.to_owned(), fcm_token.to_owned());
+    pub async fn register_device(
+        &self,
+        user: &str,
+        device_id: &str,
+        fcm_token: &str,
+    ) -> Result<()> {
+        let (user, device_id, fcm_token) =
+            (user.to_owned(), device_id.to_owned(), fcm_token.to_owned());
         self.0
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
@@ -508,10 +550,18 @@ impl Store {
         let (run_id, status, error) = (run_id.to_owned(), status.to_owned(), error.to_owned());
         self.0
             .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
+                let tx = db.transaction()?;
+                tx.execute(
                     "UPDATE cron_logs SET finished_at=datetime('now'), status=?, error=? WHERE run_id=?",
                     params![status, error, run_id],
                 )?;
+                // Denormalize last run info onto the crons row.
+                tx.execute(
+                    "UPDATE crons SET last_run_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), last_status=?, last_error=NULLIF(?,'') \
+                     WHERE (user_id, id) IN (SELECT user_id, cron_id FROM cron_logs WHERE run_id=?)",
+                    params![status, error, run_id],
+                )?;
+                tx.commit()?;
                 Ok(())
             })
             .await?;
@@ -676,7 +726,8 @@ impl Store {
         longitude: f64,
         accuracy: f64,
     ) -> Result<()> {
-        self.update_location_tz(user, latitude, longitude, accuracy, "UTC").await
+        self.update_location_tz(user, latitude, longitude, accuracy, "UTC")
+            .await
     }
 
     pub async fn update_location_tz(

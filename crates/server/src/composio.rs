@@ -37,7 +37,11 @@ impl ComposioClient {
             .await?
             .error_for_status()?;
         let data: Value = response.json().await?;
-        Ok(data.get("items").and_then(Value::as_array).cloned().unwrap_or_default())
+        Ok(data
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
 
     pub async fn get_actions(&self, app_name: &str) -> Result<Vec<Value>> {
@@ -50,7 +54,11 @@ impl ComposioClient {
             .await?
             .error_for_status()?;
         let data: Value = response.json().await?;
-        Ok(data.get("items").and_then(Value::as_array).cloned().unwrap_or_default())
+        Ok(data
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
 
     pub async fn execute_action(
@@ -84,7 +92,11 @@ impl ComposioClient {
             .await?
             .error_for_status()?;
         let data: Value = response.json().await?;
-        Ok(data.get("items").and_then(Value::as_array).cloned().unwrap_or_default())
+        Ok(data
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
 
     pub async fn initiate_connection(
@@ -152,7 +164,9 @@ impl Tool for ComposioListTool {
                         .collect();
                     json!({"app": app, "actions": summary})
                 }
-                Err(_) => json!({"error": "Could not fetch actions. Check Composio configuration."}),
+                Err(_) => {
+                    json!({"error": "Could not fetch actions. Check Composio configuration."})
+                }
             }
         } else {
             match self.client.list_apps().await {
@@ -213,11 +227,7 @@ impl Tool for ComposioExecuteTool {
             .get("action_id")
             .and_then(Value::as_str)
             .unwrap_or("");
-        let params = ctx
-            .args
-            .get("params")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
+        let params = ctx.args.get("params").cloned().unwrap_or_else(|| json!({}));
 
         // Find the user's connected account
         let accounts = match self.client.list_connected_accounts(&self.user).await {

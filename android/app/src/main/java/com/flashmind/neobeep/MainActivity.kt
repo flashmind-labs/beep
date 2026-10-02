@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
+import android.provider.Settings as SystemSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -92,6 +93,17 @@ private val Coral = Color(0xFFF07A6A)
 private val TextPrimary = Color(0xFFE4EAE2)
 private val TextMuted = Color(0xFF7A8A80)
 private val TextDim = Color(0xFF4A5A50)
+
+/** Returns true when the system "Remove animations" / "Animator duration scale = 0" setting is on. */
+@Composable
+private fun reduceMotion(): Boolean {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember(context) {
+        try {
+            SystemSettings.Global.getFloat(context.contentResolver, SystemSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+        } catch (_: Exception) { false }
+    }
+}
 
 open class MainActivity : ComponentActivity() {
     protected open val bubble = false
@@ -365,7 +377,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
     }
     LaunchedEffect(chat.id) { if (chat.messages.isNotEmpty()) list.scrollToItem(chat.messages.lastIndex) }
     LaunchedEffect(chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status) {
-        if (chat.messages.isNotEmpty() && followLatest) list.scrollToItem(chat.messages.size - 1)
+        if (chat.messages.isNotEmpty() && followLatest) list.animateScrollToItem(chat.messages.size - 1)
     }
     fun submit() { if (draft.isNotBlank() && !chat.busy) { followLatest = true; repository.send(draft); draft = "" } }
     Column(modifier.imePadding()) {
@@ -405,8 +417,14 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 }
             }
         } else {
+            val noMotion = reduceMotion()
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 22.dp)) {
                 items(chat.messages, key = { it.id }) { message ->
+                    val appeared = remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) { appeared.value = true }
+                    AnimatedVisibility(visible = appeared.value,
+                        enter = if (noMotion) EnterTransition.None else fadeIn(tween(250)) + slideInVertically(spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)) { it / 3 }
+                    ) {
                     Column(Modifier.fillMaxWidth().animateItem(), horizontalAlignment = if (message.role == "user") Alignment.End else Alignment.Start) {
                         if (message.role == "assistant" && !compact) {
                             val isLastAssistant = chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
@@ -430,6 +448,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         }
                         if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) CopyReply(message.text, compact)
                     }
+                    } // end AnimatedVisibility
                 }
             }
         }
@@ -441,14 +460,27 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             }
         }
         AnimatedVisibility(visible = chat.status.isNotEmpty() || chat.tool.isNotEmpty(),
-            enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            Row(Modifier.padding(horizontal = 22.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            enter = fadeIn(tween(200)) + expandVertically(tween(200)), exit = fadeOut(tween(150)) + shrinkVertically(tween(150))) {
+            Row(Modifier.padding(horizontal = 22.dp, vertical = 8.dp).animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)),
+                verticalAlignment = Alignment.CenterVertically) {
                 BeepAvatar(isThinking = true, modifier = Modifier)
                 Spacer(Modifier.width(10.dp))
                 if (chat.tool.isNotEmpty()) {
-                    Surface(shape = RoundedCornerShape(6.dp), color = Elevated) {
+                    val toolDone = chat.tool == "Done" || chat.tool.contains("didn't complete")
+                    val toolTransition = rememberInfiniteTransition(label = "tool-pulse")
+                    val toolAlpha by if (toolDone || reduceMotion()) remember { mutableStateOf(1f) } else toolTransition.animateFloat(
+                        initialValue = 0.6f, targetValue = 1f,
+                        animationSpec = infiniteRepeatable(tween(700, easing = EaseInOutCubic), RepeatMode.Reverse),
+                        label = "tool-alpha"
+                    )
+                    Surface(shape = RoundedCornerShape(6.dp), color = Elevated,
+                        modifier = Modifier.graphicsLayer { alpha = toolAlpha }.animateContentSize()) {
                         Text(chat.tool, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Coral, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Monospace)
                     }
+                    Spacer(Modifier.width(8.dp))
+                }
+                if (chat.status.isNotEmpty() && chat.tool.isEmpty()) {
+                    PulsingDots()
                     Spacer(Modifier.width(8.dp))
                 }
                 Text(chat.status, color = TextMuted, fontSize = 12.sp, maxLines = 2)
@@ -707,17 +739,32 @@ private fun formattedMessage(text: String) = buildAnnotatedString {
 
 @Composable
 private fun PulsingDots() {
+    val noMotion = reduceMotion()
+    if (noMotion) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            repeat(3) { Box(Modifier.size(6.dp).background(Moss, CircleShape)) }
+        }
+        return
+    }
     val infiniteTransition = rememberInfiniteTransition(label = "dots")
-    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
             val alpha by infiniteTransition.animateFloat(
-                initialValue = 0.3f, targetValue = 1f,
+                initialValue = 0.25f, targetValue = 1f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(500, easing = LinearEasing, delayMillis = index * 150),
+                    animation = tween(450, easing = EaseInOutCubic, delayMillis = index * 160),
                     repeatMode = RepeatMode.Reverse
-                ), label = "dot$index"
+                ), label = "dot-alpha-$index"
             )
-            Box(Modifier.size(5.dp).background(Moss.copy(alpha = alpha), CircleShape))
+            val scale by infiniteTransition.animateFloat(
+                initialValue = 0.7f, targetValue = 1.15f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(450, easing = EaseInOutCubic, delayMillis = index * 160),
+                    repeatMode = RepeatMode.Reverse
+                ), label = "dot-scale-$index"
+            )
+            Box(Modifier.size(6.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                .background(Moss.copy(alpha = alpha), CircleShape))
         }
     }
 }
@@ -736,9 +783,36 @@ private fun ConnectionDot(connected: Boolean, status: String) {
 
 @Composable
 fun BeepAvatar(isThinking: Boolean, modifier: Modifier = Modifier) {
-    Box(modifier.size(32.dp).background(Elevated, CircleShape), contentAlignment = Alignment.Center) {
-        if (isThinking) {
-            val infiniteTransition = rememberInfiniteTransition(label = "beep-avatar")
+    val noMotion = reduceMotion()
+    val infiniteTransition = rememberInfiniteTransition(label = "beep-avatar")
+
+    // Idle: gentle breathing scale (0.97 to 1.03). Active: slightly faster pulse.
+    val breatheScale by if (noMotion) remember { mutableStateOf(1f) } else infiniteTransition.animateFloat(
+        initialValue = 0.97f, targetValue = 1.03f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (isThinking) 800 else 2400, easing = EaseInOutCubic),
+            repeatMode = RepeatMode.Reverse
+        ), label = "avatar-breathe"
+    )
+
+    // Emerald glow alpha when thinking.
+    val glowAlpha by if (noMotion || !isThinking) remember { mutableStateOf(0f) } else infiniteTransition.animateFloat(
+        initialValue = 0.15f, targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = EaseInOutCubic),
+            repeatMode = RepeatMode.Reverse
+        ), label = "avatar-glow"
+    )
+
+    Box(modifier.size(32.dp)
+        .graphicsLayer { scaleX = breatheScale; scaleY = breatheScale }
+        .then(if (isThinking && !noMotion) Modifier.drawBehind {
+            drawCircle(Moss.copy(alpha = glowAlpha), radius = size.minDimension * 0.75f)
+        } else Modifier)
+        .background(Elevated, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isThinking && !noMotion) {
             Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
                 repeat(3) { index ->
                     val offset by infiniteTransition.animateFloat(

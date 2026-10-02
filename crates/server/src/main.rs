@@ -43,7 +43,9 @@ async fn main() -> Result<()> {
             key.context("OpenRouter requires provider_key_env")?,
         )),
         Provider::OpenAi => {
-            let url = config.provider_url.as_deref()
+            let url = config
+                .provider_url
+                .as_deref()
                 .context("OpenAI provider requires provider_url")?;
             let mut builder = OpenAiProvider::builder(url);
             if let Some(key) = key {
