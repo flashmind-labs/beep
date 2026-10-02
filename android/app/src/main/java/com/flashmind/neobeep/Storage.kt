@@ -82,6 +82,10 @@ class LocalStorage(internal val context: Context) {
         ChatState(conversations, json.optString("selected"))
     }.getOrElse { ChatState() }
 
+    var onboardingDone: Boolean
+        get() = prefs.getBoolean("onboarding_done", false)
+        set(value) { prefs.edit().putBoolean("onboarding_done", value).apply() }
+
     fun deviceId(): String {
         val existing = prefs.getString("device_id", null)
         if (existing != null) return existing

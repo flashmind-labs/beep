@@ -123,5 +123,12 @@ fun BrowserScreen(url: String, onClose: () -> Unit, onContentExtracted: (String)
             },
             modifier = Modifier.fillMaxSize()
         )
+        DisposableEffect(Unit) {
+            onDispose {
+                webView?.stopLoading()
+                webView?.destroy()
+                webView = null
+            }
+        }
     }
 }

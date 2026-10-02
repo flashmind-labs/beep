@@ -459,7 +459,8 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
                     && lng.is_finite()
                     && accuracy.is_finite() =>
             {
-                app.store.update_location(&user, lat, lng, accuracy).await?;
+                let tz = parsed.get("timezone").and_then(Value::as_str).unwrap_or("UTC");
+                app.store.update_location_tz(&user, lat, lng, accuracy, tz).await?;
                 return reply(&mut stream, StatusCode::OK, json!({"updated":true})).await;
             }
             _ => {

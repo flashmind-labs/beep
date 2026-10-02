@@ -5,7 +5,7 @@ use flashmind::types::{
     tool::{Tool, ToolContext, ToolResult},
 };
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 struct MemoryTool {
     store: Store,
@@ -63,6 +63,83 @@ impl Tool for MemoryTool {
                 json!({"forgotten":self.store.forget(&self.user,arg("key")?).await?})
             }
             _ => json!({"utc":chrono::Utc::now().to_rfc3339()}),
+        };
+        Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
+    }
+}
+
+struct CronTool {
+    store: Store,
+    user: String,
+    variant: &'static str,
+}
+
+#[async_trait]
+impl Tool for CronTool {
+    fn name(&self) -> &str {
+        self.variant
+    }
+    fn description(&self) -> &str {
+        match self.variant {
+            "cron_create" => "Create a scheduled automation. Uses standard 5-field POSIX cron (minute hour day-of-month month day-of-week) in the user's local timezone. Set once=true for one-time reminders that auto-disable after firing.",
+            "cron_list" => "List the user's existing scheduled automations with their IDs, labels, schedules, and enabled status.",
+            "cron_delete" => "Delete a scheduled automation by its ID.",
+            _ => "",
+        }
+    }
+    fn parameters(&self) -> Value {
+        match self.variant {
+            "cron_create" => json!({
+                "type": "object",
+                "properties": {
+                    "label": { "type": "string", "description": "Short name for the automation, e.g. 'Morning briefing'" },
+                    "schedule": { "type": "string", "description": "5-field POSIX cron expression in user's local timezone, e.g. '0 9 * * *' for 9 AM daily, '30 14 * * *' for 2:30 PM daily, '0 9 5 10 *' for Oct 5 at 9 AM" },
+                    "prompt": { "type": "string", "description": "The message Beep will process at each trigger" },
+                    "once": { "type": "boolean", "description": "If true, this is a one-time reminder that auto-disables after firing. Default false." }
+                },
+                "required": ["label", "schedule", "prompt"],
+                "additionalProperties": false
+            }),
+            "cron_list" => json!({"type":"object","properties":{},"additionalProperties":false}),
+            "cron_delete" => json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "The cron automation ID (from cron_list)" }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+            _ => json!({}),
+        }
+    }
+    async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+        let output = match self.variant {
+            "cron_create" => {
+                let label = ctx.args.get("label").and_then(Value::as_str).unwrap_or("");
+                let schedule = ctx.args.get("schedule").and_then(Value::as_str).unwrap_or("");
+                let prompt = ctx.args.get("prompt").and_then(Value::as_str).unwrap_or("");
+                let once = ctx.args.get("once").and_then(Value::as_bool).unwrap_or(false);
+                if label.is_empty() || schedule.is_empty() || prompt.is_empty() {
+                    return Ok(ToolResult::failure(ctx.tool_call_id, "label, schedule, and prompt are all required"));
+                }
+                // Validate the cron expression by converting to 7-field and parsing
+                let seven = format!("0 {} *", schedule);
+                if cron::Schedule::from_str(&seven).is_err() {
+                    return Ok(ToolResult::failure(ctx.tool_call_id, "Invalid cron expression. Use 5-field POSIX format: minute hour day month weekday. Example: '0 9 * * *' for daily at 9 AM."));
+                }
+                self.store.create_cron_ex(&self.user, label, schedule, prompt, once).await?;
+                json!({"created": true, "label": label, "schedule": schedule, "once": once})
+            }
+            "cron_list" => {
+                let crons = self.store.list_crons(&self.user).await?;
+                json!({"crons": crons})
+            }
+            "cron_delete" => {
+                let id = ctx.args.get("id").and_then(Value::as_str).unwrap_or("");
+                let deleted = self.store.delete_cron(&self.user, id).await?;
+                json!({"deleted": deleted})
+            }
+            _ => json!({}),
         };
         Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
     }
@@ -256,6 +333,13 @@ pub fn registry(store: Store, user: &str) -> ToolRegistry {
             store: store.clone(),
             user: user.into(),
             name,
+        }));
+    }
+    for variant in ["cron_create", "cron_list", "cron_delete"] {
+        registry.register(Arc::new(CronTool {
+            store: store.clone(),
+            user: user.into(),
+            variant,
         }));
     }
     registry.register(Arc::new(OpenAppTool));

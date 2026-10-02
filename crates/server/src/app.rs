@@ -32,6 +32,9 @@ pub struct Message {
     pub session_id: Uuid,
     pub request_id: Uuid,
     pub message: String,
+    /// Set by the scheduler for cron-triggered runs.
+    #[serde(default)]
+    pub cron_id: Option<String>,
 }
 
 impl App {
@@ -91,8 +94,9 @@ impl App {
             let cancel = CancellationToken::new();
             active.insert(run.id.clone(), cancel.clone());
             let (app, user, run) = (self.clone(), user.to_owned(), run.clone());
+            let is_cron = message.cron_id.is_some();
             tokio::spawn(async move {
-                if let Err(error) = app.execute(&user, &run, &message.message, cancel).await {
+                if let Err(error) = app.execute(&user, &run, &message.message, is_cron, cancel).await {
                     tracing::error!(run_id=%run.id, %error, "run storage/execution failed");
                     if let Err(error) = app.store.finish(&user, &run, None, "failed").await {
                         tracing::error!(run_id=%run.id,%error,"unable to persist failure");
@@ -162,6 +166,7 @@ impl App {
         user: &str,
         run: &Run,
         message: &str,
+        is_cron: bool,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut conversation = self
@@ -240,10 +245,10 @@ impl App {
                 self.store.append(&run.id, data).await?;
             }
         };
-        // Notify registered devices before persisting completion.
-        self.notify_run_complete(user, run, status).await;
-        // If this was a cron-triggered run, log its completion.
-        if message.starts_with("[Scheduled:") {
+        if is_cron {
+            // Notify registered devices for cron-triggered runs only.
+            self.notify_run_complete(user, run, status).await;
+            // Log cron completion.
             let _ = self.store.log_cron_finish(&run.id, status, "").await;
         }
         // Persist state and the terminal event together before clients observe completion.
