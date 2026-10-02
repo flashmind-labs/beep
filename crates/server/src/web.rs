@@ -43,7 +43,11 @@ fn headers(response: &mut Response<Body>) {
         );
     }
 }
-async fn request(app: Arc<App>, request: Request<Incoming>) -> Result<Response<Body>, Infallible> {
+async fn request(
+    app: Arc<App>,
+    web_enabled: bool,
+    request: Request<Incoming>,
+) -> Result<Response<Body>, Infallible> {
     let mut response = if request.uri().path().starts_with("/v1/") {
         let (parts, body) = request.into_parts();
         let (send_headers, receive_headers) = tokio::sync::oneshot::channel();
@@ -79,7 +83,7 @@ async fn request(app: Arc<App>, request: Request<Incoming>) -> Result<Response<B
                 "{\"error\":\"internal server error\"}",
             ),
         }
-    } else if request.method() == http::Method::GET {
+    } else if web_enabled && request.method() == http::Method::GET {
         // Fixed embedded allowlist: no paths into config, credentials, or the filesystem.
         match request.uri().path() {
             "/" | "/index.html" => full(
@@ -133,15 +137,15 @@ async fn request(app: Arc<App>, request: Request<Incoming>) -> Result<Response<B
         }
     } else {
         full(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "text/plain",
-            "Method not allowed",
+            StatusCode::NOT_FOUND,
+            "application/json",
+            "{\"error\":\"not found\"}",
         )
     };
     headers(&mut response);
     Ok(response)
 }
-pub async fn serve(listener: TcpListener, app: Arc<App>) -> Result<()> {
+pub async fn serve(listener: TcpListener, app: Arc<App>, web_enabled: bool) -> Result<()> {
     let connections = Arc::new(tokio::sync::Semaphore::new(128));
     loop {
         let (socket, _) = listener.accept().await?;
@@ -158,14 +162,14 @@ pub async fn serve(listener: TcpListener, app: Arc<App>) -> Result<()> {
                     .max_buf_size(65536)
                     .serve_connection(
                         TokioIo::new(socket),
-                        service_fn(move |req| request(app.clone(), req)),
+                        service_fn(move |req| request(app.clone(), web_enabled, req)),
                     )
                     .await?;
                 Ok(())
             }
             .await;
             if let Err(error) = result {
-                tracing::debug!(%error, "browser connection ended");
+                tracing::debug!(%error, "HTTP connection ended");
             }
         });
     }

@@ -98,11 +98,9 @@ async fn main() -> Result<()> {
     let mut endpoints = Vec::new();
     let mut listeners = tokio::task::JoinSet::new();
     for address in std::iter::once(config.listen).chain(config.additional_listen) {
-        if config.web_enabled {
-            let listener = tokio::net::TcpListener::bind(address).await?;
-            listeners.spawn(web::serve(listener, app.clone()));
-            tracing::info!(%address, "Beep web UI listening on HTTP (TCP)");
-        }
+        let listener = tokio::net::TcpListener::bind(address).await?;
+        listeners.spawn(web::serve(listener, app.clone(), config.web_enabled));
+        tracing::info!(%address, web=config.web_enabled, "HTTP/1.1 listening on TCP");
         let endpoint = transport::endpoint(
             address,
             transport::certificates(&config.certificate)?,

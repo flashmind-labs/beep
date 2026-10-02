@@ -6,6 +6,25 @@ import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+interface ServerApi {
+    suspend fun request(method: String, path: String, body: String = "", onChunk: (ByteArray) -> Unit): Int
+    suspend fun json(method: String, path: String, body: String = ""): String
+    fun checkStatus(status: Int)
+}
+
+internal fun defaultCheckStatus(status: Int) {
+    when (status) {
+        in 200..299 -> Unit
+        401 -> error("Your app token was rejected. Check Connection settings.")
+        404 -> error("This conversation or run is no longer available on the server.")
+        409 -> error("This conversation is busy or the request conflicts. Retry shortly.")
+        else -> error("Server returned HTTP $status.")
+    }
+}
+
+fun serverApi(config: ConnectionSettings): ServerApi =
+    if (config.transport == "http") HttpApi(config) else QuicApi(config)
+
 object NativeQuic {
     init { System.loadLibrary("neobeep_android") }
     interface Callback { fun onChunk(bytes: ByteArray) }
@@ -15,9 +34,9 @@ object NativeQuic {
         token: String, method: String, path: String, body: String, callback: Callback): Int
 }
 
-class QuicApi(private val config: ConnectionSettings) {
+class QuicApi(private val config: ConnectionSettings) : ServerApi {
     companion object { private val workers = Executors.newFixedThreadPool(4) }
-    suspend fun request(method: String, path: String, body: String = "", onChunk: (ByteArray) -> Unit): Int =
+    override suspend fun request(method: String, path: String, body: String, onChunk: (ByteArray) -> Unit): Int =
         suspendCancellableCoroutine { continuation ->
             val id = NativeQuic.createCall()
             continuation.invokeOnCancellation { NativeQuic.cancel(id) }
@@ -33,21 +52,13 @@ class QuicApi(private val config: ConnectionSettings) {
                 }
             }
         }
-    suspend fun json(method: String, path: String, body: String = ""): String {
+    override suspend fun json(method: String, path: String, body: String): String {
         val output = ByteArrayOutputStream()
         val status = request(method, path, body) { output.write(it) }
         checkStatus(status)
         return output.toString(Charsets.UTF_8.name())
     }
-    fun checkStatus(status: Int) {
-        when (status) {
-            in 200..299 -> Unit
-            401 -> error("Your app token was rejected. Check Connection settings.")
-            404 -> error("This conversation or run is no longer available on the server.")
-            409 -> error("This conversation is busy or the request conflicts. Retry shortly.")
-            else -> error("Server returned HTTP $status.")
-        }
-    }
+    override fun checkStatus(status: Int) = defaultCheckStatus(status)
 }
 
 /** Buffer bytes until newline: UTF-8 characters may span network chunks. */

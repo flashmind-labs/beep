@@ -76,7 +76,7 @@ class NotificationService : Service() {
                 val config = storage.loadSettings()
                 if (!config.configured) { delay(5000); continue }
                 try {
-                    val api = QuicApi(config)
+                    val api = serverApi(config)
                     val decoder = NdjsonDecoder { line -> handleEvent(JSONObject(line)) }
                     api.request("GET", "/v1/notifications") { decoder.feed(it) }
                     decoder.finish()
