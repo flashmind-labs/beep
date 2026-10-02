@@ -1,9 +1,14 @@
 package com.flashmind.neobeep
 
+import android.Manifest
 import android.app.Application
+import android.content.pm.PackageManager
+import android.provider.ContactsContract
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
@@ -69,11 +74,20 @@ class ChatRepository(private val storage: LocalStorage) {
         if (settings.value != config) return
         update { state ->
             val known = state.conversations.map { it.id }.toSet()
+            val serverPinned = (0 until sessions.length()).associate { i ->
+                val item = sessions.getJSONObject(i)
+                item.getString("id") to item.optBoolean("pinned", false)
+            }
             val added = (0 until sessions.length()).mapNotNull { i ->
                 val item = sessions.getJSONObject(i)
-                if (item.getString("id") in known) null else Conversation(id = item.getString("id"), title = item.getString("title"))
+                if (item.getString("id") in known) null else Conversation(id = item.getString("id"), title = item.getString("title"), pinned = item.optBoolean("pinned", false))
             }
-            state.copy(conversations = state.conversations + added)
+            // Update pinned status from server for existing conversations
+            val updated = state.conversations.map { c ->
+                val pin = serverPinned[c.id]
+                if (pin != null) c.copy(pinned = pin) else c
+            }
+            state.copy(conversations = (updated + added).sortedByDescending { it.pinned })
         }
         if ((0 until sessions.length()).any { sessions.getJSONObject(it).getString("id") == state.value.current.id })
             loadHistory(state.value.current.id, config)
@@ -230,6 +244,28 @@ class ChatRepository(private val storage: LocalStorage) {
         QuicApi(settings.value).json("DELETE", "/v1/integrations/$id")
     }
 
+    suspend fun renameSession(id: String, title: String) {
+        QuicApi(settings.value).json("PUT", "/v1/sessions/$id", JSONObject().put("title", title).toString())
+        updateChat(id) { it.copy(title = title) }
+    }
+
+    suspend fun deleteSession(id: String) {
+        QuicApi(settings.value).json("DELETE", "/v1/sessions/$id")
+        update { state ->
+            val remaining = state.conversations.filter { it.id != id }
+            val safe = remaining.ifEmpty { listOf(Conversation()) }
+            state.copy(conversations = safe, selected = if (state.selected == id) safe.first().id else state.selected)
+        }
+    }
+
+    suspend fun pinSession(id: String, pinned: Boolean) {
+        QuicApi(settings.value).json("PUT", "/v1/sessions/$id/pin", JSONObject().put("pinned", pinned).toString())
+        updateChat(id) { it.copy(pinned = pinned) }
+        update { state ->
+            state.copy(conversations = state.conversations.sortedByDescending { it.pinned })
+        }
+    }
+
     suspend fun registerDevice(deviceId: String, fcmToken: String) {
         QuicApi(settings.value).json("POST", "/v1/devices",
             JSONObject().put("device_id", deviceId).put("fcm_token", fcmToken).toString())
@@ -291,7 +327,91 @@ class ChatRepository(private val storage: LocalStorage) {
 
     private fun executeDeviceQuery(query: JSONObject): JSONObject {
         val action = query.optString("action", "unknown")
-        return JSONObject().put("error", "not_implemented").put("action", action)
+        return when (action) {
+            "query_contacts" -> {
+                val name = query.optString("name", "")
+                queryContacts(name)
+            }
+            else -> JSONObject().put("error", "not_implemented").put("action", action)
+        }
+    }
+
+    private fun queryContacts(query: String): JSONObject {
+        val ctx = storage.context
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return JSONObject().put("error", "permission_denied")
+                .put("message", "READ_CONTACTS permission not granted. The user needs to allow contacts access in the app settings.")
+        }
+        val results = JSONArray()
+        val projection = arrayOf(
+            ContactsContract.Contacts._ID,
+            ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
+            ContactsContract.Contacts.HAS_PHONE_NUMBER
+        )
+        val selection = if (query.isNotEmpty()) "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?" else null
+        val selectionArgs = if (query.isNotEmpty()) arrayOf("%$query%") else null
+
+        ctx.contentResolver.query(ContactsContract.Contacts.CONTENT_URI, projection, selection, selectionArgs, null)?.use { cursor ->
+            val idIdx = cursor.getColumnIndex(ContactsContract.Contacts._ID)
+            val nameIdx = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
+            val hasPhoneIdx = cursor.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER)
+            while (cursor.moveToNext() && results.length() < 10) {
+                val id = cursor.getString(idIdx)
+                val name = cursor.getString(nameIdx) ?: continue
+                val contact = JSONObject().put("name", name)
+
+                if (cursor.getInt(hasPhoneIdx) > 0) {
+                    val phones = getPhoneNumbers(ctx, id)
+                    if (phones.length() > 0) contact.put("phones", phones)
+                }
+
+                val emails = getEmails(ctx, id)
+                if (emails.length() > 0) contact.put("emails", emails)
+
+                results.put(contact)
+            }
+        }
+        return JSONObject().put("contacts", results).put("count", results.length())
+    }
+
+    private fun getPhoneNumbers(ctx: android.content.Context, contactId: String): JSONArray {
+        val phones = JSONArray()
+        ctx.contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.TYPE),
+            "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
+            arrayOf(contactId), null
+        )?.use { cursor ->
+            val numIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            val typeIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.TYPE)
+            while (cursor.moveToNext()) {
+                val number = cursor.getString(numIdx) ?: continue
+                val typeInt = cursor.getInt(typeIdx)
+                val label = ContactsContract.CommonDataKinds.Phone.getTypeLabel(ctx.resources, typeInt, "Other").toString()
+                phones.put(JSONObject().put("number", number).put("type", label))
+            }
+        }
+        return phones
+    }
+
+    private fun getEmails(ctx: android.content.Context, contactId: String): JSONArray {
+        val emails = JSONArray()
+        ctx.contentResolver.query(
+            ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.Email.ADDRESS, ContactsContract.CommonDataKinds.Email.TYPE),
+            "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
+            arrayOf(contactId), null
+        )?.use { cursor ->
+            val addrIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS)
+            val typeIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.TYPE)
+            while (cursor.moveToNext()) {
+                val address = cursor.getString(addrIdx) ?: continue
+                val typeInt = cursor.getInt(typeIdx)
+                val label = ContactsContract.CommonDataKinds.Email.getTypeLabel(ctx.resources, typeInt, "Other").toString()
+                emails.put(JSONObject().put("address", address).put("type", label))
+            }
+        }
+        return emails
     }
 
     private suspend fun sendDeviceResult(runId: String, queryId: String, result: JSONObject) {
@@ -348,6 +468,24 @@ class ChatRepository(private val storage: LocalStorage) {
                                     uri = outputJson.optString("uri", ""),
                                     fallbackUrl = "https://maps.google.com/?q=" +
                                         java.net.URLEncoder.encode(outputJson.optString("uri", ""), "UTF-8"))
+                            }
+                            if (outputJson.optString("type") == "task_progress") {
+                                val stepsArr = outputJson.optJSONArray("steps")
+                                if (stepsArr != null) {
+                                    val steps = (0 until stepsArr.length()).map { si ->
+                                        val s = stepsArr.getJSONObject(si)
+                                        TaskStep(s.getString("label"), s.getString("status"))
+                                    }
+                                    val messageId = "assistant-${chat.runId}"
+                                    val existing = next.messages.find { it.id == messageId }
+                                    if (existing != null) {
+                                        next = next.copy(messages = next.messages.map {
+                                            if (it.id == messageId) it.copy(taskSteps = steps) else it
+                                        })
+                                    } else {
+                                        next = next.copy(messages = next.messages + ChatMessage(messageId, "assistant", "", taskSteps = steps))
+                                    }
+                                }
                             }
                             if (outputJson.optString("type") == "card") {
                                 val card = Card(outputJson.getString("card_type"), outputJson.getJSONObject("card_data"))

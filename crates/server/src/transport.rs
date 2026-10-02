@@ -902,6 +902,93 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
             .await;
         }
     }
+    if segments.len() >= 3 && segments[0] == "v1" && segments[1] == "sessions" {
+        let session_id = segments[2];
+        if method == "PUT" && segments.len() == 3 {
+            let body = read_body(&mut stream, 65536).await?;
+            let Some(body) = body else {
+                return reply(
+                    &mut stream,
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    json!({"error":"body exceeds 64 KiB"}),
+                )
+                .await;
+            };
+            let parsed: Value = match serde_json::from_slice(&body) {
+                Ok(v) => v,
+                Err(_) => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":"invalid JSON"}),
+                    )
+                    .await;
+                }
+            };
+            let title = match parsed.get("title").and_then(Value::as_str) {
+                Some(t) if !t.is_empty() => t,
+                _ => {
+                    return reply(
+                        &mut stream,
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":"expected {\"title\": \"...\"}"}),
+                    )
+                    .await;
+                }
+            };
+            let renamed = app.store.rename_session(&user, session_id, title).await?;
+            return reply(
+                &mut stream,
+                if renamed {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                },
+                json!({"renamed":renamed}),
+            )
+            .await;
+        }
+        if method == "DELETE" && segments.len() == 3 {
+            let deleted = app.store.delete_session(&user, session_id).await?;
+            return reply(
+                &mut stream,
+                if deleted {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                },
+                json!({"deleted":deleted}),
+            )
+            .await;
+        }
+        if method == "PUT" && segments.len() == 4 && segments[3] == "pin" {
+            let body = read_body(&mut stream, 4096).await?;
+            let Some(body) = body else {
+                return reply(
+                    &mut stream,
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    json!({"error":"body exceeds 4 KiB"}),
+                )
+                .await;
+            };
+            let parsed: Value = serde_json::from_slice(&body).unwrap_or_default();
+            let pinned = parsed
+                .get("pinned")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let updated = app.store.pin_session(&user, session_id, pinned).await?;
+            return reply(
+                &mut stream,
+                if updated {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                },
+                json!({"pinned":pinned}),
+            )
+            .await;
+        }
+    }
     if method == "GET" && segments.len() == 3 && segments[0] == "v1" && segments[1] == "sessions" {
         // Return conversation entries only: never send the server system prompt to a client.
         return match app.store.conversation(&user, segments[2]).await? {

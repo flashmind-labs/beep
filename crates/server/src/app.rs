@@ -268,7 +268,7 @@ impl App {
     }
 
     async fn execute(
-        &self,
+        self: &Arc<Self>,
         user: &str,
         run: &Run,
         message: &str,
@@ -289,7 +289,7 @@ impl App {
         conversation.set_system(&system_prompt);
         let mut llm = AgentLlmConfig::new(self.model.clone()).with_user(user);
         llm.max_tokens = Some(4096);
-        let mut registry = tools::registry(self.store.clone(), user);
+        let mut registry = tools::registry(self.clone(), &run.id, user);
         if let Some(search) = &self.search {
             registry.register(search.clone());
         }
@@ -299,6 +299,11 @@ impl App {
         if let Some(mcp) = &self.mcp {
             crate::mcp::register_mcp_tools(mcp, &mut registry).await;
         }
+        // Ensure default crons exist on first interaction.
+        if let Err(e) = self.store.ensure_default_crons(user).await {
+            tracing::warn!(%e, "failed to ensure default crons");
+        }
+
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
             .tools(registry)

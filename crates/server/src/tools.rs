@@ -1,3 +1,4 @@
+use crate::app::App;
 use crate::store::Store;
 use async_trait::async_trait;
 use flashmind::types::{
@@ -746,7 +747,100 @@ impl Tool for HabitTool {
     }
 }
 
-pub fn registry(store: Store, user: &str) -> ToolRegistry {
+struct TaskProgressTool;
+
+#[async_trait]
+impl Tool for TaskProgressTool {
+    fn name(&self) -> &str {
+        "task_progress"
+    }
+    fn description(&self) -> &str {
+        "Report progress on a multi-step task. Call this to show the user a visual checklist of steps and their statuses as you work through them."
+    }
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "description": "List of steps with their current status",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": { "type": "string", "description": "Short description of this step" },
+                            "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "failed"], "description": "Current status of this step" }
+                        },
+                        "required": ["label", "status"]
+                    }
+                }
+            },
+            "required": ["steps"],
+            "additionalProperties": false
+        })
+    }
+    async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+        let steps = ctx.args.get("steps").cloned().unwrap_or_else(|| json!([]));
+        let output = json!({
+            "type": "task_progress",
+            "steps": steps,
+        });
+        Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
+    }
+}
+
+struct ContactsTool {
+    app: Arc<App>,
+    run_id: String,
+}
+
+#[async_trait]
+impl Tool for ContactsTool {
+    fn name(&self) -> &str {
+        "query_contacts"
+    }
+    fn description(&self) -> &str {
+        "Search the user's phone contacts by name. Returns matching contacts with phone numbers and email addresses."
+    }
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Name to search for (partial match). Leave empty to list recent contacts."
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        })
+    }
+    fn timeout_secs(&self) -> Option<u64> {
+        Some(15)
+    }
+    async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+        let name = ctx.args.get("name").and_then(Value::as_str).unwrap_or("");
+        let query = json!({
+            "action": "query_contacts",
+            "name": name,
+        });
+        match self.app.device_query(&self.run_id, query, 10).await {
+            Ok(result) => {
+                if result.get("error").is_some() {
+                    Ok(ToolResult::failure(ctx.tool_call_id, result.to_string()))
+                } else {
+                    Ok(ToolResult::success(ctx.tool_call_id, result.to_string()))
+                }
+            }
+            Err(e) => Ok(ToolResult::failure(
+                ctx.tool_call_id,
+                format!("Could not reach the user's device: {e}"),
+            )),
+        }
+    }
+}
+
+pub fn registry(app: Arc<App>, run_id: &str, user: &str) -> ToolRegistry {
+    let store = app.store.clone();
     let mut registry = ToolRegistry::new();
     for name in [
         "memory_store",
@@ -786,5 +880,10 @@ pub fn registry(store: Store, user: &str) -> ToolRegistry {
             variant,
         }));
     }
+    registry.register(Arc::new(TaskProgressTool));
+    registry.register(Arc::new(ContactsTool {
+        app,
+        run_id: run_id.to_owned(),
+    }));
     registry
 }

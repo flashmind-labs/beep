@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -269,15 +270,64 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             OutlinedTextField(historyQuery, { historyQuery = it }, placeholder = { Text("Find a conversation", fontSize = 13.sp) },
                 leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) }, singleLine = true,
                 shape = RoundedCornerShape(16.dp), modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp).fillMaxWidth())
+            var contextMenuChat by remember { mutableStateOf<String?>(null) }
+            var showRenameDialog by remember { mutableStateOf<Conversation?>(null) }
+            var showDeleteDialog by remember { mutableStateOf<Conversation?>(null) }
+            val drawerScope = rememberCoroutineScope()
             LazyColumn(Modifier.weight(1f)) {
                 items(state.conversations.filter { it.title.contains(historyQuery, ignoreCase = true) }, key = { it.id }) { chat ->
-                    NavigationDrawerItem(label = { Text(chat.title, maxLines = 2, fontSize = 14.sp, overflow = TextOverflow.Ellipsis) },
-                        icon = { Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp)) },
-                        colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = Elevated, unselectedContainerColor = Surface),
-                        selected = state.current.id == chat.id,
-                        onClick = { repository.select(chat.id); drawerOpen = false },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+                    Box(Modifier.padding(horizontal = 12.dp, vertical = 2.dp)) {
+                        NavigationDrawerItem(
+                            label = { Text(chat.title, maxLines = 2, fontSize = 14.sp, overflow = TextOverflow.Ellipsis) },
+                            icon = { Icon(if (chat.pinned) Icons.Outlined.PushPin else Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = if (chat.pinned) Moss else TextMuted) },
+                            colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = Elevated, unselectedContainerColor = Surface),
+                            selected = state.current.id == chat.id,
+                            onClick = { repository.select(chat.id); drawerOpen = false },
+                            modifier = Modifier.combinedClickable(
+                                onClick = { repository.select(chat.id); drawerOpen = false },
+                                onLongClick = { contextMenuChat = chat.id }
+                            ))
+                        DropdownMenu(expanded = contextMenuChat == chat.id, onDismissRequest = { contextMenuChat = null },
+                            containerColor = Elevated) {
+                            DropdownMenuItem(text = { Text("Rename") },
+                                leadingIcon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) },
+                                onClick = { contextMenuChat = null; showRenameDialog = chat })
+                            DropdownMenuItem(text = { Text(if (chat.pinned) "Unpin" else "Pin") },
+                                leadingIcon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
+                                onClick = { contextMenuChat = null; drawerScope.launch { runCatching { repository.pinSession(chat.id, !chat.pinned) } } })
+                            DropdownMenuItem(text = { Text("Delete", color = Coral) },
+                                leadingIcon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp), tint = Coral) },
+                                onClick = { contextMenuChat = null; showDeleteDialog = chat })
+                        }
+                    }
                 }
+            }
+            // Rename dialog
+            showRenameDialog?.let { chat ->
+                var renameText by remember(chat.id) { mutableStateOf(chat.title) }
+                AlertDialog(
+                    onDismissRequest = { showRenameDialog = null },
+                    confirmButton = { TextButton(onClick = {
+                        val title = renameText.trim()
+                        if (title.isNotEmpty()) { drawerScope.launch { runCatching { repository.renameSession(chat.id, title) } }; showRenameDialog = null }
+                    }) { Text("Rename") } },
+                    dismissButton = { TextButton(onClick = { showRenameDialog = null }) { Text("Cancel") } },
+                    title = { Text("Rename conversation") },
+                    text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true, shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()) },
+                    containerColor = Elevated)
+            }
+            // Delete confirmation dialog
+            showDeleteDialog?.let { chat ->
+                AlertDialog(
+                    onDismissRequest = { showDeleteDialog = null },
+                    confirmButton = { TextButton(onClick = {
+                        drawerScope.launch { runCatching { repository.deleteSession(chat.id) } }; showDeleteDialog = null
+                    }) { Text("Delete", color = Coral) } },
+                    dismissButton = { TextButton(onClick = { showDeleteDialog = null }) { Text("Cancel") } },
+                    title = { Text("Delete conversation?") },
+                    text = { Text("This will permanently delete this conversation and all its messages.") },
+                    containerColor = Elevated)
             }
             if (!bubble) {
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Border)
@@ -471,6 +521,10 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().animateContentSize()) {
                                 message.cards.forEach { card -> CardView(card, repository, compact) }
                             }
+                        }
+                        if (!message.taskSteps.isNullOrEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            TaskProgressCard(message.taskSteps)
                         }
                         if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) CopyReply(message.text, compact)
                     }
@@ -836,6 +890,85 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 Text(label, fontSize = 13.sp, color = if (isPrimary) Coral else Moss)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskProgressCard(steps: List<TaskStep>) {
+    val noMotion = reduceMotion()
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Elevated,
+        modifier = Modifier.fillMaxWidth().animateContentSize()
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            steps.forEach { step ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    when (step.status) {
+                        "pending" -> {
+                            Box(
+                                Modifier.size(18.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Canvas(Modifier.size(14.dp)) {
+                                    drawCircle(
+                                        color = Color(0xFF7A8A80),
+                                        radius = size.minDimension / 2,
+                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+                                    )
+                                }
+                            }
+                        }
+                        "in_progress" -> {
+                            val pulse = rememberInfiniteTransition(label = "step-pulse")
+                            val alpha by if (noMotion) remember { mutableStateOf(1f) } else pulse.animateFloat(
+                                initialValue = 0.4f, targetValue = 1f,
+                                animationSpec = infiniteRepeatable(tween(800, easing = EaseInOutCubic), RepeatMode.Reverse),
+                                label = "step-alpha"
+                            )
+                            Box(
+                                Modifier.size(18.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Canvas(Modifier.size(10.dp)) {
+                                    drawCircle(
+                                        color = Color(0xFF3B9B7A).copy(alpha = alpha),
+                                        radius = size.minDimension / 2
+                                    )
+                                }
+                            }
+                        }
+                        "completed" -> {
+                            Icon(
+                                Icons.Outlined.Check,
+                                contentDescription = "Completed",
+                                tint = Moss,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        "failed" -> {
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = "Failed",
+                                tint = Coral,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        step.label,
+                        fontSize = 13.sp,
+                        color = when (step.status) {
+                            "completed" -> TextPrimary
+                            "failed" -> Coral
+                            "in_progress" -> TextPrimary
+                            else -> TextMuted
+                        }
+                    )
+                }
             }
         }
     }
