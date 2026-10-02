@@ -339,6 +339,130 @@ impl Tool for GetLocationTool {
     }
 }
 
+struct OpenMapsTool;
+
+#[async_trait]
+impl Tool for OpenMapsTool {
+    fn name(&self) -> &str {
+        "open_maps"
+    }
+    fn description(&self) -> &str {
+        "Open Google Maps on the user's phone to search places, show a specific place, or get directions. Does not call any API; constructs an intent URI for the device."
+    }
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["search", "directions", "place"],
+                    "description": "search: search for places; place: show a named place; directions: get navigation directions"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search query or place name, e.g. 'restaurants near me' or 'Lau Pa Sat Singapore'"
+                },
+                "latitude": {
+                    "type": "number",
+                    "description": "Latitude for place or directions destination"
+                },
+                "longitude": {
+                    "type": "number",
+                    "description": "Longitude for directions destination"
+                },
+                "travel_mode": {
+                    "type": "string",
+                    "enum": ["driving", "walking", "transit", "bicycling"],
+                    "description": "Travel mode for directions"
+                }
+            },
+            "required": ["action"],
+            "additionalProperties": false
+        })
+    }
+    async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+        let action = ctx.args.get("action").and_then(Value::as_str).unwrap_or("");
+        let query = ctx.args.get("query").and_then(Value::as_str).unwrap_or("");
+        let latitude = ctx.args.get("latitude").and_then(Value::as_f64);
+        let longitude = ctx.args.get("longitude").and_then(Value::as_f64);
+        let travel_mode = ctx
+            .args
+            .get("travel_mode")
+            .and_then(Value::as_str)
+            .unwrap_or("driving");
+
+        let encoded_query = query.replace(' ', "+");
+
+        let uri = match action {
+            "search" => {
+                if query.is_empty() {
+                    return Ok(ToolResult::failure(
+                        ctx.tool_call_id,
+                        "query is required for search action",
+                    ));
+                }
+                format!("geo:0,0?q={encoded_query}")
+            }
+            "place" => {
+                if let (Some(lat), Some(lng)) = (latitude, longitude) {
+                    format!("geo:{lat},{lng}?q={encoded_query}")
+                } else if !query.is_empty() {
+                    format!("geo:0,0?q={encoded_query}")
+                } else {
+                    return Ok(ToolResult::failure(
+                        ctx.tool_call_id,
+                        "query or latitude/longitude required for place action",
+                    ));
+                }
+            }
+            "directions" => {
+                let dest = if let (Some(lat), Some(lng)) = (latitude, longitude) {
+                    format!("{lat},{lng}")
+                } else if !query.is_empty() {
+                    encoded_query.clone()
+                } else {
+                    return Ok(ToolResult::failure(
+                        ctx.tool_call_id,
+                        "query or latitude/longitude required for directions",
+                    ));
+                };
+                let mode_flag = match travel_mode {
+                    "walking" => "w",
+                    "transit" => "r",
+                    "bicycling" => "b",
+                    _ => "d",
+                };
+                format!("google.navigation:q={dest}&mode={mode_flag}")
+            }
+            _ => {
+                return Ok(ToolResult::failure(
+                    ctx.tool_call_id,
+                    "action must be 'search', 'place', or 'directions'",
+                ));
+            }
+        };
+
+        let mut output = json!({
+            "action": "open_maps",
+            "uri": uri,
+        });
+
+        // Attach a place card when we have a named place or search
+        if !query.is_empty() && (action == "search" || action == "place") {
+            output["card"] = json!({
+                "type": "card",
+                "card_type": "place",
+                "card_data": {
+                    "name": query,
+                    "query": query,
+                }
+            });
+        }
+
+        Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
+    }
+}
+
 struct OpenBrowserTool;
 
 #[async_trait]
@@ -383,6 +507,245 @@ impl Tool for OpenBrowserTool {
     }
 }
 
+const APP_FRIENDLY_NAMES: &[(&str, &str)] = &[
+    ("com.whatsapp", "WhatsApp"),
+    ("com.google.android.gm", "Gmail"),
+    ("com.google.android.apps.messaging", "Messages"),
+    ("com.google.android.apps.maps", "Maps"),
+    ("com.google.android.youtube", "YouTube"),
+    ("com.google.android.calendar", "Calendar"),
+    ("com.google.android.dialer", "Phone"),
+    ("com.spotify.music", "Spotify"),
+    ("com.instagram.android", "Instagram"),
+    ("com.facebook.orca", "Messenger"),
+    ("com.facebook.katana", "Facebook"),
+    ("com.twitter.android", "X"),
+    ("com.Slack", "Slack"),
+    ("org.telegram.messenger", "Telegram"),
+    ("com.discord", "Discord"),
+    ("com.google.android.apps.docs", "Google Docs"),
+    ("com.android.chrome", "Chrome"),
+];
+
+fn friendly_app_name(package: &str) -> String {
+    APP_FRIENDLY_NAMES
+        .iter()
+        .find(|(pkg, _)| *pkg == package)
+        .map(|(_, name)| (*name).to_owned())
+        .unwrap_or_else(|| package.to_owned())
+}
+
+struct GetNotificationsTool {
+    store: Store,
+    user: String,
+}
+
+#[async_trait]
+impl Tool for GetNotificationsTool {
+    fn name(&self) -> &str {
+        "get_notifications"
+    }
+    fn description(&self) -> &str {
+        "Query recent notifications from the user's phone. Returns notifications from all apps unless filtered."
+    }
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "app": {
+                    "type": "string",
+                    "description": "Filter by app name or package (e.g. 'WhatsApp', 'Gmail', 'com.whatsapp')"
+                },
+                "minutes": {
+                    "type": "integer",
+                    "description": "How far back to look in minutes. Default 60."
+                },
+                "keyword": {
+                    "type": "string",
+                    "description": "Search in notification title and text"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+    async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+        let app_filter = ctx.args.get("app").and_then(Value::as_str);
+        let minutes = ctx.args.get("minutes").and_then(Value::as_i64);
+        let keyword = ctx.args.get("keyword").and_then(Value::as_str);
+
+        // If the user specified a friendly name, resolve it to a package name for the DB query.
+        let resolved_app: Option<String> = app_filter.map(|f| {
+            APP_FRIENDLY_NAMES
+                .iter()
+                .find(|(_, name)| name.to_lowercase() == f.to_lowercase())
+                .map(|(pkg, _)| (*pkg).to_owned())
+                .unwrap_or_else(|| f.to_owned())
+        });
+
+        let mut notifications = self
+            .store
+            .query_notifications(
+                &self.user,
+                resolved_app.as_deref(),
+                minutes,
+                keyword,
+                Some(100),
+            )
+            .await?;
+
+        // Replace package names with friendly names in the output
+        for n in &mut notifications {
+            if let Some(pkg) = n.get("app").and_then(Value::as_str) {
+                let friendly = friendly_app_name(pkg);
+                if friendly != pkg {
+                    n["app_name"] = json!(friendly);
+                }
+            }
+        }
+
+        let output = json!({
+            "notifications": notifications,
+            "count": notifications.len(),
+        });
+        Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
+    }
+}
+
+struct HabitTool {
+    store: Store,
+    user: String,
+    variant: &'static str,
+}
+
+#[async_trait]
+impl Tool for HabitTool {
+    fn name(&self) -> &str {
+        self.variant
+    }
+    fn description(&self) -> &str {
+        match self.variant {
+            "habit_create" => {
+                "Create a new habit to track. Frequency can be daily, weekly, or weekdays."
+            }
+            "habit_log" => "Log a habit completion. Looks up the habit by name.",
+            "habit_status" => {
+                "Get status and recent logs for a specific habit, including streak and completion rate."
+            }
+            "habit_delete" => "Archive (soft-delete) a habit by name.",
+            _ => "",
+        }
+    }
+    fn parameters(&self) -> Value {
+        match self.variant {
+            "habit_create" => json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Habit name, e.g. 'Exercise'" },
+                    "frequency": { "type": "string", "enum": ["daily", "weekly", "weekdays"], "description": "How often. Default: daily" }
+                },
+                "required": ["name"],
+                "additionalProperties": false
+            }),
+            "habit_log" => json!({
+                "type": "object",
+                "properties": {
+                    "habit": { "type": "string", "description": "Habit name" },
+                    "value": { "type": "number", "description": "Amount or count. Default 1" },
+                    "note": { "type": "string", "description": "Optional note" }
+                },
+                "required": ["habit"],
+                "additionalProperties": false
+            }),
+            "habit_status" => json!({
+                "type": "object",
+                "properties": {
+                    "habit": { "type": "string", "description": "Habit name. Omit to list all habits." },
+                    "days": { "type": "integer", "description": "How many days back to look. Default 7" }
+                },
+                "additionalProperties": false
+            }),
+            "habit_delete" => json!({
+                "type": "object",
+                "properties": {
+                    "habit": { "type": "string", "description": "Habit name to archive" }
+                },
+                "required": ["habit"],
+                "additionalProperties": false
+            }),
+            _ => json!({}),
+        }
+    }
+    async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+        let output = match self.variant {
+            "habit_create" => {
+                let name = ctx.args.get("name").and_then(Value::as_str).unwrap_or("");
+                let frequency = ctx
+                    .args
+                    .get("frequency")
+                    .and_then(Value::as_str)
+                    .unwrap_or("daily");
+                if name.is_empty() {
+                    return Ok(ToolResult::failure(ctx.tool_call_id, "name is required"));
+                }
+                match self.store.create_habit(&self.user, name, frequency).await {
+                    Ok(_id) => json!({"created": true, "name": name, "frequency": frequency}),
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("UNIQUE") {
+                            return Ok(ToolResult::failure(
+                                ctx.tool_call_id,
+                                format!("a habit named '{}' already exists", name),
+                            ));
+                        }
+                        return Err(e);
+                    }
+                }
+            }
+            "habit_log" => {
+                let habit = ctx.args.get("habit").and_then(Value::as_str).unwrap_or("");
+                let value = ctx.args.get("value").and_then(Value::as_f64).unwrap_or(1.0);
+                let note = ctx.args.get("note").and_then(Value::as_str);
+                if habit.is_empty() {
+                    return Ok(ToolResult::failure(
+                        ctx.tool_call_id,
+                        "habit name is required",
+                    ));
+                }
+                match self.store.log_habit(&self.user, habit, value, note).await {
+                    Ok(()) => json!({"logged": true, "habit": habit, "value": value}),
+                    Err(e) => {
+                        return Ok(ToolResult::failure(ctx.tool_call_id, e.to_string()));
+                    }
+                }
+            }
+            "habit_status" => {
+                let habit = ctx.args.get("habit").and_then(Value::as_str);
+                let days = ctx.args.get("days").and_then(Value::as_i64).unwrap_or(7);
+                match habit {
+                    Some(name) => self.store.habit_status(&self.user, name, days).await?,
+                    None => {
+                        let habits = self.store.list_habits(&self.user).await?;
+                        json!({"habits": habits})
+                    }
+                }
+            }
+            "habit_delete" => {
+                let habit = ctx.args.get("habit").and_then(Value::as_str).unwrap_or("");
+                if habit.is_empty() {
+                    return Ok(ToolResult::failure(
+                        ctx.tool_call_id,
+                        "habit name is required",
+                    ));
+                }
+                let archived = self.store.archive_habit(&self.user, habit).await?;
+                json!({"archived": archived, "habit": habit})
+            }
+            _ => json!({}),
+        };
+        Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
+    }
+}
+
 pub fn registry(store: Store, user: &str) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
     for name in [
@@ -411,5 +774,17 @@ pub fn registry(store: Store, user: &str) -> ToolRegistry {
         user: user.into(),
     }));
     registry.register(Arc::new(OpenBrowserTool));
+    registry.register(Arc::new(OpenMapsTool));
+    registry.register(Arc::new(GetNotificationsTool {
+        store: store.clone(),
+        user: user.into(),
+    }));
+    for variant in ["habit_create", "habit_log", "habit_status", "habit_delete"] {
+        registry.register(Arc::new(HabitTool {
+            store: store.clone(),
+            user: user.into(),
+            variant,
+        }));
+    }
     registry
 }

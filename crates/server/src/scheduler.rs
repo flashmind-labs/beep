@@ -52,10 +52,20 @@ fn cron_matches_tz(expression: &str, now: &chrono::DateTime<chrono::Utc>, timezo
 }
 
 pub async fn run(app: Arc<App>) {
+    let mut tick_count: u64 = 0;
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         if let Err(e) = tick(&app).await {
             tracing::error!(%e, "cron scheduler tick failed");
+        }
+        // Purge old notifications roughly once per hour (120 ticks * 30s = 3600s)
+        tick_count += 1;
+        if tick_count.is_multiple_of(120) {
+            match app.store.purge_old_notifications().await {
+                Ok(n) if n > 0 => tracing::info!(deleted = n, "purged old notifications"),
+                Err(e) => tracing::warn!(%e, "notification purge failed"),
+                _ => {}
+            }
         }
     }
 }

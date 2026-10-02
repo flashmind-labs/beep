@@ -511,6 +511,41 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
             }
         }
     }
+    if method == "POST" && path == "/v1/phone/notifications" {
+        let body = read_body(&mut stream, 262144).await?;
+        let Some(body) = body else {
+            return reply(
+                &mut stream,
+                StatusCode::PAYLOAD_TOO_LARGE,
+                json!({"error":"body exceeds 256 KiB"}),
+            )
+            .await;
+        };
+        let parsed: Value = match serde_json::from_slice(&body) {
+            Ok(v) => v,
+            Err(_) => {
+                return reply(
+                    &mut stream,
+                    StatusCode::BAD_REQUEST,
+                    json!({"error":"invalid JSON"}),
+                )
+                .await;
+            }
+        };
+        let notifications = match parsed.get("notifications").and_then(Value::as_array) {
+            Some(arr) => arr.clone(),
+            None => {
+                return reply(
+                    &mut stream,
+                    StatusCode::BAD_REQUEST,
+                    json!({"error":"expected {\"notifications\": [...]}"}),
+                )
+                .await;
+            }
+        };
+        let saved = app.store.save_notifications(&user, &notifications).await?;
+        return reply(&mut stream, StatusCode::OK, json!({"saved": saved})).await;
+    }
     if method == "GET" && path == "/v1/health" {
         let protocol = if matches!(stream, Stream::Quic(_)) {
             "h3"
