@@ -8,7 +8,7 @@ use chrono::Utc;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation},
     tools::mcp::McpRegistry,
-    types::{AgentEvent, AgentInput, AgentLlmConfig, LlmProvider, Model},
+    types::{AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, Model},
 };
 use futures::StreamExt;
 use serde::Deserialize;
@@ -31,7 +31,6 @@ pub struct App {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Message {
     pub session_id: Uuid,
     pub request_id: Uuid,
@@ -39,6 +38,9 @@ pub struct Message {
     /// Set by the scheduler for cron-triggered runs.
     #[serde(default)]
     pub cron_id: Option<String>,
+    /// Optional base64 data URI for an attached image (e.g. "data:image/jpeg;base64,...").
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 impl App {
@@ -102,9 +104,17 @@ impl App {
             active.insert(run.id.clone(), cancel.clone());
             let (app, user, run) = (self.clone(), user.to_owned(), run.clone());
             let is_cron = message.cron_id.is_some();
+            let image = message.image.clone();
             tokio::spawn(async move {
                 if let Err(error) = app
-                    .execute(&user, &run, &message.message, is_cron, cancel)
+                    .execute(
+                        &user,
+                        &run,
+                        &message.message,
+                        image.as_deref(),
+                        is_cron,
+                        cancel,
+                    )
                     .await
                 {
                     tracing::error!(run_id=%run.id, %error, "run storage/execution failed");
@@ -267,11 +277,26 @@ impl App {
         has_content.then_some(ctx)
     }
 
+    /// Parse a `data:image/jpeg;base64,...` URI into a `ContentPart::Image`.
+    fn parse_image_data_uri(uri: &str) -> Option<ContentPart> {
+        let rest = uri.strip_prefix("data:")?;
+        let (header, data) = rest.split_once(",")?;
+        let media_type = header.strip_suffix(";base64")?;
+        if !media_type.starts_with("image/") {
+            return None;
+        }
+        Some(ContentPart::Image {
+            media_type: media_type.to_owned(),
+            data: data.to_owned(),
+        })
+    }
+
     async fn execute(
         self: &Arc<Self>,
         user: &str,
         run: &Run,
         message: &str,
+        image: Option<&str>,
         is_cron: bool,
         cancel: CancellationToken,
     ) -> Result<()> {
@@ -308,13 +333,16 @@ impl App {
             .llm(llm)
             .tools(registry)
             .build_sync();
+        let input = match image.and_then(Self::parse_image_data_uri) {
+            Some(part) => AgentInput::User {
+                content: message.to_owned(),
+                context: None,
+                parts: Some(vec![part]),
+            },
+            None => AgentInput::user(message),
+        };
         let status = {
-            let stream = agent.start(
-                &mut conversation,
-                cancel.clone(),
-                AgentInput::user(message),
-                None,
-            );
+            let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
             let deadline = tokio::time::sleep(Duration::from_secs(180));
             tokio::pin!(deadline);
