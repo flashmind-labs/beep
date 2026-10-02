@@ -1,7 +1,9 @@
+use crate::protocol::{
+    Cron, Event, Integration, Memory, PhoneNotification, Run, RunEvent, Session,
+};
 use anyhow::{Result, bail};
 use flashmind::core::Conversation;
 use rusqlite::{OptionalExtension, params};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio_rusqlite::Connection;
 use uuid::Uuid;
@@ -9,25 +11,17 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct Store(Connection);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
-    pub seq: i64,
-    pub run_id: String,
-    #[serde(flatten)]
-    pub data: Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Run {
-    pub id: String,
-    pub session_id: String,
-    pub status: String,
-}
-
 pub enum CreateRun {
     Created(Run),
     Existing(Run),
     Conflict,
+}
+
+fn finished_json(status: &str) -> String {
+    let event = RunEvent::RunFinished {
+        status: status.to_owned(),
+    };
+    serde_json::to_string(&event).expect("RunEvent serializes to JSON")
 }
 
 const MEMORY_CATEGORIES: &[&str] = &[
@@ -190,10 +184,9 @@ impl Store {
                 let tx = db.transaction()?;
                 tx.execute(
                     "INSERT INTO events (run_id, seq, data)
-                SELECT id, COALESCE((SELECT MAX(seq) FROM events WHERE run_id=runs.id), 0)+1,
-                '{\"type\":\"run_finished\",\"status\":\"interrupted\"}'
+                SELECT id, COALESCE((SELECT MAX(seq) FROM events WHERE run_id=runs.id), 0)+1, ?
                 FROM runs WHERE status='running'",
-                    [],
+                    [finished_json("interrupted")],
                 )?;
                 tx.execute(
                     "UPDATE runs SET status='interrupted' WHERE status='running'",
@@ -234,7 +227,7 @@ impl Store {
             if active >= 16 { return Ok(CreateRun::Conflict); }
             let run = Run { id: Uuid::new_v4().to_string(), session_id: session, status: "running".into() };
             tx.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?, 'running')", params![run.id, user, run.session_id, request, message])?;
-            tx.execute("INSERT INTO events VALUES (?, 1, ?)", params![run.id, json!({"type":"run_started", "session_id":run.session_id}).to_string()])?;
+            tx.execute("INSERT INTO events VALUES (?, 1, ?)", params![run.id, serde_json::to_string(&RunEvent::RunStarted { session_id: run.session_id.clone() }).expect("RunEvent serializes to JSON")])?;
             tx.commit()?;
             Ok(CreateRun::Created(run))
         }).await?)
@@ -261,13 +254,13 @@ impl Store {
             .await?)
     }
 
-    pub async fn sessions(&self, user: &str) -> Result<Vec<Value>> {
+    pub async fn sessions(&self, user: &str) -> Result<Vec<Session>> {
         let user = user.to_owned();
         Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
             let mut statement = db.prepare(
                 "SELECT s.id, COALESCE((SELECT substr(message,1,80) FROM runs r WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.rowid LIMIT 1), 'Conversation'), s.pinned FROM sessions s WHERE s.user_id=? ORDER BY s.pinned DESC, s.rowid DESC LIMIT 200"
             )?;
-            let rows = statement.query_map([user], |row| Ok(json!({"id":row.get::<_, String>(0)?, "title":row.get::<_, String>(1)?, "pinned":row.get::<_, bool>(2)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            let rows = statement.query_map([user], |row| Ok(Session { id: row.get(0)?, title: row.get(1)?, pinned: row.get(2)? }))?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
         }).await?)
     }
@@ -345,8 +338,8 @@ impl Store {
             .transpose()
     }
 
-    pub async fn append(&self, run: &str, data: Value) -> Result<()> {
-        let (run, data) = (run.to_owned(), data.to_string());
+    pub async fn append(&self, run: &str, event: &RunEvent) -> Result<()> {
+        let (run, data) = (run.to_owned(), serde_json::to_string(event)?);
         self.0.call::<_, _, rusqlite::Error>(move |db| {
             db.execute("INSERT INTO events SELECT ?, COALESCE(MAX(seq),0)+1, ? FROM events WHERE run_id=?", params![run,data,run])?;
             Ok(())
@@ -361,15 +354,16 @@ impl Store {
             let rows = stmt.query_map(params![run,after], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
         }).await?;
-        rows.into_iter()
-            .map(|(seq, run_id, data)| {
-                Ok(Event {
-                    seq,
-                    run_id,
-                    data: serde_json::from_str(&data)?,
-                })
+        Ok(rows
+            .into_iter()
+            .filter_map(|(seq, run_id, data)| match serde_json::from_str(&data) {
+                Ok(event) => Some(Event { seq, event }),
+                Err(e) => {
+                    log::warn!("skipping unreadable event; run_id={run_id} seq={seq}: {e}");
+                    None
+                }
             })
-            .collect()
+            .collect())
     }
 
     pub async fn finish(
@@ -386,7 +380,7 @@ impl Store {
             if let Some(conversation) = conversation {
                 tx.execute("INSERT INTO sessions (user_id, id, conversation) VALUES (?, ?, ?) ON CONFLICT(user_id,id) DO UPDATE SET conversation=excluded.conversation", params![user,run.session_id,conversation])?;
             }
-            tx.execute("INSERT INTO events SELECT ?, COALESCE(MAX(seq),0)+1, ? FROM events WHERE run_id=?", params![run.id,json!({"type":"run_finished","status":status}).to_string(),run.id])?;
+            tx.execute("INSERT INTO events SELECT ?, COALESCE(MAX(seq),0)+1, ? FROM events WHERE run_id=?", params![run.id,finished_json(&status),run.id])?;
             tx.execute("UPDATE runs SET status=? WHERE id=? AND user_id=?", params![status,run.id,user])?;
             tx.commit()?;
             Ok(())
@@ -484,7 +478,7 @@ impl Store {
             .await?)
     }
 
-    pub async fn list_memories(&self, user: &str) -> Result<Vec<Value>> {
+    pub async fn list_memories(&self, user: &str) -> Result<Vec<Memory>> {
         let user = user.to_owned();
         Ok(self
             .0
@@ -494,7 +488,7 @@ impl Store {
                 )?;
                 let rows = stmt
                     .query_map([user], |r| {
-                        Ok(json!({"key":r.get::<_,String>(0)?,"content":r.get::<_,String>(1)?,"category":r.get::<_,String>(2)?}))
+                        Ok(Memory { key: r.get(0)?, content: r.get(1)?, category: r.get(2)? })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
                 Ok(rows)
@@ -502,7 +496,7 @@ impl Store {
             .await?)
     }
 
-    pub async fn list_crons(&self, user: &str) -> Result<Vec<Value>> {
+    pub async fn list_crons(&self, user: &str) -> Result<Vec<Cron>> {
         let user = user.to_owned();
         Ok(self
             .0
@@ -512,18 +506,19 @@ impl Store {
                 )?;
                 let rows = stmt
                     .query_map([user], |r| {
-                        Ok(json!({
-                            "id": r.get::<_,String>(0)?,
-                            "label": r.get::<_,String>(1)?,
-                            "prompt": r.get::<_,String>(2)?,
-                            "schedule": r.get::<_,String>(3)?,
-                            "enabled": r.get::<_,bool>(4)?,
-                            "created_at": r.get::<_,String>(5)?,
-                            "run_once": r.get::<_,bool>(6)?,
-                            "last_run_at": r.get::<_,Option<String>>(7)?,
-                            "last_status": r.get::<_,Option<String>>(8)?,
-                            "last_error": r.get::<_,Option<String>>(9)?,
-                        }))
+                        Ok(Cron {
+                            id: r.get(0)?,
+                            label: r.get(1)?,
+                            prompt: r.get(2)?,
+                            schedule: r.get(3)?,
+                            enabled: r.get(4)?,
+                            created_at: r.get(5)?,
+                            run_once: r.get(6)?,
+                            last_run_at: r.get(7)?,
+                            last_status: r.get(8)?,
+                            last_error: r.get(9)?,
+                            next_run_at: None,
+                        })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
                 Ok(rows)
@@ -774,7 +769,7 @@ impl Store {
             .await?)
     }
 
-    pub async fn list_mcp_connections(&self, user: &str) -> Result<Vec<Value>> {
+    pub async fn list_mcp_connections(&self, user: &str) -> Result<Vec<Integration>> {
         let user = user.to_owned();
         Ok(self
             .0
@@ -784,13 +779,13 @@ impl Store {
                 )?;
                 let rows = stmt
                     .query_map([user], |r| {
-                        Ok(json!({
-                            "id": r.get::<_,String>(0)?,
-                            "provider": r.get::<_,String>(1)?,
-                            "label": r.get::<_,String>(2)?,
-                            "status": r.get::<_,String>(3)?,
-                            "created_at": r.get::<_,String>(4)?,
-                        }))
+                        Ok(Integration {
+                            id: r.get(0)?,
+                            provider: r.get(1)?,
+                            label: r.get(2)?,
+                            status: r.get(3)?,
+                            created_at: r.get(4)?,
+                        })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
                 Ok(rows)
@@ -968,26 +963,25 @@ impl Store {
             .await?)
     }
 
-    pub async fn save_notifications(&self, user: &str, notifications: &[Value]) -> Result<usize> {
+    pub async fn save_notifications(
+        &self,
+        user: &str,
+        notifications: Vec<PhoneNotification>,
+    ) -> Result<usize> {
         let user = user.to_owned();
-        let notifications: Vec<Value> = notifications.to_vec();
         Ok(self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;
                 let mut count = 0usize;
                 for n in &notifications {
-                    let app = n["app"].as_str().unwrap_or_default();
-                    let title = n["title"].as_str().unwrap_or_default();
-                    let text = n["text"].as_str().unwrap_or_default();
-                    let timestamp = n["timestamp"].as_i64().unwrap_or(0);
-                    if app.is_empty() || timestamp == 0 {
+                    if n.app.is_empty() || n.timestamp == 0 {
                         continue;
                     }
                     let id = Uuid::new_v4().to_string();
                     let inserted = tx.execute(
                         "INSERT OR IGNORE INTO notifications (id, user_id, app, title, text, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                        params![id, user, app, title, text, timestamp],
+                        params![id, user, n.app, n.title, n.text, n.timestamp],
                     )?;
                     count += inserted;
                 }

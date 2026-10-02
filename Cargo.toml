@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = ["crates/server", "crates/quic-client", "crates/android-bridge"]
+members = ["crates/server", "crates/android-bridge"]

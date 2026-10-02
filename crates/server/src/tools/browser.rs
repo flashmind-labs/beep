@@ -1,4 +1,7 @@
-use crate::app::App;
+use crate::{
+    app::App,
+    protocol::{BrowserCommand, DeviceAnswer, DeviceQuery, ScrollDirection},
+};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
@@ -96,69 +99,57 @@ impl Tool for BrowserTool {
         Some(20)
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
-        let action = ctx.args.get("action").and_then(Value::as_str).unwrap_or("");
-
-        if action == "navigate" {
-            let url = ctx.args.get("url").and_then(Value::as_str).unwrap_or("");
-            if url.is_empty() {
-                return Ok(ToolResult::failure(
-                    ctx.tool_call_id,
-                    "url is required for navigate action",
-                ));
-            }
-        }
-
-        if matches!(action, "click" | "type" | "get_text") {
-            let selector = ctx
-                .args
-                .get("selector")
+        let arg = |name: &str| {
+            ctx.args
+                .get(name)
                 .and_then(Value::as_str)
-                .unwrap_or("");
-            if selector.is_empty() {
-                return Ok(ToolResult::failure(
-                    ctx.tool_call_id,
-                    "selector is required for click, type, and get_text actions",
-                ));
-            }
-        }
-
-        if action == "type" {
-            let text = ctx.args.get("text").and_then(Value::as_str).unwrap_or("");
-            if text.is_empty() {
-                return Ok(ToolResult::failure(
-                    ctx.tool_call_id,
-                    "text is required for type action",
-                ));
-            }
-        }
-
-        let mut query = json!({ "action": "browser_command" });
-        query["browser_action"] = json!(action);
-        if let Some(v) = ctx.args.get("url") {
-            query["url"] = v.clone();
-        }
-        if let Some(v) = ctx.args.get("selector") {
-            query["selector"] = v.clone();
-        }
-        if let Some(v) = ctx.args.get("text") {
-            query["text"] = v.clone();
-        }
-        if let Some(v) = ctx.args.get("direction") {
-            query["direction"] = v.clone();
-        }
-
-        match self.app.device_query(&self.run_id, query, 15).await {
-            Ok(result) => {
-                if result.get("error").is_some() {
-                    Ok(ToolResult::failure(ctx.tool_call_id, result.to_string()))
-                } else {
-                    Ok(ToolResult::success(ctx.tool_call_id, result.to_string()))
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+        };
+        let command = match ctx.args.get("action").and_then(Value::as_str) {
+            Some("navigate") => match arg("url") {
+                Some(url) => BrowserCommand::Navigate { url },
+                None => return Ok(failure(ctx, "url is required for navigate action")),
+            },
+            Some("click") => match arg("selector") {
+                Some(selector) => BrowserCommand::Click { selector },
+                None => return Ok(failure(ctx, "selector is required for click action")),
+            },
+            Some("type") => match (arg("selector"), arg("text")) {
+                (Some(selector), Some(text)) => BrowserCommand::Type { selector, text },
+                _ => {
+                    return Ok(failure(
+                        ctx,
+                        "selector and text are required for type action",
+                    ));
                 }
-            }
+            },
+            Some("get_text") => match arg("selector") {
+                Some(selector) => BrowserCommand::GetText { selector },
+                None => return Ok(failure(ctx, "selector is required for get_text action")),
+            },
+            Some("scroll") => BrowserCommand::Scroll {
+                direction: match arg("direction").as_deref() {
+                    Some("up") => ScrollDirection::Up {},
+                    _ => ScrollDirection::Down {},
+                },
+            },
+            Some("get_page_info") => BrowserCommand::GetPageInfo {},
+            _ => return Ok(failure(ctx, "unknown browser action")),
+        };
+
+        let query = DeviceQuery::Browser { command };
+        match self.app.device_query(&self.run_id, query, 15).await {
+            Ok(DeviceAnswer::Ok { output }) => Ok(ToolResult::success(ctx.tool_call_id, output)),
+            Ok(DeviceAnswer::Err { message }) => Ok(ToolResult::failure(ctx.tool_call_id, message)),
             Err(e) => Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 format!("Could not reach the user's device: {e}"),
             )),
         }
     }
+}
+
+fn failure(ctx: ToolContext<'_>, message: &str) -> ToolResult {
+    ToolResult::failure(ctx.tool_call_id, message)
 }

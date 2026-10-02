@@ -6,7 +6,6 @@ rust-version = "1.93"
 publish = false
 
 [dependencies]
-beep-quic-client = { path = "../quic-client" }
 anyhow = "1"
 async-trait = "0.1"
 bytes = "1"
@@ -14,7 +13,7 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", features = ["mcp", "composio", "cron"] }
 futures = "0.3"
-http = "1"
+rmp-serde = "1"
 iroh = "1.3"
 rusqlite = { version = "0.37", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
@@ -24,6 +23,7 @@ sha2 = "0.10"
 subtle = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-rusqlite = "0.7"
+tokio-util = { version = "0.7", features = ["codec"] }
 toml = "1"
 log = "0.4"
 logforth = { version = "0.30", features = ["starter-log"] }

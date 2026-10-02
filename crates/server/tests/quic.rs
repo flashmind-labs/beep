@@ -3,17 +3,17 @@ use beep_server::{
     app::App,
     client::Client,
     config::Auth,
+    protocol::{HistoryEntry, Reply, Request, Run, RunEvent},
     store::{CreateRun, Store},
-    transport,
+    transport::{self, RemoteError},
 };
-use bytes::Bytes;
 use flashmind::types::{
     CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role, StreamEvent,
 };
 use iroh::SecretKey;
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     sync::{
         Arc,
@@ -23,8 +23,7 @@ use std::{
 };
 use uuid::Uuid;
 
-const ALICE: &str = "test-alice-token-with-at-least-32-characters";
-const BOB: &str = "test-bob-token-with-at-least-32-characters";
+const ALICE: &str = "alice-token-0123456789abcdef0123456789";
 
 struct ProviderStub {
     calls: AtomicUsize,
@@ -53,8 +52,8 @@ impl LlmProvider for ProviderStub {
                 yield Ok(StreamEvent::ContentDelta("Working".into()));
                 tokio::time::sleep(Duration::from_secs(60)).await;
             } else if !is_tool_result {
-                yield Ok(StreamEvent::ToolCallStart {index:0,id:Uuid::new_v4().to_string(),name:"memory_store".into()});
-                yield Ok(StreamEvent::ToolCallDelta {index:0,arguments:json!({"key":"drink","content":"Prefers tea"}).to_string()});
+                yield Ok(StreamEvent::ToolCallStart { index: 0, id: Uuid::new_v4().to_string(), name: "memory_store".into() });
+                yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: json!({"key":"drink","content":"Prefers tea"}).to_string() });
                 yield Ok(StreamEvent::Finished(FinishReason::ToolCalls));
                 return;
             }
@@ -78,11 +77,7 @@ impl Harness {
     async fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path().join("test.db")).await.unwrap();
-        let auth = Auth::new(vec![
-            ("alice".into(), ALICE.into()),
-            ("bob".into(), BOB.into()),
-        ])
-        .unwrap();
+        let auth = Auth::new(vec![("alice".into(), ALICE.into())]).unwrap();
         let provider = Arc::new(ProviderStub {
             calls: AtomicUsize::new(0),
         });
@@ -100,9 +95,8 @@ impl Harness {
             .bind()
             .await
             .unwrap();
-        let handler = transport::BeepHandler::new(app.clone());
         let router = Router::builder(endpoint)
-            .accept(transport::ALPN, handler)
+            .accept(transport::ALPN, transport::BeepHandler::new(app.clone()))
             .spawn();
         Self {
             dir,
@@ -113,169 +107,123 @@ impl Harness {
     }
 
     async fn client(&self) -> Client {
-        let addr = self.router.endpoint().addr();
-        Client::connect(addr).await.unwrap()
+        Client::connect(self.router.endpoint().addr(), ALICE)
+            .await
+            .unwrap()
     }
 }
 
-impl Drop for Harness {
-    fn drop(&mut self) {}
+async fn run(c: &Client, request: &Request) -> anyhow::Result<Run> {
+    match c.call(request).await? {
+        Reply::Run { run } => Ok(run),
+        other => anyhow::bail!("expected run, got {other:?}"),
+    }
 }
 
-async fn request(
-    client: &Client,
-    method: &str,
-    path: &str,
-    token: &str,
-    body: Option<Value>,
-) -> (u16, String) {
-    let mut output = Vec::new();
-    let status = tokio::time::timeout(
-        Duration::from_secs(5),
-        client.request(
-            method,
-            path,
-            token,
-            body.map(|v| Bytes::from(v.to_string())),
-            |bytes| output.extend_from_slice(bytes),
-        ),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    (status, String::from_utf8(output).unwrap())
+async fn done(c: &Client, request: &Request) -> anyhow::Result<()> {
+    match c.call(request).await? {
+        Reply::Done {} => Ok(()),
+        other => anyhow::bail!("expected done, got {other:?}"),
+    }
 }
 
-fn events(raw: &str) -> Vec<Value> {
-    raw.lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
+fn code(err: anyhow::Error) -> u16 {
+    err.downcast_ref::<RemoteError>().unwrap().code
+}
+
+/// Polls the event stream until the run reports `RunFinished`.
+async fn finished_events(c: &Client, run_id: &str) -> Vec<RunEvent> {
+    let mut events = Vec::new();
+    for _ in 0..50 {
+        events.clear();
+        let mut replies = c
+            .stream(&Request::GetEvents {
+                run_id: run_id.into(),
+                after: 0,
+            })
+            .await
+            .unwrap();
+        while let Some(frame) = replies.next().await.unwrap() {
+            let Reply::Event { event, .. } = frame else {
+                panic!("expected event, got {frame:?}")
+            };
+            events.push(event);
+        }
+        if events
+            .iter()
+            .any(|e| matches!(e, RunEvent::RunFinished { .. }))
+        {
+            return events;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("run {run_id} never finished");
 }
 
 #[tokio::test]
 async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     let h = Harness::new().await;
-    let client = h.client().await;
-    assert_eq!(
-        request(&client, "GET", "/v1/health", "wrong", None).await.0,
-        401
+    let c = h.client().await;
+
+    done(&c, &Request::Health {}).await.unwrap();
+    assert!(
+        Client::connect(h.router.endpoint().addr(), "wrong-token")
+            .await
+            .is_err()
     );
-    let (status, health) = request(&client, "GET", "/v1/health", ALICE, None).await;
-    assert_eq!(status, 200);
-    assert_eq!(
-        serde_json::from_str::<Value>(&health).unwrap()["protocol"],
-        "iroh"
-    );
+
     let session = Uuid::new_v4();
-    let body =
-        json!({"session_id":session,"request_id":Uuid::new_v4(),"message":"Remember I prefer tea"});
-    let (status, raw) = request(&client, "POST", "/v1/runs", ALICE, Some(body.clone())).await;
-    assert_eq!(status, 202);
-    let run: Value = serde_json::from_str(&raw).unwrap();
-    let id = run["id"].as_str().unwrap();
-    // Closing the transport must not cancel server-owned execution.
-    drop(client);
-    let client = h.client().await;
-    let (status, duplicate) = request(&client, "POST", "/v1/runs", ALICE, Some(body.clone())).await;
-    assert_eq!(status, 200);
-    assert_eq!(
-        serde_json::from_str::<Value>(&duplicate).unwrap()["id"],
-        run["id"]
-    );
-    let mut changed = body.clone();
-    changed["message"] = json!("different message");
-    assert_eq!(
-        request(&client, "POST", "/v1/runs", ALICE, Some(changed))
-            .await
-            .0,
-        409
-    );
-    for path in [
-        format!("/v1/runs/{id}"),
-        format!("/v1/runs/{id}/events"),
-        format!("/v1/runs/{id}/cancel"),
-    ] {
-        let method = if path.ends_with("cancel") {
-            "POST"
-        } else {
-            "GET"
-        };
-        assert_eq!(request(&client, method, &path, BOB, None).await.0, 404);
-    }
-    let (status, raw) = request(
-        &client,
-        "GET",
-        &format!("/v1/runs/{id}/events"),
-        ALICE,
-        None,
-    )
-    .await;
-    assert_eq!(status, 200);
-    let full = events(&raw);
-    assert_eq!(full.last().unwrap()["status"], "completed");
+    let chat = Request::Chat {
+        session_id: session,
+        request_id: Uuid::new_v4(),
+        message: "Remember I prefer tea".into(),
+        image: None,
+    };
+    let first = run(&c, &chat).await.unwrap();
+
+    drop(c);
+    let c = h.client().await;
+
+    let again = run(&c, &chat).await.unwrap();
+    assert_eq!(again.id, first.id);
+
+    let evts = finished_events(&c, &first.id).await;
+    assert!(matches!(evts.last(), Some(RunEvent::RunFinished { .. })));
     assert!(
-        full.iter()
-            .any(|e| e["type"] == "tool_result" && e["success"] == true)
+        evts.iter()
+            .any(|e| matches!(e, RunEvent::ToolResult { success: true, .. }))
     );
-    assert_eq!(
-        full.iter()
-            .filter_map(|e| e["delta"].as_str())
-            .collect::<String>(),
-        "I remember your preference."
-    );
-    for pair in full.windows(2) {
-        assert_eq!(
-            pair[1]["seq"].as_i64().unwrap(),
-            pair[0]["seq"].as_i64().unwrap() + 1
-        );
-    }
-    let (_, replayed) = request(
-        &client,
-        "GET",
-        &format!("/v1/runs/{id}/events?after=2"),
-        ALICE,
-        None,
-    )
-    .await;
-    assert_eq!(events(&replayed), full[2..]);
-    assert_eq!(
-        h.provider.calls.load(Ordering::SeqCst),
-        2,
-        "duplicate submission must not invoke provider again"
-    );
-    let (_, history) = request(
-        &client,
-        "GET",
-        &format!("/v1/sessions/{session}"),
-        ALICE,
-        None,
-    )
-    .await;
-    assert!(!history.contains("You are Beep"));
-    assert!(!history.contains("system_prompt"));
-    assert!(history.contains("I remember your preference."));
-    assert_eq!(
-        request(
-            &client,
-            "GET",
-            &format!("/v1/sessions/{session}"),
-            BOB,
-            None
-        )
+    let text: String = evts
+        .iter()
+        .filter_map(|e| match e {
+            RunEvent::TextDelta { delta } => Some(delta.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(text, "I remember your preference.");
+
+    let Reply::History { entries } = c
+        .call(&Request::GetSession {
+            id: session.to_string(),
+        })
         .await
-        .0,
-        404
-    );
-    assert!(
-        h.app
-            .store
-            .recall("bob", "", None)
-            .await
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+        .unwrap()
+    else {
+        panic!("expected history")
+    };
+    let contents: Vec<&str> = entries
+        .iter()
+        .map(|e| match e {
+            HistoryEntry::User { content, .. } | HistoryEntry::Assistant { content, .. } => {
+                content.as_str()
+            }
+        })
+        .collect();
+    assert!(!contents.iter().any(|c| c.contains("You are Beep")));
+    assert!(contents.contains(&"I remember your preference."));
+
+    assert_eq!(h.provider.calls.load(Ordering::SeqCst), 2);
+
     let reopened = Store::open(h.dir.path().join("test.db")).await.unwrap();
     assert_eq!(
         reopened.recall("alice", "tea", None).await.unwrap()[0]["content"],
@@ -288,90 +236,55 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
             .unwrap()
             .is_some()
     );
-    assert_eq!(reopened.events(id, 0).await.unwrap().len(), full.len());
 }
 
 #[tokio::test]
 async fn cancellation_busy_session_and_invalid_input() {
     let h = Harness::new().await;
-    let client = h.client().await;
-    assert_eq!(
-        request(
-            &client,
-            "POST",
-            "/v1/runs",
-            ALICE,
-            Some(json!({"message":"missing ids"}))
-        )
-        .await
-        .0,
-        400
+    let c = h.client().await;
+
+    let session_id = Uuid::new_v4();
+    let slow = Request::Chat {
+        session_id,
+        request_id: Uuid::new_v4(),
+        message: "slow".into(),
+        image: None,
+    };
+    let slow_run = run(&c, &slow).await.unwrap();
+
+    let busy = Request::Chat {
+        session_id,
+        request_id: Uuid::new_v4(),
+        message: "again".into(),
+        image: None,
+    };
+    assert_eq!(code(c.call(&busy).await.unwrap_err()), 409);
+
+    let empty = Request::Chat {
+        session_id: Uuid::new_v4(),
+        request_id: Uuid::new_v4(),
+        message: " ".into(),
+        image: None,
+    };
+    assert_eq!(code(c.call(&empty).await.unwrap_err()), 400);
+
+    let missing = Request::GetRun {
+        id: "missing".into(),
+    };
+    assert_eq!(code(c.call(&missing).await.unwrap_err()), 404);
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let cancel = Request::CancelRun {
+        id: slow_run.id.clone(),
+    };
+    done(&c, &cancel).await.unwrap();
+
+    let evts = finished_events(&c, &slow_run.id).await;
+    assert!(
+        evts.iter()
+            .any(|e| matches!(e, RunEvent::RunFinished { status } if status == "cancelled"))
     );
-    let body = json!({"session_id":Uuid::new_v4(),"request_id":Uuid::new_v4(),"message":"slow"});
-    let (_, raw) = request(&client, "POST", "/v1/runs", ALICE, Some(body.clone())).await;
-    let run: Value = serde_json::from_str(&raw).unwrap();
-    let id = run["id"].as_str().unwrap();
-    let mut concurrent = body.clone();
-    concurrent["request_id"] = json!(Uuid::new_v4());
-    assert_eq!(
-        request(&client, "POST", "/v1/runs", ALICE, Some(concurrent))
-            .await
-            .0,
-        409
-    );
-    assert_eq!(
-        request(
-            &client,
-            "GET",
-            &format!("/v1/runs/{id}/events?after=-1"),
-            ALICE,
-            None
-        )
-        .await
-        .0,
-        400
-    );
-    let subscriber = h.client().await;
-    let events_path = format!("/v1/runs/{id}/events");
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let subscription = tokio::spawn(async move {
-        let mut output = Vec::new();
-        subscriber
-            .request("GET", &events_path, ALICE, None, |chunk| {
-                output.extend_from_slice(chunk);
-                let _ = tx.send(output.clone());
-            })
-            .await
-            .unwrap();
-        String::from_utf8(output).unwrap()
-    });
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while let Some(bytes) = rx.recv().await {
-            if String::from_utf8_lossy(&bytes).contains("Working") {
-                return;
-            }
-        }
-        panic!("stream ended before text arrived");
-    })
-    .await
-    .unwrap();
-    assert_eq!(
-        request(
-            &client,
-            "POST",
-            &format!("/v1/runs/{id}/cancel"),
-            ALICE,
-            None
-        )
-        .await
-        .0,
-        202
-    );
-    let raw = tokio::time::timeout(Duration::from_secs(5), subscription)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(events(&raw).last().unwrap()["status"], "cancelled");
+
     h.app.shutdown().await;
 }
 

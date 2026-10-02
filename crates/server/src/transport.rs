@@ -1,47 +1,103 @@
+//! Beep wire protocol over iroh.
+//!
+//! Frames are length-delimited msgpack holding the types in `protocol`.
+//!
+//! The first bi stream on a connection carries `Request::Auth`; the server
+//! answers `Reply::Done` or closes the connection. After that each request gets
+//! its own bi stream: one request frame in, reply frames out until the server
+//! finishes the stream.
+
 use crate::{
     app::{App, Message},
+    protocol::{HistoryEntry, Reply, Request, RunEvent},
     store::CreateRun,
 };
-use anyhow::Result;
-use bytes::{Bytes, BytesMut};
+use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
-use flashmind::cron::CronSchedule;
-use http::{Request, Response, StatusCode};
-use iroh::endpoint::Connection;
-use iroh::protocol::AcceptError;
-use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use flashmind::{core::EntryKind, cron::CronSchedule};
+use futures::{SinkExt, StreamExt};
+use iroh::{
+    endpoint::{Connection, RecvStream, SendStream, VarInt},
+    protocol::{AcceptError, ProtocolHandler},
+};
+use serde::{Serialize, de::DeserializeOwned};
+use std::{fmt, sync::Arc, time::Duration};
+use tokio::{
+    sync::{Semaphore, broadcast::error::RecvError},
+    time::{Instant, sleep, timeout},
+};
+use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 pub const ALPN: &[u8] = b"beep/1";
 
-pub(crate) struct Stream {
-    send: iroh::endpoint::SendStream,
-    recv: iroh::endpoint::RecvStream,
+const MAX_FRAME: usize = 8 * 1024 * 1024;
+const MAX_STREAMS: usize = 32;
+const READ_TIMEOUT: Duration = Duration::from_secs(10);
+const CLOSE_UNAUTHORIZED: u32 = 401;
+
+/// Error reply from the server, recoverable from `anyhow::Error` by downcast.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteError {
+    pub code: u16,
+    pub message: String,
 }
 
-impl Stream {
-    async fn recv_data(&mut self) -> Result<Option<Bytes>> {
-        let mut buf = vec![0u8; 8192];
-        match self.recv.read(&mut buf).await? {
-            Some(n) => {
-                buf.truncate(n);
-                Ok(Some(Bytes::from(buf)))
-            }
+impl fmt::Display for RemoteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "server error {}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for RemoteError {}
+
+fn codec() -> LengthDelimitedCodec {
+    LengthDelimitedCodec::builder()
+        .max_frame_length(MAX_FRAME)
+        .new_codec()
+}
+
+pub struct Tx(FramedWrite<SendStream, LengthDelimitedCodec>);
+pub struct Rx(FramedRead<RecvStream, LengthDelimitedCodec>);
+
+pub fn framed(send: SendStream, recv: RecvStream) -> (Tx, Rx) {
+    (
+        Tx(FramedWrite::new(send, codec())),
+        Rx(FramedRead::new(recv, codec())),
+    )
+}
+
+impl Tx {
+    pub async fn send<T: Serialize>(&mut self, msg: &T) -> Result<()> {
+        self.0.send(rmp_serde::to_vec(msg)?.into()).await?;
+        Ok(())
+    }
+
+    pub fn finish(&mut self) -> Result<()> {
+        self.0.get_mut().finish()?;
+        Ok(())
+    }
+
+    async fn reply(&mut self, reply: Reply) -> Result<()> {
+        self.send(&reply).await
+    }
+
+    async fn done(&mut self) -> Result<()> {
+        self.send(&Reply::Done {}).await
+    }
+
+    async fn err(&mut self, code: u16, message: &str) -> Result<()> {
+        let message = message.to_owned();
+        self.send(&Reply::Error { code, message }).await
+    }
+}
+
+impl Rx {
+    /// Next message, `None` once the peer finished the stream.
+    pub async fn next<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
+        match self.0.next().await {
+            Some(frame) => Ok(Some(rmp_serde::from_slice(&frame?)?)),
             None => Ok(None),
         }
-    }
-    async fn send_response(&mut self, response: Response<()>) -> Result<()> {
-        let status = response.status().as_u16();
-        self.send.write_all(&status.to_be_bytes()).await?;
-        Ok(())
-    }
-    async fn send_data(&mut self, bytes: Bytes) -> Result<()> {
-        self.send.write_all(&bytes).await?;
-        Ok(())
-    }
-    async fn finish(&mut self) -> Result<()> {
-        self.send.finish().map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(())
     }
 }
 
@@ -50,8 +106,8 @@ pub struct BeepHandler {
     app: Arc<App>,
 }
 
-impl std::fmt::Debug for BeepHandler {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for BeepHandler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BeepHandler").finish()
     }
 }
@@ -62,22 +118,28 @@ impl BeepHandler {
     }
 }
 
-impl iroh::protocol::ProtocolHandler for BeepHandler {
+impl ProtocolHandler for BeepHandler {
     async fn accept(&self, connection: Connection) -> std::result::Result<(), AcceptError> {
-        let connections = Arc::new(tokio::sync::Semaphore::new(32));
-        loop {
-            let (send, recv) = match connection.accept_bi().await {
-                Ok(streams) => streams,
-                Err(_) => break,
-            };
-            let Ok(permit) = connections.clone().try_acquire_owned() else {
-                continue;
+        let user = match authenticate(&self.app, &connection).await {
+            Ok(user) => user,
+            Err(e) => {
+                log::debug!("connection rejected: {e:#}");
+                connection.close(VarInt::from_u32(CLOSE_UNAUTHORIZED), b"unauthorized");
+                return Ok(());
+            }
+        };
+        let user: Arc<str> = user.into();
+        let streams = Arc::new(Semaphore::new(MAX_STREAMS));
+        while let Ok((send, recv)) = connection.accept_bi().await {
+            let Ok(permit) = streams.clone().acquire_owned().await else {
+                break;
             };
             let app = self.app.clone();
+            let user = user.clone();
             tokio::spawn(async move {
                 let _permit = permit;
-                if let Err(error) = handle_iroh_stream(app, send, recv).await {
-                    log::debug!("iroh request ended: {error}");
+                if let Err(e) = serve_stream(app, &user, send, recv).await {
+                    log::debug!("stream ended: {e:#}");
                 }
             });
         }
@@ -85,631 +147,287 @@ impl iroh::protocol::ProtocolHandler for BeepHandler {
     }
 }
 
-async fn handle_iroh_stream(
-    app: Arc<App>,
-    send: iroh::endpoint::SendStream,
-    mut recv: iroh::endpoint::RecvStream,
-) -> Result<()> {
-    let mut len_buf = [0u8; 4];
-    tokio::time::timeout(Duration::from_secs(10), recv.read_exact(&mut len_buf))
+async fn authenticate(app: &App, connection: &Connection) -> Result<String> {
+    let (send, recv) = timeout(READ_TIMEOUT, connection.accept_bi())
         .await
-        .map_err(|_| anyhow::anyhow!("request header read timed out"))??;
-    let header_len = u32::from_be_bytes(len_buf) as usize;
-    anyhow::ensure!(header_len <= 8192, "request header too large");
-    let mut header_buf = vec![0u8; header_len];
-    tokio::time::timeout(Duration::from_secs(10), recv.read_exact(&mut header_buf))
+        .context("auth timed out")??;
+    let (mut tx, mut rx) = framed(send, recv);
+    let request = timeout(READ_TIMEOUT, rx.next())
         .await
-        .map_err(|_| anyhow::anyhow!("request header read timed out"))??;
-    let header: Value = serde_json::from_slice(&header_buf)?;
-    let method = header["m"].as_str().unwrap_or("GET");
-    let path = header["p"].as_str().unwrap_or("/");
-    let auth = header["a"].as_str().unwrap_or("");
-    let mut builder = Request::builder().method(method).uri(path);
-    if !auth.is_empty() {
-        builder = builder.header("authorization", auth);
-    }
-    let request = builder.body(())?;
-    let stream = Stream { send, recv };
-    handle(app, request, stream).await
+        .context("auth timed out")??
+        .context("auth stream empty")?;
+    let Request::Auth { token } = request else {
+        bail!("first request must be Auth");
+    };
+    let user = app
+        .auth
+        .authenticate(Some(&format!("Bearer {token}")))
+        .ok_or_else(|| anyhow!("invalid token"))?;
+    tx.done().await?;
+    tx.finish()?;
+    Ok(user)
 }
 
-async fn read_body(stream: &mut Stream, limit: usize) -> Result<Option<Bytes>> {
-    let result = tokio::time::timeout(Duration::from_secs(10), async {
-        let mut body = BytesMut::new();
-        while let Some(chunk) = stream.recv_data().await? {
-            if body.len() + chunk.len() > limit {
-                return Ok::<_, anyhow::Error>(None);
+async fn serve_stream(app: Arc<App>, user: &str, send: SendStream, recv: RecvStream) -> Result<()> {
+    let (mut tx, mut rx) = framed(send, recv);
+    let request = timeout(READ_TIMEOUT, rx.next::<Request>())
+        .await
+        .context("request timed out")?;
+    let result = match request.and_then(|r| r.context("empty stream")) {
+        Ok(request) => handle(&app, user, request, &mut tx).await,
+        Err(e) => tx.err(400, &format!("{e:#}")).await,
+    };
+    tx.finish()?;
+    result
+}
+
+async fn handle(app: &Arc<App>, user: &str, request: Request, tx: &mut Tx) -> Result<()> {
+    match request {
+        Request::Auth { .. } => tx.err(400, "already authenticated").await,
+        Request::Health {} => tx.done().await,
+        Request::Chat {
+            session_id,
+            request_id,
+            message,
+            image,
+        } => {
+            if message.trim().is_empty() || message.len() > 32768 {
+                return tx.err(400, "message must be 1-32768 bytes").await;
             }
-            body.extend_from_slice(&chunk);
+            let m = Message {
+                session_id,
+                request_id,
+                message,
+                cron_id: None,
+                image,
+            };
+            match app.submit(user, m).await? {
+                CreateRun::Created(run) | CreateRun::Existing(run) => {
+                    tx.reply(Reply::Run { run }).await
+                }
+                CreateRun::Conflict => tx.err(409, "session busy").await,
+            }
         }
-        Ok(Some(body.freeze()))
-    })
-    .await;
-    match result {
-        Err(_) => Ok(None),
-        Ok(inner) => inner,
+        Request::GetRun { id } => match app.store.run(user, &id).await? {
+            Some(run) => tx.reply(Reply::Run { run }).await,
+            None => not_found(tx).await,
+        },
+        Request::CancelRun { id } => {
+            if app.store.run(user, &id).await?.is_none() {
+                return not_found(tx).await;
+            }
+            app.cancel(&id).await;
+            tx.done().await
+        }
+        Request::GetEvents { run_id, after } => {
+            if after < 0 {
+                return tx.err(400, "after must be >= 0").await;
+            }
+            if app.store.run(user, &run_id).await?.is_none() {
+                return not_found(tx).await;
+            }
+            stream_events(app, user, &run_id, after, tx).await
+        }
+        Request::DeviceResult {
+            run_id,
+            query_id,
+            answer,
+        } => {
+            if app.store.run(user, &run_id).await?.is_none() {
+                return not_found(tx).await;
+            }
+            let resolved = app.resolve_device_query(&query_id, answer).await;
+            tx.reply(Reply::Resolved { resolved }).await
+        }
+        Request::ListSessions {} => {
+            let sessions = app.store.sessions(user).await?;
+            tx.reply(Reply::Sessions { sessions }).await
+        }
+        Request::GetSession { id } => {
+            let Some(conv) = app.store.conversation(user, &id).await? else {
+                return not_found(tx).await;
+            };
+            let entries = conv
+                .entries()
+                .iter()
+                .filter_map(|e| match &e.kind {
+                    EntryKind::User { content, .. } => Some(HistoryEntry::User {
+                        content: content.clone(),
+                        timestamp: e.timestamp,
+                    }),
+                    EntryKind::Assistant { content, .. } => Some(HistoryEntry::Assistant {
+                        content: content.clone(),
+                        timestamp: e.timestamp,
+                    }),
+                    _ => None,
+                })
+                .collect();
+            tx.reply(Reply::History { entries }).await
+        }
+        Request::RenameSession { id, title } => {
+            if title.is_empty() {
+                return tx.err(400, "title required").await;
+            }
+            found(tx, app.store.rename_session(user, &id, &title).await?).await
+        }
+        Request::DeleteSession { id } => {
+            found(tx, app.store.delete_session(user, &id).await?).await
+        }
+        Request::PinSession { id, pinned } => {
+            found(tx, app.store.pin_session(user, &id, pinned).await?).await
+        }
+        Request::ListMemories {} => {
+            let memories = app.store.list_memories(user).await?;
+            tx.reply(Reply::Memories { memories }).await
+        }
+        Request::DeleteMemory { key } => found(tx, app.store.forget(user, &key).await?).await,
+        Request::ListCrons {} => {
+            let tz = app
+                .store
+                .get_timezone(user)
+                .await
+                .unwrap_or_else(|_| "UTC".into());
+            let mut crons = app.store.list_crons(user).await?;
+            for c in &mut crons {
+                c.next_run_at = next_run_at(&c.schedule, &tz);
+            }
+            tx.reply(Reply::Crons { crons }).await
+        }
+        Request::CreateCron {
+            label,
+            prompt,
+            schedule,
+        } => {
+            match app
+                .store
+                .create_cron(user, &label, &prompt, &schedule)
+                .await
+            {
+                Ok(id) => tx.reply(Reply::Created { id }).await,
+                Err(e) => tx.err(400, &e.to_string()).await,
+            }
+        }
+        Request::ToggleCron { id } => match app.store.toggle_cron(user, &id).await? {
+            Some(enabled) => tx.reply(Reply::Enabled { enabled }).await,
+            None => not_found(tx).await,
+        },
+        Request::DeleteCron { id } => found(tx, app.store.delete_cron(user, &id).await?).await,
+        Request::UpdateCron {
+            id,
+            enabled,
+            label,
+            schedule,
+        } => {
+            let updated = app
+                .store
+                .update_cron(user, &id, enabled, label.as_deref(), schedule.as_deref())
+                .await?;
+            found(tx, updated).await
+        }
+        Request::RegisterDevice {
+            device_id,
+            fcm_token,
+        } => {
+            app.store
+                .register_device(user, &device_id, &fcm_token)
+                .await?;
+            tx.done().await
+        }
+        Request::UnregisterDevice { device_id } => {
+            found(tx, app.store.unregister_device(user, &device_id).await?).await
+        }
+        Request::UpdateLocation {
+            latitude,
+            longitude,
+            accuracy,
+            timezone,
+        } => {
+            let valid = latitude.is_finite()
+                && longitude.is_finite()
+                && accuracy.is_finite()
+                && (-90.0..=90.0).contains(&latitude)
+                && (-180.0..=180.0).contains(&longitude);
+            if !valid {
+                return tx.err(400, "invalid coordinates").await;
+            }
+            app.store
+                .update_location_tz(user, latitude, longitude, accuracy, &timezone)
+                .await?;
+            tx.done().await
+        }
+        Request::SaveNotifications { notifications } => {
+            let count = app.store.save_notifications(user, notifications).await?;
+            tx.reply(Reply::Saved {
+                count: count as u64,
+            })
+            .await
+        }
+        Request::StreamNotifications {} => stream_notifications(app, user, tx).await,
+        Request::ListIntegrations {} => {
+            let integrations = app.store.list_mcp_connections(user).await?;
+            tx.reply(Reply::Integrations { integrations }).await
+        }
+        Request::CreateIntegration {
+            provider,
+            label,
+            config,
+        } => {
+            match app
+                .store
+                .create_mcp_connection(user, &provider, &label, &config)
+                .await
+            {
+                Ok(id) => tx.reply(Reply::Created { id }).await,
+                Err(e) => tx.err(400, &e.to_string()).await,
+            }
+        }
+        Request::DeleteIntegration { id } => {
+            found(tx, app.store.delete_mcp_connection(user, &id).await?).await
+        }
+        Request::UpdateCredentials {
+            id,
+            credentials,
+            status,
+        } => {
+            found(
+                tx,
+                app.store
+                    .update_mcp_credentials(user, &id, &credentials, &status)
+                    .await?,
+            )
+            .await
+        }
     }
 }
 
-async fn reply(stream: &mut Stream, status: StatusCode, value: Value) -> Result<()> {
-    stream
-        .send_response(
-            Response::builder()
-                .status(status)
-                .header("content-type", "application/json")
-                .header("cache-control", "no-store")
-                .body(())?,
-        )
-        .await?;
-    stream
-        .send_data(Bytes::from(serde_json::to_vec(&value)?))
-        .await?;
-    stream.finish().await?;
-    Ok(())
+async fn not_found(tx: &mut Tx) -> Result<()> {
+    tx.err(404, "not found").await
+}
+
+async fn found(tx: &mut Tx, found: bool) -> Result<()> {
+    if found {
+        tx.done().await
+    } else {
+        not_found(tx).await
+    }
 }
 
 fn next_run_at(expression: &str, tz_name: &str) -> Option<String> {
     let schedule = CronSchedule::parse(expression).ok()?;
     let tz: chrono_tz::Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
-    let next = schedule.next_after_in_tz(&Utc::now(), tz)?;
-    Some(next.to_rfc3339())
-}
-
-/// Read the request body, parse it as JSON, and reply with an error if either step fails.
-/// Returns `None` (after sending the error reply) when the body is too large or not valid JSON.
-async fn read_json(stream: &mut Stream, limit: usize) -> Result<Option<Value>> {
-    let Some(body) = read_body(stream, limit).await? else {
-        reply(
-            stream,
-            StatusCode::PAYLOAD_TOO_LARGE,
-            json!({"error":"body too large"}),
-        )
-        .await?;
-        return Ok(None);
-    };
-    match serde_json::from_slice(&body) {
-        Ok(v) => Ok(Some(v)),
-        Err(_) => {
-            reply(
-                stream,
-                StatusCode::BAD_REQUEST,
-                json!({"error":"invalid JSON"}),
-            )
-            .await?;
-            Ok(None)
-        }
-    }
-}
-
-fn ok_or_not_found(found: bool, key: &str) -> (StatusCode, Value) {
-    if found {
-        (StatusCode::OK, json!({key: true}))
-    } else {
-        (StatusCode::NOT_FOUND, json!({key: false}))
-    }
-}
-
-pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stream) -> Result<()> {
-    let path = request.uri().path();
-    let method = request.method().as_str();
-
-    if method == "GET" && path == "/v1/auth" {
-        let mode = if app.auth.is_testing() {
-            "testing"
-        } else {
-            "token"
-        };
-        return reply(&mut stream, StatusCode::OK, json!({"mode": mode})).await;
-    }
-
-    let Some(user) = app.auth.authenticate(
-        request
-            .headers()
-            .get("authorization")
-            .and_then(|v| v.to_str().ok()),
-    ) else {
-        return reply(
-            &mut stream,
-            StatusCode::UNAUTHORIZED,
-            json!({"error":"unauthorized"}),
-        )
-        .await;
-    };
-
-    let segments: Vec<_> = path.trim_matches('/').split('/').collect();
-    match (method, segments.as_slice()) {
-        ("GET", ["v1", "health"]) => {
-            reply(
-                &mut stream,
-                StatusCode::OK,
-                json!({"status":"ok","protocol":"iroh","version":1}),
-            )
-            .await
-        }
-        ("GET", ["v1", "notifications"]) => stream_notifications(&app, &user, &mut stream).await,
-        ("GET", ["v1", "sessions"]) => {
-            reply(
-                &mut stream,
-                StatusCode::OK,
-                json!({"sessions": app.store.sessions(&user).await?}),
-            )
-            .await
-        }
-        ("GET", ["v1", "sessions", id]) => serve_conversation(&app, &user, id, &mut stream).await,
-        ("PUT", ["v1", "sessions", id]) => {
-            let Some(parsed) = read_json(&mut stream, 65536).await? else {
-                return Ok(());
-            };
-            let Some(title) = parsed
-                .get("title")
-                .and_then(Value::as_str)
-                .filter(|t| !t.is_empty())
-            else {
-                return reply(
-                    &mut stream,
-                    StatusCode::BAD_REQUEST,
-                    json!({"error":"expected {\"title\": \"...\"}"}),
-                )
-                .await;
-            };
-            let (status, body) =
-                ok_or_not_found(app.store.rename_session(&user, id, title).await?, "renamed");
-            reply(&mut stream, status, body).await
-        }
-        ("DELETE", ["v1", "sessions", id]) => {
-            let (status, body) =
-                ok_or_not_found(app.store.delete_session(&user, id).await?, "deleted");
-            reply(&mut stream, status, body).await
-        }
-        ("PUT", ["v1", "sessions", id, "pin"]) => {
-            let parsed = read_json(&mut stream, 4096).await?.unwrap_or_default();
-            let pinned = parsed
-                .get("pinned")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
-            let (status, body) =
-                ok_or_not_found(app.store.pin_session(&user, id, pinned).await?, "pinned");
-            reply(&mut stream, status, body).await
-        }
-        ("GET", ["v1", "memories"]) => {
-            reply(
-                &mut stream,
-                StatusCode::OK,
-                json!({"memories": app.store.list_memories(&user).await?}),
-            )
-            .await
-        }
-        ("DELETE", ["v1", "memories"]) => {
-            let Some(parsed) = read_json(&mut stream, 65536).await? else {
-                return Ok(());
-            };
-            let Some(key) = parsed
-                .get("key")
-                .and_then(Value::as_str)
-                .filter(|k| !k.is_empty())
-            else {
-                return reply(
-                    &mut stream,
-                    StatusCode::BAD_REQUEST,
-                    json!({"error":"expected {\"key\": \"...\"}"}),
-                )
-                .await;
-            };
-            let (status, body) = ok_or_not_found(app.store.forget(&user, key).await?, "forgotten");
-            reply(&mut stream, status, body).await
-        }
-        ("GET", ["v1", "crons"]) => {
-            let tz = app
-                .store
-                .get_timezone(&user)
-                .await
-                .unwrap_or_else(|_| "UTC".into());
-            let mut crons = app.store.list_crons(&user).await?;
-            for cron in &mut crons {
-                let schedule = cron["schedule"].as_str().unwrap_or_default();
-                cron["next_run_at"] = next_run_at(schedule, &tz)
-                    .map(|t| json!(t))
-                    .unwrap_or(Value::Null);
-            }
-            reply(&mut stream, StatusCode::OK, json!({"crons": crons})).await
-        }
-        ("POST", ["v1", "crons"]) => {
-            let Some(parsed) = read_json(&mut stream, 65536).await? else {
-                return Ok(());
-            };
-            let label = parsed.get("label").and_then(Value::as_str).unwrap_or("");
-            let prompt = parsed.get("prompt").and_then(Value::as_str).unwrap_or("");
-            let schedule = parsed.get("schedule").and_then(Value::as_str).unwrap_or("");
-            match app.store.create_cron(&user, label, prompt, schedule).await {
-                Ok(id) => reply(&mut stream, StatusCode::CREATED,
-                    json!({"id":id,"label":label,"prompt":prompt,"schedule":schedule,"enabled":true})).await,
-                Err(e) => reply(&mut stream, StatusCode::BAD_REQUEST, json!({"error": e.to_string()})).await,
-            }
-        }
-        ("PUT", ["v1", "crons", id, "toggle"]) => match app.store.toggle_cron(&user, id).await? {
-            Some(enabled) => reply(&mut stream, StatusCode::OK, json!({"enabled": enabled})).await,
-            None => {
-                reply(
-                    &mut stream,
-                    StatusCode::NOT_FOUND,
-                    json!({"error":"cron not found"}),
-                )
-                .await
-            }
-        },
-        ("DELETE", ["v1", "crons", id]) => {
-            let (status, body) =
-                ok_or_not_found(app.store.delete_cron(&user, id).await?, "deleted");
-            reply(&mut stream, status, body).await
-        }
-        ("PATCH", ["v1", "crons", id]) => {
-            let parsed = read_json(&mut stream, 65536).await?.unwrap_or_default();
-            let enabled = parsed.get("enabled").and_then(Value::as_bool);
-            let label = parsed.get("label").and_then(Value::as_str);
-            let schedule = parsed.get("schedule").and_then(Value::as_str);
-            let (status, body) = ok_or_not_found(
-                app.store
-                    .update_cron(&user, id, enabled, label, schedule)
-                    .await?,
-                "updated",
-            );
-            reply(&mut stream, status, body).await
-        }
-        ("POST", ["v1", "devices"]) => {
-            let Some(parsed) = read_json(&mut stream, 4096).await? else {
-                return Ok(());
-            };
-            let device_id = parsed
-                .get("device_id")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let fcm_token = parsed
-                .get("fcm_token")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            if device_id.is_empty() || fcm_token.is_empty() {
-                return reply(
-                    &mut stream,
-                    StatusCode::BAD_REQUEST,
-                    json!({"error":"expected {\"device_id\": \"...\", \"fcm_token\": \"...\"}"}),
-                )
-                .await;
-            }
-            app.store
-                .register_device(&user, device_id, fcm_token)
-                .await?;
-            reply(&mut stream, StatusCode::OK, json!({"registered": true})).await
-        }
-        ("DELETE", ["v1", "devices"]) => {
-            let Some(parsed) = read_json(&mut stream, 4096).await? else {
-                return Ok(());
-            };
-            let Some(device_id) = parsed
-                .get("device_id")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-            else {
-                return reply(
-                    &mut stream,
-                    StatusCode::BAD_REQUEST,
-                    json!({"error":"expected {\"device_id\": \"...\"}"}),
-                )
-                .await;
-            };
-            let (status, body) = ok_or_not_found(
-                app.store.unregister_device(&user, device_id).await?,
-                "unregistered",
-            );
-            reply(&mut stream, status, body).await
-        }
-        ("POST", ["v1", "location"]) => {
-            let Some(parsed) = read_json(&mut stream, 4096).await? else {
-                return Ok(());
-            };
-            let lat = parsed.get("latitude").and_then(Value::as_f64);
-            let lng = parsed.get("longitude").and_then(Value::as_f64);
-            let accuracy = parsed
-                .get("accuracy")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0);
-            match (lat, lng) {
-                (Some(lat), Some(lng))
-                    if (-90.0..=90.0).contains(&lat)
-                        && (-180.0..=180.0).contains(&lng)
-                        && lat.is_finite()
-                        && lng.is_finite()
-                        && accuracy.is_finite() =>
-                {
-                    let tz = parsed
-                        .get("timezone")
-                        .and_then(Value::as_str)
-                        .unwrap_or("UTC");
-                    app.store
-                        .update_location_tz(&user, lat, lng, accuracy, tz)
-                        .await?;
-                    reply(&mut stream, StatusCode::OK, json!({"updated": true})).await
-                }
-                _ => {
-                    reply(
-                        &mut stream,
-                        StatusCode::BAD_REQUEST,
-                        json!({"error":"expected valid latitude/longitude/accuracy"}),
-                    )
-                    .await
-                }
-            }
-        }
-        ("POST", ["v1", "phone", "notifications"]) => {
-            let Some(parsed) = read_json(&mut stream, 262144).await? else {
-                return Ok(());
-            };
-            let Some(notifications) = parsed.get("notifications").and_then(Value::as_array) else {
-                return reply(
-                    &mut stream,
-                    StatusCode::BAD_REQUEST,
-                    json!({"error":"expected {\"notifications\": [...]}"}),
-                )
-                .await;
-            };
-            let saved = app.store.save_notifications(&user, notifications).await?;
-            reply(&mut stream, StatusCode::OK, json!({"saved": saved})).await
-        }
-        ("POST", ["v1", "runs"]) => handle_create_run(&app, &user, &mut stream).await,
-        ("GET", ["v1", "runs", id]) => match app.store.run(&user, id).await? {
-            Some(run) => reply(&mut stream, StatusCode::OK, json!(run)).await,
-            None => {
-                reply(
-                    &mut stream,
-                    StatusCode::NOT_FOUND,
-                    json!({"error":"run not found"}),
-                )
-                .await
-            }
-        },
-        ("POST", ["v1", "runs", id, "cancel"]) => {
-            if app.store.run(&user, id).await?.is_none() {
-                return reply(
-                    &mut stream,
-                    StatusCode::NOT_FOUND,
-                    json!({"error":"run not found"}),
-                )
-                .await;
-            }
-            app.cancel(id).await;
-            reply(
-                &mut stream,
-                StatusCode::ACCEPTED,
-                json!({"run_id": *id, "cancellation_requested": true}),
-            )
-            .await
-        }
-        ("POST", ["v1", "runs", id, "device-result"]) => {
-            if app.store.run(&user, id).await?.is_none() {
-                return reply(
-                    &mut stream,
-                    StatusCode::NOT_FOUND,
-                    json!({"error":"run not found"}),
-                )
-                .await;
-            }
-            let Some(parsed) = read_json(&mut stream, 65536).await? else {
-                return Ok(());
-            };
-            let Some(query_id) = parsed
-                .get("query_id")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-            else {
-                return reply(
-                    &mut stream,
-                    StatusCode::BAD_REQUEST,
-                    json!({"error":"expected {\"query_id\": \"...\", \"result\": {...}}"}),
-                )
-                .await;
-            };
-            let result = parsed.get("result").cloned().unwrap_or(Value::Null);
-            let resolved = app.resolve_device_query(query_id, result).await;
-            let status = if resolved {
-                StatusCode::OK
-            } else {
-                StatusCode::NOT_FOUND
-            };
-            reply(&mut stream, status, json!({"resolved": resolved})).await
-        }
-        ("GET", ["v1", "runs", id, "events"]) => {
-            if app.store.run(&user, id).await?.is_none() {
-                return reply(
-                    &mut stream,
-                    StatusCode::NOT_FOUND,
-                    json!({"error":"run not found"}),
-                )
-                .await;
-            }
-            stream_events(&app, &user, id, &request, &mut stream).await
-        }
-        ("GET", ["v1", "integrations"]) => {
-            reply(
-                &mut stream,
-                StatusCode::OK,
-                json!({"integrations": app.store.list_mcp_connections(&user).await?}),
-            )
-            .await
-        }
-        ("POST", ["v1", "integrations"]) => {
-            let Some(parsed) = read_json(&mut stream, 65536).await? else {
-                return Ok(());
-            };
-            let provider = parsed.get("provider").and_then(Value::as_str).unwrap_or("");
-            let label = parsed.get("label").and_then(Value::as_str).unwrap_or("");
-            let config = parsed
-                .get("config")
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "{}".into());
-            match app
-                .store
-                .create_mcp_connection(&user, provider, label, &config)
-                .await
-            {
-                Ok(id) => {
-                    reply(
-                        &mut stream,
-                        StatusCode::CREATED,
-                        json!({"id":id,"provider":provider,"label":label,"status":"disconnected"}),
-                    )
-                    .await
-                }
-                Err(e) => {
-                    reply(
-                        &mut stream,
-                        StatusCode::BAD_REQUEST,
-                        json!({"error": e.to_string()}),
-                    )
-                    .await
-                }
-            }
-        }
-        ("DELETE", ["v1", "integrations", id]) => {
-            let (status, body) =
-                ok_or_not_found(app.store.delete_mcp_connection(&user, id).await?, "deleted");
-            reply(&mut stream, status, body).await
-        }
-        ("PUT", ["v1", "integrations", id, "credentials"]) => {
-            let Some(parsed) = read_json(&mut stream, 65536).await? else {
-                return Ok(());
-            };
-            let credentials = parsed
-                .get("credentials")
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "{}".into());
-            let status_str = parsed
-                .get("status")
-                .and_then(Value::as_str)
-                .unwrap_or("connected");
-            let (status, body) = ok_or_not_found(
-                app.store
-                    .update_mcp_credentials(&user, id, &credentials, status_str)
-                    .await?,
-                "updated",
-            );
-            reply(&mut stream, status, body).await
-        }
-        _ => {
-            reply(
-                &mut stream,
-                StatusCode::NOT_FOUND,
-                json!({"error":"not found"}),
-            )
-            .await
-        }
-    }
-}
-
-async fn handle_create_run(app: &Arc<App>, user: &str, stream: &mut Stream) -> Result<()> {
-    let Some(body) = read_body(stream, 5 * 1024 * 1024).await? else {
-        return reply(
-            stream,
-            StatusCode::PAYLOAD_TOO_LARGE,
-            json!({"error":"body exceeds 5 MiB"}),
-        )
-        .await;
-    };
-    let message = match serde_json::from_slice::<Message>(&body) {
-        Ok(m) if !m.message.trim().is_empty() && m.message.len() <= 32768 => m,
-        _ => return reply(stream, StatusCode::BAD_REQUEST,
-            json!({"error":"expected UUID session_id/request_id and a nonempty message up to 32 KiB"})).await,
-    };
-    match app.submit(user, message).await? {
-        CreateRun::Created(run) => reply(stream, StatusCode::ACCEPTED, json!(run)).await,
-        CreateRun::Existing(run) => reply(stream, StatusCode::OK, json!(run)).await,
-        CreateRun::Conflict => {
-            reply(
-                stream,
-                StatusCode::CONFLICT,
-                json!({"error":"request ID conflict, session busy, or run capacity reached"}),
-            )
-            .await
-        }
-    }
-}
-
-async fn stream_notifications(app: &Arc<App>, user: &str, stream: &mut Stream) -> Result<()> {
-    stream
-        .send_response(
-            Response::builder()
-                .header("content-type", "application/x-ndjson")
-                .header("cache-control", "no-store")
-                .body(())?,
-        )
-        .await?;
-    let mut rx = app.notifications.subscribe();
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(30)) => {
-                let mut line = serde_json::to_vec(&json!({"type":"heartbeat"}))?;
-                line.push(b'\n');
-                if tokio::time::timeout(Duration::from_secs(10), stream.send_data(Bytes::from(line))).await.is_err() {
-                    break;
-                }
-            }
-            result = rx.recv() => {
-                match result {
-                    Ok(event) => {
-                        let parsed: Value = match serde_json::from_str(&event) {
-                            Ok(v) => v,
-                            Err(_) => continue,
-                        };
-                        if parsed.get("user").and_then(Value::as_str) != Some(user) {
-                            continue;
-                        }
-                        let mut line = Vec::from(event.as_bytes());
-                        line.push(b'\n');
-                        if tokio::time::timeout(Duration::from_secs(10), stream.send_data(Bytes::from(line))).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        }
-    }
-    stream.finish().await
+    schedule
+        .next_after_in_tz(&Utc::now(), tz)
+        .map(|t| t.to_rfc3339())
 }
 
 async fn stream_events(
-    app: &Arc<App>,
+    app: &App,
     user: &str,
     run_id: &str,
-    request: &Request<()>,
-    stream: &mut Stream,
+    mut after: i64,
+    tx: &mut Tx,
 ) -> Result<()> {
-    let mut after: i64 = match request.uri().query() {
-        None => 0,
-        Some(q) => match q
-            .strip_prefix("after=")
-            .and_then(|v| v.parse().ok())
-            .filter(|v: &i64| *v >= 0)
-        {
-            Some(v) => v,
-            None => {
-                return reply(
-                    stream,
-                    StatusCode::BAD_REQUEST,
-                    json!({"error":"expected ?after=<nonnegative sequence>"}),
-                )
-                .await;
-            }
-        },
-    };
-    stream
-        .send_response(
-            Response::builder()
-                .header("content-type", "application/x-ndjson")
-                .header("cache-control", "no-store")
-                .body(())?,
-        )
-        .await?;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let running = app
             .store
@@ -720,59 +438,45 @@ async fn stream_events(
         let empty = events.is_empty();
         for event in events {
             after = event.seq;
-            let terminal = event.data["type"] == "run_finished";
-            let mut line = serde_json::to_vec(&event)?;
-            line.push(b'\n');
-            tokio::time::timeout(Duration::from_secs(10), stream.send_data(Bytes::from(line)))
-                .await??;
-            if terminal {
-                return stream.finish().await;
+            let finished = matches!(event.event, RunEvent::RunFinished { .. });
+            tx.reply(Reply::Event {
+                seq: event.seq,
+                event: event.event,
+            })
+            .await?;
+            if finished {
+                return Ok(());
             }
         }
-        if (empty && !running) || tokio::time::Instant::now() >= deadline {
-            break;
+        if (empty && !running) || Instant::now() >= deadline {
+            return Ok(());
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(100)).await;
     }
-    stream.finish().await
 }
 
-async fn serve_conversation(
-    app: &Arc<App>,
-    user: &str,
-    session_id: &str,
-    stream: &mut Stream,
-) -> Result<()> {
-    match app.store.conversation(user, session_id).await? {
-        Some(conversation) => {
-            let entries: Vec<_> = conversation
-                .entries()
-                .iter()
-                .filter_map(|entry| {
-                    let (role, content) = match &entry.kind {
-                        flashmind::core::EntryKind::User { content, .. } => ("user", content),
-                        flashmind::core::EntryKind::Assistant { content, .. } => {
-                            ("assistant", content)
-                        }
-                        _ => return None,
-                    };
-                    Some(json!({"role": role, "content": content, "timestamp": entry.timestamp}))
-                })
-                .collect();
-            reply(
-                stream,
-                StatusCode::OK,
-                json!({"session_id": session_id, "entries": entries}),
-            )
-            .await
-        }
-        None => {
-            reply(
-                stream,
-                StatusCode::NOT_FOUND,
-                json!({"error":"session not found"}),
-            )
-            .await
+async fn stream_notifications(app: &App, user: &str, tx: &mut Tx) -> Result<()> {
+    let mut rx = app.notifications.subscribe();
+    loop {
+        tokio::select! {
+            _ = sleep(Duration::from_secs(30)) => {
+                if timeout(READ_TIMEOUT, tx.send(&Reply::Heartbeat {})).await.is_err() {
+                    return Ok(());
+                }
+            }
+            result = rx.recv() => match result {
+                Ok(event) => {
+                    if event.user != user {
+                        continue;
+                    }
+                    let reply = Reply::Notice { notice: event.notice };
+                    if timeout(READ_TIMEOUT, tx.reply(reply)).await.is_err() {
+                        return Ok(());
+                    }
+                }
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => return Ok(()),
+            }
         }
     }
 }
