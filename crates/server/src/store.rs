@@ -167,6 +167,11 @@ impl Store {
                     "ALTER TABLE memories ADD COLUMN category TEXT NOT NULL DEFAULT 'general';",
                 )?;
             }
+            if !has_col("sessions", "pinned")? {
+                db.execute_batch(
+                    "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
+                )?;
+            }
             Ok(())
         })
         .await?;
@@ -255,11 +260,67 @@ impl Store {
         let user = user.to_owned();
         Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
             let mut statement = db.prepare(
-                "SELECT s.id, COALESCE((SELECT substr(message,1,80) FROM runs r WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.rowid LIMIT 1), 'Conversation') FROM sessions s WHERE s.user_id=? ORDER BY s.rowid DESC LIMIT 200"
+                "SELECT s.id, COALESCE((SELECT substr(message,1,80) FROM runs r WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.rowid LIMIT 1), 'Conversation'), s.pinned FROM sessions s WHERE s.user_id=? ORDER BY s.pinned DESC, s.rowid DESC LIMIT 200"
             )?;
-            let rows = statement.query_map([user], |row| Ok(json!({"id":row.get::<_, String>(0)?, "title":row.get::<_, String>(1)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            let rows = statement.query_map([user], |row| Ok(json!({"id":row.get::<_, String>(0)?, "title":row.get::<_, String>(1)?, "pinned":row.get::<_, bool>(2)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
         }).await?)
+    }
+
+    pub async fn rename_session(&self, user: &str, session_id: &str, title: &str) -> Result<bool> {
+        if title.is_empty() || title.len() > 200 {
+            bail!("session title must be 1-200 characters");
+        }
+        let (user, session_id) = (user.to_owned(), session_id.to_owned());
+        let title = title.to_owned();
+        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
+            // Update the first run's message (used as title source) by storing
+            // the new title directly. Since the title is derived from the first
+            // run message, we update that message column.
+            let changed = db.execute(
+                "UPDATE runs SET message=? WHERE rowid=(SELECT r.rowid FROM runs r WHERE r.user_id=? AND r.session_id=? ORDER BY r.rowid LIMIT 1)",
+                params![title, user, session_id],
+            )?;
+            Ok(changed > 0)
+        }).await?)
+    }
+
+    pub async fn delete_session(&self, user: &str, session_id: &str) -> Result<bool> {
+        let (user, session_id) = (user.to_owned(), session_id.to_owned());
+        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
+            let tx = db.transaction()?;
+            // Delete events for all runs in this session
+            tx.execute(
+                "DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE user_id=? AND session_id=?)",
+                params![user, session_id],
+            )?;
+            // Delete runs
+            tx.execute(
+                "DELETE FROM runs WHERE user_id=? AND session_id=?",
+                params![user, session_id],
+            )?;
+            // Delete session
+            let deleted = tx.execute(
+                "DELETE FROM sessions WHERE user_id=? AND id=?",
+                params![user, session_id],
+            )?;
+            tx.commit()?;
+            Ok(deleted > 0)
+        }).await?)
+    }
+
+    pub async fn pin_session(&self, user: &str, session_id: &str, pinned: bool) -> Result<bool> {
+        let (user, session_id) = (user.to_owned(), session_id.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let changed = db.execute(
+                    "UPDATE sessions SET pinned=? WHERE user_id=? AND id=?",
+                    params![pinned, user, session_id],
+                )?;
+                Ok(changed > 0)
+            })
+            .await?)
     }
 
     pub async fn conversation(&self, user: &str, session: &str) -> Result<Option<Conversation>> {
@@ -1171,6 +1232,56 @@ impl Store {
                     "UPDATE habits SET archived=1 WHERE user_id=? AND name=? AND archived=0",
                     params![user, habit_name],
                 )? > 0)
+            })
+            .await?)
+    }
+
+    /// Create default cron jobs for a user if they have none yet.
+    pub async fn ensure_default_crons(&self, user: &str) -> Result<()> {
+        let existing = self.list_crons(user).await?;
+        if !existing.is_empty() {
+            return Ok(());
+        }
+        self.create_cron(
+            user,
+            "Morning briefing",
+            "0 8 * * *",
+            "Give me a brief morning update: current time, any scheduled crons coming up today, and a motivational note. Keep it to 2-3 sentences.",
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Return user IDs who have had a session or registered a device.
+    pub async fn active_users(&self) -> Result<Vec<String>> {
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(|db| {
+                let mut stmt = db.prepare(
+                    "SELECT DISTINCT user_id FROM sessions
+                     UNION
+                     SELECT DISTINCT user_id FROM devices",
+                )?;
+                let rows = stmt
+                    .query_map([], |r| r.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    /// Count notifications for a user received in the last `minutes` minutes.
+    pub async fn notification_count_since(&self, user: &str, minutes: i64) -> Result<i64> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let cutoff_ms = chrono::Utc::now().timestamp_millis() - minutes * 60 * 1000;
+                db.query_row(
+                    "SELECT COUNT(*) FROM notifications WHERE user_id=? AND timestamp >= ?",
+                    params![user, cutoff_ms],
+                    |r| r.get(0),
+                )
             })
             .await?)
     }

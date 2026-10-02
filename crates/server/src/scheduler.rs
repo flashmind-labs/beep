@@ -58,8 +58,8 @@ pub async fn run(app: Arc<App>) {
         if let Err(e) = tick(&app).await {
             tracing::error!(%e, "cron scheduler tick failed");
         }
-        // Purge old notifications roughly once per hour (120 ticks * 30s = 3600s)
         tick_count += 1;
+        // Purge old notifications roughly once per hour (120 ticks * 30s = 3600s)
         if tick_count.is_multiple_of(120) {
             match app.store.purge_old_notifications().await {
                 Ok(n) if n > 0 => tracing::info!(deleted = n, "purged old notifications"),
@@ -67,7 +67,50 @@ pub async fn run(app: Arc<App>) {
                 _ => {}
             }
         }
+        // Proactive check every 30 minutes (60 ticks * 30s = 1800s)
+        if tick_count.is_multiple_of(60)
+            && let Err(e) = proactive_check(&app).await
+        {
+            tracing::warn!(%e, "proactive check failed");
+        }
     }
+}
+
+/// Check active users for conditions that warrant a proactive suggestion.
+/// Currently triggers when a user has more than 10 notifications in the last
+/// 30 minutes and has registered device tokens (meaning they use the app).
+async fn proactive_check(app: &Arc<App>) -> anyhow::Result<()> {
+    let users = app.store.active_users().await?;
+    for user_id in users {
+        // Only bother users who have a device registered.
+        let tokens = app.store.device_tokens(&user_id).await.unwrap_or_default();
+        if tokens.is_empty() {
+            continue;
+        }
+        let count = app
+            .store
+            .notification_count_since(&user_id, 30)
+            .await
+            .unwrap_or(0);
+        if count <= 10 {
+            continue;
+        }
+        tracing::info!(user=%user_id, notifications=count, "proactive suggestion: notification surge");
+        let session_id = uuid::Uuid::new_v4();
+        let request_id = uuid::Uuid::new_v4();
+        let msg = Message {
+            session_id,
+            request_id,
+            message: "[Proactive] You have a lot of recent notifications. Summarize the important ones briefly.".to_owned(),
+            cron_id: None,
+        };
+        match app.submit(&user_id, msg).await {
+            Ok(CreateRun::Created(_)) => {}
+            Ok(_) => tracing::debug!(user=%user_id, "proactive run not created (conflict)"),
+            Err(e) => tracing::warn!(user=%user_id, %e, "failed to submit proactive run"),
+        }
+    }
+    Ok(())
 }
 
 async fn tick(app: &Arc<App>) -> anyhow::Result<()> {
