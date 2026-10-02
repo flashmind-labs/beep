@@ -3,27 +3,25 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Adaptive icon: 108dp canvas, safe zone 18–90 (72dp centered at 54,54).
-         Bubble centered at ~54,48 within safe zone. -->
 
-    <!-- Chat bubble body — Moss green, rounded rectangle with tail -->
+    <!-- Chat bubble body — Emerald -->
     <path
         android:fillColor="#3B9B7A"
         android:pathData="M27,35.5C27,31.36 30.36,28 34.5,28L73.5,28C77.64,28 81,31.36 81,35.5L81,58.5C81,62.64 77.64,66 73.5,66L53,66L42,74C40.95,74.8 39.4,74.05 39.4,72.7L39.4,66C34.8,66 27,62.64 27,58.5Z" />
 
-    <!-- Dot left — Lime (center 44.5, 47; r=3) -->
+    <!-- Dot left — Coral -->
     <path
-        android:fillColor="#C8F06A"
+        android:fillColor="#F07A6A"
         android:pathData="M41.5,47A3,3 0,1,1 47.5,47A3,3 0,1,1 41.5,47Z" />
 
-    <!-- Dot center — Lime (center 54, 47; r=3) -->
+    <!-- Dot center — Coral -->
     <path
-        android:fillColor="#C8F06A"
+        android:fillColor="#F07A6A"
         android:pathData="M51,47A3,3 0,1,1 57,47A3,3 0,1,1 51,47Z" />
 
-    <!-- Dot right — Lime (center 63.5, 47; r=3) -->
+    <!-- Dot right — Coral -->
     <path
-        android:fillColor="#C8F06A"
+        android:fillColor="#F07A6A"
         android:pathData="M60.5,47A3,3 0,1,1 66.5,47A3,3 0,1,1 60.5,47Z" />
 
 </vector>
