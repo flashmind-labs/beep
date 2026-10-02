@@ -1,10 +1,13 @@
 use anyhow::{Context, Result, bail, ensure};
 use beep_server::{
     client::Client,
-    protocol::{Reply, Request},
+    protocol::{
+        GetEvents, Health, ListCrons, ListIntegrations, ListMemories, ListSessions,
+        StreamNotifications,
+    },
 };
 use iroh::{EndpointAddr, PublicKey};
-use std::time::Duration;
+use std::{fmt::Debug, time::Duration};
 
 const USAGE: &str = "usage: beep-probe NODE_ID health|sessions|memories|crons|integrations|notifications|events RUN_ID; token from BEEP_TOKEN";
 
@@ -14,27 +17,35 @@ async fn main() -> Result<()> {
     ensure!((2..=3).contains(&args.len()), USAGE);
     let token = std::env::var("BEEP_TOKEN").context("set BEEP_TOKEN")?;
     let node_id: PublicKey = args[0].parse().context("invalid node ID")?;
-    let request = match (args[1].as_str(), args.get(2)) {
-        ("health", None) => Request::Health {},
-        ("sessions", None) => Request::ListSessions {},
-        ("memories", None) => Request::ListMemories {},
-        ("crons", None) => Request::ListCrons {},
-        ("integrations", None) => Request::ListIntegrations {},
-        ("notifications", None) => Request::StreamNotifications {},
-        ("events", Some(run_id)) => Request::GetEvents {
-            run_id: run_id.clone(),
-            after: 0,
-        },
-        _ => bail!(USAGE),
-    };
-    let client = Client::connect(EndpointAddr::new(node_id), &token).await?;
-    let mut replies = client.stream(&request).await?;
-    while let Some(frame) = tokio::time::timeout(Duration::from_secs(45), replies.next()).await?? {
-        match frame {
-            Reply::Event { seq, event } => println!("{seq} {event:?}"),
-            Reply::Heartbeat {} => eprintln!("heartbeat"),
-            other => println!("{other:?}"),
+    let c = Client::connect(EndpointAddr::new(node_id), &token).await?;
+    match (args[1].as_str(), args.get(2)) {
+        ("health", None) => show(c.call(&Health {}).await?),
+        ("sessions", None) => show(c.call(&ListSessions {}).await?),
+        ("memories", None) => show(c.call(&ListMemories {}).await?),
+        ("crons", None) => show(c.call(&ListCrons {}).await?),
+        ("integrations", None) => show(c.call(&ListIntegrations {}).await?),
+        ("notifications", None) => {
+            let mut notices = c.stream(&StreamNotifications {}).await?;
+            while let Some(notice) = notices.next().await? {
+                show(notice);
+            }
         }
+        ("events", Some(run_id)) => {
+            let request = GetEvents {
+                run_id: run_id.clone(),
+                after: 0,
+            };
+            let mut events = c.stream(&request).await?;
+            let wait = Duration::from_secs(45);
+            while let Some(event) = tokio::time::timeout(wait, events.next()).await?? {
+                println!("{} {:?}", event.seq, event.event);
+            }
+        }
+        _ => bail!(USAGE),
     }
     Ok(())
+}
+
+fn show(reply: impl Debug) {
+    println!("{reply:#?}");
 }
