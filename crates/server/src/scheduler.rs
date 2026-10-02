@@ -103,6 +103,7 @@ async fn proactive_check(app: &Arc<App>) -> anyhow::Result<()> {
             request_id,
             message: "[Proactive] You have a lot of recent notifications. Summarize the important ones briefly.".to_owned(),
             cron_id: None,
+            image: None,
         };
         match app.submit(&user_id, msg).await {
             Ok(CreateRun::Created(_)) => {}
@@ -159,6 +160,7 @@ async fn tick(app: &Arc<App>) -> anyhow::Result<()> {
             request_id,
             message,
             cron_id: Some(id.to_owned()),
+            image: None,
         };
         match app.submit(&user_id, msg).await {
             Ok(CreateRun::Created(run)) => {
