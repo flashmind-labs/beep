@@ -226,8 +226,9 @@ class ChatRepository(private val storage: LocalStorage) {
     }
 
     suspend fun updateLocation(latitude: Double, longitude: Double, accuracy: Float) {
+        val tz = java.util.TimeZone.getDefault().id
         QuicApi(settings.value).json("POST", "/v1/location",
-            JSONObject().put("latitude", latitude).put("longitude", longitude).put("accuracy", accuracy.toDouble()).toString())
+            JSONObject().put("latitude", latitude).put("longitude", longitude).put("accuracy", accuracy.toDouble()).put("timezone", tz).toString())
     }
 
     fun startLocationUpdates(getLocation: suspend () -> Triple<Double, Double, Float>?) {

@@ -55,6 +55,7 @@ impl Store {
                     user_id TEXT NOT NULL, id TEXT NOT NULL, label TEXT NOT NULL,
                     prompt TEXT NOT NULL, schedule TEXT NOT NULL,
                     enabled INTEGER NOT NULL DEFAULT 1,
+                    run_once INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
                     PRIMARY KEY(user_id, id));
                 CREATE TABLE IF NOT EXISTS cron_logs (
@@ -69,7 +70,8 @@ impl Store {
                     PRIMARY KEY(user_id, device_id));
                 CREATE TABLE IF NOT EXISTS locations (
                     user_id TEXT PRIMARY KEY, latitude REAL NOT NULL, longitude REAL NOT NULL,
-                    accuracy REAL NOT NULL, updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));
+                    accuracy REAL NOT NULL, timezone TEXT NOT NULL DEFAULT 'UTC',
+                    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));
                 CREATE TABLE IF NOT EXISTS mcp_connections (
                     user_id TEXT NOT NULL, id TEXT NOT NULL,
                     provider TEXT NOT NULL, label TEXT NOT NULL,
@@ -83,6 +85,18 @@ impl Store {
                 CREATE INDEX IF NOT EXISTS idx_runs_user_session
                     ON runs(user_id, session_id);",
             )?;
+            // Migrations for existing databases
+            let has_col = |table: &str, col: &str| -> rusqlite::Result<bool> {
+                let mut stmt = db.prepare(&format!("PRAGMA table_info({})", table))?;
+                let found = stmt.query_map([], |r| r.get::<_, String>(1))?.any(|r| r.as_deref() == Ok(col));
+                Ok(found)
+            };
+            if !has_col("crons", "run_once")? {
+                db.execute_batch("ALTER TABLE crons ADD COLUMN run_once INTEGER NOT NULL DEFAULT 0;")?;
+            }
+            if !has_col("locations", "timezone")? {
+                db.execute_batch("ALTER TABLE locations ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC';")?;
+            }
             Ok(())
         })
         .await?;
@@ -302,7 +316,7 @@ impl Store {
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
-                    "SELECT id, label, prompt, schedule, enabled, created_at FROM crons WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
+                    "SELECT id, label, prompt, schedule, enabled, created_at, run_once FROM crons WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
                 )?;
                 let rows = stmt
                     .query_map([user], |r| {
@@ -313,6 +327,7 @@ impl Store {
                             "schedule": r.get::<_,String>(3)?,
                             "enabled": r.get::<_,bool>(4)?,
                             "created_at": r.get::<_,String>(5)?,
+                            "run_once": r.get::<_,bool>(6)?,
                         }))
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -325,8 +340,19 @@ impl Store {
         &self,
         user: &str,
         label: &str,
-        prompt: &str,
         schedule: &str,
+        prompt: &str,
+    ) -> Result<String> {
+        self.create_cron_ex(user, label, schedule, prompt, false).await
+    }
+
+    pub async fn create_cron_ex(
+        &self,
+        user: &str,
+        label: &str,
+        schedule: &str,
+        prompt: &str,
+        run_once: bool,
     ) -> Result<String> {
         if label.is_empty() || label.len() > 200 {
             bail!("cron label must be 1–200 characters");
@@ -348,8 +374,8 @@ impl Store {
         self.0
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
-                    "INSERT INTO crons (user_id, id, label, prompt, schedule) VALUES (?, ?, ?, ?, ?)",
-                    params![user, id_clone, label, prompt, schedule],
+                    "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once) VALUES (?, ?, ?, ?, ?, ?)",
+                    params![user, id_clone, label, prompt, schedule, run_once],
                 )?;
                 Ok(())
             })
@@ -443,7 +469,7 @@ impl Store {
             .0
             .call::<_, _, rusqlite::Error>(|db| {
                 let mut stmt = db.prepare(
-                    "SELECT user_id, id, label, prompt, schedule FROM crons WHERE enabled=1",
+                    "SELECT user_id, id, label, prompt, schedule, run_once FROM crons WHERE enabled=1",
                 )?;
                 let rows = stmt
                     .query_map([], |r| {
@@ -454,6 +480,7 @@ impl Store {
                                 "label": r.get::<_, String>(2)?,
                                 "prompt": r.get::<_, String>(3)?,
                                 "schedule": r.get::<_, String>(4)?,
+                                "run_once": r.get::<_, bool>(5)?,
                             }),
                         ))
                     })?
@@ -544,6 +571,7 @@ impl Store {
             .await?)
     }
 
+    #[allow(dead_code)]
     pub async fn get_mcp_connection(&self, user: &str, id: &str) -> Result<Option<Value>> {
         let (user, id) = (user.to_owned(), id.to_owned());
         Ok(self
@@ -648,12 +676,24 @@ impl Store {
         longitude: f64,
         accuracy: f64,
     ) -> Result<()> {
+        self.update_location_tz(user, latitude, longitude, accuracy, "UTC").await
+    }
+
+    pub async fn update_location_tz(
+        &self,
+        user: &str,
+        latitude: f64,
+        longitude: f64,
+        accuracy: f64,
+        timezone: &str,
+    ) -> Result<()> {
         let user = user.to_owned();
+        let timezone = timezone.to_owned();
         self.0
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
-                    "INSERT INTO locations (user_id, latitude, longitude, accuracy, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) ON CONFLICT(user_id) DO UPDATE SET latitude=excluded.latitude, longitude=excluded.longitude, accuracy=excluded.accuracy, updated_at=excluded.updated_at",
-                    params![user, latitude, longitude, accuracy],
+                    "INSERT INTO locations (user_id, latitude, longitude, accuracy, timezone, updated_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) ON CONFLICT(user_id) DO UPDATE SET latitude=excluded.latitude, longitude=excluded.longitude, accuracy=excluded.accuracy, timezone=excluded.timezone, updated_at=excluded.updated_at",
+                    params![user, latitude, longitude, accuracy, timezone],
                 )?;
                 Ok(())
             })
@@ -667,18 +707,35 @@ impl Store {
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
-                    "SELECT latitude, longitude, accuracy, updated_at FROM locations WHERE user_id=?",
+                    "SELECT latitude, longitude, accuracy, timezone, updated_at FROM locations WHERE user_id=?",
                     params![user],
                     |r| {
                         Ok(json!({
                             "latitude": r.get::<_, f64>(0)?,
                             "longitude": r.get::<_, f64>(1)?,
                             "accuracy": r.get::<_, f64>(2)?,
-                            "updated_at": r.get::<_, String>(3)?,
+                            "timezone": r.get::<_, String>(3)?,
+                            "updated_at": r.get::<_, String>(4)?,
                         }))
                     },
                 )
                 .optional()
+            })
+            .await?)
+    }
+
+    pub async fn get_timezone(&self, user: &str) -> Result<String> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT timezone FROM locations WHERE user_id=?",
+                    params![user],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map(|v| v.unwrap_or_else(|| "UTC".into()))
             })
             .await?)
     }

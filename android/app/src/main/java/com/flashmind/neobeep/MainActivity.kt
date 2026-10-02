@@ -101,7 +101,8 @@ open class MainActivity : ComponentActivity() {
         if (grants.values.any { it }) startLocationUpdates()
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    private fun startLocationUpdates() {
+    @android.annotation.SuppressLint("MissingPermission")
+    fun startLocationUpdates() {
         val repository = (application as BeepApplication).repository
         val locationManager = getSystemService(LocationManager::class.java) ?: return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
@@ -125,6 +126,10 @@ open class MainActivity : ComponentActivity() {
             } catch (_: Exception) { null }
         }
     }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it) }
+    }
     override fun onResume() {
         super.onResume()
         val repository = (application as BeepApplication).repository
@@ -147,12 +152,10 @@ open class MainActivity : ComponentActivity() {
         }
         cm.registerNetworkCallback(NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(), networkCallback!!)
-        // Request location permission
+        // Start location updates if permission was already granted (from onboarding)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             startLocationUpdates()
-        } else {
-            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
         intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
         setContent {
@@ -162,7 +165,7 @@ open class MainActivity : ComponentActivity() {
                 secondary = Moss, onSecondaryContainer = TextPrimary, outline = Border,
                 surfaceContainer = Surface, surfaceContainerHigh = Elevated,
                 inverseSurface = TextPrimary, inverseOnSurface = Ink)) {
-                BeepApp(repository, bubble, onFloat = {
+                BeepApp(repository, bubble, locationPermission = locationPermission, onFloat = {
                     if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } else if (Bubbles.show(this)) {
@@ -183,7 +186,9 @@ private enum class Screen { Chat, Memories, Crons, Integrations }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> Unit, onExpand: () -> Unit, onBubbleSettings: () -> Unit) {
+private fun BeepApp(repository: ChatRepository, bubble: Boolean,
+                    locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>? = null,
+                    onFloat: () -> Unit, onExpand: () -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
     val config by repository.settings.collectAsStateWithLifecycle()
     val status by repository.connection.collectAsStateWithLifecycle()
@@ -195,8 +200,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
     var bubbleMenu by remember { mutableStateOf(false) }
     var historyQuery by rememberSaveable { mutableStateOf("") }
     var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
-    // Handle pending app launch intents
     val context = androidx.compose.ui.platform.LocalContext.current
+    // Handle pending app launch intents
     LaunchedEffect(pendingAppIntent) {
         pendingAppIntent?.let { intent ->
             AppLauncher.launch(context, intent.app, intent.uri, intent.fallbackUrl)
@@ -206,6 +211,16 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean, onFloat: () -> 
     if (settingsOpen || !config.configured) {
         ConnectionScreen(config, canGoBack = config.configured, onBack = { settingsOpen = false }, onConnect = {
             withContext(Dispatchers.IO) { repository.connect(it) }; settingsOpen = false
+        })
+        return
+    }
+    // Show onboarding permissions screen once after first connection
+    val prefs = remember { context.getSharedPreferences("connection", android.content.Context.MODE_PRIVATE) }
+    var onboardingDone by rememberSaveable { mutableStateOf(prefs.getBoolean("onboarding_done", false)) }
+    if (!onboardingDone && !bubble) {
+        OnboardingScreen(locationPermission = locationPermission, onDone = {
+            prefs.edit().putBoolean("onboarding_done", true).apply()
+            onboardingDone = true
         })
         return
     }
@@ -854,6 +869,141 @@ private fun CreateIntegrationDialog(onDismiss: () -> Unit, onCreate: (String, St
             enabled = label.isNotBlank()) { Text("Create") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+@Composable
+private fun OnboardingScreen(
+    locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>?,
+    onDone: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var locationGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    var notificationGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    // Re-check permissions when returning from system dialogs
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                notificationGranted = Build.VERSION.SDK_INT < 33 ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Scaffold(containerColor = Ink) { padding ->
+        Column(
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.size(96.dp).background(
+                    Brush.radialGradient(listOf(Moss.copy(alpha = 0.25f), Color.Transparent)),
+                    shape = CircleShape))
+                Surface(shape = RoundedCornerShape(18.dp), color = Elevated) {
+                    Icon(painterResource(R.drawable.ic_beep), null, tint = Color.Unspecified, modifier = Modifier.padding(12.dp).size(48.dp))
+                }
+            }
+            Spacer(Modifier.height(28.dp))
+            Text("Almost ready.", fontSize = 32.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp)
+            Spacer(Modifier.height(8.dp))
+            Text("A couple of permissions to make Beep more useful. You can skip any of these.", color = TextMuted, lineHeight = 22.sp)
+            Spacer(Modifier.height(32.dp))
+
+            // Location permission
+            PermissionCard(
+                icon = Icons.Outlined.LocationOn,
+                title = "Location",
+                description = "Let Beep answer questions about nearby places, weather, and directions.",
+                granted = locationGranted,
+                onRequest = {
+                    locationPermission?.launch(arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    ))
+                }
+            )
+            Spacer(Modifier.height(12.dp))
+
+            // Notification permission
+            if (Build.VERSION.SDK_INT >= 33) {
+                val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    notificationGranted = granted
+                }
+                PermissionCard(
+                    icon = Icons.Outlined.Notifications,
+                    title = "Notifications",
+                    description = "Get notified when scheduled automations finish or when Beep has something for you.",
+                    granted = notificationGranted,
+                    onRequest = { notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+
+            Spacer(Modifier.height(20.dp))
+            Button(
+                onClick = {
+                    if (locationGranted) {
+                        // Trigger location updates now that permission is granted
+                        (context as? MainActivity)?.startLocationUpdates()
+                    }
+                    onDone()
+                },
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(17.dp)
+            ) {
+                Text("Continue to Beep", fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = onDone,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Skip for now", color = TextMuted)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PermissionCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    description: String,
+    granted: Boolean,
+    onRequest: () -> Unit
+) {
+    Surface(shape = RoundedCornerShape(14.dp), color = Elevated, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = if (granted) Moss else TextMuted, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(description, fontSize = 12.sp, color = TextMuted, lineHeight = 17.sp)
+            }
+            Spacer(Modifier.width(12.dp))
+            if (granted) {
+                Icon(Icons.Outlined.CheckCircle, "Granted", tint = Moss, modifier = Modifier.size(24.dp))
+            } else {
+                FilledTonalButton(onClick = onRequest, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
+                    Text("Allow", fontSize = 13.sp)
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

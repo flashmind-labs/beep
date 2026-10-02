@@ -61,7 +61,7 @@ class NotificationService : Service() {
             Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL_FOREGROUND)
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
-            .setContentTitle("Beep is listening")
+            .setContentTitle("Beep is connected")
             .setContentIntent(open)
             .setColor(0xFF3B9B7A.toInt())
             .setOngoing(true)
