@@ -1,6 +1,7 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::HashSet, io, path::Path, path::PathBuf};
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
+use iroh::SecretKey;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -88,6 +89,31 @@ impl Auth {
         self.users
             .iter()
             .find_map(|(user, expected)| bool::from(expected.ct_eq(&hash)).then(|| user.clone()))
+    }
+}
+
+pub fn ensure_parent_dir(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    Ok(())
+}
+
+pub fn load_secret_key(path: Option<&Path>) -> Result<SecretKey> {
+    let Some(path) = path else {
+        return Ok(SecretKey::generate());
+    };
+    match std::fs::read_to_string(path) {
+        Ok(data) => Ok(data.trim().parse::<SecretKey>()?),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            let key = SecretKey::generate();
+            ensure_parent_dir(path)?;
+            let hex: String = key.to_bytes().iter().map(|b| format!("{b:02x}")).collect();
+            std::fs::write(path, &hex)?;
+            log::info!("generated new secret key at {}", path.display());
+            Ok(key)
+        }
+        Err(err) => Err(err).context("reading secret key"),
     }
 }
 

@@ -27,8 +27,12 @@ data class ConnectionSettings(val nodeId: String = "", val token: String = "") {
 
 data class Card(val type: String, val data: JSONObject)
 data class TaskStep(val label: String, val status: String)
+data class ToolCall(
+    val callId: String = "", val name: String = "", val description: String = "",
+    val isDone: Boolean = false, val success: Boolean = true, val result: String = ""
+)
 
-data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val imageBase64: String? = null)
+data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val imageBase64: String? = null, val toolCalls: List<ToolCall> = emptyList())
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = "New conversation",
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
@@ -90,7 +94,13 @@ class LocalStorage(internal val context: Context) {
                     val s = stepsArr.getJSONObject(si)
                     TaskStep(s.getString("label"), s.getString("status"))
                 } else null
-                ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, m.optString("imageBase64", null))
+                val tcArr = m.optJSONArray("toolCalls")
+                val toolCalls = if (tcArr != null) (0 until tcArr.length()).map { tci ->
+                    val tc = tcArr.getJSONObject(tci)
+                    ToolCall(tc.optString("callId"), tc.optString("name"), tc.optString("description"),
+                        tc.optBoolean("isDone"), tc.optBoolean("success", true), tc.optString("result"))
+                } else emptyList()
+                ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, m.optString("imageBase64", null), toolCalls)
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImage = c.optString("pendingImage", null),
                 status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"))
@@ -126,6 +136,12 @@ class LocalStorage(internal val context: Context) {
                     val stepsArr = JSONArray()
                     m.taskSteps.forEach { step -> stepsArr.put(JSONObject().put("label", step.label).put("status", step.status)) }
                     msg.put("taskSteps", stepsArr)
+                }
+                if (m.toolCalls.isNotEmpty()) {
+                    val tcArr = JSONArray()
+                    m.toolCalls.forEach { tc -> tcArr.put(JSONObject().put("callId", tc.callId).put("name", tc.name)
+                        .put("description", tc.description).put("isDone", tc.isDone).put("success", tc.success).put("result", tc.result)) }
+                    msg.put("toolCalls", tcArr)
                 }
                 messages.put(msg)
             }

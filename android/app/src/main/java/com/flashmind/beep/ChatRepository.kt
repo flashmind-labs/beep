@@ -466,14 +466,37 @@ class ChatRepository(private val storage: LocalStorage) {
             when (event.optString("type")) {
                 "text_delta" -> {
                     val messageId = "assistant-${chat.runId}"
-                    val existing = chat.messages.find { it.id == messageId }
-                    val message = ChatMessage(messageId, "assistant", existing?.text.orEmpty() + event.getString("delta"))
-                    next = next.copy(messages = if (existing == null) chat.messages + message else chat.messages.map { if (it.id == messageId) message else it }, status = "Replying…", tool = "")
+                    val existing = next.messages.find { it.id == messageId }
+                    val newText = existing?.text.orEmpty() + event.getString("delta")
+                    val message = if (existing != null) existing.copy(text = newText)
+                        else ChatMessage(messageId, "assistant", newText)
+                    next = next.copy(messages = if (existing == null) next.messages + message else next.messages.map { if (it.id == messageId) message else it }, status = "Replying...", tool = "")
                 }
-                "tool_started" -> next = next.copy(tool = event.optString("description", "Using a tool…"), status = "Working…")
+                "tool_started" -> {
+                    val messageId = "assistant-${chat.runId}"
+                    val existing = next.messages.find { it.id == messageId }
+                    val tc = ToolCall(callId = event.optString("call_id"), name = event.optString("name"),
+                        description = event.optString("description", "Using a tool..."))
+                    val msg = if (existing != null) existing.copy(toolCalls = existing.toolCalls + tc)
+                        else ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc))
+                    next = next.copy(
+                        messages = if (existing == null) next.messages + msg else next.messages.map { if (it.id == messageId) msg else it },
+                        tool = event.optString("description", "Using a tool..."), status = "Working...")
+                }
                 "tool_result" -> {
-                    next = next.copy(tool = if (event.optBoolean("success")) "Done" else "Tool didn’t complete")
+                    val callId = event.optString("call_id")
+                    val toolSuccess = event.optBoolean("success")
                     val output = event.optString("output", "")
+                    val messageId = "assistant-${chat.runId}"
+                    val curMsg = next.messages.find { it.id == messageId }
+                    if (curMsg != null && curMsg.toolCalls.isNotEmpty()) {
+                        val updated = curMsg.toolCalls.map { tc ->
+                            if ((callId.isNotEmpty() && tc.callId == callId) || (callId.isEmpty() && !tc.isDone))
+                                tc.copy(isDone = true, success = toolSuccess, result = output) else tc
+                        }
+                        next = next.copy(messages = next.messages.map { if (it.id == messageId) curMsg.copy(toolCalls = updated) else it })
+                    }
+                    next = next.copy(tool = if (toolSuccess) "Done" else "Tool didn’t complete")
                     if (output.contains("\"action\"") || output.contains("\"type\"")) {
                         try {
                             val outputJson = JSONObject(output)

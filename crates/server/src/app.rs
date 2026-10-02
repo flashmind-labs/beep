@@ -24,7 +24,7 @@ pub struct App {
     provider: Arc<dyn LlmProvider>,
     model: Model,
     search: Option<Arc<crate::search::SearchTool>>,
-    composio: Option<Arc<crate::composio::ComposioClient>>,
+    composio_key: Option<String>,
     mcp: Option<McpRegistry>,
     active: Mutex<HashMap<String, CancellationToken>>,
     device_queries: Mutex<HashMap<String, oneshot::Sender<Value>>>,
@@ -48,7 +48,7 @@ impl App {
         provider: Arc<dyn LlmProvider>,
         model: Model,
         search: Option<Arc<crate::search::SearchTool>>,
-        composio: Option<Arc<crate::composio::ComposioClient>>,
+        composio_key: Option<String>,
         mcp: Option<McpRegistry>,
     ) -> Arc<Self> {
         let (notifications, _) = broadcast::channel(64);
@@ -59,7 +59,7 @@ impl App {
             provider,
             model,
             search,
-            composio,
+            composio_key,
             mcp,
             active: Mutex::new(HashMap::new()),
             device_queries: Mutex::new(HashMap::new()),
@@ -301,17 +301,20 @@ impl App {
         if let Some(search) = &self.search {
             registry.register(search.clone());
         }
-        if let Some(composio) = &self.composio {
-            crate::composio::register(&mut registry, composio.clone(), user);
+        if let Some(key) = &self.composio_key {
+            use flashmind::tools::composio::{ComposioClient, make_composio_tool_wrappers};
+            let client = Arc::new(
+                ComposioClient::new(key.clone(), None, None).with_entity_id(user.to_owned()),
+            );
+            if let Ok(defs) = client.list_tools(&[]).await {
+                for tool in make_composio_tool_wrappers(&client, &defs) {
+                    registry.register(tool);
+                }
+            }
         }
         if let Some(mcp) = &self.mcp {
             crate::mcp::register_mcp_tools(mcp, &mut registry).await;
         }
-        // Ensure default crons exist on first interaction.
-        if let Err(e) = self.store.ensure_default_crons(user).await {
-            log::warn!("failed to ensure default crons: {e}");
-        }
-
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
             .tools(registry)

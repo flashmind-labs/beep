@@ -5,12 +5,12 @@ use crate::{
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use chrono::Utc;
-use cron::Schedule;
+use flashmind::cron::CronSchedule;
 use http::{Request, Response, StatusCode};
 use iroh::endpoint::Connection;
 use iroh::protocol::AcceptError;
 use serde_json::{Value, json};
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 pub const ALPN: &[u8] = b"beep/1";
 
@@ -18,6 +18,7 @@ pub(crate) struct Stream {
     send: iroh::endpoint::SendStream,
     recv: iroh::endpoint::RecvStream,
 }
+
 impl Stream {
     async fn recv_data(&mut self) -> Result<Option<Bytes>> {
         let mut buf = vec![0u8; 8192];
@@ -148,12 +149,10 @@ async fn reply(stream: &mut Stream, status: StatusCode, value: Value) -> Result<
 }
 
 fn next_run_at(expression: &str, tz_name: &str) -> Option<String> {
-    let seven_field = format!("0 {} *", expression);
-    let schedule = Schedule::from_str(&seven_field).ok()?;
+    let schedule = CronSchedule::parse(expression).ok()?;
     let tz: chrono_tz::Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
-    let now_local = Utc::now().with_timezone(&tz);
-    let next = schedule.after(&now_local).next()?;
-    Some(next.with_timezone(&Utc).to_rfc3339())
+    let next = schedule.next_after_in_tz(&Utc::now(), tz)?;
+    Some(next.to_rfc3339())
 }
 
 /// Read the request body, parse it as JSON, and reply with an error if either step fails.

@@ -627,11 +627,17 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                                                 .heightIn(max = 200.dp))
                                     }
                                 }
+                                if (message.toolCalls.isNotEmpty()) {
+                                    Column(Modifier.padding(horizontal = if (compact) 6.dp else 0.dp, vertical = 6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        message.toolCalls.forEach { tc -> ToolCallCard(tc) }
+                                    }
+                                }
                                 val isStreaming = message.role == "assistant" && chat.busy && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
                                 val textLen = message.text.length
                                 val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
                                 val displayText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
-                                MessageContent(displayText, message.role, compact)
+                                if (displayText.isNotBlank()) MessageContent(displayText, message.role, compact)
                             }
                         }
                         if (message.cards.isNotEmpty()) {
@@ -657,30 +663,14 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 Icon(Icons.Outlined.ArrowDownward, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Latest reply", fontSize = 12.sp)
             }
         }
-        AnimatedVisibility(visible = chat.status.isNotEmpty() || chat.tool.isNotEmpty(),
+        AnimatedVisibility(visible = chat.status.isNotEmpty(),
             enter = fadeIn(tween(200)) + expandVertically(tween(200)), exit = fadeOut(tween(150)) + shrinkVertically(tween(150))) {
             Row(Modifier.padding(horizontal = 22.dp, vertical = 8.dp).animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)),
                 verticalAlignment = Alignment.CenterVertically) {
                 BeepAvatar(isThinking = true, modifier = Modifier)
                 Spacer(Modifier.width(10.dp))
-                if (chat.tool.isNotEmpty()) {
-                    val toolDone = chat.tool == "Done" || chat.tool.contains("didn't complete")
-                    val toolTransition = rememberInfiniteTransition(label = "tool-pulse")
-                    val toolAlpha by if (toolDone || reduceMotion()) remember { mutableStateOf(1f) } else toolTransition.animateFloat(
-                        initialValue = 0.6f, targetValue = 1f,
-                        animationSpec = infiniteRepeatable(tween(700, easing = EaseInOutCubic), RepeatMode.Reverse),
-                        label = "tool-alpha"
-                    )
-                    Surface(shape = RoundedCornerShape(6.dp), color = Elevated,
-                        modifier = Modifier.graphicsLayer { alpha = toolAlpha }.animateContentSize()) {
-                        Text(chat.tool, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Coral, fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Monospace)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                }
-                if (chat.status.isNotEmpty() && chat.tool.isEmpty()) {
-                    PulsingDots()
-                    Spacer(Modifier.width(8.dp))
-                }
+                PulsingDots()
+                Spacer(Modifier.width(8.dp))
                 Text(chat.status, color = TextMuted, fontSize = 12.sp, maxLines = 2)
             }
         }
@@ -1180,6 +1170,121 @@ private fun TaskProgressCard(steps: List<TaskStep>) {
                             else -> TextMuted
                         }
                     )
+                }
+            }
+        }
+    }
+}
+
+private fun toolIconFor(name: String): androidx.compose.ui.graphics.vector.ImageVector {
+    val lower = name.lowercase()
+    return when {
+        "search" in lower || "web" in lower -> Icons.Outlined.Search
+        "weather" in lower || "forecast" in lower -> Icons.Outlined.Cloud
+        "calendar" in lower || "schedule" in lower || "event" in lower -> Icons.Outlined.CalendarMonth
+        "location" in lower || "map" in lower || "place" in lower || "nearby" in lower -> Icons.Outlined.LocationOn
+        "email" in lower || "mail" in lower -> Icons.Outlined.Email
+        "notification" in lower || "alert" in lower -> Icons.Outlined.Notifications
+        "contact" in lower || "person" in lower -> Icons.Outlined.Person
+        "memory" in lower || "remember" in lower -> Icons.Outlined.Psychology
+        "file" in lower || "document" in lower || "read" in lower -> Icons.Outlined.Description
+        "app" in lower || "launch" in lower -> Icons.Outlined.Launch
+        "browser" in lower || "page" in lower || "browse" in lower -> Icons.Outlined.Language
+        "clipboard" in lower || "copy" in lower -> Icons.Outlined.ContentCopy
+        "image" in lower || "vision" in lower || "screenshot" in lower -> Icons.Outlined.Image
+        else -> Icons.Outlined.Build
+    }
+}
+
+@Composable
+private fun ToolCallCard(toolCall: ToolCall) {
+    val noMotion = reduceMotion()
+    val displayName = toolCall.name.ifEmpty { toolCall.description }
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0xFF101A14),
+        border = BorderStroke(1.dp, if (toolCall.isDone) Moss.copy(alpha = 0.25f) else Color(0xFF1E3028)),
+        modifier = Modifier.fillMaxWidth().animateContentSize()
+    ) {
+        Column {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(20.dp).background(Moss.copy(alpha = 0.1f), RoundedCornerShape(5.dp)),
+                    contentAlignment = Alignment.Center) {
+                    Icon(toolIconFor(toolCall.name.ifEmpty { toolCall.description }), null,
+                        modifier = Modifier.size(12.dp), tint = Moss)
+                }
+                Spacer(Modifier.width(7.dp))
+                Text(if (toolCall.name.isNotEmpty()) "${toolCall.name}()" else displayName,
+                    fontFamily = FontFamily.Monospace, fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium, color = Moss,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(6.dp))
+                if (toolCall.isDone) {
+                    Surface(shape = RoundedCornerShape(4.dp), color = Moss.copy(alpha = 0.1f)) {
+                        Row(Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Icon(if (toolCall.success) Icons.Outlined.Check else Icons.Outlined.Close, null,
+                                modifier = Modifier.size(9.dp),
+                                tint = if (toolCall.success) Moss else Coral)
+                            Text(if (toolCall.success) "DONE" else "FAIL",
+                                fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
+                                color = if (toolCall.success) Moss else Coral, letterSpacing = 0.5.sp)
+                        }
+                    }
+                } else {
+                    Surface(shape = RoundedCornerShape(4.dp), color = Coral.copy(alpha = 0.1f)) {
+                        Row(Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            CircularProgressIndicator(Modifier.size(8.dp), color = Coral, strokeWidth = 1.5.dp)
+                            Text("RUNNING", fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
+                                color = Coral, letterSpacing = 0.5.sp)
+                        }
+                    }
+                }
+            }
+            if (toolCall.name.isNotEmpty() && toolCall.description.isNotEmpty()) {
+                Text(toolCall.description, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                    fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = Color(0xFFB8C8BC),
+                    lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0xFF1C2620))) {
+                if (toolCall.isDone) {
+                    Box(Modifier.fillMaxSize().background(
+                        Brush.horizontalGradient(listOf(Moss, Color(0xFF5AC49A)))))
+                } else if (!noMotion) {
+                    val transition = rememberInfiniteTransition(label = "tool-bar")
+                    val offset by transition.animateFloat(0f, 1f,
+                        infiniteRepeatable(tween(1600, easing = EaseInOutCubic)), label = "bar-offset")
+                    Box(Modifier.fillMaxWidth(0.35f).fillMaxHeight()
+                        .graphicsLayer { translationX = offset * size.width * 1.8f }
+                        .background(Brush.horizontalGradient(
+                            listOf(Color.Transparent, Moss, Color(0xFF5AC49A), Color.Transparent))))
+                }
+            }
+            if (toolCall.isDone && toolCall.result.isNotBlank()) {
+                val preview = remember(toolCall.result) {
+                    val r = toolCall.result.trim()
+                    if (r.length > 300) return@remember ""
+                    try {
+                        val json = org.json.JSONObject(r)
+                        if (json.has("action") || json.has("type") || json.has("results") || json.has("content")) ""
+                        else json.keys().asSequence().take(4).joinToString("  ") { k ->
+                            "$k: ${json.opt(k)}"
+                        }
+                    } catch (_: Exception) {
+                        if (r.startsWith("note:") || r.startsWith("[{") || r.startsWith("{")) ""
+                        else if (r.length > 100) r.take(100) + "..." else r
+                    }
+                }
+                if (preview.isNotBlank()) {
+                    Text(preview, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        fontFamily = FontFamily.Monospace, fontSize = 10.sp,
+                        color = TextMuted, lineHeight = 16.sp,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
