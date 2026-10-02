@@ -9,6 +9,16 @@ import java.util.UUID
 
 class BeepApplication : Application() {
     val repository by lazy { ChatRepository(LocalStorage(this)) }
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
+    companion object {
+        var instance: BeepApplication? = null
+            private set
+    }
 }
 
 data class AppIntent(val app: String, val uri: String, val fallbackUrl: String)
@@ -225,6 +235,39 @@ class ChatRepository(private val storage: LocalStorage) {
             JSONObject().put("device_id", deviceId).put("fcm_token", fcmToken).toString())
     }
 
+    /** One-shot translation: creates a temporary session, sends the prompt, streams the response, and returns the full text. */
+    suspend fun translate(text: String, language: String): String {
+        val config = settings.value
+        require(config.configured) { "Server not configured" }
+        val api = QuicApi(config)
+        val sessionId = UUID.randomUUID().toString()
+        val prompt = if (language == "Auto") "Translate the following text to the most likely target language (if it's English, translate to Spanish; otherwise translate to English). Reply with ONLY the translation, no explanation:\n\n$text"
+            else "Translate the following text to $language. Reply with ONLY the translation, no explanation:\n\n$text"
+        val body = JSONObject().put("session_id", sessionId).put("request_id", UUID.randomUUID().toString()).put("message", prompt)
+        val run = JSONObject(api.json("POST", "/v1/runs", body.toString()))
+        val runId = run.getString("id")
+        val result = StringBuilder()
+        var cursor = 0L
+        var finished = false
+        while (!finished) {
+            val decoder = NdjsonDecoder { line ->
+                val event = JSONObject(line)
+                val seq = event.optLong("seq", -1)
+                if (seq > cursor) cursor = seq
+                when (event.optString("type")) {
+                    "text_delta" -> result.append(event.getString("delta"))
+                    "run_finished" -> finished = true
+                    "error" -> throw Exception(event.optString("message", "Translation failed"))
+                }
+            }
+            val status = api.request("GET", "/v1/runs/$runId/events?after=$cursor") { decoder.feed(it) }
+            api.checkStatus(status)
+            decoder.finish()
+            if (!finished) kotlinx.coroutines.delay(150)
+        }
+        return result.toString().trim()
+    }
+
     suspend fun updateLocation(latitude: Double, longitude: Double, accuracy: Float) {
         val tz = java.util.TimeZone.getDefault().id
         QuicApi(settings.value).json("POST", "/v1/location",
@@ -300,6 +343,11 @@ class ChatRepository(private val storage: LocalStorage) {
                                     uri = outputJson.optString("uri", ""),
                                     fallbackUrl = outputJson.optString("fallback_url", ""))
                                 "open_browser" -> browserUrl.value = outputJson.optString("url", "")
+                                "open_maps" -> pendingIntent.value = AppIntent(
+                                    app = "maps",
+                                    uri = outputJson.optString("uri", ""),
+                                    fallbackUrl = "https://maps.google.com/?q=" +
+                                        java.net.URLEncoder.encode(outputJson.optString("uri", ""), "UTF-8"))
                             }
                             if (outputJson.optString("type") == "card") {
                                 val card = Card(outputJson.getString("card_type"), outputJson.getJSONObject("card_data"))

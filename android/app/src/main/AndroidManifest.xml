@@ -19,7 +19,26 @@
         <activity android:name=".BubbleActivity" android:exported="false"
             android:resizeableActivity="true" android:allowEmbedded="true"
             android:documentLaunchMode="always" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ProcessTextActivity"
+            android:label="Translate with Beep"
+            android:theme="@style/Theme.Beep.Translucent"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <service android:name=".NotificationService" android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service android:name=".BeepNotificationListener"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

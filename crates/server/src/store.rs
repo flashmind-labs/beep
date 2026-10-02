@@ -105,7 +105,35 @@ impl Store {
                 CREATE INDEX IF NOT EXISTS idx_cron_logs_user_cron
                     ON cron_logs(user_id, cron_id);
                 CREATE INDEX IF NOT EXISTS idx_runs_user_session
-                    ON runs(user_id, session_id);",
+                    ON runs(user_id, session_id);
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    app TEXT NOT NULL,
+                    title TEXT,
+                    text TEXT,
+                    timestamp INTEGER NOT NULL,
+                    synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    UNIQUE(user_id, app, timestamp, title));
+                CREATE INDEX IF NOT EXISTS idx_notifications_user_ts
+                    ON notifications(user_id, timestamp DESC);
+                CREATE TABLE IF NOT EXISTS habits (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    frequency TEXT NOT NULL DEFAULT 'daily',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    archived INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE(user_id, name));
+                CREATE TABLE IF NOT EXISTS habit_logs (
+                    id TEXT PRIMARY KEY,
+                    habit_id TEXT NOT NULL REFERENCES habits(id),
+                    user_id TEXT NOT NULL,
+                    value REAL NOT NULL DEFAULT 1.0,
+                    note TEXT,
+                    logged_at TEXT NOT NULL DEFAULT (datetime('now')));
+                CREATE INDEX IF NOT EXISTS idx_habit_logs_habit
+                    ON habit_logs(habit_id, logged_at);",
             )?;
             // Migrations for existing databases
             let has_col = |table: &str, col: &str| -> rusqlite::Result<bool> {
@@ -873,4 +901,320 @@ impl Store {
             })
             .await?)
     }
+
+    pub async fn save_notifications(&self, user: &str, notifications: &[Value]) -> Result<usize> {
+        let user = user.to_owned();
+        let notifications: Vec<Value> = notifications.to_vec();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let tx = db.transaction()?;
+                let mut count = 0usize;
+                for n in &notifications {
+                    let app = n["app"].as_str().unwrap_or_default();
+                    let title = n["title"].as_str().unwrap_or_default();
+                    let text = n["text"].as_str().unwrap_or_default();
+                    let timestamp = n["timestamp"].as_i64().unwrap_or(0);
+                    if app.is_empty() || timestamp == 0 {
+                        continue;
+                    }
+                    let id = Uuid::new_v4().to_string();
+                    let inserted = tx.execute(
+                        "INSERT OR IGNORE INTO notifications (id, user_id, app, title, text, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                        params![id, user, app, title, text, timestamp],
+                    )?;
+                    count += inserted;
+                }
+                tx.commit()?;
+                Ok(count)
+            })
+            .await?)
+    }
+
+    pub async fn query_notifications(
+        &self,
+        user: &str,
+        app: Option<&str>,
+        since_minutes: Option<i64>,
+        keyword: Option<&str>,
+        limit: Option<i64>,
+    ) -> Result<Vec<Value>> {
+        let user = user.to_owned();
+        let app = app.map(|s| s.to_owned());
+        let keyword = keyword.map(|s| s.to_owned());
+        let since_minutes = since_minutes.unwrap_or(60);
+        let limit = limit.unwrap_or(100).min(500);
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let cutoff_ms =
+                    chrono::Utc::now().timestamp_millis() - since_minutes * 60 * 1000;
+                let mut sql = String::from(
+                    "SELECT app, title, text, timestamp FROM notifications WHERE user_id=? AND timestamp>=?",
+                );
+                let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> =
+                    vec![Box::new(user), Box::new(cutoff_ms)];
+                if let Some(ref app) = app {
+                    sql.push_str(" AND (app=? OR instr(lower(app),lower(?))>0)");
+                    params_vec.push(Box::new(app.clone()));
+                    params_vec.push(Box::new(app.clone()));
+                }
+                if let Some(ref kw) = keyword {
+                    sql.push_str(
+                        " AND (instr(lower(title),lower(?))>0 OR instr(lower(text),lower(?))>0)",
+                    );
+                    params_vec.push(Box::new(kw.clone()));
+                    params_vec.push(Box::new(kw.clone()));
+                }
+                sql.push_str(" ORDER BY timestamp DESC LIMIT ?");
+                params_vec.push(Box::new(limit));
+                let mut stmt = db.prepare(&sql)?;
+                let rows = stmt
+                    .query_map(rusqlite::params_from_iter(params_vec.iter()), |r| {
+                        Ok(json!({
+                            "app": r.get::<_, String>(0)?,
+                            "title": r.get::<_, Option<String>>(1)?,
+                            "text": r.get::<_, Option<String>>(2)?,
+                            "timestamp": r.get::<_, i64>(3)?,
+                        }))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    pub async fn purge_old_notifications(&self) -> Result<u64> {
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(|db| {
+                let cutoff_ms = chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000;
+                let deleted = db.execute(
+                    "DELETE FROM notifications WHERE timestamp < ?",
+                    params![cutoff_ms],
+                )?;
+                Ok(deleted as u64)
+            })
+            .await?)
+    }
+
+    pub async fn create_habit(&self, user: &str, name: &str, frequency: &str) -> Result<String> {
+        if name.is_empty() || name.len() > 200 {
+            bail!("habit name must be 1-200 characters");
+        }
+        let valid_freq = ["daily", "weekly", "weekdays"];
+        if !valid_freq.contains(&frequency) {
+            bail!(
+                "invalid frequency '{}', must be one of: {}",
+                frequency,
+                valid_freq.join(", ")
+            );
+        }
+        let id = Uuid::new_v4().to_string();
+        let (user, id_clone, name, frequency) = (
+            user.to_owned(),
+            id.clone(),
+            name.to_owned(),
+            frequency.to_owned(),
+        );
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO habits (id, user_id, name, frequency) VALUES (?, ?, ?, ?)",
+                    params![id_clone, user, name, frequency],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(id)
+    }
+
+    pub async fn list_habits(&self, user: &str) -> Result<Vec<Value>> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT h.id, h.name, h.frequency, h.created_at,
+                            COALESCE((SELECT COUNT(*) FROM habit_logs l WHERE l.habit_id=h.id), 0)
+                     FROM habits h
+                     WHERE h.user_id=? AND h.archived=0
+                     ORDER BY h.created_at",
+                )?;
+                let rows = stmt
+                    .query_map([&user], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, String>(3)?,
+                            r.get::<_, i64>(4)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+
+                let mut result = Vec::with_capacity(rows.len());
+                for (habit_id, name, frequency, created_at, total_logs) in rows {
+                    let streak = calculate_streak(db, &habit_id)?;
+                    result.push(json!({
+                        "name": name,
+                        "frequency": frequency,
+                        "created_at": created_at,
+                        "total_logs": total_logs,
+                        "current_streak": streak,
+                    }));
+                }
+                Ok(result)
+            })
+            .await?)
+    }
+
+    pub async fn log_habit(
+        &self,
+        user: &str,
+        habit_name: &str,
+        value: f64,
+        note: Option<&str>,
+    ) -> Result<()> {
+        let (user, habit_name) = (user.to_owned(), habit_name.to_owned());
+        let note = note.map(|s| s.to_owned());
+        let id = Uuid::new_v4().to_string();
+        let found = self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let habit_id: Option<String> = db
+                    .query_row(
+                        "SELECT id FROM habits WHERE user_id=? AND name=? AND archived=0",
+                        params![user, habit_name],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                let habit_id = match habit_id {
+                    Some(hid) => hid,
+                    None => return Ok(false),
+                };
+                db.execute(
+                    "INSERT INTO habit_logs (id, habit_id, user_id, value, note) VALUES (?, ?, ?, ?, ?)",
+                    params![id, habit_id, user, value, note],
+                )?;
+                Ok(true)
+            })
+            .await?;
+        if !found {
+            bail!("habit not found: check the name and make sure it is not archived");
+        }
+        Ok(())
+    }
+
+    pub async fn habit_status(&self, user: &str, habit_name: &str, days: i64) -> Result<Value> {
+        let (user, habit_name) = (user.to_owned(), habit_name.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let row: Option<(String, String, String, String)> = db
+                    .query_row(
+                        "SELECT id, name, frequency, created_at FROM habits WHERE user_id=? AND name=? AND archived=0",
+                        params![user, habit_name],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                    )
+                    .optional()?;
+                let (habit_id, name, frequency, created_at) = match row {
+                    Some(r) => r,
+                    None => return Ok(json!({"error": "habit not found"})),
+                };
+
+                let mut stmt = db.prepare(
+                    "SELECT date(logged_at) as day, SUM(value), GROUP_CONCAT(note, '; ')
+                     FROM habit_logs
+                     WHERE habit_id=? AND logged_at >= date('now', ?)
+                     GROUP BY day ORDER BY day",
+                )?;
+                let offset = format!("-{} days", days);
+                let logs = stmt
+                    .query_map(params![habit_id, offset], |r| {
+                        Ok(json!({
+                            "date": r.get::<_, String>(0)?,
+                            "total": r.get::<_, f64>(1)?,
+                            "notes": r.get::<_, Option<String>>(2)?,
+                        }))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+
+                let logged_days = logs.len() as f64;
+                let rate = if days > 0 {
+                    logged_days / days as f64
+                } else {
+                    0.0
+                };
+                let streak = calculate_streak(db, &habit_id)?;
+
+                Ok(json!({
+                    "name": name,
+                    "frequency": frequency,
+                    "created_at": created_at,
+                    "days_queried": days,
+                    "logged_days": logged_days as i64,
+                    "completion_rate": (rate * 100.0).round() / 100.0,
+                    "current_streak": streak,
+                    "logs": logs,
+                }))
+            })
+            .await?)
+    }
+
+    pub async fn archive_habit(&self, user: &str, habit_name: &str) -> Result<bool> {
+        let (user, habit_name) = (user.to_owned(), habit_name.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                Ok(db.execute(
+                    "UPDATE habits SET archived=1 WHERE user_id=? AND name=? AND archived=0",
+                    params![user, habit_name],
+                )? > 0)
+            })
+            .await?)
+    }
+}
+
+/// Count consecutive days with at least one log, going backward from today.
+fn calculate_streak(db: &rusqlite::Connection, habit_id: &str) -> rusqlite::Result<i64> {
+    let mut stmt = db.prepare(
+        "SELECT DISTINCT date(logged_at) as day FROM habit_logs WHERE habit_id=? ORDER BY day DESC",
+    )?;
+    let days: Vec<String> = stmt
+        .query_map(params![habit_id], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    if days.is_empty() {
+        return Ok(0);
+    }
+
+    let today: String = db.query_row("SELECT date('now')", [], |r| r.get(0))?;
+    let mut streak = 0i64;
+    let mut expected = today.clone();
+
+    for day in &days {
+        if *day == expected {
+            streak += 1;
+            expected = db.query_row("SELECT date(?, '-1 day')", params![expected], |r| {
+                r.get::<_, String>(0)
+            })?;
+        } else if streak == 0 {
+            // Allow starting from yesterday if nothing logged today yet
+            let yesterday: String =
+                db.query_row("SELECT date('now', '-1 day')", [], |r| r.get(0))?;
+            if *day == yesterday {
+                streak = 1;
+                expected = db.query_row("SELECT date(?, '-1 day')", params![day], |r| {
+                    r.get::<_, String>(0)
+                })?;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    Ok(streak)
 }
