@@ -4,6 +4,7 @@ use crate::{
     tools,
 };
 use anyhow::Result;
+use chrono::Utc;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation},
     tools::mcp::McpRegistry,
@@ -12,8 +13,8 @@ use flashmind::{
 use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::json;
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::{broadcast, Mutex};
+use std::{collections::HashMap, fmt::Write, sync::Arc, time::Duration};
+use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 pub struct App {
@@ -100,7 +101,10 @@ impl App {
             let (app, user, run) = (self.clone(), user.to_owned(), run.clone());
             let is_cron = message.cron_id.is_some();
             tokio::spawn(async move {
-                if let Err(error) = app.execute(&user, &run, &message.message, is_cron, cancel).await {
+                if let Err(error) = app
+                    .execute(&user, &run, &message.message, is_cron, cancel)
+                    .await
+                {
                     tracing::error!(run_id=%run.id, %error, "run storage/execution failed");
                     if let Err(error) = app.store.finish(&user, &run, None, "failed").await {
                         tracing::error!(run_id=%run.id,%error,"unable to persist failure");
@@ -165,6 +169,55 @@ impl App {
         }
     }
 
+    async fn build_context(&self, user: &str) -> Option<String> {
+        let mut ctx = String::from("[Context -- do not repeat to user]\n");
+        let mut has_content = false;
+
+        // Time with user's timezone
+        if let Ok(tz_name) = self.store.get_timezone(user).await {
+            let now = if let Ok(tz) = tz_name.parse::<chrono_tz::Tz>() {
+                Utc::now()
+                    .with_timezone(&tz)
+                    .format("%Y-%m-%d %H:%M %Z")
+                    .to_string()
+            } else {
+                Utc::now().format("%Y-%m-%d %H:%M UTC").to_string()
+            };
+            let _ = writeln!(ctx, "Time: {now}");
+            has_content = true;
+        }
+
+        // Location
+        if let Ok(Some(loc)) = self.store.get_location(user).await
+            && let (Some(lat), Some(lon)) = (loc["latitude"].as_f64(), loc["longitude"].as_f64())
+        {
+            let ns = if lat >= 0.0 { "N" } else { "S" };
+            let ew = if lon >= 0.0 { "E" } else { "W" };
+            let _ = writeln!(
+                ctx,
+                "Location: {:.4} {ns}, {:.4} {ew}",
+                lat.abs(),
+                lon.abs()
+            );
+            has_content = true;
+        }
+
+        // Memories (most recent 15)
+        if let Ok(memories) = self.store.list_memories(user).await
+            && !memories.is_empty()
+        {
+            let _ = writeln!(ctx, "Memories:");
+            for mem in memories.iter().take(15) {
+                if let (Some(key), Some(content)) = (mem["key"].as_str(), mem["content"].as_str()) {
+                    let _ = writeln!(ctx, "- {key}: {content}");
+                }
+            }
+            has_content = true;
+        }
+
+        has_content.then_some(ctx)
+    }
+
     async fn execute(
         &self,
         user: &str,
@@ -179,7 +232,12 @@ impl App {
             .await?
             .unwrap_or_else(Conversation::new);
         // Always set the server-owned prompt, including when loading an older conversation.
-        conversation.set_system(include_str!("../prompts/assistant.md"));
+        let base_prompt = include_str!("../prompts/assistant.md");
+        let system_prompt = match self.build_context(user).await {
+            Some(ctx) => format!("{base_prompt}\n\n{ctx}"),
+            None => base_prompt.to_owned(),
+        };
+        conversation.set_system(&system_prompt);
         let mut llm = AgentLlmConfig::new(self.model.clone()).with_user(user);
         llm.max_tokens = Some(4096);
         let mut registry = tools::registry(self.store.clone(), user);

@@ -71,7 +71,11 @@ async fn tick(app: &Arc<App>) -> anyhow::Result<()> {
         let run_once = cron["run_once"].as_bool().unwrap_or(false);
 
         // Use the user's timezone for cron matching
-        let tz = app.store.get_timezone(&user_id).await.unwrap_or_else(|_| "UTC".into());
+        let tz = app
+            .store
+            .get_timezone(&user_id)
+            .await
+            .unwrap_or_else(|_| "UTC".into());
         if !cron_matches_tz(schedule, &now, &tz) {
             continue;
         }
@@ -83,8 +87,7 @@ async fn tick(app: &Arc<App>) -> anyhow::Result<()> {
             {
                 continue;
             }
-            if let Ok(last_time) =
-                chrono::NaiveDateTime::parse_from_str(&last, "%Y-%m-%d %H:%M:%S")
+            if let Ok(last_time) = chrono::NaiveDateTime::parse_from_str(&last, "%Y-%m-%d %H:%M:%S")
             {
                 let last_utc = last_time.and_utc();
                 if now.signed_duration_since(last_utc).num_seconds() < 55 {
@@ -109,7 +112,10 @@ async fn tick(app: &Arc<App>) -> anyhow::Result<()> {
                 let _ = app.store.log_cron_start(&user_id, id, &run.id).await;
                 // Auto-disable one-time schedules after firing
                 if run_once {
-                    let _ = app.store.update_cron(&user_id, id, Some(false), None, None).await;
+                    let _ = app
+                        .store
+                        .update_cron(&user_id, id, Some(false), None, None)
+                        .await;
                     tracing::info!(cron_id=%id, "one-time cron disabled after firing");
                 }
             }

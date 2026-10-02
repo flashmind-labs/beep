@@ -4,10 +4,12 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use bytes::{Buf, Bytes, BytesMut};
+use chrono::Utc;
+use cron::Schedule;
 use http::{Request, Response, StatusCode};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use serde_json::{Value, json};
-use std::{io::BufReader, net::SocketAddr, path::Path, sync::Arc, time::Duration};
+use std::{io::BufReader, net::SocketAddr, path::Path, str::FromStr, sync::Arc, time::Duration};
 
 type QuicStream = h3::server::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>;
 pub(crate) enum Stream {
@@ -177,6 +179,16 @@ async fn reply(stream: &mut Stream, status: StatusCode, value: Value) -> Result<
     Ok(())
 }
 
+/// Compute the next fire time for a 5-field cron expression in the given timezone.
+fn next_run_at(expression: &str, tz_name: &str) -> Option<String> {
+    let seven_field = format!("0 {} *", expression);
+    let schedule = Schedule::from_str(&seven_field).ok()?;
+    let tz: chrono_tz::Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
+    let now_local = Utc::now().with_timezone(&tz);
+    let next = schedule.after(&now_local).next()?;
+    Some(next.with_timezone(&Utc).to_rfc3339())
+}
+
 pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stream) -> Result<()> {
     if request.method() == "GET" && request.uri().path() == "/v1/auth" {
         return reply(
@@ -310,12 +322,20 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
     }
     if path == "/v1/crons" {
         if method == "GET" {
-            return reply(
-                &mut stream,
-                StatusCode::OK,
-                json!({"crons":app.store.list_crons(&user).await?}),
-            )
-            .await;
+            let tz = app
+                .store
+                .get_timezone(&user)
+                .await
+                .unwrap_or_else(|_| "UTC".into());
+            let mut crons = app.store.list_crons(&user).await?;
+            for cron in &mut crons {
+                let schedule = cron["schedule"].as_str().unwrap_or_default();
+                cron["next_run_at"] = match next_run_at(schedule, &tz) {
+                    Some(t) => json!(t),
+                    None => Value::Null,
+                };
+            }
+            return reply(&mut stream, StatusCode::OK, json!({"crons": crons})).await;
         }
         if method == "POST" {
             let body = read_body(&mut stream, 65536).await?;
@@ -340,10 +360,7 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
             };
             let label = parsed.get("label").and_then(Value::as_str).unwrap_or("");
             let prompt = parsed.get("prompt").and_then(Value::as_str).unwrap_or("");
-            let schedule = parsed
-                .get("schedule")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let schedule = parsed.get("schedule").and_then(Value::as_str).unwrap_or("");
             match app.store.create_cron(&user, label, prompt, schedule).await {
                 Ok(id) => {
                     return reply(
@@ -386,8 +403,14 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
                     .await;
                 }
             };
-            let device_id = parsed.get("device_id").and_then(Value::as_str).unwrap_or("");
-            let fcm_token = parsed.get("fcm_token").and_then(Value::as_str).unwrap_or("");
+            let device_id = parsed
+                .get("device_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let fcm_token = parsed
+                .get("fcm_token")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             if device_id.is_empty() || fcm_token.is_empty() {
                 return reply(
                     &mut stream,
@@ -396,7 +419,9 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
                 )
                 .await;
             }
-            app.store.register_device(&user, device_id, fcm_token).await?;
+            app.store
+                .register_device(&user, device_id, fcm_token)
+                .await?;
             return reply(&mut stream, StatusCode::OK, json!({"registered":true})).await;
         }
         if method == "DELETE" {
@@ -424,7 +449,12 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
                 }
             };
             let unregistered = app.store.unregister_device(&user, &device_id).await?;
-            return reply(&mut stream, StatusCode::OK, json!({"unregistered":unregistered})).await;
+            return reply(
+                &mut stream,
+                StatusCode::OK,
+                json!({"unregistered":unregistered}),
+            )
+            .await;
         }
     }
     if method == "POST" && path == "/v1/location" {
@@ -450,7 +480,10 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
         };
         let latitude = parsed.get("latitude").and_then(Value::as_f64);
         let longitude = parsed.get("longitude").and_then(Value::as_f64);
-        let accuracy = parsed.get("accuracy").and_then(Value::as_f64).unwrap_or(0.0);
+        let accuracy = parsed
+            .get("accuracy")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
         match (latitude, longitude) {
             (Some(lat), Some(lng))
                 if (-90.0..=90.0).contains(&lat)
@@ -459,8 +492,13 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
                     && lng.is_finite()
                     && accuracy.is_finite() =>
             {
-                let tz = parsed.get("timezone").and_then(Value::as_str).unwrap_or("UTC");
-                app.store.update_location_tz(&user, lat, lng, accuracy, tz).await?;
+                let tz = parsed
+                    .get("timezone")
+                    .and_then(Value::as_str)
+                    .unwrap_or("UTC");
+                app.store
+                    .update_location_tz(&user, lat, lng, accuracy, tz)
+                    .await?;
                 return reply(&mut stream, StatusCode::OK, json!({"updated":true})).await;
             }
             _ => {
@@ -601,9 +639,24 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
             return Ok(());
         }
     }
-    if segments.len() == 3 && segments[0] == "v1" && segments[1] == "crons" {
+    if segments.len() >= 3 && segments[0] == "v1" && segments[1] == "crons" {
         let cron_id = segments[2];
-        if method == "DELETE" {
+        if method == "PUT" && segments.len() == 4 && segments[3] == "toggle" {
+            return match app.store.toggle_cron(&user, cron_id).await? {
+                Some(enabled) => {
+                    reply(&mut stream, StatusCode::OK, json!({"enabled": enabled})).await
+                }
+                None => {
+                    reply(
+                        &mut stream,
+                        StatusCode::NOT_FOUND,
+                        json!({"error":"cron not found"}),
+                    )
+                    .await
+                }
+            };
+        }
+        if method == "DELETE" && segments.len() == 3 {
             let deleted = app.store.delete_cron(&user, cron_id).await?;
             return reply(
                 &mut stream,
@@ -616,7 +669,7 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
             )
             .await;
         }
-        if method == "PATCH" {
+        if method == "PATCH" && segments.len() == 3 {
             let body = read_body(&mut stream, 65536).await?;
             let Some(body) = body else {
                 return reply(
@@ -709,7 +762,10 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
     if segments.len() >= 3 && segments[0] == "v1" && segments[1] == "integrations" {
         let integration_id = segments[2];
         if method == "DELETE" && segments.len() == 3 {
-            let deleted = app.store.delete_mcp_connection(&user, integration_id).await?;
+            let deleted = app
+                .store
+                .delete_mcp_connection(&user, integration_id)
+                .await?;
             return reply(
                 &mut stream,
                 if deleted {
