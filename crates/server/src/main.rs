@@ -9,12 +9,14 @@ use flashmind::{llm::OpenRouterProvider, types::Model};
 use iroh::SecretKey;
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
-use std::sync::Arc;
+use logforth::record::{Level, LevelFilter};
+use std::{io, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    logforth::starter_log::stderr().apply();
-    log::set_max_level(log::LevelFilter::Debug);
+    logforth::starter_log::stderr()
+        .filter(LevelFilter::MoreSevereEqual(Level::Debug))
+        .apply();
 
     let config_path = std::env::args()
         .nth(1)
@@ -60,7 +62,7 @@ async fn main() -> Result<()> {
     let secret_key = match &config.secret_key {
         Some(path) => match std::fs::read_to_string(path) {
             Ok(data) => data.trim().parse::<SecretKey>()?,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
                 let key = SecretKey::generate();
                 if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
                     std::fs::create_dir_all(parent)?;
