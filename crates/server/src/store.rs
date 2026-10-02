@@ -53,6 +53,10 @@ fn validate_category(category: Option<&str>) -> Result<String> {
 }
 
 impl Store {
+    pub fn raw(&self) -> &Connection {
+        &self.0
+    }
+
     pub async fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let db = Connection::open(path).await?;
         db.call::<_, _, rusqlite::Error>(|db| {

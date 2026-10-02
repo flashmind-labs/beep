@@ -12,8 +12,7 @@ async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-cron = "0.15"
-flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", features = ["mcp"] }
+flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", features = ["mcp", "composio", "cron"] }
 futures = "0.3"
 http = "1"
 iroh = "1.3"
