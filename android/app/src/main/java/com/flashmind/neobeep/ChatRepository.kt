@@ -58,7 +58,7 @@ class ChatRepository(private val storage: LocalStorage) {
     private suspend fun loadHistory(id: String, config: ConnectionSettings) {
         val before = state.value.conversations.find { it.id == id } ?: return
         if (before.busy) return
-        val entries = JSONObject(QuicApi(config).json("GET", "/v1/sessions/$id")).getJSONArray("entries")
+        val entries = JSONObject(serverApi(config).json("GET", "/v1/sessions/$id")).getJSONArray("entries")
         val messages = (0 until entries.length()).mapNotNull { i ->
             val entry = entries.getJSONObject(i)
             val role = entry.optString("role")
@@ -70,7 +70,7 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     fun refreshHistory() { scope.launch { runCatching { syncHistory(settings.value) } } }
     private suspend fun syncHistory(config: ConnectionSettings) {
-        val sessions = JSONObject(QuicApi(config).json("GET", "/v1/sessions")).getJSONArray("sessions")
+        val sessions = JSONObject(serverApi(config).json("GET", "/v1/sessions")).getJSONArray("sessions")
         if (settings.value != config) return
         update { state ->
             val known = state.conversations.map { it.id }.toSet()
@@ -93,8 +93,9 @@ class ChatRepository(private val storage: LocalStorage) {
             loadHistory(state.value.current.id, config)
     }
     private suspend fun connectionLabel(config: ConnectionSettings): String {
-        val mode = JSONObject(QuicApi(config).json("GET", "/v1/auth")).optString("mode")
-        return if (mode == "testing") "Testing · shared account · QUIC" else "Connected · QUIC"
+        val proto = if (config.transport == "http") "HTTP" else "QUIC"
+        val mode = JSONObject(serverApi(config).json("GET", "/v1/auth")).optString("mode")
+        return if (mode == "testing") "Testing · shared account · $proto" else "Connected · $proto"
     }
     fun newChat() = update { state ->
         val chat = Conversation(); state.copy(conversations = listOf(chat) + state.conversations, selected = chat.id)
@@ -102,19 +103,34 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun connect(config: ConnectionSettings) {
         require(config.configured) { "Enter your server and TLS hostname." }
         connection.value = "Connecting…"
-        val health = JSONObject(QuicApi(config).json("GET", "/v1/health"))
-        check(health.optString("protocol") == "h3") { "This server does not report HTTP/3." }
-        val changedAccount = settings.value.address != config.address || settings.value.token != config.token
+        // Try the requested transport, fall back to HTTP if QUIC fails.
+        val effective = if (config.transport != "http") {
+            try {
+                val health = JSONObject(serverApi(config).json("GET", "/v1/health"))
+                check(health.optString("status") == "ok")
+                config
+            } catch (_: Exception) {
+                val httpConfig = config.copy(transport = "http")
+                val health = JSONObject(serverApi(httpConfig).json("GET", "/v1/health"))
+                check(health.optString("status") == "ok") { "Server not reachable over QUIC or HTTP." }
+                httpConfig
+            }
+        } else {
+            val health = JSONObject(serverApi(config).json("GET", "/v1/health"))
+            check(health.optString("status") == "ok") { "Server not reachable." }
+            config
+        }
+        val changedAccount = settings.value.address != effective.address || settings.value.token != effective.token
         synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
-        storage.saveSettings(config)
-        settings.value = config
+        storage.saveSettings(effective)
+        settings.value = effective
         if (changedAccount) update { ChatState() }
         connected.value = true
         scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
         NotificationService.start(storage.context)
-        connection.value = connectionLabel(config)
+        connection.value = connectionLabel(effective)
         resumePending()
-        runCatching { syncHistory(config) }
+        runCatching { syncHistory(effective) }
     }
     fun reconnect() {
         reconnectJob?.cancel()
@@ -123,7 +139,18 @@ class ChatRepository(private val storage: LocalStorage) {
             while (isActive) {
                 try {
                     connection.value = if (attempt > 0) "Reconnecting… (attempt ${attempt + 1})" else "Checking connection…"
-                    QuicApi(settings.value).json("GET", "/v1/health")
+                    // Try current transport, fall back to HTTP if QUIC fails on first attempt.
+                    val current = settings.value
+                    try {
+                        serverApi(current).json("GET", "/v1/health")
+                    } catch (_: Exception) {
+                        if (current.transport != "http") {
+                            val httpConfig = current.copy(transport = "http")
+                            serverApi(httpConfig).json("GET", "/v1/health")
+                            storage.saveSettings(httpConfig)
+                            settings.value = httpConfig
+                        } else throw Exception("Server not reachable")
+                    }
                     connected.value = true
                     scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
                     NotificationService.start(storage.context)
@@ -159,7 +186,7 @@ class ChatRepository(private val storage: LocalStorage) {
         updateChat(chat.id) { it.copy(cancelRequested = true, status = "Stopping…") }
         scope.launch {
             if (chat.runId.isEmpty()) { retry(); return@launch }
-            try { QuicApi(settings.value).json("POST", "/v1/runs/${chat.runId}/cancel") }
+            try { serverApi(settings.value).json("POST", "/v1/runs/${chat.runId}/cancel") }
             catch (error: Exception) { updateChat(chat.id) { it.copy(error = error.message.orEmpty()) } }
         }
     }
@@ -170,7 +197,7 @@ class ChatRepository(private val storage: LocalStorage) {
             while (isActive) {
                 val chat = state.value.conversations.find { it.id == id } ?: break
                 if (!chat.busy) break
-                val api = QuicApi(settings.value)
+                val api = serverApi(settings.value)
                 try {
                     updateChat(id) { it.copy(error = "", status = if (it.runId.isEmpty()) "Sending…" else "Beep is thinking…") }
                     if (chat.runId.isEmpty()) {
@@ -200,59 +227,59 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
     suspend fun listMemories(): List<Pair<String, String>> {
-        val result = JSONObject(QuicApi(settings.value).json("GET", "/v1/memories"))
+        val result = JSONObject(serverApi(settings.value).json("GET", "/v1/memories"))
         val arr = result.getJSONArray("memories")
         return (0 until arr.length()).map { arr.getJSONObject(it).let { m -> m.getString("key") to m.getString("content") } }
     }
     suspend fun deleteMemory(key: String) {
-        QuicApi(settings.value).json("DELETE", "/v1/memories", JSONObject().put("key", key).toString())
+        serverApi(settings.value).json("DELETE", "/v1/memories", JSONObject().put("key", key).toString())
     }
 
     data class Cron(val id: String, val label: String, val prompt: String, val schedule: String, val enabled: Boolean)
     suspend fun listCrons(): List<Cron> {
-        val result = JSONObject(QuicApi(settings.value).json("GET", "/v1/crons"))
+        val result = JSONObject(serverApi(settings.value).json("GET", "/v1/crons"))
         val arr = result.getJSONArray("crons")
         return (0 until arr.length()).map { arr.getJSONObject(it).let { c ->
             Cron(c.getString("id"), c.getString("label"), c.getString("prompt"), c.getString("schedule"), c.optBoolean("enabled", true))
         } }
     }
     suspend fun createCron(label: String, prompt: String, schedule: String) {
-        QuicApi(settings.value).json("POST", "/v1/crons", JSONObject().put("label", label).put("prompt", prompt).put("schedule", schedule).toString())
+        serverApi(settings.value).json("POST", "/v1/crons", JSONObject().put("label", label).put("prompt", prompt).put("schedule", schedule).toString())
     }
     suspend fun deleteCron(id: String) {
-        QuicApi(settings.value).json("DELETE", "/v1/crons/$id")
+        serverApi(settings.value).json("DELETE", "/v1/crons/$id")
     }
     suspend fun toggleCron(id: String, enabled: Boolean) {
-        QuicApi(settings.value).json("PATCH", "/v1/crons/$id", JSONObject().put("enabled", enabled).toString())
+        serverApi(settings.value).json("PATCH", "/v1/crons/$id", JSONObject().put("enabled", enabled).toString())
     }
 
     data class McpConnection(val id: String, val provider: String, val label: String, val status: String)
     suspend fun listIntegrations(): List<McpConnection> {
-        val result = JSONObject(QuicApi(settings.value).json("GET", "/v1/integrations"))
+        val result = JSONObject(serverApi(settings.value).json("GET", "/v1/integrations"))
         val arr = result.getJSONArray("integrations")
         return (0 until arr.length()).map { arr.getJSONObject(it).let { c ->
             McpConnection(c.getString("id"), c.getString("provider"), c.getString("label"), c.getString("status"))
         } }
     }
     suspend fun createIntegration(provider: String, label: String, config: String = "{}") {
-        QuicApi(settings.value).json("POST", "/v1/integrations",
+        serverApi(settings.value).json("POST", "/v1/integrations",
             JSONObject().put("provider", provider).put("label", label).put("config", config).toString())
     }
     suspend fun uploadCredentials(id: String, credentials: String) {
-        QuicApi(settings.value).json("PUT", "/v1/integrations/$id/credentials",
+        serverApi(settings.value).json("PUT", "/v1/integrations/$id/credentials",
             JSONObject().put("credentials", JSONObject(credentials)).put("status", "connected").toString())
     }
     suspend fun deleteIntegration(id: String) {
-        QuicApi(settings.value).json("DELETE", "/v1/integrations/$id")
+        serverApi(settings.value).json("DELETE", "/v1/integrations/$id")
     }
 
     suspend fun renameSession(id: String, title: String) {
-        QuicApi(settings.value).json("PUT", "/v1/sessions/$id", JSONObject().put("title", title).toString())
+        serverApi(settings.value).json("PUT", "/v1/sessions/$id", JSONObject().put("title", title).toString())
         updateChat(id) { it.copy(title = title) }
     }
 
     suspend fun deleteSession(id: String) {
-        QuicApi(settings.value).json("DELETE", "/v1/sessions/$id")
+        serverApi(settings.value).json("DELETE", "/v1/sessions/$id")
         update { state ->
             val remaining = state.conversations.filter { it.id != id }
             val safe = remaining.ifEmpty { listOf(Conversation()) }
@@ -261,7 +288,7 @@ class ChatRepository(private val storage: LocalStorage) {
     }
 
     suspend fun pinSession(id: String, pinned: Boolean) {
-        QuicApi(settings.value).json("PUT", "/v1/sessions/$id/pin", JSONObject().put("pinned", pinned).toString())
+        serverApi(settings.value).json("PUT", "/v1/sessions/$id/pin", JSONObject().put("pinned", pinned).toString())
         updateChat(id) { it.copy(pinned = pinned) }
         update { state ->
             state.copy(conversations = state.conversations.sortedByDescending { it.pinned })
@@ -269,7 +296,7 @@ class ChatRepository(private val storage: LocalStorage) {
     }
 
     suspend fun registerDevice(deviceId: String, fcmToken: String) {
-        QuicApi(settings.value).json("POST", "/v1/devices",
+        serverApi(settings.value).json("POST", "/v1/devices",
             JSONObject().put("device_id", deviceId).put("fcm_token", fcmToken).toString())
     }
 
@@ -277,7 +304,7 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun translate(text: String, language: String): String {
         val config = settings.value
         require(config.configured) { "Server not configured" }
-        val api = QuicApi(config)
+        val api = serverApi(config)
         val sessionId = UUID.randomUUID().toString()
         val prompt = if (language == "Auto") "Translate the following text to the most likely target language (if it's English, translate to Spanish; otherwise translate to English). Reply with ONLY the translation, no explanation:\n\n$text"
             else "Translate the following text to $language. Reply with ONLY the translation, no explanation:\n\n$text"
@@ -308,7 +335,7 @@ class ChatRepository(private val storage: LocalStorage) {
 
     suspend fun updateLocation(latitude: Double, longitude: Double, accuracy: Float) {
         val tz = java.util.TimeZone.getDefault().id
-        QuicApi(settings.value).json("POST", "/v1/location",
+        serverApi(settings.value).json("POST", "/v1/location",
             JSONObject().put("latitude", latitude).put("longitude", longitude).put("accuracy", accuracy.toDouble()).put("timezone", tz).toString())
     }
 
@@ -435,7 +462,7 @@ class ChatRepository(private val storage: LocalStorage) {
 
     private suspend fun sendDeviceResult(runId: String, queryId: String, result: JSONObject) {
         val body = JSONObject().put("query_id", queryId).put("result", result)
-        QuicApi(settings.value).json("POST", "/v1/runs/$runId/device-result", body.toString())
+        serverApi(settings.value).json("POST", "/v1/runs/$runId/device-result", body.toString())
     }
 
     private fun extractCardsFromText(message: ChatMessage): ChatMessage {

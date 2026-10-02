@@ -80,6 +80,6 @@ object NotificationBuffer {
         val arr = JSONArray()
         for (n in notifications) arr.put(n)
         val body = JSONObject().put("notifications", arr)
-        QuicApi(config).json("POST", "/v1/phone/notifications", body.toString())
+        serverApi(config).json("POST", "/v1/phone/notifications", body.toString())
     }
 }

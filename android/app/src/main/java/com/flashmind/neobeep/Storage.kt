@@ -15,12 +15,12 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-data class ConnectionSettings(val address: String = "", val hostname: String = "", val token: String = "", val ca: String = "") {
-    val configured get() = address.isNotBlank() && hostname.isNotBlank()
+data class ConnectionSettings(val address: String = "", val hostname: String = "", val token: String = "", val ca: String = "", val transport: String = "quic") {
+    val configured get() = address.isNotBlank() && (hostname.isNotBlank() || transport == "http")
     companion object {
         fun fromJson(raw: String): ConnectionSettings {
             val json = JSONObject(raw)
-            return ConnectionSettings(json.getString("address"), json.getString("hostname"), json.optString("token"), json.optString("ca"))
+            return ConnectionSettings(json.getString("address"), json.optString("hostname", ""), json.optString("token"), json.optString("ca"), json.optString("transport", "quic"))
         }
     }
 }
@@ -64,13 +64,13 @@ class LocalStorage(internal val context: Context) {
                 init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
             }.doFinal(bytes.copyOfRange(12, bytes.size)).toString(Charsets.UTF_8)
         }.getOrDefault("")
-        return ConnectionSettings(prefs.getString("address", "").orEmpty(), prefs.getString("hostname", "").orEmpty(), token, prefs.getString("ca", "").orEmpty())
+        return ConnectionSettings(prefs.getString("address", "").orEmpty(), prefs.getString("hostname", "").orEmpty(), token, prefs.getString("ca", "").orEmpty(), prefs.getString("transport", "quic").orEmpty())
     }
     fun saveSettings(settings: ConnectionSettings) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
         val encrypted = Base64.encodeToString(cipher.iv + cipher.doFinal(settings.token.toByteArray()), Base64.NO_WRAP)
         check(prefs.edit().putString("address", settings.address).putString("hostname", settings.hostname)
-            .putString("token", encrypted).putString("ca", settings.ca).commit()) { "Could not save connection" }
+            .putString("token", encrypted).putString("ca", settings.ca).putString("transport", settings.transport).commit()) { "Could not save connection" }
     }
     fun loadState(): ChatState = runCatching {
         val json = JSONObject(file.openRead().bufferedReader().use { it.readText() })

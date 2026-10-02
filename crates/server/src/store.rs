@@ -60,6 +60,7 @@ impl Store {
                 "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
                 CREATE TABLE IF NOT EXISTS sessions (
                     user_id TEXT NOT NULL, id TEXT NOT NULL, conversation TEXT NOT NULL,
+                    pinned INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY(user_id, id));
                 CREATE TABLE IF NOT EXISTS runs (
                     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_id TEXT NOT NULL,
@@ -379,7 +380,7 @@ impl Store {
         self.0.call::<_, _, rusqlite::Error>(move |db| {
             let tx = db.transaction()?;
             if let Some(conversation) = conversation {
-                tx.execute("INSERT INTO sessions VALUES (?, ?, ?) ON CONFLICT(user_id,id) DO UPDATE SET conversation=excluded.conversation", params![user,run.session_id,conversation])?;
+                tx.execute("INSERT INTO sessions (user_id, id, conversation) VALUES (?, ?, ?) ON CONFLICT(user_id,id) DO UPDATE SET conversation=excluded.conversation", params![user,run.session_id,conversation])?;
             }
             tx.execute("INSERT INTO events SELECT ?, COALESCE(MAX(seq),0)+1, ? FROM events WHERE run_id=?", params![run.id,json!({"type":"run_finished","status":status}).to_string(),run.id])?;
             tx.execute("UPDATE runs SET status=? WHERE id=? AND user_id=?", params![status,run.id,user])?;
