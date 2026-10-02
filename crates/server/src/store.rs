@@ -30,6 +30,28 @@ pub enum CreateRun {
     Conflict,
 }
 
+const MEMORY_CATEGORIES: &[&str] = &[
+    "personal",
+    "preference",
+    "work",
+    "location",
+    "routine",
+    "general",
+];
+
+fn validate_category(category: Option<&str>) -> Result<String> {
+    let cat = category.unwrap_or("general");
+    if MEMORY_CATEGORIES.contains(&cat) {
+        Ok(cat.to_owned())
+    } else {
+        bail!(
+            "invalid category '{}', must be one of: {}",
+            cat,
+            MEMORY_CATEGORIES.join(", ")
+        );
+    }
+}
+
 impl Store {
     pub async fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let db = Connection::open(path).await?;
@@ -111,6 +133,11 @@ impl Store {
             }
             if !has_col("crons", "last_error")? {
                 db.execute_batch("ALTER TABLE crons ADD COLUMN last_error TEXT;")?;
+            }
+            if !has_col("memories", "category")? {
+                db.execute_batch(
+                    "ALTER TABLE memories ADD COLUMN category TEXT NOT NULL DEFAULT 'general';",
+                )?;
             }
             Ok(())
         })
@@ -273,25 +300,81 @@ impl Store {
         Ok(())
     }
 
-    pub async fn remember(&self, user: &str, key: &str, content: &str) -> Result<()> {
+    pub async fn remember(
+        &self,
+        user: &str,
+        key: &str,
+        content: &str,
+        category: Option<&str>,
+    ) -> Result<()> {
         if key.is_empty() || key.len() > 100 || content.is_empty() || content.len() > 4000 {
             bail!("memory key/content length out of range");
         }
+        let cat = validate_category(category)?;
         let (user, key, content) = (user.to_owned(), key.to_owned(), content.to_owned());
         self.0.call::<_, _, rusqlite::Error>(move |db| {
-            db.execute("INSERT INTO memories VALUES (?, ?, ?) ON CONFLICT(user_id,key) DO UPDATE SET content=excluded.content",params![user,key,content])?;
+            db.execute(
+                "INSERT INTO memories (user_id, key, content, category) VALUES (?, ?, ?, ?) \
+                 ON CONFLICT(user_id,key) DO UPDATE SET content=excluded.content, category=excluded.category",
+                params![user, key, content, cat],
+            )?;
             Ok(())
         }).await?;
         Ok(())
     }
 
-    pub async fn recall(&self, user: &str, query: &str) -> Result<Value> {
+    pub async fn recall(&self, user: &str, query: &str, category: Option<&str>) -> Result<Value> {
+        let cat = category.map(|c| validate_category(Some(c))).transpose()?;
         let (user, query) = (user.to_owned(), query.to_owned());
         Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
-            let mut stmt = db.prepare("SELECT key,content FROM memories WHERE user_id=? AND (instr(lower(key),lower(?))>0 OR instr(lower(content),lower(?))>0) ORDER BY key LIMIT 50")?;
-            let rows = stmt.query_map(params![user,query,query], |r| Ok(json!({"key":r.get::<_,String>(0)?,"content":r.get::<_,String>(1)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(ref cat) = cat {
+                (
+                    "SELECT key, content, category FROM memories WHERE user_id=? AND category=? AND (instr(lower(key),lower(?))>0 OR instr(lower(content),lower(?))>0) ORDER BY key LIMIT 50".into(),
+                    vec![Box::new(user), Box::new(cat.clone()), Box::new(query.clone()), Box::new(query)],
+                )
+            } else {
+                (
+                    "SELECT key, content, category FROM memories WHERE user_id=? AND (instr(lower(key),lower(?))>0 OR instr(lower(content),lower(?))>0) ORDER BY key LIMIT 50".into(),
+                    vec![Box::new(user), Box::new(query.clone()), Box::new(query)],
+                )
+            };
+            let mut stmt = db.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter()), |r| {
+                Ok(json!({"key":r.get::<_,String>(0)?,"content":r.get::<_,String>(1)?,"category":r.get::<_,String>(2)?}))
+            })?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(json!(rows))
         }).await?)
+    }
+
+    pub async fn update_memory(
+        &self,
+        user: &str,
+        key: &str,
+        content: &str,
+        category: Option<&str>,
+    ) -> Result<bool> {
+        if key.is_empty() || content.is_empty() || content.len() > 4000 {
+            bail!("memory key/content length out of range");
+        }
+        let cat = category.map(|c| validate_category(Some(c))).transpose()?;
+        let (user, key, content) = (user.to_owned(), key.to_owned(), content.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let changed = if let Some(cat) = cat {
+                    db.execute(
+                        "UPDATE memories SET content=?, category=? WHERE user_id=? AND key=?",
+                        params![content, cat, user, key],
+                    )?
+                } else {
+                    db.execute(
+                        "UPDATE memories SET content=? WHERE user_id=? AND key=?",
+                        params![content, user, key],
+                    )?
+                };
+                Ok(changed > 0)
+            })
+            .await?)
     }
 
     pub async fn forget(&self, user: &str, key: &str) -> Result<bool> {
@@ -313,11 +396,11 @@ impl Store {
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
-                    "SELECT key, content FROM memories WHERE user_id=? ORDER BY key LIMIT 500",
+                    "SELECT key, content, category FROM memories WHERE user_id=? ORDER BY category, key LIMIT 500",
                 )?;
                 let rows = stmt
                     .query_map([user], |r| {
-                        Ok(json!({"key":r.get::<_,String>(0)?,"content":r.get::<_,String>(1)?}))
+                        Ok(json!({"key":r.get::<_,String>(0)?,"content":r.get::<_,String>(1)?,"category":r.get::<_,String>(2)?}))
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
                 Ok(rows)

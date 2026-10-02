@@ -12,9 +12,9 @@ use flashmind::{
 };
 use futures::StreamExt;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{collections::HashMap, fmt::Write, sync::Arc, time::Duration};
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, broadcast, oneshot};
 use uuid::Uuid;
 
 pub struct App {
@@ -27,6 +27,7 @@ pub struct App {
     composio: Option<Arc<crate::composio::ComposioClient>>,
     mcp: Option<McpRegistry>,
     active: Mutex<HashMap<String, CancellationToken>>,
+    device_queries: Mutex<HashMap<String, oneshot::Sender<Value>>>,
 }
 
 #[derive(Deserialize)]
@@ -80,6 +81,7 @@ impl App {
             composio,
             mcp,
             active: Mutex::new(HashMap::new()),
+            device_queries: Mutex::new(HashMap::new()),
         })
     }
 
@@ -135,6 +137,53 @@ impl App {
             }
         })
         .await;
+    }
+
+    /// Send a query to the connected device and wait for its response.
+    ///
+    /// Emits a `device_query` event on the run's event stream so the client
+    /// picks it up, then blocks until the device POSTs the result back (or the
+    /// timeout expires).
+    pub async fn device_query(
+        &self,
+        run_id: &str,
+        query: Value,
+        timeout_secs: u64,
+    ) -> Result<Value> {
+        let query_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        self.device_queries
+            .lock()
+            .await
+            .insert(query_id.clone(), tx);
+        self.store
+            .append(
+                run_id,
+                json!({
+                    "type": "device_query",
+                    "query_id": query_id,
+                    "query": query,
+                }),
+            )
+            .await?;
+        let result = tokio::time::timeout(Duration::from_secs(timeout_secs), rx).await;
+        // Clean up on timeout or channel close.
+        self.device_queries.lock().await.remove(&query_id);
+        match result {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(_)) => anyhow::bail!("device query channel closed without a response"),
+            Err(_) => anyhow::bail!("device query timed out after {timeout_secs}s"),
+        }
+    }
+
+    /// Called by the device-result endpoint to deliver a response for a pending
+    /// device query. Returns `true` if the query_id was found and resolved.
+    pub async fn resolve_device_query(&self, query_id: &str, result: Value) -> bool {
+        if let Some(tx) = self.device_queries.lock().await.remove(query_id) {
+            tx.send(result).is_ok()
+        } else {
+            false
+        }
     }
 
     pub async fn notify_run_complete(&self, user: &str, run: &Run, status: &str) {
