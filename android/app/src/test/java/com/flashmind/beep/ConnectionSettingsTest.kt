@@ -1,4 +1,4 @@
-package com.flashmind.neobeep
+package com.flashmind.beep
 
 import org.junit.Assert.*
 import org.junit.Test

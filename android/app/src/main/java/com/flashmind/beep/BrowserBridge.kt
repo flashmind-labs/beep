@@ -1,4 +1,4 @@
-package com.flashmind.neobeep
+package com.flashmind.beep
 
 import android.webkit.WebView
 import kotlinx.coroutines.Dispatchers

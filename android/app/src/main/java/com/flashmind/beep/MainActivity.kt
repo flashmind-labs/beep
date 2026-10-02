@@ -1,4 +1,4 @@
-package com.flashmind.neobeep
+package com.flashmind.beep
 
 import android.Manifest
 import android.content.ClipboardManager
@@ -1829,10 +1829,8 @@ private fun PermissionCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConnectionScreen(initial: ConnectionSettings, canGoBack: Boolean, onBack: () -> Unit, onConnect: suspend (ConnectionSettings) -> Unit) {
-    var address by remember { mutableStateOf(initial.address) }
-    var hostname by remember { mutableStateOf(initial.hostname) }
+    var nodeId by remember { mutableStateOf(initial.nodeId) }
     var token by remember { mutableStateOf(initial.token) }
-    var ca by remember { mutableStateOf(initial.ca) }
     var reveal by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
@@ -1845,19 +1843,8 @@ private fun ConnectionScreen(initial: ConnectionSettings, canGoBack: Boolean, on
                     val raw = context.contentResolver.openInputStream(uri)?.use { it.readProfileBytes() } ?: error("Cannot open profile")
                     require(raw.size <= 65536) { "Profile is too large" }; ConnectionSettings.fromJson(raw.toString(Charsets.UTF_8))
                 }
-                address = config.address; hostname = config.hostname; token = config.token; ca = config.ca; error = ""
+                nodeId = config.nodeId; token = config.token; error = ""
             } catch (e: Exception) { error = e.message.orEmpty() }
-        }
-    }
-    val certPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            try {
-                ca = withContext(Dispatchers.IO) {
-                    val raw = context.contentResolver.openInputStream(uri)?.use { it.readProfileBytes() } ?: error("Cannot open certificate")
-                    require(raw.size <= 65536) { "Certificate is too large" }; raw.toString(Charsets.UTF_8)
-                }
-                require(ca.contains("-----BEGIN CERTIFICATE-----")) { "Choose a PEM certificate" }; error = ""
-            } catch (e: Exception) { ca = ""; error = e.message.orEmpty() }
         }
     }
     Scaffold(containerColor = Ink, topBar = {
@@ -1876,30 +1863,23 @@ private fun ConnectionScreen(initial: ConnectionSettings, canGoBack: Boolean, on
             item { OutlinedButton(onClick = { profilePicker.launch(arrayOf("application/json", "text/*", "application/octet-stream")) }, enabled = !saving, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.FileOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Import connection profile")
             } }
-            item { OutlinedTextField(address, { address = it }, label = { Text("Server address") }, placeholder = { Text("[Rayfish IPv6]:4433") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving) }
-            item { OutlinedTextField(hostname, { hostname = it }, label = { Text("TLS hostname") }, placeholder = { Text("beep.example.com") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving) }
+            item { OutlinedTextField(nodeId, { nodeId = it }, label = { Text("Node ID") }, placeholder = { Text("hex public key") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving) }
             item { OutlinedTextField(token, { token = it }, label = { Text("App token (optional in testing)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving,
                 visualTransformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = { IconButton(onClick = { reveal = !reveal }) { Icon(if (reveal) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, "Toggle token visibility") } }) }
             item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { certPicker.launch(arrayOf("*/*")) }, enabled = !saving) {
-                        Icon(Icons.Outlined.VerifiedUser, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text(if (ca.isBlank()) "Add private CA certificate" else "Private CA certificate added", fontSize = 12.sp)
-                    }
-                    if (ca.isNotBlank()) IconButton(onClick = { ca = "" }, enabled = !saving) { Icon(Icons.Outlined.Close, "Remove certificate", Modifier.size(17.dp)) }
-                }
-                Text("For a Rayfish address, connect the VPN on this device first. Testing servers do not require an app token.", fontSize = 12.sp, color = TextMuted, lineHeight = 18.sp)
+                Text("The node ID is printed when the server starts. Testing servers do not require an app token.", fontSize = 12.sp, color = TextMuted, lineHeight = 18.sp)
                 if (canGoBack) Text("Changing the server or account clears this device’s chat cache. Server history is kept.", modifier = Modifier.padding(top = 8.dp), fontSize = 12.sp, color = TextMuted)
             }
             if (error.isNotEmpty()) item { Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             item { Button(onClick = {
                 saving = true; error = ""
                 scope.launch {
-                    try { onConnect(ConnectionSettings(address.trim(), hostname.trim(), token.trim(), ca)) }
+                    try { onConnect(ConnectionSettings(nodeId.trim(), token.trim())) }
                     catch (e: Exception) { error = e.message ?: "Could not connect" }
                     finally { saving = false }
                 }
-            }, enabled = !saving && address.isNotBlank() && hostname.isNotBlank(), modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(17.dp)) {
+            }, enabled = !saving && nodeId.isNotBlank(), modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(17.dp)) {
                 if (saving) { CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp); Spacer(Modifier.width(10.dp)) }
                 Text(if (saving) "Connecting…" else "Connect to Beep", fontWeight = FontWeight.SemiBold)
             } }

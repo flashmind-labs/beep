@@ -11,7 +11,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        data = json.dumps({"data": [{"id": "neobeep-test", "max_model_len": 32768}]}).encode()
+        data = json.dumps({"data": [{"id": "beep-test", "max_model_len": 32768}]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
@@ -32,7 +32,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         def chunk(delta, finish=None):
-            event = {"id": "fixture", "object": "chat.completion.chunk", "model": "neobeep-test",
+            event = {"id": "fixture", "object": "chat.completion.chunk", "model": "beep-test",
                      "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
             self.wfile.write(("data: " + json.dumps(event) + "\n\n").encode())
             self.wfile.flush()

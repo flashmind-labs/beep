@@ -42,7 +42,7 @@ cd android
 cd ..
 
 echo "Launching app…"
-"$ADB" shell am start -n com.flashmind.neobeep/.MainActivity
+"$ADB" shell am start -n com.flashmind.beep/.MainActivity
 
 echo "Tailing logcat (Ctrl+C to stop)…"
-"$ADB" logcat -s "neobeep:*" "NativeQuic:*" "BeepApp:*" "AndroidRuntime:E" | grep --line-buffered -v "^$"
+"$ADB" logcat -s "beep:*" "NativeQuic:*" "BeepApp:*" "AndroidRuntime:E" | grep --line-buffered -v "^$"

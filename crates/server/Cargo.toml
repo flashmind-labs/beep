@@ -1,12 +1,12 @@
 [package]
-name = "neobeep-server"
+name = "beep-server"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.93"
 publish = false
 
 [dependencies]
-neobeep-quic-client = { path = "../quic-client" }
+beep-quic-client = { path = "../quic-client" }
 anyhow = "1"
 async-trait = "0.1"
 bytes = "1"
@@ -15,16 +15,8 @@ chrono-tz = "0.10"
 cron = "0.15"
 flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", features = ["mcp"] }
 futures = "0.3"
-h3 = "0.0.8"
-h3-quinn = "0.0.10"
 http = "1"
-hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
-async-stream = "0.3"
-quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-rustls-pemfile = "2"
+iroh = "1.3"
 rusqlite = { version = "0.37", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 serde = { version = "1", features = ["derive"] }
@@ -39,5 +31,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
-rcgen = "0.14"
+async-stream = "0.3"
 tempfile = "3"

@@ -1,4 +1,4 @@
-package com.flashmind.neobeep
+package com.flashmind.beep
 
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.ByteArrayOutputStream
@@ -22,15 +22,14 @@ internal fun defaultCheckStatus(status: Int) {
     }
 }
 
-fun serverApi(config: ConnectionSettings): ServerApi =
-    if (config.transport == "http") HttpApi(config) else QuicApi(config)
+fun serverApi(config: ConnectionSettings): ServerApi = QuicApi(config)
 
 object NativeQuic {
-    init { System.loadLibrary("neobeep_android") }
+    init { System.loadLibrary("beep_android") }
     interface Callback { fun onChunk(bytes: ByteArray) }
     @JvmStatic external fun createCall(): Long
     @JvmStatic external fun cancel(id: Long)
-    @JvmStatic external fun request(id: Long, address: String, hostname: String, ca: String,
+    @JvmStatic external fun request(id: Long, nodeAddr: String,
         token: String, method: String, path: String, body: String, callback: Callback): Int
 }
 
@@ -42,7 +41,7 @@ class QuicApi(private val config: ConnectionSettings) : ServerApi {
             continuation.invokeOnCancellation { NativeQuic.cancel(id) }
             workers.execute {
                 try {
-                    val status = NativeQuic.request(id, config.address.trim(), config.hostname.trim(), config.ca,
+                    val status = NativeQuic.request(id, config.nodeId.trim(),
                         config.token.trim(), method, path, body, object : NativeQuic.Callback {
                             override fun onChunk(bytes: ByteArray) { onChunk(bytes) }
                         })

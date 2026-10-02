@@ -1,17 +1,18 @@
 use async_trait::async_trait;
-use bytes::Bytes;
-use flashmind::types::{
-    CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role, StreamEvent,
-};
-use http::StatusCode;
-use neobeep_server::{
+use beep_server::{
     app::App,
     client::Client,
     config::Auth,
     store::{CreateRun, Store},
     transport,
 };
-use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+use bytes::Bytes;
+use flashmind::types::{
+    CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role, StreamEvent,
+};
+use iroh::SecretKey;
+use iroh::endpoint::presets;
+use iroh::protocol::Router;
 use serde_json::{Value, json};
 use std::{
     sync::{
@@ -68,18 +69,13 @@ impl LlmProvider for ProviderStub {
 
 struct Harness {
     dir: tempfile::TempDir,
-    cert: CertificateDer<'static>,
-    endpoint: quinn::Endpoint,
-    task: tokio::task::JoinHandle<anyhow::Result<()>>,
-    web_task: tokio::task::JoinHandle<anyhow::Result<()>>,
-    web_port: u16,
+    router: Router,
     app: Arc<App>,
     provider: Arc<ProviderStub>,
 }
 
 impl Harness {
     async fn new() -> Self {
-        let _ = rustls::crypto::ring::default_provider().install_default();
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path().join("test.db")).await.unwrap();
         let auth = Auth::new(vec![
@@ -96,56 +92,40 @@ impl Harness {
             provider.clone(),
             "openai:test".parse().unwrap(),
         );
-        let rcgen::CertifiedKey { cert, signing_key } =
-            rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let cert = cert.der().clone();
-        let endpoint = transport::endpoint(
-            "127.0.0.1:0".parse().unwrap(),
-            vec![cert.clone()],
-            PrivatePkcs8KeyDer::from(signing_key.serialize_der()).into(),
-        )
-        .unwrap();
-        let task = tokio::spawn(transport::serve(endpoint.clone(), app.clone()));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let web_port = listener.local_addr().unwrap().port();
-        let web_task = tokio::spawn(neobeep_server::web::serve(listener, app.clone()));
+        let endpoint = iroh::Endpoint::builder(presets::N0)
+            .secret_key(SecretKey::generate())
+            .bind()
+            .await
+            .unwrap();
+        let handler = transport::BeepHandler::new(app.clone());
+        let router = Router::builder(endpoint)
+            .accept(transport::ALPN, handler)
+            .spawn();
         Self {
             dir,
-            cert,
-            endpoint,
-            task,
-            web_task,
-            web_port,
+            router,
             app,
             provider,
         }
     }
+
     async fn client(&self) -> Client {
-        Client::connect(
-            self.endpoint.local_addr().unwrap(),
-            "localhost",
-            vec![self.cert.clone()],
-        )
-        .await
-        .unwrap()
+        let addr = self.router.endpoint().addr();
+        Client::connect(addr).await.unwrap()
     }
 }
 
 impl Drop for Harness {
-    fn drop(&mut self) {
-        self.endpoint.close(0u32.into(), b"test finished");
-        self.task.abort();
-        self.web_task.abort();
-    }
+    fn drop(&mut self) {}
 }
 
 async fn request(
-    client: &mut Client,
+    client: &Client,
     method: &str,
     path: &str,
     token: &str,
     body: Option<Value>,
-) -> (StatusCode, String) {
+) -> (u16, String) {
     let mut output = Vec::new();
     let status = tokio::time::timeout(
         Duration::from_secs(5),
@@ -172,32 +152,29 @@ fn events(raw: &str) -> Vec<Value> {
 #[tokio::test]
 async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     let h = Harness::new().await;
-    let mut client = h.client().await;
+    let client = h.client().await;
     assert_eq!(
-        request(&mut client, "GET", "/v1/health", "wrong", None)
-            .await
-            .0,
-        StatusCode::UNAUTHORIZED
+        request(&client, "GET", "/v1/health", "wrong", None).await.0,
+        401
     );
-    let (status, health) = request(&mut client, "GET", "/v1/health", ALICE, None).await;
-    assert_eq!(status, StatusCode::OK);
+    let (status, health) = request(&client, "GET", "/v1/health", ALICE, None).await;
+    assert_eq!(status, 200);
     assert_eq!(
         serde_json::from_str::<Value>(&health).unwrap()["protocol"],
-        "h3"
+        "iroh"
     );
     let session = Uuid::new_v4();
     let body =
         json!({"session_id":session,"request_id":Uuid::new_v4(),"message":"Remember I prefer tea"});
-    let (status, raw) = request(&mut client, "POST", "/v1/runs", ALICE, Some(body.clone())).await;
-    assert_eq!(status, StatusCode::ACCEPTED);
+    let (status, raw) = request(&client, "POST", "/v1/runs", ALICE, Some(body.clone())).await;
+    assert_eq!(status, 202);
     let run: Value = serde_json::from_str(&raw).unwrap();
     let id = run["id"].as_str().unwrap();
     // Closing the transport must not cancel server-owned execution.
     drop(client);
-    let mut client = h.client().await;
-    let (status, duplicate) =
-        request(&mut client, "POST", "/v1/runs", ALICE, Some(body.clone())).await;
-    assert_eq!(status, StatusCode::OK);
+    let client = h.client().await;
+    let (status, duplicate) = request(&client, "POST", "/v1/runs", ALICE, Some(body.clone())).await;
+    assert_eq!(status, 200);
     assert_eq!(
         serde_json::from_str::<Value>(&duplicate).unwrap()["id"],
         run["id"]
@@ -205,10 +182,10 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     let mut changed = body.clone();
     changed["message"] = json!("different message");
     assert_eq!(
-        request(&mut client, "POST", "/v1/runs", ALICE, Some(changed))
+        request(&client, "POST", "/v1/runs", ALICE, Some(changed))
             .await
             .0,
-        StatusCode::CONFLICT
+        409
     );
     for path in [
         format!("/v1/runs/{id}"),
@@ -220,20 +197,17 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         } else {
             "GET"
         };
-        assert_eq!(
-            request(&mut client, method, &path, BOB, None).await.0,
-            StatusCode::NOT_FOUND
-        );
+        assert_eq!(request(&client, method, &path, BOB, None).await.0, 404);
     }
     let (status, raw) = request(
-        &mut client,
+        &client,
         "GET",
         &format!("/v1/runs/{id}/events"),
         ALICE,
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, 200);
     let full = events(&raw);
     assert_eq!(full.last().unwrap()["status"], "completed");
     assert!(
@@ -253,7 +227,7 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         );
     }
     let (_, replayed) = request(
-        &mut client,
+        &client,
         "GET",
         &format!("/v1/runs/{id}/events?after=2"),
         ALICE,
@@ -267,7 +241,7 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         "duplicate submission must not invoke provider again"
     );
     let (_, history) = request(
-        &mut client,
+        &client,
         "GET",
         &format!("/v1/sessions/{session}"),
         ALICE,
@@ -279,7 +253,7 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     assert!(history.contains("I remember your preference."));
     assert_eq!(
         request(
-            &mut client,
+            &client,
             "GET",
             &format!("/v1/sessions/{session}"),
             BOB,
@@ -287,22 +261,21 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         )
         .await
         .0,
-        StatusCode::NOT_FOUND
+        404
     );
     assert!(
         h.app
             .store
-            .recall("bob", "")
+            .recall("bob", "", None)
             .await
             .unwrap()
             .as_array()
             .unwrap()
             .is_empty()
     );
-    // Reopen the SQLite file to prove memory, conversation, and replay survive storage reopen.
     let reopened = Store::open(h.dir.path().join("test.db")).await.unwrap();
     assert_eq!(
-        reopened.recall("alice", "tea").await.unwrap()[0]["content"],
+        reopened.recall("alice", "tea", None).await.unwrap()[0]["content"],
         "Prefers tea"
     );
     assert!(
@@ -318,10 +291,10 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
 #[tokio::test]
 async fn cancellation_busy_session_and_invalid_input() {
     let h = Harness::new().await;
-    let mut client = h.client().await;
+    let client = h.client().await;
     assert_eq!(
         request(
-            &mut client,
+            &client,
             "POST",
             "/v1/runs",
             ALICE,
@@ -329,23 +302,23 @@ async fn cancellation_busy_session_and_invalid_input() {
         )
         .await
         .0,
-        StatusCode::BAD_REQUEST
+        400
     );
     let body = json!({"session_id":Uuid::new_v4(),"request_id":Uuid::new_v4(),"message":"slow"});
-    let (_, raw) = request(&mut client, "POST", "/v1/runs", ALICE, Some(body.clone())).await;
+    let (_, raw) = request(&client, "POST", "/v1/runs", ALICE, Some(body.clone())).await;
     let run: Value = serde_json::from_str(&raw).unwrap();
     let id = run["id"].as_str().unwrap();
     let mut concurrent = body.clone();
     concurrent["request_id"] = json!(Uuid::new_v4());
     assert_eq!(
-        request(&mut client, "POST", "/v1/runs", ALICE, Some(concurrent))
+        request(&client, "POST", "/v1/runs", ALICE, Some(concurrent))
             .await
             .0,
-        StatusCode::CONFLICT
+        409
     );
     assert_eq!(
         request(
-            &mut client,
+            &client,
             "GET",
             &format!("/v1/runs/{id}/events?after=-1"),
             ALICE,
@@ -353,9 +326,9 @@ async fn cancellation_busy_session_and_invalid_input() {
         )
         .await
         .0,
-        StatusCode::BAD_REQUEST
+        400
     );
-    let mut subscriber = h.client().await;
+    let subscriber = h.client().await;
     let events_path = format!("/v1/runs/{id}/events");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let subscription = tokio::spawn(async move {
@@ -369,7 +342,6 @@ async fn cancellation_busy_session_and_invalid_input() {
             .unwrap();
         String::from_utf8(output).unwrap()
     });
-    // Observe streamed text while generation is still blocked, before cancelling it.
     tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(bytes) = rx.recv().await {
             if String::from_utf8_lossy(&bytes).contains("Working") {
@@ -382,7 +354,7 @@ async fn cancellation_busy_session_and_invalid_input() {
     .unwrap();
     assert_eq!(
         request(
-            &mut client,
+            &client,
             "POST",
             &format!("/v1/runs/{id}/cancel"),
             ALICE,
@@ -390,7 +362,7 @@ async fn cancellation_busy_session_and_invalid_input() {
         )
         .await
         .0,
-        StatusCode::ACCEPTED
+        202
     );
     let raw = tokio::time::timeout(Duration::from_secs(5), subscription)
         .await
@@ -413,13 +385,16 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
         CreateRun::Created(run) => run,
         _ => panic!("expected new run"),
     };
-    store.remember("alice", "drink", "coffee").await.unwrap();
-    store.remember("alice", "drink", "tea").await.unwrap();
-    store.remember("bob", "drink", "water").await.unwrap();
+    store
+        .remember("alice", "drink", "coffee", None)
+        .await
+        .unwrap();
+    store.remember("alice", "drink", "tea", None).await.unwrap();
+    store.remember("bob", "drink", "water", None).await.unwrap();
     assert!(!store.forget("bob", "unknown").await.unwrap());
     assert!(store.forget("alice", "drink").await.unwrap());
     assert_eq!(
-        store.recall("bob", "").await.unwrap()[0]["content"],
+        store.recall("bob", "", None).await.unwrap()[0]["content"],
         "water"
     );
     drop(store);
@@ -442,119 +417,4 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
             .unwrap(),
         CreateRun::Created(_)
     ));
-}
-
-#[tokio::test]
-async fn quic_rejects_untrusted_server_certificates() {
-    let h = Harness::new().await;
-    let wrong_ca = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-    let result = Client::connect(
-        h.endpoint.local_addr().unwrap(),
-        "localhost",
-        vec![wrong_ca.cert.der().clone()],
-    )
-    .await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn browser_and_android_share_authenticated_api() {
-    let h = Harness::new().await;
-    let browser = reqwest::Client::new();
-    let base = format!("http://localhost:{}", h.web_port);
-    let page = browser.get(format!("{base}/")).send().await.unwrap();
-    assert_eq!(page.status(), 200);
-    assert!(page.headers().contains_key("content-security-policy"));
-    assert!(page.text().await.unwrap().contains("Connect to your Beep"));
-    for path in [
-        "/.dev/android-app-token",
-        "/config.toml",
-        "/protocol.test.mjs",
-    ] {
-        assert_eq!(
-            browser
-                .get(format!("{base}{path}"))
-                .send()
-                .await
-                .unwrap()
-                .status(),
-            404
-        );
-    }
-    assert_eq!(
-        browser
-            .get(format!("{base}/v1/sessions"))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        401
-    );
-    let session = Uuid::new_v4();
-    let body =
-        json!({"session_id":session,"request_id":Uuid::new_v4(),"message":"Hello from browser"});
-    let response = browser
-        .post(format!("{base}/v1/runs"))
-        .bearer_auth(ALICE)
-        .json(&body)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 202);
-    let run: Value = response.json().await.unwrap();
-    let events = browser
-        .get(format!(
-            "{base}/v1/runs/{}/events",
-            run["id"].as_str().unwrap()
-        ))
-        .bearer_auth(ALICE)
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
-    assert!(events.contains("run_finished"));
-    assert!(events.contains("text_delta"));
-    let mut android = h.client().await;
-    let (status, conversation) = request(
-        &mut android,
-        "GET",
-        &format!("/v1/sessions/{session}"),
-        ALICE,
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(conversation.contains("Hello from browser"));
-    let listed: Value = browser
-        .get(format!("{base}/v1/sessions"))
-        .bearer_auth(ALICE)
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(listed["sessions"][0]["id"], session.to_string());
-    let other: Value = browser
-        .get(format!("{base}/v1/sessions"))
-        .bearer_auth(BOB)
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(other["sessions"].as_array().unwrap().len(), 0);
-    assert_eq!(
-        browser
-            .get(format!("{base}/v1/sessions/{session}"))
-            .bearer_auth(BOB)
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        404
-    );
 }
