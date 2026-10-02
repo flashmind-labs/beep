@@ -13,6 +13,9 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -51,6 +54,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
@@ -117,6 +122,7 @@ open class MainActivity : ComponentActivity() {
         if (grants.values.any { it }) startLocationUpdates()
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val pendingFocusInput = mutableStateOf(false)
     @android.annotation.SuppressLint("MissingPermission")
     fun startLocationUpdates() {
         val repository = (application as BeepApplication).repository
@@ -145,6 +151,7 @@ open class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it) }
+        if (intent.getBooleanExtra("focus_input", false)) pendingFocusInput.value = true
     }
     override fun onResume() {
         super.onResume()
@@ -174,6 +181,7 @@ open class MainActivity : ComponentActivity() {
             startLocationUpdates()
         }
         intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
+        if (intent?.getBooleanExtra("focus_input", false) == true) pendingFocusInput.value = true
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Moss, onPrimary = Ink,
                 background = Ink, surface = Surface, onSurface = TextPrimary, secondaryContainer = Elevated,
@@ -181,7 +189,7 @@ open class MainActivity : ComponentActivity() {
                 secondary = Moss, onSecondaryContainer = TextPrimary, outline = Border,
                 surfaceContainer = Surface, surfaceContainerHigh = Elevated,
                 inverseSurface = TextPrimary, inverseOnSurface = Ink)) {
-                BeepApp(repository, bubble, locationPermission = locationPermission, onFloat = {
+                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, onFloat = {
                     if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } else if (Bubbles.show(this)) {
@@ -204,6 +212,7 @@ private enum class Screen { Chat, Memories, Crons, Integrations }
 @Composable
 private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>? = null,
+                    focusInput: MutableState<Boolean> = mutableStateOf(false),
                     onFloat: () -> Unit, onExpand: () -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
     val config by repository.settings.collectAsStateWithLifecycle()
@@ -350,7 +359,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     IconButton(onClick = { settingsOpen = true }) { Icon(Icons.Outlined.Settings, "Connection settings") }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
         }) { padding ->
-            ChatScreen(state.current, repository, Modifier.padding(padding).fillMaxSize(), compact = bubble)
+            ChatScreen(state.current, repository, Modifier.padding(padding).fillMaxSize(), compact = bubble, focusInput = focusInput)
         }
     } // end ModalNavigationDrawer
     } // end Screen.Chat
@@ -368,10 +377,18 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
 }
 
 @Composable
-private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier: Modifier, compact: Boolean) {
+private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier: Modifier, compact: Boolean,
+                       focusInput: MutableState<Boolean> = mutableStateOf(false)) {
     var draft by rememberSaveable(chat.id) { mutableStateOf("") }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val inputFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(focusInput.value) {
+        if (focusInput.value) {
+            focusInput.value = false
+            inputFocusRequester.requestFocus()
+        }
+    }
     var followLatest by remember(chat.id) { mutableStateOf(true) }
     LaunchedEffect(list, chat.id) {
         snapshotFlow { list.isScrollInProgress to list.canScrollForward }.collect { (scrolling, canForward) ->
@@ -502,9 +519,50 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 if (chat.busy) TextButton(onClick = repository::retry) { Text("Retry") }
             }
         }
+        // Voice input state
+        val voiceContext = androidx.compose.ui.platform.LocalContext.current
+        var listening by remember { mutableStateOf(false) }
+        val speechAvailable = remember { SpeechRecognizer.isRecognitionAvailable(voiceContext) }
+        val recognizer = remember { if (speechAvailable) SpeechRecognizer.createSpeechRecognizer(voiceContext) else null }
+        val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted && recognizer != null) {
+                listening = true
+                startListening(recognizer, onPartial = { partial -> draft = partial },
+                    onResult = { result -> draft = result; listening = false },
+                    onError = { listening = false })
+            }
+        }
+        DisposableEffect(recognizer) { onDispose { recognizer?.destroy() } }
+
+        fun startVoice() {
+            if (!speechAvailable) return
+            if (listening) { recognizer?.stopListening(); listening = false; return }
+            if (ContextCompat.checkSelfPermission(voiceContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                listening = true
+                startListening(recognizer!!, onPartial = { partial -> draft = partial },
+                    onResult = { result -> draft = result; listening = false },
+                    onError = { listening = false })
+            } else {
+                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+
+        // "Listening..." indicator
+        AnimatedVisibility(visible = listening,
+            enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Row(Modifier.padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                val pulseAlpha by rememberInfiniteTransition(label = "listen-pulse").animateFloat(
+                    initialValue = 0.4f, targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "listen-alpha")
+                Box(Modifier.size(6.dp).background(Coral.copy(alpha = pulseAlpha), CircleShape))
+                Spacer(Modifier.width(6.dp))
+                Text("Listening...", fontSize = 11.sp, color = Coral.copy(alpha = 0.8f))
+            }
+        }
+
         Row(Modifier.padding(horizontal = if (compact) 8.dp else 14.dp, vertical = if (compact) 4.dp else 8.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             OutlinedTextField(value = draft, onValueChange = { if (it.toByteArray().size <= 32768) draft = it },
-                modifier = Modifier.weight(1f), placeholder = { Text("Ask anything…", fontSize = 14.sp, color = TextDim) },
+                modifier = Modifier.weight(1f).focusRequester(inputFocusRequester), placeholder = { Text(if (listening) "Speak now..." else "Ask anything...", fontSize = 14.sp, color = TextDim) },
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
                     unfocusedBorderColor = Color.Transparent, focusedBorderColor = Moss.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(if (compact) 20.dp else 24.dp), maxLines = if (compact) 3 else 6,
@@ -516,14 +574,34 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF2A1A1A), contentColor = Color(0xFFE85A4A))) {
                     Icon(Icons.Outlined.StopCircle, "Stop reply", modifier = Modifier.size(22.dp))
                 }
-            } else {
+            } else if (draft.isNotBlank()) {
                 var sendPulse by remember { mutableStateOf(false) }
                 val sendScale by animateFloatAsState(if (sendPulse) 1.15f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "send-pulse")
                 LaunchedEffect(sendPulse) { if (sendPulse) { delay(150); sendPulse = false } }
-                FilledIconButton(onClick = { sendPulse = true; submit() }, enabled = draft.isNotBlank(),
+                FilledIconButton(onClick = { sendPulse = true; submit() },
                     modifier = Modifier.size(48.dp).graphicsLayer { scaleX = sendScale; scaleY = sendScale },
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Coral, contentColor = Ink,
+                        containerColor = Coral, contentColor = Ink)) {
+                    Icon(Icons.AutoMirrored.Outlined.Send, "Send message", modifier = Modifier.size(19.dp))
+                }
+            } else if (speechAvailable) {
+                val micPulse by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
+                    initialValue = 1f, targetValue = 1.15f,
+                    animationSpec = infiniteRepeatable(tween(500), RepeatMode.Reverse), label = "mic-scale")
+                FilledIconButton(onClick = { startVoice() },
+                    modifier = Modifier.size(48.dp).graphicsLayer {
+                        if (listening) { scaleX = micPulse; scaleY = micPulse }
+                    },
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = if (listening) Coral else Elevated,
+                        contentColor = if (listening) Ink else Moss)) {
+                    Icon(Icons.Outlined.Mic, if (listening) "Stop listening" else "Voice input", modifier = Modifier.size(22.dp))
+                }
+            } else {
+                // Speech not available: show disabled send button
+                FilledIconButton(onClick = {}, enabled = false,
+                    modifier = Modifier.size(48.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
                         disabledContainerColor = Elevated, disabledContentColor = TextDim)) {
                     Icon(Icons.AutoMirrored.Outlined.Send, "Send message", modifier = Modifier.size(19.dp))
                 }
@@ -531,6 +609,37 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
         }
 
     }
+}
+
+private fun startListening(
+    recognizer: SpeechRecognizer,
+    onPartial: (String) -> Unit,
+    onResult: (String) -> Unit,
+    onError: (Int) -> Unit
+) {
+    recognizer.setRecognitionListener(object : RecognitionListener {
+        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onBeginningOfSpeech() {}
+        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {}
+        override fun onError(error: Int) { onError(error) }
+        override fun onResults(results: Bundle?) {
+            val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
+            if (text.isNotEmpty()) onResult(text)
+            else onError(SpeechRecognizer.ERROR_NO_MATCH)
+        }
+        override fun onPartialResults(partial: Bundle?) {
+            val text = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
+            if (text.isNotEmpty()) onPartial(text)
+        }
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+    })
+    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+    }
+    recognizer.startListening(intent)
 }
 
 @Composable
