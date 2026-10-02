@@ -35,35 +35,14 @@ pub struct Message {
     pub session_id: Uuid,
     pub request_id: Uuid,
     pub message: String,
-    /// Set by the scheduler for cron-triggered runs.
     #[serde(default)]
     pub cron_id: Option<String>,
-    /// Optional base64 data URI for an attached image (e.g. "data:image/jpeg;base64,...").
     #[serde(default)]
     pub image: Option<String>,
 }
 
 impl App {
     pub fn new(
-        store: Store,
-        auth: Auth,
-        provider: Arc<dyn LlmProvider>,
-        model: Model,
-    ) -> Arc<Self> {
-        Self::with_search(store, auth, provider, model, None)
-    }
-
-    pub fn with_search(
-        store: Store,
-        auth: Auth,
-        provider: Arc<dyn LlmProvider>,
-        model: Model,
-        search: Option<Arc<crate::search::SearchTool>>,
-    ) -> Arc<Self> {
-        Self::with_tools(store, auth, provider, model, search, None, None)
-    }
-
-    pub fn with_tools(
         store: Store,
         auth: Auth,
         provider: Arc<dyn LlmProvider>,
@@ -117,9 +96,9 @@ impl App {
                     )
                     .await
                 {
-                    tracing::error!(run_id=%run.id, %error, "run storage/execution failed");
+                    log::error!("run failed: {error}; run_id={}", run.id);
                     if let Err(error) = app.store.finish(&user, &run, None, "failed").await {
-                        tracing::error!(run_id=%run.id,%error,"unable to persist failure");
+                        log::error!("unable to persist failure: {error}; run_id={}", run.id);
                     }
                 }
                 app.active.lock().await.remove(&run.id);
@@ -224,7 +203,11 @@ impl App {
         if let Ok(tokens) = self.store.device_tokens(user).await
             && !tokens.is_empty()
         {
-            tracing::info!(user, run_id=%run.id, status, devices=tokens.len(), "would send push notification");
+            log::info!(
+                "would send push; user={user} run_id={} status={status} devices={}",
+                run.id,
+                tokens.len()
+            );
         }
     }
 
@@ -326,7 +309,7 @@ impl App {
         }
         // Ensure default crons exist on first interaction.
         if let Err(e) = self.store.ensure_default_crons(user).await {
-            tracing::warn!(%e, "failed to ensure default crons");
+            log::warn!("failed to ensure default crons: {e}");
         }
 
         let mut agent = Agent::builder(self.provider.clone())

@@ -56,14 +56,14 @@ pub async fn run(app: Arc<App>) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         if let Err(e) = tick(&app).await {
-            tracing::error!(%e, "cron scheduler tick failed");
+            log::error!("cron scheduler tick failed: {e}");
         }
         tick_count += 1;
         // Purge old notifications roughly once per hour (120 ticks * 30s = 3600s)
         if tick_count.is_multiple_of(120) {
             match app.store.purge_old_notifications().await {
-                Ok(n) if n > 0 => tracing::info!(deleted = n, "purged old notifications"),
-                Err(e) => tracing::warn!(%e, "notification purge failed"),
+                Ok(n) if n > 0 => log::info!("purged {n} old notifications"),
+                Err(e) => log::warn!("notification purge failed: {e}"),
                 _ => {}
             }
         }
@@ -71,7 +71,7 @@ pub async fn run(app: Arc<App>) {
         if tick_count.is_multiple_of(60)
             && let Err(e) = proactive_check(&app).await
         {
-            tracing::warn!(%e, "proactive check failed");
+            log::warn!("proactive check failed: {e}");
         }
     }
 }
@@ -95,7 +95,7 @@ async fn proactive_check(app: &Arc<App>) -> anyhow::Result<()> {
         if count <= 10 {
             continue;
         }
-        tracing::info!(user=%user_id, notifications=count, "proactive suggestion: notification surge");
+        log::info!("proactive suggestion: notification surge; user={user_id} count={count}");
         let session_id = uuid::Uuid::new_v4();
         let request_id = uuid::Uuid::new_v4();
         let msg = Message {
@@ -107,8 +107,8 @@ async fn proactive_check(app: &Arc<App>) -> anyhow::Result<()> {
         };
         match app.submit(&user_id, msg).await {
             Ok(CreateRun::Created(_)) => {}
-            Ok(_) => tracing::debug!(user=%user_id, "proactive run not created (conflict)"),
-            Err(e) => tracing::warn!(user=%user_id, %e, "failed to submit proactive run"),
+            Ok(_) => log::debug!("proactive run not created (conflict); user={user_id}"),
+            Err(e) => log::warn!("failed to submit proactive run: {e}; user={user_id}"),
         }
     }
     Ok(())
@@ -150,7 +150,7 @@ async fn tick(app: &Arc<App>) -> anyhow::Result<()> {
             }
         }
 
-        tracing::info!(user=%user_id, cron_id=%id, label, run_once, "firing cron");
+        log::info!("firing cron; user={user_id} cron_id={id} label={label} run_once={run_once}");
 
         let session_id = uuid::Uuid::new_v4();
         let request_id = uuid::Uuid::new_v4();
@@ -171,11 +171,11 @@ async fn tick(app: &Arc<App>) -> anyhow::Result<()> {
                         .store
                         .update_cron(&user_id, id, Some(false), None, None)
                         .await;
-                    tracing::info!(cron_id=%id, "one-time cron disabled after firing");
+                    log::info!("one-time cron disabled after firing; cron_id={id}");
                 }
             }
-            Ok(_) => tracing::warn!(cron_id=%id, "cron run conflicted"),
-            Err(e) => tracing::error!(cron_id=%id, %e, "failed to submit cron run"),
+            Ok(_) => log::warn!("cron run conflicted; cron_id={id}"),
+            Err(e) => log::error!("failed to submit cron run: {e}; cron_id={id}"),
         }
     }
     Ok(())

@@ -26,8 +26,8 @@ subtle = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-rusqlite = "0.7"
 toml = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+log = "0.4"
+logforth = { version = "0.30", features = ["starter-log"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]

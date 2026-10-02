@@ -91,6 +91,9 @@ impl Harness {
             auth,
             provider.clone(),
             "openai:test".parse().unwrap(),
+            None,
+            None,
+            None,
         );
         let endpoint = iroh::Endpoint::builder(presets::N0)
             .secret_key(SecretKey::generate())
