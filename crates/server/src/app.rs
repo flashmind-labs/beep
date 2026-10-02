@@ -6,6 +6,7 @@ use crate::{
 use anyhow::Result;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation},
+    tools::mcp::McpRegistry,
     types::{AgentEvent, AgentInput, AgentLlmConfig, LlmProvider, Model},
 };
 use futures::StreamExt;
@@ -23,6 +24,7 @@ pub struct App {
     model: Model,
     search: Option<Arc<crate::search::SearchTool>>,
     composio: Option<Arc<crate::composio::ComposioClient>>,
+    mcp: Option<McpRegistry>,
     active: Mutex<HashMap<String, CancellationToken>>,
 }
 
@@ -54,7 +56,7 @@ impl App {
         model: Model,
         search: Option<Arc<crate::search::SearchTool>>,
     ) -> Arc<Self> {
-        Self::with_tools(store, auth, provider, model, search, None)
+        Self::with_tools(store, auth, provider, model, search, None, None)
     }
 
     pub fn with_tools(
@@ -64,6 +66,7 @@ impl App {
         model: Model,
         search: Option<Arc<crate::search::SearchTool>>,
         composio: Option<Arc<crate::composio::ComposioClient>>,
+        mcp: Option<McpRegistry>,
     ) -> Arc<Self> {
         let (notifications, _) = broadcast::channel(64);
         Arc::new(Self {
@@ -74,6 +77,7 @@ impl App {
             model,
             search,
             composio,
+            mcp,
             active: Mutex::new(HashMap::new()),
         })
     }
@@ -184,6 +188,9 @@ impl App {
         }
         if let Some(composio) = &self.composio {
             crate::composio::register(&mut registry, composio.clone(), user);
+        }
+        if let Some(mcp) = &self.mcp {
+            crate::mcp::register_mcp_tools(mcp, &mut registry).await;
         }
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
