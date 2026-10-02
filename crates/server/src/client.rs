@@ -1,15 +1,17 @@
 use crate::{
-    protocol::{Reply, Request},
-    transport::{ALPN, RemoteError, Rx, framed},
+    protocol::{Auth, Call, Rpc, Stream},
+    transport::{ALPN, Rx, framed},
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use iroh::{
     Endpoint, EndpointAddr,
     endpoint::{Connection, presets},
 };
-use std::time::Duration;
+use serde::de::DeserializeOwned;
+use std::{marker::PhantomData, time::Duration};
 
 /// One authenticated iroh connection. Requests run concurrently, one stream each.
+/// Errors the server sends back are `ApiError`, recoverable by downcast.
 pub struct Client {
     _endpoint: Endpoint,
     connection: Connection,
@@ -26,40 +28,44 @@ impl Client {
             _endpoint: endpoint,
             connection,
         };
-        let auth = Request::Auth {
+        let auth = Auth {
             token: token.to_owned(),
         };
-        match client.call(&auth).await.context("authentication failed")? {
-            Reply::Done {} => {}
-            other => bail!("unexpected auth reply {other:?}"),
-        }
+        client.call(&auth).await.context("authentication failed")?;
         Ok(client)
     }
 
-    /// Sends a request and returns its single reply.
-    pub async fn call(&self, request: &Request) -> Result<Reply> {
-        let mut replies = self.stream(request).await?;
+    /// Sends a request and returns its reply.
+    pub async fn call<R: Call>(&self, request: &R) -> Result<R::Reply> {
+        let mut replies = self.open(request).await?;
         replies.next().await?.context("stream closed without reply")
     }
 
     /// Sends a request and returns its replies as they arrive.
-    pub async fn stream(&self, request: &Request) -> Result<Replies> {
+    pub async fn stream<R: Stream>(&self, request: &R) -> Result<Replies<R::Reply>> {
+        self.open(request).await
+    }
+
+    async fn open<R: Rpc, T>(&self, request: &R) -> Result<Replies<T>> {
         let (send, recv) = self.connection.open_bi().await?;
         let (mut tx, rx) = framed(send, recv);
-        tx.send(request).await?;
+        tx.request(request).await?;
         tx.finish()?;
-        Ok(Replies(rx))
+        Ok(Replies {
+            rx,
+            _reply: PhantomData,
+        })
     }
 }
 
-pub struct Replies(Rx);
+pub struct Replies<T> {
+    rx: Rx,
+    _reply: PhantomData<fn() -> T>,
+}
 
-impl Replies {
-    /// Next reply, `None` at end of stream. `Reply::Error` becomes a `RemoteError`.
-    pub async fn next(&mut self) -> Result<Option<Reply>> {
-        match self.0.next().await? {
-            Some(Reply::Error { code, message }) => Err(RemoteError { code, message }.into()),
-            reply => Ok(reply),
-        }
+impl<T: DeserializeOwned> Replies<T> {
+    /// Next reply, `None` at end of stream.
+    pub async fn next(&mut self) -> Result<Option<T>> {
+        self.rx.reply().await
     }
 }

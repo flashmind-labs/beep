@@ -1,9 +1,10 @@
-//! Messages exchanged with clients. Enums made with `wire_enum!` encode as
-//! `[op, field...]`; structs encode as their fields in declaration order.
+//! Messages exchanged with clients. Each request is a struct declared in
+//! `requests!` with its op and reply type. Enums made with `wire_enum!` encode
+//! as `[op, field...]`; structs encode as their fields in declaration order.
 
 use chrono::{DateTime, Utc};
 use flashmind::types::TokenUsage;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt;
 use uuid::Uuid;
 
@@ -64,58 +65,137 @@ macro_rules! wire_enum {
     };
 }
 
-wire_enum! {
-    #[derive(Debug, Clone, PartialEq)]
-    pub enum Request {
-        0 Auth { token: String }
-        1 Health {}
-        2 Chat { session_id: Uuid, request_id: Uuid, message: String, image: Option<String> }
-        3 GetRun { id: String }
-        4 CancelRun { id: String }
-        5 GetEvents { run_id: String, after: i64 }
-        6 DeviceResult { run_id: String, query_id: String, answer: DeviceAnswer }
-        7 ListSessions {}
-        8 GetSession { id: String }
-        9 RenameSession { id: String, title: String }
-        10 DeleteSession { id: String }
-        11 PinSession { id: String, pinned: bool }
-        12 ListMemories {}
-        13 DeleteMemory { key: String }
-        14 ListCrons {}
-        15 CreateCron { label: String, prompt: String, schedule: String }
-        16 ToggleCron { id: String }
-        17 DeleteCron { id: String }
-        18 UpdateCron { id: String, enabled: Option<bool>, label: Option<String>, schedule: Option<String> }
-        19 RegisterDevice { device_id: String, fcm_token: String }
-        20 UnregisterDevice { device_id: String }
-        21 UpdateLocation { latitude: f64, longitude: f64, accuracy: f64, timezone: String }
-        22 SaveNotifications { notifications: Vec<PhoneNotification> }
-        23 StreamNotifications {}
-        24 ListIntegrations {}
-        25 CreateIntegration { provider: String, label: String, config: String }
-        26 DeleteIntegration { id: String }
-        27 UpdateCredentials { id: String, credentials: String, status: String }
-    }
+/// A request type. Its frame starts with `OP`; the body is the struct's fields.
+pub trait Rpc: Serialize + DeserializeOwned + Send + 'static {
+    const OP: Op;
+}
+
+/// A request answered by exactly one reply.
+pub trait Call: Rpc {
+    type Reply: Serialize + DeserializeOwned + Send + Sync + 'static;
+}
+
+/// A request answered by any number of replies, ended by finishing the stream.
+pub trait Stream: Rpc {
+    type Reply: Serialize + DeserializeOwned + Send + Sync + 'static;
+}
+
+/// Declares every request: its op, its fields and what it replies with.
+macro_rules! requests {
+    ($($(#[$meta:meta])* $op:literal $name:ident { $($field:ident: $ty:ty),* $(,)? } => $kind:ident<$reply:ty>)*) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[repr(u8)]
+        pub enum Op {
+            $($name = $op,)*
+        }
+
+        impl Op {
+            pub const ALL: &[Op] = &[$(Op::$name),*];
+        }
+
+        impl TryFrom<u8> for Op {
+            type Error = ApiError;
+
+            fn try_from(op: u8) -> Result<Self, ApiError> {
+                match op {
+                    $($op => Ok(Op::$name),)*
+                    _ => Err(ApiError::bad_request(format!("unknown op {op}"))),
+                }
+            }
+        }
+
+        $(
+            $(#[$meta])*
+            #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+            pub struct $name {
+                $(pub $field: $ty,)*
+            }
+
+            impl Rpc for $name {
+                const OP: Op = Op::$name;
+            }
+
+            impl $kind for $name {
+                type Reply = $reply;
+            }
+        )*
+    };
+}
+
+requests! {
+    /// First request on every connection; the server closes it on a bad token.
+    0 Auth { token: String } => Call<()>
+    1 Health {} => Call<()>
+    2 Chat { session_id: Uuid, request_id: Uuid, message: String, image: Option<String> } => Call<Run>
+    3 GetRun { id: String } => Call<Run>
+    4 CancelRun { id: String } => Call<()>
+    5 GetEvents { run_id: String, after: i64 } => Stream<Event>
+    /// Returns whether a run was still waiting for this answer.
+    6 DeviceResult { run_id: String, query_id: String, answer: DeviceAnswer } => Call<bool>
+    7 ListSessions {} => Call<Vec<Session>>
+    8 GetSession { id: String } => Call<Vec<HistoryEntry>>
+    9 RenameSession { id: String, title: String } => Call<()>
+    10 DeleteSession { id: String } => Call<()>
+    11 PinSession { id: String, pinned: bool } => Call<()>
+    12 ListMemories {} => Call<Vec<Memory>>
+    13 DeleteMemory { key: String } => Call<()>
+    14 ListCrons {} => Call<Vec<Cron>>
+    /// Returns the new cron's id.
+    15 CreateCron { label: String, prompt: String, schedule: String } => Call<String>
+    /// Returns whether the cron is now enabled.
+    16 ToggleCron { id: String } => Call<bool>
+    17 DeleteCron { id: String } => Call<()>
+    18 UpdateCron { id: String, enabled: Option<bool>, label: Option<String>, schedule: Option<String> } => Call<()>
+    19 RegisterDevice { device_id: String, fcm_token: String } => Call<()>
+    20 UnregisterDevice { device_id: String } => Call<()>
+    21 UpdateLocation { latitude: f64, longitude: f64, accuracy: f64, timezone: String } => Call<()>
+    /// Returns how many notifications were stored.
+    22 SaveNotifications { notifications: Vec<PhoneNotification> } => Call<u64>
+    23 StreamNotifications {} => Stream<Notice>
+    24 ListIntegrations {} => Call<Vec<Integration>>
+    /// Returns the new integration's id.
+    25 CreateIntegration { provider: String, label: String, config: String } => Call<String>
+    26 DeleteIntegration { id: String } => Call<()>
+    27 UpdateCredentials { id: String, credentials: String, status: String } => Call<()>
 }
 
 wire_enum! {
-    #[derive(Debug, Clone)]
-    pub enum Reply {
-        0 Done {}
-        1 Error { code: u16, message: String }
-        2 Run { run: Run }
-        3 Event { seq: i64, event: RunEvent }
-        4 Heartbeat {}
-        5 Sessions { sessions: Vec<Session> }
-        6 History { entries: Vec<HistoryEntry> }
-        7 Memories { memories: Vec<Memory> }
-        8 Crons { crons: Vec<Cron> }
-        9 Created { id: String }
-        10 Enabled { enabled: bool }
-        11 Resolved { resolved: bool }
-        12 Saved { count: u64 }
-        13 Integrations { integrations: Vec<Integration> }
-        14 Notice { notice: Notice }
+    /// Why the server refused or failed a request.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum ApiError {
+        0 BadRequest { message: String }
+        1 NotFound {}
+        2 Conflict { message: String }
+        3 Internal {}
+    }
+}
+
+impl ApiError {
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self::BadRequest {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for ApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BadRequest { message } => write!(f, "bad request: {message}"),
+            Self::NotFound {} => f.write_str("not found"),
+            Self::Conflict { message } => write!(f, "conflict: {message}"),
+            Self::Internal {} => f.write_str("internal error"),
+        }
+    }
+}
+
+impl std::error::Error for ApiError {}
+
+/// Server-side failures are logged here and reach the client only as `Internal`.
+impl From<anyhow::Error> for ApiError {
+    fn from(e: anyhow::Error) -> Self {
+        log::warn!("request failed: {e:#}");
+        Self::Internal {}
     }
 }
 
@@ -257,44 +337,42 @@ mod tests {
 
     #[test]
     fn request_round_trip_is_compact() {
-        let request = Request::GetRun { id: "r1".into() };
+        let request = GetRun { id: "r1".into() };
         let buf = rmp_serde::to_vec(&request).unwrap();
-        // fixarray(2), op 3, fixstr(2) "r1"
-        assert_eq!(buf, [0x92, 0x03, 0xa2, b'r', b'1']);
-        assert_eq!(rmp_serde::from_slice::<Request>(&buf).unwrap(), request);
+        // fixarray(1), fixstr(2) "r1"
+        assert_eq!(buf, [0x91, 0xa2, b'r', b'1']);
+        assert_eq!(rmp_serde::from_slice::<GetRun>(&buf).unwrap(), request);
+        assert_eq!(rmp_serde::to_vec(&Health {}).unwrap(), [0x90]);
 
-        let chat = Request::Chat {
+        let chat = Chat {
             session_id: Uuid::new_v4(),
             request_id: Uuid::new_v4(),
             message: "hi".into(),
             image: None,
         };
         let buf = rmp_serde::to_vec(&chat).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Request>(&buf).unwrap(), chat);
+        assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);
     }
 
     #[test]
     fn nested_types_round_trip() {
-        let reply = Reply::Event {
+        let event = Event {
             seq: 7,
             event: RunEvent::DeviceQuery {
                 query_id: "q".into(),
                 query: DeviceQuery::Contacts { name: "Ana".into() },
             },
         };
-        let buf = rmp_serde::to_vec(&reply).unwrap();
-        let decoded: Reply = rmp_serde::from_slice(&buf).unwrap();
+        let buf = rmp_serde::to_vec(&event).unwrap();
+        let decoded: Event = rmp_serde::from_slice(&buf).unwrap();
         assert_eq!(rmp_serde::to_vec(&decoded).unwrap(), buf);
     }
 
     #[test]
     fn decode_rejects_bad_requests() {
+        assert!(Op::try_from(0x7f).is_err(), "unknown op");
         assert!(
-            rmp_serde::from_slice::<Request>(&[0x91, 0x7f]).is_err(),
-            "unknown op"
-        );
-        assert!(
-            rmp_serde::from_slice::<Request>(&[0x91, 0x03]).is_err(),
+            rmp_serde::from_slice::<GetRun>(&[0x90]).is_err(),
             "missing argument"
         );
     }
