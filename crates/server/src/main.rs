@@ -43,7 +43,9 @@ async fn main() -> Result<()> {
             key.context("OpenRouter requires provider_key_env")?,
         )),
         Provider::OpenAi => {
-            let mut builder = OpenAiProvider::builder(&config.provider_url);
+            let url = config.provider_url.as_deref()
+                .context("OpenAI provider requires provider_url")?;
+            let mut builder = OpenAiProvider::builder(url);
             if let Some(key) = key {
                 builder = builder.api_key(key);
             }
@@ -78,7 +80,17 @@ async fn main() -> Result<()> {
             neobeep_server::composio::ComposioClient::new(key).map(Arc::new)
         })
         .transpose()?;
-    let app = App::with_tools(store, auth, provider, model, search, composio);
+    let mcp = config
+        .fastmail_token_env
+        .as_ref()
+        .map(|name| {
+            let token = std::env::var(name)
+                .with_context(|| format!("missing Fastmail token environment variable {name}"))?;
+            anyhow::ensure!(!token.trim().is_empty(), "Fastmail token must not be empty");
+            Ok::<_, anyhow::Error>(neobeep_server::mcp::fastmail_registry(token))
+        })
+        .transpose()?;
+    let app = App::with_tools(store, auth, provider, model, search, composio, mcp);
     let scheduler_app = app.clone();
     tokio::spawn(async move { neobeep_server::scheduler::run(scheduler_app).await });
     let mut endpoints = Vec::new();

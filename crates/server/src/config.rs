@@ -19,10 +19,12 @@ pub struct Config {
     pub private_key: PathBuf,
     pub database: PathBuf,
     pub model: String,
-    pub provider_url: String,
+    #[serde(default)]
+    pub provider_url: Option<String>,
     pub provider_key_env: Option<String>,
     pub firecrawl_key_env: Option<String>,
     pub composio_key_env: Option<String>,
+    pub fastmail_token_env: Option<String>,
     pub users: Vec<UserConfig>,
 }
 

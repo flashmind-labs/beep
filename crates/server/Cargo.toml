@@ -13,7 +13,7 @@ bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 cron = "0.15"
-flashmind = { path = "../../../flashmind/flashmind" }
+flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", features = ["mcp"] }
 futures = "0.3"
 h3 = "0.0.8"
 h3-quinn = "0.0.10"
