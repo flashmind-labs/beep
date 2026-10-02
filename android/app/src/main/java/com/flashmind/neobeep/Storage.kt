@@ -28,11 +28,12 @@ data class ConnectionSettings(val address: String = "", val hostname: String = "
 data class Card(val type: String, val data: JSONObject)
 data class TaskStep(val label: String, val status: String)
 
-data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null)
+data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val imageBase64: String? = null)
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = "New conversation",
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
-    val requestId: String = "", val pendingText: String = "", val status: String = "", val error: String = "",
+    val requestId: String = "", val pendingText: String = "", val pendingImage: String? = null,
+    val status: String = "", val error: String = "",
     val tool: String = "", val cancelRequested: Boolean = false, val pinned: Boolean = false
 ) { val busy get() = requestId.isNotEmpty() || runId.isNotEmpty() }
 data class ChatState(val conversations: List<Conversation> = listOf(Conversation()), val selected: String = "") {
@@ -89,8 +90,10 @@ class LocalStorage(internal val context: Context) {
                     val s = stepsArr.getJSONObject(si)
                     TaskStep(s.getString("label"), s.getString("status"))
                 } else null
-                ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps)
-            }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"), c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"))
+                ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, m.optString("imageBase64", null))
+            }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
+                pendingImage = c.optString("pendingImage", null),
+                status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"))
         }
         check(conversations.isNotEmpty())
         ChatState(conversations, json.optString("selected"))
@@ -113,7 +116,7 @@ class LocalStorage(internal val context: Context) {
         state.conversations.forEach { c ->
             val messages = JSONArray()
             c.messages.forEach { m ->
-                val msg = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text)
+                val msg = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text).apply { if (m.imageBase64 != null) put("imageBase64", m.imageBase64) }
                 if (m.cards.isNotEmpty()) {
                     val cardsArr = JSONArray()
                     m.cards.forEach { card -> cardsArr.put(JSONObject().put("type", card.type).put("data", card.data)) }
@@ -128,7 +131,8 @@ class LocalStorage(internal val context: Context) {
             }
             list.put(JSONObject().put("id", c.id).put("title", c.title).put("messages", messages)
                 .put("runId", c.runId).put("cursor", c.cursor).put("requestId", c.requestId)
-                .put("pendingText", c.pendingText).put("status", c.status).put("cancelRequested", c.cancelRequested)
+                .put("pendingText", c.pendingText).apply { if (c.pendingImage != null) put("pendingImage", c.pendingImage) }
+                .put("status", c.status).put("cancelRequested", c.cancelRequested)
                 .put("pinned", c.pinned))
         }
         val out = file.startWrite()

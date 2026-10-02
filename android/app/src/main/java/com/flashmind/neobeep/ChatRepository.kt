@@ -143,13 +143,14 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
     private fun resumePending() { state.value.conversations.filter { it.busy }.forEach { launchRun(it.id) } }
-    fun send(text: String) {
+    fun send(text: String, imageBase64: String? = null) {
         val chat = state.value.current
         if (text.isBlank() || chat.busy || !settings.value.configured) return
         val request = UUID.randomUUID().toString()
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
-            messages = it.messages + ChatMessage(role = "user", text = text.trim()),
-            requestId = request, pendingText = text.trim(), status = "Sending…", error = "", cancelRequested = false) }
+            messages = it.messages + ChatMessage(role = "user", text = text.trim(), imageBase64 = imageBase64),
+            requestId = request, pendingText = text.trim(), pendingImage = imageBase64,
+            status = "Sending…", error = "", cancelRequested = false) }
         launchRun(chat.id)
     }
     fun retry() { launchRun(state.value.current.id) }
@@ -174,8 +175,9 @@ class ChatRepository(private val storage: LocalStorage) {
                     updateChat(id) { it.copy(error = "", status = if (it.runId.isEmpty()) "Sending…" else "Beep is thinking…") }
                     if (chat.runId.isEmpty()) {
                         val body = JSONObject().put("session_id", id).put("request_id", chat.requestId).put("message", chat.pendingText)
+                        if (chat.pendingImage != null) body.put("image", chat.pendingImage)
                         val run = JSONObject(api.json("POST", "/v1/runs", body.toString()))
-                        updateChat(id) { it.copy(runId = run.getString("id"), requestId = "", pendingText = "", cursor = 0) }
+                        updateChat(id) { it.copy(runId = run.getString("id"), requestId = "", pendingText = "", pendingImage = null, cursor = 0) }
                     }
                     val current = state.value.conversations.first { it.id == id }
                     if (current.cancelRequested) api.json("POST", "/v1/runs/${current.runId}/cancel")
@@ -325,12 +327,29 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
 
-    private fun executeDeviceQuery(query: JSONObject): JSONObject {
+    private suspend fun executeDeviceQuery(query: JSONObject): JSONObject {
         val action = query.optString("action", "unknown")
         return when (action) {
             "query_contacts" -> {
                 val name = query.optString("name", "")
                 queryContacts(name)
+            }
+            "browser_command" -> {
+                val browserAction = query.optString("browser_action", "")
+                if (browserAction == "navigate") {
+                    val url = query.optString("url", "")
+                    if (url.isNotEmpty()) {
+                        browserUrl.value = url
+                        // Give the WebView a moment to open and load
+                        kotlinx.coroutines.delay(2000)
+                        JSONObject().put("navigated", true).put("url", url)
+                    } else {
+                        JSONObject().put("error", "missing_url")
+                            .put("message", "URL is required for navigate action")
+                    }
+                } else {
+                    BrowserBridge.executeCommand(browserAction, query)
+                }
             }
             else -> JSONObject().put("error", "not_implemented").put("action", action)
         }

@@ -1,6 +1,8 @@
 package com.flashmind.neobeep
 
 import android.Manifest
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.content.pm.PackageManager
@@ -76,6 +78,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.util.Base64
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import android.provider.Settings as SystemSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -103,6 +113,39 @@ private val TextPrimary = Color(0xFFE4EAE2)
 private val TextMuted = Color(0xFF7A8A80)
 private val TextDim = Color(0xFF4A5A50)
 
+/** Load, resize to at most [maxSize] px on the longest side, and JPEG-encode as a base64 data URI. */
+private fun encodeImageUri(context: Context, uri: Uri, maxSize: Int = 1024): String? {
+    return try {
+        val bitmap = if (Build.VERSION.SDK_INT >= 28) {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.isMutableRequired = true
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            android.provider.MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+        }
+        val scale = maxSize.toFloat() / maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)
+        val resized = if (scale < 1f) {
+            Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
+        } else bitmap
+        val stream = java.io.ByteArrayOutputStream()
+        resized.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+        val encoded = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+        "data:image/jpeg;base64,$encoded"
+    } catch (_: Exception) { null }
+}
+
+/** Decode a base64 data URI to a Bitmap for display. */
+private fun decodeImageBase64(dataUri: String): Bitmap? {
+    return try {
+        val b64 = dataUri.substringAfter(",", "")
+        if (b64.isEmpty()) return null
+        val bytes = Base64.decode(b64, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    } catch (_: Exception) { null }
+}
+
 /** Returns true when the system "Remove animations" / "Animator duration scale = 0" setting is on. */
 @Composable
 private fun reduceMotion(): Boolean {
@@ -124,6 +167,10 @@ open class MainActivity : ComponentActivity() {
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val pendingFocusInput = mutableStateOf(false)
+    private val clipboardContent = mutableStateOf<String?>(null)
+    /** Set to true right before the app copies text, to suppress showing the banner for our own copies. */
+    var suppressNextClipboard = false
+    private var clipboardListener: ClipboardManager.OnPrimaryClipChangedListener? = null
     @android.annotation.SuppressLint("MissingPermission")
     fun startLocationUpdates() {
         val repository = (application as BeepApplication).repository
@@ -158,6 +205,24 @@ open class MainActivity : ComponentActivity() {
         super.onResume()
         val repository = (application as BeepApplication).repository
         if (repository.settings.value.configured && !repository.connected.value) repository.reconnect()
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboardListener?.let { cm.removePrimaryClipChangedListener(it) }
+        val listener = ClipboardManager.OnPrimaryClipChangedListener {
+            if (suppressNextClipboard) { suppressNextClipboard = false; return@OnPrimaryClipChangedListener }
+            val clip = cm.primaryClip?.getItemAt(0)?.text?.toString()
+            if (!clip.isNullOrBlank() && clip.length in 11..5000) {
+                clipboardContent.value = clip
+            }
+        }
+        clipboardListener = listener
+        cm.addPrimaryClipChangedListener(listener)
+    }
+    override fun onPause() {
+        super.onPause()
+        clipboardListener?.let {
+            (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).removePrimaryClipChangedListener(it)
+        }
+        clipboardListener = null
     }
     override fun onDestroy() {
         super.onDestroy()
@@ -190,7 +255,7 @@ open class MainActivity : ComponentActivity() {
                 secondary = Moss, onSecondaryContainer = TextPrimary, outline = Border,
                 surfaceContainer = Surface, surfaceContainerHigh = Elevated,
                 inverseSurface = TextPrimary, inverseOnSurface = Ink)) {
-                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, onFloat = {
+                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, clipboardContent = clipboardContent, onFloat = {
                     if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } else if (Bubbles.show(this)) {
@@ -214,6 +279,7 @@ private enum class Screen { Chat, Memories, Crons, Integrations }
 private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>? = null,
                     focusInput: MutableState<Boolean> = mutableStateOf(false),
+                    clipboardContent: MutableState<String?> = mutableStateOf(null),
                     onFloat: () -> Unit, onExpand: () -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
     val config by repository.settings.collectAsStateWithLifecycle()
@@ -409,7 +475,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     IconButton(onClick = { settingsOpen = true }) { Icon(Icons.Outlined.Settings, "Connection settings") }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
         }) { padding ->
-            ChatScreen(state.current, repository, Modifier.padding(padding).fillMaxSize(), compact = bubble, focusInput = focusInput)
+            ChatScreen(state.current, repository, Modifier.padding(padding).fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent)
         }
     } // end ModalNavigationDrawer
     } // end Screen.Chat
@@ -428,10 +494,21 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
 
 @Composable
 private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier: Modifier, compact: Boolean,
-                       focusInput: MutableState<Boolean> = mutableStateOf(false)) {
+                       focusInput: MutableState<Boolean> = mutableStateOf(false),
+                       clipboardContent: MutableState<String?> = mutableStateOf(null)) {
     var draft by rememberSaveable(chat.id) { mutableStateOf("") }
+    var attachedImage by remember(chat.id) { mutableStateOf<String?>(null) }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val imageContext = androidx.compose.ui.platform.LocalContext.current
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val encoded = encodeImageUri(imageContext, uri)
+                if (encoded != null) attachedImage = encoded
+            }
+        }
+    }
     val inputFocusRequester = remember { FocusRequester() }
     LaunchedEffect(focusInput.value) {
         if (focusInput.value) {
@@ -449,8 +526,36 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
     LaunchedEffect(chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status) {
         if (chat.messages.isNotEmpty() && followLatest) list.animateScrollToItem(chat.messages.size - 1)
     }
-    fun submit() { if (draft.isNotBlank() && !chat.busy) { followLatest = true; repository.send(draft); draft = "" } }
+    // Auto-dismiss clipboard banner after 10 seconds
+    val clipText = clipboardContent.value
+    LaunchedEffect(clipText) {
+        if (clipText != null) { delay(10_000); clipboardContent.value = null }
+    }
+    // Dismiss clipboard banner when user starts typing
+    LaunchedEffect(draft) { if (draft.isNotBlank()) clipboardContent.value = null }
+    fun submit() {
+        val hasContent = draft.isNotBlank() || attachedImage != null
+        if (hasContent && !chat.busy) {
+            followLatest = true
+            val text = draft.ifBlank { "What is this?" }
+            repository.send(text, attachedImage)
+            draft = ""
+            attachedImage = null
+        }
+    }
     Column(modifier.imePadding()) {
+        // Clipboard suggestion banner
+        ClipboardBanner(clipboardContent, onAction = { action, text ->
+            clipboardContent.value = null
+            val message = when (action) {
+                "ask" -> text
+                "translate" -> "Translate this:\n\n$text"
+                "summarize" -> "Summarize this:\n\n$text"
+                else -> text
+            }
+            followLatest = true
+            repository.send(message)
+        }, onDismiss = { clipboardContent.value = null })
         if (chat.messages.isEmpty() && compact) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.Center) {
                 Text("Hey. What can I help with?", fontSize = 18.sp, fontWeight = FontWeight.Medium)
@@ -510,11 +615,24 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                                 Brush.linearGradient(listOf(Color(0xFF182A22), Color(0xFF14201A))),
                                 RoundedCornerShape(20.dp, 20.dp, 5.dp, 20.dp))
                             else Modifier.fillMaxWidth()) {
-                            val isStreaming = message.role == "assistant" && chat.busy && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
-                            val textLen = message.text.length
-                            val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
-                            val displayText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
-                            MessageContent(displayText, message.role, compact)
+                            Column {
+                                // Show attached image thumbnail in user messages
+                                if (message.imageBase64 != null) {
+                                    val msgBitmap = remember(message.imageBase64) { decodeImageBase64(message.imageBase64) }
+                                    if (msgBitmap != null) {
+                                        Image(msgBitmap.asImageBitmap(), "Attached image",
+                                            contentScale = ContentScale.FillWidth,
+                                            modifier = Modifier.fillMaxWidth()
+                                                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                                                .heightIn(max = 200.dp))
+                                    }
+                                }
+                                val isStreaming = message.role == "assistant" && chat.busy && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
+                                val textLen = message.text.length
+                                val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
+                                val displayText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
+                                MessageContent(displayText, message.role, compact)
+                            }
                         }
                         if (message.cards.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
@@ -614,9 +732,45 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             }
         }
 
+        // Image attachment preview
+        AnimatedVisibility(visible = attachedImage != null,
+            enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            attachedImage?.let { img ->
+                val previewBitmap = remember(img) { decodeImageBase64(img) }
+                if (previewBitmap != null) {
+                    Box(Modifier.padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 4.dp)) {
+                        Surface(shape = RoundedCornerShape(12.dp), color = Elevated,
+                            modifier = Modifier.height(72.dp).width(72.dp)) {
+                            Image(previewBitmap.asImageBitmap(), "Attached image",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)))
+                        }
+                        // Remove button
+                        Surface(onClick = { attachedImage = null },
+                            shape = CircleShape, color = Color(0xFF2A1A1A),
+                            modifier = Modifier.size(22.dp).align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)) {
+                            Icon(Icons.Outlined.Close, "Remove image",
+                                modifier = Modifier.padding(3.dp).size(16.dp), tint = Color(0xFFE85A4A))
+                        }
+                    }
+                }
+            }
+        }
+
         Row(Modifier.padding(horizontal = if (compact) 8.dp else 14.dp, vertical = if (compact) 4.dp else 8.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            // Image picker button
+            if (!chat.busy && draft.isBlank() && attachedImage == null) {
+                FilledIconButton(onClick = {
+                    photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                    modifier = Modifier.size(48.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Elevated, contentColor = Moss)) {
+                    Icon(Icons.Outlined.Image, "Attach image", modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+            }
             OutlinedTextField(value = draft, onValueChange = { if (it.toByteArray().size <= 32768) draft = it },
-                modifier = Modifier.weight(1f).focusRequester(inputFocusRequester), placeholder = { Text(if (listening) "Speak now..." else "Ask anything...", fontSize = 14.sp, color = TextDim) },
+                modifier = Modifier.weight(1f).focusRequester(inputFocusRequester), placeholder = { Text(if (listening) "Speak now..." else if (attachedImage != null) "Describe the image..." else "Ask anything...", fontSize = 14.sp, color = TextDim) },
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
                     unfocusedBorderColor = Color.Transparent, focusedBorderColor = Moss.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(if (compact) 20.dp else 24.dp), maxLines = if (compact) 3 else 6,
@@ -628,7 +782,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF2A1A1A), contentColor = Color(0xFFE85A4A))) {
                     Icon(Icons.Outlined.StopCircle, "Stop reply", modifier = Modifier.size(22.dp))
                 }
-            } else if (draft.isNotBlank()) {
+            } else if (draft.isNotBlank() || attachedImage != null) {
                 var sendPulse by remember { mutableStateOf(false) }
                 val sendScale by animateFloatAsState(if (sendPulse) 1.15f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "send-pulse")
                 LaunchedEffect(sendPulse) { if (sendPulse) { delay(150); sendPulse = false } }
@@ -697,11 +851,69 @@ private fun startListening(
 }
 
 @Composable
+private fun ClipboardBanner(clipboardContent: MutableState<String?>, onAction: (String, String) -> Unit, onDismiss: () -> Unit) {
+    val clip = clipboardContent.value
+    AnimatedVisibility(
+        visible = clip != null,
+        enter = fadeIn(tween(200)) + slideInVertically(tween(250)) { -it },
+        exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { -it }
+    ) {
+        val text = clip ?: return@AnimatedVisibility
+        val preview = if (text.length > 40) text.take(40).trim() + "..." else text.trim()
+        Surface(
+            color = Elevated,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, Border),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.ContentPaste, null, Modifier.size(14.dp), tint = Moss)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        preview.replace('\n', ' '),
+                        fontSize = 12.sp, color = TextMuted, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        Icons.Outlined.Close, "Dismiss",
+                        modifier = Modifier.size(18.dp).clickable { onDismiss() },
+                        tint = TextMuted
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ClipboardChip("Ask about this") { onAction("ask", text) }
+                    ClipboardChip("Translate") { onAction("translate", text) }
+                    ClipboardChip("Summarize") { onAction("summarize", text) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClipboardChip(label: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, Moss.copy(alpha = 0.5f))
+    ) {
+        Text(label, fontSize = 11.sp, color = Moss, fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+    }
+}
+
+@Composable
 private fun CopyReply(text: String, compact: Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var copied by remember(text) { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
     TextButton(onClick = {
+        (context as? MainActivity)?.suppressNextClipboard = true
         context.getSystemService(android.content.ClipboardManager::class.java)
             .setPrimaryClip(android.content.ClipData.newPlainText("Beep reply", text))
         copied = true
@@ -1021,6 +1233,7 @@ private fun CodeBlockView(language: String, code: String, compact: Boolean) {
                 }
                 Spacer(Modifier.weight(1f))
                 Row(Modifier.clickable {
+                    (context as? MainActivity)?.suppressNextClipboard = true
                     context.getSystemService(android.content.ClipboardManager::class.java)
                         .setPrimaryClip(android.content.ClipData.newPlainText("Code", code))
                     copied = true

@@ -119,12 +119,14 @@ fun BrowserScreen(url: String, onClose: () -> Unit, onContentExtracted: (String)
                     }
                     loadUrl(url)
                     webView = this
+                    BrowserBridge.activeWebView = this
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
         DisposableEffect(Unit) {
             onDispose {
+                BrowserBridge.activeWebView = null
                 webView?.stopLoading()
                 webView?.destroy()
                 webView = null

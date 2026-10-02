@@ -560,12 +560,13 @@ pub(crate) async fn handle(app: Arc<App>, request: Request<()>, mut stream: Stre
         .await;
     }
     if method == "POST" && path == "/v1/runs" {
-        let body = read_body(&mut stream, 65536).await?;
+        // 5 MiB to accommodate base64-encoded image attachments.
+        let body = read_body(&mut stream, 5 * 1024 * 1024).await?;
         let Some(body) = body else {
             return reply(
                 &mut stream,
                 StatusCode::PAYLOAD_TOO_LARGE,
-                json!({"error":"body exceeds 64 KiB"}),
+                json!({"error":"body exceeds 5 MiB"}),
             )
             .await;
         };
