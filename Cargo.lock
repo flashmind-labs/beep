@@ -1158,6 +1158,7 @@ dependencies = [
  "flashmind-core",
  "flashmind-cron",
  "flashmind-llm",
+ "flashmind-memory",
  "flashmind-tools",
  "flashmind-types",
  "serde_json",
@@ -1233,6 +1234,33 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tracing",
+ "url",
+ "uuid",
+ "webpki-roots",
+]
+
+[[package]]
+name = "flashmind-memory"
+version = "0.1.0"
+source = "git+https://github.com/flashmind-labs/flashmind.git#f0d76f0b796a4ee641e6555babf1312c55c7dee0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "flashmind-types",
+ "futures",
+ "metrics",
+ "reqwest 0.13.5",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sqlite-vec",
+ "strum",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rusqlite",
  "tracing",
  "url",
  "uuid",
@@ -4314,6 +4342,15 @@ checksum = "1d9efca8738c78ee9484207732f728b1ef517bbb1833d6fc0879ca898a522f6f"
 dependencies = [
  "base64ct",
  "der",
+]
+
+[[package]]
+name = "sqlite-vec"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0ba424237a9a5db2f6071f193319e2b6a32f7f3961debb2fbbfe67067abce3f"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

@@ -4,6 +4,7 @@ use crate::{
     decision::DecisionTool,
     live::LiveRun,
     mcp::McpConnections,
+    memories::{self, Exchange, Memories},
     protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestion, Run, RunEvent, Usage},
     repeat::RepeatGuard,
     search::SearchTool,
@@ -16,6 +17,7 @@ use chrono::Utc;
 use chrono_tz::Tz;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation},
+    memory::EmbeddingProvider,
     types::{AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider},
 };
 use futures::StreamExt;
@@ -37,6 +39,7 @@ pub struct App {
     tools: ServerTools,
     pub mcp: Arc<McpConnections>,
     pub apps: Apps,
+    pub memories: Memories,
     starters: Starters,
     /// Runs in progress, with their event feed.
     runs: Mutex<HashMap<String, Arc<LiveRun>>>,
@@ -50,6 +53,8 @@ pub struct ServerTools {
     pub decision: Option<Arc<DecisionTool>>,
     /// Composio apps the user connects from the phone.
     pub composio: Option<ComposioSettings>,
+    /// Embeds memories for recall by meaning; without it recall matches words.
+    pub embedder: Option<Arc<dyn EmbeddingProvider>>,
 }
 
 /// A `Notice` addressed to one user's open notification streams.
@@ -81,7 +86,9 @@ impl App {
         let (notifications, _) = broadcast::channel(64);
         let mcp = Arc::new(McpConnections::new(store.clone()));
         let apps = Apps::new(tools.composio.take(), mcp.clone());
+        let memories = Memories::new(store.clone(), tools.embedder.take());
         Arc::new(Self {
+            memories,
             store,
             auth,
             notifications,
@@ -256,9 +263,9 @@ impl App {
         }
     }
 
-    /// Time and location for this turn, sent as a developer message. Memories are
-    /// not included: the model looks them up with `memory_recall`.
-    async fn build_context(&self, user: &str) -> Option<String> {
+    /// Time, location and the memories that fit this message, sent as a developer
+    /// message. The model can look up more with `memory_recall`.
+    async fn build_context(&self, user: &str, message: &str) -> Option<String> {
         let mut ctx = String::new();
 
         // Time with user's timezone
@@ -286,6 +293,11 @@ impl App {
                 lat.abs(),
                 lon.abs()
             );
+        }
+
+        let remembered = self.memories.context(user, message).await;
+        if !remembered.is_empty() {
+            let _ = write!(ctx, "\n{}", memories::render_context(&remembered));
         }
 
         (!ctx.is_empty()).then_some(ctx)
@@ -325,7 +337,7 @@ impl App {
         // Always set the server-owned prompt, including when loading an older conversation.
         // It stays static so the provider can cache it.
         conversation.set_system(include_str!("../prompts/assistant.md"));
-        let context = self.build_context(user).await;
+        let context = self.build_context(user, message).await;
 
         let llm = self.llm.clone().with_user(user);
 
@@ -359,6 +371,8 @@ impl App {
 
         // Conversation entries do not record whether a tool failed; history needs it.
         let mut failed_tools = Vec::new();
+        // The reply the memory extractor reads once the run completes.
+        let mut reply = String::new();
         let status = {
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
@@ -389,6 +403,7 @@ impl App {
                             cancel.cancel();
                             break "looped";
                         }
+                        reply.push_str(&delta);
                         RunEvent::TextDelta { delta }
                     }
                     Some(AgentEvent::ReasoningDelta(delta)) => {
@@ -481,6 +496,23 @@ impl App {
         live.push(RunEvent::RunFinished {
             status: status.to_owned(),
         });
+
+        // Scheduled prompts are written by the user once, not said in conversation.
+        if status == "completed" && !is_cron {
+            let (app, user) = (self.clone(), user.to_owned());
+            let exchange = Exchange {
+                message: message.to_owned(),
+                reply,
+            };
+            tokio::spawn(async move {
+                let generator = Generator {
+                    provider: app.provider.as_ref(),
+                    llm: &app.llm,
+                    user: &user,
+                };
+                app.memories.learn(generator, exchange).await;
+            });
+        }
         Ok(())
     }
 

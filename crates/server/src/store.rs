@@ -23,7 +23,7 @@ pub enum CreateRun {
     Conflict,
 }
 
-const MEMORY_CATEGORIES: &[&str] = &[
+pub(crate) const MEMORY_CATEGORIES: &[&str] = &[
     "personal",
     "preference",
     "work",
@@ -32,7 +32,58 @@ const MEMORY_CATEGORIES: &[&str] = &[
     "general",
 ];
 
-fn validate_category(category: Option<&str>) -> Result<String> {
+/// Who wrote a memory: the assistant during a chat, or the background extractor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemorySource {
+    User,
+    Auto,
+}
+
+impl MemorySource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Auto => "auto",
+        }
+    }
+}
+
+pub struct NewMemory<'a> {
+    pub key: &'a str,
+    pub content: &'a str,
+    pub category: Option<&'a str>,
+    pub source: MemorySource,
+}
+
+/// A stored memory with its embedding, if it has one yet.
+#[derive(Debug, Clone)]
+pub struct MemoryRow {
+    pub key: String,
+    pub content: String,
+    pub category: String,
+    /// SQLite `datetime('now')` text, empty when unknown.
+    pub updated_at: String,
+    pub embedding: Option<Vec<f32>>,
+}
+
+/// An embedding computed for one version of a memory's text.
+pub struct Embedded {
+    pub key: String,
+    pub content: String,
+    pub embedding: Vec<f32>,
+}
+
+fn encode_embedding(embedding: &[f32]) -> Vec<u8> {
+    embedding.iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
+fn decode_embedding(blob: &[u8]) -> Vec<f32> {
+    blob.chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
+
+pub(crate) fn validate_category(category: Option<&str>) -> Result<String> {
     let cat = category.unwrap_or("general");
     if MEMORY_CATEGORIES.contains(&cat) {
         Ok(cat.to_owned())
@@ -169,6 +220,15 @@ impl Store {
             if !has_col("memories", "category")? {
                 db.execute_batch(
                     "ALTER TABLE memories ADD COLUMN category TEXT NOT NULL DEFAULT 'general';",
+                )?;
+            }
+            if !has_col("memories", "updated_at")? {
+                db.execute_batch(
+                    "ALTER TABLE memories ADD COLUMN created_at TEXT;
+                     ALTER TABLE memories ADD COLUMN updated_at TEXT;
+                     ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT 'user';
+                     ALTER TABLE memories ADD COLUMN embedding BLOB;
+                     UPDATE memories SET created_at = datetime('now'), updated_at = datetime('now');",
                 )?;
             }
             if !has_col("sessions", "pinned")? {
@@ -398,50 +458,34 @@ impl Store {
             .await?)
     }
 
-    pub async fn remember(
-        &self,
-        user: &str,
-        key: &str,
-        content: &str,
-        category: Option<&str>,
-    ) -> Result<()> {
+    /// Stores or replaces a memory. A new text drops the old embedding.
+    pub async fn remember(&self, user: &str, memory: NewMemory<'_>) -> Result<()> {
+        let NewMemory {
+            key,
+            content,
+            category,
+            source,
+        } = memory;
         if key.is_empty() || key.len() > 100 || content.is_empty() || content.len() > 4000 {
             bail!("memory key/content length out of range");
         }
         let cat = validate_category(category)?;
         let (user, key, content) = (user.to_owned(), key.to_owned(), content.to_owned());
-        self.0.call::<_, _, rusqlite::Error>(move |db| {
-            db.execute(
-                "INSERT INTO memories (user_id, key, content, category) VALUES (?, ?, ?, ?) \
-                 ON CONFLICT(user_id,key) DO UPDATE SET content=excluded.content, category=excluded.category",
-                params![user, key, content, cat],
-            )?;
-            Ok(())
-        }).await?;
+        let source = source.as_str();
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO memories (user_id, key, content, category, source, created_at, updated_at) \
+                     VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now')) \
+                     ON CONFLICT(user_id,key) DO UPDATE SET content=excluded.content, \
+                     category=excluded.category, updated_at=excluded.updated_at, \
+                     embedding=CASE WHEN content=excluded.content THEN embedding END",
+                    params![user, key, content, cat, source],
+                )?;
+                Ok(())
+            })
+            .await?;
         Ok(())
-    }
-
-    pub async fn recall(&self, user: &str, query: &str, category: Option<&str>) -> Result<Value> {
-        let cat = category.map(|c| validate_category(Some(c))).transpose()?;
-        let (user, query) = (user.to_owned(), query.to_owned());
-        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
-            let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(ref cat) = cat {
-                (
-                    "SELECT key, content, category FROM memories WHERE user_id=? AND category=? AND (instr(lower(key),lower(?))>0 OR instr(lower(content),lower(?))>0) ORDER BY key LIMIT 50".into(),
-                    vec![Box::new(user), Box::new(cat.clone()), Box::new(query.clone()), Box::new(query)],
-                )
-            } else {
-                (
-                    "SELECT key, content, category FROM memories WHERE user_id=? AND (instr(lower(key),lower(?))>0 OR instr(lower(content),lower(?))>0) ORDER BY key LIMIT 50".into(),
-                    vec![Box::new(user), Box::new(query.clone()), Box::new(query)],
-                )
-            };
-            let mut stmt = db.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter()), |r| {
-                Ok(json!({"key":r.get::<_,String>(0)?,"content":r.get::<_,String>(1)?,"category":r.get::<_,String>(2)?}))
-            })?.collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(json!(rows))
-        }).await?)
     }
 
     pub async fn update_memory(
@@ -459,20 +503,66 @@ impl Store {
         Ok(self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
-                let changed = if let Some(cat) = cat {
-                    db.execute(
-                        "UPDATE memories SET content=?, category=? WHERE user_id=? AND key=?",
-                        params![content, cat, user, key],
-                    )?
-                } else {
-                    db.execute(
-                        "UPDATE memories SET content=? WHERE user_id=? AND key=?",
-                        params![content, user, key],
-                    )?
-                };
+                let changed = db.execute(
+                    "UPDATE memories SET content=?1, category=coalesce(?2, category), \
+                     updated_at=datetime('now'), \
+                     embedding=CASE WHEN content=?1 THEN embedding END \
+                     WHERE user_id=?3 AND key=?4",
+                    params![content, cat, user, key],
+                )?;
                 Ok(changed > 0)
             })
             .await?)
+    }
+
+    /// Every memory of a user with its embedding, newest first.
+    pub async fn memory_rows(&self, user: &str) -> Result<Vec<MemoryRow>> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT key, content, category, coalesce(updated_at, ''), embedding \
+                     FROM memories WHERE user_id=? ORDER BY updated_at DESC LIMIT 2000",
+                )?;
+                let rows = stmt
+                    .query_map([user], |r| {
+                        let blob: Option<Vec<u8>> = r.get(4)?;
+                        Ok(MemoryRow {
+                            key: r.get(0)?,
+                            content: r.get(1)?,
+                            category: r.get(2)?,
+                            updated_at: r.get(3)?,
+                            embedding: blob.map(|b| decode_embedding(&b)),
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    /// Saves embeddings, skipping any memory whose text changed since it was embedded.
+    pub async fn set_embeddings(&self, user: &str, embedded: Vec<Embedded>) -> Result<()> {
+        let user = user.to_owned();
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let tx = db.transaction()?;
+                for Embedded {
+                    key,
+                    content,
+                    embedding,
+                } in embedded
+                {
+                    tx.execute(
+                        "UPDATE memories SET embedding=? WHERE user_id=? AND key=? AND content=?",
+                        params![encode_embedding(&embedding), user, key, content],
+                    )?;
+                }
+                tx.commit()
+            })
+            .await?;
+        Ok(())
     }
 
     pub async fn forget(&self, user: &str, key: &str) -> Result<bool> {

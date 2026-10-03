@@ -4,12 +4,14 @@ use beep_server::{
     apps::ComposioSettings,
     config::{self, Auth, Config},
     decision::DecisionTool,
+    memories,
     search::SearchTool,
     store::Store,
     transport,
 };
 use flashmind::{
     llm::OpenRouterProvider,
+    memory::{EmbeddingProvider, OpenRouterEmbedding},
     types::{AgentLlmConfig, Model},
 };
 use iroh::endpoint::presets;
@@ -52,6 +54,10 @@ async fn main() -> Result<()> {
         .as_ref()
         .map(|key| SearchTool::new(key.clone()).map(Arc::new))
         .transpose()?;
+    let embedder: Arc<dyn EmbeddingProvider> = Arc::new(OpenRouterEmbedding::new(
+        key.to_owned(),
+        memories::EMBEDDING_MODEL.to_owned(),
+    )?);
     let decision = Some(Arc::new(DecisionTool::new(SecretString::from(key))?));
     let composio = config.composio_key.as_deref().map(|key| ComposioSettings {
         key: SecretString::from(key),
@@ -66,6 +72,7 @@ async fn main() -> Result<()> {
             search,
             decision,
             composio,
+            embedder: Some(embedder),
         },
     );
     beep_server::mcp::start_keep_alive(app.clone());
