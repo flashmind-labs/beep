@@ -36,7 +36,7 @@ impl Tool for OpenMapsTool {
         "open_maps"
     }
     fn description(&self) -> &str {
-        "Show a place, a place search or directions as a map card in the chat. The card has Directions and Open in Maps buttons; Google Maps does not open by itself. Afterwards, say the place is on the map card below, never that Maps opened."
+        "Show a place, a place search or directions as a map card in the chat. The card has Directions and Open in Maps buttons; Google Maps does not open by itself. Afterwards, say the place is on the map card below, never that Maps opened. To open the Google Maps app itself, use open_app with app \"maps\"."
     }
     fn parameters(&self) -> Value {
         json!({
