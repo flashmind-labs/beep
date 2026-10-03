@@ -4,7 +4,7 @@ import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
 
 /** One client per connection settings, so calls share a connection. */
-object Beep {
+object BeepClients {
     private var cached: Pair<ConnectionSettings, BeepClient>? = null
 
     @Synchronized

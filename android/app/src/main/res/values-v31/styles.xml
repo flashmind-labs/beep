@@ -1,12 +1,12 @@
 <resources>
     <style name="Theme.Beep" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:colorAccent">#3B9B7A</item>
-        <item name="android:statusBarColor">#0A0E0C</item>
-        <item name="android:navigationBarColor">#0A0E0C</item>
-        <item name="android:windowSplashScreenBackground">#0A0E0C</item>
+        <item name="android:colorAccent">#2F8A69</item>
+        <item name="android:statusBarColor">#F4F8F5</item>
+        <item name="android:navigationBarColor">#F4F8F5</item>
+        <item name="android:windowSplashScreenBackground">#F4F8F5</item>
     </style>
     <style name="Theme.Beep.Translucent" parent="android:style/Theme.Translucent.NoTitleBar">
         <item name="android:windowBackground">@android:color/transparent</item>

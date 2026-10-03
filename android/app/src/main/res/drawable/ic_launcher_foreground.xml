@@ -4,24 +4,72 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Chat bubble body — Emerald -->
-    <path
-        android:fillColor="#3B9B7A"
-        android:pathData="M27,35.5C27,31.36 30.36,28 34.5,28L73.5,28C77.64,28 81,31.36 81,35.5L81,58.5C81,62.64 77.64,66 73.5,66L53,66L42,74C40.95,74.8 39.4,74.05 39.4,72.7L39.4,66C34.8,66 27,62.64 27,58.5Z" />
-
-    <!-- Dot left — Coral -->
-    <path
-        android:fillColor="#F07A6A"
-        android:pathData="M41.5,47A3,3 0,1,1 47.5,47A3,3 0,1,1 41.5,47Z" />
-
-    <!-- Dot center — Coral -->
-    <path
-        android:fillColor="#F07A6A"
-        android:pathData="M51,47A3,3 0,1,1 57,47A3,3 0,1,1 51,47Z" />
-
-    <!-- Dot right — Coral -->
-    <path
-        android:fillColor="#F07A6A"
-        android:pathData="M60.5,47A3,3 0,1,1 66.5,47A3,3 0,1,1 60.5,47Z" />
+    <group android:translateX="-1.5" android:translateY="1">
+        <!-- Hard shadow -->
+        <group android:translateX="3.5" android:translateY="3.5">
+            <path
+                android:fillColor="#10201A"
+                android:strokeColor="#10201A"
+                android:strokeWidth="3"
+                android:strokeLineJoin="round"
+                android:pathData="M29,51h5v10h-5a2,2 0,0 1,-2 -2v-6a2,2 0,0 1,2 -2Z M74,51h5a2,2 0,0 1,2 2v6a2,2 0,0 1,-2 2h-5Z" />
+            <path
+                android:fillColor="#10201A"
+                android:strokeColor="#10201A"
+                android:strokeWidth="3"
+                android:strokeLineJoin="round"
+                android:pathData="M44,40H64A10,10 0,0 1,74 50V62A10,10 0,0 1,64 72H44A10,10 0,0 1,34 62V50A10,10 0,0 1,44 40Z" />
+            <path
+                android:fillColor="#10201A"
+                android:strokeColor="#10201A"
+                android:strokeWidth="3"
+                android:strokeLineJoin="round"
+                android:pathData="M50,30a4,4 0,1 0,8 0a4,4 0,1 0,-8 0Z" />
+        </group>
+        <!-- Robot: antenna, ears, head -->
+        <path
+            android:strokeColor="#10201A"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M54,40V34" />
+        <path
+            android:fillColor="#F07A6A"
+            android:strokeColor="#10201A"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:pathData="M50,30a4,4 0,1 0,8 0a4,4 0,1 0,-8 0Z" />
+        <path
+            android:fillColor="#D5F1E3"
+            android:strokeColor="#10201A"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:pathData="M29,51h5v10h-5a2,2 0,0 1,-2 -2v-6a2,2 0,0 1,2 -2Z M74,51h5a2,2 0,0 1,2 2v6a2,2 0,0 1,-2 2h-5Z" />
+        <path
+            android:fillColor="#D5F1E3"
+            android:strokeColor="#10201A"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:pathData="M44,40H64A10,10 0,0 1,74 50V62A10,10 0,0 1,64 72H44A10,10 0,0 1,34 62V50A10,10 0,0 1,44 40Z" />
+        <!-- Face: open eye, wink, blush, smile -->
+        <path
+            android:fillColor="#10201A"
+            android:pathData="M41,54a4,4 0,1 0,8 0a4,4 0,1 0,-8 0Z" />
+        <path
+            android:strokeColor="#10201A"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M59,55Q64,50 69,55" />
+        <path
+            android:fillColor="#F07A6A"
+            android:pathData="M64,62a2.6,2.6 0,1 0,5.2 0a2.6,2.6 0,1 0,-5.2 0Z" />
+        <path
+            android:strokeColor="#10201A"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M47,63Q54,68.5 61,63" />
+    </group>
 
 </vector>

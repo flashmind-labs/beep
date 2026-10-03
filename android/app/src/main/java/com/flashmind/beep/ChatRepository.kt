@@ -51,7 +51,7 @@ class ChatRepository(private val storage: LocalStorage) {
     private var locationJob: Job? = null
     init { if (settings.value.configured) reconnect() }
 
-    private fun api(config: ConnectionSettings = settings.value): BeepClient = Beep.client(config)
+    private fun api(config: ConnectionSettings = settings.value): BeepClient = BeepClients.client(config)
 
     private fun update(transform: (ChatState) -> ChatState) = synchronized(lock) {
         val next = transform(mutableState.value)

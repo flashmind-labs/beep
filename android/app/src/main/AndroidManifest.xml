@@ -61,7 +61,7 @@
         </service>
         <service android:name=".BeepTileService"
             android:label="Beep"
-            android:icon="@drawable/ic_launcher_foreground"
+            android:icon="@drawable/ic_launcher_monochrome"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <meta-data

@@ -22,8 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 
-private val BrowserBar = Color(0xFF121916)
-private val BrowserBorder = Color(0xFF243028)
+private val BrowserBar: Color @Composable @ReadOnlyComposable get() = Beep.colors.surface
+private val BrowserBorder: Color @Composable @ReadOnlyComposable get() = Beep.colors.softLine
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -35,7 +35,7 @@ fun BrowserScreen(url: String, onClose: () -> Unit, onContentExtracted: (String)
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().background(Color(0xFF0A0E0C))) {
+    Column(Modifier.fillMaxSize().background(Beep.colors.page)) {
         // Top bar
         Surface(color = BrowserBar, shadowElevation = 4.dp) {
             Column {
@@ -50,14 +50,14 @@ fun BrowserScreen(url: String, onClose: () -> Unit, onContentExtracted: (String)
                         Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Forward", Modifier.size(20.dp))
                     }
                     Surface(
-                        color = Color(0xFF1A231E),
+                        color = Beep.colors.raised,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                     ) {
                         Text(
                             currentUrl, fontSize = 12.sp, maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            color = Color(0xFF7A8A80),
+                            color = Beep.colors.muted,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
                         )
                     }
@@ -84,7 +84,7 @@ fun BrowserScreen(url: String, onClose: () -> Unit, onContentExtracted: (String)
                     LinearProgressIndicator(
                         progress = { progress / 100f },
                         modifier = Modifier.fillMaxWidth().height(2.dp),
-                        color = Color(0xFF3B9B7A),
+                        color = Beep.colors.brand,
                         trackColor = BrowserBorder
                     )
                 }
