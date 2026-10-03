@@ -1,5 +1,8 @@
 package com.flashmind.beep
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.draw.alpha
 import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
@@ -20,6 +23,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -43,6 +47,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -103,15 +111,16 @@ private fun java.io.InputStream.readProfileBytes(): ByteArray {
     return buffer.copyOf(count)
 }
 
-private val Ink = Color(0xFF0A0E0C)
-private val Surface = Color(0xFF121916)
-private val Elevated = Color(0xFF1A231E)
-private val Border = Color(0xFF243028)
-private val Moss = Color(0xFF3B9B7A)
-private val Coral = Color(0xFFF07A6A)
-private val TextPrimary = Color(0xFFE4EAE2)
-private val TextMuted = Color(0xFF7A8A80)
-private val TextDim = Color(0xFF4A5A50)
+// Short names for the current theme's colors.
+private val Ink: Color @Composable @ReadOnlyComposable get() = Beep.colors.page
+private val Surface: Color @Composable @ReadOnlyComposable get() = Beep.colors.surface
+private val Elevated: Color @Composable @ReadOnlyComposable get() = Beep.colors.raised
+private val Border: Color @Composable @ReadOnlyComposable get() = Beep.colors.softLine
+private val Moss: Color @Composable @ReadOnlyComposable get() = Beep.colors.brand
+private val Coral: Color @Composable @ReadOnlyComposable get() = Beep.colors.error
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = Beep.colors.ink
+private val TextMuted: Color @Composable @ReadOnlyComposable get() = Beep.colors.muted
+private val TextDim: Color @Composable @ReadOnlyComposable get() = Beep.colors.dim
 
 /** Load, resize to at most [maxSize] px on the longest side, and JPEG-encode as a base64 data URI. */
 private fun encodeImageUri(context: Context, uri: Uri, maxSize: Int = 1024): String? {
@@ -144,17 +153,6 @@ private fun decodeImageBase64(dataUri: String): Bitmap? {
         val bytes = Base64.decode(b64, Base64.DEFAULT)
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     } catch (_: Exception) { null }
-}
-
-/** Returns true when the system "Remove animations" / "Animator duration scale = 0" setting is on. */
-@Composable
-private fun reduceMotion(): Boolean {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    return remember(context) {
-        try {
-            SystemSettings.Global.getFloat(context.contentResolver, SystemSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-        } catch (_: Exception) { false }
-    }
 }
 
 open class MainActivity : ComponentActivity() {
@@ -230,7 +228,9 @@ open class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT))
         val repository = (application as BeepApplication).repository
         // Network change listener for auto-reconnect
         val cm = getSystemService(ConnectivityManager::class.java)
@@ -249,12 +249,7 @@ open class MainActivity : ComponentActivity() {
         intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
         if (intent?.getBooleanExtra("focus_input", false) == true) pendingFocusInput.value = true
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Moss, onPrimary = Ink,
-                background = Ink, surface = Surface, onSurface = TextPrimary, secondaryContainer = Elevated,
-                surfaceVariant = Elevated, onSurfaceVariant = TextMuted,
-                secondary = Moss, onSecondaryContainer = TextPrimary, outline = Border,
-                surfaceContainer = Surface, surfaceContainerHigh = Elevated,
-                inverseSurface = TextPrimary, inverseOnSurface = Ink)) {
+            BeepTheme {
                 BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, clipboardContent = clipboardContent, onFloat = {
                     if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -326,16 +321,22 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     LaunchedEffect(drawerOpen) { if (drawerOpen) { repository.refreshHistory(); drawerState.open() } else drawerState.close() }
     LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
+    BackHandler(enabled = drawerOpen) { drawerOpen = false }
     ModalNavigationDrawer(drawerState = drawerState, drawerContent = {
-        ModalDrawerSheet(modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(0.9f), drawerContainerColor = Surface) {
+        ModalDrawerSheet(modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(0.9f), drawerContainerColor = Ink,
+            drawerShape = RoundedCornerShape(topEnd = Beep.shapes.radius, bottomEnd = Beep.shapes.radius)) {
             Spacer(Modifier.height(if (bubble) 8.dp else 20.dp))
-            Text("Your conversations", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            FilledTonalButton(onClick = { repository.newChat(); drawerOpen = false }, modifier = Modifier.padding(horizontal = 24.dp).fillMaxWidth()) {
-                Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(8.dp)); Text("New conversation")
+            Text(displayText("Your chats"), Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = displayStyle(26.sp))
+            ChunkyButton(onClick = { repository.newChat(); drawerOpen = false }, color = Beep.colors.accent,
+                contentColor = Beep.colors.onAccent, shape = RoundedCornerShape(Beep.shapes.radius),
+                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(), contentPadding = PaddingValues(vertical = 13.dp)) {
+                Icon(Icons.Outlined.Add, null, Modifier.size(20.dp)); Text("New conversation", fontWeight = FontWeight.SemiBold)
             }
             OutlinedTextField(historyQuery, { historyQuery = it }, placeholder = { Text("Find a conversation", fontSize = 13.sp) },
                 leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) }, singleLine = true,
-                shape = RoundedCornerShape(16.dp), modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp).fillMaxWidth())
+                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
+                    unfocusedBorderColor = Border, focusedBorderColor = Moss),
+                shape = RoundedCornerShape(Beep.shapes.radius), modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp).fillMaxWidth())
             var contextMenuChat by remember { mutableStateOf<String?>(null) }
             var showRenameDialog by remember { mutableStateOf<Conversation?>(null) }
             var showDeleteDialog by remember { mutableStateOf<Conversation?>(null) }
@@ -346,7 +347,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                         NavigationDrawerItem(
                             label = { Text(chat.title, maxLines = 2, fontSize = 14.sp, overflow = TextOverflow.Ellipsis) },
                             icon = { Icon(if (chat.pinned) Icons.Outlined.PushPin else Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = if (chat.pinned) Moss else TextMuted) },
-                            colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = Elevated, unselectedContainerColor = Surface),
+                            colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = Beep.colors.user,
+                                selectedTextColor = Beep.colors.onUser, unselectedContainerColor = Color.Transparent),
+                            shape = RoundedCornerShape(Beep.shapes.smallRadius),
                             selected = state.current.id == chat.id,
                             onClick = { repository.select(chat.id); drawerOpen = false },
                             modifier = Modifier.combinedClickable(
@@ -354,7 +357,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                                 onLongClick = { contextMenuChat = chat.id }
                             ))
                         DropdownMenu(expanded = contextMenuChat == chat.id, onDismissRequest = { contextMenuChat = null },
-                            containerColor = Elevated) {
+                            containerColor = Surface) {
                             DropdownMenuItem(text = { Text("Rename") },
                                 leadingIcon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) },
                                 onClick = { contextMenuChat = null; showRenameDialog = chat })
@@ -381,7 +384,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     title = { Text("Rename conversation") },
                     text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true, shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()) },
-                    containerColor = Elevated)
+                    containerColor = Surface)
             }
             // Delete confirmation dialog
             showDeleteDialog?.let { chat ->
@@ -393,55 +396,40 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     dismissButton = { TextButton(onClick = { showDeleteDialog = null }) { Text("Cancel") } },
                     title = { Text("Delete conversation?") },
                     text = { Text("This will permanently delete this conversation and all its messages.") },
-                    containerColor = Elevated)
+                    containerColor = Surface)
             }
             if (!bubble) {
-                HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Border)
-                NavigationDrawerItem(label = { Text("Memories", fontSize = 14.sp) },
-                    icon = { Icon(Icons.Outlined.Psychology, null, Modifier.size(18.dp)) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Surface),
-                    selected = false, onClick = { screen = Screen.Memories; drawerOpen = false },
-                    modifier = Modifier.padding(horizontal = 12.dp))
-                NavigationDrawerItem(label = { Text("Automations", fontSize = 14.sp) },
-                    icon = { Icon(Icons.Outlined.Schedule, null, Modifier.size(18.dp)) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Surface),
-                    selected = false, onClick = { screen = Screen.Crons; drawerOpen = false },
-                    modifier = Modifier.padding(horizontal = 12.dp))
-                NavigationDrawerItem(label = { Text("Integrations", fontSize = 14.sp) },
-                    icon = { Icon(Icons.Outlined.Extension, null, Modifier.size(18.dp)) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Surface),
-                    selected = false, onClick = { screen = Screen.Integrations; drawerOpen = false },
-                    modifier = Modifier.padding(horizontal = 12.dp))
-                Spacer(Modifier.height(8.dp))
-                TextButton(onClick = onBubbleSettings, modifier = Modifier.padding(horizontal = 16.dp)) {
-                    Icon(Icons.Outlined.BubbleChart, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Floating chat settings")
+                HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = Border)
+                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Memories; drawerOpen = false }
+                    DrawerTile("Routines", Icons.Outlined.Schedule, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Crons; drawerOpen = false }
+                    DrawerTile("Accounts", Icons.Outlined.Extension, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
+                }
+                Spacer(Modifier.height(14.dp))
+                ThemePicker(Modifier.padding(horizontal = 20.dp))
+                TextButton(onClick = onBubbleSettings, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                    Icon(Icons.Outlined.BubbleChart, null, Modifier.size(18.dp), tint = TextMuted); Spacer(Modifier.width(8.dp))
+                    Text("Floating chat settings", color = TextMuted)
                 }
             }
-            Row(Modifier.padding(horizontal = 24.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { settingsOpen = true; drawerOpen = false }) {
+                    Icon(Icons.Outlined.Settings, null, Modifier.size(18.dp), tint = TextMuted); Spacer(Modifier.width(8.dp))
+                    Text("Connection", color = TextMuted)
+                }
+                Spacer(Modifier.weight(1f))
                 ConnectionDot(connected, status); Spacer(Modifier.width(6.dp))
-                Text(status, fontSize = 11.sp, color = Moss)
-            }
-            TextButton(onClick = { settingsOpen = true; drawerOpen = false }, modifier = Modifier.padding(16.dp)) {
-                Icon(Icons.Outlined.Settings, null); Spacer(Modifier.width(8.dp)); Text("Connection settings")
+                Text(status, fontSize = 11.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(end = 12.dp).widthIn(max = 140.dp))
             }
         }
     }) {
-        Scaffold(containerColor = Ink, floatingActionButton = {
-            if (!bubble && state.current.messages.isNotEmpty()) {
-                SmallFloatingActionButton(
-                    onClick = { repository.newChat() },
-                    containerColor = Elevated,
-                    contentColor = Coral,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.padding(bottom = 72.dp)
-                ) { Icon(Icons.Outlined.Add, "New conversation", Modifier.size(20.dp)) }
-            }
-        }, topBar = {
+        Scaffold(containerColor = Ink, topBar = {
             if (bubble) {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Beep", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(displayText("Beep"), style = displayStyle(18.sp))
                     Spacer(Modifier.width(8.dp))
-                    Box(Modifier.size(5.dp).background(if (connected) Moss else Color(0xFFE85A4A), CircleShape))
+                    ConnectionDot(connected, status)
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = onExpand) { Icon(Icons.Outlined.OpenInFull, "Open full app", Modifier.size(18.dp)) }
                     Box {
@@ -455,24 +443,33 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 }
             } else TopAppBar(title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(painterResource(R.drawable.ic_beep), null, tint = Color.Unspecified, modifier = Modifier.size(38.dp))
-                    Spacer(Modifier.width(10.dp))
                     Column {
-                        Text("Beep", fontWeight = FontWeight.Bold, fontSize = 21.sp)
+                        Text(displayText("Beep"), style = displayStyle(24.sp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             ConnectionDot(connected, status)
-                            Spacer(Modifier.width(5.dp))
-                            Text(if (connected) "Here to help" else "Tap to reconnect", fontSize = 11.sp, color = Moss,
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (connected) "Here to help" else "Tap to reconnect", fontSize = 12.sp, color = TextMuted,
+                                fontFamily = Beep.fonts.body, fontWeight = FontWeight.Medium,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.clickable { repository.reconnect() })
                         }
                     }
                 }
-            }, navigationIcon = { IconButton(onClick = { drawerOpen = true }) { Icon(Icons.Outlined.Menu, "Conversations") } },
+            }, navigationIcon = {
+                ChunkyButton(onClick = { drawerOpen = true }, shape = RoundedCornerShape(Beep.shapes.smallRadius),
+                    modifier = Modifier.padding(start = 12.dp, end = 10.dp).size(42.dp), contentPadding = PaddingValues(0.dp)) {
+                    Icon(Icons.Outlined.Menu, "Conversations", Modifier.size(20.dp))
+                }
+            },
                 actions = {
-                    if (bubble) IconButton(onClick = onExpand) { Icon(Icons.Outlined.OpenInFull, "Open full app") }
-                    else IconButton(onClick = onFloat) { Icon(Icons.Outlined.BubbleChart, "Float chat") }
-                    IconButton(onClick = { settingsOpen = true }) { Icon(Icons.Outlined.Settings, "Connection settings") }
+                    IconButton(onClick = onFloat) { Icon(Icons.Outlined.BubbleChart, "Float chat", tint = TextMuted) }
+                    if (state.current.messages.isNotEmpty()) {
+                        ChunkyButton(onClick = { repository.newChat() }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
+                            shape = RoundedCornerShape(Beep.shapes.smallRadius),
+                            modifier = Modifier.padding(end = 14.dp).size(42.dp), contentPadding = PaddingValues(0.dp)) {
+                            Icon(Icons.Outlined.Add, "New conversation", Modifier.size(22.dp))
+                        }
+                    }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
         }) { padding ->
             ChatScreen(state.current, repository, Modifier.padding(padding).fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent)
@@ -516,15 +513,18 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             inputFocusRequester.requestFocus()
         }
     }
+    // Follow the reply until the user drags away from the bottom; reaching the bottom again resumes it.
+    // Only a drag counts: our own scrolling while a reply streams in must not stop following.
     var followLatest by remember(chat.id) { mutableStateOf(true) }
+    val dragged by list.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(list, chat.id) {
-        snapshotFlow { list.isScrollInProgress to list.canScrollForward }.collect { (scrolling, canForward) ->
-            if (scrolling) followLatest = !canForward
+        snapshotFlow { dragged to list.canScrollForward }.collect { (dragging, canForward) ->
+            if (!canForward) followLatest = true else if (dragging) followLatest = false
         }
     }
-    LaunchedEffect(chat.id) { if (chat.messages.isNotEmpty()) list.scrollToItem(chat.messages.lastIndex) }
-    LaunchedEffect(chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status) {
-        if (chat.messages.isNotEmpty() && followLatest) list.animateScrollToItem(chat.messages.size - 1)
+    LaunchedEffect(chat.id) { if (chat.messages.isNotEmpty()) list.scrollToEnd(animated = false) }
+    LaunchedEffect(chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status, list.layoutInfo.viewportSize) {
+        if (chat.messages.isNotEmpty() && followLatest) list.scrollToEnd(animated = true)
     }
     // Auto-dismiss clipboard banner after 10 seconds
     val clipText = clipboardContent.value
@@ -543,6 +543,9 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             attachedImage = null
         }
     }
+    // While nothing of the reply is written yet, its progress sits in the conversation where the reply will appear.
+    val workingInline = chat.busy && chat.status.isNotEmpty() &&
+        chat.messages.lastOrNull().let { it == null || it.role != "assistant" || it.text.isBlank() }
     Column(modifier.imePadding()) {
         // Clipboard suggestion banner
         ClipboardBanner(clipboardContent, onAction = { action, text ->
@@ -558,87 +561,82 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
         }, onDismiss = { clipboardContent.value = null })
         if (chat.messages.isEmpty() && compact) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.Center) {
-                Text("Hey. What can I help with?", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                Text(displayText("Hey. What can I help with?"), style = displayStyle(20.sp))
                 Spacer(Modifier.height(6.dp))
                 Text("Ask a question or search the web.", fontSize = 13.sp, color = TextMuted)
             }
         } else if (chat.messages.isEmpty()) {
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 24.dp), verticalArrangement = Arrangement.Center) {
-                Box(contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(96.dp).background(
-                        Brush.radialGradient(listOf(Moss.copy(alpha = 0.25f), Color.Transparent)),
-                        shape = CircleShape))
-                    Surface(shape = RoundedCornerShape(18.dp), color = Elevated) {
-                        Icon(painterResource(R.drawable.ic_beep), null, tint = Color.Unspecified, modifier = Modifier.padding(12.dp).size(48.dp))
-                    }
-                }
-                Spacer(Modifier.height(24.dp))
-                Text("A little help.\nRight here.", fontSize = 36.sp, lineHeight = 42.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1).sp)
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp), verticalArrangement = Arrangement.Center) {
+                Text(buildAnnotatedString {
+                    append(displayText("A little help.\n"))
+                    withStyle(SpanStyle(color = Beep.colors.ok)) { append(displayText("Right here.")) }
+                }, style = displayStyle(40.sp, lineHeight = 44.sp), modifier = Modifier.popIn("hello"))
                 Spacer(Modifier.height(12.dp))
                 Text("Find an answer. Untangle a thought.\nKeep something worth remembering.", color = TextMuted, lineHeight = 23.sp)
-                Spacer(Modifier.height(30.dp))
-                val suggestionsVisible = remember { mutableStateOf(false) }
-                LaunchedEffect(Unit) { delay(300); suggestionsVisible.value = true }
+                Spacer(Modifier.height(28.dp))
                 listOf(
                     Triple("Remember something", "Remember that I prefer short, practical answers.", Icons.Outlined.BookmarkBorder),
                     Triple("Search the web", "Search the web for ", Icons.Outlined.Search),
                     Triple("Set a reminder", "Remind me to ", Icons.Outlined.Alarm),
                 ).forEachIndexed { index, (title, prompt, icon) ->
-                    AnimatedVisibility(visible = suggestionsVisible.value,
-                        enter = fadeIn(tween(400, delayMillis = index * 120)) + slideInVertically(tween(400, delayMillis = index * 120)) { it / 3 }) {
-                        Suggestion(title, prompt, icon) { draft = it }
+                    var shown by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) { delay(120L + index * 90L); shown = true }
+                    Box(Modifier.popIn(title to shown, play = shown).alpha(if (shown) 1f else 0f)) {
+                        Suggestion(title, prompt, icon, Beep.colors.tints[index % Beep.colors.tints.size]) { draft = it }
                     }
-                    if (index < 2) Spacer(Modifier.height(10.dp))
+                    if (index < 2) Spacer(Modifier.height(12.dp))
                 }
             }
         } else {
-            val noMotion = reduceMotion()
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 22.dp)) {
+            // Only messages that arrive while the chat is open pop in; history is drawn at rest.
+            val settled = remember(chat.id) { chat.messages.map { it.id }.toHashSet() }
+            val radius = Beep.shapes.radius
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp)) {
                 items(chat.messages, key = { it.id }) { message ->
-                    val appeared = remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) { appeared.value = true }
-                    AnimatedVisibility(visible = appeared.value,
-                        enter = if (noMotion) EnterTransition.None else fadeIn(tween(250)) + slideInVertically(spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)) { it / 3 }
-                    ) {
-                    Column(Modifier.fillMaxWidth().animateItem(), horizontalAlignment = if (message.role == "user") Alignment.End else Alignment.Start) {
-                        if (message.role == "assistant" && !compact) {
-                            val isLastAssistant = chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 7.dp)) {
+                    val isUser = message.role == "user"
+                    val fresh = message.id !in settled
+                    SideEffect { settled.add(message.id) }
+                    Column(Modifier.fillMaxWidth().animateItem()
+                        .popIn(message.id, play = fresh, origin = TransformOrigin(if (isUser) 1f else 0f, 1f)),
+                        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+                        val isLastAssistant = !isUser && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
+                        if (!isUser && !compact) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
                                 BeepAvatar(isThinking = isLastAssistant && chat.busy)
                                 Spacer(Modifier.width(8.dp))
-                                Text("BEEP", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, color = Coral)
+                                Text(displayText("Beep"), style = displayStyle(14.sp), color = TextPrimary)
                             }
                         }
-                        Surface(color = if (message.role == "user") Color.Transparent else Color.Transparent,
-                            shape = RoundedCornerShape(20.dp, 20.dp, if (message.role == "user") 5.dp else 20.dp, 20.dp),
-                            modifier = if (message.role == "user") Modifier.fillMaxWidth(0.85f).background(
-                                Brush.linearGradient(listOf(Color(0xFF182A22), Color(0xFF14201A))),
-                                RoundedCornerShape(20.dp, 20.dp, 5.dp, 20.dp))
-                            else Modifier.fillMaxWidth()) {
-                            Column {
-                                // Show attached image thumbnail in user messages
-                                if (message.imageBase64 != null) {
-                                    val msgBitmap = remember(message.imageBase64) { decodeImageBase64(message.imageBase64) }
-                                    if (msgBitmap != null) {
-                                        Image(msgBitmap.asImageBitmap(), "Attached image",
-                                            contentScale = ContentScale.FillWidth,
-                                            modifier = Modifier.fillMaxWidth()
-                                                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                                                .heightIn(max = 200.dp))
-                                    }
-                                }
-                                if (message.toolCalls.isNotEmpty()) {
-                                    Column(Modifier.padding(horizontal = if (compact) 6.dp else 0.dp, vertical = 6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        message.toolCalls.forEach { tc -> ToolCallCard(tc) }
-                                    }
-                                }
-                                val isStreaming = message.role == "assistant" && chat.busy && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
-                                val textLen = message.text.length
-                                val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
-                                val displayText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
-                                if (displayText.isNotBlank()) MessageContent(displayText, message.role, compact)
+                        val bubbleShape = if (isUser) RoundedCornerShape(radius, radius, 6.dp, radius)
+                            else RoundedCornerShape(6.dp, radius, radius, radius)
+                        val bubbleModifier = when {
+                            isUser -> Modifier.padding(start = 48.dp)
+                                .then(if (Beep.shapes.card == CardLook.Hairline) Modifier.clip(bubbleShape).background(Beep.colors.user)
+                                    else Modifier.beepFrame(bubbleShape, Beep.colors.user))
+                            Beep.shapes.botBubble -> Modifier.padding(end = 24.dp).beepFrame(bubbleShape, Beep.colors.surface)
+                            else -> Modifier.fillMaxWidth()
+                        }
+                        if (message.toolCalls.isNotEmpty()) {
+                            Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                message.toolCalls.forEachIndexed { i, tc -> ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size]) { repository.browserUrl.value = it } }
                             }
+                        }
+                        val isStreaming = isLastAssistant && chat.busy
+                        val textLen = message.text.length
+                        val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
+                        val shownText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
+                        if (shownText.isNotBlank() || message.imageBase64 != null) Column(bubbleModifier) {
+                            // Show attached image thumbnail in user messages
+                            if (message.imageBase64 != null) {
+                                val msgBitmap = remember(message.imageBase64) { decodeImageBase64(message.imageBase64) }
+                                if (msgBitmap != null) {
+                                    Image(msgBitmap.asImageBitmap(), "Attached image",
+                                        contentScale = ContentScale.FillWidth,
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp))
+                                }
+                            }
+                            if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
+                                padded = isUser || Beep.shapes.botBubble)
                         }
                         if (message.cards.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
@@ -652,33 +650,51 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         }
                         if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) CopyReply(message.text, compact)
                     }
-                    } // end AnimatedVisibility
+                }
+                if (workingInline) item(key = "working") {
+                    Column(Modifier.fillMaxWidth().animateItem().popIn("working-${chat.id}", origin = TransformOrigin(0f, 1f))) {
+                        if (chat.messages.lastOrNull()?.role != "assistant" && !compact) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 10.dp)) {
+                                BeepAvatar(isThinking = true)
+                                Spacer(Modifier.width(8.dp))
+                                Text(displayText("Beep"), style = displayStyle(14.sp), color = TextPrimary)
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)
+                            .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))) {
+                            PulsingDots()
+                            Spacer(Modifier.width(10.dp))
+                            Text(chat.status, color = TextMuted, fontSize = 13.sp, maxLines = 2)
+                        }
+                    }
                 }
             }
         }
-        AnimatedVisibility(visible = !followLatest && chat.messages.isNotEmpty(),
+        AnimatedVisibility(visible = !followLatest && list.canScrollForward && chat.messages.isNotEmpty(),
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically(),
             modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            TextButton(onClick = { scope.launch { list.animateScrollToItem(chat.messages.lastIndex); followLatest = true } }) {
-                Icon(Icons.Outlined.ArrowDownward, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Latest reply", fontSize = 12.sp)
+            ChunkyButton(onClick = { followLatest = true; scope.launch { list.scrollToEnd(animated = true) } },
+                modifier = Modifier.padding(vertical = 6.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp)) {
+                Icon(Icons.Outlined.ArrowDownward, null, Modifier.size(16.dp)); Text("Latest reply", fontSize = 12.sp, fontWeight = FontWeight.Medium)
             }
         }
-        AnimatedVisibility(visible = chat.status.isNotEmpty(),
+        // The streaming text is its own progress, so "Replying" needs no line of its own.
+        AnimatedVisibility(visible = chat.status.isNotEmpty() && !workingInline && !chat.status.startsWith("Replying"),
             enter = fadeIn(tween(200)) + expandVertically(tween(200)), exit = fadeOut(tween(150)) + shrinkVertically(tween(150))) {
-            Row(Modifier.padding(horizontal = 22.dp, vertical = 8.dp).animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)),
+            Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)),
                 verticalAlignment = Alignment.CenterVertically) {
-                BeepAvatar(isThinking = true, modifier = Modifier)
-                Spacer(Modifier.width(10.dp))
                 PulsingDots()
-                Spacer(Modifier.width(8.dp))
-                Text(chat.status, color = TextMuted, fontSize = 12.sp, maxLines = 2)
+                Spacer(Modifier.width(10.dp))
+                Text(chat.status, color = TextMuted, fontSize = 13.sp, maxLines = 2)
             }
         }
         AnimatedVisibility(visible = chat.error.isNotEmpty(),
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(chat.error, fontSize = 12.sp, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f), maxLines = 4)
-                if (chat.busy) TextButton(onClick = repository::retry) { Text("Retry") }
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth()
+                .clip(RoundedCornerShape(Beep.shapes.smallRadius)).background(Beep.colors.error.copy(alpha = 0.10f))
+                .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(chat.error, fontSize = 13.sp, color = Beep.colors.error, modifier = Modifier.weight(1f).padding(vertical = 8.dp), maxLines = 4)
+                if (chat.busy) TextButton(onClick = repository::retry) { Text("Retry", color = Beep.colors.error, fontWeight = FontWeight.SemiBold) }
             }
         }
         // Voice input state
@@ -712,13 +728,13 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
         // "Listening..." indicator
         AnimatedVisibility(visible = listening,
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            Row(Modifier.padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(horizontal = if (compact) 12.dp else 20.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 val pulseAlpha by rememberInfiniteTransition(label = "listen-pulse").animateFloat(
                     initialValue = 0.4f, targetValue = 1f,
                     animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "listen-alpha")
-                Box(Modifier.size(6.dp).background(Coral.copy(alpha = pulseAlpha), CircleShape))
-                Spacer(Modifier.width(6.dp))
-                Text("Listening...", fontSize = 11.sp, color = Coral.copy(alpha = 0.8f))
+                Box(Modifier.size(7.dp).background(Beep.colors.accent.copy(alpha = pulseAlpha), CircleShape))
+                Spacer(Modifier.width(8.dp))
+                Text("Listening...", fontSize = 12.sp, color = TextMuted, fontWeight = FontWeight.Medium)
             }
         }
 
@@ -728,80 +744,80 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             attachedImage?.let { img ->
                 val previewBitmap = remember(img) { decodeImageBase64(img) }
                 if (previewBitmap != null) {
-                    Box(Modifier.padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 4.dp)) {
-                        Surface(shape = RoundedCornerShape(12.dp), color = Elevated,
-                            modifier = Modifier.height(72.dp).width(72.dp)) {
+                    Box(Modifier.padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 8.dp)) {
+                        Box(Modifier.size(72.dp).popIn(img).beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())) {
                             Image(previewBitmap.asImageBitmap(), "Attached image",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)))
+                                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                         }
-                        // Remove button
-                        Surface(onClick = { attachedImage = null },
-                            shape = CircleShape, color = Color(0xFF2A1A1A),
-                            modifier = Modifier.size(22.dp).align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)) {
-                            Icon(Icons.Outlined.Close, "Remove image",
-                                modifier = Modifier.padding(3.dp).size(16.dp), tint = Color(0xFFE85A4A))
+                        ChunkyButton(onClick = { attachedImage = null }, color = Beep.colors.ink, contentColor = Beep.colors.page,
+                            modifier = Modifier.size(24.dp).align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp),
+                            contentPadding = PaddingValues(0.dp)) {
+                            Icon(Icons.Outlined.Close, "Remove image", Modifier.size(14.dp))
                         }
                     }
                 }
             }
         }
 
-        Row(Modifier.padding(horizontal = if (compact) 8.dp else 14.dp, vertical = if (compact) 4.dp else 8.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            // Image picker button
-            if (!chat.busy && draft.isBlank() && attachedImage == null) {
-                FilledIconButton(onClick = {
-                    photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                },
-                    modifier = Modifier.size(48.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Elevated, contentColor = Moss)) {
-                    Icon(Icons.Outlined.Image, "Attach image", modifier = Modifier.size(22.dp))
+        val buttonSize = if (compact) 44.dp else 50.dp
+        val buttonShape = RoundedCornerShape(Beep.shapes.radius)
+        Row(Modifier.padding(start = if (compact) 8.dp else 14.dp, end = if (compact) 10.dp else 16.dp,
+            top = if (compact) 4.dp else 8.dp, bottom = if (compact) 8.dp else 12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.weight(1f).heightIn(min = buttonSize).beepFrame(buttonShape, Surface, pressableLook()),
+                verticalAlignment = Alignment.CenterVertically) {
+                if (!chat.busy && draft.isBlank() && attachedImage == null) {
+                    IconButton(onClick = {
+                        photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }, modifier = Modifier.padding(start = 2.dp)) {
+                        Icon(Icons.Outlined.Image, "Attach image", Modifier.size(22.dp), tint = TextMuted)
+                    }
                 }
-                Spacer(Modifier.width(4.dp))
+                TextField(value = draft, onValueChange = { if (it.toByteArray().size <= 32768) draft = it },
+                    modifier = Modifier.weight(1f).focusRequester(inputFocusRequester),
+                    placeholder = { Text(if (listening) "Speak now..." else if (attachedImage != null) "Describe the image..." else "Ask anything...", fontSize = 15.sp, color = TextDim) },
+                    textStyle = LocalTextStyle.current.copy(fontSize = 15.sp),
+                    colors = TextFieldDefaults.colors(unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, cursorColor = TextPrimary),
+                    maxLines = if (compact) 3 else 6,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit() }))
             }
-            OutlinedTextField(value = draft, onValueChange = { if (it.toByteArray().size <= 32768) draft = it },
-                modifier = Modifier.weight(1f).focusRequester(inputFocusRequester), placeholder = { Text(if (listening) "Speak now..." else if (attachedImage != null) "Describe the image..." else "Ask anything...", fontSize = 14.sp, color = TextDim) },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
-                    unfocusedBorderColor = Color.Transparent, focusedBorderColor = Moss.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(if (compact) 20.dp else 24.dp), maxLines = if (compact) 3 else 6,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit() }))
-            Spacer(Modifier.width(8.dp))
-            if (chat.busy) {
-                FilledIconButton(onClick = repository::cancel,
-                    modifier = Modifier.size(48.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF2A1A1A), contentColor = Color(0xFFE85A4A))) {
-                    Icon(Icons.Outlined.StopCircle, "Stop reply", modifier = Modifier.size(22.dp))
+            val buttonModifier = Modifier.size(buttonSize)
+            when {
+                chat.busy -> ChunkyButton(onClick = repository::cancel, modifier = buttonModifier, shape = buttonShape,
+                    color = Beep.colors.ink, contentColor = Beep.colors.page, contentPadding = PaddingValues(0.dp)) {
+                    Icon(Icons.Outlined.Stop, "Stop reply", Modifier.size(22.dp))
                 }
-            } else if (draft.isNotBlank() || attachedImage != null) {
-                var sendPulse by remember { mutableStateOf(false) }
-                val sendScale by animateFloatAsState(if (sendPulse) 1.15f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "send-pulse")
-                LaunchedEffect(sendPulse) { if (sendPulse) { delay(150); sendPulse = false } }
-                FilledIconButton(onClick = { sendPulse = true; submit() },
-                    modifier = Modifier.size(48.dp).graphicsLayer { scaleX = sendScale; scaleY = sendScale },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Coral, contentColor = Ink)) {
-                    Icon(Icons.AutoMirrored.Outlined.Send, "Send message", modifier = Modifier.size(19.dp))
+                draft.isNotBlank() || attachedImage != null -> {
+                    // A quick squish on tap so sending feels physical.
+                    val squish = remember { Animatable(1f) }
+                    val noMotion = reduceMotion()
+                    ChunkyButton(onClick = {
+                        submit()
+                        if (!noMotion) scope.launch {
+                            squish.animateTo(0.82f, tween(70)); squish.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 600f))
+                        }
+                    }, modifier = buttonModifier.graphicsLayer { scaleX = squish.value; scaleY = squish.value }, shape = buttonShape,
+                        color = Beep.colors.accent, contentColor = Beep.colors.onAccent, contentPadding = PaddingValues(0.dp)) {
+                        Icon(Icons.AutoMirrored.Outlined.Send, "Send message", Modifier.size(20.dp))
+                    }
                 }
-            } else if (speechAvailable) {
-                val micPulse by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
-                    initialValue = 1f, targetValue = 1.15f,
-                    animationSpec = infiniteRepeatable(tween(500), RepeatMode.Reverse), label = "mic-scale")
-                FilledIconButton(onClick = { startVoice() },
-                    modifier = Modifier.size(48.dp).graphicsLayer {
-                        if (listening) { scaleX = micPulse; scaleY = micPulse }
-                    },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (listening) Coral else Elevated,
-                        contentColor = if (listening) Ink else Moss)) {
-                    Icon(Icons.Outlined.Mic, if (listening) "Stop listening" else "Voice input", modifier = Modifier.size(22.dp))
+                speechAvailable -> {
+                    val ring by rememberInfiniteTransition(label = "mic-ring").animateFloat(
+                        initialValue = 0f, targetValue = 1f,
+                        animationSpec = infiniteRepeatable(tween(1100, easing = LinearOutSlowInEasing)), label = "mic-ring-progress")
+                    val ringColor = Beep.colors.accent
+                    ChunkyButton(onClick = { startVoice() },
+                        modifier = buttonModifier.drawBehind {
+                            if (listening) drawCircle(ringColor.copy(alpha = 0.45f * (1 - ring)), radius = size.minDimension * (0.5f + 0.35f * ring))
+                        }, shape = buttonShape,
+                        color = if (listening) Beep.colors.accent else Surface,
+                        contentColor = if (listening) Beep.colors.onAccent else TextPrimary, contentPadding = PaddingValues(0.dp)) {
+                        Icon(Icons.Outlined.Mic, if (listening) "Stop listening" else "Voice input", Modifier.size(22.dp))
+                    }
                 }
-            } else {
-                // Speech not available: show disabled send button
-                FilledIconButton(onClick = {}, enabled = false,
-                    modifier = Modifier.size(48.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        disabledContainerColor = Elevated, disabledContentColor = TextDim)) {
-                    Icon(Icons.AutoMirrored.Outlined.Send, "Send message", modifier = Modifier.size(19.dp))
+                else -> ChunkyButton(onClick = {}, enabled = false, modifier = buttonModifier, shape = buttonShape, contentPadding = PaddingValues(0.dp)) {
+                    Icon(Icons.AutoMirrored.Outlined.Send, "Send message", Modifier.size(20.dp))
                 }
             }
         }
@@ -850,12 +866,7 @@ private fun ClipboardBanner(clipboardContent: MutableState<String?>, onAction: (
     ) {
         val text = clip ?: return@AnimatedVisibility
         val preview = if (text.length > 40) text.take(40).trim() + "..." else text.trim()
-        Surface(
-            color = Elevated,
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, Border),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)
-        ) {
+        BeepCard(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
             Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.ContentPaste, null, Modifier.size(14.dp), tint = Moss)
@@ -873,8 +884,8 @@ private fun ClipboardBanner(clipboardContent: MutableState<String?>, onAction: (
                         tint = TextMuted
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ClipboardChip("Ask about this") { onAction("ask", text) }
                     ClipboardChip("Translate") { onAction("translate", text) }
                     ClipboardChip("Summarize") { onAction("summarize", text) }
@@ -886,14 +897,8 @@ private fun ClipboardBanner(clipboardContent: MutableState<String?>, onAction: (
 
 @Composable
 private fun ClipboardChip(label: String, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, Moss.copy(alpha = 0.5f))
-    ) {
-        Text(label, fontSize = 11.sp, color = Moss, fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+    ChunkyButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -909,17 +914,13 @@ private fun CopyReply(text: String, compact: Boolean) {
         copied = true
     }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 48.dp)) {
         Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, if (compact) (if (copied) "Copied" else "Copy reply") else null,
-            Modifier.size(14.dp), tint = Color(0xFF71816F))
+            Modifier.size(14.dp), tint = if (copied) Beep.colors.ok else TextMuted)
         if (!compact) { Spacer(Modifier.width(6.dp)); Text(if (copied) "Copied" else "Copy reply", fontSize = 11.sp, color = TextMuted) }
     }
 }
 
 // ── Rich message rendering ──────────────────────────────────────────────────
 
-private val CodeBlockBg = Color(0xFF0B100E)
-private val CodeBlockHeader = Color(0xFF080C0A)
-private val TableHeaderBg = Color(0xFF080C0A)
-private val TableAltRow = Color(0xFF0E1510)
 
 private sealed class MsgBlock {
     data class Text(val content: String) : MsgBlock()
@@ -983,19 +984,15 @@ private fun PlaceCard(data: org.json.JSONObject, compact: Boolean) {
     val lat = data.optDouble("latitude", 0.0)
     val lng = data.optDouble("longitude", 0.0)
 
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = Elevated,
-        modifier = Modifier.fillMaxWidth().animateContentSize()
-    ) {
+    BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
         Column(Modifier.padding(14.dp)) {
-            Text(name, fontWeight = FontWeight.Bold, fontSize = if (compact) 14.sp else 15.sp, color = TextPrimary)
+            Text(name, style = displayStyle(if (compact) 15.sp else 17.sp), color = TextPrimary)
             if (rating > 0) {
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val fullStars = rating.toInt()
                     repeat(fullStars) {
-                        Icon(Icons.Outlined.Star, null, Modifier.size(14.dp), tint = Coral)
+                        Icon(Icons.Outlined.Star, null, Modifier.size(14.dp), tint = Beep.colors.warn)
                     }
                     repeat(5 - fullStars) {
                         Icon(Icons.Outlined.StarBorder, null, Modifier.size(14.dp), tint = TextDim)
@@ -1008,21 +1005,19 @@ private fun PlaceCard(data: org.json.JSONObject, compact: Boolean) {
                 Spacer(Modifier.height(4.dp))
                 Text(address, fontSize = if (compact) 12.sp else 13.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
+            Spacer(Modifier.height(12.dp))
+            ChunkyButton(
                 onClick = {
                     val uri = if (lat != 0.0 && lng != 0.0) "geo:$lat,$lng?q=${Uri.encode(name)}"
                     else "geo:0,0?q=${Uri.encode(name)}"
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
                 },
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, Moss.copy(alpha = 0.6f)),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                modifier = Modifier.height(34.dp)
+                color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
+                shape = RoundedCornerShape(Beep.shapes.smallRadius),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
             ) {
-                Icon(Icons.Outlined.Map, null, Modifier.size(14.dp), tint = Moss)
-                Spacer(Modifier.width(6.dp))
-                Text("Open in Maps", fontSize = 12.sp, color = Moss)
+                Icon(Icons.Outlined.Map, null, Modifier.size(16.dp))
+                Text("Open in Maps", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -1034,25 +1029,21 @@ private fun LinkCard(data: org.json.JSONObject, onBrowse: (String) -> Unit, comp
     val description = data.optString("description", "")
     val url = data.optString("url", "")
 
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = Elevated,
-        modifier = Modifier.fillMaxWidth().clickable(enabled = url.isNotBlank()) { onBrowse(url) }.animateContentSize()
-    ) {
-        Column(Modifier.padding(14.dp)) {
+    BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
+        Column(Modifier.fillMaxWidth().clickable(enabled = url.isNotBlank()) { onBrowse(url) }.padding(14.dp)) {
             if (title.isNotBlank()) {
-                Text(title, fontWeight = FontWeight.SemiBold, fontSize = if (compact) 13.sp else 14.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = if (compact) 14.sp else 15.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (description.isNotBlank()) {
                 if (title.isNotBlank()) Spacer(Modifier.height(3.dp))
                 Text(description, fontSize = if (compact) 12.sp else 13.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (url.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Link, null, Modifier.size(12.dp), tint = Moss)
+                    Icon(Icons.Outlined.Link, null, Modifier.size(13.dp), tint = Moss)
                     Spacer(Modifier.width(4.dp))
-                    Text(url.removePrefix("https://").removePrefix("http://").take(40), fontSize = 11.sp, color = Moss, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(url.removePrefix("https://").removePrefix("http://").take(40), fontSize = 12.sp, color = Moss, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -1065,15 +1056,16 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
     val buttonsArr = data.optJSONArray("buttons") ?: return
     val buttons = (0 until buttonsArr.length()).map { buttonsArr.getJSONObject(it) }
 
+    // Room below for the hard shadow, which the scroll container would otherwise clip.
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp, end = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         buttons.forEachIndexed { index, button ->
             val label = button.optString("label", "Action")
             val action = button.optString("action", "")
             val isPrimary = index == 0
-            OutlinedButton(
+            ChunkyButton(
                 onClick = {
                     when (action) {
                         "open_browser" -> repository.browserUrl.value = button.optString("url", "")
@@ -1087,11 +1079,12 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
                             fallbackUrl = button.optString("fallback_url", ""))
                     }
                 },
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, if (isPrimary) Coral.copy(alpha = 0.7f) else Moss.copy(alpha = 0.5f)),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                color = if (isPrimary) Beep.colors.accent else Surface,
+                contentColor = if (isPrimary) Beep.colors.onAccent else TextPrimary,
+                shape = RoundedCornerShape(Beep.shapes.smallRadius),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
             ) {
-                Text(label, fontSize = 13.sp, color = if (isPrimary) Coral else Moss)
+                Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -1100,73 +1093,38 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
 @Composable
 private fun TaskProgressCard(steps: List<TaskStep>) {
     val noMotion = reduceMotion()
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = Elevated,
-        modifier = Modifier.fillMaxWidth().animateContentSize()
-    ) {
+    BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             steps.forEach { step ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    when (step.status) {
-                        "pending" -> {
-                            Box(
-                                Modifier.size(18.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Canvas(Modifier.size(14.dp)) {
-                                    drawCircle(
-                                        color = Color(0xFF7A8A80),
-                                        radius = size.minDimension / 2,
-                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
-                                    )
-                                }
+                    Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                        when (step.status) {
+                            "pending" -> Box(Modifier.size(14.dp).border(1.5.dp, Border, CircleShape))
+                            "in_progress" -> {
+                                val pulse = rememberInfiniteTransition(label = "step-pulse")
+                                val scale by if (noMotion) remember { mutableStateOf(1f) } else pulse.animateFloat(
+                                    initialValue = 0.7f, targetValue = 1f,
+                                    animationSpec = infiniteRepeatable(tween(600, easing = EaseInOutCubic), RepeatMode.Reverse),
+                                    label = "step-scale")
+                                Box(Modifier.size(12.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                                    .background(Beep.colors.accent, CircleShape))
                             }
-                        }
-                        "in_progress" -> {
-                            val pulse = rememberInfiniteTransition(label = "step-pulse")
-                            val alpha by if (noMotion) remember { mutableStateOf(1f) } else pulse.animateFloat(
-                                initialValue = 0.4f, targetValue = 1f,
-                                animationSpec = infiniteRepeatable(tween(800, easing = EaseInOutCubic), RepeatMode.Reverse),
-                                label = "step-alpha"
-                            )
-                            Box(
-                                Modifier.size(18.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Canvas(Modifier.size(10.dp)) {
-                                    drawCircle(
-                                        color = Color(0xFF3B9B7A).copy(alpha = alpha),
-                                        radius = size.minDimension / 2
-                                    )
-                                }
+                            "completed" -> Box(Modifier.size(18.dp).background(Beep.colors.ok, CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.Check, "Completed", Modifier.size(12.dp), tint = Color.White)
                             }
-                        }
-                        "completed" -> {
-                            Icon(
-                                Icons.Outlined.Check,
-                                contentDescription = "Completed",
-                                tint = Moss,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        "failed" -> {
-                            Icon(
-                                Icons.Outlined.Close,
-                                contentDescription = "Failed",
-                                tint = Coral,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            "failed" -> Box(Modifier.size(18.dp).background(Beep.colors.error, CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.Close, "Failed", Modifier.size(12.dp), tint = Color.White)
+                            }
                         }
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(
                         step.label,
-                        fontSize = 13.sp,
+                        fontSize = 14.sp,
+                        fontWeight = if (step.status == "in_progress") FontWeight.Medium else FontWeight.Normal,
                         color = when (step.status) {
-                            "completed" -> TextPrimary
-                            "failed" -> Coral
-                            "in_progress" -> TextPrimary
+                            "completed", "in_progress" -> TextPrimary
+                            "failed" -> Beep.colors.error
                             else -> TextMuted
                         }
                     )
@@ -1176,7 +1134,7 @@ private fun TaskProgressCard(steps: List<TaskStep>) {
     }
 }
 
-private fun toolIconFor(name: String): androidx.compose.ui.graphics.vector.ImageVector {
+internal fun toolIconFor(name: String): androidx.compose.ui.graphics.vector.ImageVector {
     val lower = name.lowercase()
     return when {
         "search" in lower || "web" in lower -> Icons.Outlined.Search
@@ -1197,101 +1155,6 @@ private fun toolIconFor(name: String): androidx.compose.ui.graphics.vector.Image
 }
 
 @Composable
-private fun ToolCallCard(toolCall: ToolCall) {
-    val noMotion = reduceMotion()
-    val displayName = toolCall.name.ifEmpty { toolCall.description }
-
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xFF101A14),
-        border = BorderStroke(1.dp, if (toolCall.isDone) Moss.copy(alpha = 0.25f) else Color(0xFF1E3028)),
-        modifier = Modifier.fillMaxWidth().animateContentSize()
-    ) {
-        Column {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(20.dp).background(Moss.copy(alpha = 0.1f), RoundedCornerShape(5.dp)),
-                    contentAlignment = Alignment.Center) {
-                    Icon(toolIconFor(toolCall.name.ifEmpty { toolCall.description }), null,
-                        modifier = Modifier.size(12.dp), tint = Moss)
-                }
-                Spacer(Modifier.width(7.dp))
-                Text(if (toolCall.name.isNotEmpty()) "${toolCall.name}()" else displayName,
-                    fontFamily = FontFamily.Monospace, fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium, color = Moss,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(6.dp))
-                if (toolCall.isDone) {
-                    Surface(shape = RoundedCornerShape(4.dp), color = Moss.copy(alpha = 0.1f)) {
-                        Row(Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(if (toolCall.success) Icons.Outlined.Check else Icons.Outlined.Close, null,
-                                modifier = Modifier.size(9.dp),
-                                tint = if (toolCall.success) Moss else Coral)
-                            Text(if (toolCall.success) "DONE" else "FAIL",
-                                fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
-                                color = if (toolCall.success) Moss else Coral, letterSpacing = 0.5.sp)
-                        }
-                    }
-                } else {
-                    Surface(shape = RoundedCornerShape(4.dp), color = Coral.copy(alpha = 0.1f)) {
-                        Row(Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            CircularProgressIndicator(Modifier.size(8.dp), color = Coral, strokeWidth = 1.5.dp)
-                            Text("RUNNING", fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
-                                color = Coral, letterSpacing = 0.5.sp)
-                        }
-                    }
-                }
-            }
-            if (toolCall.name.isNotEmpty() && toolCall.description.isNotEmpty()) {
-                Text(toolCall.description, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
-                    fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = Color(0xFFB8C8BC),
-                    lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0xFF1C2620))) {
-                if (toolCall.isDone) {
-                    Box(Modifier.fillMaxSize().background(
-                        Brush.horizontalGradient(listOf(Moss, Color(0xFF5AC49A)))))
-                } else if (!noMotion) {
-                    val transition = rememberInfiniteTransition(label = "tool-bar")
-                    val offset by transition.animateFloat(0f, 1f,
-                        infiniteRepeatable(tween(1600, easing = EaseInOutCubic)), label = "bar-offset")
-                    Box(Modifier.fillMaxWidth(0.35f).fillMaxHeight()
-                        .graphicsLayer { translationX = offset * size.width * 1.8f }
-                        .background(Brush.horizontalGradient(
-                            listOf(Color.Transparent, Moss, Color(0xFF5AC49A), Color.Transparent))))
-                }
-            }
-            if (toolCall.isDone && toolCall.result.isNotBlank()) {
-                val preview = remember(toolCall.result) {
-                    val r = toolCall.result.trim()
-                    if (r.length > 300) return@remember ""
-                    try {
-                        val json = org.json.JSONObject(r)
-                        if (json.has("action") || json.has("type") || json.has("results") || json.has("content")) ""
-                        else json.keys().asSequence().take(4).joinToString("  ") { k ->
-                            "$k: ${json.opt(k)}"
-                        }
-                    } catch (_: Exception) {
-                        if (r.startsWith("note:") || r.startsWith("[{") || r.startsWith("{")) ""
-                        else if (r.length > 100) r.take(100) + "..." else r
-                    }
-                }
-                if (preview.isNotBlank()) {
-                    Text(preview, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        fontFamily = FontFamily.Monospace, fontSize = 10.sp,
-                        color = TextMuted, lineHeight = 16.sp,
-                        maxLines = 3, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun CardView(card: Card, repository: ChatRepository, compact: Boolean) {
     when (card.type) {
         "place" -> PlaceCard(card.data, compact)
@@ -1300,21 +1163,31 @@ private fun CardView(card: Card, repository: ChatRepository, compact: Boolean) {
     }
 }
 
+/** Colors the inline formatter needs, read from the theme once per composition. */
+private data class InlineColors(val link: Color, val muted: Color, val code: Color, val onCode: Color)
+
 @Composable
-private fun MessageContent(text: String, role: String, compact: Boolean) {
+@ReadOnlyComposable
+private fun inlineColors() = Beep.colors.let { InlineColors(it.brand, it.muted, it.code, it.onCode) }
+
+@Composable
+private fun MessageContent(text: String, role: String, compact: Boolean, padded: Boolean = role == "user") {
     val blocks = remember(text) { parseBlocks(text) }
-    val padding = if (role == "user") (if (compact) 10.dp else 16.dp) else if (compact) 4.dp else 6.dp
+    val inline = inlineColors()
+    val color = if (role == "user") Beep.colors.onUser else TextPrimary
+    val padding = if (padded) PaddingValues(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 9.dp else 12.dp)
+        else PaddingValues(horizontal = 2.dp, vertical = 2.dp)
     Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp)) {
         blocks.forEach { block ->
             when (block) {
                 is MsgBlock.Text -> SelectionContainer {
-                    Text(remember(block.content) { formattedMessage(block.content) },
-                        fontSize = if (compact) 14.sp else 15.5.sp, lineHeight = if (compact) 21.sp else 24.sp)
+                    Text(remember(block.content, inline) { formattedMessage(block.content, inline) }, color = color,
+                        fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
                 }
                 is MsgBlock.Code -> CodeBlockView(block.language, block.code, compact)
                 is MsgBlock.Table -> TableView(block.headers, block.rows, compact)
                 is MsgBlock.Quote -> BlockQuoteView(block.content, compact)
-                MsgBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Border.copy(alpha = 0.5f))
+                MsgBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Border)
             }
         }
     }
@@ -1325,65 +1198,54 @@ private fun CodeBlockView(language: String, code: String, compact: Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
-    Surface(shape = RoundedCornerShape(12.dp), color = CodeBlockBg,
-        modifier = Modifier.fillMaxWidth(), shadowElevation = 2.dp) {
-        Column {
-            Row(Modifier.fillMaxWidth().background(CodeBlockHeader, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (language.isNotBlank()) {
-                    Surface(shape = RoundedCornerShape(4.dp), color = Border.copy(alpha = 0.4f)) {
-                        Text(language, Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                            fontSize = 10.sp, color = TextMuted, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp)
-                    }
-                }
-                Spacer(Modifier.weight(1f))
-                Row(Modifier.clickable {
-                    (context as? MainActivity)?.suppressNextClipboard = true
-                    context.getSystemService(android.content.ClipboardManager::class.java)
-                        .setPrimaryClip(android.content.ClipData.newPlainText("Code", code))
-                    copied = true
-                }.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, null,
-                        Modifier.size(13.dp), tint = if (copied) Moss else TextDim)
-                    Spacer(Modifier.width(5.dp))
-                    Text(if (copied) "Copied" else "Copy", fontSize = 11.sp, color = if (copied) Moss else TextDim)
-                }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Beep.shapes.smallRadius)).background(Beep.colors.code)) {
+        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(language.ifBlank { "code" }, fontSize = 11.sp, color = TextMuted, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.weight(1f))
+            Row(Modifier.clip(CircleShape).clickable {
+                (context as? MainActivity)?.suppressNextClipboard = true
+                context.getSystemService(android.content.ClipboardManager::class.java)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("Code", code))
+                copied = true
+            }.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, null,
+                    Modifier.size(13.dp), tint = if (copied) Beep.colors.ok else TextMuted)
+                Spacer(Modifier.width(5.dp))
+                Text(if (copied) "Copied" else "Copy", fontSize = 11.sp, color = if (copied) Beep.colors.ok else TextMuted)
             }
-            SelectionContainer {
-                Text(code, modifier = Modifier.horizontalScroll(rememberScrollState()).padding(14.dp),
-                    fontFamily = FontFamily.Monospace, fontSize = if (compact) 12.sp else 13.sp,
-                    lineHeight = if (compact) 18.sp else 20.sp, color = Color(0xFFD4E0D8))
-            }
+        }
+        SelectionContainer {
+            Text(code, modifier = Modifier.horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 14.dp),
+                fontFamily = FontFamily.Monospace, fontSize = if (compact) 12.sp else 13.sp,
+                lineHeight = if (compact) 18.sp else 20.sp, color = Beep.colors.onCode)
         }
     }
 }
 
 @Composable
 private fun TableView(headers: List<String>, rows: List<List<String>>, compact: Boolean) {
-    Surface(shape = RoundedCornerShape(10.dp), color = CodeBlockBg,
-        modifier = Modifier.fillMaxWidth(), shadowElevation = 1.dp) {
-        Column(Modifier.horizontalScroll(rememberScrollState())) {
-            Row(Modifier.background(TableHeaderBg, RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)).padding(vertical = 10.dp, horizontal = 4.dp)) {
-                headers.forEach { header ->
-                    SelectionContainer {
-                        Text(header, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
-                            fontSize = if (compact) 11.sp else 12.sp, fontWeight = FontWeight.SemiBold,
-                            color = Coral.copy(alpha = 0.85f), maxLines = 2, letterSpacing = 0.3.sp)
-                    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Beep.shapes.smallRadius))
+        .border(1.5.dp, Border, RoundedCornerShape(Beep.shapes.smallRadius)).background(Surface)
+        .horizontalScroll(rememberScrollState())) {
+        Row(Modifier.background(Beep.colors.code).padding(vertical = 10.dp, horizontal = 4.dp)) {
+            headers.forEach { header ->
+                SelectionContainer {
+                    Text(header, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
+                        fontSize = if (compact) 11.sp else 12.sp, fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary, maxLines = 2)
                 }
             }
-            HorizontalDivider(color = Border.copy(alpha = 0.4f), thickness = 0.5.dp)
-            rows.forEachIndexed { index, row ->
-                Row(Modifier.then(if (index % 2 == 1) Modifier.background(TableAltRow) else Modifier).padding(vertical = 9.dp, horizontal = 4.dp)) {
-                    row.forEach { cell ->
-                        SelectionContainer {
-                            Text(cell, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
-                                fontSize = if (compact) 11.sp else 12.sp, color = TextPrimary,
-                                lineHeight = if (compact) 16.sp else 18.sp, maxLines = 4)
-                        }
+        }
+        rows.forEachIndexed { index, row ->
+            if (index > 0) HorizontalDivider(color = Border, thickness = 1.dp)
+            Row(Modifier.padding(vertical = 9.dp, horizontal = 4.dp)) {
+                row.forEach { cell ->
+                    SelectionContainer {
+                        Text(cell, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
+                            fontSize = if (compact) 11.sp else 12.sp, color = TextPrimary,
+                            lineHeight = if (compact) 16.sp else 18.sp, maxLines = 4)
                     }
                 }
-                if (index < rows.lastIndex) HorizontalDivider(color = Border.copy(alpha = 0.15f), thickness = 0.5.dp)
             }
         }
     }
@@ -1391,22 +1253,23 @@ private fun TableView(headers: List<String>, rows: List<List<String>>, compact: 
 
 @Composable
 private fun BlockQuoteView(content: String, compact: Boolean) {
-    Surface(shape = RoundedCornerShape(6.dp), color = Elevated.copy(alpha = 0.4f),
-        modifier = Modifier.fillMaxWidth().drawBehind {
-            drawRoundRect(Moss.copy(alpha = 0.6f), size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
-        }) {
+    val bar = Beep.colors.user
+    val inline = inlineColors()
+    Box(Modifier.fillMaxWidth().drawBehind {
+        drawRoundRect(bar, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+    }) {
         SelectionContainer {
-            Text(remember(content) { formattedMessage(content) },
-                modifier = Modifier.padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-                fontSize = if (compact) 13.sp else 14.sp, lineHeight = if (compact) 19.sp else 22.sp,
+            Text(remember(content, inline) { formattedMessage(content, inline) },
+                modifier = Modifier.padding(start = 16.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
+                fontSize = if (compact) 13.sp else 15.sp, lineHeight = if (compact) 19.sp else 23.sp,
                 color = TextMuted)
         }
     }
 }
 
 // Inline markdown: links, bold, strikethrough, inline code, headings, bullets, numbered lists.
-private fun formattedMessage(text: String) = buildAnnotatedString {
+private fun formattedMessage(text: String, colors: InlineColors) = buildAnnotatedString {
     val inlineTokens = Regex("""\[([^\]]+)\]\((https?://[^\s)]+)\)|(https?://[^\s<>]+)|\*\*(.+?)\*\*|~~(.+?)~~|`([^`\n]+)`""")
     val lines = text.split('\n')
     var firstLine = true
@@ -1422,11 +1285,11 @@ private fun formattedMessage(text: String) = buildAnnotatedString {
             append(content.substring(offset, match.range.first))
             when {
                 match.groups[4] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(match.groups[4]!!.value) }
-                match.groups[5] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = TextMuted)) { append(match.groups[5]!!.value) }
-                match.groups[6] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0xFF1A1614), color = Color(0xFFF09888), fontSize = 13.sp)) { append("\u200A${match.groups[6]!!.value}\u200A") }
+                match.groups[5] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = colors.muted)) { append(match.groups[5]!!.value) }
+                match.groups[6] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = colors.code, color = colors.onCode, fontSize = 14.sp)) { append("\u200A${match.groups[6]!!.value}\u200A") }
                 else -> {
                     val url = (match.groups[2]?.value ?: match.groups[3]!!.value).trimEnd('.', ',', ';')
-                    withLink(LinkAnnotation.Url(url, TextLinkStyles(style = SpanStyle(color = Moss, textDecoration = TextDecoration.Underline)))) {
+                    withLink(LinkAnnotation.Url(url, TextLinkStyles(style = SpanStyle(color = colors.link, textDecoration = TextDecoration.Underline)))) {
                         append(match.groups[1]?.value ?: url)
                     }
                     if (match.groups[3] != null) append(match.value.removePrefix(url))
@@ -1438,34 +1301,38 @@ private fun formattedMessage(text: String) = buildAnnotatedString {
     }
 }
 
+/** Scroll to the very bottom, including the tail of a last item taller than the screen. */
+private suspend fun LazyListState.scrollToEnd(animated: Boolean) {
+    val last = layoutInfo.totalItemsCount - 1
+    if (last < 0) return
+    if (animated) animateScrollToItem(last) else scrollToItem(last)
+    val item = layoutInfo.visibleItemsInfo.lastOrNull() ?: return
+    val overflow = item.offset + item.size - (layoutInfo.viewportEndOffset - layoutInfo.afterContentPadding)
+    if (overflow > 0) { if (animated) animateScrollBy(overflow.toFloat()) else scrollBy(overflow.toFloat()) }
+}
+
 @Composable
 private fun PulsingDots() {
     val noMotion = reduceMotion()
+    val dot = Beep.colors.accent
     if (noMotion) {
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            repeat(3) { Box(Modifier.size(6.dp).background(Moss, CircleShape)) }
+            repeat(3) { Box(Modifier.size(6.dp).background(dot, CircleShape)) }
         }
         return
     }
     val infiniteTransition = rememberInfiniteTransition(label = "dots")
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
-            val alpha by infiniteTransition.animateFloat(
-                initialValue = 0.25f, targetValue = 1f,
+            val lift by infiniteTransition.animateFloat(
+                initialValue = 0f, targetValue = 1f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(450, easing = EaseInOutCubic, delayMillis = index * 160),
+                    animation = tween(380, easing = EaseInOutCubic, delayMillis = index * 120),
                     repeatMode = RepeatMode.Reverse
-                ), label = "dot-alpha-$index"
+                ), label = "dot-lift-$index"
             )
-            val scale by infiniteTransition.animateFloat(
-                initialValue = 0.7f, targetValue = 1.15f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(450, easing = EaseInOutCubic, delayMillis = index * 160),
-                    repeatMode = RepeatMode.Reverse
-                ), label = "dot-scale-$index"
-            )
-            Box(Modifier.size(6.dp).graphicsLayer { scaleX = scale; scaleY = scale }
-                .background(Moss.copy(alpha = alpha), CircleShape))
+            Box(Modifier.size(6.dp).graphicsLayer { translationY = -4.dp.toPx() * lift }
+                .background(dot.copy(alpha = 0.45f + 0.55f * lift), CircleShape))
         }
     }
 }
@@ -1476,9 +1343,9 @@ private fun ConnectionDot(connected: Boolean, status: String) {
     if (reconnecting) {
         val infiniteTransition = rememberInfiniteTransition(label = "reconnect-dot")
         val alpha by infiniteTransition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "reconnect-alpha")
-        Box(Modifier.size(6.dp).background(Color(0xFFE8B84A).copy(alpha = alpha), CircleShape))
+        Box(Modifier.size(7.dp).background(Beep.colors.warn.copy(alpha = alpha), CircleShape))
     } else {
-        Box(Modifier.size(6.dp).background(if (connected) Moss else Color(0xFFE85A4A), CircleShape))
+        Box(Modifier.size(7.dp).background(if (connected) Beep.colors.ok else Beep.colors.error, CircleShape))
     }
 }
 
@@ -1486,71 +1353,63 @@ private fun ConnectionDot(connected: Boolean, status: String) {
 fun BeepAvatar(isThinking: Boolean, modifier: Modifier = Modifier) {
     val noMotion = reduceMotion()
     val infiniteTransition = rememberInfiniteTransition(label = "beep-avatar")
+    val face = Beep.colors.user
+    val line = Beep.colors.line
+    val outline = Beep.shapes.outline
+    val dot = Beep.colors.onUser
 
-    // Idle: gentle breathing scale (0.97 to 1.03). Active: slightly faster pulse.
-    val breatheScale by if (noMotion) remember { mutableStateOf(1f) } else infiniteTransition.animateFloat(
-        initialValue = 0.97f, targetValue = 1.03f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (isThinking) 800 else 2400, easing = EaseInOutCubic),
-            repeatMode = RepeatMode.Reverse
-        ), label = "avatar-breathe"
+    // Idle: still. Thinking: a small bob.
+    val bob by if (noMotion || !isThinking) remember { mutableStateOf(0f) } else infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(520, easing = EaseInOutCubic), RepeatMode.Reverse),
+        label = "avatar-bob"
     )
 
-    // Emerald glow alpha when thinking.
-    val glowAlpha by if (noMotion || !isThinking) remember { mutableStateOf(0f) } else infiniteTransition.animateFloat(
-        initialValue = 0.15f, targetValue = 0.45f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = EaseInOutCubic),
-            repeatMode = RepeatMode.Reverse
-        ), label = "avatar-glow"
-    )
-
-    Box(modifier.size(32.dp)
-        .graphicsLayer { scaleX = breatheScale; scaleY = breatheScale }
-        .then(if (isThinking && !noMotion) Modifier.drawBehind {
-            drawCircle(Moss.copy(alpha = glowAlpha), radius = size.minDimension * 0.75f)
-        } else Modifier)
-        .background(Elevated, CircleShape),
+    Box(modifier.size(30.dp)
+        .graphicsLayer { translationY = -2.dp.toPx() * bob; rotationZ = -6f * bob }
+        .background(face, CircleShape)
+        .then(if (outline > 0.dp) Modifier.border(outline, line, CircleShape) else Modifier),
         contentAlignment = Alignment.Center
     ) {
-        if (isThinking && !noMotion) {
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-                repeat(3) { index ->
-                    val offset by infiniteTransition.animateFloat(
-                        initialValue = 0f, targetValue = -4f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(400, delayMillis = index * 120, easing = EaseInOutCubic),
-                            repeatMode = RepeatMode.Reverse
-                        ), label = "dot-bounce-$index"
-                    )
-                    Canvas(Modifier.size(5.dp).graphicsLayer { translationY = offset }) {
-                        drawCircle(Coral)
-                    }
-                }
-            }
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-                repeat(3) {
-                    Canvas(Modifier.size(5.dp)) { drawCircle(Coral) }
-                }
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+            repeat(3) { index ->
+                val offset by if (isThinking && !noMotion) infiniteTransition.animateFloat(
+                    initialValue = 0f, targetValue = -3f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(400, delayMillis = index * 120, easing = EaseInOutCubic),
+                        repeatMode = RepeatMode.Reverse
+                    ), label = "dot-bounce-$index"
+                ) else remember { mutableStateOf(0f) }
+                Canvas(Modifier.size(4.dp).graphicsLayer { translationY = offset.dp.toPx() }) { drawCircle(dot) }
             }
         }
     }
 }
 
 @Composable
-private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: (String) -> Unit) {
-    var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "suggestion-scale")
-    Surface(onClick = { pressed = true; onClick(prompt) }, shape = RoundedCornerShape(16.dp), color = Elevated,
-        modifier = Modifier.fillMaxWidth().graphicsLayer { scaleX = scale; scaleY = scale }) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = Moss, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(12.dp))
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            Icon(Icons.Outlined.NorthEast, null, tint = Moss, modifier = Modifier.size(16.dp))
+private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: (String) -> Unit) {
+    ChunkyButton(onClick = { onClick(prompt) }, modifier = Modifier.fillMaxWidth().padding(end = 3.dp, bottom = 3.dp),
+        shape = RoundedCornerShape(Beep.shapes.radius), contentPadding = PaddingValues(12.dp)) {
+        Box(Modifier.size(34.dp).background(tint, RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = TextPrimary, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary, modifier = Modifier.weight(1f))
+        Icon(Icons.Outlined.NorthEast, null, tint = TextMuted, modifier = Modifier.size(16.dp))
+    }
+}
+
+@Composable
+private fun DrawerTile(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    ChunkyButton(onClick = onClick, modifier = modifier.padding(end = 3.dp, bottom = 3.dp), color = tint,
+        shape = RoundedCornerShape(Beep.shapes.smallRadius), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 12.dp)) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, null, tint = TextPrimary, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.height(6.dp))
+            Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
         }
     }
-    LaunchedEffect(pressed) { if (pressed) { delay(200); pressed = false } }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1570,7 +1429,7 @@ private fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
     LaunchedEffect(Unit) { refresh() }
     val filtered = memories.filter { (k, v) -> query.isBlank() || k.contains(query, true) || v.contains(query, true) }
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text("Memories", fontSize = 18.sp) },
+        TopAppBar(title = { Text(displayText("Memories"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
     }) { padding ->
@@ -1579,7 +1438,7 @@ private fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
                 OutlinedTextField(query, { query = it }, placeholder = { Text("Search memories", fontSize = 13.sp) },
                     leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) }, singleLine = true,
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f),
-                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
+                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
                         unfocusedBorderColor = Border, focusedBorderColor = Moss))
                 Spacer(Modifier.width(12.dp))
                 Text("${filtered.size}", fontSize = 12.sp, color = TextMuted)
@@ -1589,7 +1448,7 @@ private fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
             else if (filtered.isEmpty()) Text(if (memories.isEmpty()) "No memories stored yet." else "No matches.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(filtered, key = { it.first }) { (key, content) ->
-                    Surface(shape = RoundedCornerShape(10.dp), color = Elevated, modifier = Modifier.fillMaxWidth()) {
+                    BeepCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
                             Column(Modifier.weight(1f)) {
                                 Text(key, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1634,9 +1493,10 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit) {
         })
     }
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text("Automations", fontSize = 18.sp) },
+        TopAppBar(title = { Text(displayText("Automations"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-            actions = { IconButton(onClick = { showCreate = true }) { Icon(Icons.Outlined.Add, "New automation") } },
+            actions = { ChunkyButton(onClick = { showCreate = true }, modifier = Modifier.padding(end = 14.dp), color = Beep.colors.accent,
+                contentColor = Beep.colors.onAccent, contentPadding = PaddingValues(8.dp)) { Icon(Icons.Outlined.Add, "New automation", Modifier.size(20.dp)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -1645,7 +1505,7 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit) {
             else if (crons.isEmpty()) Text("No automations yet.\nSchedule tasks for Beep to run on a timer.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
             else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(crons, key = { it.id }) { cron ->
-                    Surface(shape = RoundedCornerShape(10.dp), color = Elevated, modifier = Modifier.fillMaxWidth()) {
+                    BeepCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
                             Column(Modifier.weight(1f)) {
                                 Text(cron.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1660,7 +1520,7 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit) {
                                         try { withContext(Dispatchers.IO) { repository.toggleCron(cron.id, enabled) }; refresh() }
                                         catch (e: Exception) { error = e.message.orEmpty() }
                                     }
-                                }, modifier = Modifier.height(28.dp), colors = SwitchDefaults.colors(checkedTrackColor = Moss, uncheckedTrackColor = Border))
+                                }, modifier = Modifier.height(28.dp), colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok, uncheckedTrackColor = Border))
                                 IconButton(onClick = { scope.launch {
                                     try { withContext(Dispatchers.IO) { repository.deleteCron(cron.id) }; refresh() }
                                     catch (e: Exception) { error = e.message.orEmpty() }
@@ -1682,23 +1542,23 @@ private fun CreateCronDialog(onDismiss: () -> Unit, onCreate: (String, String, S
     var prompt by remember { mutableStateOf("") }
     var schedule by remember { mutableStateOf("") }
     AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
-        title = { Text("New automation", fontSize = 18.sp, fontWeight = FontWeight.Medium) },
+        title = { Text(displayText("New automation"), style = displayStyle(22.sp)) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(label, { label = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Morning briefing") },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
+                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
                     unfocusedBorderColor = Border, focusedBorderColor = Moss))
             OutlinedTextField(schedule, { schedule = it }, label = { Text("Schedule (cron)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("0 9 * * *") },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
+                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
                     unfocusedBorderColor = Border, focusedBorderColor = Moss))
             OutlinedTextField(prompt, { prompt = it }, label = { Text("Prompt") }, maxLines = 4, modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Give me a summary of...") },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
+                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
                     unfocusedBorderColor = Border, focusedBorderColor = Moss))
         } },
-        confirmButton = { Button(onClick = { if (label.isNotBlank() && prompt.isNotBlank() && schedule.isNotBlank()) onCreate(label, prompt, schedule) },
-            enabled = label.isNotBlank() && prompt.isNotBlank() && schedule.isNotBlank()) { Text("Create") } },
+        confirmButton = { ChunkyButton(onClick = { onCreate(label, prompt, schedule) }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
+            enabled = label.isNotBlank() && prompt.isNotBlank() && schedule.isNotBlank()) { Text("Create", fontWeight = FontWeight.SemiBold) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
@@ -1727,9 +1587,10 @@ private fun IntegrationsScreen(repository: ChatRepository, onBack: () -> Unit) {
         })
     }
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text("Integrations", fontSize = 18.sp) },
+        TopAppBar(title = { Text(displayText("Integrations"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-            actions = { IconButton(onClick = { showCreate = true }) { Icon(Icons.Outlined.Add, "New integration") } },
+            actions = { ChunkyButton(onClick = { showCreate = true }, modifier = Modifier.padding(end = 14.dp), color = Beep.colors.accent,
+                contentColor = Beep.colors.onAccent, contentPadding = PaddingValues(8.dp)) { Icon(Icons.Outlined.Add, "New integration", Modifier.size(20.dp)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -1738,7 +1599,7 @@ private fun IntegrationsScreen(repository: ChatRepository, onBack: () -> Unit) {
             else if (integrations.isEmpty()) Text("No integrations yet.\nConnect services like email, calendar, and more.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
             else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(integrations, key = { it.id }) { integration ->
-                    Surface(shape = RoundedCornerShape(10.dp), color = Elevated, modifier = Modifier.fillMaxWidth()) {
+                    BeepCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
                             Column(Modifier.weight(1f)) {
                                 Text(integration.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1746,7 +1607,7 @@ private fun IntegrationsScreen(repository: ChatRepository, onBack: () -> Unit) {
                                 Text(integration.provider, fontSize = 12.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.height(4.dp))
                                 Text(integration.status, fontSize = 11.sp,
-                                    color = if (integration.status == "connected") Moss else TextDim,
+                                    color = if (integration.status == "connected") Beep.colors.ok else TextDim,
                                     fontWeight = FontWeight.Medium)
                             }
                             IconButton(onClick = { scope.launch {
@@ -1771,13 +1632,13 @@ private fun CreateIntegrationDialog(onDismiss: () -> Unit, onCreate: (String, St
     var label by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
     AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
-        title = { Text("New integration", fontSize = 18.sp, fontWeight = FontWeight.Medium) },
+        title = { Text(displayText("New integration"), style = displayStyle(22.sp)) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
                 OutlinedTextField(selectedProvider, {}, readOnly = true, label = { Text("Provider") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth().menuAnchor(),
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
+                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
                         unfocusedBorderColor = Border, focusedBorderColor = Moss))
                 ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     providers.forEach { provider ->
@@ -1787,11 +1648,11 @@ private fun CreateIntegrationDialog(onDismiss: () -> Unit, onCreate: (String, St
             }
             OutlinedTextField(label, { label = it }, label = { Text("Label") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("My Email") },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Elevated, focusedContainerColor = Elevated,
+                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
                     unfocusedBorderColor = Border, focusedBorderColor = Moss))
         } },
-        confirmButton = { Button(onClick = { if (label.isNotBlank()) onCreate(selectedProvider, label) },
-            enabled = label.isNotBlank()) { Text("Create") } },
+        confirmButton = { ChunkyButton(onClick = { onCreate(selectedProvider, label) }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
+            enabled = label.isNotBlank()) { Text("Create", fontWeight = FontWeight.SemiBold) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
@@ -1834,16 +1695,11 @@ private fun OnboardingScreen(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
             verticalArrangement = Arrangement.Center
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Box(Modifier.size(96.dp).background(
-                    Brush.radialGradient(listOf(Moss.copy(alpha = 0.25f), Color.Transparent)),
-                    shape = CircleShape))
-                Surface(shape = RoundedCornerShape(18.dp), color = Elevated) {
-                    Icon(painterResource(R.drawable.ic_beep), null, tint = Color.Unspecified, modifier = Modifier.padding(12.dp).size(48.dp))
-                }
+            Box(Modifier.popIn("onboarding-logo").beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.user, pressableLook())) {
+                Icon(painterResource(R.drawable.ic_beep), null, tint = Color.Unspecified, modifier = Modifier.padding(12.dp).size(48.dp))
             }
             Spacer(Modifier.height(28.dp))
-            Text("Almost ready.", fontSize = 32.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp)
+            Text(displayText("Almost ready."), style = displayStyle(36.sp, 40.sp))
             Spacer(Modifier.height(8.dp))
             Text("A couple of permissions to make Beep more useful. You can skip any of these.", color = TextMuted, lineHeight = 22.sp)
             Spacer(Modifier.height(32.dp))
@@ -1879,7 +1735,7 @@ private fun OnboardingScreen(
             }
 
             Spacer(Modifier.height(20.dp))
-            Button(
+            ChunkyButton(
                 onClick = {
                     if (locationGranted) {
                         // Trigger location updates now that permission is granted
@@ -1887,10 +1743,10 @@ private fun OnboardingScreen(
                     }
                     onDone()
                 },
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(17.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                color = Beep.colors.accent, contentColor = Beep.colors.onAccent
             ) {
-                Text("Continue to Beep", fontWeight = FontWeight.SemiBold)
+                Text("Continue to Beep", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
             Spacer(Modifier.height(8.dp))
             TextButton(
@@ -1911,9 +1767,9 @@ private fun PermissionCard(
     granted: Boolean,
     onRequest: () -> Unit
 ) {
-    Surface(shape = RoundedCornerShape(14.dp), color = Elevated, modifier = Modifier.fillMaxWidth()) {
+    BeepCard(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = if (granted) Moss else TextMuted, modifier = Modifier.size(24.dp))
+            Icon(icon, null, tint = if (granted) Beep.colors.ok else TextMuted, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -1921,10 +1777,11 @@ private fun PermissionCard(
             }
             Spacer(Modifier.width(12.dp))
             if (granted) {
-                Icon(Icons.Outlined.CheckCircle, "Granted", tint = Moss, modifier = Modifier.size(24.dp))
+                Icon(Icons.Outlined.CheckCircle, "Granted", tint = Beep.colors.ok, modifier = Modifier.size(24.dp))
             } else {
-                FilledTonalButton(onClick = onRequest, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
-                    Text("Allow", fontSize = 13.sp)
+                ChunkyButton(onClick = onRequest, color = Beep.colors.user, contentColor = Beep.colors.onUser,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text("Allow", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -1953,7 +1810,7 @@ private fun ConnectionScreen(initial: ConnectionSettings, canGoBack: Boolean, on
         }
     }
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text(if (canGoBack) "Connection" else "Welcome to Beep", fontSize = 18.sp) },
+        TopAppBar(title = { Text(displayText(if (canGoBack) "Connection" else "Welcome to Beep"), style = displayStyle(24.sp)) },
             navigationIcon = { if (canGoBack) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
     }) { padding ->
@@ -1961,12 +1818,12 @@ private fun ConnectionScreen(initial: ConnectionSettings, canGoBack: Boolean, on
             item {
                 Icon(painterResource(R.drawable.ic_beep), null, tint = Color.Unspecified, modifier = Modifier.size(66.dp))
                 Spacer(Modifier.height(24.dp))
-                Text("Your assistant.\nYour space.", fontSize = 36.sp, lineHeight = 41.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1).sp)
+                Text(displayText("Your assistant.\nYour space."), style = displayStyle(38.sp, 42.sp))
                 Spacer(Modifier.height(12.dp))
                 Text("Connect to your Beep server to bring your conversations and memory along.", color = TextMuted, lineHeight = 23.sp)
             }
-            item { OutlinedButton(onClick = { profilePicker.launch(arrayOf("application/json", "text/*", "application/octet-stream")) }, enabled = !saving, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.FileOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Import connection profile")
+            item { ChunkyButton(onClick = { profilePicker.launch(arrayOf("application/json", "text/*", "application/octet-stream")) }, enabled = !saving, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.FileOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Import connection profile", fontWeight = FontWeight.Medium)
             } }
             item { OutlinedTextField(nodeId, { nodeId = it }, label = { Text("Node ID") }, placeholder = { Text("hex public key") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving) }
             item { OutlinedTextField(token, { token = it }, label = { Text("App token (optional in testing)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving,
@@ -1977,16 +1834,19 @@ private fun ConnectionScreen(initial: ConnectionSettings, canGoBack: Boolean, on
                 if (canGoBack) Text("Changing the server or account clears this device’s chat cache. Server history is kept.", modifier = Modifier.padding(top = 8.dp), fontSize = 12.sp, color = TextMuted)
             }
             if (error.isNotEmpty()) item { Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
-            item { Button(onClick = {
+            item { ChunkyButton(onClick = {
                 saving = true; error = ""
                 scope.launch {
                     try { onConnect(ConnectionSettings(nodeId.trim(), token.trim())) }
                     catch (e: Exception) { error = e.message ?: "Could not connect" }
                     finally { saving = false }
                 }
-            }, enabled = !saving && nodeId.isNotBlank(), modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(17.dp)) {
-                if (saving) { CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp); Spacer(Modifier.width(10.dp)) }
-                Text(if (saving) "Connecting…" else "Connect to Beep", fontWeight = FontWeight.SemiBold)
+            }, enabled = !saving && nodeId.isNotBlank(), modifier = Modifier.fillMaxWidth().height(56.dp),
+                color = Beep.colors.accent, contentColor = Beep.colors.onAccent) {
+                Spacer(Modifier.weight(1f))
+                if (saving) { CircularProgressIndicator(Modifier.size(18.dp), color = Beep.colors.onAccent, strokeWidth = 2.dp); Spacer(Modifier.width(10.dp)) }
+                Text(if (saving) "Connecting…" else "Connect to Beep", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Spacer(Modifier.weight(1f))
             } }
         }
     }

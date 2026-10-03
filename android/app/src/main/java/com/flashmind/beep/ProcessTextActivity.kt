@@ -45,17 +45,7 @@ class ProcessTextActivity : ComponentActivity() {
         val repository = (application as BeepApplication).repository
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(
-                primary = Color(0xFF3B9B7A),
-                onPrimary = Color(0xFF0A0E0C),
-                background = Color(0xFF0A0E0C),
-                surface = Color(0xFF121916),
-                onSurface = Color(0xFFE4EAE2),
-                surfaceVariant = Color(0xFF1A231E),
-                onSurfaceVariant = Color(0xFF7A8A80),
-                outline = Color(0xFF243028),
-                error = Color(0xFFF07A6A)
-            )) {
+            BeepTheme {
                 TranslateScreen(
                     text = text,
                     readonly = readonly,
@@ -95,14 +85,14 @@ private fun TranslateScreen(
     onCopy: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val ink = Color(0xFF0A0E0C)
-    val surface = Color(0xFF121916)
-    val elevated = Color(0xFF1A231E)
-    val border = Color(0xFF243028)
-    val moss = Color(0xFF3B9B7A)
-    val coral = Color(0xFFF07A6A)
-    val textPrimary = Color(0xFFE4EAE2)
-    val textMuted = Color(0xFF7A8A80)
+    val ink = Beep.colors.page
+    val surface = Beep.colors.surface
+    val elevated = Beep.colors.raised
+    val border = Beep.colors.softLine
+    val moss = Beep.colors.brand
+    val coral = Beep.colors.error
+    val textPrimary = Beep.colors.ink
+    val textMuted = Beep.colors.muted
 
     var selectedLanguage by remember { mutableStateOf("Auto") }
     var dropdownExpanded by remember { mutableStateOf(false) }

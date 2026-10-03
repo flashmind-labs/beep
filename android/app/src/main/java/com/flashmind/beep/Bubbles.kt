@@ -40,7 +40,7 @@ object Bubbles {
             Icon.createWithResource(context, R.drawable.ic_beep)
         ).setDesiredHeight(440).setAutoExpandBubble(true).setSuppressNotification(true).build()
         manager.notify(1, Notification.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.ic_beep).setContentTitle("Beep")
+            .setSmallIcon(R.drawable.ic_launcher_monochrome).setContentTitle("Beep")
             .setContentIntent(PendingIntent.getActivity(context, 0, main, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             .setCategory(Notification.CATEGORY_MESSAGE).setShortcutId(SHORTCUT)
             .setStyle(Notification.MessagingStyle(user)

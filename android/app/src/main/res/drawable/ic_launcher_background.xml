@@ -4,21 +4,8 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Base fill -->
     <path
-        android:fillColor="#0A0E0C"
+        android:fillColor="#2F8A69"
         android:pathData="M0,0h108v108H0z" />
-
-    <!-- Subtle radial glow -->
-    <path
-        android:fillColor="#102820"
-        android:fillAlpha="0.5"
-        android:pathData="M54,54m-42,0a42,42 0,1 1,84 0a42,42 0,1 1,-84 0" />
-
-    <!-- Inner glow -->
-    <path
-        android:fillColor="#18382C"
-        android:fillAlpha="0.35"
-        android:pathData="M54,54m-28,0a28,28 0,1 1,56 0a28,28 0,1 1,-56 0" />
 
 </vector>
