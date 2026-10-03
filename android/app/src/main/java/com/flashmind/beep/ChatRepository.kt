@@ -29,6 +29,7 @@ class BeepApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        AppIcons.apply(this)
     }
 
     companion object {
