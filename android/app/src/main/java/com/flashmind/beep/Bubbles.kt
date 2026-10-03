@@ -22,6 +22,7 @@ object Bubbles {
             channel.setAllowBubbles(true)
             manager.createNotificationChannel(channel)
         }
+        if (!bubblesAllowed(manager)) return false
         val person = Person.Builder().setName("Beep").setBot(true).setImportant(true)
             .setIcon(Icon.createWithResource(context, R.drawable.ic_beep)).build()
         val user = Person.Builder().setName("You").setKey("self").setBot(false).build()
@@ -47,6 +48,10 @@ object Bubbles {
             .setBubbleMetadata(bubble).setOnlyAlertOnce(true).build())
         return true
     }
+    // Without the app-level bubble permission Android posts a plain notification and nothing floats.
+    private fun bubblesAllowed(manager: NotificationManager): Boolean =
+        if (Build.VERSION.SDK_INT >= 31) manager.bubblePreference != NotificationManager.BUBBLE_PREFERENCE_NONE
+        else @Suppress("DEPRECATION") manager.areBubblesAllowed()
     fun settings(context: Context) {
         context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS)
             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))

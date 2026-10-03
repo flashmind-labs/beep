@@ -160,7 +160,7 @@ private fun reduceMotion(): Boolean {
 open class MainActivity : ComponentActivity() {
     protected open val bubble = false
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        if (it) { Bubbles.show(this); moveTaskToBack(true) } else Bubbles.settings(this)
+        if (it && Bubbles.show(this)) moveTaskToBack(true) else Bubbles.settings(this)
     }
     private val locationPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.any { it }) startLocationUpdates()
