@@ -11,7 +11,7 @@ use beep_server::{
 };
 use flashmind::{
     llm::OpenRouterProvider,
-    memory::{EmbeddingProvider, OpenRouterEmbedding},
+    memory::{EmbeddingProvider, OpenAIEmbedding, OpenRouterEmbedding},
     types::{AgentLlmConfig, Model},
 };
 use iroh::endpoint::presets;
@@ -54,10 +54,17 @@ async fn main() -> Result<()> {
         .as_ref()
         .map(|key| SearchTool::new(key.clone()).map(Arc::new))
         .transpose()?;
-    let embedder: Arc<dyn EmbeddingProvider> = Arc::new(OpenRouterEmbedding::new(
-        key.to_owned(),
-        memories::EMBEDDING_MODEL.to_owned(),
-    )?);
+    let embedder: Arc<dyn EmbeddingProvider> = match &config.openai_key {
+        Some(openai_key) => Arc::new(OpenAIEmbedding::new(
+            Some(openai_key.clone()),
+            memories::EMBEDDING_MODEL.to_owned(),
+            None,
+        )?),
+        None => Arc::new(OpenRouterEmbedding::new(
+            key.to_owned(),
+            memories::OPENROUTER_EMBEDDING_MODEL.to_owned(),
+        )?),
+    };
     let decision = Some(Arc::new(DecisionTool::new(SecretString::from(key))?));
     let composio = config.composio_key.as_deref().map(|key| ComposioSettings {
         key: SecretString::from(key),

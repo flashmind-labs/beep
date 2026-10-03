@@ -2,7 +2,8 @@
 //!
 //! Memories live in the `memories` table with an embedding each. Recall ranks
 //! them by meaning, with a bonus for shared words and a nudge for recent ones,
-//! and falls back to words alone when embeddings are unavailable. A memory
+//! and falls back to words alone when embeddings are unavailable. Nothing is
+//! put in front of the model unasked: it searches with `memory_recall`. A memory
 //! that says the same as an existing one updates it instead of adding a near
 //! copy. After each chat a cheap model call reads the exchange and adds,
 //! corrects or forgets facts, so memory does not depend on the assistant
@@ -18,7 +19,10 @@ use flashmind::memory::EmbeddingProvider;
 use serde::Deserialize;
 use std::{collections::HashSet, fmt::Write, sync::Arc, time::Duration};
 
-pub const EMBEDDING_MODEL: &str = "openai/text-embedding-3-small";
+/// The same model under its OpenAI and OpenRouter names, so stored
+/// embeddings stay comparable whichever provider is configured.
+pub const EMBEDDING_MODEL: &str = "text-embedding-3-small";
+pub const OPENROUTER_EMBEDDING_MODEL: &str = "openai/text-embedding-3-small";
 /// Embedding calls sit in front of every turn, so they get little time.
 const EMBED_TIMEOUT: Duration = Duration::from_secs(4);
 const LEARN_TIMEOUT: Duration = Duration::from_secs(60);
@@ -26,13 +30,8 @@ const LEARN_TIMEOUT: Duration = Duration::from_secs(60);
 const BACKFILL: usize = 64;
 /// Two texts this close say the same thing.
 const DUPLICATE: f32 = 0.88;
-/// How close a memory must be to the message to be put in front of the model.
-const RELEVANT: f32 = 0.35;
 /// How close a memory must be to show up in `memory_recall`.
 const RECALLABLE: f32 = 0.22;
-const CONTEXT_RELEVANT: usize = 5;
-const CONTEXT_PROFILE: usize = 3;
-const MAX_CONTEXT_CHARS: usize = 300;
 const MAX_LEARN_OPS: usize = 5;
 const MAX_EXCHANGE_CHARS: usize = 1500;
 
@@ -158,36 +157,6 @@ impl Memories {
             .filter(|h| h.similarity >= RECALLABLE || h.overlap > 0.0)
             .take(limit)
             .collect())
-    }
-
-    /// What Beep should know before answering `message`: a few profile facts and
-    /// the memories closest to the message. Never fails; on error it is empty.
-    pub async fn context(&self, user: &str, message: &str) -> Vec<Hit> {
-        let rows = match self.rows(user).await {
-            Ok(rows) => rows,
-            Err(error) => {
-                log::warn!("unable to load memories: {error}");
-                return Vec::new();
-            }
-        };
-        let mut picked: Vec<Hit> = rows
-            .iter()
-            .filter(|row| row.category == "personal")
-            .take(CONTEXT_PROFILE)
-            .cloned()
-            .map(|row| hit(row, 0.0, 0.0, 0.0))
-            .collect();
-        if !message.trim().is_empty() {
-            let vector = self.embed(&[message]).await.and_then(|mut v| v.pop());
-            let relevant = rank(rows, message, vector.as_deref())
-                .into_iter()
-                .filter(|h| h.similarity >= RELEVANT || (vector.is_none() && h.overlap >= 0.5))
-                .filter(|h| !picked.iter().any(|p| p.key == h.key))
-                .take(CONTEXT_RELEVANT)
-                .collect::<Vec<_>>();
-            picked.extend(relevant);
-        }
-        picked
     }
 
     /// Stores a memory and returns the key it ended up under. When it says the
@@ -398,20 +367,6 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
     } else {
         dot / (na.sqrt() * nb.sqrt())
     }
-}
-
-/// The developer-message block for [`Memories::context`].
-pub fn render_context(hits: &[Hit]) -> String {
-    let mut text = String::new();
-    if hits.is_empty() {
-        return text;
-    }
-    let _ = writeln!(text, "What you remember about the user (may be relevant):");
-    for h in hits {
-        let content: String = h.content.chars().take(MAX_CONTEXT_CHARS).collect();
-        let _ = writeln!(text, "- {} [{}]: {content}", h.key, h.category);
-    }
-    text
 }
 
 const LEARN_SYSTEM: &str = "You keep the long-term memory of Beep, a personal assistant app. \

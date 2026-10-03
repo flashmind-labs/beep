@@ -4,7 +4,7 @@ use crate::{
     decision::DecisionTool,
     live::LiveRun,
     mcp::McpConnections,
-    memories::{self, Exchange, Memories},
+    memories::{Exchange, Memories},
     protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestion, Run, RunEvent, Usage},
     repeat::RepeatGuard,
     search::SearchTool,
@@ -263,9 +263,9 @@ impl App {
         }
     }
 
-    /// Time, location and the memories that fit this message, sent as a developer
-    /// message. The model can look up more with `memory_recall`.
-    async fn build_context(&self, user: &str, message: &str) -> Option<String> {
+    /// Time and location for this turn, sent as a developer message. Memories are
+    /// not included: the model looks them up with `memory_recall`.
+    async fn build_context(&self, user: &str) -> Option<String> {
         let mut ctx = String::new();
 
         // Time with user's timezone
@@ -293,11 +293,6 @@ impl App {
                 lat.abs(),
                 lon.abs()
             );
-        }
-
-        let remembered = self.memories.context(user, message).await;
-        if !remembered.is_empty() {
-            let _ = write!(ctx, "\n{}", memories::render_context(&remembered));
         }
 
         (!ctx.is_empty()).then_some(ctx)
@@ -337,7 +332,7 @@ impl App {
         // Always set the server-owned prompt, including when loading an older conversation.
         // It stays static so the provider can cache it.
         conversation.set_system(include_str!("../prompts/assistant.md"));
-        let context = self.build_context(user, message).await;
+        let context = self.build_context(user).await;
 
         let llm = self.llm.clone().with_user(user);
 
