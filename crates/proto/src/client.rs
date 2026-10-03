@@ -1,6 +1,6 @@
 use crate::{
-    protocol::{Auth, Call, Rpc, Stream},
-    transport::{ALPN, Rx, framed},
+    Auth, Call, Rpc, Stream,
+    wire::{ALPN, Rx, framed},
 };
 use anyhow::{Context, Result};
 use iroh::{
@@ -18,6 +18,11 @@ pub struct Client {
 }
 
 impl Client {
+    /// True once the connection is gone and a new one is needed.
+    pub fn is_closed(&self) -> bool {
+        self.connection.close_reason().is_some()
+    }
+
     pub async fn connect(addr: impl Into<EndpointAddr>, token: &str) -> Result<Self> {
         let endpoint = Endpoint::bind(presets::N0).await?;
         let connection =

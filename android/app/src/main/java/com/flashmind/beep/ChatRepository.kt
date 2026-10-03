@@ -8,6 +8,14 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.flashmind.beep.ffi.BeepClient
+import com.flashmind.beep.proto.BrowserCommand
+import com.flashmind.beep.proto.DeviceAnswer
+import com.flashmind.beep.proto.DeviceQuery
+import com.flashmind.beep.proto.Event
+import com.flashmind.beep.proto.HistoryEntry
+import com.flashmind.beep.proto.RunEvent
+import com.flashmind.beep.proto.ScrollDirection
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -43,6 +51,8 @@ class ChatRepository(private val storage: LocalStorage) {
     private var locationJob: Job? = null
     init { if (settings.value.configured) reconnect() }
 
+    private fun api(config: ConnectionSettings = settings.value): BeepClient = Beep.client(config)
+
     private fun update(transform: (ChatState) -> ChatState) = synchronized(lock) {
         val next = transform(mutableState.value)
         storage.saveState(next) // Cursor and text are committed atomically, before publishing either.
@@ -58,30 +68,24 @@ class ChatRepository(private val storage: LocalStorage) {
     private suspend fun loadHistory(id: String, config: ConnectionSettings) {
         val before = state.value.conversations.find { it.id == id } ?: return
         if (before.busy) return
-        val entries = JSONObject(serverApi(config).json("GET", "/v1/sessions/$id")).getJSONArray("entries")
-        val messages = (0 until entries.length()).mapNotNull { i ->
-            val entry = entries.getJSONObject(i)
-            val role = entry.optString("role")
-            if (role !in listOf("user", "assistant")) null
-            else ChatMessage("history-$id-$i", role, entry.getString("content"))
+        val messages = api(config).getSession(id).mapIndexed { i, entry ->
+            when (entry) {
+                is HistoryEntry.User -> ChatMessage("history-$id-$i", "user", entry.content)
+                is HistoryEntry.Assistant -> ChatMessage("history-$id-$i", "assistant", entry.content)
+            }
         }
         if (settings.value != config) return
         updateChat(id) { current -> if (current == before) current.copy(messages = messages) else current }
     }
     fun refreshHistory() { scope.launch { runCatching { syncHistory(settings.value) } } }
     private suspend fun syncHistory(config: ConnectionSettings) {
-        val sessions = JSONObject(serverApi(config).json("GET", "/v1/sessions")).getJSONArray("sessions")
+        val sessions = api(config).listSessions()
         if (settings.value != config) return
         update { state ->
             val known = state.conversations.map { it.id }.toSet()
-            val serverPinned = (0 until sessions.length()).associate { i ->
-                val item = sessions.getJSONObject(i)
-                item.getString("id") to item.optBoolean("pinned", false)
-            }
-            val added = (0 until sessions.length()).mapNotNull { i ->
-                val item = sessions.getJSONObject(i)
-                if (item.getString("id") in known) null else Conversation(id = item.getString("id"), title = item.getString("title"), pinned = item.optBoolean("pinned", false))
-            }
+            val serverPinned = sessions.associate { it.id to it.pinned }
+            val added = sessions.filter { it.id !in known }
+                .map { Conversation(id = it.id, title = it.title, pinned = it.pinned) }
             // Update pinned status from server for existing conversations
             val updated = state.conversations.map { c ->
                 val pin = serverPinned[c.id]
@@ -89,12 +93,8 @@ class ChatRepository(private val storage: LocalStorage) {
             }
             state.copy(conversations = (updated + added).sortedByDescending { it.pinned })
         }
-        if ((0 until sessions.length()).any { sessions.getJSONObject(it).getString("id") == state.value.current.id })
+        if (sessions.any { it.id == state.value.current.id })
             loadHistory(state.value.current.id, config)
-    }
-    private suspend fun connectionLabel(config: ConnectionSettings): String {
-        val mode = JSONObject(serverApi(config).json("GET", "/v1/auth")).optString("mode")
-        return if (mode == "testing") "Testing · shared account" else "Connected"
     }
     fun newChat() = update { state ->
         val chat = Conversation(); state.copy(conversations = listOf(chat) + state.conversations, selected = chat.id)
@@ -102,8 +102,7 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun connect(config: ConnectionSettings) {
         require(config.configured) { "Enter your server's node ID." }
         connection.value = "Connecting…"
-        val health = JSONObject(serverApi(config).json("GET", "/v1/health"))
-        check(health.optString("status") == "ok") { "Server not reachable." }
+        try { api(config).health() } catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
         val effective = config
         val changedAccount = settings.value.nodeId != effective.nodeId || settings.value.token != effective.token
         synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
@@ -113,7 +112,7 @@ class ChatRepository(private val storage: LocalStorage) {
         connected.value = true
         scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
         NotificationService.start(storage.context)
-        connection.value = connectionLabel(effective)
+        connection.value = "Connected"
         resumePending()
         runCatching { syncHistory(effective) }
     }
@@ -124,11 +123,11 @@ class ChatRepository(private val storage: LocalStorage) {
             while (isActive) {
                 try {
                     connection.value = if (attempt > 0) "Reconnecting… (attempt ${attempt + 1})" else "Checking connection…"
-                    serverApi(settings.value).json("GET", "/v1/health")
+                    api().health()
                     connected.value = true
                     scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
                     NotificationService.start(storage.context)
-                    connection.value = connectionLabel(settings.value)
+                    connection.value = "Connected"
                     resumePending()
                     runCatching { syncHistory(settings.value) }
                     return@launch
@@ -136,7 +135,11 @@ class ChatRepository(private val storage: LocalStorage) {
                     if (error is CancellationException) throw error
                     attempt++
                     connected.value = false
-                    connection.value = if (attempt < 5) "Reconnecting…" else "Can’t reach your server · tap to retry"
+                    connection.value = when {
+                        error is com.flashmind.beep.ffi.BeepException.Unauthorized -> userMessage(error)
+                        attempt < 5 -> "Reconnecting…"
+                        else -> "Can’t reach your server · tap to retry"
+                    }
                     if (attempt >= 10) return@launch
                     delay(minOf(1000L * attempt, 15000L))
                 }
@@ -160,8 +163,8 @@ class ChatRepository(private val storage: LocalStorage) {
         updateChat(chat.id) { it.copy(cancelRequested = true, status = "Stopping…") }
         scope.launch {
             if (chat.runId.isEmpty()) { retry(); return@launch }
-            try { serverApi(settings.value).json("POST", "/v1/runs/${chat.runId}/cancel") }
-            catch (error: Exception) { updateChat(chat.id) { it.copy(error = error.message.orEmpty()) } }
+            try { api().cancelRun(chat.runId) }
+            catch (error: Exception) { updateChat(chat.id) { it.copy(error = userMessage(error)) } }
         }
     }
     private fun launchRun(id: String) = synchronized(lock) {
@@ -171,21 +174,18 @@ class ChatRepository(private val storage: LocalStorage) {
             while (isActive) {
                 val chat = state.value.conversations.find { it.id == id } ?: break
                 if (!chat.busy) break
-                val api = serverApi(settings.value)
                 try {
+                    val api = api()
                     updateChat(id) { it.copy(error = "", status = if (it.runId.isEmpty()) "Sending…" else "Beep is thinking…") }
                     if (chat.runId.isEmpty()) {
-                        val body = JSONObject().put("session_id", id).put("request_id", chat.requestId).put("message", chat.pendingText)
-                        if (chat.pendingImage != null) body.put("image", chat.pendingImage)
-                        val run = JSONObject(api.json("POST", "/v1/runs", body.toString()))
-                        updateChat(id) { it.copy(runId = run.getString("id"), requestId = "", pendingText = "", pendingImage = null, cursor = 0) }
+                        val run = api.chat(id, chat.requestId, chat.pendingText, chat.pendingImage)
+                        updateChat(id) { it.copy(runId = run.id, requestId = "", pendingText = "", pendingImage = null, cursor = 0) }
                     }
                     val current = state.value.conversations.first { it.id == id }
-                    if (current.cancelRequested) api.json("POST", "/v1/runs/${current.runId}/cancel")
-                    val decoder = NdjsonDecoder { line -> event(id, JSONObject(line)) }
-                    val status = api.request("GET", "/v1/runs/${current.runId}/events?after=${current.cursor}") { decoder.feed(it) }
-                    api.checkStatus(status)
-                    decoder.finish()
+                    if (current.cancelRequested) api.cancelRun(current.runId)
+                    api.events(current.runId, current.cursor).use { events ->
+                        while (true) event(id, current.runId, events.next() ?: break)
+                    }
                     failures = 0; connected.value = true
                     // Bounded server subscriptions may end before the run. Reopen from the cursor.
                     delay(150)
@@ -193,7 +193,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     if (error is CancellationException) throw error
                     failures++
                     connected.value = false; connection.value = "Connection interrupted"
-                    updateChat(id) { it.copy(status = "", error = if (failures < 4) "Reconnecting…" else (error.message ?: "Connection failed. Tap Retry.")) }
+                    updateChat(id) { it.copy(status = "", error = if (failures < 4) "Reconnecting…" else userMessage(error)) }
                     if (failures >= 4) { reconnect(); break }
                     delay(1000L shl (failures - 1))
                 }
@@ -201,59 +201,47 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
     suspend fun listMemories(): List<Pair<String, String>> {
-        val result = JSONObject(serverApi(settings.value).json("GET", "/v1/memories"))
-        val arr = result.getJSONArray("memories")
-        return (0 until arr.length()).map { arr.getJSONObject(it).let { m -> m.getString("key") to m.getString("content") } }
+        return api().listMemories().map { it.key to it.content }
     }
     suspend fun deleteMemory(key: String) {
-        serverApi(settings.value).json("DELETE", "/v1/memories", JSONObject().put("key", key).toString())
+        api().deleteMemory(key)
     }
 
     data class Cron(val id: String, val label: String, val prompt: String, val schedule: String, val enabled: Boolean)
     suspend fun listCrons(): List<Cron> {
-        val result = JSONObject(serverApi(settings.value).json("GET", "/v1/crons"))
-        val arr = result.getJSONArray("crons")
-        return (0 until arr.length()).map { arr.getJSONObject(it).let { c ->
-            Cron(c.getString("id"), c.getString("label"), c.getString("prompt"), c.getString("schedule"), c.optBoolean("enabled", true))
-        } }
+        return api().listCrons().map { Cron(it.id, it.label, it.prompt, it.schedule, it.enabled) }
     }
     suspend fun createCron(label: String, prompt: String, schedule: String) {
-        serverApi(settings.value).json("POST", "/v1/crons", JSONObject().put("label", label).put("prompt", prompt).put("schedule", schedule).toString())
+        api().createCron(label, prompt, schedule)
     }
     suspend fun deleteCron(id: String) {
-        serverApi(settings.value).json("DELETE", "/v1/crons/$id")
+        api().deleteCron(id)
     }
     suspend fun toggleCron(id: String, enabled: Boolean) {
-        serverApi(settings.value).json("PATCH", "/v1/crons/$id", JSONObject().put("enabled", enabled).toString())
+        api().updateCron(id, enabled, null, null)
     }
 
     data class McpConnection(val id: String, val provider: String, val label: String, val status: String)
     suspend fun listIntegrations(): List<McpConnection> {
-        val result = JSONObject(serverApi(settings.value).json("GET", "/v1/integrations"))
-        val arr = result.getJSONArray("integrations")
-        return (0 until arr.length()).map { arr.getJSONObject(it).let { c ->
-            McpConnection(c.getString("id"), c.getString("provider"), c.getString("label"), c.getString("status"))
-        } }
+        return api().listIntegrations().map { McpConnection(it.id, it.provider, it.label, it.status) }
     }
     suspend fun createIntegration(provider: String, label: String, config: String = "{}") {
-        serverApi(settings.value).json("POST", "/v1/integrations",
-            JSONObject().put("provider", provider).put("label", label).put("config", config).toString())
+        api().createIntegration(provider, label, config)
     }
     suspend fun uploadCredentials(id: String, credentials: String) {
-        serverApi(settings.value).json("PUT", "/v1/integrations/$id/credentials",
-            JSONObject().put("credentials", JSONObject(credentials)).put("status", "connected").toString())
+        api().updateCredentials(id, credentials, "connected")
     }
     suspend fun deleteIntegration(id: String) {
-        serverApi(settings.value).json("DELETE", "/v1/integrations/$id")
+        api().deleteIntegration(id)
     }
 
     suspend fun renameSession(id: String, title: String) {
-        serverApi(settings.value).json("PUT", "/v1/sessions/$id", JSONObject().put("title", title).toString())
+        api().renameSession(id, title)
         updateChat(id) { it.copy(title = title) }
     }
 
     suspend fun deleteSession(id: String) {
-        serverApi(settings.value).json("DELETE", "/v1/sessions/$id")
+        api().deleteSession(id)
         update { state ->
             val remaining = state.conversations.filter { it.id != id }
             val safe = remaining.ifEmpty { listOf(Conversation()) }
@@ -262,7 +250,7 @@ class ChatRepository(private val storage: LocalStorage) {
     }
 
     suspend fun pinSession(id: String, pinned: Boolean) {
-        serverApi(settings.value).json("PUT", "/v1/sessions/$id/pin", JSONObject().put("pinned", pinned).toString())
+        api().pinSession(id, pinned)
         updateChat(id) { it.copy(pinned = pinned) }
         update { state ->
             state.copy(conversations = state.conversations.sortedByDescending { it.pinned })
@@ -270,47 +258,42 @@ class ChatRepository(private val storage: LocalStorage) {
     }
 
     suspend fun registerDevice(deviceId: String, fcmToken: String) {
-        serverApi(settings.value).json("POST", "/v1/devices",
-            JSONObject().put("device_id", deviceId).put("fcm_token", fcmToken).toString())
+        api().registerDevice(deviceId, fcmToken)
     }
 
     /** One-shot translation: creates a temporary session, sends the prompt, streams the response, and returns the full text. */
     suspend fun translate(text: String, language: String): String {
         val config = settings.value
         require(config.configured) { "Server not configured" }
-        val api = serverApi(config)
+        val api = api(config)
         val sessionId = UUID.randomUUID().toString()
         val prompt = if (language == "Auto") "Translate the following text to the most likely target language (if it's English, translate to Spanish; otherwise translate to English). Reply with ONLY the translation, no explanation:\n\n$text"
             else "Translate the following text to $language. Reply with ONLY the translation, no explanation:\n\n$text"
-        val body = JSONObject().put("session_id", sessionId).put("request_id", UUID.randomUUID().toString()).put("message", prompt)
-        val run = JSONObject(api.json("POST", "/v1/runs", body.toString()))
-        val runId = run.getString("id")
+        val run = api.chat(sessionId, UUID.randomUUID().toString(), prompt, null)
         val result = StringBuilder()
         var cursor = 0L
         var finished = false
         while (!finished) {
-            val decoder = NdjsonDecoder { line ->
-                val event = JSONObject(line)
-                val seq = event.optLong("seq", -1)
-                if (seq > cursor) cursor = seq
-                when (event.optString("type")) {
-                    "text_delta" -> result.append(event.getString("delta"))
-                    "run_finished" -> finished = true
-                    "error" -> throw Exception(event.optString("message", "Translation failed"))
+            api.events(run.id, cursor).use { events ->
+                while (true) {
+                    val event = events.next() ?: break
+                    cursor = event.seq
+                    when (val e = event.event) {
+                        is RunEvent.TextDelta -> result.append(e.delta)
+                        is RunEvent.RunFinished -> finished = true
+                        is RunEvent.Error -> throw Exception(e.message.ifEmpty { "Translation failed" })
+                        else -> {}
+                    }
                 }
             }
-            val status = api.request("GET", "/v1/runs/$runId/events?after=$cursor") { decoder.feed(it) }
-            api.checkStatus(status)
-            decoder.finish()
-            if (!finished) kotlinx.coroutines.delay(150)
+            if (!finished) delay(150)
         }
         return result.toString().trim()
     }
 
     suspend fun updateLocation(latitude: Double, longitude: Double, accuracy: Float) {
         val tz = java.util.TimeZone.getDefault().id
-        serverApi(settings.value).json("POST", "/v1/location",
-            JSONObject().put("latitude", latitude).put("longitude", longitude).put("accuracy", accuracy.toDouble()).put("timezone", tz).toString())
+        api().updateLocation(latitude, longitude, accuracy.toDouble(), tz)
     }
 
     fun startLocationUpdates(getLocation: suspend () -> Triple<Double, Double, Float>?) {
@@ -328,32 +311,29 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
 
-    private suspend fun executeDeviceQuery(query: JSONObject): JSONObject {
-        val action = query.optString("action", "unknown")
-        return when (action) {
-            "query_contacts" -> {
-                val name = query.optString("name", "")
-                queryContacts(name)
-            }
-            "browser_command" -> {
-                val browserAction = query.optString("browser_action", "")
-                if (browserAction == "navigate") {
-                    val url = query.optString("url", "")
-                    if (url.isNotEmpty()) {
-                        browserUrl.value = url
-                        // Give the WebView a moment to open and load
-                        kotlinx.coroutines.delay(2000)
-                        JSONObject().put("navigated", true).put("url", url)
-                    } else {
-                        JSONObject().put("error", "missing_url")
-                            .put("message", "URL is required for navigate action")
-                    }
-                } else {
-                    BrowserBridge.executeCommand(browserAction, query)
-                }
-            }
-            else -> JSONObject().put("error", "not_implemented").put("action", action)
+    private suspend fun executeDeviceQuery(query: DeviceQuery): JSONObject = when (query) {
+        is DeviceQuery.Contacts -> queryContacts(query.name)
+        is DeviceQuery.Browser -> browser(query.command)
+    }
+
+    private suspend fun browser(command: BrowserCommand): JSONObject = when (command) {
+        is BrowserCommand.Navigate -> if (command.url.isNotEmpty()) {
+            browserUrl.value = command.url
+            // Give the WebView a moment to open and load
+            delay(2000)
+            JSONObject().put("navigated", true).put("url", command.url)
+        } else {
+            JSONObject().put("error", "missing_url").put("message", "URL is required for navigate action")
         }
+        is BrowserCommand.Click ->
+            BrowserBridge.executeCommand("click", JSONObject().put("selector", command.selector))
+        is BrowserCommand.Type -> BrowserBridge.executeCommand("type",
+            JSONObject().put("selector", command.selector).put("text", command.text))
+        is BrowserCommand.Scroll -> BrowserBridge.executeCommand("scroll",
+            JSONObject().put("direction", if (command.direction == ScrollDirection.UP) "up" else "down"))
+        is BrowserCommand.GetText ->
+            BrowserBridge.executeCommand("get_text", JSONObject().put("selector", command.selector))
+        BrowserCommand.GetPageInfo -> BrowserBridge.executeCommand("get_page_info", JSONObject())
     }
 
     private fun queryContacts(query: String): JSONObject {
@@ -435,8 +415,7 @@ class ChatRepository(private val storage: LocalStorage) {
     }
 
     private suspend fun sendDeviceResult(runId: String, queryId: String, result: JSONObject) {
-        val body = JSONObject().put("query_id", queryId).put("result", result)
-        serverApi(settings.value).json("POST", "/v1/runs/$runId/device-result", body.toString())
+        api().deviceResult(runId, queryId, DeviceAnswer.Ok(result.toString()))
     }
 
     private fun extractCardsFromText(message: ChatMessage): ChatMessage {
@@ -457,36 +436,36 @@ class ChatRepository(private val storage: LocalStorage) {
         return message.copy(text = cleanText.trim(), cards = message.cards + cards)
     }
 
-    private fun event(id: String, event: JSONObject) {
-        val sequence = event.optLong("seq", -1)
+    private fun event(id: String, runId: String, received: Event) {
+        val sequence = received.seq
         updateChat(id) { chat ->
-            if (event.optString("run_id") != chat.runId || sequence <= chat.cursor) return@updateChat chat
+            if (runId != chat.runId || sequence <= chat.cursor) return@updateChat chat
             check(sequence == chat.cursor + 1) { "Missing server event; reconnecting" }
             var next = chat.copy(cursor = sequence)
-            when (event.optString("type")) {
-                "text_delta" -> {
+            when (val event = received.event) {
+                is RunEvent.TextDelta -> {
                     val messageId = "assistant-${chat.runId}"
                     val existing = next.messages.find { it.id == messageId }
-                    val newText = existing?.text.orEmpty() + event.getString("delta")
+                    val newText = existing?.text.orEmpty() + event.delta
                     val message = if (existing != null) existing.copy(text = newText)
                         else ChatMessage(messageId, "assistant", newText)
                     next = next.copy(messages = if (existing == null) next.messages + message else next.messages.map { if (it.id == messageId) message else it }, status = "Replying...", tool = "")
                 }
-                "tool_started" -> {
+                is RunEvent.ToolStarted -> {
+                    val description = event.description.ifEmpty { "Using a tool..." }
                     val messageId = "assistant-${chat.runId}"
                     val existing = next.messages.find { it.id == messageId }
-                    val tc = ToolCall(callId = event.optString("call_id"), name = event.optString("name"),
-                        description = event.optString("description", "Using a tool..."))
+                    val tc = ToolCall(callId = event.callId, name = event.name, description = description)
                     val msg = if (existing != null) existing.copy(toolCalls = existing.toolCalls + tc)
                         else ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc))
                     next = next.copy(
                         messages = if (existing == null) next.messages + msg else next.messages.map { if (it.id == messageId) msg else it },
-                        tool = event.optString("description", "Using a tool..."), status = "Working...")
+                        tool = description, status = "Working...")
                 }
-                "tool_result" -> {
-                    val callId = event.optString("call_id")
-                    val toolSuccess = event.optBoolean("success")
-                    val output = event.optString("output", "")
+                is RunEvent.ToolResult -> {
+                    val callId = event.callId
+                    val toolSuccess = event.success
+                    val output = event.output
                     val messageId = "assistant-${chat.runId}"
                     val curMsg = next.messages.find { it.id == messageId }
                     if (curMsg != null && curMsg.toolCalls.isNotEmpty()) {
@@ -545,19 +524,17 @@ class ChatRepository(private val storage: LocalStorage) {
                         } catch (_: Exception) {}
                     }
                 }
-                "device_query" -> {
-                    val queryId = event.getString("query_id")
-                    val query = event.getJSONObject("query")
+                is RunEvent.DeviceQuery -> {
                     scope.launch {
                         runCatching {
-                            val result = executeDeviceQuery(query)
-                            sendDeviceResult(chat.runId, queryId, result)
+                            val result = executeDeviceQuery(event.query)
+                            sendDeviceResult(chat.runId, event.queryId, result)
                         }
                     }
                 }
-                "error" -> next = next.copy(error = event.optString("message", "The assistant couldn’t finish."))
-                "run_finished" -> {
-                    val status = event.getString("status")
+                is RunEvent.Error -> next = next.copy(error = event.message.ifEmpty { "The assistant couldn’t finish." })
+                is RunEvent.RunFinished -> {
+                    val status = event.status
                     // Extract any card JSON embedded in assistant text
                     val messageId = "assistant-${chat.runId}"
                     next = next.copy(
@@ -569,6 +546,7 @@ class ChatRepository(private val storage: LocalStorage) {
                         else -> chat.error.ifEmpty { "Run ended: $status. You can send another message." }
                     })
                 }
+                is RunEvent.Usage, is RunEvent.RunStarted -> {}
             }
             next
         }

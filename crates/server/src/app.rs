@@ -1,6 +1,6 @@
 use crate::{
     config::Auth,
-    protocol::{DeviceAnswer, DeviceQuery, Notice, Run, RunEvent},
+    protocol::{DeviceAnswer, DeviceQuery, Notice, Run, RunEvent, Usage},
     store::{CreateRun, Store},
     tools,
 };
@@ -218,9 +218,10 @@ impl App {
         }
     }
 
+    /// Time and location for this turn, sent as a developer message. Memories are
+    /// not included: the model looks them up with `memory_recall`.
     async fn build_context(&self, user: &str) -> Option<String> {
-        let mut ctx = String::from("[Context -- do not repeat to user]\n");
-        let mut has_content = false;
+        let mut ctx = String::new();
 
         // Time with user's timezone
         if let Ok(tz_name) = self.store.get_timezone(user).await {
@@ -233,7 +234,6 @@ impl App {
                 Utc::now().format("%Y-%m-%d %H:%M UTC").to_string()
             };
             let _ = writeln!(ctx, "Time: {now}");
-            has_content = true;
         }
 
         // Location
@@ -248,21 +248,9 @@ impl App {
                 lat.abs(),
                 lon.abs()
             );
-            has_content = true;
         }
 
-        // Memories (most recent 15)
-        if let Ok(memories) = self.store.list_memories(user).await
-            && !memories.is_empty()
-        {
-            let _ = writeln!(ctx, "Memories:");
-            for mem in memories.iter().take(15) {
-                let _ = writeln!(ctx, "- {}: {}", mem.key, mem.content);
-            }
-            has_content = true;
-        }
-
-        has_content.then_some(ctx)
+        (!ctx.is_empty()).then_some(ctx)
     }
 
     /// Parse a `data:image/jpeg;base64,...` URI into a `ContentPart::Image`.
@@ -293,19 +281,20 @@ impl App {
             .conversation(user, &run.session_id)
             .await?
             .unwrap_or_else(Conversation::new);
+
         // Always set the server-owned prompt, including when loading an older conversation.
-        let base_prompt = include_str!("../prompts/assistant.md");
-        let system_prompt = match self.build_context(user).await {
-            Some(ctx) => format!("{base_prompt}\n\n{ctx}"),
-            None => base_prompt.to_owned(),
-        };
-        conversation.set_system(&system_prompt);
+        // It stays static so the provider can cache it.
+        conversation.set_system(include_str!("../prompts/assistant.md"));
+        let context = self.build_context(user).await;
+
         let mut llm = AgentLlmConfig::new(self.model.clone()).with_user(user);
         llm.max_tokens = Some(4096);
+
         let mut registry = tools::registry(self.clone(), &run.id, user);
         if let Some(search) = &self.search {
             registry.register(search.clone());
         }
+
         if let Some(key) = &self.composio_key {
             use flashmind::tools::composio::{ComposioClient, make_composio_tool_wrappers};
             let client = Arc::new(
@@ -317,26 +306,33 @@ impl App {
                 }
             }
         }
+
         if let Some(mcp) = &self.mcp {
             crate::mcp::register_mcp_tools(mcp, &mut registry).await;
         }
+
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
             .tools(registry)
             .build_sync();
-        let input = match image.and_then(Self::parse_image_data_uri) {
-            Some(part) => AgentInput::User {
-                content: message.to_owned(),
-                context: None,
-                parts: Some(vec![part]),
-            },
-            None => AgentInput::user(message),
+
+        // Flashmind saves `context` as a developer message before the user message. It
+        // stays in history, which keeps the cached prefix intact and timestamps each turn.
+        let input = AgentInput::User {
+            content: message.to_owned(),
+            context,
+            parts: image
+                .and_then(Self::parse_image_data_uri)
+                .map(|part| vec![part]),
         };
+
         let status = {
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
+
             let deadline = tokio::time::sleep(Duration::from_secs(180));
             tokio::pin!(deadline);
+
             let mut tools_started = 0;
             loop {
                 let event = tokio::select! {
@@ -345,6 +341,7 @@ impl App {
                     _ = &mut deadline => { cancel.cancel(); break "timed_out"; },
                     event = stream.next() => event,
                 };
+
                 let data = match event {
                     Some(AgentEvent::TextDelta(delta)) => RunEvent::TextDelta { delta },
                     Some(AgentEvent::ToolStart {
@@ -375,7 +372,15 @@ impl App {
                         output,
                         success,
                     },
-                    Some(AgentEvent::Usage(usage)) => RunEvent::Usage { usage },
+                    Some(AgentEvent::Usage(u)) => RunEvent::Usage {
+                        usage: Usage {
+                            prompt_tokens: u.prompt_tokens,
+                            completion_tokens: u.completion_tokens,
+                            total_tokens: u.total_tokens,
+                            cache_read_tokens: u.cache_read_tokens,
+                            cache_creation_tokens: u.cache_creation_tokens,
+                        },
+                    },
                     Some(AgentEvent::Done(_)) => break "completed",
                     Some(AgentEvent::Error(_)) => {
                         // Provider errors can contain upstream response details. Keep them off the wire.
@@ -390,15 +395,18 @@ impl App {
                     None => break "failed",
                     _ => continue,
                 };
+
                 self.store.append(&run.id, &data).await?;
             }
         };
+
         if is_cron {
             // Notify registered devices for cron-triggered runs only.
             self.notify_run_complete(user, run, status).await;
             // Log cron completion.
             let _ = self.store.log_cron_finish(&run.id, status, "").await;
         }
+
         // Persist state and the terminal event together before clients observe completion.
         self.store
             .finish(user, run, Some(&conversation), status)

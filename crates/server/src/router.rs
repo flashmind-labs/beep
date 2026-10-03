@@ -3,8 +3,11 @@
 use crate::{
     AsyncMutex,
     app::App,
-    protocol::{ApiError, Call, Op, Stream},
-    transport::{Frame, READ_TIMEOUT, Tx, framed},
+    protocol::{
+        ApiError, Call, Op, Stream,
+        wire::{Frame, Tx, framed},
+    },
+    transport::READ_TIMEOUT,
 };
 use anyhow::{Context, Result, bail};
 use futures::future::BoxFuture;

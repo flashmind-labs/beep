@@ -17,6 +17,7 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
     sourceSets.getByName("debug").assets.srcDir("../../.dev/android-assets")
+    sourceSets.getByName("main").java.srcDir("build/generated/uniffi")
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -38,6 +39,7 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.glance:glance-material3:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("net.java.dev.jna:jna:5.17.0@aar")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250107")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
@@ -48,9 +50,10 @@ val buildNative by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir.parentFile)
     commandLine("sh", "scripts/build-android-native.sh")
     environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath)
-    inputs.files(fileTree("../../crates/quic-client") { exclude("target/**") })
+    inputs.files(fileTree("../../crates/proto") { exclude("target/**") })
     inputs.files(fileTree("../../crates/android-bridge") { exclude("target/**") })
     inputs.file("../../Cargo.lock")
     outputs.file("src/main/jniLibs/arm64-v8a/libbeep_android.so")
+    outputs.dir("build/generated/uniffi")
 }
 tasks.named("preBuild").configure { dependsOn(buildNative) }

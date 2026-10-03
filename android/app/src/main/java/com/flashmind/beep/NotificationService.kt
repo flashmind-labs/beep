@@ -10,7 +10,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.IBinder
 import kotlinx.coroutines.*
-import org.json.JSONObject
+import com.flashmind.beep.proto.Notice
 
 class NotificationService : Service() {
     companion object {
@@ -76,11 +76,10 @@ class NotificationService : Service() {
                 val config = storage.loadSettings()
                 if (!config.configured) { delay(5000); continue }
                 try {
-                    val api = serverApi(config)
-                    val decoder = NdjsonDecoder { line -> handleEvent(JSONObject(line)) }
-                    api.request("GET", "/v1/notifications") { decoder.feed(it) }
-                    decoder.finish()
-                    attempt = 0
+                    Beep.client(config).notifications().use { notices ->
+                        attempt = 0
+                        while (true) handleNotice(notices.next() ?: break)
+                    }
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
                     attempt++
@@ -90,10 +89,10 @@ class NotificationService : Service() {
         }
     }
 
-    private fun handleEvent(event: JSONObject) {
-        val title = event.optString("title").ifEmpty { return }
-        val body = event.optString("body", "")
-        val conversationId = event.optString("conversation_id", "")
+    private fun handleNotice(notice: Notice) {
+        val title = notice.title.ifEmpty { return }
+        val body = notice.body
+        val conversationId = notice.sessionId
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP

@@ -151,11 +151,10 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     let c = h.client().await;
 
     c.call(&Health {}).await.unwrap();
-    assert!(
-        Client::connect(h.router.endpoint().addr(), "wrong-token")
-            .await
-            .is_err()
-    );
+    let Err(rejected) = Client::connect(h.router.endpoint().addr(), "wrong-token").await else {
+        panic!("wrong token accepted");
+    };
+    assert_eq!(api_error(rejected), ApiError::Unauthorized {});
 
     let session = Uuid::new_v4();
     let chat = Chat {

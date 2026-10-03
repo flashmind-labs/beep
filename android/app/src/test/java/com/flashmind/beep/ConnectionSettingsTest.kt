@@ -4,14 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionSettingsTest {
-    @Test fun testingProfileDoesNotRequireCredentials() {
-        val config = ConnectionSettings.fromJson("""{"address":"beep.example:4433","hostname":"localhost","ca":"public-certificate"}""")
+    @Test fun nodeIdIsEnoughToConfigure() {
+        val config = ConnectionSettings.fromJson("""{"node_id":"example-node-id"}""")
         assertTrue(config.configured)
         assertEquals("", config.token)
-        assertFalse(ConnectionSettings(address = "beep.example:4433").configured)
+        assertFalse(ConnectionSettings(nodeId = " ").configured)
     }
-    @Test fun existingAuthenticatedProfilesStillLoad() {
-        val config = ConnectionSettings.fromJson("""{"address":"beep:4433","hostname":"beep","token":"app-token"}""")
+    @Test fun tokenLoads() {
+        val config = ConnectionSettings.fromJson("""{"node_id":"example-node-id","token":"app-token"}""")
         assertTrue(config.configured)
         assertEquals("app-token", config.token)
     }

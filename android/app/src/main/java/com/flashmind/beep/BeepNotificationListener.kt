@@ -4,8 +4,7 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import kotlinx.coroutines.*
-import org.json.JSONArray
-import org.json.JSONObject
+import com.flashmind.beep.proto.PhoneNotification
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -22,13 +21,12 @@ class BeepNotificationListener : NotificationListenerService() {
         if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
 
         val extras = sbn.notification.extras
-        val data = JSONObject().apply {
-            put("app", sbn.packageName)
-            put("title", extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: "")
-            put("text", extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: "")
-            put("timestamp", sbn.postTime)
-        }
-        NotificationBuffer.add(data)
+        NotificationBuffer.add(PhoneNotification(
+            app = sbn.packageName,
+            title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: "",
+            text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: "",
+            timestamp = sbn.postTime,
+        ))
     }
 }
 
@@ -37,11 +35,11 @@ class BeepNotificationListener : NotificationListenerService() {
  * to the server every 30 seconds or when 20 items have been buffered.
  */
 object NotificationBuffer {
-    private val buffer = CopyOnWriteArrayList<JSONObject>()
+    private val buffer = CopyOnWriteArrayList<PhoneNotification>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var flushJob: Job? = null
 
-    fun add(notification: JSONObject) {
+    fun add(notification: PhoneNotification) {
         buffer.add(notification)
         if (buffer.size >= 20) {
             flush()
@@ -73,13 +71,10 @@ object NotificationBuffer {
         }
     }
 
-    private suspend fun syncToServer(notifications: List<JSONObject>) {
+    private suspend fun syncToServer(notifications: List<PhoneNotification>) {
         val app = BeepApplication.instance ?: return
         val config = app.repository.settings.value
         if (!config.configured) return
-        val arr = JSONArray()
-        for (n in notifications) arr.put(n)
-        val body = JSONObject().put("notifications", arr)
-        serverApi(config).json("POST", "/v1/phone/notifications", body.toString())
+        Beep.client(config).saveNotifications(notifications)
     }
 }
