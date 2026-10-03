@@ -1,11 +1,14 @@
 pub mod api;
 pub mod app;
+pub mod apps;
 pub mod config;
 pub mod cron;
+pub mod decision;
 pub mod live;
 pub mod mcp;
 pub mod router;
 pub mod search;
+pub mod starters;
 pub mod store;
 pub mod tools;
 pub mod transport;

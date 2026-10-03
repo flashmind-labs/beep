@@ -169,6 +169,13 @@ requests! {
     25 CreateIntegration { provider: String, label: String, config: String } => Call<String>
     26 DeleteIntegration { id: String } => Call<()>
     27 UpdateCredentials { id: String, credentials: String, status: String } => Call<()>
+    /// The curated apps the assistant can use, with this user's connection state.
+    28 ListApps {} => Call<Vec<AppIntegration>>
+    /// Starts OAuth for an app; open the returned URL in a browser.
+    29 ConnectApp { slug: String } => Call<ConnectLink>
+    30 DisconnectApp { slug: String } => Call<()>
+    /// Personalized conversation starters, cached per user for 30 minutes.
+    31 SuggestPrompts {} => Call<Vec<PromptSuggestion>>
 }
 
 wire_enum! {
@@ -273,12 +280,66 @@ wire_enum! {
 }
 
 wire_enum! {
+    /// A session message. An `Assistant` entry's `tools` are the tool results
+    /// of the turn it ends; its `content` is empty when the turn had no text.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum HistoryEntry {
         0 User { content: String, timestamp: i64 }
-        1 Assistant { content: String, timestamp: i64 }
+        1 Assistant { content: String, timestamp: i64, tools: Vec<HistoryTool> }
     }
+}
+
+/// A tool result kept in session history, so the client can rebuild its card.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoryTool {
+    pub name: String,
+    pub call_id: String,
+    /// The tool output, cut to at most 16 KiB.
+    pub output: String,
+    pub success: bool,
+}
+
+wire_enum! {
+    /// Who provides an app connection: `Composio` apps are connected per user
+    /// through OAuth, `Fastmail` is set up on the server with an API token.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum AppKind {
+        0 Composio {}
+        1 Fastmail {}
+    }
+}
+
+/// An app the assistant can use on the user's behalf.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppIntegration {
+    pub slug: String,
+    pub name: String,
+    /// One short line.
+    pub description: String,
+    pub logo_url: Option<String>,
+    pub connected: bool,
+    /// False when the server lacks the credentials this app needs, so it
+    /// cannot be connected from the phone.
+    pub configured: bool,
+    pub kind: AppKind,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectLink {
+    pub url: String,
+}
+
+/// A conversation starter: `title` goes on a chip, `prompt` is sent when tapped.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PromptSuggestion {
+    pub title: String,
+    pub prompt: String,
 }
 
 /// Tokens spent on one model call.

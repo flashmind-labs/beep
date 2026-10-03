@@ -7,6 +7,7 @@ mod memory;
 mod notifications;
 mod open_app;
 mod progress;
+mod suggest;
 
 use crate::app::App;
 use flashmind::types::ToolRegistry;
@@ -48,6 +49,7 @@ pub fn registry(app: Arc<App>, run_id: &str, user: &str) -> ToolRegistry {
         }));
     }
     registry.register(Arc::new(progress::TaskProgressTool));
+    registry.register(Arc::new(suggest::SuggestRepliesTool));
     registry.register(Arc::new(browser::BrowserTool {
         app: app.clone(),
         run_id: run_id.to_owned(),
