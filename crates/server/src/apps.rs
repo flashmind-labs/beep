@@ -472,7 +472,8 @@ mod tests {
     async fn apps() -> (Apps, Store, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path().join("db.sqlite")).await.unwrap();
-        let mcp = Arc::new(McpConnections::new(store.clone()));
+        let (notifications, _) = tokio::sync::broadcast::channel(4);
+        let mcp = Arc::new(McpConnections::new(store.clone(), notifications));
         (Apps::new(None, mcp), store, dir)
     }
 

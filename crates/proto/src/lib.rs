@@ -492,6 +492,8 @@ pub struct Notice {
     pub title: String,
     pub body: String,
     pub session_id: String,
+    /// Slug of an app that lost its login; tapping the notice opens Apps.
+    pub app: Option<String>,
 }
 
 #[cfg(test)]

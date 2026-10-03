@@ -186,6 +186,7 @@ open class MainActivity : ComponentActivity() {
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val pendingFocusInput = mutableStateOf(false)
+    private val pendingOpenApps = mutableStateOf(false)
     private val clipboardContent = mutableStateOf<String?>(null)
     /** Set to true right before the app copies text, to suppress showing the banner for our own copies. */
     var suppressNextClipboard = false
@@ -219,6 +220,7 @@ open class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it) }
         if (intent.getBooleanExtra("focus_input", false)) pendingFocusInput.value = true
+        if (intent.getBooleanExtra("open_apps", false)) pendingOpenApps.value = true
     }
     override fun onResume() {
         super.onResume()
@@ -273,9 +275,10 @@ open class MainActivity : ComponentActivity() {
         }
         intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
         if (intent?.getBooleanExtra("focus_input", false) == true) pendingFocusInput.value = true
+        if (intent?.getBooleanExtra("open_apps", false) == true) pendingOpenApps.value = true
         setContent {
             BeepTheme {
-                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, clipboardContent = clipboardContent, onFloat = {
+                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
                 }, onExpand = {
@@ -348,6 +351,7 @@ private enum class Screen { Chat, Memories, Crons, Integrations, CustomIntegrati
 private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>? = null,
                     focusInput: MutableState<Boolean> = mutableStateOf(false),
+                    openApps: MutableState<Boolean> = mutableStateOf(false),
                     clipboardContent: MutableState<String?> = mutableStateOf(null),
                     onFloat: () -> Unit, onExpand: () -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
@@ -362,6 +366,13 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     var bubbleMenu by remember { mutableStateOf(false) }
     var historyQuery by rememberSaveable { mutableStateOf("") }
     var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
+    // A notice about an app that lost its login opens Apps to reconnect it.
+    LaunchedEffect(openApps.value) {
+        if (openApps.value) {
+            openApps.value = false
+            screen = Screen.Integrations
+        }
+    }
     // Chats left by starting a new one, newest last, so a swipe right can go back to them.
     // Opening a chat from the list starts over: swiping right from it shows the list.
     var visited by remember { mutableStateOf(listOf<String>()) }

@@ -104,8 +104,10 @@ class NotificationService : Service() {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (conversationId.isNotEmpty()) putExtra("conversation_id", conversationId)
+            if (notice.app != null) putExtra("open_apps", true)
         }
-        val pending = PendingIntent.getActivity(this, conversationId.hashCode(), intent,
+        val requestCode = (notice.app ?: conversationId).hashCode()
+        val pending = PendingIntent.getActivity(this, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         val notification = Notification.Builder(this, CHANNEL_MESSAGES)
