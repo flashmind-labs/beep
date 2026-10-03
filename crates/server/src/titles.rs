@@ -142,7 +142,7 @@ fn clip(text: &str, chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{CreateRun, FinishedTurn};
+    use crate::store::{CreateRun, FinishedTurn, RunStatus};
     use flashmind::core::ConversationEntry;
 
     #[test]
@@ -174,7 +174,7 @@ mod tests {
             prompt_tokens: 10,
         };
         store
-            .finish("alice", &run, Some(turn), "completed")
+            .finish("alice", &run, Some(turn), RunStatus::Completed)
             .await
             .unwrap();
         SessionRef {

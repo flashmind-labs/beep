@@ -60,6 +60,33 @@ pub(crate) const MEMORY_CATEGORIES: &[&str] = &[
     "general",
 ];
 
+/// How an agent run ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunStatus {
+    Completed,
+    Cancelled,
+    TimedOut,
+    Stalled,
+    Looped,
+    ToolLimit,
+    Failed,
+}
+
+impl RunStatus {
+    /// The name stored in the database and sent to clients.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Cancelled => "cancelled",
+            Self::TimedOut => "timed_out",
+            Self::Stalled => "stalled",
+            Self::Looped => "looped",
+            Self::ToolLimit => "tool_limit",
+            Self::Failed => "failed",
+        }
+    }
+}
+
 /// The days a fact holds, like the dates of a trip. Both open by default.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Validity {
@@ -700,9 +727,9 @@ impl Store {
         user: &str,
         run: &Run,
         turn: Option<FinishedTurn<'_>>,
-        status: &str,
+        status: RunStatus,
     ) -> Result<()> {
-        let (user, run, status) = (user.to_owned(), run.clone(), status.to_owned());
+        let (user, run, status) = (user.to_owned(), run.clone(), status.as_str());
         let turn = turn
             .map(|turn| {
                 anyhow::Ok((
@@ -1202,8 +1229,13 @@ impl Store {
         Ok(())
     }
 
-    pub async fn log_cron_finish(&self, run_id: &str, status: &str, error: &str) -> Result<()> {
-        let (run_id, status, error) = (run_id.to_owned(), status.to_owned(), error.to_owned());
+    pub async fn log_cron_finish(
+        &self,
+        run_id: &str,
+        status: RunStatus,
+        error: &str,
+    ) -> Result<()> {
+        let (run_id, status, error) = (run_id.to_owned(), status.as_str(), error.to_owned());
         self.0
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;

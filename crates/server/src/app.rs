@@ -10,7 +10,7 @@ use crate::{
     repeat::RepeatGuard,
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext, Starters},
-    store::{CreateRun, FinishedTurn, SessionRef, Store},
+    store::{CreateRun, FinishedTurn, RunStatus, SessionRef, Store},
     titles, tools,
 };
 use anyhow::Result;
@@ -162,11 +162,12 @@ impl App {
                     .await
                 {
                     log::error!("run failed: {error}; run_id={}", run.id);
-                    if let Err(error) = app.store.finish(&user, &run, None, "failed").await {
+                    if let Err(error) = app.store.finish(&user, &run, None, RunStatus::Failed).await
+                    {
                         log::error!("unable to persist failure: {error}; run_id={}", run.id);
                     }
                     live.push(RunEvent::RunFinished {
-                        status: "failed".to_owned(),
+                        status: RunStatus::Failed.as_str().to_owned(),
                     });
                 }
                 app.runs.lock().await.remove(&run.id);
@@ -247,7 +248,7 @@ impl App {
         }
     }
 
-    pub async fn notify_run_complete(&self, user: &str, run: &Run, status: &str) {
+    pub async fn notify_run_complete(&self, user: &str, run: &Run, status: RunStatus) {
         // Build a title from the session's first message (truncated).
         let title = match self.store.sessions(user).await {
             Ok(sessions) => sessions
@@ -258,13 +259,15 @@ impl App {
             Err(_) => "Run finished".to_owned(),
         };
         let body = match status {
-            "completed" => "Your request completed successfully.".to_owned(),
-            "cancelled" => "The run was cancelled.".to_owned(),
-            "timed_out" => "The run timed out.".to_owned(),
-            "stalled" => "The model stopped responding.".to_owned(),
-            "looped" => "The model got stuck repeating itself and was stopped.".to_owned(),
-            other => format!("Run ended with status: {other}"),
-        };
+            RunStatus::Completed => "Your request completed successfully.",
+            RunStatus::Cancelled => "The run was cancelled.",
+            RunStatus::TimedOut => "The run timed out.",
+            RunStatus::Stalled => "The model stopped responding.",
+            RunStatus::Looped => "The model got stuck repeating itself and was stopped.",
+            RunStatus::ToolLimit => "The run used too many tools and was stopped.",
+            RunStatus::Failed => "The run failed.",
+        }
+        .to_owned();
         let notice = UserNotice {
             user: user.to_owned(),
             notice: Notice {
@@ -280,8 +283,9 @@ impl App {
             && !tokens.is_empty()
         {
             log::info!(
-                "would send push; user={user} run_id={} status={status} devices={}",
+                "would send push; user={user} run_id={} status={} devices={}",
                 run.id,
+                status.as_str(),
                 tokens.len()
             );
         }
@@ -420,12 +424,12 @@ impl App {
             loop {
                 let event = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => break "cancelled",
-                    _ = &mut deadline => { cancel.cancel(); break "timed_out"; },
+                    _ = cancel.cancelled() => break RunStatus::Cancelled,
+                    _ = &mut deadline => { cancel.cancel(); break RunStatus::TimedOut; },
                     event = tokio::time::timeout(IDLE_TIMEOUT, stream.next()) => match event {
                         Ok(event) => event,
                         // Nothing from the model or a tool for this long: the stream is stuck.
-                        Err(_) => { cancel.cancel(); break "stalled"; }
+                        Err(_) => { cancel.cancel(); break RunStatus::Stalled; }
                     },
                 };
 
@@ -433,7 +437,7 @@ impl App {
                     Some(AgentEvent::TextDelta(delta)) => {
                         if text_guard.push(&delta) {
                             cancel.cancel();
-                            break "looped";
+                            break RunStatus::Looped;
                         }
                         reply.push_str(&delta);
                         RunEvent::TextDelta { delta }
@@ -441,7 +445,7 @@ impl App {
                     Some(AgentEvent::ReasoningDelta(delta)) => {
                         if reasoning_guard.push(&delta) {
                             cancel.cancel();
-                            break "looped";
+                            break RunStatus::Looped;
                         }
                         RunEvent::ReasoningDelta { delta }
                     }
@@ -453,7 +457,7 @@ impl App {
                         tools_started += 1;
                         if tools_started > 20 {
                             cancel.cancel();
-                            break "tool_limit";
+                            break RunStatus::ToolLimit;
                         }
                         RunEvent::ToolStarted {
                             name,
@@ -490,7 +494,7 @@ impl App {
                             },
                         }
                     }
-                    Some(AgentEvent::Done(_)) => break "completed",
+                    Some(AgentEvent::Done(_)) => break RunStatus::Completed,
                     Some(AgentEvent::Error(_)) => {
                         // Provider errors can contain upstream response details. Keep them off the wire.
                         let error = RunEvent::Error {
@@ -499,9 +503,9 @@ impl App {
                                     .to_owned(),
                         };
                         live.push(error);
-                        break "failed";
+                        break RunStatus::Failed;
                     }
-                    None => break "failed",
+                    None => break RunStatus::Failed,
                     _ => continue,
                 };
 
@@ -519,7 +523,7 @@ impl App {
         // Learn from the turn while the run is still open, so what was saved shows
         // as memory tool chips under the reply. Scheduled prompts are written by
         // the user once, not said in conversation.
-        if status == "completed" && !is_cron {
+        if status == RunStatus::Completed && !is_cron {
             let generator = Generator {
                 provider: self.provider.as_ref(),
                 llm: &self.llm,
@@ -598,7 +602,7 @@ impl App {
         };
         self.store.finish(user, run, Some(turn), status).await?;
         live.push(RunEvent::RunFinished {
-            status: status.to_owned(),
+            status: status.as_str().to_owned(),
         });
         Ok(())
     }
