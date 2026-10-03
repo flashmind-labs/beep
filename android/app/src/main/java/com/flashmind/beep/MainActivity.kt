@@ -354,6 +354,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val status by repository.connection.collectAsStateWithLifecycle()
     val connected by repository.connected.collectAsStateWithLifecycle()
     val pendingAppIntent by repository.pendingIntent.collectAsStateWithLifecycle()
+    val pendingAlarm by repository.pendingAlarm.collectAsStateWithLifecycle()
     val browserUrlState by repository.browserUrl.collectAsStateWithLifecycle()
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var drawerOpen by remember { mutableStateOf(false) }
@@ -387,6 +388,12 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         pendingAppIntent?.let { intent ->
             AppLauncher.launch(context, intent.app, intent.uri, intent.fallbackUrl)
             repository.pendingIntent.value = null
+        }
+    }
+    LaunchedEffect(pendingAlarm) {
+        pendingAlarm?.let { alarm ->
+            AppLauncher.setAlarm(context, alarm)
+            repository.pendingAlarm.value = null
         }
     }
     if (settingsOpen || !config.configured) {

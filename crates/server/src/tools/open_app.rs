@@ -13,7 +13,7 @@ impl Tool for OpenAppTool {
         "open_app"
     }
     fn description(&self) -> &str {
-        "Ask the user's Android phone to open an app. The phone gets the request but never reports back whether the app opened, so say you are opening it, never that it opened."
+        "Ask the user's Android phone to open an app. The phone gets the request but never reports back whether the app opened, so say you are opening it, never that it opened. To set an alarm use set_alarm; clock only opens the alarm list."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -105,8 +105,8 @@ fn target(app: &str) -> Option<Target> {
             package: "com.android.dialer",
         },
         "clock" => Target {
-            intent_action: "android.intent.action.SET_ALARM",
-            uri: "clock:",
+            intent_action: "android.intent.action.SHOW_ALARMS",
+            uri: "",
             fallback_url: "",
             package: "com.google.android.deskclock",
         },
