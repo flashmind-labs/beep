@@ -5,7 +5,7 @@ use beep_server::{
     config::Auth,
     protocol::{
         ApiError, AppKind, CancelRun, Chat, ConnectApp, Event, GetEvents, GetRun, GetSession,
-        Health, HistoryEntry, ListApps, RunEvent, SuggestPrompts,
+        Health, HistoryEntry, ListApps, RunEvent, StartAppAuth, SuggestPrompts,
     },
     starters,
     store::{CreateRun, Store},
@@ -352,7 +352,21 @@ async fn prompt_suggestions_fall_back_and_apps_list_without_composio() {
     assert_eq!(apps.len(), 10);
     assert_eq!(apps[0].slug, "gmail");
     assert_eq!(apps[9].kind, AppKind::Fastmail {});
-    assert!(apps.iter().all(|a| !a.configured && !a.connected));
+    assert!(apps.iter().all(|a| !a.connected));
+    // Composio needs a server key; Fastmail is connected per user with OAuth.
+    assert!(
+        apps.iter()
+            .all(|a| a.configured == (a.kind == AppKind::Fastmail {}))
+    );
+
+    let error = c
+        .call(&StartAppAuth {
+            slug: "fastmail".into(),
+            redirect_uri: "https://example.com/callback".into(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(api_error(error), ApiError::BadRequest { .. }));
 
     let error = c
         .call(&ConnectApp {

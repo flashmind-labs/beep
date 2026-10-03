@@ -92,6 +92,13 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit, onCustom: () -> U
     } }
     fun connect(app: AppIntegration) { scope.launch {
         busy = app.slug
+        if (app.kind == AppKind.FASTMAIL) {
+            val appContext = context.applicationContext
+            repository.authorizeApp(app.slug) { url ->
+                appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            return@launch
+        }
         try {
             val url = withContext(Dispatchers.IO) { repository.connectApp(app.slug) }
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -102,6 +109,16 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit, onCustom: () -> U
         try { withContext(Dispatchers.IO) { repository.disconnectApp(app.slug) }; refresh() }
         catch (e: Exception) { error = e.message.orEmpty(); busy = null }
     } }
+
+    // A localhost sign-in finishes after the browser step, often after ON_RESUME already ran.
+    LaunchedEffect(Unit) {
+        repository.appAuthResults.collect { result ->
+            if (result == null) return@collect
+            result.error?.let { error = it }
+            repository.appAuthResults.value = null
+            refresh()
+        }
+    }
 
     // Coming back from the browser after signing in is the cue to look again.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -124,7 +141,7 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit, onCustom: () -> U
                     color = t.muted, fontSize = 14.sp, lineHeight = 21.sp, modifier = Modifier.padding(bottom = 6.dp))
             }
             if (error.isNotEmpty()) item { Text(error, color = t.error, fontSize = 13.sp) }
-            if (apps.isNotEmpty() && apps.none { it.configured || it.connected }) item {
+            if (apps.isNotEmpty() && apps.none { it.kind == AppKind.COMPOSIO && (it.configured || it.connected) }) item {
                 Text("Connecting apps needs a Composio API key on the server.", color = t.warn, fontSize = 13.sp)
             }
             if (loading) item {
@@ -177,8 +194,8 @@ private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, on
             Spacer(Modifier.width(10.dp))
             when {
                 busy -> CircularProgressIndicator(Modifier.padding(horizontal = 18.dp).size(20.dp), strokeWidth = 2.dp, color = t.ok)
-                app.connected -> ConnectedChip(canDisconnect = app.kind == AppKind.COMPOSIO, onDisconnect = onDisconnect)
-                !app.configured -> Text(if (app.kind == AppKind.FASTMAIL) "Set up on server" else "Unavailable",
+                app.connected -> ConnectedChip(canDisconnect = true, onDisconnect = onDisconnect)
+                !app.configured -> Text("Unavailable",
                     fontSize = 12.sp, color = t.dim, modifier = Modifier.width(76.dp))
                 else -> ChunkyButton(onClick = onConnect, color = t.accent, contentColor = t.onAccent,
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {

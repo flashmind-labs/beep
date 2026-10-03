@@ -10,6 +10,13 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct Store(Connection);
 
+/// One row of `mcp_servers`.
+pub struct McpServerRow {
+    pub name: String,
+    pub config: Value,
+    pub credentials: Option<Value>,
+}
+
 pub enum CreateRun {
     Created(Run),
     Existing(Run),
@@ -91,6 +98,11 @@ impl Store {
                     status TEXT NOT NULL DEFAULT 'disconnected',
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
                     PRIMARY KEY(user_id, id));
+                CREATE TABLE IF NOT EXISTS mcp_servers (
+                    user_id TEXT NOT NULL, name TEXT NOT NULL,
+                    config TEXT NOT NULL DEFAULT '{}',
+                    credentials TEXT,
+                    PRIMARY KEY(user_id, name));
                 CREATE INDEX IF NOT EXISTS idx_cron_logs_user_cron
                     ON cron_logs(user_id, cron_id);
                 CREATE INDEX IF NOT EXISTS idx_runs_user_session
@@ -884,6 +896,98 @@ impl Store {
                 Ok(db.execute(
                     "DELETE FROM mcp_connections WHERE user_id=? AND id=?",
                     params![user, id],
+                )? > 0)
+            })
+            .await?)
+    }
+
+    /// The user's server-managed MCP servers.
+    pub async fn mcp_servers(&self, user: &str) -> Result<Vec<McpServerRow>> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT name, config, credentials FROM mcp_servers WHERE user_id=? ORDER BY name",
+                )?;
+                let rows = stmt
+                    .query_map([user], |r| {
+                        Ok(McpServerRow {
+                            name: r.get(0)?,
+                            config: r.get(1)?,
+                            credentials: r.get(2)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    /// Users with at least one MCP server that holds credentials.
+    pub async fn mcp_users(&self) -> Result<Vec<String>> {
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(|db| {
+                let mut stmt = db.prepare(
+                    "SELECT DISTINCT user_id FROM mcp_servers WHERE credentials IS NOT NULL",
+                )?;
+                let rows = stmt
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?)
+    }
+
+    /// Saves a server's config. Credentials are untouched: they change only
+    /// through `save_mcp_credentials`, so a stale config cannot roll back a
+    /// rotated refresh token.
+    pub async fn save_mcp_config(&self, user: &str, name: &str, config: Value) -> Result<()> {
+        let (user, name) = (user.to_owned(), name.to_owned());
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO mcp_servers(user_id, name, config) VALUES(?,?,?)
+                     ON CONFLICT(user_id, name) DO UPDATE SET config=excluded.config",
+                    params![user, name, config],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Saves a server's OAuth credentials; `Value::Null` clears them.
+    pub async fn save_mcp_credentials(
+        &self,
+        user: &str,
+        name: &str,
+        credentials: Value,
+    ) -> Result<()> {
+        let (user, name) = (user.to_owned(), name.to_owned());
+        let credentials = (!credentials.is_null()).then_some(credentials);
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO mcp_servers(user_id, name, credentials) VALUES(?,?,?)
+                     ON CONFLICT(user_id, name) DO UPDATE SET credentials=excluded.credentials",
+                    params![user, name, credentials],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_mcp_server(&self, user: &str, name: &str) -> Result<bool> {
+        let (user, name) = (user.to_owned(), name.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                Ok(db.execute(
+                    "DELETE FROM mcp_servers WHERE user_id=? AND name=?",
+                    params![user, name],
                 )? > 0)
             })
             .await?)

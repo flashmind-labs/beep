@@ -176,6 +176,13 @@ requests! {
     30 DisconnectApp { slug: String } => Call<()>
     /// Personalized conversation starters, cached per user for 30 minutes.
     31 SuggestPrompts {} => Call<Vec<PromptSuggestion>>
+    /// Starts OAuth for an MCP app such as Fastmail, whose provider only
+    /// redirects to localhost. The phone listens on `redirect_uri`, an
+    /// `http://localhost:<port>/...` address, and opens the returned URL.
+    32 StartAppAuth { slug: String, redirect_uri: String } => Call<ConnectLink>
+    /// Hands the redirect's `code`, `state` and `iss` to the server, which
+    /// keeps the tokens and refreshes them.
+    33 FinishAppAuth { slug: String, code: String, state: String, issuer: Option<String> } => Call<()>
 }
 
 wire_enum! {

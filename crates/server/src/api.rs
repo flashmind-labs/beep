@@ -55,6 +55,8 @@ pub fn router() -> Router {
         .call(list_apps)
         .call(connect_app)
         .call(disconnect_app)
+        .call(start_app_auth)
+        .call(finish_app_auth)
         .call(suggest_prompts)
 }
 
@@ -272,6 +274,26 @@ async fn connect_app(cx: Cx, ConnectApp { slug }: ConnectApp) -> Reply<ConnectLi
 
 async fn disconnect_app(cx: Cx, DisconnectApp { slug }: DisconnectApp) -> Reply<()> {
     cx.app.apps.disconnect(&cx.user, &slug).await
+}
+
+async fn start_app_auth(
+    cx: Cx,
+    StartAppAuth { slug, redirect_uri }: StartAppAuth,
+) -> Reply<ConnectLink> {
+    cx.app.apps.start_auth(&cx.user, &slug, &redirect_uri).await
+}
+
+async fn finish_app_auth(cx: Cx, req: FinishAppAuth) -> Reply<()> {
+    cx.app
+        .apps
+        .finish_auth(
+            &cx.user,
+            &req.slug,
+            &req.code,
+            &req.state,
+            req.issuer.as_deref(),
+        )
+        .await
 }
 
 async fn suggest_prompts(cx: Cx, _: SuggestPrompts) -> Reply<Vec<PromptSuggestion>> {

@@ -3,6 +3,7 @@ use crate::{
     config::Auth,
     decision::DecisionTool,
     live::LiveRun,
+    mcp::McpConnections,
     protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestion, Run, RunEvent, Usage},
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext, Starters},
@@ -14,7 +15,7 @@ use chrono::Utc;
 use chrono_tz::Tz;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation},
-    tools::{composio::make_composio_tool_wrappers, mcp::McpRegistry},
+    tools::composio::make_composio_tool_wrappers,
     types::{AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider},
 };
 use futures::StreamExt;
@@ -31,7 +32,7 @@ pub struct App {
     /// Model, reasoning and token budget for every run; each run adds its user.
     llm: AgentLlmConfig,
     tools: ServerTools,
-    mcp: Option<McpRegistry>,
+    pub mcp: Arc<McpConnections>,
     pub apps: Apps,
     starters: Starters,
     /// Runs in progress, with their event feed.
@@ -46,8 +47,6 @@ pub struct ServerTools {
     pub decision: Option<Arc<DecisionTool>>,
     /// Composio apps the user connects from the phone.
     pub composio: Option<ComposioSettings>,
-    /// Fastmail over MCP, set up with a server token.
-    pub fastmail: Option<McpRegistry>,
 }
 
 /// A `Notice` addressed to one user's open notification streams.
@@ -77,8 +76,8 @@ impl App {
         mut tools: ServerTools,
     ) -> Arc<Self> {
         let (notifications, _) = broadcast::channel(64);
-        let mcp = tools.fastmail.take();
-        let apps = Apps::new(tools.composio.take(), mcp.is_some());
+        let mcp = Arc::new(McpConnections::new(store.clone()));
+        let apps = Apps::new(tools.composio.take(), mcp.clone());
         Arc::new(Self {
             store,
             auth,
@@ -341,8 +340,8 @@ impl App {
             }
         }
 
-        if let Some(mcp) = &self.mcp {
-            crate::mcp::register_mcp_tools(mcp, &mut registry).await;
+        for tool in self.mcp.tools(user).await {
+            registry.register(tool);
         }
 
         let mut agent = Agent::builder(self.provider.clone())
