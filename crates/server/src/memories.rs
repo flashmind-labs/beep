@@ -1,24 +1,37 @@
 //! Long-term memory about each user.
 //!
-//! Memories live in the `memories` table with an embedding each. Recall ranks
-//! them by meaning, with a bonus for shared words and a nudge for recent ones,
-//! and falls back to words alone when embeddings are unavailable. Nothing is
-//! put in front of the model unasked: it searches with `memory_recall`. A memory
-//! that says the same as an existing one updates it instead of adding a near
-//! copy. After each chat a cheap model call reads the exchange and adds,
-//! corrects or forgets facts, so memory does not depend on the assistant
-//! remembering to call a tool. Memory text is never logged.
+//! A memory is one sentence about the user with an id, an embedding, who it
+//! came from, and the days it holds when it only holds for a while, like a
+//! trip. Memories are told apart by meaning: one that says the same as an
+//! existing memory replaces it. Recall ranks by meaning, with a bonus for
+//! shared words and a nudge for recent ones, falls back to words alone when
+//! embeddings are unavailable, and leaves out facts whose days are over.
+//! Nothing is put in front of the model unasked: it searches with
+//! `memory_recall`. After each chat a cheap model call reads the latest
+//! exchange, with the turns before it for context, and adds, corrects or
+//! forgets facts. Once a day a curation pass merges duplicates, settles
+//! contradictions and drops what went stale. Memory text is never logged.
 
 use crate::{
+    app::App,
+    protocol::MemorySource,
     starters::{Generator, unfence},
-    store::{Embedded, MEMORY_CATEGORIES, MemoryRow, MemorySource, NewMemory, Store},
+    store::{Embedded, Fact, MEMORY_CATEGORIES, MemoryRow, Store, Validity},
 };
 use anyhow::{Result, ensure};
-use chrono::{NaiveDateTime, Utc};
-use flashmind::memory::EmbeddingProvider;
+use chrono::{NaiveDate, NaiveDateTime, Utc};
+use flashmind::{
+    memory::EmbeddingProvider,
+    types::{AgentLlmConfig, LlmProvider},
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{collections::HashSet, fmt::Write, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write,
+    sync::Arc,
+    time::Duration,
+};
 
 /// The same model under its OpenAI and OpenRouter names, so stored
 /// embeddings stay comparable whichever provider is configured.
@@ -28,6 +41,7 @@ pub const OPENROUTER_EMBEDDING_MODEL: &str = "openai/text-embedding-3-small";
 const EMBED_TIMEOUT: Duration = Duration::from_secs(4);
 /// The run stays open while learning, so it gets little time.
 const LEARN_TIMEOUT: Duration = Duration::from_secs(15);
+const CURATE_TIMEOUT: Duration = Duration::from_secs(90);
 /// Missing embeddings filled per lookup.
 const BACKFILL: usize = 64;
 /// Two texts this close say the same thing.
@@ -35,7 +49,18 @@ const DUPLICATE: f32 = 0.88;
 /// How close a memory must be to show up in `memory_recall`.
 const RECALLABLE: f32 = 0.22;
 const MAX_LEARN_OPS: usize = 5;
-const MAX_EXCHANGE_CHARS: usize = 1500;
+const MAX_TURN_CHARS: usize = 1500;
+/// Earlier turns the extractor sees to resolve "she" or "that place".
+pub const LEARN_CONTEXT_TURNS: usize = 3;
+const MAX_CONTEXT_CHARS: usize = 600;
+/// A user's memories are curated at most this often, and only after a change.
+const CURATE_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+const CURATE_SWEEP: Duration = Duration::from_secs(60 * 60);
+/// Newest memories one curation pass reads.
+const MAX_CURATED: usize = 200;
+const MAX_CURATE_OPS: usize = 40;
+/// Memories whose days are over are kept this long, then deleted.
+const ENDED_KEPT_DAYS: u32 = 30;
 
 const STOPWORDS: &[&str] = &[
     "the", "and", "for", "with", "that", "this", "what", "when", "where", "who", "how", "are",
@@ -52,11 +77,13 @@ pub struct Memories {
 /// A memory matched against a query.
 #[derive(Debug, Clone)]
 pub struct Hit {
-    pub key: String,
+    pub id: String,
     pub content: String,
     pub category: String,
-    /// `YYYY-MM-DD`, empty when unknown.
+    pub source: MemorySource,
+    /// `YYYY-MM-DD` of the last change.
     pub date: String,
+    pub valid: Validity,
     /// Meaning alone, 0 without embeddings.
     pub similarity: f32,
     /// Share of the query's words it contains.
@@ -64,10 +91,46 @@ pub struct Hit {
     score: f32,
 }
 
-/// The finished chat turn the extractor reads.
-pub struct Exchange {
+impl Hit {
+    /// What `memory_recall` returns for this memory.
+    pub fn to_json(&self) -> Value {
+        let mut value = json!({
+            "id": self.id,
+            "content": self.content,
+            "category": self.category,
+            "source": self.source.as_str(),
+            "updated": self.date,
+        });
+        if let Some(from) = self.valid.from {
+            value["valid_from"] = json!(from.to_string());
+        }
+        if let Some(until) = self.valid.until {
+            value["valid_until"] = json!(until.to_string());
+        }
+        value
+    }
+}
+
+/// One user message and Beep's reply to it.
+pub struct Turn {
     pub message: String,
     pub reply: String,
+}
+
+/// What the extractor reads after a chat.
+pub struct Exchange {
+    /// The user's date, for resolving "next Friday".
+    pub today: NaiveDate,
+    /// Turns before the latest, oldest first, only for context.
+    pub earlier: Vec<Turn>,
+    pub latest: Turn,
+}
+
+/// Where `remember` put a fact.
+pub struct Remembered {
+    pub id: String,
+    /// Whether it replaced a memory that said the same.
+    pub replaced: bool,
 }
 
 impl Memories {
@@ -97,6 +160,10 @@ impl Memories {
         }
     }
 
+    async fn embed_one(&self, text: &str) -> Option<Vec<f32>> {
+        self.embed(&[text]).await.and_then(|mut v| v.pop())
+    }
+
     /// A user's memories, embedding the ones that have none yet.
     async fn rows(&self, user: &str) -> Result<Vec<MemoryRow>> {
         let mut rows = self.store.memory_rows(user).await?;
@@ -111,13 +178,12 @@ impl Memories {
         if dims.is_none() || missing.is_empty() {
             return Ok(rows);
         }
-        let texts: Vec<String> = missing.iter().map(|&i| embed_text(&rows[i])).collect();
-        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
-        if let Some(vectors) = self.embed(&refs).await {
+        let texts: Vec<&str> = missing.iter().map(|&i| rows[i].content.as_str()).collect();
+        if let Some(vectors) = self.embed(&texts).await {
             let mut embedded = Vec::new();
             for (&i, vector) in missing.iter().zip(vectors) {
                 embedded.push(Embedded {
-                    key: rows[i].key.clone(),
+                    id: rows[i].id.clone(),
                     content: rows[i].content.clone(),
                     embedding: vector.clone(),
                 });
@@ -130,7 +196,8 @@ impl Memories {
         Ok(rows)
     }
 
-    /// Memories ranked against `query`. An empty query lists the newest.
+    /// Memories that still hold, ranked against `query`. An empty query lists
+    /// the newest.
     pub async fn search(
         &self,
         user: &str,
@@ -144,8 +211,10 @@ impl Memories {
         } else {
             self.rows(user).await?
         };
+        let today = Utc::now().date_naive();
         let rows = rows
             .into_iter()
+            .filter(|row| !row.valid.ended(today))
             .filter(|row| category.is_none_or(|c| row.category == c));
         if query.is_empty() {
             return Ok(rows
@@ -153,7 +222,7 @@ impl Memories {
                 .map(|row| hit(row, 0.0, 0.0, 0.0))
                 .collect());
         }
-        let vector = self.embed(&[query]).await.and_then(|mut v| v.pop());
+        let vector = self.embed_one(query).await;
         Ok(rank(rows, query, vector.as_deref())
             .into_iter()
             .filter(|h| h.similarity >= RECALLABLE || h.overlap > 0.0)
@@ -161,62 +230,53 @@ impl Memories {
             .collect())
     }
 
-    /// Stores a memory and returns the key it ended up under. When it says the
-    /// same as another memory, that one is updated instead.
-    pub async fn remember(&self, user: &str, memory: NewMemory<'_>) -> Result<String> {
-        let mut key = memory.key.to_owned();
-        let mut embedding = None;
-        if self.embedder.is_some() {
-            let rows = self.rows(user).await?;
-            let probe = MemoryRow {
-                key: key.clone(),
-                content: memory.content.to_owned(),
-                category: String::new(),
-                updated_at: String::new(),
-                embedding: None,
-            };
-            if let Some(vector) = self
-                .embed(&[&embed_text(&probe)])
-                .await
-                .and_then(|mut v| v.pop())
-            {
-                let closest = rows
-                    .iter()
-                    .filter(|row| row.key != key)
-                    .filter_map(|row| Some((cosine(&vector, row.embedding.as_ref()?), row)))
-                    .max_by(|a, b| a.0.total_cmp(&b.0));
-                if let Some((similarity, row)) = closest
-                    && similarity >= DUPLICATE
-                {
-                    key = row.key.clone();
-                }
-                embedding = Some(vector);
-            }
-        }
-        self.store
-            .remember(
-                user,
-                NewMemory {
-                    key: &key,
-                    ..memory
-                },
-            )
-            .await?;
-        // The probe embedded the stored text under the original key; it is
-        // only kept when the key did not change, else the next lookup redoes it.
-        if let Some(embedding) = embedding
-            && key == memory.key
+    /// Stores a fact. When it says the same as a memory, that one is replaced.
+    pub async fn remember(&self, user: &str, fact: Fact<'_>) -> Result<Remembered> {
+        let Some(vector) = self.embed_one(fact.content).await else {
+            let id = self.store.add_memory(user, fact).await?;
+            return Ok(Remembered {
+                id,
+                replaced: false,
+            });
+        };
+        let rows = self.rows(user).await?;
+        let closest = rows
+            .iter()
+            .filter_map(|row| Some((cosine(&vector, row.embedding.as_ref()?), row)))
+            .max_by(|a, b| a.0.total_cmp(&b.0));
+        let fact = Fact {
+            embedding: Some(vector),
+            ..fact
+        };
+        if let Some((similarity, row)) = closest
+            && similarity >= DUPLICATE
         {
-            let embedded = Embedded {
-                key: key.clone(),
-                content: memory.content.to_owned(),
-                embedding,
+            // The new text replaces the old one whole, days included.
+            let replacement = Fact {
+                valid: Some(fact.valid.unwrap_or_default()),
+                ..fact.clone()
             };
-            if let Err(error) = self.store.set_embeddings(user, vec![embedded]).await {
-                log::warn!("unable to save memory embedding: {error}");
+            if self.store.update_memory(user, &row.id, replacement).await? {
+                return Ok(Remembered {
+                    id: row.id.clone(),
+                    replaced: true,
+                });
             }
+            // Deleted meanwhile: add it instead.
         }
-        Ok(key)
+        let id = self.store.add_memory(user, fact).await?;
+        Ok(Remembered {
+            id,
+            replaced: false,
+        })
+    }
+
+    /// Replaces a memory's text. Returns whether it exists.
+    pub async fn update(&self, user: &str, id: &str, fact: Fact<'_>) -> Result<bool> {
+        let embedding = self.embed_one(fact.content).await;
+        self.store
+            .update_memory(user, id, Fact { embedding, ..fact })
+            .await
     }
 
     /// Reads a finished exchange and updates memory with what it teaches about
@@ -224,13 +284,18 @@ impl Memories {
     pub async fn learn(&self, generator: Generator<'_>, exchange: Exchange) -> Vec<Learned> {
         let user = generator.user.to_owned();
         let attempt = async {
-            if exchange.message.split_whitespace().count() < 3 {
+            if exchange.latest.message.split_whitespace().count() < 3 {
                 return Ok(Vec::new());
             }
-            let known = self.search(&user, &exchange.message, None, 12).await?;
+            let query = format!(
+                "{}\n{}",
+                exchange.latest.message,
+                clip(&exchange.latest.reply, 300)
+            );
+            let known = self.search(&user, &query, None, 15).await?;
             let prompt = learn_prompt(&known, &exchange);
             let answer = generator.text(LEARN_SYSTEM, prompt).await?;
-            let ops = parse_ops(&answer)?;
+            let ops = parse_learn_ops(&answer)?;
             let mut learned = Vec::new();
             for op in ops {
                 learned.extend(self.apply(&user, &known, op).await?);
@@ -255,63 +320,166 @@ impl Memories {
         }
     }
 
-    async fn apply(&self, user: &str, known: &[Hit], op: Op) -> Result<Option<Learned>> {
-        match op.op {
-            OpKind::Forget => {
-                // Only what the extractor was shown can be forgotten.
-                if !known.iter().any(|h| h.key == op.key) {
-                    return Ok(None);
+    async fn apply(&self, user: &str, known: &[Hit], op: LearnOp) -> Result<Option<Learned>> {
+        let shown = op
+            .id
+            .as_deref()
+            .and_then(|id| known.iter().find(|h| h.id == id));
+        if op.op == LearnKind::Forget {
+            // Only what the extractor was shown can be forgotten.
+            let Some(hit) = shown else {
+                return Ok(None);
+            };
+            let forgotten = self.store.forget(user, &hit.id).await?;
+            return Ok(forgotten.then(|| Learned {
+                change: Change::Forgotten,
+                id: hit.id.clone(),
+                content: hit.content.clone(),
+            }));
+        }
+        let Some(content) = op
+            .content
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        else {
+            return Ok(None);
+        };
+        let fact = Fact {
+            content,
+            category: op
+                .category
+                .as_deref()
+                .filter(|c| MEMORY_CATEGORIES.contains(c)),
+            source: MemorySource::Learned {},
+            valid: op.validity(),
+            embedding: None,
+        };
+        // An update of a memory it was not shown is a new fact.
+        if let Some(hit) = shown
+            && self.update(user, &hit.id, fact.clone()).await?
+        {
+            return Ok(Some(Learned {
+                change: Change::Updated,
+                id: hit.id.clone(),
+                content: content.to_owned(),
+            }));
+        }
+        let fact = Fact {
+            valid: Some(fact.valid.unwrap_or_default()),
+            ..fact
+        };
+        let remembered = self.remember(user, fact).await?;
+        Ok(Some(Learned {
+            change: if remembered.replaced {
+                Change::Updated
+            } else {
+                Change::Stored
+            },
+            id: remembered.id,
+            content: content.to_owned(),
+        }))
+    }
+
+    /// Merges duplicates, settles contradictions and drops stale memories of
+    /// one user, returning how many memories changed.
+    pub async fn curate(&self, generator: Generator<'_>) -> Result<usize> {
+        let user = generator.user.to_owned();
+        let rows: Vec<MemoryRow> = self
+            .store
+            .memory_rows(&user)
+            .await?
+            .into_iter()
+            .take(MAX_CURATED)
+            .collect();
+        if rows.len() < 2 {
+            return Ok(0);
+        }
+        let today = Utc::now().date_naive();
+        let attempt = async {
+            let answer = generator
+                .text(CURATE_SYSTEM, curate_prompt(&rows, today))
+                .await?;
+            parse_curate_ops(&answer)
+        };
+        let ops = tokio::time::timeout(CURATE_TIMEOUT, attempt)
+            .await
+            .map_err(|_| anyhow::anyhow!("curation timed out"))??;
+        let by_id: HashMap<&str, &MemoryRow> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
+        let plan = plan_curation(ops, &by_id, today);
+        let mut changed = 0;
+        for step in plan {
+            match step {
+                Step::Forget(id) => {
+                    changed += usize::from(self.store.forget(&user, &id).await?);
                 }
-                let forgotten = self.store.forget(user, &op.key).await?;
-                Ok(forgotten.then_some(Learned {
-                    change: Change::Forgotten,
-                    key: op.key,
-                    content: None,
-                }))
+                Step::Rewrite { keep, fact, drop } => {
+                    let fact = Fact {
+                        content: &fact.content,
+                        category: fact.category.as_deref(),
+                        source: fact.source,
+                        valid: fact.valid,
+                        embedding: None,
+                    };
+                    if !self.update(&user, &keep, fact).await? {
+                        continue;
+                    }
+                    changed += 1;
+                    for id in drop {
+                        changed += usize::from(self.store.forget(&user, &id).await?);
+                    }
+                }
             }
-            OpKind::Add | OpKind::Update => {
-                let Some(content) = op
-                    .content
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|c| !c.is_empty())
-                else {
-                    return Ok(None);
-                };
-                let category = op
-                    .category
-                    .as_deref()
-                    .filter(|c| MEMORY_CATEGORIES.contains(c))
-                    .or_else(|| {
-                        known
-                            .iter()
-                            .find(|h| h.key == op.key)
-                            .map(|h| h.category.as_str())
-                    });
-                let key = self
-                    .remember(
-                        user,
-                        NewMemory {
-                            key: &op.key,
-                            content,
-                            category,
-                            source: MemorySource::Auto,
-                        },
-                    )
-                    .await?;
-                let updated = known.iter().any(|h| h.key == key);
-                Ok(Some(Learned {
-                    change: if updated {
-                        Change::Updated
-                    } else {
-                        Change::Stored
-                    },
-                    key,
-                    content: Some(content.to_owned()),
-                }))
+        }
+        Ok(changed)
+    }
+}
+
+impl Memories {
+    /// Deletes memories whose days ended a while ago and curates every user
+    /// whose memories changed since the last pass.
+    pub async fn curate_due(&self, provider: &dyn LlmProvider, llm: &AgentLlmConfig) {
+        match self.store.purge_ended_memories(ENDED_KEPT_DAYS).await {
+            Ok(0) => {}
+            Ok(purged) => log::info!("purged {purged} ended memories"),
+            Err(error) => log::warn!("unable to purge ended memories: {error}"),
+        }
+        let users = match self.store.users_to_curate(CURATE_EVERY).await {
+            Ok(users) => users,
+            Err(error) => {
+                log::warn!("unable to list users to curate: {error}");
+                return;
+            }
+        };
+        for user in users {
+            let generator = Generator {
+                provider,
+                llm,
+                user: &user,
+            };
+            match self.curate(generator).await {
+                Ok(0) => {}
+                Ok(changed) => log::info!("memory curation changed {changed}; user={user}"),
+                Err(error) => log::info!("memory curation skipped: {error}; user={user}"),
+            }
+            // Marked even after a failure, so a bad answer is retried tomorrow
+            // rather than every hour.
+            if let Err(error) = self.store.mark_curated(&user).await {
+                log::warn!("unable to mark memories curated: {error}; user={user}");
             }
         }
     }
+}
+
+/// Curates memories of users whose memories changed, once an hour.
+pub fn start_curation(app: Arc<App>) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(CURATE_SWEEP);
+        loop {
+            interval.tick().await;
+            app.curate_memories().await;
+        }
+    });
 }
 
 /// A memory change made by `learn`, shown in the chat as the memory tool it
@@ -319,9 +487,9 @@ impl Memories {
 #[derive(Debug)]
 pub struct Learned {
     pub change: Change,
-    pub key: String,
-    /// The new text, `None` when forgotten.
-    pub content: Option<String>,
+    pub id: String,
+    /// The new text, or the forgotten one.
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -344,35 +512,35 @@ impl Change {
 
 impl Learned {
     pub fn arguments(&self) -> Value {
-        match &self.content {
-            Some(content) => json!({"key": self.key, "content": content}),
-            None => json!({"key": self.key}),
+        match self.change {
+            Change::Forgotten => json!({"id": self.id}),
+            _ => json!({"id": self.id, "content": self.content}),
         }
     }
 
     /// Matches what the memory tools return.
     pub fn output(&self) -> String {
         match self.change {
-            Change::Stored => json!({"stored": true, "key": self.key}),
-            Change::Updated => json!({"updated": true}),
+            Change::Stored => json!({"stored": true, "id": self.id}),
+            Change::Updated => json!({"updated": true, "id": self.id}),
             Change::Forgotten => json!({"forgotten": true}),
         }
         .to_string()
     }
 }
 
-/// The text embedded for a memory. The key often names the subject the
-/// content leaves implicit ("dog_name": "Rex").
-fn embed_text(row: &MemoryRow) -> String {
-    format!("{}: {}", row.key.replace('_', " "), row.content)
+fn clip(text: &str, chars: usize) -> String {
+    text.chars().take(chars).collect()
 }
 
 fn hit(row: MemoryRow, similarity: f32, overlap: f32, score: f32) -> Hit {
     Hit {
-        date: row.updated_at.get(..10).unwrap_or_default().to_owned(),
-        key: row.key,
+        date: row.updated().to_owned(),
+        id: row.id,
         content: row.content,
         category: row.category,
+        source: row.source,
+        valid: row.valid,
         similarity,
         overlap,
         score,
@@ -393,7 +561,7 @@ fn rank(
                 (Some(q), Some(e)) => cosine(q, e),
                 _ => 0.0,
             };
-            let overlap = overlap(&words, &embed_text(&row));
+            let overlap = overlap(&words, &row.content);
             if similarity <= 0.0 && overlap <= 0.0 {
                 return None;
             }
@@ -441,27 +609,41 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
     }
 }
 
+/// How a memory's days read in a prompt, empty for a lasting fact.
+fn days(valid: &Validity) -> String {
+    match (valid.from, valid.until) {
+        (None, None) => String::new(),
+        (Some(from), None) => format!(" (from {from})"),
+        (None, Some(until)) => format!(" (until {until})"),
+        (Some(from), Some(until)) => format!(" ({from} to {until})"),
+    }
+}
+
 const LEARN_SYSTEM: &str = "You keep the long-term memory of Beep, a personal assistant app. \
-Read the latest exchange and decide what it teaches about the user that is worth remembering for months.
+Read the latest exchange and decide what it teaches about the user that is worth remembering. \
+Earlier turns are only there to explain the latest one; do not learn from them again.
 First triage it: casual chatter, a one-off task, or something personal. Most exchanges teach nothing lasting; then reply {\"ops\": []}.
 Worth keeping: the user's name, the people and pets in their life and how they relate (a person the user asks \
 about by name is someone in their life), where they live and work, \
 their job and ongoing projects, stable likes, dislikes and dietary needs, routines, important dates, goals, \
-and how they want Beep to answer. Only what the user said or clearly confirmed. Never guesses, general knowledge, \
-what Beep did, the content of a one-off request, or secrets such as passwords, codes, tokens, card or account numbers.
-Known memories are listed with their keys. If a fact is already known, do nothing. If the exchange corrects or \
-extends one, update it under its key with the full new text. If the user says something is no longer true or asks \
-Beep to forget it, forget it by key. Otherwise add it under a new short snake_case key.
-Write each memory as one short self-contained sentence about the user in third person, like \"Has a dog named Rex.\", \
-in the language the user wrote in.
-Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"key\": string, \"content\": string, \
-\"category\": \"personal\" | \"preference\" | \"work\" | \"location\" | \"routine\" | \"general\"}]}. \
-Leave out content and category for forget. At most 5 ops.";
+plans such as trips, visits and appointments, and how they want Beep to answer. Only what the user said or clearly \
+confirmed. Never guesses, general knowledge, what Beep did, the content of a one-off request, or secrets such as \
+passwords, codes, tokens, card or account numbers.
+Known memories are listed with their ids. If a fact is already known, do nothing. If the exchange corrects or \
+extends one, update it by id with the full new text. If the user says something is no longer true or asks \
+Beep to forget it, forget it by id. Otherwise add it.
+A fact that only holds for a while (a trip, a visit, a stay, an appointment, a temporary job) gets valid_from \
+and/or valid_until as YYYY-MM-DD, worked out from today's date. Lasting facts leave both out.
+Write each memory as one short self-contained sentence about the user in third person that names its subject, \
+like \"Has a dog named Rex.\" or \"Is in Singapore at the Mandarin Oriental.\", in the language the user wrote in.
+Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"id\": string, \"content\": string, \
+\"category\": \"personal\" | \"preference\" | \"work\" | \"location\" | \"routine\" | \"general\", \
+\"valid_from\": string, \"valid_until\": string}]}. \
+id only for update and forget; content and category only for add and update. At most 5 ops.";
 
 fn learn_prompt(known: &[Hit], exchange: &Exchange) -> String {
-    let clip = |text: &str| text.chars().take(MAX_EXCHANGE_CHARS).collect::<String>();
     let mut text = String::new();
-    let _ = writeln!(text, "Today: {}", Utc::now().format("%Y-%m-%d"));
+    let _ = writeln!(text, "Today: {}", exchange.today.format("%A %Y-%m-%d"));
     let _ = writeln!(text, "\nKnown memories:");
     if known.is_empty() {
         let _ = writeln!(text, "(none related)");
@@ -469,99 +651,381 @@ fn learn_prompt(known: &[Hit], exchange: &Exchange) -> String {
     for h in known {
         let _ = writeln!(
             text,
-            "- {} [{}] ({}): {}",
-            h.key, h.category, h.date, h.content
+            "- {} [{}, {}, {}]{}: {}",
+            h.id,
+            h.category,
+            h.source.as_str(),
+            h.date,
+            days(&h.valid),
+            h.content
         );
     }
-    let _ = writeln!(text, "\nExchange:\nUser: {}", clip(&exchange.message));
-    let _ = writeln!(text, "Beep: {}", clip(&exchange.reply));
+    if !exchange.earlier.is_empty() {
+        let _ = writeln!(text, "\nEarlier in the chat:");
+        for turn in &exchange.earlier {
+            let _ = writeln!(text, "User: {}", clip(&turn.message, MAX_CONTEXT_CHARS));
+            let _ = writeln!(text, "Beep: {}", clip(&turn.reply, MAX_CONTEXT_CHARS));
+        }
+    }
+    let latest = &exchange.latest;
+    let _ = writeln!(
+        text,
+        "\nLatest exchange:\nUser: {}",
+        clip(&latest.message, MAX_TURN_CHARS)
+    );
+    let _ = writeln!(text, "Beep: {}", clip(&latest.reply, MAX_TURN_CHARS));
     text
+}
+
+const CURATE_SYSTEM: &str = "You tidy the long-term memory of Beep, a personal assistant app. \
+You get every memory about one user with its id, category, source, last change date and, for facts that only \
+hold for a while, their days. Source \"user\" means the user said it or asked Beep to remember it; \"learned\" \
+means Beep picked it up from a chat.
+Clean it up:
+- Merge memories that say the same thing or are parts of one fact into one sentence, keeping every detail.
+- When two memories contradict each other, keep the newer one, unless the older was said by the user and the \
+newer was only learned; then merge them into one sentence that keeps the user's version.
+- Forget memories that are trivial, a one-off task, general knowledge rather than about the user, or a secret \
+such as a password or code. Forget learned memories whose days are over and that say nothing lasting. \
+Never forget a memory said by the user unless its days are over.
+- Fix a memory that is unclear without context so it names its subject.
+Leave everything else alone; most memories need nothing. Each id may appear in at most one op.
+Write memories as one short self-contained sentence in third person, in the language they were written in.
+Reply with only JSON: {\"ops\": [{\"op\": \"merge\", \"ids\": [string], \"content\": string, \"category\": string, \
+\"valid_from\": string, \"valid_until\": string} | {\"op\": \"update\", \"id\": string, \"content\": string, \
+\"category\": string, \"valid_from\": string, \"valid_until\": string} | {\"op\": \"forget\", \"id\": string}]}. \
+Categories: personal, preference, work, location, routine, general. Leave out days for lasting facts. \
+At most 40 ops; {\"ops\": []} when nothing needs doing.";
+
+fn curate_prompt(rows: &[MemoryRow], today: NaiveDate) -> String {
+    let mut text = String::new();
+    let _ = writeln!(text, "Today: {}\n\nMemories:", today.format("%Y-%m-%d"));
+    let mut rows: Vec<&MemoryRow> = rows.iter().collect();
+    rows.sort_by(|a, b| a.category.cmp(&b.category));
+    for row in rows {
+        let ended = if row.valid.ended(today) { ", over" } else { "" };
+        let _ = writeln!(
+            text,
+            "- {} [{}, {}, {}]{}{ended}: {}",
+            row.id,
+            row.category,
+            row.source.as_str(),
+            row.updated(),
+            days(&row.valid),
+            row.content
+        );
+    }
+    text
+}
+
+fn date(text: Option<&str>) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(text?.trim(), "%Y-%m-%d").ok()
+}
+
+/// Days a model gave, or `None` when it gave neither.
+fn validity(from: Option<&str>, until: Option<&str>) -> Option<Validity> {
+    let valid = Validity {
+        from: date(from),
+        until: date(until),
+    };
+    (valid != Validity::default()).then_some(valid)
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-enum OpKind {
+enum LearnKind {
     Add,
     Update,
     Forget,
 }
 
 #[derive(Debug, Deserialize)]
-struct Op {
-    op: OpKind,
-    key: String,
+struct LearnOp {
+    op: LearnKind,
+    #[serde(default)]
+    id: Option<String>,
     #[serde(default)]
     content: Option<String>,
     #[serde(default)]
     category: Option<String>,
+    #[serde(default)]
+    valid_from: Option<String>,
+    #[serde(default)]
+    valid_until: Option<String>,
+}
+
+impl LearnOp {
+    fn validity(&self) -> Option<Validity> {
+        validity(self.valid_from.as_deref(), self.valid_until.as_deref())
+    }
 }
 
 #[derive(Deserialize)]
-struct Ops {
-    ops: Vec<Op>,
+struct Ops<T> {
+    ops: Vec<T>,
 }
 
-fn parse_ops(answer: &str) -> Result<Vec<Op>> {
+fn parse_learn_ops(answer: &str) -> Result<Vec<LearnOp>> {
     // serde_json errors name a position, never the input.
-    let Ops { ops } = serde_json::from_str(unfence(answer))?;
+    let Ops { ops } = serde_json::from_str::<Ops<LearnOp>>(unfence(answer))?;
     ensure!(ops.len() <= MAX_LEARN_OPS * 2, "too many memory ops");
-    Ok(ops
-        .into_iter()
-        .filter(|op| valid_key(&op.key))
-        .take(MAX_LEARN_OPS)
-        .collect())
+    Ok(ops.into_iter().take(MAX_LEARN_OPS).collect())
 }
 
-fn valid_key(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= 100
-        && key
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+#[derive(Debug, Deserialize)]
+#[serde(tag = "op", rename_all = "lowercase")]
+enum CurateOp {
+    Merge {
+        ids: Vec<String>,
+        #[serde(flatten)]
+        text: CuratedText,
+    },
+    Update {
+        id: String,
+        #[serde(flatten)]
+        text: CuratedText,
+    },
+    Forget {
+        id: String,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct CuratedText {
+    content: String,
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
+    valid_from: Option<String>,
+    #[serde(default)]
+    valid_until: Option<String>,
+}
+
+fn parse_curate_ops(answer: &str) -> Result<Vec<CurateOp>> {
+    let Ops { ops } = serde_json::from_str::<Ops<CurateOp>>(unfence(answer))?;
+    ensure!(ops.len() <= MAX_CURATE_OPS * 2, "too many curation ops");
+    Ok(ops.into_iter().take(MAX_CURATE_OPS).collect())
+}
+
+/// A memory's new text from curation.
+#[derive(Debug, PartialEq)]
+struct NewText {
+    content: String,
+    category: Option<String>,
+    source: MemorySource,
+    valid: Option<Validity>,
+}
+
+/// One checked curation change.
+#[derive(Debug, PartialEq)]
+enum Step {
+    Forget(String),
+    /// Rewrites `keep` and deletes `drop`, which it now covers.
+    Rewrite {
+        keep: String,
+        fact: NewText,
+        drop: Vec<String>,
+    },
+}
+
+/// Checks the model's ops against the memories it was shown: unknown and
+/// reused ids are dropped, and a memory the user stated is only forgotten
+/// once its days are over. A merge keeps a stated memory when it has one,
+/// and the result counts as stated.
+fn plan_curation(
+    ops: Vec<CurateOp>,
+    rows: &HashMap<&str, &MemoryRow>,
+    today: NaiveDate,
+) -> Vec<Step> {
+    let mut used = HashSet::new();
+    let mut steps = Vec::new();
+    let mut claim = |ids: &[String]| -> Option<Vec<&MemoryRow>> {
+        let unique: HashSet<&str> = ids.iter().map(String::as_str).collect();
+        if unique.len() != ids.len() || ids.iter().any(|id| used.contains(id.as_str())) {
+            return None;
+        }
+        let found: Vec<&MemoryRow> = ids
+            .iter()
+            .map(|id| rows.get(id.as_str()).copied())
+            .collect::<Option<_>>()?;
+        used.extend(found.iter().map(|row| row.id.as_str()));
+        Some(found)
+    };
+    let text = |text: CuratedText, source| {
+        let content = text.content.trim().to_owned();
+        (!content.is_empty()).then(|| NewText {
+            valid: validity(text.valid_from.as_deref(), text.valid_until.as_deref()),
+            category: text
+                .category
+                .filter(|c| MEMORY_CATEGORIES.contains(&c.as_str())),
+            content,
+            source,
+        })
+    };
+    for op in ops {
+        match op {
+            CurateOp::Forget { id } => {
+                let Some(row) = rows.get(id.as_str()) else {
+                    continue;
+                };
+                if row.source == (MemorySource::User {}) && !row.valid.ended(today) {
+                    continue;
+                }
+                if claim(std::slice::from_ref(&id)).is_some() {
+                    steps.push(Step::Forget(id));
+                }
+            }
+            CurateOp::Update { id, text: new } => {
+                let Some(found) = claim(std::slice::from_ref(&id)) else {
+                    continue;
+                };
+                if let Some(fact) = text(new, found[0].source) {
+                    steps.push(Step::Rewrite {
+                        keep: id,
+                        fact,
+                        drop: Vec::new(),
+                    });
+                }
+            }
+            CurateOp::Merge { ids, text: new } => {
+                if ids.len() < 2 {
+                    continue;
+                }
+                let Some(found) = claim(&ids) else {
+                    continue;
+                };
+                let stated = found.iter().find(|r| r.source == (MemorySource::User {}));
+                let source = if stated.is_some() {
+                    MemorySource::User {}
+                } else {
+                    MemorySource::Learned {}
+                };
+                let keep = stated.unwrap_or(&found[0]).id.clone();
+                let Some(fact) = text(new, source) else {
+                    continue;
+                };
+                // A merge without days is a lasting fact.
+                let fact = NewText {
+                    valid: Some(fact.valid.unwrap_or_default()),
+                    ..fact
+                };
+                let drop = ids.into_iter().filter(|id| *id != keep).collect();
+                steps.push(Step::Rewrite { keep, fact, drop });
+            }
+        }
+    }
+    steps
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn row(key: &str, content: &str, embedding: Option<Vec<f32>>) -> MemoryRow {
+    fn row(id: &str, content: &str, embedding: Option<Vec<f32>>) -> MemoryRow {
         MemoryRow {
-            key: key.into(),
+            id: id.into(),
             content: content.into(),
             category: "personal".into(),
+            source: MemorySource::Learned {},
             updated_at: "2026-01-01 10:00:00".into(),
+            valid: Validity::default(),
             embedding,
         }
+    }
+
+    fn day(text: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
     }
 
     #[test]
     fn ranks_by_meaning_then_words() {
         let rows = vec![
-            row("dog_name", "Has a dog named Rex.", Some(vec![1.0, 0.0])),
-            row("job", "Works as a nurse.", Some(vec![0.0, 1.0])),
+            row("a1", "Has a dog named Rex.", Some(vec![1.0, 0.0])),
+            row("b2", "Works as a nurse.", Some(vec![0.0, 1.0])),
         ];
         let hits = rank(rows.clone(), "my pet", Some(&[0.9, 0.1]));
-        assert_eq!(hits[0].key, "dog_name");
+        assert_eq!(hits[0].id, "a1");
 
         // Without embeddings only shared words count.
         let hits = rank(rows, "what is the dog called", None);
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].key, "dog_name");
+        assert_eq!(hits[0].id, "a1");
     }
 
     #[test]
-    fn parses_ops_strictly() {
-        let ops = parse_ops(
+    fn parses_learn_ops_with_days() {
+        let ops = parse_learn_ops(
             r#"```json
-{"ops":[{"op":"add","key":"dog_name","content":"Has a dog named Rex.","category":"personal"},
-{"op":"forget","key":"old_job"},{"op":"add","key":"bad key!","content":"x"}]}
+{"ops":[{"op":"add","content":"Is in Singapore.","category":"location","valid_from":"2026-10-04","valid_until":"2026-10-09"},
+{"op":"forget","id":"abc123"}]}
 ```"#,
         )
         .unwrap();
         assert_eq!(ops.len(), 2);
-        assert_eq!(ops[1].op, OpKind::Forget);
-        assert!(parse_ops("Nothing to remember.").is_err());
-        assert!(parse_ops(r#"{"ops":[]}"#).unwrap().is_empty());
+        assert_eq!(
+            ops[0].validity(),
+            Some(Validity {
+                from: Some(day("2026-10-04")),
+                until: Some(day("2026-10-09")),
+            })
+        );
+        assert_eq!(ops[1].op, LearnKind::Forget);
+        assert!(parse_learn_ops("Nothing to remember.").is_err());
+        assert!(parse_learn_ops(r#"{"ops":[]}"#).unwrap().is_empty());
+    }
+
+    #[test]
+    fn ended_facts_are_over_the_day_after() {
+        let trip = Validity {
+            from: Some(day("2026-10-04")),
+            until: Some(day("2026-10-09")),
+        };
+        assert!(!trip.ended(day("2026-10-09")));
+        assert!(trip.ended(day("2026-10-10")));
+        assert!(!Validity::default().ended(day("2030-01-01")));
+    }
+
+    #[test]
+    fn curation_keeps_what_the_user_said() {
+        let mut stated = row("u1", "Prefers tea.", None);
+        stated.source = MemorySource::User {};
+        let learned = row("l1", "Likes tea.", None);
+        let other = row("l2", "Asked about flights once.", None);
+        let mut trip = row("u2", "Is in Rome.", None);
+        trip.source = MemorySource::User {};
+        trip.valid.until = Some(day("2026-09-01"));
+        let rows: HashMap<&str, &MemoryRow> = [&stated, &learned, &other, &trip]
+            .into_iter()
+            .map(|r| (r.id.as_str(), r))
+            .collect();
+        let ops = parse_curate_ops(
+            r#"{"ops":[
+            {"op":"forget","id":"u1"},
+            {"op":"merge","ids":["l1","u1"],"content":"Prefers tea."},
+            {"op":"forget","id":"l1"},
+            {"op":"forget","id":"missing"},
+            {"op":"forget","id":"l2"},
+            {"op":"forget","id":"u2"}]}"#,
+        )
+        .unwrap();
+        let steps = plan_curation(ops, &rows, day("2026-10-03"));
+        assert_eq!(
+            steps,
+            vec![
+                Step::Rewrite {
+                    keep: "u1".into(),
+                    fact: NewText {
+                        content: "Prefers tea.".into(),
+                        category: None,
+                        source: MemorySource::User {},
+                        valid: Some(Validity::default()),
+                    },
+                    drop: vec!["l1".into()],
+                },
+                Step::Forget("l2".into()),
+                Step::Forget("u2".into()),
+            ]
+        );
     }
 
     #[test]

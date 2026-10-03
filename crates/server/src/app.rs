@@ -5,7 +5,7 @@ use crate::{
     decision::DecisionTool,
     live::LiveRun,
     mcp::McpConnections,
-    memories::{Exchange, Memories},
+    memories::{self, Exchange, Memories, Turn},
     protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestion, Run, RunEvent, Usage},
     repeat::RepeatGuard,
     search::SearchTool,
@@ -14,7 +14,7 @@ use crate::{
     tools,
 };
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation, ConversationEntry},
@@ -27,6 +27,7 @@ use std::{collections::HashMap, fmt::Write, sync::Arc, time::Duration};
 
 /// How long a run may go without a single event from the model or a tool.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+const MEMORY_QUESTION: &str = "Does the user reveal a lasting fact about themselves worth remembering for future chats, such as their name, preferences, people, places, work, routines or plans? Answer no for small talk, one-off questions, or facts only about the world.";
 use tokio::sync::{Mutex, broadcast, oneshot};
 use uuid::Uuid;
 
@@ -502,11 +503,19 @@ impl App {
                 llm: &self.llm,
                 user,
             };
+            let score = self.memory_score(format!("User: {message}\n\nAssistant: {reply}"));
             let exchange = Exchange {
-                message: message.to_owned(),
-                reply,
+                today: self.today(user).await,
+                earlier: earlier_turns(&conversation, turn_started),
+                latest: Turn {
+                    message: message.to_owned(),
+                    reply,
+                },
             };
-            let learned = self.memories.learn(generator, exchange).await;
+            let (learned, score) = tokio::join!(self.memories.learn(generator, exchange), score);
+            if let Some(probability) = score {
+                live.push(RunEvent::MemoryScore { probability });
+            }
             if !learned.is_empty() {
                 let calls: Vec<ToolCall> = learned
                     .iter()
@@ -525,7 +534,7 @@ impl App {
                     live.push(RunEvent::ToolStarted {
                         name: call.name.clone(),
                         call_id: call.id.clone(),
-                        description: change.content.clone().unwrap_or_default(),
+                        description: change.content.clone(),
                     });
                     live.push(RunEvent::ToolResult {
                         name: call.name,
@@ -575,6 +584,40 @@ impl App {
         compaction::compact_idle(&self.store, summarizer).await;
     }
 
+    /// Asks Jev how likely the exchange holds something worth remembering.
+    /// Shown under the reply while we compare it with what the learner saves.
+    async fn memory_score(&self, state: String) -> Option<f64> {
+        let decision = self.tools.decision.as_ref()?;
+        match decision.probability(&state, MEMORY_QUESTION).await {
+            Ok(probability) => Some(probability),
+            Err(error) => {
+                log::warn!("memory score failed: {error}");
+                None
+            }
+        }
+    }
+
+    /// Tidies the memories of users whose memories changed today.
+    pub async fn curate_memories(&self) {
+        self.memories
+            .curate_due(self.provider.as_ref(), &self.llm)
+            .await;
+    }
+
+    /// The user's date in their timezone, UTC when unknown.
+    async fn today(&self, user: &str) -> NaiveDate {
+        let now = Utc::now();
+        match self
+            .store
+            .get_timezone(user)
+            .await
+            .map(|tz| tz.parse::<Tz>())
+        {
+            Ok(Ok(tz)) => now.with_timezone(&tz).date_naive(),
+            _ => now.date_naive(),
+        }
+    }
+
     /// Conversation starters for the empty chat, personalized and cached for
     /// 30 minutes. Never fails: falls back to fixed starters.
     pub async fn suggest_prompts(&self, user: &str) -> Vec<PromptSuggestion> {
@@ -592,8 +635,9 @@ impl App {
     }
 
     async fn starter_context(&self, user: &str) -> StarterContext {
+        let today = self.today(user).await;
         let (memories, sessions, location, apps) = tokio::join!(
-            self.store.list_memories(user),
+            self.store.memory_rows(user),
             self.store.sessions(user),
             self.store.get_location(user),
             self.apps.list(user),
@@ -601,6 +645,7 @@ impl App {
         let memories = memories
             .unwrap_or_default()
             .into_iter()
+            .filter(|memory| !memory.valid.ended(today))
             .map(|memory| MemoryNote {
                 category: memory.category,
                 content: memory.content,
@@ -631,4 +676,31 @@ impl App {
             connected_apps,
         }
     }
+}
+
+/// The last few turns before `turn_started`, oldest first, for the memory
+/// extractor to resolve references in the latest one.
+fn earlier_turns(conversation: &Conversation, turn_started: DateTime<Utc>) -> Vec<Turn> {
+    let mut turns: Vec<Turn> = Vec::new();
+    for entry in conversation.entries() {
+        if entry.timestamp >= turn_started {
+            break;
+        }
+        if entry.is_user() {
+            turns.push(Turn {
+                message: entry.content().to_owned(),
+                reply: String::new(),
+            });
+        } else if entry.is_assistant()
+            && !entry.content().is_empty()
+            && let Some(turn) = turns.last_mut()
+        {
+            if !turn.reply.is_empty() {
+                turn.reply.push('\n');
+            }
+            turn.reply.push_str(entry.content());
+        }
+    }
+    let skip = turns.len().saturating_sub(memories::LEARN_CONTEXT_TURNS);
+    turns.split_off(skip)
 }

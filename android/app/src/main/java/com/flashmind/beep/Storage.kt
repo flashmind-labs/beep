@@ -32,7 +32,7 @@ data class ToolCall(
     val isDone: Boolean = false, val success: Boolean = true, val result: String = ""
 )
 
-data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val imageBase64: String? = null, val toolCalls: List<ToolCall> = emptyList())
+data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val imageBase64: String? = null, val toolCalls: List<ToolCall> = emptyList(), val memoryScore: Double? = null)
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = "New conversation",
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
@@ -102,7 +102,8 @@ class LocalStorage(internal val context: Context) {
                     ToolCall(tc.optString("callId"), tc.optString("name"), tc.optString("description"),
                         tc.optBoolean("isDone"), tc.optBoolean("success", true), tc.optString("result"))
                 } else emptyList()
-                ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, m.optString("imageBase64", null), toolCalls)
+                ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, m.optString("imageBase64", null), toolCalls,
+                    m.optDouble("memoryScore").takeUnless { it.isNaN() })
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImage = c.optString("pendingImage", null),
                 status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"))
@@ -129,6 +130,7 @@ class LocalStorage(internal val context: Context) {
             val messages = JSONArray()
             c.messages.forEach { m ->
                 val msg = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text).apply { if (m.imageBase64 != null) put("imageBase64", m.imageBase64) }
+                    .apply { if (m.memoryScore != null) put("memoryScore", m.memoryScore) }
                 if (m.cards.isNotEmpty()) {
                     val cardsArr = JSONArray()
                     m.cards.forEach { card -> cardsArr.put(JSONObject().put("type", card.type).put("data", card.data)) }

@@ -5,10 +5,10 @@ use beep_server::{
     config::Auth,
     protocol::{
         ApiError, AppKind, CancelRun, Chat, ConnectApp, Event, GetEvents, GetRun, GetSession,
-        Health, HistoryEntry, ListApps, RunEvent, StartAppAuth, SuggestPrompts,
+        Health, HistoryEntry, ListApps, MemorySource, RunEvent, StartAppAuth, SuggestPrompts,
     },
     starters,
-    store::{CreateRun, MemorySource, NewMemory, Store},
+    store::{CreateRun, Fact, Store},
     transport,
 };
 use flashmind::types::{
@@ -68,7 +68,7 @@ impl LlmProvider for ProviderStub {
                 tokio::time::sleep(Duration::from_secs(60)).await;
             } else if !is_tool_result {
                 yield Ok(StreamEvent::ToolCallStart { index: 0, id: Uuid::new_v4().to_string(), name: "memory_store".into() });
-                yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: json!({"key":"drink","content":"Prefers tea"}).to_string() });
+                yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: json!({"content":"Prefers tea"}).to_string() });
                 yield Ok(StreamEvent::Finished(FinishReason::ToolCalls));
                 return;
             }
@@ -316,17 +316,20 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
         CreateRun::Created(run) => run,
         _ => panic!("expected new run"),
     };
-    let memory = |content| NewMemory {
-        key: "drink",
+    let memory = |content| Fact {
         content,
         category: None,
-        source: MemorySource::User,
+        source: MemorySource::User {},
+        valid: None,
+        embedding: None,
     };
-    store.remember("alice", memory("coffee")).await.unwrap();
-    store.remember("alice", memory("tea")).await.unwrap();
-    store.remember("bob", memory("water")).await.unwrap();
+    let coffee = store.add_memory("alice", memory("coffee")).await.unwrap();
+    store.add_memory("alice", memory("tea")).await.unwrap();
+    store.add_memory("bob", memory("water")).await.unwrap();
     assert!(!store.forget("bob", "unknown").await.unwrap());
-    assert!(store.forget("alice", "drink").await.unwrap());
+    assert!(!store.forget("bob", &coffee).await.unwrap());
+    assert!(store.forget("alice", &coffee).await.unwrap());
+    assert_eq!(store.memory_rows("alice").await.unwrap()[0].content, "tea");
     assert_eq!(store.memory_rows("bob").await.unwrap()[0].content, "water");
     drop(store);
     let store = Store::open(&path).await.unwrap();

@@ -1,8 +1,10 @@
 use crate::{
     memories::Memories,
-    store::{MemorySource, NewMemory, Store},
+    protocol::MemorySource,
+    store::{Fact, Store, Validity},
 };
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
 
@@ -13,6 +15,22 @@ pub(crate) struct MemoryTool {
     pub name: &'static str,
 }
 
+const CATEGORIES: [&str; 6] = [
+    "personal",
+    "preference",
+    "work",
+    "location",
+    "routine",
+    "general",
+];
+
+fn days_schema() -> (Value, Value) {
+    (
+        json!({"type":"string","description":"YYYY-MM-DD the fact starts holding, for temporary facts like a trip."}),
+        json!({"type":"string","description":"YYYY-MM-DD of the last day the fact holds. Leave out for lasting facts."}),
+    )
+}
+
 #[async_trait]
 impl Tool for MemoryTool {
     fn name(&self) -> &str {
@@ -21,40 +39,46 @@ impl Tool for MemoryTool {
     fn description(&self) -> &str {
         match self.name {
             "memory_store" => {
-                "Remember a durable fact about the user under a short snake_case key, as one self-contained sentence. Storing under an existing key replaces it; a fact that repeats an existing memory updates that one. Never store secrets."
+                "Remember a fact about the user as one short self-contained sentence that names its subject. A fact that says the same as an existing memory replaces it. Give valid_from/valid_until for facts that only hold for a while, like a trip or an appointment. Never store secrets."
             }
             "memory_recall" => {
-                "Search the user's memories by meaning, best matches first, with the date each was last changed. An empty query lists the most recent. Optionally filter by category."
+                "Search the user's memories by meaning, best matches first. Each has an id, its source (user: the user said it; learned: picked up from a chat), the date it last changed and, for temporary facts, the days it holds. Facts whose days are over are left out. An empty query lists the most recent. Optionally filter by category."
             }
-            "memory_forget" => "Forget a user memory by its exact key.",
-            "memory_update" => "Update an existing memory's content or category by its exact key.",
+            "memory_forget" => "Forget a memory by the id memory_recall gave.",
+            "memory_update" => {
+                "Replace a memory's text by the id memory_recall gave, with the full new sentence. Days and category stay unless given."
+            }
             _ => "Get the current UTC date and time.",
         }
     }
     fn parameters(&self) -> Value {
+        let (from, until) = days_schema();
         match self.name {
             "memory_store" => {
                 json!({"type":"object","properties":{
-                    "key":{"type":"string"},
                     "content":{"type":"string"},
-                    "category":{"type":"string","enum":["personal","preference","work","location","routine","general"],"description":"Memory category. Defaults to 'general'."}
-                },"required":["key","content"],"additionalProperties":false})
+                    "category":{"type":"string","enum":CATEGORIES,"description":"Defaults to 'general'."},
+                    "valid_from":from,
+                    "valid_until":until
+                },"required":["content"],"additionalProperties":false})
             }
             "memory_recall" => {
                 json!({"type":"object","properties":{
                     "query":{"type":"string"},
-                    "category":{"type":"string","enum":["personal","preference","work","location","routine","general"],"description":"Filter by category."}
+                    "category":{"type":"string","enum":CATEGORIES,"description":"Filter by category."}
                 },"required":["query"],"additionalProperties":false})
             }
             "memory_forget" => {
-                json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"],"additionalProperties":false})
+                json!({"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false})
             }
             "memory_update" => {
                 json!({"type":"object","properties":{
-                    "key":{"type":"string","description":"The memory key to update."},
-                    "content":{"type":"string","description":"The new content."},
-                    "category":{"type":"string","enum":["personal","preference","work","location","routine","general"],"description":"Change the category."}
-                },"required":["key","content"],"additionalProperties":false})
+                    "id":{"type":"string"},
+                    "content":{"type":"string","description":"The full new sentence."},
+                    "category":{"type":"string","enum":CATEGORIES},
+                    "valid_from":from,
+                    "valid_until":until
+                },"required":["id","content"],"additionalProperties":false})
             }
             _ => json!({"type":"object","properties":{},"additionalProperties":false}),
         }
@@ -67,44 +91,58 @@ impl Tool for MemoryTool {
                 .ok_or_else(|| anyhow::anyhow!("missing string argument: {name}"))
         };
         let opt_arg = |name: &str| ctx.args.get(name).and_then(Value::as_str);
+        let date = |name: &str| -> anyhow::Result<Option<NaiveDate>> {
+            opt_arg(name)
+                .filter(|d| !d.trim().is_empty())
+                .map(|d| NaiveDate::parse_from_str(d.trim(), "%Y-%m-%d"))
+                .transpose()
+                .map_err(|_| anyhow::anyhow!("{name} must be YYYY-MM-DD"))
+        };
+        let valid = || -> anyhow::Result<Option<Validity>> {
+            let valid = Validity {
+                from: date("valid_from")?,
+                until: date("valid_until")?,
+            };
+            Ok((valid != Validity::default()).then_some(valid))
+        };
         let output = match self.name {
             "memory_store" => {
-                let key = self
-                    .memories
-                    .remember(
-                        &self.user,
-                        NewMemory {
-                            key: arg("key")?,
-                            content: arg("content")?,
-                            category: opt_arg("category"),
-                            source: MemorySource::User,
-                        },
-                    )
-                    .await?;
-                json!({"stored":true,"key":key})
+                let fact = Fact {
+                    content: arg("content")?,
+                    category: opt_arg("category"),
+                    source: MemorySource::User {},
+                    valid: valid()?,
+                    embedding: None,
+                };
+                let remembered = self.memories.remember(&self.user, fact).await?;
+                if remembered.replaced {
+                    json!({"updated":true,"id":remembered.id})
+                } else {
+                    json!({"stored":true,"id":remembered.id})
+                }
             }
             "memory_recall" => {
+                let query = arg("query")?;
+                // An empty query is a request to see what Beep knows.
+                let limit = if query.trim().is_empty() { 100 } else { 30 };
                 let hits = self
                     .memories
-                    .search(&self.user, arg("query")?, opt_arg("category"), 30)
+                    .search(&self.user, query, opt_arg("category"), limit)
                     .await?;
-                hits.into_iter()
-                    .map(|h| json!({"key":h.key,"content":h.content,"category":h.category,"updated":h.date}))
-                    .collect()
+                hits.iter().map(|h| h.to_json()).collect()
             }
             "memory_forget" => {
-                json!({"forgotten":self.store.forget(&self.user,arg("key")?).await?})
+                json!({"forgotten":self.store.forget(&self.user,arg("id")?).await?})
             }
             "memory_update" => {
-                let updated = self
-                    .store
-                    .update_memory(
-                        &self.user,
-                        arg("key")?,
-                        arg("content")?,
-                        opt_arg("category"),
-                    )
-                    .await?;
+                let fact = Fact {
+                    content: arg("content")?,
+                    category: opt_arg("category"),
+                    source: MemorySource::User {},
+                    valid: valid()?,
+                    embedding: None,
+                };
+                let updated = self.memories.update(&self.user, arg("id")?, fact).await?;
                 json!({"updated": updated})
             }
             _ => json!({"utc":chrono::Utc::now().to_rfc3339()}),

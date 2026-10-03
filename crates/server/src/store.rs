@@ -1,5 +1,6 @@
-use crate::protocol::{Cron, Integration, Memory, PhoneNotification, Run, Session};
+use crate::protocol::{Cron, Integration, Memory, MemorySource, PhoneNotification, Run, Session};
 use anyhow::{Result, bail};
+use chrono::NaiveDate;
 use flashmind::core::Conversation;
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
@@ -56,45 +57,91 @@ pub(crate) const MEMORY_CATEGORIES: &[&str] = &[
     "general",
 ];
 
-/// Who wrote a memory: the assistant during a chat, or the background extractor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemorySource {
-    User,
-    Auto,
+/// The days a fact holds, like the dates of a trip. Both open by default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Validity {
+    pub from: Option<NaiveDate>,
+    pub until: Option<NaiveDate>,
 }
 
-impl MemorySource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Auto => "auto",
-        }
+impl Validity {
+    /// Whether the fact no longer holds on `today`.
+    pub fn ended(&self, today: NaiveDate) -> bool {
+        self.until.is_some_and(|until| until < today)
     }
 }
 
-pub struct NewMemory<'a> {
-    pub key: &'a str,
+/// A fact to store or to replace a memory's text with.
+#[derive(Clone)]
+pub struct Fact<'a> {
     pub content: &'a str,
+    /// `None` keeps the current category, or `general` for a new memory.
     pub category: Option<&'a str>,
     pub source: MemorySource,
+    /// `None` keeps the current days on an update, or leaves a new memory open.
+    pub valid: Option<Validity>,
+    /// Embedding of `content`, when one was computed.
+    pub embedding: Option<Vec<f32>>,
 }
 
 /// A stored memory with its embedding, if it has one yet.
 #[derive(Debug, Clone)]
 pub struct MemoryRow {
-    pub key: String,
+    pub id: String,
     pub content: String,
     pub category: String,
-    /// SQLite `datetime('now')` text, empty when unknown.
+    pub source: MemorySource,
+    /// SQLite `datetime('now')` text.
     pub updated_at: String,
+    pub valid: Validity,
     pub embedding: Option<Vec<f32>>,
+}
+
+impl MemoryRow {
+    /// `YYYY-MM-DD` of the last change.
+    pub fn updated(&self) -> &str {
+        self.updated_at.get(..10).unwrap_or_default()
+    }
 }
 
 /// An embedding computed for one version of a memory's text.
 pub struct Embedded {
-    pub key: String,
+    pub id: String,
     pub content: String,
     pub embedding: Vec<f32>,
+}
+
+/// A short random id for a new memory; models copy it back into tool calls.
+fn memory_id() -> String {
+    Uuid::new_v4().simple().to_string()[..12].to_owned()
+}
+
+fn parse_date(text: Option<String>) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(text.as_deref()?, "%Y-%m-%d").ok()
+}
+
+fn format_date(date: Option<NaiveDate>) -> Option<String> {
+    date.map(|d| d.format("%Y-%m-%d").to_string())
+}
+
+const MEMORY_COLUMNS: &str =
+    "id, content, category, source, updated_at, valid_from, valid_until, embedding";
+
+fn memory_row(r: &rusqlite::Row) -> rusqlite::Result<MemoryRow> {
+    let source: String = r.get(3)?;
+    let blob: Option<Vec<u8>> = r.get(7)?;
+    Ok(MemoryRow {
+        id: r.get(0)?,
+        content: r.get(1)?,
+        category: r.get(2)?,
+        source: MemorySource::parse(&source),
+        updated_at: r.get(4)?,
+        valid: Validity {
+            from: parse_date(r.get(5)?),
+            until: parse_date(r.get(6)?),
+        },
+        embedding: blob.map(|b| decode_embedding(&b)),
+    })
 }
 
 fn encode_embedding(embedding: &[f32]) -> Vec<u8> {
@@ -105,6 +152,13 @@ fn decode_embedding(blob: &[u8]) -> Vec<f32> {
     blob.chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         .collect()
+}
+
+fn check_memory(content: &str) -> Result<()> {
+    if content.trim().is_empty() || content.len() > 4000 {
+        bail!("memory content length out of range");
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_category(category: Option<&str>) -> Result<String> {
@@ -142,8 +196,15 @@ impl Store {
                     ON runs(user_id, session_id) WHERE status = 'running';
                 DROP TABLE IF EXISTS events;
                 CREATE TABLE IF NOT EXISTS memories (
-                    user_id TEXT NOT NULL, key TEXT NOT NULL, content TEXT NOT NULL,
-                    PRIMARY KEY(user_id, key));
+                    user_id TEXT NOT NULL, id TEXT NOT NULL, content TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'general',
+                    source TEXT NOT NULL DEFAULT 'user',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    valid_from TEXT, valid_until TEXT, embedding BLOB,
+                    PRIMARY KEY(user_id, id));
+                CREATE TABLE IF NOT EXISTS memory_curation (
+                    user_id TEXT PRIMARY KEY, curated_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS crons (
                     user_id TEXT NOT NULL, id TEXT NOT NULL, label TEXT NOT NULL,
                     prompt TEXT NOT NULL, schedule TEXT NOT NULL,
@@ -253,6 +314,32 @@ impl Store {
                      ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT 'user';
                      ALTER TABLE memories ADD COLUMN embedding BLOB;
                      UPDATE memories SET created_at = datetime('now'), updated_at = datetime('now');",
+                )?;
+            }
+            // Memories were keyed by a name like `dog_name`; they now get an id
+            // and are told apart by meaning. A one-word value keeps its key as
+            // the subject. Embeddings covered the key too, so they are redone.
+            if has_col("memories", "key")? {
+                db.execute_batch(
+                    "BEGIN;
+                     ALTER TABLE memories RENAME TO memories_by_key;
+                     CREATE TABLE memories (
+                         user_id TEXT NOT NULL, id TEXT NOT NULL, content TEXT NOT NULL,
+                         category TEXT NOT NULL DEFAULT 'general',
+                         source TEXT NOT NULL DEFAULT 'user',
+                         created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                         valid_from TEXT, valid_until TEXT, embedding BLOB,
+                         PRIMARY KEY(user_id, id));
+                     INSERT INTO memories (user_id, id, content, category, source, created_at, updated_at)
+                         SELECT user_id, lower(hex(randomblob(6))),
+                             CASE WHEN instr(trim(content), ' ') = 0
+                                 THEN replace(key, '_', ' ') || ': ' || content ELSE content END,
+                             category, CASE WHEN source = 'user' THEN 'user' ELSE 'learned' END,
+                             coalesce(created_at, datetime('now')), coalesce(updated_at, datetime('now'))
+                         FROM memories_by_key;
+                     DROP TABLE memories_by_key;
+                     COMMIT;",
                 )?;
             }
             if !has_col("sessions", "pinned")? {
@@ -581,59 +668,80 @@ impl Store {
             .await?)
     }
 
-    /// Stores or replaces a memory. A new text drops the old embedding.
-    pub async fn remember(&self, user: &str, memory: NewMemory<'_>) -> Result<()> {
-        let NewMemory {
-            key,
-            content,
-            category,
-            source,
-        } = memory;
-        if key.is_empty() || key.len() > 100 || content.is_empty() || content.len() > 4000 {
-            bail!("memory key/content length out of range");
-        }
-        let cat = validate_category(category)?;
-        let (user, key, content) = (user.to_owned(), key.to_owned(), content.to_owned());
-        let source = source.as_str();
+    /// Stores a new memory and returns its id.
+    pub async fn add_memory(&self, user: &str, fact: Fact<'_>) -> Result<String> {
+        check_memory(fact.content)?;
+        let category = validate_category(fact.category)?;
+        let (user, id, content) = (user.to_owned(), memory_id(), fact.content.to_owned());
+        let source = fact.source.as_str();
+        let valid = fact.valid.unwrap_or_default();
+        let (from, until) = (format_date(valid.from), format_date(valid.until));
+        let embedding = fact.embedding.as_deref().map(encode_embedding);
+        let stored = id.clone();
         self.0
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
-                    "INSERT INTO memories (user_id, key, content, category, source, created_at, updated_at) \
-                     VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now')) \
-                     ON CONFLICT(user_id,key) DO UPDATE SET content=excluded.content, \
-                     category=excluded.category, updated_at=excluded.updated_at, \
-                     embedding=CASE WHEN content=excluded.content THEN embedding END",
-                    params![user, key, content, cat, source],
-                )?;
-                Ok(())
+                    "INSERT INTO memories (user_id, id, content, category, source, valid_from, \
+                     valid_until, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    params![
+                        user, stored, content, category, source, from, until, embedding
+                    ],
+                )
             })
             .await?;
-        Ok(())
+        Ok(id)
     }
 
-    pub async fn update_memory(
-        &self,
-        user: &str,
-        key: &str,
-        content: &str,
-        category: Option<&str>,
-    ) -> Result<bool> {
-        if key.is_empty() || content.is_empty() || content.len() > 4000 {
-            bail!("memory key/content length out of range");
-        }
-        let cat = category.map(|c| validate_category(Some(c))).transpose()?;
-        let (user, key, content) = (user.to_owned(), key.to_owned(), content.to_owned());
+    /// Replaces a memory's text, and its days when given. A memory the user
+    /// stated stays stated. Returns whether it exists.
+    pub async fn update_memory(&self, user: &str, id: &str, fact: Fact<'_>) -> Result<bool> {
+        check_memory(fact.content)?;
+        let category = fact
+            .category
+            .map(|c| validate_category(Some(c)))
+            .transpose()?;
+        let (user, id, content) = (user.to_owned(), id.to_owned(), fact.content.to_owned());
+        let source = fact.source.as_str();
+        let keep_valid = fact.valid.is_none();
+        let valid = fact.valid.unwrap_or_default();
+        let (from, until) = (format_date(valid.from), format_date(valid.until));
+        let embedding = fact.embedding.as_deref().map(encode_embedding);
         Ok(self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
-                let changed = db.execute(
+                db.execute(
                     "UPDATE memories SET content=?1, category=coalesce(?2, category), \
+                     source=CASE WHEN source='user' THEN 'user' ELSE ?3 END, \
+                     valid_from=CASE WHEN ?9 THEN valid_from ELSE ?4 END, \
+                     valid_until=CASE WHEN ?9 THEN valid_until ELSE ?5 END, \
                      updated_at=datetime('now'), \
+                     embedding=CASE WHEN ?6 IS NOT NULL THEN ?6 \
+                         WHEN content=?1 THEN embedding END \
+                     WHERE user_id=?7 AND id=?8",
+                    params![
+                        content, category, source, from, until, embedding, user, id, keep_valid
+                    ],
+                )
+                .map(|changed| changed > 0)
+            })
+            .await?)
+    }
+
+    /// Replaces only a memory's text, as the user does from the Memories
+    /// screen; it then counts as stated by the user.
+    pub async fn edit_memory(&self, user: &str, id: &str, content: &str) -> Result<bool> {
+        check_memory(content)?;
+        let (user, id, content) = (user.to_owned(), id.to_owned(), content.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "UPDATE memories SET content=?1, source='user', updated_at=datetime('now'), \
                      embedding=CASE WHEN content=?1 THEN embedding END \
-                     WHERE user_id=?3 AND key=?4",
-                    params![content, cat, user, key],
-                )?;
-                Ok(changed > 0)
+                     WHERE user_id=?2 AND id=?3",
+                    params![content, user, id],
+                )
+                .map(|changed| changed > 0)
             })
             .await?)
     }
@@ -644,23 +752,11 @@ impl Store {
         Ok(self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
-                let mut stmt = db.prepare(
-                    "SELECT key, content, category, coalesce(updated_at, ''), embedding \
-                     FROM memories WHERE user_id=? ORDER BY updated_at DESC LIMIT 2000",
-                )?;
-                let rows = stmt
-                    .query_map([user], |r| {
-                        let blob: Option<Vec<u8>> = r.get(4)?;
-                        Ok(MemoryRow {
-                            key: r.get(0)?,
-                            content: r.get(1)?,
-                            category: r.get(2)?,
-                            updated_at: r.get(3)?,
-                            embedding: blob.map(|b| decode_embedding(&b)),
-                        })
-                    })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                Ok(rows)
+                let mut stmt = db.prepare(&format!(
+                    "SELECT {MEMORY_COLUMNS} FROM memories WHERE user_id=? \
+                     ORDER BY updated_at DESC LIMIT 2000"
+                ))?;
+                stmt.query_map([user], memory_row)?.collect()
             })
             .await?)
     }
@@ -672,14 +768,14 @@ impl Store {
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;
                 for Embedded {
-                    key,
+                    id,
                     content,
                     embedding,
                 } in embedded
                 {
                     tx.execute(
-                        "UPDATE memories SET embedding=? WHERE user_id=? AND key=? AND content=?",
-                        params![encode_embedding(&embedding), user, key, content],
+                        "UPDATE memories SET embedding=? WHERE user_id=? AND id=? AND content=?",
+                        params![encode_embedding(&embedding), user, id, content],
                     )?;
                 }
                 tx.commit()
@@ -688,35 +784,96 @@ impl Store {
         Ok(())
     }
 
-    pub async fn forget(&self, user: &str, key: &str) -> Result<bool> {
-        let (user, key) = (user.to_owned(), key.to_owned());
+    pub async fn forget(&self, user: &str, id: &str) -> Result<bool> {
+        let (user, id) = (user.to_owned(), id.to_owned());
         Ok(self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 Ok(db.execute(
-                    "DELETE FROM memories WHERE user_id=? AND key=?",
-                    params![user, key],
+                    "DELETE FROM memories WHERE user_id=? AND id=?",
+                    params![user, id],
                 )? > 0)
             })
             .await?)
     }
 
-    pub async fn list_memories(&self, user: &str) -> Result<Vec<Memory>> {
+    /// Deletes every memory of a user and returns how many there were.
+    pub async fn forget_all(&self, user: &str) -> Result<u64> {
         let user = user.to_owned();
         Ok(self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
-                let mut stmt = db.prepare(
-                    "SELECT key, content, category FROM memories WHERE user_id=? ORDER BY category, key LIMIT 500",
-                )?;
-                let rows = stmt
-                    .query_map([user], |r| {
-                        Ok(Memory { key: r.get(0)?, content: r.get(1)?, category: r.get(2)? })
-                    })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                Ok(rows)
+                db.execute("DELETE FROM memories WHERE user_id=?", [user])
+                    .map(|n| n as u64)
             })
             .await?)
+    }
+
+    /// Every memory for the Memories screen, newest first.
+    pub async fn list_memories(&self, user: &str) -> Result<Vec<Memory>> {
+        Ok(self
+            .memory_rows(user)
+            .await?
+            .into_iter()
+            .map(|row| Memory {
+                updated: row.updated().to_owned(),
+                id: row.id,
+                content: row.content,
+                category: row.category,
+                source: row.source,
+                valid_from: format_date(row.valid.from),
+                valid_until: format_date(row.valid.until),
+            })
+            .collect())
+    }
+
+    /// Deletes memories whose time ended more than `keep_days` ago and returns
+    /// how many.
+    pub async fn purge_ended_memories(&self, keep_days: u32) -> Result<u64> {
+        let cutoff = format!("-{keep_days} days");
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "DELETE FROM memories WHERE valid_until < date('now', ?)",
+                    [cutoff],
+                )
+                .map(|n| n as u64)
+            })
+            .await?)
+    }
+
+    /// Users with memories changed since their last curation, which was at
+    /// least `every` ago.
+    pub async fn users_to_curate(&self, every: Duration) -> Result<Vec<String>> {
+        let every = format!("-{} seconds", every.as_secs());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT m.user_id FROM memories m
+                     LEFT JOIN memory_curation c ON c.user_id = m.user_id
+                     GROUP BY m.user_id, c.curated_at
+                     HAVING c.curated_at IS NULL
+                         OR (c.curated_at <= datetime('now', ?) AND max(m.updated_at) > c.curated_at)",
+                )?;
+                stmt.query_map([every], |r| r.get(0))?.collect()
+            })
+            .await?)
+    }
+
+    pub async fn mark_curated(&self, user: &str) -> Result<()> {
+        let user = user.to_owned();
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO memory_curation (user_id, curated_at) VALUES (?, datetime('now'))
+                     ON CONFLICT(user_id) DO UPDATE SET curated_at=excluded.curated_at",
+                    [user],
+                )
+            })
+            .await?;
+        Ok(())
     }
 
     pub async fn list_crons(&self, user: &str) -> Result<Vec<Cron>> {
@@ -1642,4 +1799,34 @@ fn calculate_streak(db: &rusqlite::Connection, habit_id: &str) -> rusqlite::Resu
     }
 
     Ok(streak)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn keyed_memories_get_ids_and_keep_their_subject() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        let old = rusqlite::Connection::open(&path).unwrap();
+        old.execute_batch(
+            "CREATE TABLE memories (
+                 user_id TEXT NOT NULL, key TEXT NOT NULL, content TEXT NOT NULL,
+                 PRIMARY KEY(user_id, key));
+             INSERT INTO memories VALUES ('alice', 'dog_name', 'Rex');
+             INSERT INTO memories VALUES ('alice', 'home', 'Lives in Lisbon');",
+        )
+        .unwrap();
+        drop(old);
+
+        let store = Store::open(&path).await.unwrap();
+        let mut rows = store.memory_rows("alice").await.unwrap();
+        rows.sort_by(|a, b| a.content.cmp(&b.content));
+        let contents: Vec<_> = rows.iter().map(|r| r.content.as_str()).collect();
+        assert_eq!(contents, ["Lives in Lisbon", "dog name: Rex"]);
+        assert!(rows.iter().all(|r| r.id.len() == 12));
+        assert!(rows.iter().all(|r| r.source == MemorySource::User {}));
+        assert!(store.forget("alice", &rows[1].id).await.unwrap());
+    }
 }

@@ -694,6 +694,11 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             }
                             if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
                                 padded = isUser || Beep.shapes.botBubble)
+                            // Jev's guess that this turn held something worth remembering.
+                            message.memoryScore?.let { score ->
+                                Text("memory %.2f".format(score), fontSize = 10.sp, color = TextDim,
+                                    modifier = Modifier.align(Alignment.End).padding(end = 12.dp, bottom = 6.dp))
+                            }
                         }
                         MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote)
                         }
@@ -1605,10 +1610,12 @@ private fun DrawerTile(label: String, icon: androidx.compose.ui.graphics.vector.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
-    var memories by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var memories by remember { mutableStateOf<List<ChatRepository.Memory>>(emptyList()) }
     var query by rememberSaveable { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<ChatRepository.Memory?>(null) }
+    var confirmClear by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun refresh() { scope.launch {
         loading = true; error = ""
@@ -1616,11 +1623,42 @@ private fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
         catch (e: Exception) { error = e.message.orEmpty() }
         finally { loading = false }
     } }
+    fun act(action: suspend () -> Unit) { scope.launch {
+        try { withContext(Dispatchers.IO) { action() }; refresh() }
+        catch (e: Exception) { error = e.message.orEmpty() }
+    } }
     LaunchedEffect(Unit) { refresh() }
-    val filtered = memories.filter { (k, v) -> query.isBlank() || k.contains(query, true) || v.contains(query, true) }
+    val today = remember { java.time.LocalDate.now().toString() }
+    val groups = memories
+        .filter { query.isBlank() || it.content.contains(query, true) || it.category.contains(query, true) }
+        .sortedByDescending { it.updated }
+        .groupBy { it.category }
+        .toSortedMap()
+    val shown = groups.values.sumOf { it.size }
+    editing?.let { memory ->
+        var text by remember(memory.id) { mutableStateOf(memory.content) }
+        AlertDialog(
+            onDismissRequest = { editing = null },
+            confirmButton = { TextButton(onClick = {
+                val content = text.trim()
+                if (content.isNotEmpty()) { act { repository.updateMemory(memory.id, content) }; editing = null }
+            }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } },
+            title = { Text("Edit memory") },
+            text = { OutlinedTextField(text, { text = it }, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) },
+            containerColor = Surface)
+    }
+    if (confirmClear) AlertDialog(
+        onDismissRequest = { confirmClear = false },
+        confirmButton = { TextButton(onClick = { act { repository.clearMemories() }; confirmClear = false }) { Text("Forget all", color = Coral) } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+        title = { Text("Forget everything?") },
+        text = { Text("Beep will forget all ${memories.size} memories. This cannot be undone.") },
+        containerColor = Surface)
     Scaffold(containerColor = Ink, topBar = {
         TopAppBar(title = { Text(displayText("Memories"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+            actions = { if (memories.isNotEmpty()) TextButton(onClick = { confirmClear = true }) { Text("Clear all", color = Coral, fontSize = 13.sp) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -1631,29 +1669,44 @@ private fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
                     colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
                         unfocusedBorderColor = Border, focusedBorderColor = Moss))
                 Spacer(Modifier.width(12.dp))
-                Text("${filtered.size}", fontSize = 12.sp, color = TextMuted)
+                Text("$shown", fontSize = 12.sp, color = TextMuted)
             }
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp))
-            if (loading) Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
-            else if (filtered.isEmpty()) Text(if (memories.isEmpty()) "No memories stored yet." else "No matches.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            if (loading && memories.isEmpty()) Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
+            else if (shown == 0) Text(if (memories.isEmpty()) "Nothing remembered yet.\nBeep learns as you chat, or tell it \"remember that...\"" else "No matches.",
+                fontSize = 13.sp, color = TextMuted, lineHeight = 20.sp, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(filtered, key = { it.first }) { (key, content) ->
-                    BeepCard(Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-                            Column(Modifier.weight(1f)) {
-                                Text(key, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.height(3.dp))
-                                Text(content, fontSize = 12.sp, color = TextMuted, maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
-                            }
-                            IconButton(onClick = { scope.launch {
-                                try { withContext(Dispatchers.IO) { repository.deleteMemory(key) }; refresh() }
-                                catch (e: Exception) { error = e.message.orEmpty() }
-                            } }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Outlined.Close, "Delete", Modifier.size(16.dp), tint = TextDim)
-                            }
-                        }
+                groups.forEach { (category, list) ->
+                    item(key = "category-$category") {
+                        Text(category.replaceFirstChar { it.uppercase() }, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextDim,
+                            modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 2.dp))
                     }
+                    items(list, key = { it.id }) { memory -> MemoryCard(memory, today, onEdit = { editing = memory }, onDelete = { act { repository.deleteMemory(memory.id) } }) }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () -> Unit, onDelete: () -> Unit) {
+    val ended = memory.validUntil?.let { it < today } == true
+    val days = when {
+        memory.validFrom != null && memory.validUntil != null -> "${memory.validFrom} to ${memory.validUntil}"
+        memory.validUntil != null -> "until ${memory.validUntil}"
+        memory.validFrom != null -> "from ${memory.validFrom}"
+        else -> null
+    }
+    val details = listOfNotNull(if (memory.toldByUser) "You told Beep" else "Learned", memory.updated, days, if (ended) "ended" else null)
+    BeepCard(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(memory.content, fontSize = 13.sp, lineHeight = 19.sp, color = if (ended) TextMuted else Color.Unspecified)
+                Spacer(Modifier.height(4.dp))
+                Text(details.joinToString(" \u00b7 "), fontSize = 11.sp, color = TextDim)
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Outlined.Close, "Forget", Modifier.size(16.dp), tint = TextDim)
             }
         }
     }

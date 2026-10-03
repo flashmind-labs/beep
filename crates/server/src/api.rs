@@ -38,6 +38,8 @@ pub fn router() -> Router {
         .call(pin_session)
         .call(list_memories)
         .call(delete_memory)
+        .call(update_memory)
+        .call(clear_memories)
         .call(list_crons)
         .call(create_cron)
         .call(toggle_cron)
@@ -319,8 +321,21 @@ async fn list_memories(cx: Cx, _: ListMemories) -> Reply<Vec<Memory>> {
     Ok(cx.app.store.list_memories(&cx.user).await?)
 }
 
-async fn delete_memory(cx: Cx, DeleteMemory { key }: DeleteMemory) -> Reply<()> {
-    found(cx.app.store.forget(&cx.user, &key).await?)
+async fn delete_memory(cx: Cx, DeleteMemory { id }: DeleteMemory) -> Reply<()> {
+    found(cx.app.store.forget(&cx.user, &id).await?)
+}
+
+/// The new text is embedded on the next lookup.
+async fn update_memory(cx: Cx, UpdateMemory { id, content }: UpdateMemory) -> Reply<()> {
+    let content = content.trim();
+    if content.is_empty() || content.len() > 4000 {
+        return Err(ApiError::bad_request("memory text must be 1 to 4000 bytes"));
+    }
+    found(cx.app.store.edit_memory(&cx.user, &id, content).await?)
+}
+
+async fn clear_memories(cx: Cx, _: ClearMemories) -> Reply<u64> {
+    Ok(cx.app.store.forget_all(&cx.user).await?)
 }
 
 async fn list_crons(cx: Cx, _: ListCrons) -> Reply<Vec<Cron>> {
