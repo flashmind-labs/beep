@@ -2,6 +2,7 @@ pub mod api;
 pub mod app;
 pub mod config;
 pub mod cron;
+pub mod live;
 pub mod mcp;
 pub mod router;
 pub mod search;

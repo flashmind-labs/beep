@@ -133,15 +133,16 @@ impl BeepClient {
         self.call(Health {}).await
     }
 
+    /// Starts a run and streams its events, starting with `RunStarted`.
     /// `session_id` and `request_id` are UUIDs. Resending the same
-    /// `request_id` returns the existing run.
+    /// `request_id` follows the existing run.
     pub async fn chat(
         &self,
         session_id: String,
         request_id: String,
         message: String,
         image: Option<String>,
-    ) -> Result<Run, BeepError> {
+    ) -> Result<Arc<EventStream>, BeepError> {
         let uuid = |s: &str| Uuid::parse_str(s).map_err(|_| bad_request("invalid UUID"));
         let chat = Chat {
             session_id: uuid(&session_id)?,
@@ -149,7 +150,8 @@ impl BeepClient {
             message,
             image,
         };
-        self.call(chat).await
+        let replies = self.stream(chat).await?;
+        Ok(Arc::new(EventStream(AsyncMutex::new(replies))))
     }
 
     pub async fn get_run(&self, id: String) -> Result<Run, BeepError> {
@@ -160,8 +162,8 @@ impl BeepClient {
         self.call(CancelRun { id }).await
     }
 
-    /// The run's events after `after`. The stream ends when the run finishes
-    /// or the server's window closes; resume with the last `seq` seen.
+    /// Resumes a run's events after `after`, the last `seq` seen. Like `chat`,
+    /// the stream ends when the run finishes or the server's window closes.
     pub async fn events(&self, run_id: String, after: i64) -> Result<Arc<EventStream>, BeepError> {
         let replies = self.stream(GetEvents { run_id, after }).await?;
         Ok(Arc::new(EventStream(AsyncMutex::new(replies))))

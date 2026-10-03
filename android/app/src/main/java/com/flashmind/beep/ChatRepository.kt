@@ -177,15 +177,37 @@ class ChatRepository(private val storage: LocalStorage) {
                 try {
                     val api = api()
                     updateChat(id) { it.copy(error = "", status = if (it.runId.isEmpty()) "Sending…" else "Beep is thinking…") }
-                    if (chat.runId.isEmpty()) {
-                        val run = api.chat(id, chat.requestId, chat.pendingText, chat.pendingImage)
-                        updateChat(id) { it.copy(runId = run.id, requestId = "", pendingText = "", pendingImage = null, cursor = 0) }
+                    if (chat.runId.isNotEmpty() && chat.cancelRequested) api.cancelRun(chat.runId)
+
+                    // A new message streams its run from the start; a run we lost is resumed from the cursor.
+                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImage)
+                        else api.events(chat.runId, chat.cursor)
+                    var runId = chat.runId
+                    var missed = false
+                    stream.use { events ->
+                        var first = true
+                        while (true) {
+                            val received = events.next() ?: break
+                            val started = received.event as? RunEvent.RunStarted
+                            if (started != null) {
+                                runId = started.runId
+                                updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImage = null, cursor = 0) }
+                                if (state.value.conversations.first { it.id == id }.cancelRequested) api.cancelRun(runId)
+                            }
+
+                            // A run that finished while we were away only reports its status.
+                            missed = first && received.event is RunEvent.RunFinished
+                            first = false
+                            if (missed && runId.isEmpty()) {
+                                // A resent message whose run already finished: we never learned its id.
+                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImage = null, status = "", tool = "", cancelRequested = false) }
+                            } else {
+                                event(id, runId, received)
+                            }
+                        }
                     }
-                    val current = state.value.conversations.first { it.id == id }
-                    if (current.cancelRequested) api.cancelRun(current.runId)
-                    api.events(current.runId, current.cursor).use { events ->
-                        while (true) event(id, current.runId, events.next() ?: break)
-                    }
+                    // Its reply is in the session history instead.
+                    if (missed) loadHistory(id, settings.value)
                     failures = 0; connected.value = true
                     // Bounded server subscriptions may end before the run. Reopen from the cursor.
                     delay(150)
@@ -269,21 +291,34 @@ class ChatRepository(private val storage: LocalStorage) {
         val sessionId = UUID.randomUUID().toString()
         val prompt = if (language == "Auto") "Translate the following text to the most likely target language (if it's English, translate to Spanish; otherwise translate to English). Reply with ONLY the translation, no explanation:\n\n$text"
             else "Translate the following text to $language. Reply with ONLY the translation, no explanation:\n\n$text"
-        val run = api.chat(sessionId, UUID.randomUUID().toString(), prompt, null)
+        val requestId = UUID.randomUUID().toString()
         val result = StringBuilder()
+        var runId = ""
         var cursor = 0L
         var finished = false
         while (!finished) {
-            api.events(run.id, cursor).use { events ->
+            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, null) else api.events(runId, cursor)
+            stream.use { events ->
+                var first = true
                 while (true) {
                     val event = events.next() ?: break
                     cursor = event.seq
                     when (val e = event.event) {
+                        is RunEvent.RunStarted -> runId = e.runId
                         is RunEvent.TextDelta -> result.append(e.delta)
-                        is RunEvent.RunFinished -> finished = true
+                        is RunEvent.RunFinished -> {
+                            finished = true
+                            // Finished while we were away: the full reply is in the session.
+                            if (first) {
+                                val reply = api.getSession(sessionId).lastOrNull() as? HistoryEntry.Assistant
+                                result.setLength(0)
+                                result.append(reply?.content.orEmpty())
+                            }
+                        }
                         is RunEvent.Error -> throw Exception(e.message.ifEmpty { "Translation failed" })
                         else -> {}
                     }
+                    first = false
                 }
             }
             if (!finished) delay(150)
