@@ -38,7 +38,9 @@ data class Conversation(
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
     val requestId: String = "", val pendingText: String = "", val pendingImage: String? = null,
     val status: String = "", val error: String = "",
-    val tool: String = "", val cancelRequested: Boolean = false, val pinned: Boolean = false
+    val tool: String = "", val cancelRequested: Boolean = false, val pinned: Boolean = false,
+    /** The model's reasoning for the current step, shown live and dropped once it moves on. Not saved. */
+    val thinking: String = ""
 ) { val busy get() = requestId.isNotEmpty() || runId.isNotEmpty() }
 data class ChatState(val conversations: List<Conversation> = listOf(Conversation()), val selected: String = "") {
     val current get() = conversations.firstOrNull { it.id == selected } ?: conversations.first()

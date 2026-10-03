@@ -533,8 +533,9 @@ class ChatRepository(private val storage: LocalStorage) {
                     val newText = existing?.text.orEmpty() + event.delta
                     val message = if (existing != null) existing.copy(text = newText)
                         else ChatMessage(messageId, "assistant", newText)
-                    next = next.copy(messages = if (existing == null) next.messages + message else next.messages.map { if (it.id == messageId) message else it }, status = "Replying...", tool = "")
+                    next = next.copy(messages = if (existing == null) next.messages + message else next.messages.map { if (it.id == messageId) message else it }, status = "Replying...", tool = "", thinking = "")
                 }
+                is RunEvent.ReasoningDelta -> next = next.copy(thinking = (chat.thinking + event.delta).takeLast(4000))
                 is RunEvent.ToolStarted -> {
                     val description = toolLabel(event.name).ifEmpty { "Using a tool..." }
                     val messageId = "assistant-${chat.runId}"
@@ -544,7 +545,7 @@ class ChatRepository(private val storage: LocalStorage) {
                         else ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc))
                     next = next.copy(
                         messages = if (existing == null) next.messages + msg else next.messages.map { if (it.id == messageId) msg else it },
-                        tool = description, status = "Working...")
+                        tool = description, status = "Working...", thinking = "")
                 }
                 is RunEvent.ToolResult -> {
                     val callId = event.callId
@@ -619,10 +620,13 @@ class ChatRepository(private val storage: LocalStorage) {
                     val messageId = "assistant-${chat.runId}"
                     next = next.copy(
                         messages = next.messages.map { if (it.id == messageId) extractCardsFromText(it) else it },
-                        runId = "", status = "", tool = "", cancelRequested = false, error = when (status) {
+                        runId = "", status = "", tool = "", thinking = "", cancelRequested = false, error = when (status) {
                         "completed" -> ""
                         "cancelled" -> "Stopped"
                         "interrupted" -> "The server restarted. Send a new message to continue."
+                        "timed_out" -> "That took too long, so Beep stopped. Try again."
+                        "stalled" -> "The model stopped responding. Try again."
+                        "looped" -> "Beep got stuck repeating itself and was stopped. Try again."
                         else -> chat.error.ifEmpty { "Run ended: $status. You can send another message." }
                     })
                 }

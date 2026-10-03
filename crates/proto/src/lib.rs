@@ -240,6 +240,7 @@ wire_enum! {
         5 DeviceQuery { query_id: String, query: DeviceQuery }
         6 RunFinished { status: String }
         7 RunStarted { run_id: String, session_id: String }
+        8 ReasoningDelta { delta: String }
     }
 }
 

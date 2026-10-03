@@ -736,8 +736,9 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))) {
                             PulsingDots()
                             Spacer(Modifier.width(10.dp))
-                            Text(chat.status, color = TextMuted, fontSize = 13.sp, maxLines = 2)
+                            StatusText(chat.status)
                         }
+                        ThinkingPreview(chat.thinking, Modifier.padding(end = if (compact) 0.dp else 48.dp))
                         if (!compact) ReplySkeleton(Modifier.padding(top = 12.dp, end = 48.dp))
                     }
                 }
@@ -754,11 +755,14 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
         // The streaming text is its own progress, so "Replying" needs no line of its own.
         AnimatedVisibility(visible = chat.status.isNotEmpty() && !workingInline && !chat.status.startsWith("Replying"),
             enter = fadeIn(tween(200)) + expandVertically(tween(200)), exit = fadeOut(tween(150)) + shrinkVertically(tween(150))) {
-            Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)),
-                verticalAlignment = Alignment.CenterVertically) {
-                PulsingDots()
-                Spacer(Modifier.width(10.dp))
-                Text(chat.status, color = TextMuted, fontSize = 13.sp, maxLines = 2)
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                Row(Modifier.animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    PulsingDots()
+                    Spacer(Modifier.width(10.dp))
+                    StatusText(chat.status)
+                }
+                ThinkingPreview(chat.thinking)
             }
         }
         AnimatedVisibility(visible = chat.error.isNotEmpty(),
