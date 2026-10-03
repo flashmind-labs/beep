@@ -3,7 +3,7 @@ use anyhow::{Result, bail};
 use flashmind::core::Conversation;
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 use tokio_rusqlite::Connection;
 use uuid::Uuid;
 
@@ -21,6 +21,30 @@ pub enum CreateRun {
     Created(Run),
     Existing(Run),
     Conflict,
+}
+
+/// One user's session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRef {
+    pub user: String,
+    pub id: String,
+}
+
+/// A session's model context with the stored text it was read from, so a
+/// later write can check nothing changed it in between.
+pub struct StoredContext {
+    raw: String,
+    pub conversation: Conversation,
+}
+
+/// What a finished run saves for its session.
+pub struct FinishedTurn<'a> {
+    /// The full history, shown to the user.
+    pub transcript: &'a Conversation,
+    /// What the model sees next turn.
+    pub context: &'a Conversation,
+    /// Prompt size of the run's last model call.
+    pub prompt_tokens: u32,
 }
 
 pub(crate) const MEMORY_CATEGORIES: &[&str] = &[
@@ -236,6 +260,15 @@ impl Store {
                     "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
                 )?;
             }
+            // `conversation` is the full transcript the phone shows; `context` is
+            // what the model sees, compacted once the session is long and idle.
+            if !has_col("sessions", "context")? {
+                db.execute_batch(
+                    "ALTER TABLE sessions ADD COLUMN context TEXT;
+                     ALTER TABLE sessions ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0;
+                     ALTER TABLE sessions ADD COLUMN updated_at TEXT;",
+                )?;
+            }
             Ok(())
         })
         .await?;
@@ -396,19 +429,109 @@ impl Store {
             .transpose()
     }
 
+    /// What the model sees for a session: the compacted context, or the
+    /// transcript when the session was never compacted.
+    pub async fn context(&self, user: &str, session: &str) -> Result<Option<StoredContext>> {
+        let (user, session) = (user.to_owned(), session.to_owned());
+        let raw: Option<String> = self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT COALESCE(context, conversation) FROM sessions WHERE user_id=? AND id=?",
+                    params![user, session],
+                    |r| r.get(0),
+                )
+                .optional()
+            })
+            .await?;
+        raw.map(|raw| {
+            let conversation = serde_json::from_str(&raw)?;
+            Ok(StoredContext { raw, conversation })
+        })
+        .transpose()
+    }
+
+    /// Replaces the context with its compacted form, unless a run changed it
+    /// since `before` was loaded. Returns whether it was replaced.
+    pub async fn save_compacted(
+        &self,
+        session: &SessionRef,
+        before: &StoredContext,
+        compacted: &Conversation,
+    ) -> Result<bool> {
+        let (user, id) = (session.user.clone(), session.id.clone());
+        let before = before.raw.clone();
+        let compacted = serde_json::to_string(compacted)?;
+        let changed = self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "UPDATE sessions SET context=?, context_tokens=0
+                     WHERE user_id=? AND id=? AND COALESCE(context, conversation)=?",
+                    params![compacted, user, id, before],
+                )
+            })
+            .await?;
+        Ok(changed == 1)
+    }
+
+    /// Sessions whose last prompt reached `min_tokens` and that have had no
+    /// activity for `idle`, with no run in progress.
+    pub async fn sessions_to_compact(
+        &self,
+        min_tokens: u32,
+        idle: Duration,
+    ) -> Result<Vec<SessionRef>> {
+        let idle = format!("-{} seconds", idle.as_secs());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT user_id, id FROM sessions s
+                     WHERE context_tokens >= ?
+                       AND updated_at <= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)
+                       AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.user_id = s.user_id
+                           AND r.session_id = s.id AND r.status = 'running')",
+                )?;
+                stmt.query_map(params![min_tokens, idle], |r| {
+                    Ok(SessionRef {
+                        user: r.get(0)?,
+                        id: r.get(1)?,
+                    })
+                })?
+                .collect()
+            })
+            .await?)
+    }
+
     pub async fn finish(
         &self,
         user: &str,
         run: &Run,
-        conversation: Option<&Conversation>,
+        turn: Option<FinishedTurn<'_>>,
         status: &str,
     ) -> Result<()> {
         let (user, run, status) = (user.to_owned(), run.clone(), status.to_owned());
-        let conversation = conversation.map(serde_json::to_string).transpose()?;
+        let turn = turn
+            .map(|turn| {
+                anyhow::Ok((
+                    serde_json::to_string(turn.transcript)?,
+                    serde_json::to_string(turn.context)?,
+                    turn.prompt_tokens,
+                ))
+            })
+            .transpose()?;
         self.0.call::<_, _, rusqlite::Error>(move |db| {
             let tx = db.transaction()?;
-            if let Some(conversation) = conversation {
-                tx.execute("INSERT INTO sessions (user_id, id, conversation) VALUES (?, ?, ?) ON CONFLICT(user_id,id) DO UPDATE SET conversation=excluded.conversation", params![user,run.session_id,conversation])?;
+            if let Some((transcript, context, tokens)) = turn {
+                tx.execute(
+                    "INSERT INTO sessions (user_id, id, conversation, context, context_tokens, updated_at)
+                     VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+                     ON CONFLICT(user_id,id) DO UPDATE SET conversation=excluded.conversation,
+                         context=excluded.context, context_tokens=excluded.context_tokens,
+                         updated_at=excluded.updated_at",
+                    params![user, run.session_id, transcript, context, tokens],
+                )?;
             }
             tx.execute("UPDATE runs SET status=? WHERE id=? AND user_id=?", params![status,run.id,user])?;
             tx.commit()?;

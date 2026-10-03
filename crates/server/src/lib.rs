@@ -1,6 +1,7 @@
 pub mod api;
 pub mod app;
 pub mod apps;
+pub mod compaction;
 pub mod config;
 pub mod cron;
 pub mod decision;
