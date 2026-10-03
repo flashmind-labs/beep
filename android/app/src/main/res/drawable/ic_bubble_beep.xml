@@ -1,0 +1,50 @@
+<!-- Beep icon without its face, which the bubble draws and animates. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group android:translateX="0" android:translateY="1">
+        <!-- Hard shadow -->
+        <group android:translateX="3.5" android:translateY="3.5">
+            <path
+                android:strokeColor="#10201A"
+                android:strokeWidth="8"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round"
+                android:pathData="M68.4,33.1A8,8 0,0 1,74.9,39.6 M69.1,29.2A12,12 0,0 1,78.8,38.9" />
+            <path
+                android:fillColor="#10201A"
+                android:strokeColor="#10201A"
+                android:strokeWidth="3"
+                android:strokeLineJoin="round"
+                android:pathData="M42,38H58A12,12 0,0 1,70,50V64A12,12 0,0 1,58,76H42A12,12 0,0 1,30,64V50A12,12 0,0 1,42,38Z" />
+        </group>
+        <!-- Beep: signal arcs, screen face -->
+        <path
+            android:strokeColor="#10201A"
+            android:strokeWidth="8"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M68.4,33.1A8,8 0,0 1,74.9,39.6 M69.1,29.2A12,12 0,0 1,78.8,38.9" />
+        <path
+            android:strokeColor="#F07A6A"
+            android:strokeWidth="4"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M68.4,33.1A8,8 0,0 1,74.9,39.6 M69.1,29.2A12,12 0,0 1,78.8,38.9" />
+        <path
+            android:fillColor="#D5F1E3"
+            android:strokeColor="#10201A"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:pathData="M42,38H58A12,12 0,0 1,70,50V64A12,12 0,0 1,58,76H42A12,12 0,0 1,30,64V50A12,12 0,0 1,42,38Z" />
+        <path
+            android:fillColor="#EAF8F1"
+            android:strokeColor="#10201A"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:pathData="M42,43H58A7,7 0,0 1,65,50V64A7,7 0,0 1,58,71H42A7,7 0,0 1,35,64V50A7,7 0,0 1,42,43Z" />
+    </group>
+</vector>

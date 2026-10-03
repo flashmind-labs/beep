@@ -24,12 +24,15 @@ import org.json.JSONObject
 import java.util.UUID
 
 class BeepApplication : Application() {
-    val repository by lazy { ChatRepository(LocalStorage(this)) }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val repository by lazy { ChatRepository(LocalStorage(this)).also { followFace(it, scope) } }
 
     override fun onCreate() {
         super.onCreate()
         instance = this
-        AppIcons.apply(this)
+        Avatars.apply(this)
+        // The bubble stays up across process restarts until the user drops it on the X.
+        if (Bubble.wanted(this)) Bubble.show(this)
     }
 
     companion object {

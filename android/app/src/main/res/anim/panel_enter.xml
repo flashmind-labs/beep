@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The panel grows out of the head in the top right corner. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/decelerate_cubic" android:duration="220">
+    <scale android:fromXScale="0.3" android:toXScale="1" android:fromYScale="0.3" android:toYScale="1"
+        android:pivotX="92%" android:pivotY="0%" />
+    <alpha android:fromAlpha="0" android:toAlpha="1" />
+</set>

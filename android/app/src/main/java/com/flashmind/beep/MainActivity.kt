@@ -88,6 +88,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,6 +99,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.graphics.Outline
+import android.view.Gravity
+import android.view.View
+import android.view.ViewOutlineProvider
+import android.view.WindowInsets
 import android.util.Base64
 import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clip
@@ -108,6 +114,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 private fun java.io.InputStream.readProfileBytes(): ByteArray {
     val buffer = ByteArray(65537)
@@ -166,8 +174,11 @@ private fun decodeImageBase64(dataUri: String): Bitmap? {
 
 open class MainActivity : ComponentActivity() {
     protected open val bubble = false
+    protected open val panel = false
+    /** Set while the user is granting "Display over other apps" so Beep floats when they come back. */
+    private var pendingFloat = false
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        if (it && Bubbles.show(this)) moveTaskToBack(true) else Bubbles.settings(this)
+        if (it && SystemBubble.show(this)) moveTaskToBack(true) else SystemBubble.settings(this)
     }
     private val locationPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.any { it }) startLocationUpdates()
@@ -211,6 +222,10 @@ open class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         val repository = (application as BeepApplication).repository
+        if (pendingFloat) {
+            pendingFloat = false
+            float()
+        }
         if (repository.settings.value.configured && !repository.connected.value) repository.reconnect()
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboardListener?.let { cm.removePrimaryClipChangedListener(it) }
@@ -260,21 +275,70 @@ open class MainActivity : ComponentActivity() {
         setContent {
             BeepTheme {
                 BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, clipboardContent = clipboardContent, onFloat = {
-                    if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else if (Bubbles.show(this)) {
-                        if (!bubble) moveTaskToBack(true)
-                    } else Bubbles.settings(this)
+                    if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
+                    else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
                 }, onExpand = {
                     startActivity(Intent(this, MainActivity::class.java).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                     })
-                }, onBubbleSettings = { Bubbles.settings(this) })
+                    if (panel) finish()
+                }, onBubbleSettings = { Bubble.settings(this) })
             }
         }
     }
+    override fun onStart() { super.onStart(); if (!bubble) Bubble.appShown(true) }
+    override fun onStop() { super.onStop(); if (!bubble) Bubble.appShown(false) }
+    /** Float Beep: the overlay bubble when picked and allowed, otherwise the system bubble. */
+    private fun float() {
+        if (Bubble.kind(this) == BubbleKind.Overlay && Bubble.show(this)) {
+            SystemBubble.hide(this)
+            if (!bubble) moveTaskToBack(true)
+        } else if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else if (SystemBubble.show(this)) {
+            if (!bubble) moveTaskToBack(true)
+        } else SystemBubble.settings(this)
+    }
 }
-class BubbleActivity : MainActivity() { override val bubble = true }
+/** The compact chat in a system bubble, used when Beep may not draw over other apps. */
+class BubbleActivity : MainActivity() {
+    override val bubble = true
+}
+/** The compact chat that opens from the bubble, as a rounded panel under it. */
+class PanelActivity : MainActivity() {
+    override val bubble = true
+    override val panel = true
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val density = resources.displayMetrics.density
+        val metrics = windowManager.currentWindowMetrics
+        val width = metrics.bounds.width() - 2 * (12 * density).toInt()
+        val fullHeight = (metrics.bounds.height() * 0.62f).toInt()
+        val gap = (8 * density).toInt()
+        val shortest = (200 * density).toInt()
+        window.setLayout(width, fullHeight)
+        window.attributes = window.attributes.apply { gravity = Gravity.TOP; y = Bubble.panelTop(this@PanelActivity) }
+        // A floating window is not resized for the keyboard, so shrink it to end just above the keyboard.
+        // The inset is how far the keyboard overlaps the window, which is zero once it has shrunk.
+        window.decorView.setOnApplyWindowInsetsListener { view, insets ->
+            val height = window.attributes.height
+            val next = when {
+                !insets.isVisible(WindowInsets.Type.ime()) -> fullHeight
+                else -> (height - insets.getInsets(WindowInsets.Type.ime()).bottom.let { if (it > 0) it + gap else 0 }).coerceAtLeast(shortest)
+            }
+            if (next != height) window.setLayout(width, next)
+            view.onApplyWindowInsets(insets)
+        }
+        window.decorView.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, 24 * resources.displayMetrics.density)
+            }
+        }
+        window.decorView.clipToOutline = true
+    }
+    override fun onStart() { super.onStart(); Bubble.panelShown(this) }
+    override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
+}
 
 private enum class Screen { Chat, Memories, Crons, Integrations, CustomIntegrations, Settings }
 
@@ -364,11 +428,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             drawerShape = RoundedCornerShape(topEnd = Beep.shapes.radius, bottomEnd = Beep.shapes.radius)) {
             Spacer(Modifier.height(if (bubble) 8.dp else 20.dp))
             Text(displayText("Your chats"), Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = displayStyle(26.sp))
-            ChunkyButton(onClick = { startNewChat(); drawerOpen = false }, color = Beep.colors.accent,
-                contentColor = Beep.colors.onAccent, shape = RoundedCornerShape(Beep.shapes.radius),
-                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(), contentPadding = PaddingValues(vertical = 13.dp)) {
-                Icon(Icons.Outlined.Add, null, Modifier.size(20.dp)); Text("New conversation", fontWeight = FontWeight.SemiBold)
-            }
             OutlinedTextField(historyQuery, { historyQuery = it }, placeholder = { Text("Find a conversation", fontSize = 13.sp) },
                 leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) }, singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
@@ -536,14 +595,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 }
             },
                 actions = {
-                    IconButton(onClick = onFloat) { Icon(Icons.Outlined.BubbleChart, "Float chat", tint = TextMuted) }
-                    if (state.current.messages.isNotEmpty()) {
-                        ChunkyButton(onClick = { startNewChat() }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
-                            shape = RoundedCornerShape(Beep.shapes.smallRadius),
-                            modifier = Modifier.padding(end = 14.dp).size(42.dp), contentPadding = PaddingValues(0.dp)) {
-                            Icon(Icons.Outlined.Add, "New conversation", Modifier.size(22.dp))
-                        }
-                    }
+                    IconButton(onClick = onFloat, Modifier.padding(end = 6.dp)) { Icon(Icons.Outlined.BubbleChart, "Float chat", tint = TextMuted) }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
         }) { padding ->
             SwipeChats(canStartNew = state.current.messages.isNotEmpty(), hasPrevious = previousChat() != null,
@@ -636,21 +688,20 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             followLatest = true
             repository.send(message)
         }, onDismiss = { clipboardContent.value = null })
-        if (chat.messages.isEmpty() && compact) {
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.Center) {
-                Text(displayText("Hey. What can I help with?"), style = displayStyle(20.sp))
-                Spacer(Modifier.height(6.dp))
-                Text("Ask a question or search the web.", fontSize = 13.sp, color = TextMuted)
-            }
-        } else if (chat.messages.isEmpty()) {
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp), verticalArrangement = Arrangement.Center) {
-                Text(buildAnnotatedString {
-                    append(displayText("A little help.\n"))
-                    withStyle(SpanStyle(color = Beep.colors.ok)) { append(displayText("Right here.")) }
-                }, style = displayStyle(40.sp, lineHeight = 44.sp), modifier = Modifier.popIn("hello"))
-                Spacer(Modifier.height(12.dp))
-                Text("Find an answer. Untangle a thought.\nKeep something worth remembering.", color = TextMuted, lineHeight = 23.sp)
-                Spacer(Modifier.height(28.dp))
+        if (chat.messages.isEmpty()) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(if (compact) 20.dp else 24.dp), verticalArrangement = Arrangement.Center) {
+                if (compact) {
+                    Text(displayText("Hey. What can I help with?"), style = displayStyle(20.sp))
+                    Spacer(Modifier.height(18.dp))
+                } else {
+                    Text(buildAnnotatedString {
+                        append(displayText("A little help.\n"))
+                        withStyle(SpanStyle(color = Beep.colors.ok)) { append(displayText("Right here.")) }
+                    }, style = displayStyle(40.sp, lineHeight = 44.sp), modifier = Modifier.popIn("hello"))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Find an answer. Untangle a thought.\nKeep something worth remembering.", color = TextMuted, lineHeight = 23.sp)
+                    Spacer(Modifier.height(28.dp))
+                }
                 // Personal starters from the server once they arrive; until then, templates to finish typing.
                 val starters by repository.starters.collectAsState()
                 LaunchedEffect(chat.id) { repository.loadStarters() }
@@ -913,7 +964,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                     colors = TextFieldDefaults.colors(unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, cursorColor = TextPrimary),
                     maxLines = if (compact) 3 else 6,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit() }))
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default))
             }
             val buttonModifier = Modifier.size(buttonSize)
             when {
@@ -1672,7 +1723,7 @@ private fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
         catch (e: Exception) { error = e.message.orEmpty() }
     } }
     LaunchedEffect(Unit) { refresh() }
-    val today = remember { java.time.LocalDate.now().toString() }
+    val today = remember { LocalDate.now().toString() }
     val groups = memories
         .filter { query.isBlank() || it.content.contains(query, true) || it.category.contains(query, true) }
         .sortedByDescending { it.updated }
@@ -1732,22 +1783,32 @@ private fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
     }
 }
 
+/** A `YYYY-MM-DD` date as "9 Oct", with the year when it is not this year. */
+private fun shortDate(date: String): String = try {
+    val day = LocalDate.parse(date)
+    val pattern = if (day.year == LocalDate.now().year) "d MMM" else "d MMM yyyy"
+    day.format(DateTimeFormatter.ofPattern(pattern))
+} catch (_: Exception) { date }
+
 @Composable
 private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () -> Unit, onDelete: () -> Unit) {
     val ended = memory.validUntil?.let { it < today } == true
-    val days = when {
-        memory.validFrom != null && memory.validUntil != null -> "${memory.validFrom} to ${memory.validUntil}"
-        memory.validUntil != null -> "until ${memory.validUntil}"
-        memory.validFrom != null -> "from ${memory.validFrom}"
-        else -> null
-    }
-    val details = listOfNotNull(if (memory.toldByUser) "You told Beep" else "Learned", memory.updated, days, if (ended) "ended" else null)
+    val starts = memory.validFrom?.takeIf { it > today }?.let { "Starts ${shortDate(it)}" }
+    val expires = memory.validUntil?.let { if (ended) "Expired ${shortDate(it)}" else "Expires ${shortDate(it)}" }
+    val details = listOfNotNull(if (memory.toldByUser) "You told Beep" else "Learned", shortDate(memory.updated), starts)
     BeepCard(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
                 Text(memory.content, fontSize = 13.sp, lineHeight = 19.sp, color = if (ended) TextMuted else Color.Unspecified)
                 Spacer(Modifier.height(4.dp))
                 Text(details.joinToString(" \u00b7 "), fontSize = 11.sp, color = TextDim)
+                if (expires != null) {
+                    Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Schedule, null, Modifier.size(12.dp), tint = if (ended) TextDim else Beep.colors.accent)
+                        Spacer(Modifier.width(4.dp))
+                        Text(expires, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (ended) TextDim else Beep.colors.accent)
+                    }
+                }
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Outlined.Close, "Forget", Modifier.size(16.dp), tint = TextDim)

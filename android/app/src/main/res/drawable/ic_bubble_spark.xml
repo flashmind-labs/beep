@@ -1,0 +1,38 @@
+<!-- Spark icon without its face, which the bubble draws and animates. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group android:translateX="0" android:translateY="0">
+        <!-- Hard shadow -->
+        <group android:translateX="3.5" android:translateY="3.5">
+            <path
+                android:fillColor="#10201A"
+                android:strokeColor="#10201A"
+                android:strokeWidth="2.5"
+                android:strokeLineJoin="round"
+                android:pathData="M54,27Q55.5,33.5 62,35Q55.5,36.5 54,43Q52.5,36.5 46,35Q52.5,33.5 54,27Z" />
+            <path
+                android:fillColor="#10201A"
+                android:strokeColor="#10201A"
+                android:strokeWidth="3"
+                android:strokeLineJoin="round"
+                android:pathData="M54,46c12,0 21,8 21,19c0,7 -1.5,11 -5,12c-3.5,1 -6,-2 -9,-1c-3,1 -5,1 -7,1c-2,0 -4,0 -7,-1c-3,-1 -5.5,2 -9,1c-3.5,-1 -5,-5 -5,-12c0,-11 9,-19 21,-19Z" />
+        </group>
+        <!-- Beep: blob with a floating spark -->
+        <path
+            android:fillColor="#F07A6A"
+            android:strokeColor="#10201A"
+            android:strokeWidth="2.5"
+            android:strokeLineJoin="round"
+            android:pathData="M54,27Q55.5,33.5 62,35Q55.5,36.5 54,43Q52.5,36.5 46,35Q52.5,33.5 54,27Z" />
+        <path
+            android:fillColor="#D5F1E3"
+            android:strokeColor="#10201A"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:pathData="M54,46c12,0 21,8 21,19c0,7 -1.5,11 -5,12c-3.5,1 -6,-2 -9,-1c-3,1 -5,1 -7,1c-2,0 -4,0 -7,-1c-3,-1 -5.5,2 -9,1c-3.5,-1 -5,-5 -5,-12c0,-11 9,-19 21,-19Z" />
+    </group>
+</vector>
