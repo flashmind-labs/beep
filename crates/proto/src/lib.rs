@@ -149,8 +149,9 @@ requests! {
     9 RenameSession { id: String, title: String } => Call<()>
     10 DeleteSession { id: String } => Call<()>
     11 PinSession { id: String, pinned: bool } => Call<()>
+    /// Every memory, newest first, including ones whose time has passed.
     12 ListMemories {} => Call<Vec<Memory>>
-    13 DeleteMemory { key: String } => Call<()>
+    13 DeleteMemory { id: String } => Call<()>
     14 ListCrons {} => Call<Vec<Cron>>
     /// Returns the new cron's id.
     15 CreateCron { label: String, prompt: String, schedule: String } => Call<String>
@@ -183,6 +184,10 @@ requests! {
     /// Hands the redirect's `code`, `state` and `iss` to the server, which
     /// keeps the tokens and refreshes them.
     33 FinishAppAuth { slug: String, code: String, state: String, issuer: Option<String> } => Call<()>
+    /// Replaces a memory's text; it then counts as said by the user.
+    34 UpdateMemory { id: String, content: String } => Call<()>
+    /// Returns how many memories were deleted.
+    35 ClearMemories {} => Call<u64>
 }
 
 wire_enum! {
@@ -241,6 +246,7 @@ wire_enum! {
         6 RunFinished { status: String }
         7 RunStarted { run_id: String, session_id: String }
         8 ReasoningDelta { delta: String }
+        9 MemoryScore { probability: f64 }
     }
 }
 
@@ -388,9 +394,42 @@ pub struct Session {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Memory {
-    pub key: String,
+    pub id: String,
     pub content: String,
     pub category: String,
+    pub source: MemorySource,
+    /// `YYYY-MM-DD` of the last change.
+    pub updated: String,
+    /// `YYYY-MM-DD` bounds of a fact that only holds for a while, like a trip.
+    pub valid_from: Option<String>,
+    pub valid_until: Option<String>,
+}
+
+wire_enum! {
+    /// Who a memory came from: the user saying so, or Beep picking it up from a chat.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum MemorySource {
+        0 User {}
+        1 Learned {}
+    }
+}
+
+impl MemorySource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::User {} => "user",
+            Self::Learned {} => "learned",
+        }
+    }
+
+    /// Reads `as_str`; anything else, including the old `auto`, is learned.
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "user" => Self::User {},
+            _ => Self::Learned {},
+        }
+    }
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]

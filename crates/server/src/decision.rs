@@ -43,6 +43,25 @@ impl DecisionTool {
         }
     }
 
+    /// Jev's probability that the answer to `instructions` about `state` is yes.
+    pub async fn probability(&self, state: &str, instructions: &str) -> Result<f64> {
+        let question = JevQuestion::Noul {
+            instructions: instructions.into(),
+            criteria: None,
+        };
+        let request = JevRequest {
+            model: JEV_LATEST_MODEL.into(),
+            state: state[..state.floor_char_boundary(MAX_STATE_BYTES)].into(),
+            questions: BTreeMap::from([("yes".to_owned(), question)]),
+        };
+        let response = self.provider.decide(request).await?;
+        response
+            .answers
+            .get("yes")
+            .and_then(|answer| answer["p"].as_f64())
+            .ok_or_else(|| anyhow::anyhow!("Jev gave no probability"))
+    }
+
     async fn decide(&self, args: &Value) -> Result<Value, String> {
         let request = parse(args)?;
         let response = self.provider.decide(request).await.map_err(describe)?;
@@ -217,6 +236,17 @@ mod tests {
         assert_eq!(output["answers"]["team"]["choice"], "billing");
         assert_eq!(output["answers"]["needs_reply"]["p"], 0.93);
         assert!(output.get("usage").is_none());
+    }
+
+    #[tokio::test]
+    async fn reads_one_probability() {
+        let body = r#"{"model":"jev-1.13","answers":{"yes":{"p":0.81}}}"#;
+        let (tool, mut requests) = mock("200 OK", body).await;
+        let p = tool.probability("User: I moved to Porto", "Worth remembering?");
+        assert_eq!(p.await.unwrap(), 0.81);
+        let request = requests.recv().await.unwrap();
+        assert!(request.contains("\"type\":\"noul\""));
+        assert!(request.contains("I moved to Porto"));
     }
 
     #[tokio::test]

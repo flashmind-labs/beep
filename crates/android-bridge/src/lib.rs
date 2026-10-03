@@ -4,13 +4,14 @@
 //! use and reconnects after the connection drops.
 
 use beep_proto::{
-    ApiError, AppIntegration, Call, CancelRun, Chat, ConnectApp, ConnectLink, CreateCron,
-    CreateIntegration, Cron, DeleteCron, DeleteIntegration, DeleteMemory, DeleteSession,
-    DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth, GetEvents, GetRun, GetSession,
-    Health, HistoryEntry, Integration, ListApps, ListCrons, ListIntegrations, ListMemories,
-    ListSessions, Memory, Notice, PhoneNotification, PinSession, PromptSuggestion, RegisterDevice,
-    RenameSession, Run, SaveNotifications, Session, StartAppAuth, Stream, StreamNotifications,
-    SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCredentials, UpdateCron, UpdateLocation,
+    ApiError, AppIntegration, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink,
+    CreateCron, CreateIntegration, Cron, DeleteCron, DeleteIntegration, DeleteMemory,
+    DeleteSession, DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth, GetEvents,
+    GetRun, GetSession, Health, HistoryEntry, Integration, ListApps, ListCrons, ListIntegrations,
+    ListMemories, ListSessions, Memory, Notice, PhoneNotification, PinSession, PromptSuggestion,
+    RegisterDevice, RenameSession, Run, SaveNotifications, Session, StartAppAuth, Stream,
+    StreamNotifications, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCredentials,
+    UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Replies},
 };
 use iroh::{EndpointAddr, PublicKey};
@@ -208,8 +209,17 @@ impl BeepClient {
         self.call(ListMemories {}).await
     }
 
-    pub async fn delete_memory(&self, key: String) -> Result<(), BeepError> {
-        self.call(DeleteMemory { key }).await
+    pub async fn delete_memory(&self, id: String) -> Result<(), BeepError> {
+        self.call(DeleteMemory { id }).await
+    }
+
+    pub async fn update_memory(&self, id: String, content: String) -> Result<(), BeepError> {
+        self.call(UpdateMemory { id, content }).await
+    }
+
+    /// Returns how many memories were deleted.
+    pub async fn clear_memories(&self) -> Result<u64, BeepError> {
+        self.call(ClearMemories {}).await
     }
 
     pub async fn list_crons(&self) -> Result<Vec<Cron>, BeepError> {

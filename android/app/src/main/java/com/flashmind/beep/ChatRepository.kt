@@ -15,6 +15,7 @@ import com.flashmind.beep.proto.DeviceAnswer
 import com.flashmind.beep.proto.DeviceQuery
 import com.flashmind.beep.proto.Event
 import com.flashmind.beep.proto.HistoryEntry
+import com.flashmind.beep.proto.MemorySource
 import com.flashmind.beep.proto.PromptSuggestion
 import com.flashmind.beep.proto.RunEvent
 import com.flashmind.beep.proto.ScrollDirection
@@ -236,11 +237,23 @@ class ChatRepository(private val storage: LocalStorage) {
             }
         }
     }
-    suspend fun listMemories(): List<Pair<String, String>> {
-        return api().listMemories().map { it.key to it.content }
+    data class Memory(
+        val id: String, val content: String, val category: String, val toldByUser: Boolean,
+        val updated: String, val validFrom: String?, val validUntil: String?,
+    )
+    suspend fun listMemories(): List<Memory> {
+        return api().listMemories().map {
+            Memory(it.id, it.content, it.category, it.source == MemorySource.USER, it.updated, it.validFrom, it.validUntil)
+        }
     }
-    suspend fun deleteMemory(key: String) {
-        api().deleteMemory(key)
+    suspend fun deleteMemory(id: String) {
+        api().deleteMemory(id)
+    }
+    suspend fun updateMemory(id: String, content: String) {
+        api().updateMemory(id, content)
+    }
+    suspend fun clearMemories() {
+        api().clearMemories()
     }
 
     data class Cron(val id: String, val label: String, val prompt: String, val schedule: String, val enabled: Boolean)
@@ -629,6 +642,10 @@ class ChatRepository(private val storage: LocalStorage) {
                         "looped" -> "Beep got stuck repeating itself and was stopped. Try again."
                         else -> chat.error.ifEmpty { "Run ended: $status. You can send another message." }
                     })
+                }
+                is RunEvent.MemoryScore -> {
+                    val messageId = "assistant-${chat.runId}"
+                    next = next.copy(messages = next.messages.map { if (it.id == messageId) it.copy(memoryScore = event.probability) else it })
                 }
                 is RunEvent.Usage, is RunEvent.RunStarted -> {}
             }

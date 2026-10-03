@@ -84,6 +84,7 @@ async fn main() -> Result<()> {
     );
     beep_server::mcp::start_keep_alive(app.clone());
     beep_server::compaction::start(app.clone());
+    beep_server::memories::start_curation(app.clone());
     let (cron_runner, _cron_registry) = beep_server::cron::start(app.clone(), &config.database);
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {
