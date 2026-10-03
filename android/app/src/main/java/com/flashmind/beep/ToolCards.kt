@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Launch
+import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Directions
 import androidx.compose.material.icons.outlined.Email
@@ -84,6 +85,7 @@ sealed class ToolCard {
     data class Contacts(val people: List<Contact>) : ToolCard()
     data class OpenedApp(val app: String, val uri: String, val fallbackUrl: String) : ToolCard()
     data class Link(val url: String) : ToolCard()
+    data class Alarm(val alarm: AlarmRequest) : ToolCard()
     data class Replies(val replies: List<String>, val choice: Boolean) : ToolCard()
 }
 
@@ -117,6 +119,7 @@ fun cardFor(call: ToolCall): ToolCard? {
         }
         "open_app" -> json.text("app")?.let { ToolCard.OpenedApp(it, json.optString("uri"), json.optString("fallback_url")) }
         "open_browser" -> json.text("url")?.let { ToolCard.Link(it) }
+        "set_alarm" -> AlarmRequest.from(json)?.let { ToolCard.Alarm(it) }
         else -> null
     }
 }
@@ -376,6 +379,27 @@ private fun OpenedAppCard(card: ToolCard.OpenedApp) {
     }
 }
 
+@Composable
+private fun AlarmCard(alarm: AlarmRequest) {
+    val t = LocalBeep.current
+    val context = LocalContext.current
+    val days = alarm.days.joinToString(", ") { java.text.DateFormatSymbols().shortWeekdays[it] }
+    BeepCard(Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(34.dp).background(t.colors.tints[1 % t.colors.tints.size], RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Alarm, null, Modifier.size(18.dp), tint = t.colors.ink)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Alarm ${alarm.time}", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = t.colors.ink)
+                val detail = listOf(alarm.label, days).filter { it.isNotBlank() }.joinToString(" · ")
+                if (detail.isNotBlank()) Text(detail, fontSize = 12.sp, color = t.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            CardButton("Alarms", Icons.AutoMirrored.Outlined.Launch) { AppLauncher.launch(context, "clock", "", "") }
+        }
+    }
+}
+
 data class LinkInfo(val title: String, val description: String)
 
 /** Page titles for link previews, read from the first part of each page. */
@@ -475,6 +499,7 @@ fun ToolCards(cards: List<ToolCard>, compact: Boolean, onBrowse: (String) -> Uni
                 is ToolCard.Contacts -> ContactsCard(card)
                 is ToolCard.OpenedApp -> OpenedAppCard(card)
                 is ToolCard.Link -> LinkPreview(card.url, onBrowse)
+                is ToolCard.Alarm -> AlarmCard(card.alarm)
                 is ToolCard.Replies -> Unit
             }
         }

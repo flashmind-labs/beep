@@ -43,13 +43,23 @@ object AppLauncher {
 
     private fun buildIntent(app: String, uri: String): Intent = when (app) {
         "phone" -> Intent(Intent.ACTION_DIAL).apply { if (uri.isNotEmpty()) data = Uri.parse(if (uri.startsWith("tel:")) uri else "tel:$uri") }
-        "clock" -> Intent(AlarmClock.ACTION_SET_ALARM)
+        "clock" -> Intent(AlarmClock.ACTION_SHOW_ALARMS)
         "calendar" -> Intent(Intent.ACTION_INSERT).apply {
             data = CalendarContract.Events.CONTENT_URI
             if (uri.isNotEmpty()) putExtra(CalendarContract.Events.TITLE, uri)
         }
         "browser" -> Intent(Intent.ACTION_VIEW, Uri.parse(uri.ifEmpty { "https://google.com" }))
         else -> Intent(Intent.ACTION_VIEW).apply { if (uri.isNotEmpty()) data = Uri.parse(uri) }
+    }
+
+    /** Sets the alarm in the Clock app without showing it. Falls back to its set-alarm screen, filled in. */
+    fun setAlarm(context: Context, alarm: AlarmRequest): Boolean {
+        val intent = Intent(AlarmClock.ACTION_SET_ALARM)
+            .putExtra(AlarmClock.EXTRA_HOUR, alarm.hour)
+            .putExtra(AlarmClock.EXTRA_MINUTES, alarm.minute)
+        if (alarm.label.isNotBlank()) intent.putExtra(AlarmClock.EXTRA_MESSAGE, alarm.label)
+        if (alarm.days.isNotEmpty()) intent.putIntegerArrayListExtra(AlarmClock.EXTRA_DAYS, ArrayList(alarm.days))
+        return tryStart(context, Intent(intent).putExtra(AlarmClock.EXTRA_SKIP_UI, true)) || tryStart(context, intent)
     }
 
     private fun tryStart(context: Context, intent: Intent): Boolean = try {

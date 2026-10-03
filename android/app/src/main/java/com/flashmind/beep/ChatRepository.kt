@@ -46,6 +46,23 @@ data class AppAuthResult(val slug: String, val error: String?)
 
 data class AppIntent(val app: String, val uri: String, val fallbackUrl: String)
 
+/** An alarm for the Clock app. `days` are java.util.Calendar weekdays, empty for a one-off. */
+data class AlarmRequest(val hour: Int, val minute: Int, val label: String, val days: List<Int>) {
+    val time get() = "%d:%02d".format(hour, minute)
+
+    companion object {
+        private val weekdays = listOf("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday")
+
+        fun from(json: JSONObject): AlarmRequest? {
+            val hour = json.optInt("hour", -1).takeIf { it in 0..23 } ?: return null
+            val minute = json.optInt("minute", -1).takeIf { it in 0..59 } ?: return null
+            val list = json.optJSONArray("days")
+            val days = (0 until (list?.length() ?: 0)).mapNotNull { i -> weekdays.indexOf(list!!.optString(i)).takeIf { it >= 0 }?.plus(1) }
+            return AlarmRequest(hour, minute, json.optString("label"), days)
+        }
+    }
+}
+
 class ChatRepository(private val storage: LocalStorage) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
@@ -56,6 +73,7 @@ class ChatRepository(private val storage: LocalStorage) {
     val connection = MutableStateFlow(if (settings.value.configured) "Checking connection…" else "Connect your assistant")
     val connected = MutableStateFlow(false)
     val pendingIntent = MutableStateFlow<AppIntent?>(null)
+    val pendingAlarm = MutableStateFlow<AlarmRequest?>(null)
     val browserUrl = MutableStateFlow<String?>(null)
     private var reconnectJob: Job? = null
     private var locationJob: Job? = null
@@ -633,6 +651,7 @@ class ChatRepository(private val storage: LocalStorage) {
                                     app = outputJson.optString("app", ""),
                                     uri = outputJson.optString("uri", ""),
                                     fallbackUrl = outputJson.optString("fallback_url", ""))
+                                "set_alarm" -> pendingAlarm.value = AlarmRequest.from(outputJson)
                                 "open_browser" -> browserUrl.value = outputJson.optString("url", "")
                                 // Places show as a map card in the chat; Maps opens only when the user taps it.
                             }

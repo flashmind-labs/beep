@@ -1,3 +1,4 @@
+mod alarm;
 mod browser;
 mod contacts;
 mod habits;
@@ -32,6 +33,7 @@ pub fn registry(app: Arc<App>, run_id: &str, user: &str) -> ToolRegistry {
     }
     crate::cron::register_tools(&mut registry, store.clone(), user, None);
     registry.register(Arc::new(open_app::OpenAppTool));
+    registry.register(Arc::new(alarm::SetAlarmTool));
     registry.register(Arc::new(location::GetLocationTool {
         store: store.clone(),
         user: user.into(),
