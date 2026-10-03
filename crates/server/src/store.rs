@@ -3,6 +3,7 @@ use anyhow::{Result, bail};
 use flashmind::core::Conversation;
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use tokio_rusqlite::Connection;
 use uuid::Uuid;
 
@@ -121,7 +122,10 @@ impl Store {
                     note TEXT,
                     logged_at TEXT NOT NULL DEFAULT (datetime('now')));
                 CREATE INDEX IF NOT EXISTS idx_habit_logs_habit
-                    ON habit_logs(habit_id, logged_at);",
+                    ON habit_logs(habit_id, logged_at);
+                CREATE TABLE IF NOT EXISTS tool_failures (
+                    user_id TEXT NOT NULL, session_id TEXT NOT NULL, call_id TEXT NOT NULL,
+                    PRIMARY KEY(user_id, session_id, call_id));",
             )?;
             // Migrations for existing databases
             let has_col = |table: &str, col: &str| -> rusqlite::Result<bool> {
@@ -274,6 +278,10 @@ impl Store {
                     "DELETE FROM runs WHERE user_id=? AND session_id=?",
                     params![user, session_id],
                 )?;
+                tx.execute(
+                    "DELETE FROM tool_failures WHERE user_id=? AND session_id=?",
+                    params![user, session_id],
+                )?;
                 // Delete session
                 let deleted = tx.execute(
                     "DELETE FROM sessions WHERE user_id=? AND id=?",
@@ -335,6 +343,47 @@ impl Store {
             Ok(())
         }).await?;
         Ok(())
+    }
+
+    /// Records tool calls that failed, since the conversation keeps only their output.
+    pub async fn record_tool_failures(
+        &self,
+        user: &str,
+        session: &str,
+        call_ids: Vec<String>,
+    ) -> Result<()> {
+        if call_ids.is_empty() {
+            return Ok(());
+        }
+        let (user, session) = (user.to_owned(), session.to_owned());
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let tx = db.transaction()?;
+                for id in call_ids {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO tool_failures VALUES (?, ?, ?)",
+                        params![user, session, id],
+                    )?;
+                }
+                tx.commit()
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Ids of the session's tool calls that failed.
+    pub async fn tool_failures(&self, user: &str, session: &str) -> Result<HashSet<String>> {
+        let (user, session) = (user.to_owned(), session.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT call_id FROM tool_failures WHERE user_id=? AND session_id=?",
+                )?;
+                stmt.query_map(params![user, session], |r| r.get(0))?
+                    .collect()
+            })
+            .await?)
     }
 
     pub async fn remember(

@@ -1,17 +1,19 @@
 use async_trait::async_trait;
 use beep_server::{
-    app::App,
+    app::{App, ServerTools},
     client::{Client, Replies},
     config::Auth,
     protocol::{
-        ApiError, CancelRun, Chat, Event, GetEvents, GetRun, GetSession, Health, HistoryEntry,
-        RunEvent,
+        ApiError, AppKind, CancelRun, Chat, ConnectApp, Event, GetEvents, GetRun, GetSession,
+        Health, HistoryEntry, ListApps, RunEvent, SuggestPrompts,
     },
+    starters,
     store::{CreateRun, Store},
     transport,
 };
 use flashmind::types::{
-    CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role, StreamEvent,
+    AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role,
+    StreamEvent,
 };
 use iroh::SecretKey;
 use iroh::endpoint::presets;
@@ -88,10 +90,8 @@ impl Harness {
             store,
             auth,
             provider.clone(),
-            "openai:test".parse().unwrap(),
-            None,
-            None,
-            None,
+            AgentLlmConfig::new("openai:test".parse().unwrap()),
+            ServerTools::default(),
         );
         let endpoint = iroh::Endpoint::builder(presets::N0)
             .secret_key(SecretKey::generate())
@@ -193,16 +193,19 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         })
         .await
         .unwrap();
-    let contents: Vec<&str> = entries
-        .iter()
-        .map(|e| match e {
-            HistoryEntry::User { content, .. } | HistoryEntry::Assistant { content, .. } => {
-                content.as_str()
-            }
-        })
-        .collect();
-    assert!(!contents.iter().any(|c| c.contains("You are Beep")));
-    assert!(contents.contains(&"I remember your preference."));
+    // One turn: the user message, then the final reply carrying the turn's tool result.
+    let [
+        HistoryEntry::User { content: asked, .. },
+        HistoryEntry::Assistant { content, tools, .. },
+    ] = entries.as_slice()
+    else {
+        panic!("unexpected history: {entries:?}");
+    };
+    assert_eq!(asked, "Remember I prefer tea");
+    assert_eq!(content, "I remember your preference.");
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name, "memory_store");
+    assert!(tools[0].success && !tools[0].call_id.is_empty() && !tools[0].output.is_empty());
 
     assert_eq!(h.provider.calls.load(Ordering::SeqCst), 2);
 
@@ -330,4 +333,32 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
             .unwrap(),
         CreateRun::Created(_)
     ));
+}
+
+#[tokio::test]
+async fn prompt_suggestions_fall_back_and_apps_list_without_composio() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+
+    // The stub answers with a tool call instead of JSON, so the fixed starters come back.
+    let suggestions = c.call(&SuggestPrompts {}).await.unwrap();
+    assert_eq!(suggestions, starters::fallback());
+    assert_eq!(h.provider.calls.load(Ordering::SeqCst), 1);
+    // Cached: no second model call.
+    assert_eq!(c.call(&SuggestPrompts {}).await.unwrap(), suggestions);
+    assert_eq!(h.provider.calls.load(Ordering::SeqCst), 1);
+
+    let apps = c.call(&ListApps {}).await.unwrap();
+    assert_eq!(apps.len(), 10);
+    assert_eq!(apps[0].slug, "gmail");
+    assert_eq!(apps[9].kind, AppKind::Fastmail {});
+    assert!(apps.iter().all(|a| !a.configured && !a.connected));
+
+    let error = c
+        .call(&ConnectApp {
+            slug: "gmail".into(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(api_error(error), ApiError::BadRequest { .. }));
 }

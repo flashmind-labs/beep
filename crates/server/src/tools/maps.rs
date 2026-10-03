@@ -1,8 +1,34 @@
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
+use serde::Serialize;
 use serde_json::{Value, json};
 
 pub(crate) struct OpenMapsTool;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum MapsMode {
+    /// A search or a single place.
+    Search,
+    Directions,
+}
+
+/// The card the phone shows. It geocodes `query` or `destination` itself.
+#[derive(Serialize)]
+struct Place {
+    name: Option<String>,
+    query: Option<String>,
+    mode: MapsMode,
+    /// Directions only: the place name or `lat,lng` to navigate to.
+    destination: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latitude: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    longitude: Option<f64>,
+    /// Directions only: driving, walking, transit or bicycling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    travel_mode: Option<String>,
+}
 
 #[async_trait]
 impl Tool for OpenMapsTool {
@@ -10,7 +36,7 @@ impl Tool for OpenMapsTool {
         "open_maps"
     }
     fn description(&self) -> &str {
-        "Open Google Maps on the user's phone to search places, show a specific place, or get directions. Does not call any API; constructs an intent URI for the device."
+        "Show a place, a place search or directions as a map card in the chat. The card has Directions and Open in Maps buttons; Google Maps does not open by itself. Afterwards, say the place is on the map card below, never that Maps opened."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -105,21 +131,29 @@ impl Tool for OpenMapsTool {
             }
         };
 
-        let mut output = json!({
+        let directions = action == "directions";
+        let place = Place {
+            name: (!query.is_empty()).then(|| query.to_owned()),
+            query: (!query.is_empty()).then(|| query.to_owned()),
+            mode: if directions {
+                MapsMode::Directions
+            } else {
+                MapsMode::Search
+            },
+            destination: directions.then(|| match (latitude, longitude) {
+                (Some(lat), Some(lng)) => format!("{lat},{lng}"),
+                _ => query.to_owned(),
+            }),
+            latitude,
+            longitude,
+            travel_mode: directions.then(|| travel_mode.to_owned()),
+        };
+        let output = json!({
             "action": "open_maps",
             "uri": uri,
+            "place": place,
+            "message": "Shown in the chat as a map card with Directions and Open in Maps buttons. Google Maps has not opened.",
         });
-
-        if !query.is_empty() && (action == "search" || action == "place") {
-            output["card"] = json!({
-                "type": "card",
-                "card_type": "place",
-                "card_data": {
-                    "name": query,
-                    "query": query,
-                }
-            });
-        }
 
         Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
     }

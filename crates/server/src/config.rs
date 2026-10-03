@@ -1,6 +1,7 @@
 use std::{collections::HashSet, io, path::Path, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
+use flashmind::types::ReasoningLevel;
 use iroh::SecretKey;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -14,11 +15,21 @@ pub struct Config {
     pub testing_user: Option<String>,
     pub database: PathBuf,
     pub model: String,
+    /// How much the assistant thinks before answering: off, low, medium or high.
+    #[serde(default = "default_reasoning")]
+    pub reasoning: ReasoningLevel,
     pub provider_key: Option<String>,
     pub firecrawl_key: Option<String>,
     pub composio_key: Option<String>,
+    /// Where Composio sends the browser after an app connects, for example a
+    /// deep link back into the phone app. Composio shows its own page if unset.
+    pub composio_callback_url: Option<String>,
     pub fastmail_token: Option<String>,
     pub users: Vec<UserConfig>,
+}
+
+fn default_reasoning() -> ReasoningLevel {
+    ReasoningLevel::Low
 }
 
 #[derive(Deserialize)]

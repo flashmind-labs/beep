@@ -1,16 +1,21 @@
 use crate::{
+    apps::{Apps, ComposioSettings},
     config::Auth,
+    decision::DecisionTool,
     live::LiveRun,
-    protocol::{DeviceAnswer, DeviceQuery, Notice, Run, RunEvent, Usage},
+    protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestion, Run, RunEvent, Usage},
+    search::SearchTool,
+    starters::{Generator, LocalTime, MemoryNote, StarterContext, Starters},
     store::{CreateRun, Store},
     tools,
 };
 use anyhow::Result;
 use chrono::Utc;
+use chrono_tz::Tz;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation},
-    tools::mcp::McpRegistry,
-    types::{AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, Model},
+    tools::{composio::make_composio_tool_wrappers, mcp::McpRegistry},
+    types::{AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider},
 };
 use futures::StreamExt;
 use serde::Deserialize;
@@ -23,13 +28,26 @@ pub struct App {
     pub auth: Auth,
     pub notifications: broadcast::Sender<UserNotice>,
     provider: Arc<dyn LlmProvider>,
-    model: Model,
-    search: Option<Arc<crate::search::SearchTool>>,
-    composio_key: Option<String>,
+    /// Model, reasoning and token budget for every run; each run adds its user.
+    llm: AgentLlmConfig,
+    tools: ServerTools,
     mcp: Option<McpRegistry>,
+    pub apps: Apps,
+    starters: Starters,
     /// Runs in progress, with their event feed.
     runs: Mutex<HashMap<String, Arc<LiveRun>>>,
     device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
+}
+
+/// Optional tools and integrations that need server credentials.
+#[derive(Default)]
+pub struct ServerTools {
+    pub search: Option<Arc<SearchTool>>,
+    pub decision: Option<Arc<DecisionTool>>,
+    /// Composio apps the user connects from the phone.
+    pub composio: Option<ComposioSettings>,
+    /// Fastmail over MCP, set up with a server token.
+    pub fastmail: Option<McpRegistry>,
 }
 
 /// A `Notice` addressed to one user's open notification streams.
@@ -55,21 +73,22 @@ impl App {
         store: Store,
         auth: Auth,
         provider: Arc<dyn LlmProvider>,
-        model: Model,
-        search: Option<Arc<crate::search::SearchTool>>,
-        composio_key: Option<String>,
-        mcp: Option<McpRegistry>,
+        llm: AgentLlmConfig,
+        mut tools: ServerTools,
     ) -> Arc<Self> {
         let (notifications, _) = broadcast::channel(64);
+        let mcp = tools.fastmail.take();
+        let apps = Apps::new(tools.composio.take(), mcp.is_some());
         Arc::new(Self {
             store,
             auth,
             notifications,
             provider,
-            model,
-            search,
-            composio_key,
+            llm,
+            tools,
             mcp,
+            apps,
+            starters: Starters::default(),
             runs: Mutex::new(HashMap::new()),
             device_queries: Mutex::new(HashMap::new()),
         })
@@ -240,7 +259,7 @@ impl App {
 
         // Time with user's timezone
         if let Ok(tz_name) = self.store.get_timezone(user).await {
-            let now = if let Ok(tz) = tz_name.parse::<chrono_tz::Tz>() {
+            let now = if let Ok(tz) = tz_name.parse::<Tz>() {
                 Utc::now()
                     .with_timezone(&tz)
                     .format("%Y-%m-%d %H:%M %Z")
@@ -304,23 +323,21 @@ impl App {
         conversation.set_system(include_str!("../prompts/assistant.md"));
         let context = self.build_context(user).await;
 
-        let mut llm = AgentLlmConfig::new(self.model.clone()).with_user(user);
-        llm.max_tokens = Some(4096);
+        let llm = self.llm.clone().with_user(user);
 
         let mut registry = tools::registry(self.clone(), &run.id, user);
-        if let Some(search) = &self.search {
+        if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }
+        if let Some(decision) = &self.tools.decision {
+            registry.register(decision.clone());
+        }
 
-        if let Some(key) = &self.composio_key {
-            use flashmind::tools::composio::{ComposioClient, make_composio_tool_wrappers};
-            let client = Arc::new(
-                ComposioClient::new(key.clone(), None, None).with_entity_id(user.to_owned()),
-            );
-            if let Ok(defs) = client.list_tools(&[]).await {
-                for tool in make_composio_tool_wrappers(&client, &defs) {
-                    registry.register(tool);
-                }
+        if let Some(client) = self.apps.client(user)
+            && let Ok(defs) = client.list_tools(&[]).await
+        {
+            for tool in make_composio_tool_wrappers(&client, &defs) {
+                registry.register(tool);
             }
         }
 
@@ -343,6 +360,8 @@ impl App {
                 .map(|part| vec![part]),
         };
 
+        // Conversation entries do not record whether a tool failed; history needs it.
+        let mut failed_tools = Vec::new();
         let status = {
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
@@ -383,12 +402,17 @@ impl App {
                         output,
                         success,
                         ..
-                    }) => RunEvent::ToolResult {
-                        name,
-                        call_id: id,
-                        output,
-                        success,
-                    },
+                    }) => {
+                        if !success {
+                            failed_tools.push(id.clone());
+                        }
+                        RunEvent::ToolResult {
+                            name,
+                            call_id: id,
+                            output,
+                            success,
+                        }
+                    }
                     Some(AgentEvent::Usage(u)) => RunEvent::Usage {
                         usage: Usage {
                             prompt_tokens: u.prompt_tokens,
@@ -425,6 +449,14 @@ impl App {
         }
 
         // Save the turn before clients see the run finish, so they can load it.
+        if !failed_tools.is_empty()
+            && let Err(error) = self
+                .store
+                .record_tool_failures(user, &run.session_id, failed_tools)
+                .await
+        {
+            log::warn!("unable to record tool failures: {error}; run_id={}", run.id);
+        }
         self.store
             .finish(user, run, Some(&conversation), status)
             .await?;
@@ -432,5 +464,62 @@ impl App {
             status: status.to_owned(),
         });
         Ok(())
+    }
+
+    /// Conversation starters for the empty chat, personalized and cached for
+    /// 30 minutes. Never fails: falls back to fixed starters.
+    pub async fn suggest_prompts(&self, user: &str) -> Vec<PromptSuggestion> {
+        if let Some(cached) = self.starters.cached(user).await {
+            return cached;
+        }
+        let generator = Generator {
+            provider: self.provider.as_ref(),
+            model: &self.llm.model,
+            user,
+        };
+        self.starters
+            .generate(generator, self.starter_context(user))
+            .await
+    }
+
+    async fn starter_context(&self, user: &str) -> StarterContext {
+        let (memories, sessions, location, apps) = tokio::join!(
+            self.store.list_memories(user),
+            self.store.sessions(user),
+            self.store.get_location(user),
+            self.apps.list(user),
+        );
+        let memories = memories
+            .unwrap_or_default()
+            .into_iter()
+            .map(|memory| MemoryNote {
+                category: memory.category,
+                content: memory.content,
+            })
+            .collect();
+        let recent_titles = sessions
+            .unwrap_or_default()
+            .into_iter()
+            .map(|session| session.title)
+            .collect();
+        let timezone = location
+            .ok()
+            .flatten()
+            .and_then(|location| location["timezone"].as_str()?.parse::<Tz>().ok());
+        let connected_apps = apps
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|app| app.connected)
+            .map(|app| app.name)
+            .collect();
+        StarterContext {
+            memories,
+            recent_titles,
+            now: LocalTime {
+                time: Utc::now(),
+                timezone,
+            },
+            connected_apps,
+        }
     }
 }

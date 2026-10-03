@@ -4,11 +4,12 @@
 //! use and reconnects after the connection drops.
 
 use beep_proto::{
-    ApiError, Call, CancelRun, Chat, CreateCron, CreateIntegration, Cron, DeleteCron,
-    DeleteIntegration, DeleteMemory, DeleteSession, DeviceAnswer, DeviceResult, Event, GetEvents,
-    GetRun, GetSession, Health, HistoryEntry, Integration, ListCrons, ListIntegrations,
-    ListMemories, ListSessions, Memory, Notice, PhoneNotification, PinSession, RegisterDevice,
-    RenameSession, Run, SaveNotifications, Session, Stream, StreamNotifications, ToggleCron,
+    ApiError, AppIntegration, Call, CancelRun, Chat, ConnectApp, ConnectLink, CreateCron,
+    CreateIntegration, Cron, DeleteCron, DeleteIntegration, DeleteMemory, DeleteSession,
+    DeviceAnswer, DeviceResult, DisconnectApp, Event, GetEvents, GetRun, GetSession, Health,
+    HistoryEntry, Integration, ListApps, ListCrons, ListIntegrations, ListMemories, ListSessions,
+    Memory, Notice, PhoneNotification, PinSession, PromptSuggestion, RegisterDevice, RenameSession,
+    Run, SaveNotifications, Session, Stream, StreamNotifications, SuggestPrompts, ToggleCron,
     UnregisterDevice, UpdateCredentials, UpdateCron, UpdateLocation,
     client::{Client, Replies},
 };
@@ -332,6 +333,25 @@ impl BeepClient {
             status,
         })
         .await
+    }
+
+    /// The curated app list with each app's connection state.
+    pub async fn list_apps(&self) -> Result<Vec<AppIntegration>, BeepError> {
+        self.call(ListApps {}).await
+    }
+
+    /// An OAuth link to open in the browser to connect `slug`.
+    pub async fn connect_app(&self, slug: String) -> Result<ConnectLink, BeepError> {
+        self.call(ConnectApp { slug }).await
+    }
+
+    pub async fn disconnect_app(&self, slug: String) -> Result<(), BeepError> {
+        self.call(DisconnectApp { slug }).await
+    }
+
+    /// Conversation starters for the empty chat. Always four.
+    pub async fn suggest_prompts(&self) -> Result<Vec<PromptSuggestion>, BeepError> {
+        self.call(SuggestPrompts {}).await
     }
 }
 

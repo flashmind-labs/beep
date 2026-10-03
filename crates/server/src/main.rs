@@ -1,14 +1,21 @@
 use anyhow::{Context, Result};
 use beep_server::{
-    app::App,
+    app::{App, ServerTools},
+    apps::ComposioSettings,
     config::{self, Auth, Config},
+    decision::DecisionTool,
+    search::SearchTool,
     store::Store,
     transport,
 };
-use flashmind::{llm::OpenRouterProvider, types::Model};
+use flashmind::{
+    llm::OpenRouterProvider,
+    types::{AgentLlmConfig, Model},
+};
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
 use logforth::record::{Level, LevelFilter};
+use secrecy::SecretString;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -26,6 +33,9 @@ async fn main() -> Result<()> {
 
     let auth = Auth::from_config(&config)?;
     let model: Model = config.model.parse()?;
+    let mut llm = AgentLlmConfig::new(model).with_reasoning(config.reasoning);
+    // Reasoning shares this budget with the reply.
+    llm.max_tokens = Some(8192);
     let key = config
         .provider_key
         .as_deref()
@@ -39,15 +49,30 @@ async fn main() -> Result<()> {
     let search = config
         .firecrawl_key
         .as_ref()
-        .map(|key| beep_server::search::SearchTool::new(key.clone()).map(Arc::new))
+        .map(|key| SearchTool::new(key.clone()).map(Arc::new))
         .transpose()?;
-    let composio_key = config.composio_key.clone();
-    let mcp = config
+    let decision = Some(Arc::new(DecisionTool::new(SecretString::from(key))?));
+    let composio = config.composio_key.as_deref().map(|key| ComposioSettings {
+        key: SecretString::from(key),
+        callback_url: config.composio_callback_url.clone(),
+    });
+    let fastmail = config
         .fastmail_token
         .as_deref()
         .map(|token| beep_server::mcp::fastmail_registry(token.to_owned()));
 
-    let app = App::new(store, auth, provider, model, search, composio_key, mcp);
+    let app = App::new(
+        store,
+        auth,
+        provider,
+        llm,
+        ServerTools {
+            search,
+            decision,
+            composio,
+            fastmail,
+        },
+    );
     let (cron_runner, _cron_registry) = beep_server::cron::start(app.clone(), &config.database);
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {

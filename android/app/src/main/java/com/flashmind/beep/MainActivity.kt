@@ -46,11 +46,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.abs
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -267,7 +273,7 @@ open class MainActivity : ComponentActivity() {
 }
 class BubbleActivity : MainActivity() { override val bubble = true }
 
-private enum class Screen { Chat, Memories, Crons, Integrations }
+private enum class Screen { Chat, Memories, Crons, Integrations, CustomIntegrations }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -287,6 +293,27 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     var bubbleMenu by remember { mutableStateOf(false) }
     var historyQuery by rememberSaveable { mutableStateOf("") }
     var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
+    // Chats left behind, newest last, so a swipe right can go back to them.
+    var visited by remember { mutableStateOf(listOf<String>()) }
+    fun openChat(id: String) {
+        val current = state.current.id
+        if (id != current) visited = visited.filter { it != current } + current
+        repository.select(id)
+    }
+    fun startNewChat() {
+        if (state.current.messages.isEmpty()) return
+        visited = visited.filter { it != state.current.id } + state.current.id
+        repository.newChat()
+    }
+    fun previousChat(): String? {
+        val ids = state.conversations.map { it.id }.toSet()
+        return visited.lastOrNull { it in ids && it != state.current.id }
+    }
+    fun goBack() {
+        val id = previousChat() ?: run { drawerOpen = true; return }
+        visited = visited.dropLastWhile { it != id }.dropLast(1)
+        repository.select(id)
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
     // Handle pending app launch intents
     LaunchedEffect(pendingAppIntent) {
@@ -312,22 +339,27 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         return
     }
     val activeScreen = if (bubble) Screen.Chat else screen
+    BackHandler(enabled = activeScreen != Screen.Chat) {
+        screen = if (screen == Screen.CustomIntegrations) Screen.Integrations else Screen.Chat
+    }
     Crossfade(targetState = activeScreen, animationSpec = tween(300), label = "screen-transition") { currentScreen ->
         when (currentScreen) {
             Screen.Memories -> MemoriesScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat })
-            Screen.Integrations -> IntegrationsScreen(repository, onBack = { screen = Screen.Chat })
+            Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat }, onCustom = { screen = Screen.CustomIntegrations })
+            Screen.CustomIntegrations -> IntegrationsScreen(repository, onBack = { screen = Screen.Integrations })
             Screen.Chat -> {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     LaunchedEffect(drawerOpen) { if (drawerOpen) { repository.refreshHistory(); drawerState.open() } else drawerState.close() }
     LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
     BackHandler(enabled = drawerOpen) { drawerOpen = false }
-    ModalNavigationDrawer(drawerState = drawerState, drawerContent = {
+    // Closed, horizontal swipes belong to the chat (new chat or back), so the drawer only takes them to close.
+    ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerOpen, drawerContent = {
         ModalDrawerSheet(modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(0.9f), drawerContainerColor = Ink,
             drawerShape = RoundedCornerShape(topEnd = Beep.shapes.radius, bottomEnd = Beep.shapes.radius)) {
             Spacer(Modifier.height(if (bubble) 8.dp else 20.dp))
             Text(displayText("Your chats"), Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = displayStyle(26.sp))
-            ChunkyButton(onClick = { repository.newChat(); drawerOpen = false }, color = Beep.colors.accent,
+            ChunkyButton(onClick = { startNewChat(); drawerOpen = false }, color = Beep.colors.accent,
                 contentColor = Beep.colors.onAccent, shape = RoundedCornerShape(Beep.shapes.radius),
                 modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(), contentPadding = PaddingValues(vertical = 13.dp)) {
                 Icon(Icons.Outlined.Add, null, Modifier.size(20.dp)); Text("New conversation", fontWeight = FontWeight.SemiBold)
@@ -351,9 +383,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                                 selectedTextColor = Beep.colors.onUser, unselectedContainerColor = Color.Transparent),
                             shape = RoundedCornerShape(Beep.shapes.smallRadius),
                             selected = state.current.id == chat.id,
-                            onClick = { repository.select(chat.id); drawerOpen = false },
+                            onClick = { openChat(chat.id); drawerOpen = false },
                             modifier = Modifier.combinedClickable(
-                                onClick = { repository.select(chat.id); drawerOpen = false },
+                                onClick = { openChat(chat.id); drawerOpen = false },
                                 onLongClick = { contextMenuChat = chat.id }
                             ))
                         DropdownMenu(expanded = contextMenuChat == chat.id, onDismissRequest = { contextMenuChat = null },
@@ -403,7 +435,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Memories; drawerOpen = false }
                     DrawerTile("Routines", Icons.Outlined.Schedule, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Crons; drawerOpen = false }
-                    DrawerTile("Accounts", Icons.Outlined.Extension, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
+                    DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
                 }
                 Spacer(Modifier.height(14.dp))
                 ThemePicker(Modifier.padding(horizontal = 20.dp))
@@ -435,7 +467,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     Box {
                         IconButton(onClick = { bubbleMenu = true }) { Icon(Icons.Outlined.MoreVert, "Chat options", Modifier.size(20.dp)) }
                         DropdownMenu(expanded = bubbleMenu, onDismissRequest = { bubbleMenu = false }) {
-                            DropdownMenuItem(text = { Text("New conversation") }, onClick = { repository.newChat(); bubbleMenu = false })
+                            DropdownMenuItem(text = { Text("New conversation") }, onClick = { startNewChat(); bubbleMenu = false })
                             DropdownMenuItem(text = { Text("Conversations") }, onClick = { drawerOpen = true; bubbleMenu = false })
                             DropdownMenuItem(text = { Text("Connection settings") }, onClick = { settingsOpen = true; bubbleMenu = false })
                         }
@@ -464,7 +496,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 actions = {
                     IconButton(onClick = onFloat) { Icon(Icons.Outlined.BubbleChart, "Float chat", tint = TextMuted) }
                     if (state.current.messages.isNotEmpty()) {
-                        ChunkyButton(onClick = { repository.newChat() }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
+                        ChunkyButton(onClick = { startNewChat() }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
                             shape = RoundedCornerShape(Beep.shapes.smallRadius),
                             modifier = Modifier.padding(end = 14.dp).size(42.dp), contentPadding = PaddingValues(0.dp)) {
                             Icon(Icons.Outlined.Add, "New conversation", Modifier.size(22.dp))
@@ -472,7 +504,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
         }) { padding ->
-            ChatScreen(state.current, repository, Modifier.padding(padding).fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent)
+            SwipeChats(canStartNew = state.current.messages.isNotEmpty(), hasPrevious = previousChat() != null,
+                onNew = { startNewChat() }, onBack = { goBack() }, modifier = Modifier.padding(padding).fillMaxSize()) {
+                ChatScreen(state.current, repository, Modifier.fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent)
+            }
         }
     } // end ModalNavigationDrawer
     } // end Screen.Chat
@@ -574,17 +609,24 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 Spacer(Modifier.height(12.dp))
                 Text("Find an answer. Untangle a thought.\nKeep something worth remembering.", color = TextMuted, lineHeight = 23.sp)
                 Spacer(Modifier.height(28.dp))
-                listOf(
-                    Triple("Remember something", "Remember that I prefer short, practical answers.", Icons.Outlined.BookmarkBorder),
-                    Triple("Search the web", "Search the web for ", Icons.Outlined.Search),
-                    Triple("Set a reminder", "Remind me to ", Icons.Outlined.Alarm),
-                ).forEachIndexed { index, (title, prompt, icon) ->
+                // Personal starters from the server once they arrive; until then, templates to finish typing.
+                val starters by repository.starters.collectAsState()
+                LaunchedEffect(chat.id) { repository.loadStarters() }
+                val items = if (starters.isNotEmpty()) starters.map { Triple(it.title, it.prompt, true) }
+                    else listOf(
+                        Triple("Remember something", "Remember that I prefer short, practical answers.", true),
+                        Triple("Search the web", "Search the web for ", false),
+                        Triple("Set a reminder", "Remind me to ", false),
+                    )
+                items.forEachIndexed { index, (title, prompt, complete) ->
                     var shown by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) { delay(120L + index * 90L); shown = true }
                     Box(Modifier.popIn(title to shown, play = shown).alpha(if (shown) 1f else 0f)) {
-                        Suggestion(title, prompt, icon, Beep.colors.tints[index % Beep.colors.tints.size]) { draft = it }
+                        Suggestion(title, prompt, starterIcon(title + " " + prompt), Beep.colors.tints[index % Beep.colors.tints.size]) {
+                            if (complete) { followLatest = true; repository.send(it) } else draft = it
+                        }
                     }
-                    if (index < 2) Spacer(Modifier.height(12.dp))
+                    if (index < items.lastIndex) Spacer(Modifier.height(12.dp))
                 }
             }
         } else {
@@ -592,7 +634,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             val settled = remember(chat.id) { chat.messages.map { it.id }.toHashSet() }
             val radius = Beep.shapes.radius
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp)) {
-                items(chat.messages, key = { it.id }) { message ->
+                itemsIndexed(chat.messages, key = { _, it -> it.id }) { index, message ->
                     val isUser = message.role == "user"
                     val fresh = message.id !in settled
                     SideEffect { settled.add(message.id) }
@@ -600,7 +642,9 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         .popIn(message.id, play = fresh, origin = TransformOrigin(if (isUser) 1f else 0f, 1f)),
                         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
                         val isLastAssistant = !isUser && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
-                        if (!isUser && !compact) {
+                        // Consecutive replies from Beep share one avatar and name.
+                        val followsBeep = chat.messages.getOrNull(index - 1)?.role == "assistant"
+                        if (!isUser && !compact && !followsBeep) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
                                 BeepAvatar(isThinking = isLastAssistant && chat.busy)
                                 Spacer(Modifier.width(8.dp))
@@ -616,16 +660,23 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             Beep.shapes.botBubble -> Modifier.padding(end = 24.dp).beepFrame(bubbleShape, Beep.colors.surface)
                             else -> Modifier.fillMaxWidth()
                         }
-                        if (message.toolCalls.isNotEmpty()) {
+                        // A finished tool that has something to show becomes a card; the rest stay chips.
+                        val toolCards = remember(message.toolCalls) { message.toolCalls.map { it to cardFor(it) } }
+                        val chips = toolCards.filter { (call, card) -> card == null && call.name != "suggest_replies" }
+                        if (chips.isNotEmpty()) {
                             Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                message.toolCalls.forEachIndexed { i, tc -> ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size]) { repository.browserUrl.value = it } }
+                                chips.forEachIndexed { i, (tc, _) -> ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size]) { repository.browserUrl.value = it } }
                             }
                         }
                         val isStreaming = isLastAssistant && chat.busy
                         val textLen = message.text.length
                         val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
                         val shownText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
-                        if (shownText.isNotBlank() || message.imageBase64 != null) Column(bubbleModifier) {
+                        var menuOpen by remember(message.id) { mutableStateOf(false) }
+                        var selecting by remember(message.id) { mutableStateOf(false) }
+                        if (shownText.isNotBlank() || message.imageBase64 != null) Box {
+                        Column(bubbleModifier.combinedClickable(onClick = {}, onLongClick = { if (!isStreaming) menuOpen = true },
+                            indication = null, interactionSource = remember { MutableInteractionSource() })) {
                             // Show attached image thumbnail in user messages
                             if (message.imageBase64 != null) {
                                 val msgBitmap = remember(message.imageBase64) { decodeImageBase64(message.imageBase64) }
@@ -638,6 +689,21 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
                                 padded = isUser || Beep.shapes.botBubble)
                         }
+                        MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text,
+                            onQuote = {
+                                draft = message.text.trim().lines().take(4).joinToString("\n") { "> $it" } + "\n\n"
+                                inputFocusRequester.requestFocus()
+                            }, onSelect = { selecting = true })
+                        }
+                        if (selecting) SelectTextDialog(message.text) { selecting = false }
+                        if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact) { repository.browserUrl.value = it }
+                        if (!isUser && !isStreaming && message.text.isNotBlank()) {
+                            val shownLinks = toolCards.mapNotNull { (it.second as? ToolCard.Link)?.url }.toSet()
+                            val links = remember(message.text) { linksIn(message.text) }.filter { it !in shownLinks }
+                            if (links.isNotEmpty()) Column(Modifier.padding(top = 8.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                links.forEach { LinkPreview(it) { url -> repository.browserUrl.value = url } }
+                            }
+                        }
                         if (message.cards.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().animateContentSize()) {
@@ -649,6 +715,12 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             TaskProgressCard(message.taskSteps)
                         }
                         if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) CopyReply(message.text, compact)
+                        if (isLastAssistant && !chat.busy && chat.messages.last().id == message.id) {
+                            toolCards.firstNotNullOfOrNull { it.second as? ToolCard.Replies }?.let { replies ->
+                                Spacer(Modifier.height(4.dp))
+                                SuggestedReplies(replies) { followLatest = true; repository.send(it) }
+                            }
+                        }
                     }
                 }
                 if (workingInline) item(key = "working") {
@@ -666,6 +738,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             Spacer(Modifier.width(10.dp))
                             Text(chat.status, color = TextMuted, fontSize = 13.sp, maxLines = 2)
                         }
+                        if (!compact) ReplySkeleton(Modifier.padding(top = 12.dp, end = 48.dp))
                     }
                 }
             }
@@ -917,6 +990,61 @@ private fun CopyReply(text: String, compact: Boolean) {
             Modifier.size(14.dp), tint = if (copied) Beep.colors.ok else TextMuted)
         if (!compact) { Spacer(Modifier.width(6.dp)); Text(if (copied) "Copied" else "Copy reply", fontSize = 11.sp, color = TextMuted) }
     }
+}
+
+/** Grey lines where the reply will be written, with a soft sheen passing over them. */
+@Composable
+private fun ReplySkeleton(modifier: Modifier = Modifier) {
+    val base = Beep.colors.raised
+    val sheen = Beep.colors.surface
+    val noMotion = reduceMotion()
+    val shift by rememberInfiniteTransition(label = "skeleton").animateFloat(0f, 1f,
+        infiniteRepeatable(tween(1300, easing = LinearEasing)), label = "skeleton-shift")
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        listOf(1f, 0.86f, 0.55f).forEach { width ->
+            Box(Modifier.fillMaxWidth(width).height(12.dp).clip(CircleShape).drawBehind {
+                if (noMotion) { drawRect(base); return@drawBehind }
+                val x = size.width * (shift * 2f - 0.5f)
+                drawRect(Brush.linearGradient(listOf(base, sheen, base), start = Offset(x - size.width * 0.4f, 0f),
+                    end = Offset(x + size.width * 0.4f, 0f)))
+            })
+        }
+    }
+}
+
+/** Long-press actions on a message. */
+@Composable
+private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQuote: () -> Unit, onSelect: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    DropdownMenu(expanded = open, onDismissRequest = onDismiss, containerColor = Surface, shape = RoundedCornerShape(Beep.shapes.smallRadius)) {
+        DropdownMenuItem(text = { Text("Copy") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)) }, onClick = {
+            (context as? MainActivity)?.suppressNextClipboard = true
+            context.getSystemService(android.content.ClipboardManager::class.java)
+                .setPrimaryClip(android.content.ClipData.newPlainText("Message", text))
+            onDismiss()
+        })
+        DropdownMenuItem(text = { Text("Quote in reply") }, leadingIcon = { Icon(Icons.Outlined.FormatQuote, null, Modifier.size(18.dp)) },
+            onClick = { onQuote(); onDismiss() })
+        DropdownMenuItem(text = { Text("Select text") }, leadingIcon = { Icon(Icons.Outlined.TextFields, null, Modifier.size(18.dp)) },
+            onClick = { onSelect(); onDismiss() })
+        DropdownMenuItem(text = { Text("Share") }, leadingIcon = { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)) }, onClick = {
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), null))
+            onDismiss()
+        })
+    }
+}
+
+/** The whole message as selectable text, since a long press on the bubble opens the menu instead. */
+@Composable
+private fun SelectTextDialog(text: String, onDismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        title = { Text("Select text") },
+        text = {
+            SelectionContainer(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text(text, fontSize = 15.sp, lineHeight = 23.sp, color = TextPrimary)
+            }
+        })
 }
 
 // ── Rich message rendering ──────────────────────────────────────────────────
@@ -1180,10 +1308,9 @@ private fun MessageContent(text: String, role: String, compact: Boolean, padded:
     Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp)) {
         blocks.forEach { block ->
             when (block) {
-                is MsgBlock.Text -> SelectionContainer {
-                    Text(remember(block.content, inline) { formattedMessage(block.content, inline) }, color = color,
-                        fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
-                }
+                // Not selectable in place: a long press opens the message menu, which has "Select text".
+                is MsgBlock.Text -> Text(remember(block.content, inline) { formattedMessage(block.content, inline) }, color = color,
+                    fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
                 is MsgBlock.Code -> CodeBlockView(block.language, block.code, compact)
                 is MsgBlock.Table -> TableView(block.headers, block.rows, compact)
                 is MsgBlock.Quote -> BlockQuoteView(block.content, compact)
@@ -1386,6 +1513,23 @@ fun BeepAvatar(isThinking: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
+/** An icon that hints at what a starter is about, picked from its words. */
+private fun starterIcon(text: String): androidx.compose.ui.graphics.vector.ImageVector {
+    val t = text.lowercase()
+    fun has(vararg words: String) = words.any { it in t }
+    return when {
+        has("remind", "alarm", "timer") -> Icons.Outlined.Alarm
+        has("remember", "note", "save") -> Icons.Outlined.BookmarkBorder
+        has("mail", "inbox") -> Icons.Outlined.Email
+        has("calendar", "meeting", "schedule", "week", "today", "tomorrow") -> Icons.Outlined.CalendarMonth
+        has("map", "near", "place", "restaurant", "route", "where") -> Icons.Outlined.Place
+        has("weather", "rain", "forecast") -> Icons.Outlined.WbSunny
+        has("search", "news", "latest", "find", "look up") -> Icons.Outlined.Search
+        has("plan", "idea", "brainstorm", "write", "draft") -> Icons.Outlined.Lightbulb
+        else -> Icons.Outlined.AutoAwesome
+    }
+}
+
 @Composable
 private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: (String) -> Unit) {
     ChunkyButton(onClick = { onClick(prompt) }, modifier = Modifier.fillMaxWidth().padding(end = 3.dp, bottom = 3.dp),
@@ -1396,6 +1540,57 @@ private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.
         Spacer(Modifier.width(12.dp))
         Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary, modifier = Modifier.weight(1f))
         Icon(Icons.Outlined.NorthEast, null, tint = TextMuted, modifier = Modifier.size(16.dp))
+    }
+}
+
+/** Swipe right starts a new chat, swipe left goes back to the last one, or opens the chat list when there is none. */
+@Composable
+private fun SwipeChats(canStartNew: Boolean, hasPrevious: Boolean, onNew: () -> Unit, onBack: () -> Unit,
+                       modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val offset = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val trigger = with(density) { 72.dp.toPx() }
+    val limit = with(density) { 110.dp.toPx() }
+    val latestNew by rememberUpdatedState(onNew)
+    val latestBack by rememberUpdatedState(onBack)
+    val latestCanStartNew by rememberUpdatedState(canStartNew)
+    Box(modifier.pointerInput(Unit) {
+        detectHorizontalDragGestures(
+            onDragEnd = {
+                val moved = offset.value
+                if (moved >= trigger && latestCanStartNew) latestNew() else if (moved <= -trigger) latestBack()
+                scope.launch { offset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy)) }
+            },
+            onDragCancel = { scope.launch { offset.animateTo(0f) } },
+        ) { change, amount ->
+            change.consume()
+            // Damped so the chat lags the finger, and capped once past the trigger.
+            val max = if (latestCanStartNew) limit else limit / 4
+            scope.launch { offset.snapTo((offset.value + amount * 0.5f).coerceIn(-limit, max)) }
+        }
+    }) {
+        val progress = (abs(offset.value) / trigger).coerceIn(0f, 1f)
+        if (offset.value > 0 && canStartNew)
+            SwipeHint(Icons.Outlined.Add, "New chat", progress, Modifier.align(Alignment.CenterStart).padding(start = 16.dp))
+        if (offset.value < 0)
+            SwipeHint(if (hasPrevious) Icons.AutoMirrored.Outlined.ArrowBack else Icons.Outlined.Menu,
+                if (hasPrevious) "Previous" else "All chats", progress, Modifier.align(Alignment.CenterEnd).padding(end = 16.dp))
+        Box(Modifier.fillMaxSize().graphicsLayer { translationX = offset.value; alpha = 1f - progress * 0.25f }) { content() }
+    }
+}
+
+@Composable
+private fun SwipeHint(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, progress: Float, modifier: Modifier) {
+    val ready = progress >= 1f
+    Column(modifier.alpha(progress).graphicsLayer { scaleX = 0.8f + progress * 0.2f; scaleY = scaleX },
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(44.dp).background(if (ready) Beep.colors.accent else Beep.colors.surface, CircleShape)
+            .border(2.dp, Beep.colors.line, CircleShape), contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(22.dp), tint = if (ready) Beep.colors.onAccent else TextPrimary)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
     }
 }
 
@@ -1587,7 +1782,7 @@ private fun IntegrationsScreen(repository: ChatRepository, onBack: () -> Unit) {
         })
     }
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text(displayText("Integrations"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Custom connections"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = { ChunkyButton(onClick = { showCreate = true }, modifier = Modifier.padding(end = 14.dp), color = Beep.colors.accent,
                 contentColor = Beep.colors.onAccent, contentPadding = PaddingValues(8.dp)) { Icon(Icons.Outlined.Add, "New integration", Modifier.size(20.dp)) } },

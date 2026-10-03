@@ -9,11 +9,13 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.flashmind.beep.ffi.BeepClient
+import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.DeviceAnswer
 import com.flashmind.beep.proto.DeviceQuery
 import com.flashmind.beep.proto.Event
 import com.flashmind.beep.proto.HistoryEntry
+import com.flashmind.beep.proto.PromptSuggestion
 import com.flashmind.beep.proto.RunEvent
 import com.flashmind.beep.proto.ScrollDirection
 import org.json.JSONArray
@@ -68,10 +70,19 @@ class ChatRepository(private val storage: LocalStorage) {
     private suspend fun loadHistory(id: String, config: ConnectionSettings) {
         val before = state.value.conversations.find { it.id == id } ?: return
         if (before.busy) return
-        val messages = api(config).getSession(id).mapIndexed { i, entry ->
+        // A turn where the model only called tools has no text, and would show as an empty
+        // reply, so its tools move onto the next reply that has text.
+        var pending = emptyList<ToolCall>()
+        val messages = api(config).getSession(id).mapIndexedNotNull { i, entry ->
             when (entry) {
-                is HistoryEntry.User -> ChatMessage("history-$id-$i", "user", entry.content)
-                is HistoryEntry.Assistant -> ChatMessage("history-$id-$i", "assistant", entry.content)
+                is HistoryEntry.User -> { pending = emptyList(); ChatMessage("history-$id-$i", "user", entry.content) }
+                is HistoryEntry.Assistant -> {
+                    val tools = pending + entry.tools.map {
+                        ToolCall(it.callId, it.name, it.name, isDone = true, success = it.success, result = it.output)
+                    }
+                    if (entry.content.isBlank()) { pending = tools; null }
+                    else { pending = emptyList(); ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools) }
+                }
             }
         }
         if (settings.value != config) return
@@ -255,6 +266,16 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     suspend fun deleteIntegration(id: String) {
         api().deleteIntegration(id)
+    }
+
+    suspend fun listApps(): List<AppIntegration> = api().listApps()
+    suspend fun connectApp(slug: String): String = api().connectApp(slug).url
+    suspend fun disconnectApp(slug: String) = api().disconnectApp(slug)
+
+    /** Conversation starters for an empty chat. The last good set stays up while a new one loads. */
+    val starters = MutableStateFlow<List<PromptSuggestion>>(emptyList())
+    fun loadStarters() {
+        scope.launch { runCatching { api().suggestPrompts() }.onSuccess { if (it.isNotEmpty()) starters.value = it } }
     }
 
     suspend fun renameSession(id: String, title: String) {
@@ -520,11 +541,7 @@ class ChatRepository(private val storage: LocalStorage) {
                                     uri = outputJson.optString("uri", ""),
                                     fallbackUrl = outputJson.optString("fallback_url", ""))
                                 "open_browser" -> browserUrl.value = outputJson.optString("url", "")
-                                "open_maps" -> pendingIntent.value = AppIntent(
-                                    app = "maps",
-                                    uri = outputJson.optString("uri", ""),
-                                    fallbackUrl = "https://maps.google.com/?q=" +
-                                        java.net.URLEncoder.encode(outputJson.optString("uri", ""), "UTF-8"))
+                                // Places show as a map card in the chat; Maps opens only when the user taps it.
                             }
                             if (outputJson.optString("type") == "task_progress") {
                                 val stepsArr = outputJson.optJSONArray("steps")

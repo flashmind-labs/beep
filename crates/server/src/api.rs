@@ -8,8 +8,15 @@ use crate::{
     store::CreateRun,
 };
 use chrono::Utc;
-use flashmind::{core::EntryKind, cron::CronSchedule};
-use std::{collections::VecDeque, time::Duration};
+use flashmind::{
+    core::{ConversationEntry, EntryKind},
+    cron::CronSchedule,
+};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    mem,
+    time::Duration,
+};
 use tokio::{sync::broadcast::error::RecvError, time::timeout};
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
@@ -45,6 +52,10 @@ pub fn router() -> Router {
         .call(create_integration)
         .call(delete_integration)
         .call(update_credentials)
+        .call(list_apps)
+        .call(connect_app)
+        .call(disconnect_app)
+        .call(suggest_prompts)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -160,22 +171,111 @@ async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<History
         .conversation(&cx.user, &id)
         .await?
         .ok_or(ApiError::NotFound {})?;
-    let entries = conv
-        .entries()
-        .iter()
-        .filter_map(|e| match &e.kind {
-            EntryKind::User { content, .. } => Some(HistoryEntry::User {
-                content: content.clone(),
-                timestamp: e.timestamp.timestamp_millis(),
+    let failures = cx.app.store.tool_failures(&cx.user, &id).await?;
+    Ok(history(conv.entries(), &failures))
+}
+
+/// Tool outputs in history are cut to this many bytes.
+const MAX_HISTORY_TOOL_OUTPUT: usize = 16 * 1024;
+
+/// User and assistant messages, with each turn's tool results attached to the
+/// assistant message that ends the turn. A turn with tools but no text gets an
+/// empty assistant message to carry them.
+fn history(entries: &[ConversationEntry], failures: &HashSet<String>) -> Vec<HistoryEntry> {
+    let mut history = Vec::new();
+    let mut turn = Turn::default();
+    for entry in entries {
+        let timestamp = entry.timestamp.timestamp_millis();
+        match &entry.kind {
+            EntryKind::User { content, .. } => {
+                turn.finish(&mut history);
+                history.push(HistoryEntry::User {
+                    content: content.clone(),
+                    timestamp,
+                });
+            }
+            EntryKind::Assistant {
+                content,
+                tool_calls,
+                ..
+            } => {
+                for call in tool_calls.iter().flatten() {
+                    turn.names.insert(call.id.clone(), call.name.clone());
+                }
+                if !content.is_empty() {
+                    turn.last_reply = Some(history.len());
+                    history.push(HistoryEntry::Assistant {
+                        content: content.clone(),
+                        timestamp,
+                        tools: Vec::new(),
+                    });
+                }
+            }
+            EntryKind::Tool { call_id, output } => {
+                turn.last_tool = timestamp;
+                turn.tools.push(HistoryTool {
+                    name: turn.names.get(call_id).cloned().unwrap_or_default(),
+                    call_id: call_id.clone(),
+                    output: cap(output, MAX_HISTORY_TOOL_OUTPUT),
+                    success: !failures.contains(call_id),
+                });
+            }
+            _ => {}
+        }
+    }
+    turn.finish(&mut history);
+    history
+}
+
+#[derive(Default)]
+struct Turn {
+    names: HashMap<String, String>,
+    tools: Vec<HistoryTool>,
+    /// Index in the history of this turn's latest assistant message.
+    last_reply: Option<usize>,
+    last_tool: i64,
+}
+
+impl Turn {
+    fn finish(&mut self, history: &mut Vec<HistoryEntry>) {
+        let turn = mem::take(self);
+        if turn.tools.is_empty() {
+            return;
+        }
+        match turn.last_reply.and_then(|index| history.get_mut(index)) {
+            Some(HistoryEntry::Assistant { tools, .. }) => *tools = turn.tools,
+            _ => history.push(HistoryEntry::Assistant {
+                content: String::new(),
+                timestamp: turn.last_tool,
+                tools: turn.tools,
             }),
-            EntryKind::Assistant { content, .. } => Some(HistoryEntry::Assistant {
-                content: content.clone(),
-                timestamp: e.timestamp.timestamp_millis(),
-            }),
-            _ => None,
-        })
-        .collect();
-    Ok(entries)
+        }
+    }
+}
+
+/// `text` cut to at most `max` bytes on a character boundary.
+fn cap(text: &str, max: usize) -> String {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_owned()
+}
+
+async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {
+    cx.app.apps.list(&cx.user).await
+}
+
+async fn connect_app(cx: Cx, ConnectApp { slug }: ConnectApp) -> Reply<ConnectLink> {
+    cx.app.apps.connect(&cx.user, &slug).await
+}
+
+async fn disconnect_app(cx: Cx, DisconnectApp { slug }: DisconnectApp) -> Reply<()> {
+    cx.app.apps.disconnect(&cx.user, &slug).await
+}
+
+async fn suggest_prompts(cx: Cx, _: SuggestPrompts) -> Reply<Vec<PromptSuggestion>> {
+    Ok(cx.app.suggest_prompts(&cx.user).await)
 }
 
 async fn rename_session(cx: Cx, RenameSession { id, title }: RenameSession) -> Reply<()> {
@@ -358,8 +458,55 @@ fn next_run_at(expression: &str, tz_name: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use flashmind::types::ToolCall;
+    use serde_json::json;
+
     #[test]
     fn every_op_is_routed_once() {
         super::router().check().unwrap();
+    }
+
+    #[test]
+    fn history_attaches_tools_to_the_turn() {
+        let call = |id: &str, name: &str| ToolCall {
+            id: id.into(),
+            name: name.into(),
+            arguments: json!({}),
+        };
+        let entries = [
+            ConversationEntry::user("Where is lunch?"),
+            ConversationEntry::assistant_with_tool_calls("", vec![call("a", "open_maps")], None),
+            ConversationEntry::tool("a", "é".repeat(MAX_HISTORY_TOOL_OUTPUT)),
+            ConversationEntry::assistant("Here it is."),
+            ConversationEntry::user("Remind me"),
+            ConversationEntry::assistant_with_tool_calls("", vec![call("b", "cron_create")], None),
+            ConversationEntry::tool("b", "failed"),
+        ];
+        let history = history(&entries, &HashSet::from(["b".to_owned()]));
+        let [
+            HistoryEntry::User { .. },
+            HistoryEntry::Assistant {
+                content: first,
+                tools: first_tools,
+                ..
+            },
+            HistoryEntry::User { .. },
+            HistoryEntry::Assistant {
+                content: second,
+                tools: second_tools,
+                ..
+            },
+        ] = history.as_slice()
+        else {
+            panic!("unexpected history: {history:?}");
+        };
+        assert_eq!(first, "Here it is.");
+        assert_eq!(first_tools[0].name, "open_maps");
+        assert!(first_tools[0].success);
+        assert_eq!(first_tools[0].output.len(), MAX_HISTORY_TOOL_OUTPUT);
+        assert!(second.is_empty());
+        assert_eq!(second_tools[0].call_id, "b");
+        assert!(!second_tools[0].success);
     }
 }
