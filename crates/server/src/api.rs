@@ -2,17 +2,15 @@
 
 use crate::{
     app::Message,
+    live::Subscription,
     protocol::*,
     router::{Cx, Router, Sink},
     store::CreateRun,
 };
 use chrono::Utc;
 use flashmind::{core::EntryKind, cron::CronSchedule};
-use std::time::Duration;
-use tokio::{
-    sync::broadcast::error::RecvError,
-    time::{Instant, sleep, timeout},
-};
+use std::{collections::VecDeque, time::Duration};
+use tokio::{sync::broadcast::error::RecvError, time::timeout};
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const EVENTS_WINDOW: Duration = Duration::from_secs(30);
@@ -21,7 +19,7 @@ pub fn router() -> Router {
     Router::default()
         .call(auth)
         .call(health)
-        .call(chat)
+        .stream(chat)
         .call(get_run)
         .call(cancel_run)
         .stream(get_events)
@@ -60,7 +58,7 @@ async fn health(_: Cx, _: Health) -> Reply<()> {
     Ok(())
 }
 
-async fn chat(cx: Cx, req: Chat) -> Reply<Run> {
+async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
     if req.message.trim().is_empty() || req.message.len() > 32768 {
         return Err(ApiError::bad_request("message must be 1-32768 bytes"));
     }
@@ -72,7 +70,7 @@ async fn chat(cx: Cx, req: Chat) -> Reply<Run> {
         image: req.image,
     };
     match cx.app.submit(&cx.user, message).await? {
-        CreateRun::Created(run) | CreateRun::Existing(run) => Ok(run),
+        CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
         CreateRun::Conflict => Err(ApiError::Conflict {
             message: "session busy".into(),
         }),
@@ -89,36 +87,61 @@ async fn cancel_run(cx: Cx, CancelRun { id }: CancelRun) -> Reply<()> {
     Ok(())
 }
 
-/// Sends the run's events after `after`, following it while it runs, for up
-/// to `EVENTS_WINDOW`. Clients reconnect with the last `seq` they saw.
+/// Resumes a run's events after `after`, the last `seq` the client saw.
 async fn get_events(cx: Cx, req: GetEvents, sink: Sink<Event>) -> Reply<()> {
-    let GetEvents { run_id, mut after } = req;
+    let GetEvents { run_id, after } = req;
     if after < 0 {
         return Err(ApiError::bad_request("after must be >= 0"));
     }
-    owned_run(&cx, &run_id).await?;
-    let deadline = Instant::now() + EVENTS_WINDOW;
-    loop {
-        let running = cx
-            .app
-            .store
-            .run(&cx.user, &run_id)
-            .await?
-            .is_some_and(|r| r.status == "running");
-        let events = cx.app.store.events(&run_id, after).await?;
-        let empty = events.is_empty();
-        for event in events {
+    let run = owned_run(&cx, &run_id).await?;
+    follow(&cx, run, after, &sink).await
+}
+
+/// Sends the run's events after `after` and follows it until it finishes, for
+/// up to `EVENTS_WINDOW`. A finished run keeps no events, only its status: the
+/// turn itself is in the session history.
+async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>) -> Reply<()> {
+    let Some(live) = cx.app.live(&run.id).await else {
+        let finished = Event {
+            seq: after + 1,
+            event: RunEvent::RunFinished { status: run.status },
+        };
+        sink.send(&finished).await?;
+        return Ok(());
+    };
+
+    let Subscription {
+        backlog,
+        live: mut rx,
+    } = live.subscribe(after);
+    let mut pending = VecDeque::from(backlog);
+
+    let follow = async {
+        loop {
+            let event = match pending.pop_front() {
+                Some(event) => event,
+                None => match rx.recv().await {
+                    Ok(event) => event,
+                    Err(RecvError::Lagged(_)) => {
+                        pending.extend(live.since(after));
+                        continue;
+                    }
+                    Err(RecvError::Closed) => return Ok(()),
+                },
+            };
+            if event.seq <= after {
+                continue;
+            }
+
             after = event.seq;
+            let finished = matches!(event.event, RunEvent::RunFinished { .. });
             sink.send(&event).await?;
-            if matches!(event.event, RunEvent::RunFinished { .. }) {
+            if finished {
                 return Ok(());
             }
         }
-        if (empty && !running) || Instant::now() >= deadline {
-            return Ok(());
-        }
-        sleep(Duration::from_millis(100)).await;
-    }
+    };
+    timeout(EVENTS_WINDOW, follow).await.unwrap_or(Ok(()))
 }
 
 async fn device_result(cx: Cx, req: DeviceResult) -> Reply<bool> {

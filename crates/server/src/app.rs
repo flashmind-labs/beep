@@ -1,5 +1,6 @@
 use crate::{
     config::Auth,
+    live::LiveRun,
     protocol::{DeviceAnswer, DeviceQuery, Notice, Run, RunEvent, Usage},
     store::{CreateRun, Store},
     tools,
@@ -26,7 +27,8 @@ pub struct App {
     search: Option<Arc<crate::search::SearchTool>>,
     composio_key: Option<String>,
     mcp: Option<McpRegistry>,
-    active: Mutex<HashMap<String, CancellationToken>>,
+    /// Runs in progress, with their event feed.
+    runs: Mutex<HashMap<String, Arc<LiveRun>>>,
     device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
 }
 
@@ -68,14 +70,14 @@ impl App {
             search,
             composio_key,
             mcp,
-            active: Mutex::new(HashMap::new()),
+            runs: Mutex::new(HashMap::new()),
             device_queries: Mutex::new(HashMap::new()),
         })
     }
 
     pub async fn submit(self: &Arc<Self>, user: &str, message: Message) -> Result<CreateRun> {
         // Serialize registration with cancellation so a newly created run can always be stopped.
-        let mut active = self.active.lock().await;
+        let mut runs = self.runs.lock().await;
         let result = self
             .store
             .create_run(
@@ -86,8 +88,13 @@ impl App {
             )
             .await?;
         if let CreateRun::Created(run) = &result {
-            let cancel = CancellationToken::new();
-            active.insert(run.id.clone(), cancel.clone());
+            let live = Arc::new(LiveRun::new(CancellationToken::new()));
+            live.push(RunEvent::RunStarted {
+                run_id: run.id.clone(),
+                session_id: run.session_id.clone(),
+            });
+            runs.insert(run.id.clone(), live.clone());
+
             let (app, user, run) = (self.clone(), user.to_owned(), run.clone());
             let is_cron = message.cron_id.is_some();
             let image = message.image.clone();
@@ -99,7 +106,7 @@ impl App {
                         &message.message,
                         image.as_deref(),
                         is_cron,
-                        cancel,
+                        &live,
                     )
                     .await
                 {
@@ -107,26 +114,34 @@ impl App {
                     if let Err(error) = app.store.finish(&user, &run, None, "failed").await {
                         log::error!("unable to persist failure: {error}; run_id={}", run.id);
                     }
+                    live.push(RunEvent::RunFinished {
+                        status: "failed".to_owned(),
+                    });
                 }
-                app.active.lock().await.remove(&run.id);
+                app.runs.lock().await.remove(&run.id);
             });
         }
         Ok(result)
     }
 
+    /// The event feed of a run in progress, `None` once it has finished.
+    pub async fn live(&self, id: &str) -> Option<Arc<LiveRun>> {
+        self.runs.lock().await.get(id).cloned()
+    }
+
     pub async fn cancel(&self, id: &str) {
-        if let Some(token) = self.active.lock().await.get(id) {
-            token.cancel();
+        if let Some(live) = self.live(id).await {
+            live.cancel.cancel();
         }
     }
 
     pub async fn shutdown(&self) {
-        for token in self.active.lock().await.values() {
-            token.cancel();
+        for live in self.runs.lock().await.values() {
+            live.cancel.cancel();
         }
         let _ = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                if self.active.lock().await.is_empty() {
+                if self.runs.lock().await.is_empty() {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(25)).await;
@@ -146,21 +161,21 @@ impl App {
         query: DeviceQuery,
         timeout_secs: u64,
     ) -> Result<DeviceAnswer> {
+        let Some(live) = self.live(run_id).await else {
+            anyhow::bail!("run {run_id} is not running");
+        };
+
         let query_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.device_queries
             .lock()
             .await
             .insert(query_id.clone(), tx);
-        self.store
-            .append(
-                run_id,
-                &RunEvent::DeviceQuery {
-                    query_id: query_id.clone(),
-                    query,
-                },
-            )
-            .await?;
+        live.push(RunEvent::DeviceQuery {
+            query_id: query_id.clone(),
+            query,
+        });
+
         let result = tokio::time::timeout(Duration::from_secs(timeout_secs), rx).await;
         // Clean up on timeout or channel close.
         self.device_queries.lock().await.remove(&query_id);
@@ -274,8 +289,10 @@ impl App {
         message: &str,
         image: Option<&str>,
         is_cron: bool,
-        cancel: CancellationToken,
+        live: &LiveRun,
     ) -> Result<()> {
+        let cancel = &live.cancel;
+
         let mut conversation = self
             .store
             .conversation(user, &run.session_id)
@@ -389,14 +406,14 @@ impl App {
                                 "The model request failed. Check server provider configuration."
                                     .to_owned(),
                         };
-                        self.store.append(&run.id, &error).await?;
+                        live.push(error);
                         break "failed";
                     }
                     None => break "failed",
                     _ => continue,
                 };
 
-                self.store.append(&run.id, &data).await?;
+                live.push(data);
             }
         };
 
@@ -407,9 +424,13 @@ impl App {
             let _ = self.store.log_cron_finish(&run.id, status, "").await;
         }
 
-        // Persist state and the terminal event together before clients observe completion.
+        // Save the turn before clients see the run finish, so they can load it.
         self.store
             .finish(user, run, Some(&conversation), status)
-            .await
+            .await?;
+        live.push(RunEvent::RunFinished {
+            status: status.to_owned(),
+        });
+        Ok(())
     }
 }

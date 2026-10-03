@@ -1,10 +1,11 @@
 use async_trait::async_trait;
 use beep_server::{
     app::App,
-    client::Client,
+    client::{Client, Replies},
     config::Auth,
     protocol::{
-        ApiError, CancelRun, Chat, GetEvents, GetRun, GetSession, Health, HistoryEntry, RunEvent,
+        ApiError, CancelRun, Chat, Event, GetEvents, GetRun, GetSession, Health, HistoryEntry,
+        RunEvent,
     },
     store::{CreateRun, Store},
     transport,
@@ -119,30 +120,21 @@ fn api_error(err: anyhow::Error) -> ApiError {
     err.downcast::<ApiError>().unwrap()
 }
 
-/// Polls the event stream until the run reports `RunFinished`.
-async fn finished_events(c: &Client, run_id: &str) -> Vec<RunEvent> {
+/// Reads events until the stream ends.
+async fn drain(replies: &mut Replies<Event>) -> Vec<RunEvent> {
     let mut events = Vec::new();
-    for _ in 0..50 {
-        events.clear();
-        let mut replies = c
-            .stream(&GetEvents {
-                run_id: run_id.into(),
-                after: 0,
-            })
-            .await
-            .unwrap();
-        while let Some(event) = replies.next().await.unwrap() {
-            events.push(event.event);
-        }
-        if events
-            .iter()
-            .any(|e| matches!(e, RunEvent::RunFinished { .. }))
-        {
-            return events;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    while let Some(event) = replies.next().await.unwrap() {
+        events.push(event.event);
     }
-    panic!("run {run_id} never finished");
+    events
+}
+
+/// The run id from a stream's `RunStarted` event.
+async fn started(replies: &mut Replies<Event>) -> String {
+    match replies.next().await.unwrap().map(|e| e.event) {
+        Some(RunEvent::RunStarted { run_id, .. }) => run_id,
+        other => panic!("expected RunStarted, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -163,15 +155,9 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         message: "Remember I prefer tea".into(),
         image: None,
     };
-    let first = c.call(&chat).await.unwrap();
-
-    drop(c);
-    let c = h.client().await;
-
-    let again = c.call(&chat).await.unwrap();
-    assert_eq!(again.id, first.id);
-
-    let evts = finished_events(&c, &first.id).await;
+    let mut replies = c.stream(&chat).await.unwrap();
+    let run_id = started(&mut replies).await;
+    let evts = drain(&mut replies).await;
     assert!(matches!(evts.last(), Some(RunEvent::RunFinished { .. })));
     assert!(
         evts.iter()
@@ -185,6 +171,21 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         })
         .collect();
     assert_eq!(text, "I remember your preference.");
+
+    drop(c);
+    let c = h.client().await;
+
+    // Resending the request follows the finished run instead of starting another.
+    let mut again = c.stream(&chat).await.unwrap();
+    assert!(matches!(
+        drain(&mut again).await.as_slice(),
+        [RunEvent::RunFinished { status }] if status == "completed"
+    ));
+    let mut resumed = c.stream(&GetEvents { run_id, after: 3 }).await.unwrap();
+    assert!(matches!(
+        drain(&mut resumed).await.as_slice(),
+        [RunEvent::RunFinished { status }] if status == "completed"
+    ));
 
     let entries = c
         .call(&GetSession {
@@ -231,7 +232,8 @@ async fn cancellation_busy_session_and_invalid_input() {
         message: "slow".into(),
         image: None,
     };
-    let slow_run = c.call(&slow).await.unwrap();
+    let mut slow_events = c.stream(&slow).await.unwrap();
+    let slow_run = started(&mut slow_events).await;
 
     let busy = Chat {
         session_id,
@@ -239,8 +241,9 @@ async fn cancellation_busy_session_and_invalid_input() {
         message: "again".into(),
         image: None,
     };
+    let mut busy = c.stream(&busy).await.unwrap();
     assert!(matches!(
-        api_error(c.call(&busy).await.unwrap_err()),
+        api_error(busy.next().await.unwrap_err()),
         ApiError::Conflict { .. }
     ));
 
@@ -250,8 +253,9 @@ async fn cancellation_busy_session_and_invalid_input() {
         message: " ".into(),
         image: None,
     };
+    let mut empty = c.stream(&empty).await.unwrap();
     assert!(matches!(
-        api_error(c.call(&empty).await.unwrap_err()),
+        api_error(empty.next().await.unwrap_err()),
         ApiError::BadRequest { .. }
     ));
 
@@ -275,12 +279,9 @@ async fn cancellation_busy_session_and_invalid_input() {
     );
 
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let cancel = CancelRun {
-        id: slow_run.id.clone(),
-    };
-    c.call(&cancel).await.unwrap();
+    c.call(&CancelRun { id: slow_run }).await.unwrap();
 
-    let evts = finished_events(&c, &slow_run.id).await;
+    let evts = drain(&mut slow_events).await;
     assert!(
         evts.iter()
             .any(|e| matches!(e, RunEvent::RunFinished { status } if status == "cancelled"))
@@ -321,11 +322,6 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
     assert_eq!(
         store.run("alice", &run.id).await.unwrap().unwrap().status,
         "interrupted"
-    );
-    assert_eq!(
-        store.events(&run.id, 0).await.unwrap().len(),
-        2,
-        "recovery must be idempotent"
     );
     assert!(matches!(
         store

@@ -136,7 +136,9 @@ requests! {
     /// First request on every connection; the server closes it on a bad token.
     0 Auth { token: String } => Call<()>
     1 Health {} => Call<()>
-    2 Chat { session_id: Uuid, request_id: Uuid, message: String, image: Option<String> } => Call<Run>
+    /// Starts a run and streams its events, starting with `RunStarted`. Resending
+    /// the same `request_id` follows the existing run instead of starting another.
+    2 Chat { session_id: Uuid, request_id: Uuid, message: String, image: Option<String> } => Stream<Event>
     3 GetRun { id: String } => Call<Run>
     4 CancelRun { id: String } => Call<()>
     5 GetEvents { run_id: String, after: i64 } => Stream<Event>
@@ -212,7 +214,7 @@ impl From<anyhow::Error> for ApiError {
 }
 
 wire_enum! {
-    /// One entry of a run's event stream. Also the stored form of an event.
+    /// One entry of a run's event stream.
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum RunEvent {
@@ -223,7 +225,7 @@ wire_enum! {
         4 Error { message: String }
         5 DeviceQuery { query_id: String, query: DeviceQuery }
         6 RunFinished { status: String }
-        7 RunStarted { session_id: String }
+        7 RunStarted { run_id: String, session_id: String }
     }
 }
 
@@ -290,7 +292,7 @@ pub struct Usage {
     pub cache_creation_tokens: u32,
 }
 
-/// One stored entry of a run's event stream.
+/// One entry of a run's event stream, numbered from 1.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {

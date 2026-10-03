@@ -1,6 +1,4 @@
-use crate::protocol::{
-    Cron, Event, Integration, Memory, PhoneNotification, Run, RunEvent, Session,
-};
+use crate::protocol::{Cron, Integration, Memory, PhoneNotification, Run, Session};
 use anyhow::{Result, bail};
 use flashmind::core::Conversation;
 use rusqlite::{OptionalExtension, params};
@@ -15,13 +13,6 @@ pub enum CreateRun {
     Created(Run),
     Existing(Run),
     Conflict,
-}
-
-fn finished_json(status: &str) -> String {
-    let event = RunEvent::RunFinished {
-        status: status.to_owned(),
-    };
-    serde_json::to_string(&event).expect("RunEvent serializes to JSON")
 }
 
 const MEMORY_CATEGORIES: &[&str] = &[
@@ -66,9 +57,7 @@ impl Store {
                     UNIQUE(user_id, request_id));
                 CREATE UNIQUE INDEX IF NOT EXISTS one_active_run
                     ON runs(user_id, session_id) WHERE status = 'running';
-                CREATE TABLE IF NOT EXISTS events (
-                    run_id TEXT NOT NULL REFERENCES runs(id), seq INTEGER NOT NULL,
-                    data TEXT NOT NULL, PRIMARY KEY(run_id, seq));
+                DROP TABLE IF EXISTS events;
                 CREATE TABLE IF NOT EXISTS memories (
                     user_id TEXT NOT NULL, key TEXT NOT NULL, content TEXT NOT NULL,
                     PRIMARY KEY(user_id, key));
@@ -181,18 +170,10 @@ impl Store {
     pub async fn recover(&self) -> Result<()> {
         self.0
             .call::<_, _, rusqlite::Error>(|db| {
-                let tx = db.transaction()?;
-                tx.execute(
-                    "INSERT INTO events (run_id, seq, data)
-                SELECT id, COALESCE((SELECT MAX(seq) FROM events WHERE run_id=runs.id), 0)+1, ?
-                FROM runs WHERE status='running'",
-                    [finished_json("interrupted")],
-                )?;
-                tx.execute(
+                db.execute(
                     "UPDATE runs SET status='interrupted' WHERE status='running'",
                     [],
                 )?;
-                tx.commit()?;
                 Ok(())
             })
             .await?;
@@ -227,7 +208,6 @@ impl Store {
             if active >= 16 { return Ok(CreateRun::Conflict); }
             let run = Run { id: Uuid::new_v4().to_string(), session_id: session, status: "running".into() };
             tx.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?, 'running')", params![run.id, user, run.session_id, request, message])?;
-            tx.execute("INSERT INTO events VALUES (?, 1, ?)", params![run.id, serde_json::to_string(&RunEvent::RunStarted { session_id: run.session_id.clone() }).expect("RunEvent serializes to JSON")])?;
             tx.commit()?;
             Ok(CreateRun::Created(run))
         }).await?)
@@ -285,26 +265,24 @@ impl Store {
 
     pub async fn delete_session(&self, user: &str, session_id: &str) -> Result<bool> {
         let (user, session_id) = (user.to_owned(), session_id.to_owned());
-        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
-            let tx = db.transaction()?;
-            // Delete events for all runs in this session
-            tx.execute(
-                "DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE user_id=? AND session_id=?)",
-                params![user, session_id],
-            )?;
-            // Delete runs
-            tx.execute(
-                "DELETE FROM runs WHERE user_id=? AND session_id=?",
-                params![user, session_id],
-            )?;
-            // Delete session
-            let deleted = tx.execute(
-                "DELETE FROM sessions WHERE user_id=? AND id=?",
-                params![user, session_id],
-            )?;
-            tx.commit()?;
-            Ok(deleted > 0)
-        }).await?)
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let tx = db.transaction()?;
+                // Delete runs
+                tx.execute(
+                    "DELETE FROM runs WHERE user_id=? AND session_id=?",
+                    params![user, session_id],
+                )?;
+                // Delete session
+                let deleted = tx.execute(
+                    "DELETE FROM sessions WHERE user_id=? AND id=?",
+                    params![user, session_id],
+                )?;
+                tx.commit()?;
+                Ok(deleted > 0)
+            })
+            .await?)
     }
 
     pub async fn pin_session(&self, user: &str, session_id: &str, pinned: bool) -> Result<bool> {
@@ -338,34 +316,6 @@ impl Store {
             .transpose()
     }
 
-    pub async fn append(&self, run: &str, event: &RunEvent) -> Result<()> {
-        let (run, data) = (run.to_owned(), serde_json::to_string(event)?);
-        self.0.call::<_, _, rusqlite::Error>(move |db| {
-            db.execute("INSERT INTO events SELECT ?, COALESCE(MAX(seq),0)+1, ? FROM events WHERE run_id=?", params![run,data,run])?;
-            Ok(())
-        }).await?;
-        Ok(())
-    }
-
-    pub async fn events(&self, run: &str, after: i64) -> Result<Vec<Event>> {
-        let run = run.to_owned();
-        let rows = self.0.call::<_, _, rusqlite::Error>(move |db| {
-            let mut stmt = db.prepare("SELECT seq, run_id, data FROM events WHERE run_id=? AND seq>? ORDER BY seq LIMIT 256")?;
-            let rows = stmt.query_map(params![run,after], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(rows)
-        }).await?;
-        Ok(rows
-            .into_iter()
-            .filter_map(|(seq, run_id, data)| match serde_json::from_str(&data) {
-                Ok(event) => Some(Event { seq, event }),
-                Err(e) => {
-                    log::warn!("skipping unreadable event; run_id={run_id} seq={seq}: {e}");
-                    None
-                }
-            })
-            .collect())
-    }
-
     pub async fn finish(
         &self,
         user: &str,
@@ -380,7 +330,6 @@ impl Store {
             if let Some(conversation) = conversation {
                 tx.execute("INSERT INTO sessions (user_id, id, conversation) VALUES (?, ?, ?) ON CONFLICT(user_id,id) DO UPDATE SET conversation=excluded.conversation", params![user,run.session_id,conversation])?;
             }
-            tx.execute("INSERT INTO events SELECT ?, COALESCE(MAX(seq),0)+1, ? FROM events WHERE run_id=?", params![run.id,finished_json(&status),run.id])?;
             tx.execute("UPDATE runs SET status=? WHERE id=? AND user_id=?", params![status,run.id,user])?;
             tx.commit()?;
             Ok(())
