@@ -29,7 +29,7 @@ use std::{collections::HashMap, fmt::Write, sync::Arc, time::Duration};
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// Above this Jev score the learner reads the turn; below it nothing is stored.
 const MEMORY_THRESHOLD: f64 = 0.8;
-const MEMORY_QUESTION: &str = "Does the user share, correct or ask to forget a lasting fact about themselves worth remembering for future chats, such as their name, preferences, people, places, work, routines or plans? Answer no for small talk, one-off questions, or facts only about the world.";
+const MEMORY_QUESTION: &str = "Does this exchange reveal, correct or ask to forget a lasting fact about the user worth remembering for future chats, such as their name, preferences, people, places, work, routines or plans, whether the user said it or the assistant found it in their data at their request? Answer no for small talk, one-off questions, or facts only about the world.";
 use tokio::sync::{Mutex, broadcast, oneshot};
 use uuid::Uuid;
 
