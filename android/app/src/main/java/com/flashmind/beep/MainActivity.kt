@@ -61,6 +61,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -78,6 +79,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.LinkAnnotation
@@ -673,10 +675,14 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
                         val shownText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
                         var menuOpen by remember(message.id) { mutableStateOf(false) }
-                        var selecting by remember(message.id) { mutableStateOf(false) }
+                        val quote: () -> Unit = {
+                            draft = message.text.trim().lines().take(4).joinToString("\n") { "> $it" } + "\n\n"
+                            inputFocusRequester.requestFocus()
+                        }
                         if (shownText.isNotBlank() || message.imageBase64 != null) Box {
-                        Column(bubbleModifier.combinedClickable(onClick = {}, onLongClick = { if (!isStreaming) menuOpen = true },
-                            indication = null, interactionSource = remember { MutableInteractionSource() })) {
+                        // Long press belongs to text selection, so a tap opens the menu (copy, quote, share).
+                        Column(bubbleModifier.clickable(enabled = !isStreaming, onClickLabel = "Message actions",
+                            indication = null, interactionSource = remember { MutableInteractionSource() }) { menuOpen = true }) {
                             // Show attached image thumbnail in user messages
                             if (message.imageBase64 != null) {
                                 val msgBitmap = remember(message.imageBase64) { decodeImageBase64(message.imageBase64) }
@@ -689,13 +695,8 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
                                 padded = isUser || Beep.shapes.botBubble)
                         }
-                        MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text,
-                            onQuote = {
-                                draft = message.text.trim().lines().take(4).joinToString("\n") { "> $it" } + "\n\n"
-                                inputFocusRequester.requestFocus()
-                            }, onSelect = { selecting = true })
+                        MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote)
                         }
-                        if (selecting) SelectTextDialog(message.text) { selecting = false }
                         if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact) { repository.browserUrl.value = it }
                         if (!isUser && !isStreaming && message.text.isNotBlank()) {
                             val shownLinks = toolCards.mapNotNull { (it.second as? ToolCard.Link)?.url }.toSet()
@@ -714,7 +715,13 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             Spacer(Modifier.height(8.dp))
                             TaskProgressCard(message.taskSteps)
                         }
-                        if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) CopyReply(message.text, compact)
+                        if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) Row {
+                            CopyReply(message.text, compact)
+                            TextButton(onClick = quote, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 48.dp)) {
+                                Icon(Icons.Outlined.FormatQuote, null, Modifier.size(14.dp), tint = TextMuted)
+                                Spacer(Modifier.width(6.dp)); Text("Quote", fontSize = 11.sp, color = TextMuted)
+                            }
+                        }
                         if (isLastAssistant && !chat.busy && chat.messages.last().id == message.id) {
                             toolCards.firstNotNullOfOrNull { it.second as? ToolCard.Replies }?.let { replies ->
                                 Spacer(Modifier.height(4.dp))
@@ -1016,9 +1023,9 @@ private fun ReplySkeleton(modifier: Modifier = Modifier) {
     }
 }
 
-/** Long-press actions on a message. */
+/** Tap actions on a message. */
 @Composable
-private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQuote: () -> Unit, onSelect: () -> Unit) {
+private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQuote: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     DropdownMenu(expanded = open, onDismissRequest = onDismiss, containerColor = Surface, shape = RoundedCornerShape(Beep.shapes.smallRadius)) {
         DropdownMenuItem(text = { Text("Copy") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)) }, onClick = {
@@ -1029,26 +1036,11 @@ private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQu
         })
         DropdownMenuItem(text = { Text("Quote in reply") }, leadingIcon = { Icon(Icons.Outlined.FormatQuote, null, Modifier.size(18.dp)) },
             onClick = { onQuote(); onDismiss() })
-        DropdownMenuItem(text = { Text("Select text") }, leadingIcon = { Icon(Icons.Outlined.TextFields, null, Modifier.size(18.dp)) },
-            onClick = { onSelect(); onDismiss() })
         DropdownMenuItem(text = { Text("Share") }, leadingIcon = { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)) }, onClick = {
             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), null))
             onDismiss()
         })
     }
-}
-
-/** The whole message as selectable text, since a long press on the bubble opens the menu instead. */
-@Composable
-private fun SelectTextDialog(text: String, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-        title = { Text("Select text") },
-        text = {
-            SelectionContainer(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                Text(text, fontSize = 15.sp, lineHeight = 23.sp, color = TextPrimary)
-            }
-        })
 }
 
 // ── Rich message rendering ──────────────────────────────────────────────────
@@ -1296,7 +1288,7 @@ private fun CardView(card: Card, repository: ChatRepository, compact: Boolean) {
 }
 
 /** Colors the inline formatter needs, read from the theme once per composition. */
-private data class InlineColors(val link: Color, val muted: Color, val code: Color, val onCode: Color)
+internal data class InlineColors(val link: Color, val muted: Color, val code: Color, val onCode: Color)
 
 @Composable
 @ReadOnlyComposable
@@ -1309,10 +1301,10 @@ private fun MessageContent(text: String, role: String, compact: Boolean, padded:
     val color = if (role == "user") Beep.colors.onUser else TextPrimary
     val padding = if (padded) PaddingValues(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 9.dp else 12.dp)
         else PaddingValues(horizontal = 2.dp, vertical = 2.dp)
-    Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp)) {
+    // One container for the whole message, so a selection can run across paragraphs, code and quotes.
+    SelectionContainer { Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp)) {
         blocks.forEach { block ->
             when (block) {
-                // Not selectable in place: a long press opens the message menu, which has "Select text".
                 is MsgBlock.Text -> Text(remember(block.content, inline) { formattedMessage(block.content, inline) }, color = color,
                     fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
                 is MsgBlock.Code -> CodeBlockView(block.language, block.code, compact)
@@ -1321,7 +1313,7 @@ private fun MessageContent(text: String, role: String, compact: Boolean, padded:
                 MsgBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Border)
             }
         }
-    }
+    } }
 }
 
 @Composable
@@ -1330,7 +1322,7 @@ private fun CodeBlockView(language: String, code: String, compact: Boolean) {
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1800); copied = false } }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Beep.shapes.smallRadius)).background(Beep.colors.code)) {
-        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        DisableSelection { Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(language.ifBlank { "code" }, fontSize = 11.sp, color = TextMuted, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
             Spacer(Modifier.weight(1f))
             Row(Modifier.clip(CircleShape).clickable {
@@ -1344,12 +1336,10 @@ private fun CodeBlockView(language: String, code: String, compact: Boolean) {
                 Spacer(Modifier.width(5.dp))
                 Text(if (copied) "Copied" else "Copy", fontSize = 11.sp, color = if (copied) Beep.colors.ok else TextMuted)
             }
-        }
-        SelectionContainer {
-            Text(code, modifier = Modifier.horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 14.dp),
-                fontFamily = FontFamily.Monospace, fontSize = if (compact) 12.sp else 13.sp,
-                lineHeight = if (compact) 18.sp else 20.sp, color = Beep.colors.onCode)
-        }
+        } }
+        Text(code, modifier = Modifier.horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 14.dp),
+            fontFamily = FontFamily.Monospace, fontSize = if (compact) 12.sp else 13.sp,
+            lineHeight = if (compact) 18.sp else 20.sp, color = Beep.colors.onCode)
     }
 }
 
@@ -1360,22 +1350,18 @@ private fun TableView(headers: List<String>, rows: List<List<String>>, compact: 
         .horizontalScroll(rememberScrollState())) {
         Row(Modifier.background(Beep.colors.code).padding(vertical = 10.dp, horizontal = 4.dp)) {
             headers.forEach { header ->
-                SelectionContainer {
-                    Text(header, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
-                        fontSize = if (compact) 11.sp else 12.sp, fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary, maxLines = 2)
-                }
+                Text(header, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
+                    fontSize = if (compact) 11.sp else 12.sp, fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary, maxLines = 2)
             }
         }
         rows.forEachIndexed { index, row ->
             if (index > 0) HorizontalDivider(color = Border, thickness = 1.dp)
             Row(Modifier.padding(vertical = 9.dp, horizontal = 4.dp)) {
                 row.forEach { cell ->
-                    SelectionContainer {
-                        Text(cell, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
-                            fontSize = if (compact) 11.sp else 12.sp, color = TextPrimary,
-                            lineHeight = if (compact) 16.sp else 18.sp, maxLines = 4)
-                    }
+                    Text(cell, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
+                        fontSize = if (compact) 11.sp else 12.sp, color = TextPrimary,
+                        lineHeight = if (compact) 16.sp else 18.sp, maxLines = 4)
                 }
             }
         }
@@ -1390,18 +1376,21 @@ private fun BlockQuoteView(content: String, compact: Boolean) {
         drawRoundRect(bar, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
     }) {
-        SelectionContainer {
-            Text(remember(content, inline) { formattedMessage(content, inline) },
-                modifier = Modifier.padding(start = 16.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
-                fontSize = if (compact) 13.sp else 15.sp, lineHeight = if (compact) 19.sp else 23.sp,
-                color = TextMuted)
-        }
+        Text(remember(content, inline) { formattedMessage(content, inline) },
+            modifier = Modifier.padding(start = 16.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
+            fontSize = if (compact) 13.sp else 15.sp, lineHeight = if (compact) 19.sp else 23.sp,
+            color = TextMuted)
     }
 }
 
-// Inline markdown: links, bold, strikethrough, inline code, headings, bullets, numbered lists.
-private fun formattedMessage(text: String, colors: InlineColors) = buildAnnotatedString {
-    val inlineTokens = Regex("""\[([^\]]+)\]\((https?://[^\s)]+)\)|(https?://[^\s<>]+)|\*\*(.+?)\*\*|~~(.+?)~~|`([^`\n]+)`""")
+// Links, bare urls, ***bold italic***, **bold**, *italic*, _italic_, ~~strike~~, `code`. The leftmost match wins,
+// so asterisks inside code stay literal; italics need a non-space just inside and no word character just outside,
+// which keeps `2 * 3 * 4`, snake_case and __dunder__ plain.
+private val inlineTokens = Regex("""\[([^\]]+)\]\((https?://[^\s)]+)\)|(https?://[^\s<>]+)|\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*|\*\*(?!\s)(.+?)(?<!\s)\*\*""" +
+    """|(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])|(?<![\w_])_(?![\s_])(.+?)(?<![\s_])_(?![\w_])|~~(.+?)~~|`([^`\n]+)`""")
+
+// Inline markdown plus headings and bullets, line by line.
+internal fun formattedMessage(text: String, colors: InlineColors) = buildAnnotatedString {
     val lines = text.split('\n')
     var firstLine = true
     for (line in lines) {
@@ -1409,15 +1398,17 @@ private fun formattedMessage(text: String, colors: InlineColors) = buildAnnotate
         firstLine = false
         val heading = Regex("^#{1,4} +").find(line)
         val content = line.removePrefix(heading?.value.orEmpty())
-            .replace(Regex("^[-*] +"), "\u2022 ")
+            .replace(Regex("^( *)[-*+] +"), "$1\u2022 ")
         pushStyle(if (heading != null) SpanStyle(fontWeight = FontWeight.Bold, fontSize = 17.sp, letterSpacing = (-0.3).sp) else SpanStyle())
         var offset = 0
         for (match in inlineTokens.findAll(content)) {
             append(content.substring(offset, match.range.first))
             when {
-                match.groups[4] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(match.groups[4]!!.value) }
-                match.groups[5] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = colors.muted)) { append(match.groups[5]!!.value) }
-                match.groups[6] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = colors.code, color = colors.onCode, fontSize = 14.sp)) { append("\u200A${match.groups[6]!!.value}\u200A") }
+                match.groups[4] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, fontStyle = FontStyle.Italic)) { append(match.groups[4]!!.value) }
+                match.groups[5] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(match.groups[5]!!.value) }
+                match.groups[6] != null || match.groups[7] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append((match.groups[6] ?: match.groups[7])!!.value) }
+                match.groups[8] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = colors.muted)) { append(match.groups[8]!!.value) }
+                match.groups[9] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = colors.code, color = colors.onCode, fontSize = 14.sp)) { append("\u200A${match.groups[9]!!.value}\u200A") }
                 else -> {
                     val url = (match.groups[2]?.value ?: match.groups[3]!!.value).trimEnd('.', ',', ';')
                     withLink(LinkAnnotation.Url(url, TextLinkStyles(style = SpanStyle(color = colors.link, textDecoration = TextDecoration.Underline)))) {
