@@ -1,5 +1,6 @@
 use crate::{
     apps::{Apps, ComposioSettings},
+    compaction::{self, Summarizer},
     config::Auth,
     decision::DecisionTool,
     live::LiveRun,
@@ -9,7 +10,7 @@ use crate::{
     repeat::RepeatGuard,
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext, Starters},
-    store::{CreateRun, Store},
+    store::{CreateRun, FinishedTurn, Store},
     tools,
 };
 use anyhow::Result;
@@ -323,15 +324,23 @@ impl App {
     ) -> Result<()> {
         let cancel = &live.cancel;
 
-        let mut conversation = self
+        // The model runs on the context, which may be compacted; the transcript
+        // keeps every message for the phone and gets this turn's entries appended.
+        let mut transcript = self
             .store
             .conversation(user, &run.session_id)
             .await?
             .unwrap_or_else(Conversation::new);
+        let mut conversation = self
+            .store
+            .context(user, &run.session_id)
+            .await?
+            .map_or_else(|| transcript.clone(), |context| context.conversation);
 
         // Always set the server-owned prompt, including when loading an older conversation.
         // It stays static so the provider can cache it.
         conversation.set_system(include_str!("../prompts/assistant.md"));
+        transcript.set_system(include_str!("../prompts/assistant.md"));
         let context = self.build_context(user).await;
 
         let llm = self.llm.clone().with_user(user);
@@ -368,6 +377,11 @@ impl App {
         let mut failed_tools = Vec::new();
         // The reply the memory extractor reads once the run completes.
         let mut reply = String::new();
+        // Prompt size of the last model call, which decides later compaction.
+        let mut prompt_tokens = 0;
+        // Entries from here on belong to this turn. Matching by time rather than
+        // index survives the agent compacting mid-run.
+        let turn_started = Utc::now();
         let status = {
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
@@ -441,15 +455,18 @@ impl App {
                             success,
                         }
                     }
-                    Some(AgentEvent::Usage(u)) => RunEvent::Usage {
-                        usage: Usage {
-                            prompt_tokens: u.prompt_tokens,
-                            completion_tokens: u.completion_tokens,
-                            total_tokens: u.total_tokens,
-                            cache_read_tokens: u.cache_read_tokens,
-                            cache_creation_tokens: u.cache_creation_tokens,
-                        },
-                    },
+                    Some(AgentEvent::Usage(u)) => {
+                        prompt_tokens = u.prompt_tokens;
+                        RunEvent::Usage {
+                            usage: Usage {
+                                prompt_tokens: u.prompt_tokens,
+                                completion_tokens: u.completion_tokens,
+                                total_tokens: u.total_tokens,
+                                cache_read_tokens: u.cache_read_tokens,
+                                cache_creation_tokens: u.cache_creation_tokens,
+                            },
+                        }
+                    }
                     Some(AgentEvent::Done(_)) => break "completed",
                     Some(AgentEvent::Error(_)) => {
                         // Provider errors can contain upstream response details. Keep them off the wire.
@@ -530,13 +547,32 @@ impl App {
         {
             log::warn!("unable to record tool failures: {error}; run_id={}", run.id);
         }
-        self.store
-            .finish(user, run, Some(&conversation), status)
-            .await?;
+        transcript.entries_mut().extend(
+            conversation
+                .entries()
+                .iter()
+                .filter(|entry| entry.timestamp >= turn_started && !entry.is_summary())
+                .cloned(),
+        );
+        let turn = FinishedTurn {
+            transcript: &transcript,
+            context: &conversation,
+            prompt_tokens,
+        };
+        self.store.finish(user, run, Some(turn), status).await?;
         live.push(RunEvent::RunFinished {
             status: status.to_owned(),
         });
         Ok(())
+    }
+
+    /// Summarizes sessions that are long and have gone quiet.
+    pub async fn compact_idle_sessions(&self) {
+        let summarizer = Summarizer {
+            provider: self.provider.as_ref(),
+            model: &self.llm.model,
+        };
+        compaction::compact_idle(&self.store, summarizer).await;
     }
 
     /// Conversation starters for the empty chat, personalized and cached for
