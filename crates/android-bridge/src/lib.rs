@@ -6,12 +6,12 @@
 use beep_proto::{
     ApiError, AppIntegration, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink,
     CreateCron, CreateIntegration, Cron, DeleteCron, DeleteIntegration, DeleteMemory,
-    DeleteSession, DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth, GetEvents,
-    GetRun, GetSession, Health, HistoryEntry, Integration, ListApps, ListCrons, ListIntegrations,
-    ListMemories, ListSessions, Memory, Notice, PhoneNotification, PinSession, PromptSuggestion,
-    RegisterDevice, RenameSession, Run, SaveNotifications, Session, StartAppAuth, Stream,
-    StreamNotifications, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCredentials,
-    UpdateCron, UpdateLocation, UpdateMemory,
+    DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth,
+    GetEvents, GetRun, GetSession, Health, HistoryEntry, Integration, ListApps, ListCrons,
+    ListIntegrations, ListMemories, ListSessions, Memory, Notice, PhoneNotification, PinSession,
+    PromptSuggestions, RegisterDevice, RenameSession, Run, SaveNotifications, Session,
+    StartAppAuth, Stream, StreamNotifications, SuggestPrompts, ToggleCron, UnregisterDevice,
+    UpdateCredentials, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Replies},
 };
 use iroh::{EndpointAddr, PublicKey};
@@ -201,6 +201,11 @@ impl BeepClient {
         self.call(DeleteSession { id }).await
     }
 
+    /// Returns how many of the sessions were deleted.
+    pub async fn delete_sessions(&self, ids: Vec<String>) -> Result<u64, BeepError> {
+        self.call(DeleteSessions { ids }).await
+    }
+
     pub async fn pin_session(&self, id: String, pinned: bool) -> Result<(), BeepError> {
         self.call(PinSession { id, pinned }).await
     }
@@ -387,8 +392,9 @@ impl BeepClient {
     }
 
     /// Conversation starters for the empty chat. Always four.
-    pub async fn suggest_prompts(&self) -> Result<Vec<PromptSuggestion>, BeepError> {
-        self.call(SuggestPrompts {}).await
+    /// `refresh` asks for a new set instead of the server's cached one.
+    pub async fn suggest_prompts(&self, refresh: bool) -> Result<PromptSuggestions, BeepError> {
+        self.call(SuggestPrompts { refresh }).await
     }
 }
 

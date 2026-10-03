@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
+import com.flashmind.beep.proto.PromptSuggestion
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -34,7 +35,7 @@ data class ToolCall(
 
 data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val imageBase64: String? = null, val toolCalls: List<ToolCall> = emptyList(), val memoryScore: Double? = null)
 data class Conversation(
-    val id: String = UUID.randomUUID().toString(), val title: String = "New conversation",
+    val id: String = UUID.randomUUID().toString(), val title: String = NEW_CHAT_TITLE,
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
     val requestId: String = "", val pendingText: String = "", val pendingImage: String? = null,
     val status: String = "", val error: String = "",
@@ -42,6 +43,12 @@ data class Conversation(
     /** The model's reasoning for the current step, shown live and dropped once it moves on. Not saved. */
     val thinking: String = ""
 ) { val busy get() = requestId.isNotEmpty() || runId.isNotEmpty() }
+const val NEW_CHAT_TITLE = "New conversation"
+
+/** A chat opened but never used. It is not kept once the user moves on, nor listed. */
+val Conversation.isUnused get() =
+    messages.isEmpty() && !busy && pendingText.isEmpty() && pendingImage == null && title == NEW_CHAT_TITLE
+
 data class ChatState(val conversations: List<Conversation> = listOf(Conversation()), val selected: String = "") {
     val current get() = conversations.firstOrNull { it.id == selected } ?: conversations.first()
 }
@@ -111,6 +118,22 @@ class LocalStorage(internal val context: Context) {
         check(conversations.isNotEmpty())
         ChatState(conversations, json.optString("selected"))
     }.getOrElse { ChatState() }
+
+    /** The last personal starters and when they were fetched, in epoch milliseconds. */
+    fun loadStarters(): Pair<List<PromptSuggestion>, Long> = runCatching {
+        val json = JSONObject(prefs.getString("starters", null) ?: return@runCatching null)
+        val items = json.getJSONArray("items")
+        val list = (0 until items.length()).map { i ->
+            items.getJSONObject(i).let { PromptSuggestion(it.getString("title"), it.getString("prompt")) }
+        }
+        list to json.getLong("fetched_at")
+    }.getOrNull() ?: (emptyList<PromptSuggestion>() to 0L)
+
+    fun saveStarters(starters: List<PromptSuggestion>, fetchedAt: Long) {
+        val items = JSONArray()
+        starters.forEach { items.put(JSONObject().put("title", it.title).put("prompt", it.prompt)) }
+        prefs.edit().putString("starters", JSONObject().put("items", items).put("fetched_at", fetchedAt).toString()).apply()
+    }
 
     var onboardingDone: Boolean
         get() = prefs.getBoolean("onboarding_done", false)

@@ -60,7 +60,10 @@ class ChatRepository(private val storage: LocalStorage) {
     private fun api(config: ConnectionSettings = settings.value): BeepClient = BeepClients.client(config)
 
     private fun update(transform: (ChatState) -> ChatState) = synchronized(lock) {
-        val next = transform(mutableState.value)
+        val next = transform(mutableState.value).let { s ->
+            val kept = s.conversations.filter { !it.isUnused || it.id == s.selected }
+            if (kept.isEmpty()) s else s.copy(conversations = kept)
+        }
         storage.saveState(next) // Cursor and text are committed atomically, before publishing either.
         mutableState.value = next
     }
@@ -90,7 +93,10 @@ class ChatRepository(private val storage: LocalStorage) {
             }
         }
         if (settings.value != config) return
-        updateChat(id) { current -> if (current == before) current.copy(messages = messages) else current }
+        // Jev scores only reach the phone live, so they carry over to the same replies from history.
+        val scores = before.messages.filter { it.memoryScore != null }.associate { it.text to it.memoryScore }
+        val scored = messages.map { m -> scores[m.text]?.let { m.copy(memoryScore = it) } ?: m }
+        updateChat(id) { current -> if (current == before) current.copy(messages = scored) else current }
     }
     fun refreshHistory() { scope.launch { runCatching { syncHistory(settings.value) } } }
     private suspend fun syncHistory(config: ConnectionSettings) {
@@ -98,13 +104,12 @@ class ChatRepository(private val storage: LocalStorage) {
         if (settings.value != config) return
         update { state ->
             val known = state.conversations.map { it.id }.toSet()
-            val serverPinned = sessions.associate { it.id to it.pinned }
+            val server = sessions.associateBy { it.id }
             val added = sessions.filter { it.id !in known }
                 .map { Conversation(id = it.id, title = it.title, pinned = it.pinned) }
-            // Update pinned status from server for existing conversations
+            // The server owns titles and pins of chats it knows.
             val updated = state.conversations.map { c ->
-                val pin = serverPinned[c.id]
-                if (pin != null) c.copy(pinned = pin) else c
+                server[c.id]?.let { c.copy(title = it.title, pinned = it.pinned) } ?: c
             }
             state.copy(conversations = (updated + added).sortedByDescending { it.pinned })
         }
@@ -128,6 +133,8 @@ class ChatRepository(private val storage: LocalStorage) {
         scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
         NotificationService.start(storage.context)
         connection.value = "Connected"
+        if (changedAccount) { startersFetchedAt = 0; starters.value = emptyList() }
+        loadStarters()
         resumePending()
         runCatching { syncHistory(effective) }
     }
@@ -313,10 +320,28 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
 
-    /** Conversation starters for an empty chat. The last good set stays up while a new one loads. */
-    val starters = MutableStateFlow<List<PromptSuggestion>>(emptyList())
-    fun loadStarters() {
-        scope.launch { runCatching { api().suggestPrompts() }.onSuccess { if (it.isNotEmpty()) starters.value = it } }
+    private val STARTERS_MAX_AGE_MS = 12 * 60 * 60 * 1000L
+    /** Conversation starters for an empty chat, kept on disk so the home screen never waits for them. */
+    private val savedStarters = storage.loadStarters()
+    val starters = MutableStateFlow(savedStarters.first)
+    private var startersFetchedAt = savedStarters.second
+    private var startersJob: Job? = null
+    /** Fetches starters when there is no personal set from the last 12 hours, or always with `refresh`. */
+    fun loadStarters(refresh: Boolean = false) {
+        val fresh = System.currentTimeMillis() - startersFetchedAt < STARTERS_MAX_AGE_MS
+        if (!refresh && (fresh || startersJob?.isActive == true)) return
+        startersJob = scope.launch {
+            runCatching { api().suggestPrompts(refresh) }.onSuccess { result ->
+                if (result.personal) {
+                    startersFetchedAt = System.currentTimeMillis()
+                    storage.saveStarters(result.suggestions, startersFetchedAt)
+                    starters.value = result.suggestions
+                } else if (starters.value.isEmpty()) {
+                    // The fixed fallback is shown but not kept, so the next visit asks again.
+                    starters.value = result.suggestions
+                }
+            }
+        }
     }
 
     suspend fun renameSession(id: String, title: String) {
@@ -330,6 +355,28 @@ class ChatRepository(private val storage: LocalStorage) {
             val remaining = state.conversations.filter { it.id != id }
             val safe = remaining.ifEmpty { listOf(Conversation()) }
             state.copy(conversations = safe, selected = if (state.selected == id) safe.first().id else state.selected)
+        }
+    }
+
+    /** Titles are written by the server after the first message and once a chat goes quiet. */
+    private fun refreshTitles() {
+        val config = settings.value
+        scope.launch {
+            runCatching {
+                val titles = api(config).listSessions().associate { it.id to it.title }
+                if (settings.value != config) return@runCatching
+                update { state -> state.copy(conversations = state.conversations.map { c -> titles[c.id]?.let { c.copy(title = it) } ?: c }) }
+            }
+        }
+    }
+
+    suspend fun deleteSessions(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        api().deleteSessions(ids.toList())
+        update { state ->
+            val remaining = state.conversations.filter { it.id !in ids }
+            val safe = remaining.ifEmpty { listOf(Conversation()) }
+            state.copy(conversations = safe, selected = if (state.selected in ids) safe.first().id else state.selected)
         }
     }
 
@@ -629,6 +676,7 @@ class ChatRepository(private val storage: LocalStorage) {
                 is RunEvent.Error -> next = next.copy(error = event.message.ifEmpty { "The assistant couldn’t finish." })
                 is RunEvent.RunFinished -> {
                     val status = event.status
+                    refreshTitles()
                     // Extract any card JSON embedded in assistant text
                     val messageId = "assistant-${chat.runId}"
                     next = next.copy(

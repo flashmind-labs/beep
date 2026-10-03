@@ -1,5 +1,6 @@
 package com.flashmind.beep
 
+import kotlin.math.roundToInt
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.draw.alpha
@@ -295,11 +296,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     var bubbleMenu by remember { mutableStateOf(false) }
     var historyQuery by rememberSaveable { mutableStateOf("") }
     var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
-    // Chats left behind, newest last, so a swipe right can go back to them.
+    // Chats left by starting a new one, newest last, so a swipe right can go back to them.
+    // Opening a chat from the list starts over: swiping right from it shows the list.
     var visited by remember { mutableStateOf(listOf<String>()) }
     fun openChat(id: String) {
-        val current = state.current.id
-        if (id != current) visited = visited.filter { it != current } + current
+        visited = emptyList()
         repository.select(id)
     }
     fun startNewChat() {
@@ -374,24 +375,53 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             var contextMenuChat by remember { mutableStateOf<String?>(null) }
             var showRenameDialog by remember { mutableStateOf<Conversation?>(null) }
             var showDeleteDialog by remember { mutableStateOf<Conversation?>(null) }
+            // Chats picked for bulk delete; selection mode is on while it is not null.
+            var picked by remember { mutableStateOf<Set<String>?>(null) }
+            var confirmBulkDelete by remember { mutableStateOf(false) }
+            LaunchedEffect(drawerOpen) { if (!drawerOpen) picked = null }
+            BackHandler(enabled = picked != null) { picked = null }
             val drawerScope = rememberCoroutineScope()
+            val visibleChats = state.conversations.filter { !it.isUnused && it.title.contains(historyQuery, ignoreCase = true) }
+            picked?.let { ids ->
+                Row(Modifier.padding(start = 20.dp, end = 8.dp, bottom = 4.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${ids.size} selected", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                    val all = visibleChats.map { it.id }.toSet()
+                    TextButton(onClick = { picked = if (ids.containsAll(all)) emptySet() else ids + all }) {
+                        Text(if (ids.containsAll(all) && all.isNotEmpty()) "None" else "All")
+                    }
+                    IconButton(onClick = { confirmBulkDelete = true }, enabled = ids.isNotEmpty()) {
+                        Icon(Icons.Outlined.Delete, "Delete selected", tint = if (ids.isNotEmpty()) Coral else TextMuted)
+                    }
+                    IconButton(onClick = { picked = null }) { Icon(Icons.Outlined.Close, "Done selecting") }
+                }
+            }
             LazyColumn(Modifier.weight(1f)) {
-                items(state.conversations.filter { it.title.contains(historyQuery, ignoreCase = true) }, key = { it.id }) { chat ->
+                items(visibleChats, key = { it.id }) { chat ->
                     Box(Modifier.padding(horizontal = 12.dp, vertical = 2.dp)) {
-                        NavigationDrawerItem(
-                            label = { Text(chat.title, maxLines = 2, fontSize = 14.sp, overflow = TextOverflow.Ellipsis) },
-                            icon = { Icon(if (chat.pinned) Icons.Outlined.PushPin else Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = if (chat.pinned) Moss else TextMuted) },
-                            colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = Beep.colors.user,
-                                selectedTextColor = Beep.colors.onUser, unselectedContainerColor = Color.Transparent),
-                            shape = RoundedCornerShape(Beep.shapes.smallRadius),
-                            selected = state.current.id == chat.id,
-                            onClick = { openChat(chat.id); drawerOpen = false },
-                            modifier = Modifier.combinedClickable(
-                                onClick = { openChat(chat.id); drawerOpen = false },
-                                onLongClick = { contextMenuChat = chat.id }
-                            ))
+                        val selecting = picked
+                        val toggle = { selecting?.let { picked = if (chat.id in it) it - chat.id else it + chat.id } }
+                        val highlighted = if (selecting != null) chat.id in selecting else state.current.id == chat.id
+                        // NavigationDrawerItem consumes the press itself, so it never reports a long press.
+                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Beep.shapes.smallRadius))
+                            .background(if (highlighted) Beep.colors.user else Color.Transparent)
+                            .combinedClickable(
+                                onClick = { if (selecting != null) toggle() else { openChat(chat.id); drawerOpen = false } },
+                                onLongClick = { if (selecting != null) toggle() else contextMenuChat = chat.id })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            when {
+                                selecting != null -> Icon(if (chat.id in selecting) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                                    null, Modifier.size(18.dp), tint = if (chat.id in selecting) Coral else TextMuted)
+                                else -> Icon(if (chat.pinned) Icons.Outlined.PushPin else Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = if (chat.pinned) Moss else TextMuted)
+                            }
+                            Text(chat.title, maxLines = 2, fontSize = 14.sp, overflow = TextOverflow.Ellipsis,
+                                color = if (highlighted) Beep.colors.onUser else Color.Unspecified)
+                        }
                         DropdownMenu(expanded = contextMenuChat == chat.id, onDismissRequest = { contextMenuChat = null },
                             containerColor = Surface) {
+                            DropdownMenuItem(text = { Text("Select") },
+                                leadingIcon = { Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp)) },
+                                onClick = { contextMenuChat = null; picked = setOf(chat.id) })
                             DropdownMenuItem(text = { Text("Rename") },
                                 leadingIcon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) },
                                 onClick = { contextMenuChat = null; showRenameDialog = chat })
@@ -430,6 +460,19 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     dismissButton = { TextButton(onClick = { showDeleteDialog = null }) { Text("Cancel") } },
                     title = { Text("Delete conversation?") },
                     text = { Text("This will permanently delete this conversation and all its messages.") },
+                    containerColor = Surface)
+            }
+            if (confirmBulkDelete) {
+                val ids = picked.orEmpty()
+                AlertDialog(
+                    onDismissRequest = { confirmBulkDelete = false },
+                    confirmButton = { TextButton(onClick = {
+                        confirmBulkDelete = false; picked = null
+                        drawerScope.launch { runCatching { repository.deleteSessions(ids) } }
+                    }) { Text("Delete", color = Coral) } },
+                    dismissButton = { TextButton(onClick = { confirmBulkDelete = false }) { Text("Cancel") } },
+                    title = { Text(if (ids.size == 1) "Delete 1 conversation?" else "Delete ${ids.size} conversations?") },
+                    text = { Text("This will permanently delete them and all their messages.") },
                     containerColor = Surface)
             }
             if (!bubble) {
@@ -625,7 +668,11 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                     LaunchedEffect(Unit) { delay(120L + index * 90L); shown = true }
                     Box(Modifier.popIn(title to shown, play = shown).alpha(if (shown) 1f else 0f)) {
                         Suggestion(title, prompt, starterIcon(title + " " + prompt), Beep.colors.tints[index % Beep.colors.tints.size]) {
-                            if (complete) { followLatest = true; repository.send(it) } else draft = it
+                            if (complete) {
+                                followLatest = true; repository.send(it)
+                                // A used starter is replaced in the background, ready for the next empty chat.
+                                if (starters.isNotEmpty()) repository.loadStarters(refresh = true)
+                            } else draft = it
                         }
                     }
                     if (index < items.lastIndex) Spacer(Modifier.height(12.dp))
@@ -694,11 +741,6 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             }
                             if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
                                 padded = isUser || Beep.shapes.botBubble)
-                            // Jev's guess that this turn held something worth remembering.
-                            message.memoryScore?.let { score ->
-                                Text("memory %.2f".format(score), fontSize = 10.sp, color = TextDim,
-                                    modifier = Modifier.align(Alignment.End).padding(end = 12.dp, bottom = 6.dp))
-                            }
                         }
                         MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote)
                         }
@@ -720,11 +762,16 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             Spacer(Modifier.height(8.dp))
                             TaskProgressCard(message.taskSteps)
                         }
-                        if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) Row {
+                        if (message.role == "assistant" && message.text.isNotBlank() && !chat.busy && !compact) Row(verticalAlignment = Alignment.CenterVertically) {
                             CopyReply(message.text, compact)
                             TextButton(onClick = quote, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 48.dp)) {
                                 Icon(Icons.Outlined.FormatQuote, null, Modifier.size(14.dp), tint = TextMuted)
                                 Spacer(Modifier.width(6.dp)); Text("Quote", fontSize = 11.sp, color = TextMuted)
+                            }
+                            // Jev's estimate that this turn held something worth remembering.
+                            message.memoryScore?.let { score ->
+                                Text("Memory ${(score * 100).roundToInt()}%", fontSize = 11.sp, color = TextDim,
+                                    modifier = Modifier.padding(start = 8.dp))
                             }
                         }
                         if (isLastAssistant && !chat.busy && chat.messages.last().id == message.id) {

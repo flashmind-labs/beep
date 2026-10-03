@@ -271,6 +271,10 @@ impl Store {
                     logged_at TEXT NOT NULL DEFAULT (datetime('now')));
                 CREATE INDEX IF NOT EXISTS idx_habit_logs_habit
                     ON habit_logs(habit_id, logged_at);
+                CREATE TABLE IF NOT EXISTS session_titles (
+                    user_id TEXT NOT NULL, session_id TEXT NOT NULL, title TEXT NOT NULL,
+                    manual INTEGER NOT NULL DEFAULT 0, titled_at TEXT NOT NULL,
+                    PRIMARY KEY(user_id, session_id));
                 CREATE TABLE IF NOT EXISTS tool_failures (
                     user_id TEXT NOT NULL, session_id TEXT NOT NULL, call_id TEXT NOT NULL,
                     PRIMARY KEY(user_id, session_id, call_id));",
@@ -434,7 +438,9 @@ impl Store {
         let user = user.to_owned();
         Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
             let mut statement = db.prepare(
-                "SELECT s.id, COALESCE((SELECT substr(message,1,80) FROM runs r WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.rowid LIMIT 1), 'Conversation'), s.pinned FROM sessions s WHERE s.user_id=? ORDER BY s.pinned DESC, s.rowid DESC LIMIT 200"
+                "SELECT s.id, COALESCE(t.title, (SELECT substr(message,1,80) FROM runs r WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.rowid LIMIT 1), 'Conversation'), s.pinned
+                 FROM sessions s LEFT JOIN session_titles t ON t.user_id=s.user_id AND t.session_id=s.id
+                 WHERE s.user_id=? ORDER BY s.pinned DESC, s.rowid DESC LIMIT 200"
             )?;
             let rows = statement.query_map([user], |row| Ok(Session { id: row.get(0)?, title: row.get(1)?, pinned: row.get(2)? }))?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
@@ -447,40 +453,124 @@ impl Store {
         }
         let (user, session_id) = (user.to_owned(), session_id.to_owned());
         let title = title.to_owned();
-        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
-            // Update the first run's message (used as title source) by storing
-            // the new title directly. Since the title is derived from the first
-            // run message, we update that message column.
-            let changed = db.execute(
-                "UPDATE runs SET message=? WHERE rowid=(SELECT r.rowid FROM runs r WHERE r.user_id=? AND r.session_id=? ORDER BY r.rowid LIMIT 1)",
-                params![title, user, session_id],
-            )?;
-            Ok(changed > 0)
-        }).await?)
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let exists: bool = db.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM runs WHERE user_id=? AND session_id=?)",
+                    params![user, session_id],
+                    |r| r.get(0),
+                )?;
+                if exists {
+                    // A title the user chose is never replaced by a generated one.
+                    db.execute(
+                        "INSERT INTO session_titles (user_id, session_id, title, manual, titled_at)
+                     VALUES (?, ?, ?, 1, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+                     ON CONFLICT(user_id, session_id) DO UPDATE SET title=excluded.title,
+                         manual=1, titled_at=excluded.titled_at",
+                        params![user, session_id, title],
+                    )?;
+                }
+                Ok(exists)
+            })
+            .await?)
+    }
+
+    /// Stores a generated title, unless the user named the session. Returns
+    /// whether it was stored.
+    pub async fn set_generated_title(&self, session: &SessionRef, title: &str) -> Result<bool> {
+        let (user, id, title) = (session.user.clone(), session.id.clone(), title.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO session_titles (user_id, session_id, title, titled_at)
+                     VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+                     ON CONFLICT(user_id, session_id) DO UPDATE SET title=excluded.title,
+                         titled_at=excluded.titled_at WHERE manual=0",
+                    params![user, id, title],
+                )
+            })
+            .await?
+            == 1)
+    }
+
+    /// Whether `session` has only its first run and no title yet.
+    pub async fn needs_first_title(&self, session: &SessionRef) -> Result<bool> {
+        let (user, id) = (session.user.clone(), session.id.clone());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT (SELECT COUNT(*) FROM runs WHERE user_id=?1 AND session_id=?2) = 1
+                        AND NOT EXISTS(SELECT 1 FROM session_titles WHERE user_id=?1 AND session_id=?2)",
+                    params![user, id],
+                    |r| r.get(0),
+                )
+            })
+            .await?)
+    }
+
+    /// Sessions that changed since their title was written, have had no
+    /// activity for `idle`, and have no run in progress. Sessions untouched
+    /// for a day keep the title they have, so old chats are not all retitled
+    /// at once.
+    pub async fn sessions_to_title(&self, idle: Duration) -> Result<Vec<SessionRef>> {
+        let idle = format!("-{} seconds", idle.as_secs());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT s.user_id, s.id FROM sessions s
+                     LEFT JOIN session_titles t ON t.user_id = s.user_id AND t.session_id = s.id
+                     WHERE s.updated_at <= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)
+                       AND s.updated_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')
+                       AND (t.titled_at IS NULL OR t.titled_at < s.updated_at)
+                       AND COALESCE(t.manual, 0) = 0
+                       AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.user_id = s.user_id
+                           AND r.session_id = s.id AND r.status = 'running')
+                     LIMIT 20",
+                )?;
+                stmt.query_map(params![idle], |r| {
+                    Ok(SessionRef {
+                        user: r.get(0)?,
+                        id: r.get(1)?,
+                    })
+                })?
+                .collect()
+            })
+            .await?)
     }
 
     pub async fn delete_session(&self, user: &str, session_id: &str) -> Result<bool> {
-        let (user, session_id) = (user.to_owned(), session_id.to_owned());
+        Ok(self
+            .delete_sessions(user, vec![session_id.to_owned()])
+            .await?
+            > 0)
+    }
+
+    /// Deletes sessions with their runs and returns how many existed.
+    pub async fn delete_sessions(&self, user: &str, ids: Vec<String>) -> Result<u64> {
+        let user = user.to_owned();
         Ok(self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;
-                // Delete runs
-                tx.execute(
-                    "DELETE FROM runs WHERE user_id=? AND session_id=?",
-                    params![user, session_id],
-                )?;
-                tx.execute(
-                    "DELETE FROM tool_failures WHERE user_id=? AND session_id=?",
-                    params![user, session_id],
-                )?;
-                // Delete session
-                let deleted = tx.execute(
-                    "DELETE FROM sessions WHERE user_id=? AND id=?",
-                    params![user, session_id],
-                )?;
+                let mut deleted = 0;
+                for id in &ids {
+                    for table in ["runs", "tool_failures", "session_titles"] {
+                        tx.execute(
+                            &format!("DELETE FROM {table} WHERE user_id=? AND session_id=?"),
+                            params![user, id],
+                        )?;
+                    }
+                    deleted += tx.execute(
+                        "DELETE FROM sessions WHERE user_id=? AND id=?",
+                        params![user, id],
+                    )? as u64;
+                }
                 tx.commit()?;
-                Ok(deleted > 0)
+                Ok(deleted)
             })
             .await?)
     }

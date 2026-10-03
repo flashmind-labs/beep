@@ -13,6 +13,7 @@ pub mod router;
 pub mod search;
 pub mod starters;
 pub mod store;
+pub mod titles;
 pub mod tools;
 pub mod transport;
 

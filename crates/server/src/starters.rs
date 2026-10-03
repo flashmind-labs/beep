@@ -5,7 +5,10 @@
 //! provider error or a slow answer falls back to fixed starters. Memories are
 //! never logged.
 
-use crate::{AsyncMutex, protocol::PromptSuggestion};
+use crate::{
+    AsyncMutex,
+    protocol::{PromptSuggestion, PromptSuggestions},
+};
 use anyhow::{Result, bail, ensure};
 use chrono::{DateTime, Local, Utc};
 use chrono_tz::Tz;
@@ -23,7 +26,7 @@ use std::{
 
 /// The app shows default starters while it waits, so this can be generous.
 pub const TIMEOUT: Duration = Duration::from_secs(25);
-const FRESH: Duration = Duration::from_secs(30 * 60);
+const FRESH: Duration = Duration::from_secs(12 * 60 * 60);
 /// A fallback is retried sooner than a real answer.
 const FALLBACK_FRESH: Duration = Duration::from_secs(5 * 60);
 const COUNT: usize = 4;
@@ -224,17 +227,17 @@ pub(crate) fn unfence(answer: &str) -> &str {
 
 struct Cached {
     expires: Instant,
-    suggestions: Vec<PromptSuggestion>,
+    suggestions: PromptSuggestions,
 }
 
-/// Per-user starters, kept for 30 minutes.
+/// Per-user starters, kept for 12 hours.
 #[derive(Default)]
 pub struct Starters {
     cache: AsyncMutex<HashMap<String, Cached>>,
 }
 
 impl Starters {
-    pub async fn cached(&self, user: &str) -> Option<Vec<PromptSuggestion>> {
+    pub async fn cached(&self, user: &str) -> Option<PromptSuggestions> {
         let cache = self.cache.lock().await;
         let entry = cache.get(user).filter(|c| c.expires > Instant::now())?;
         Some(entry.suggestions.clone())
@@ -245,22 +248,27 @@ impl Starters {
         &self,
         generator: Generator<'_>,
         context: impl Future<Output = StarterContext>,
-    ) -> Vec<PromptSuggestion> {
+    ) -> PromptSuggestions {
         let user = generator.user.to_owned();
         let attempt = async {
             let context = context.await;
             generator.ask(&context).await
         };
-        let (suggestions, fresh) = match tokio::time::timeout(TIMEOUT, attempt).await {
-            Ok(Ok(suggestions)) => (suggestions, FRESH),
+        let (suggestions, personal) = match tokio::time::timeout(TIMEOUT, attempt).await {
+            Ok(Ok(suggestions)) => (suggestions, true),
             Ok(Err(error)) => {
                 log::info!("prompt suggestions fell back: {error}");
-                (fallback(), FALLBACK_FRESH)
+                (fallback(), false)
             }
             Err(_) => {
                 log::info!("prompt suggestions fell back: timed out");
-                (fallback(), FALLBACK_FRESH)
+                (fallback(), false)
             }
+        };
+        let fresh = if personal { FRESH } else { FALLBACK_FRESH };
+        let suggestions = PromptSuggestions {
+            suggestions,
+            personal,
         };
         let mut cache = self.cache.lock().await;
         cache.retain(|_, c| c.expires > Instant::now());
