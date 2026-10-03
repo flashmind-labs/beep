@@ -6,12 +6,12 @@ use crate::{
     live::LiveRun,
     mcp::McpConnections,
     memories::{self, Exchange, Memories, Turn},
-    protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestion, Run, RunEvent, Usage},
+    protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestions, Run, RunEvent, Usage},
     repeat::RepeatGuard,
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext, Starters},
-    store::{CreateRun, FinishedTurn, Store},
-    tools,
+    store::{CreateRun, FinishedTurn, SessionRef, Store},
+    titles, tools,
 };
 use anyhow::Result;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -27,7 +27,9 @@ use std::{collections::HashMap, fmt::Write, sync::Arc, time::Duration};
 
 /// How long a run may go without a single event from the model or a tool.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
-const MEMORY_QUESTION: &str = "Does the user reveal a lasting fact about themselves worth remembering for future chats, such as their name, preferences, people, places, work, routines or plans? Answer no for small talk, one-off questions, or facts only about the world.";
+/// Above this Jev score the learner reads the turn; below it nothing is stored.
+const MEMORY_THRESHOLD: f64 = 0.8;
+const MEMORY_QUESTION: &str = "Does the user share, correct or ask to forget a lasting fact about themselves worth remembering for future chats, such as their name, preferences, people, places, work, routines or plans? Answer no for small talk, one-off questions, or facts only about the world.";
 use tokio::sync::{Mutex, broadcast, oneshot};
 use uuid::Uuid;
 
@@ -128,6 +130,25 @@ impl App {
             let (app, user, run) = (self.clone(), user.to_owned(), run.clone());
             let is_cron = message.cron_id.is_some();
             let image = message.image.clone();
+            let session = SessionRef {
+                user: user.clone(),
+                id: run.session_id.clone(),
+            };
+            match self.store.needs_first_title(&session).await {
+                Ok(true) => {
+                    let (app, text) = (self.clone(), message.message.clone());
+                    tokio::spawn(async move {
+                        let generator = Generator {
+                            provider: app.provider.as_ref(),
+                            llm: &app.llm,
+                            user: &session.user,
+                        };
+                        titles::name_first(&app.store, generator, &session, &text).await;
+                    });
+                }
+                Ok(false) => {}
+                Err(error) => log::warn!("unable to check title: {error}; run_id={}", run.id),
+            }
             tokio::spawn(async move {
                 if let Err(error) = app
                     .execute(
@@ -503,7 +524,12 @@ impl App {
                 llm: &self.llm,
                 user,
             };
-            let score = self.memory_score(format!("User: {message}\n\nAssistant: {reply}"));
+            let score = self
+                .memory_score(format!("User: {message}\n\nAssistant: {reply}"))
+                .await;
+            if let Some(probability) = score {
+                live.push(RunEvent::MemoryScore { probability });
+            }
             let exchange = Exchange {
                 today: self.today(user).await,
                 earlier: earlier_turns(&conversation, turn_started),
@@ -512,10 +538,11 @@ impl App {
                     reply,
                 },
             };
-            let (learned, score) = tokio::join!(self.memories.learn(generator, exchange), score);
-            if let Some(probability) = score {
-                live.push(RunEvent::MemoryScore { probability });
-            }
+            // Without a score (Jev not configured or failing) every turn is read.
+            let learned = match score {
+                Some(probability) if probability < MEMORY_THRESHOLD => Vec::new(),
+                _ => self.memories.learn(generator, exchange).await,
+            };
             if !learned.is_empty() {
                 let calls: Vec<ToolCall> = learned
                     .iter()
@@ -584,6 +611,11 @@ impl App {
         compaction::compact_idle(&self.store, summarizer).await;
     }
 
+    /// Retitles sessions that changed and have gone quiet.
+    pub async fn retitle_idle_sessions(&self) {
+        titles::retitle_idle(&self.store, self.provider.as_ref(), &self.llm).await;
+    }
+
     /// Asks Jev how likely the exchange holds something worth remembering.
     /// Shown under the reply while we compare it with what the learner saves.
     async fn memory_score(&self, state: String) -> Option<f64> {
@@ -619,9 +651,9 @@ impl App {
     }
 
     /// Conversation starters for the empty chat, personalized and cached for
-    /// 30 minutes. Never fails: falls back to fixed starters.
-    pub async fn suggest_prompts(&self, user: &str) -> Vec<PromptSuggestion> {
-        if let Some(cached) = self.starters.cached(user).await {
+    /// 12 hours unless `refresh`. Never fails: falls back to fixed starters.
+    pub async fn suggest_prompts(&self, user: &str, refresh: bool) -> PromptSuggestions {
+        if !refresh && let Some(cached) = self.starters.cached(user).await {
             return cached;
         }
         let generator = Generator {

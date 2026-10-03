@@ -43,13 +43,17 @@ impl LlmProvider for ProviderStub {
         Provider::OpenAi
     }
     fn complete(&self, request: CompletionRequest) -> CompletionStream {
-        // Memory learning runs in the background after each chat; it is not counted.
-        if request.messages[0]
-            .content
-            .starts_with("You keep the long-term memory")
-        {
+        // Memory learning and chat titles run in the background; they are not counted.
+        let system = &request.messages[0].content;
+        if system.starts_with("You keep the long-term memory") {
             return Box::pin(async_stream::stream! {
                 yield Ok(StreamEvent::ContentDelta(r#"{"ops":[]}"#.into()));
+                yield Ok(StreamEvent::Finished(FinishReason::Stop));
+            });
+        }
+        if system.starts_with("You name chats") {
+            return Box::pin(async_stream::stream! {
+                yield Ok(StreamEvent::ContentDelta("Tea preference".into()));
                 yield Ok(StreamEvent::Finished(FinishReason::Stop));
             });
         }
@@ -354,12 +358,17 @@ async fn prompt_suggestions_fall_back_and_apps_list_without_composio() {
     let c = h.client().await;
 
     // The stub answers with a tool call instead of JSON, so the fixed starters come back.
-    let suggestions = c.call(&SuggestPrompts {}).await.unwrap();
-    assert_eq!(suggestions, starters::fallback());
+    let suggestions = c.call(&SuggestPrompts { refresh: false }).await.unwrap();
+    assert_eq!(suggestions.suggestions, starters::fallback());
+    assert!(!suggestions.personal);
     assert_eq!(h.provider.calls.load(Ordering::SeqCst), 1);
     // Cached: no second model call.
-    assert_eq!(c.call(&SuggestPrompts {}).await.unwrap(), suggestions);
+    let cached = c.call(&SuggestPrompts { refresh: false }).await.unwrap();
+    assert_eq!(cached, suggestions);
     assert_eq!(h.provider.calls.load(Ordering::SeqCst), 1);
+    // A refresh asks the model again.
+    c.call(&SuggestPrompts { refresh: true }).await.unwrap();
+    assert_eq!(h.provider.calls.load(Ordering::SeqCst), 2);
 
     let apps = c.call(&ListApps {}).await.unwrap();
     assert_eq!(apps.len(), 10);

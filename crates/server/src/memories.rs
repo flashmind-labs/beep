@@ -635,7 +635,8 @@ Beep to forget it, forget it by id. Otherwise add it.
 A fact that only holds for a while (a trip, a visit, a stay, an appointment, a temporary job) gets valid_from \
 and/or valid_until as YYYY-MM-DD, worked out from today's date. Lasting facts leave both out.
 Write each memory as one short self-contained sentence about the user in third person that names its subject, \
-like \"Has a dog named Rex.\" or \"Is in Singapore at the Mandarin Oriental.\", in the language the user wrote in.
+like \"Has a dog named Rex.\" or \"Is in Singapore at the Mandarin Oriental.\", in the language of the user's \
+latest message. Never translate a known memory.
 Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"id\": string, \"content\": string, \
 \"category\": \"personal\" | \"preference\" | \"work\" | \"location\" | \"routine\" | \"general\", \
 \"valid_from\": string, \"valid_until\": string}]}. \
@@ -690,7 +691,8 @@ such as a password or code. Forget learned memories whose days are over and that
 Never forget a memory said by the user unless its days are over.
 - Fix a memory that is unclear without context so it names its subject.
 Leave everything else alone; most memories need nothing. Each id may appear in at most one op.
-Write memories as one short self-contained sentence in third person, in the language they were written in.
+Write memories as one short self-contained sentence in third person. Never translate: keep a memory in the \
+language it is already in, and write a merge in the language most of its memories are in, English when unsure.
 Reply with only JSON: {\"ops\": [{\"op\": \"merge\", \"ids\": [string], \"content\": string, \"category\": string, \
 \"valid_from\": string, \"valid_until\": string} | {\"op\": \"update\", \"id\": string, \"content\": string, \
 \"category\": string, \"valid_from\": string, \"valid_until\": string} | {\"op\": \"forget\", \"id\": string}]}. \

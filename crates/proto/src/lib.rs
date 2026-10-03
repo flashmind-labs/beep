@@ -175,8 +175,9 @@ requests! {
     /// Starts OAuth for an app; open the returned URL in a browser.
     29 ConnectApp { slug: String } => Call<ConnectLink>
     30 DisconnectApp { slug: String } => Call<()>
-    /// Personalized conversation starters, cached per user for 30 minutes.
-    31 SuggestPrompts {} => Call<Vec<PromptSuggestion>>
+    /// Personalized conversation starters, cached per user for 12 hours.
+    /// `refresh` skips the cache, after the user used one.
+    31 SuggestPrompts { refresh: bool } => Call<PromptSuggestions>
     /// Starts OAuth for an MCP app such as Fastmail, whose provider only
     /// redirects to localhost. The phone listens on `redirect_uri`, an
     /// `http://localhost:<port>/...` address, and opens the returned URL.
@@ -188,6 +189,8 @@ requests! {
     34 UpdateMemory { id: String, content: String } => Call<()>
     /// Returns how many memories were deleted.
     35 ClearMemories {} => Call<u64>
+    /// Returns how many of the sessions existed and were deleted.
+    36 DeleteSessions { ids: Vec<String> } => Call<u64>
 }
 
 wire_enum! {
@@ -354,6 +357,15 @@ pub struct ConnectLink {
 pub struct PromptSuggestion {
     pub title: String,
     pub prompt: String,
+}
+
+/// Starters for the empty chat. `personal` is false for the fixed fallback
+/// sent when the model failed, which is not worth keeping.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PromptSuggestions {
+    pub suggestions: Vec<PromptSuggestion>,
+    pub personal: bool,
 }
 
 /// Tokens spent on one model call.

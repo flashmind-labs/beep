@@ -35,6 +35,7 @@ pub fn router() -> Router {
         .call(get_session)
         .call(rename_session)
         .call(delete_session)
+        .call(delete_sessions)
         .call(pin_session)
         .call(list_memories)
         .call(delete_memory)
@@ -298,8 +299,11 @@ async fn finish_app_auth(cx: Cx, req: FinishAppAuth) -> Reply<()> {
         .await
 }
 
-async fn suggest_prompts(cx: Cx, _: SuggestPrompts) -> Reply<Vec<PromptSuggestion>> {
-    Ok(cx.app.suggest_prompts(&cx.user).await)
+async fn suggest_prompts(
+    cx: Cx,
+    SuggestPrompts { refresh }: SuggestPrompts,
+) -> Reply<PromptSuggestions> {
+    Ok(cx.app.suggest_prompts(&cx.user, refresh).await)
 }
 
 async fn rename_session(cx: Cx, RenameSession { id, title }: RenameSession) -> Reply<()> {
@@ -311,6 +315,13 @@ async fn rename_session(cx: Cx, RenameSession { id, title }: RenameSession) -> R
 
 async fn delete_session(cx: Cx, DeleteSession { id }: DeleteSession) -> Reply<()> {
     found(cx.app.store.delete_session(&cx.user, &id).await?)
+}
+
+async fn delete_sessions(cx: Cx, DeleteSessions { ids }: DeleteSessions) -> Reply<u64> {
+    if ids.len() > 200 {
+        return Err(ApiError::bad_request("at most 200 sessions at once"));
+    }
+    Ok(cx.app.store.delete_sessions(&cx.user, ids).await?)
 }
 
 async fn pin_session(cx: Cx, PinSession { id, pinned }: PinSession) -> Reply<()> {

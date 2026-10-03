@@ -58,7 +58,7 @@ impl DecisionTool {
         response
             .answers
             .get("yes")
-            .and_then(|answer| answer["p"].as_f64())
+            .and_then(|answer| answer["noul"].as_f64())
             .ok_or_else(|| anyhow::anyhow!("Jev gave no probability"))
     }
 
@@ -240,7 +240,7 @@ mod tests {
 
     #[tokio::test]
     async fn reads_one_probability() {
-        let body = r#"{"model":"jev-1.13","answers":{"yes":{"p":0.81}}}"#;
+        let body = r#"{"model":"jev-1.13","answers":{"yes":{"type":"noul","noul":0.81}}}"#;
         let (tool, mut requests) = mock("200 OK", body).await;
         let p = tool.probability("User: I moved to Porto", "Worth remembering?");
         assert_eq!(p.await.unwrap(), 0.81);
