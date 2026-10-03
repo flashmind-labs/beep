@@ -1,10 +1,14 @@
-use crate::store::Store;
+use crate::{
+    memories::Memories,
+    store::{MemorySource, NewMemory, Store},
+};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
 
 pub(crate) struct MemoryTool {
     pub store: Store,
+    pub memories: Memories,
     pub user: String,
     pub name: &'static str,
 }
@@ -17,10 +21,10 @@ impl Tool for MemoryTool {
     fn description(&self) -> &str {
         match self.name {
             "memory_store" => {
-                "Remember or update a durable user fact by stable key. Never store secrets. Optionally assign a category."
+                "Remember a durable fact about the user under a short snake_case key, as one self-contained sentence. Storing under an existing key replaces it; a fact that repeats an existing memory updates that one. Never store secrets."
             }
             "memory_recall" => {
-                "Find the user's memories by literal substring. Empty query lists up to 50 memories. Optionally filter by category."
+                "Search the user's memories by meaning, best matches first, with the date each was last changed. An empty query lists the most recent. Optionally filter by category."
             }
             "memory_forget" => "Forget a user memory by its exact key.",
             "memory_update" => "Update an existing memory's content or category by its exact key.",
@@ -65,20 +69,28 @@ impl Tool for MemoryTool {
         let opt_arg = |name: &str| ctx.args.get(name).and_then(Value::as_str);
         let output = match self.name {
             "memory_store" => {
-                self.store
+                let key = self
+                    .memories
                     .remember(
                         &self.user,
-                        arg("key")?,
-                        arg("content")?,
-                        opt_arg("category"),
+                        NewMemory {
+                            key: arg("key")?,
+                            content: arg("content")?,
+                            category: opt_arg("category"),
+                            source: MemorySource::User,
+                        },
                     )
                     .await?;
-                json!({"stored":true})
+                json!({"stored":true,"key":key})
             }
             "memory_recall" => {
-                self.store
-                    .recall(&self.user, arg("query")?, opt_arg("category"))
-                    .await?
+                let hits = self
+                    .memories
+                    .search(&self.user, arg("query")?, opt_arg("category"), 30)
+                    .await?;
+                hits.into_iter()
+                    .map(|h| json!({"key":h.key,"content":h.content,"category":h.category,"updated":h.date}))
+                    .collect()
             }
             "memory_forget" => {
                 json!({"forgotten":self.store.forget(&self.user,arg("key")?).await?})

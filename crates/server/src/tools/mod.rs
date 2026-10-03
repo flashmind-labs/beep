@@ -25,6 +25,7 @@ pub fn registry(app: Arc<App>, run_id: &str, user: &str) -> ToolRegistry {
     ] {
         registry.register(Arc::new(memory::MemoryTool {
             store: store.clone(),
+            memories: app.memories.clone(),
             user: user.into(),
             name,
         }));

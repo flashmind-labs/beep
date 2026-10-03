@@ -141,13 +141,8 @@ struct RawSuggestion {
 /// Parses the model's answer: a JSON array of exactly four valid starters,
 /// optionally inside a Markdown code fence.
 fn parse(answer: &str) -> Result<Vec<PromptSuggestion>> {
-    let mut text = answer.trim();
-    if let Some(rest) = text.strip_prefix("```") {
-        let rest = rest.strip_prefix("json").unwrap_or(rest);
-        text = rest.strip_suffix("```").unwrap_or(rest).trim();
-    }
     // serde_json errors name a position, never the input.
-    let raw: Vec<RawSuggestion> = serde_json::from_str(text)?;
+    let raw: Vec<RawSuggestion> = serde_json::from_str(unfence(answer))?;
     ensure!(raw.len() == COUNT, "expected {COUNT} suggestions");
     raw.into_iter()
         .map(|s| {
@@ -179,9 +174,14 @@ pub struct Generator<'a> {
 
 impl Generator<'_> {
     async fn ask(&self, context: &StarterContext) -> Result<Vec<PromptSuggestion>> {
+        parse(&self.text(SYSTEM, context.render()).await?)
+    }
+
+    /// One plain completion with no tools, returning the whole answer.
+    pub async fn text(&self, system: &str, prompt: String) -> Result<String> {
         let request = CompletionRequest {
             model: self.llm.model.clone(),
-            messages: vec![Message::system(SYSTEM), Message::user(context.render())],
+            messages: vec![Message::system(system), Message::user(prompt)],
             tools: Vec::new(),
             // Off leaves the provider default, and reasoning models then spend
             // a small budget thinking before writing any text.
@@ -206,7 +206,19 @@ impl Generator<'_> {
                 Err(_) => bail!("provider error"),
             }
         }
-        parse(&answer)
+        Ok(answer)
+    }
+}
+
+/// Strips an optional Markdown code fence around a JSON answer.
+pub(crate) fn unfence(answer: &str) -> &str {
+    let text = answer.trim();
+    match text.strip_prefix("```") {
+        Some(rest) => {
+            let rest = rest.strip_prefix("json").unwrap_or(rest);
+            rest.strip_suffix("```").unwrap_or(rest).trim()
+        }
+        None => text,
     }
 }
 
