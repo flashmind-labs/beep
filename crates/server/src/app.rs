@@ -5,6 +5,7 @@ use crate::{
     live::LiveRun,
     mcp::McpConnections,
     protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestion, Run, RunEvent, Usage},
+    repeat::RepeatGuard,
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext, Starters},
     store::{CreateRun, Store},
@@ -15,12 +16,14 @@ use chrono::Utc;
 use chrono_tz::Tz;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation},
-    tools::composio::make_composio_tool_wrappers,
     types::{AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider},
 };
 use futures::StreamExt;
 use serde::Deserialize;
 use std::{collections::HashMap, fmt::Write, sync::Arc, time::Duration};
+
+/// How long a run may go without a single event from the model or a tool.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 use tokio::sync::{Mutex, broadcast, oneshot};
 use uuid::Uuid;
 
@@ -228,6 +231,8 @@ impl App {
             "completed" => "Your request completed successfully.".to_owned(),
             "cancelled" => "The run was cancelled.".to_owned(),
             "timed_out" => "The run timed out.".to_owned(),
+            "stalled" => "The model stopped responding.".to_owned(),
+            "looped" => "The model got stuck repeating itself and was stopped.".to_owned(),
             other => format!("Run ended with status: {other}"),
         };
         let notice = UserNotice {
@@ -332,15 +337,8 @@ impl App {
             registry.register(decision.clone());
         }
 
-        if let Some(client) = self.apps.client(user)
-            && let Ok(defs) = client.list_tools(&[]).await
-        {
-            for tool in make_composio_tool_wrappers(&client, &defs) {
-                registry.register(tool);
-            }
-        }
-
-        for tool in self.mcp.tools(user).await {
+        let (composio, mcp) = tokio::join!(self.apps.tools(user), self.mcp.tools(user));
+        for tool in composio.into_iter().chain(mcp) {
             registry.register(tool);
         }
 
@@ -369,16 +367,37 @@ impl App {
             tokio::pin!(deadline);
 
             let mut tools_started = 0;
+            // A model repeating itself never stops on its own; end the run instead
+            // of streaming the same sentence until the deadline.
+            let mut text_guard = RepeatGuard::default();
+            let mut reasoning_guard = RepeatGuard::default();
             loop {
                 let event = tokio::select! {
                     biased;
                     _ = cancel.cancelled() => break "cancelled",
                     _ = &mut deadline => { cancel.cancel(); break "timed_out"; },
-                    event = stream.next() => event,
+                    event = tokio::time::timeout(IDLE_TIMEOUT, stream.next()) => match event {
+                        Ok(event) => event,
+                        // Nothing from the model or a tool for this long: the stream is stuck.
+                        Err(_) => { cancel.cancel(); break "stalled"; }
+                    },
                 };
 
                 let data = match event {
-                    Some(AgentEvent::TextDelta(delta)) => RunEvent::TextDelta { delta },
+                    Some(AgentEvent::TextDelta(delta)) => {
+                        if text_guard.push(&delta) {
+                            cancel.cancel();
+                            break "looped";
+                        }
+                        RunEvent::TextDelta { delta }
+                    }
+                    Some(AgentEvent::ReasoningDelta(delta)) => {
+                        if reasoning_guard.push(&delta) {
+                            cancel.cancel();
+                            break "looped";
+                        }
+                        RunEvent::ReasoningDelta { delta }
+                    }
                     Some(AgentEvent::ToolStart {
                         name,
                         id,

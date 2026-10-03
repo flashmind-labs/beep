@@ -11,7 +11,10 @@ use crate::{
     protocol::{ApiError, AppIntegration, AppKind, ConnectLink},
 };
 use anyhow::{Context, Result, bail};
-use flashmind::tools::composio::{ComposioClient, SessionToolkits};
+use flashmind::{
+    tools::composio::{ComposioClient, SessionToolkits, make_composio_tool_wrappers},
+    types::Tool,
+};
 use futures::future::join_all;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -24,6 +27,7 @@ use std::{
 const COMPOSIO_URL: &str = "https://backend.composio.dev/api/v3.1";
 const LOGO_TTL: Duration = Duration::from_secs(60 * 60);
 const METADATA_TIMEOUT: Duration = Duration::from_secs(5);
+const TOOLS_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Connection states Composio reports for accounts that are not usable.
 const DEAD_STATES: &[&str] = &["EXPIRED", "REVOKED", "FAILED", "DELETED", "INACTIVE"];
@@ -123,6 +127,40 @@ impl Apps {
         Some(Arc::new(
             ComposioClient::new(key, None, None).with_entity_id(user.to_owned()),
         ))
+    }
+
+    /// Agent tools for the Composio apps `user` has connected. Only the
+    /// connected toolkits are listed: the unfiltered catalog is thousands of
+    /// tools across many pages. A slow or failing Composio gives no tools
+    /// rather than holding up the run.
+    pub async fn tools(&self, user: &str) -> Vec<Arc<dyn Tool>> {
+        let Some(client) = self.client(user) else {
+            return Vec::new();
+        };
+        let fetch = async {
+            let toolkits: Vec<String> = connected_slugs(&client, user)
+                .await?
+                .into_iter()
+                .filter(|slug| {
+                    catalog_app(slug).is_some_and(|app| app.kind == AppKind::Composio {})
+                })
+                .collect();
+            if toolkits.is_empty() {
+                return Ok(Vec::new());
+            }
+            client.list_tools_tagged(&toolkits, &["important"]).await
+        };
+        match tokio::time::timeout(TOOLS_TIMEOUT, fetch).await {
+            Ok(Ok(defs)) => make_composio_tool_wrappers(&client, &defs),
+            Ok(Err(error)) => {
+                log::warn!("apps: unable to list Composio tools: {error:#}");
+                Vec::new()
+            }
+            Err(_) => {
+                log::warn!("apps: listing Composio tools timed out");
+                Vec::new()
+            }
+        }
     }
 
     pub async fn list(&self, user: &str) -> Result<Vec<AppIntegration>, ApiError> {

@@ -6,6 +6,7 @@ pub mod cron;
 pub mod decision;
 pub mod live;
 pub mod mcp;
+pub mod repeat;
 pub mod router;
 pub mod search;
 pub mod starters;
