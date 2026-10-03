@@ -7,6 +7,8 @@ model = "openrouter:z-ai/glm-5.3-flash"
 provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # Optional: enable Firecrawl web search.
 # firecrawl_key = "fc-YOUR-KEY-HERE"
+# Optional: OpenAI key for memory embeddings; OpenRouter is used without it.
+# openai_key = "sk-YOUR-KEY-HERE"
 # Optional: enable Composio integration for third-party tools.
 # composio_key = "YOUR-COMPOSIO-KEY"
 

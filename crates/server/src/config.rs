@@ -23,6 +23,8 @@ pub struct Config {
     pub routing: ProviderPreferences,
     pub provider_key: Option<String>,
     pub firecrawl_key: Option<String>,
+    /// OpenAI key for memory embeddings. Without it they go through OpenRouter.
+    pub openai_key: Option<String>,
     pub composio_key: Option<String>,
     /// Where Composio sends the browser after an app connects, for example a
     /// deep link back into the phone app. Composio shows its own page if unset.
