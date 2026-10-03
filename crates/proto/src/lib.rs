@@ -1,9 +1,19 @@
-//! Messages exchanged with clients. Each request is a struct declared in
-//! `requests!` with its op and reply type. Enums made with `wire_enum!` encode
-//! as `[op, field...]`; structs encode as their fields in declaration order.
+//! The Beep protocol: messages, framing and client, shared by the server and
+//! the Android app.
+//!
+//! Each request is a struct declared in `requests!` with its op and reply
+//! type. Enums made with `wire_enum!` encode as `[op, field...]`; structs
+//! encode as their fields in declaration order.
+//!
+//! With the `uniffi` feature, the types a client sees also derive UniFFI
+//! bindings.
 
-use chrono::{DateTime, Utc};
-use flashmind::types::TokenUsage;
+pub mod client;
+pub mod wire;
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt;
 use uuid::Uuid;
@@ -167,6 +177,7 @@ wire_enum! {
         1 NotFound {}
         2 Conflict { message: String }
         3 Internal {}
+        4 Unauthorized {}
     }
 }
 
@@ -185,6 +196,7 @@ impl fmt::Display for ApiError {
             Self::NotFound {} => f.write_str("not found"),
             Self::Conflict { message } => write!(f, "conflict: {message}"),
             Self::Internal {} => f.write_str("internal error"),
+            Self::Unauthorized {} => f.write_str("unauthorized"),
         }
     }
 }
@@ -202,11 +214,12 @@ impl From<anyhow::Error> for ApiError {
 wire_enum! {
     /// One entry of a run's event stream. Also the stored form of an event.
     #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum RunEvent {
         0 TextDelta { delta: String }
         1 ToolStarted { name: String, call_id: String, description: String }
         2 ToolResult { name: String, call_id: String, output: String, success: bool }
-        3 Usage { usage: TokenUsage }
+        3 Usage { usage: Usage }
         4 Error { message: String }
         5 DeviceQuery { query_id: String, query: DeviceQuery }
         6 RunFinished { status: String }
@@ -217,6 +230,7 @@ wire_enum! {
 wire_enum! {
     /// Work the server asks the phone to do during a run.
     #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum DeviceQuery {
         0 Contacts { name: String }
         1 Browser { command: BrowserCommand }
@@ -226,6 +240,7 @@ wire_enum! {
 wire_enum! {
     /// An action for the in-app browser on the phone.
     #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum BrowserCommand {
         0 Navigate { url: String }
         1 Click { selector: String }
@@ -238,6 +253,7 @@ wire_enum! {
 
 wire_enum! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum ScrollDirection {
         0 Up {}
         1 Down {}
@@ -247,6 +263,7 @@ wire_enum! {
 wire_enum! {
     /// The phone's answer to a `DeviceQuery`.
     #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum DeviceAnswer {
         0 Ok { output: String }
         1 Err { message: String }
@@ -255,19 +272,33 @@ wire_enum! {
 
 wire_enum! {
     #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum HistoryEntry {
-        0 User { content: String, timestamp: DateTime<Utc> }
-        1 Assistant { content: String, timestamp: DateTime<Utc> }
+        0 User { content: String, timestamp: i64 }
+        1 Assistant { content: String, timestamp: i64 }
     }
 }
 
+/// Tokens spent on one model call.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Usage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+    pub cache_read_tokens: u32,
+    pub cache_creation_tokens: u32,
+}
+
 /// One stored entry of a run's event stream.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub seq: i64,
     pub event: RunEvent,
 }
 
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Run {
     pub id: String,
@@ -275,6 +306,7 @@ pub struct Run {
     pub status: String,
 }
 
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
@@ -282,6 +314,7 @@ pub struct Session {
     pub pinned: bool,
 }
 
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Memory {
     pub key: String,
@@ -289,6 +322,7 @@ pub struct Memory {
     pub category: String,
 }
 
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Cron {
     pub id: String,
@@ -304,6 +338,7 @@ pub struct Cron {
     pub next_run_at: Option<String>,
 }
 
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Integration {
     pub id: String,
@@ -314,6 +349,7 @@ pub struct Integration {
 }
 
 /// A notification captured on the phone and uploaded for the assistant.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PhoneNotification {
     pub app: String,
@@ -324,6 +360,7 @@ pub struct PhoneNotification {
 }
 
 /// A message the server pushes to the user's open notification streams.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Notice {
     pub title: String,

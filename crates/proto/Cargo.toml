@@ -1,0 +1,22 @@
+[package]
+name = "beep-proto"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[features]
+uniffi = ["dep:uniffi"]
+
+[dependencies]
+anyhow = "1"
+bytes = "1"
+futures = "0.3"
+iroh = "1.3"
+log = "0.4"
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["time"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+uniffi = { version = "0.32", optional = true }
+uuid = { version = "1", features = ["v4", "serde"] }

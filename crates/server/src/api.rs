@@ -143,11 +143,11 @@ async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<History
         .filter_map(|e| match &e.kind {
             EntryKind::User { content, .. } => Some(HistoryEntry::User {
                 content: content.clone(),
-                timestamp: e.timestamp,
+                timestamp: e.timestamp.timestamp_millis(),
             }),
             EntryKind::Assistant { content, .. } => Some(HistoryEntry::Assistant {
                 content: content.clone(),
-                timestamp: e.timestamp,
+                timestamp: e.timestamp.timestamp_millis(),
             }),
             _ => None,
         })
