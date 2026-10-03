@@ -88,7 +88,7 @@ impl App {
         mut tools: ServerTools,
     ) -> Arc<Self> {
         let (notifications, _) = broadcast::channel(64);
-        let mcp = Arc::new(McpConnections::new(store.clone()));
+        let mcp = Arc::new(McpConnections::new(store.clone(), notifications.clone()));
         let apps = Apps::new(tools.composio.take(), mcp.clone());
         let memories = Memories::new(store.clone(), tools.embedder.take());
         Arc::new(Self {
@@ -271,6 +271,7 @@ impl App {
                 title,
                 body,
                 session_id: run.session_id.clone(),
+                app: None,
             },
         };
         // Best-effort: ignore send errors (no active receivers).

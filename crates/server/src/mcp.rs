@@ -6,10 +6,17 @@
 //! reconnects every few hours so access tokens refresh and rotated refresh
 //! tokens are saved before they lapse.
 
-use crate::{AsyncMutex, app::App, store::Store};
+use crate::{
+    AsyncMutex,
+    app::{App, UserNotice},
+    protocol::Notice,
+    store::Store,
+};
 use anyhow::{Result, bail};
 use flashmind::{
-    tools::mcp::{McpConfigProvider, McpRegistry, McpServerConfig, make_mcp_tool_wrappers},
+    tools::mcp::{
+        McpAuthRequired, McpConfigProvider, McpRegistry, McpServerConfig, make_mcp_tool_wrappers,
+    },
     types::Tool,
 };
 use reqwest::Url;
@@ -19,6 +26,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::sync::broadcast;
 
 pub const FASTMAIL: &str = "fastmail";
 
@@ -109,18 +117,60 @@ impl McpConfigProvider for StoreProvider {
     }
 }
 
+/// Display name for the notice when a server's login is lost.
+fn display_name(name: &str) -> &str {
+    match name {
+        FASTMAIL => "Fastmail",
+        _ => name,
+    }
+}
+
+/// True when `error` means the server rejected the saved login, so only
+/// connecting again from the phone can fix it.
+fn lost_login(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.is::<McpAuthRequired>())
+}
+
 /// One registry per user, created on first use.
 pub struct McpConnections {
     store: Store,
     registries: AsyncMutex<HashMap<String, McpRegistry>>,
+    notifications: broadcast::Sender<UserNotice>,
 }
 
 impl McpConnections {
-    pub fn new(store: Store) -> Self {
+    pub fn new(store: Store, notifications: broadcast::Sender<UserNotice>) -> Self {
         Self {
             store,
             registries: AsyncMutex::new(HashMap::new()),
+            notifications,
         }
+    }
+
+    /// Forgets a server whose login was rejected and tells the user to
+    /// connect it again. The app then lists it as not connected.
+    async fn drop_lost_login(&self, user: &str, name: &str) {
+        match self.remove(user, name).await {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                log::warn!("mcp: unable to forget a lost login; server={name} error={error:#}");
+                return;
+            }
+        }
+        let app = display_name(name);
+        log::warn!("mcp: {name} rejected the saved login, asking to reconnect; user={user}");
+        let notice = UserNotice {
+            user: user.to_owned(),
+            notice: Notice {
+                title: format!("Reconnect {app}"),
+                body: format!("Beep lost access to {app}. Tap to connect it again."),
+                session_id: String::new(),
+                app: Some(name.to_owned()),
+            },
+        };
+        // Nobody listening just means the phone is offline; Apps still shows it.
+        let _ = self.notifications.send(notice);
     }
 
     async fn registry(&self, user: &str) -> McpRegistry {
@@ -192,7 +242,15 @@ impl McpConnections {
         let registry = self.registry(user).await;
         let result = registry.call_tool(server, tool, arguments).await;
         registry.drain_pending_ops();
-        let result = result?;
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                if lost_login(&error) {
+                    self.drop_lost_login(user, server).await;
+                }
+                return Err(error);
+            }
+        };
         let text: String = result
             .content
             .iter()
@@ -261,6 +319,9 @@ impl McpConnections {
             for name in connected {
                 if let Err(error) = registry.reconnect(&name).await {
                     log::warn!("mcp: keep-alive reconnect failed; server={name} error={error:#}");
+                    if lost_login(&error) {
+                        self.drop_lost_login(&user, &name).await;
+                    }
                 }
             }
             registry.drain_pending_ops();
