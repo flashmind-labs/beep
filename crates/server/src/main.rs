@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
     let mut llm = AgentLlmConfig::new(model).with_reasoning(config.reasoning);
     // Reasoning shares this budget with the reply.
     llm.max_tokens = Some(8192);
+    llm.provider_preferences = Some(config.routing.clone());
     let key = config
         .provider_key
         .as_deref()

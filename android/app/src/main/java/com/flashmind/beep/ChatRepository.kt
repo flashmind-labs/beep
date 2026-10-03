@@ -78,7 +78,7 @@ class ChatRepository(private val storage: LocalStorage) {
                 is HistoryEntry.User -> { pending = emptyList(); ChatMessage("history-$id-$i", "user", entry.content) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
-                        ToolCall(it.callId, it.name, it.name, isDone = true, success = it.success, result = it.output)
+                        ToolCall(it.callId, it.name, toolLabel(it.name), isDone = true, success = it.success, result = it.output)
                     }
                     if (entry.content.isBlank()) { pending = tools; null }
                     else { pending = emptyList(); ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools) }
@@ -508,7 +508,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     next = next.copy(messages = if (existing == null) next.messages + message else next.messages.map { if (it.id == messageId) message else it }, status = "Replying...", tool = "")
                 }
                 is RunEvent.ToolStarted -> {
-                    val description = event.description.ifEmpty { "Using a tool..." }
+                    val description = toolLabel(event.name).ifEmpty { "Using a tool..." }
                     val messageId = "assistant-${chat.runId}"
                     val existing = next.messages.find { it.id == messageId }
                     val tc = ToolCall(callId = event.callId, name = event.name, description = description)

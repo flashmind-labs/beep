@@ -10,7 +10,8 @@ use anyhow::{Result, bail, ensure};
 use chrono::{DateTime, Local, Utc};
 use chrono_tz::Tz;
 use flashmind::types::{
-    CompletionRequest, LlmProvider, Message, Model, ReasoningLevel, SamplingParams, StreamEvent,
+    AgentLlmConfig, CompletionRequest, LlmProvider, Message, ReasoningLevel, SamplingParams,
+    StreamEvent,
 };
 use futures::StreamExt;
 use serde::Deserialize;
@@ -171,14 +172,15 @@ fn parse(answer: &str) -> Result<Vec<PromptSuggestion>> {
 /// One model call.
 pub struct Generator<'a> {
     pub provider: &'a dyn LlmProvider,
-    pub model: &'a Model,
+    /// The assistant's model and provider routing; reasoning and budget are set here.
+    pub llm: &'a AgentLlmConfig,
     pub user: &'a str,
 }
 
 impl Generator<'_> {
     async fn ask(&self, context: &StarterContext) -> Result<Vec<PromptSuggestion>> {
         let request = CompletionRequest {
-            model: self.model.clone(),
+            model: self.llm.model.clone(),
             messages: vec![Message::system(SYSTEM), Message::user(context.render())],
             tools: Vec::new(),
             // Off leaves the provider default, and reasoning models then spend
@@ -190,7 +192,7 @@ impl Generator<'_> {
             audio_config: None,
             image_config: None,
             user: Some(self.user.to_owned()),
-            provider_preferences: None,
+            provider_preferences: self.llm.provider_preferences.clone(),
         };
         let mut stream = self.provider.complete(request);
         let mut answer = String::new();

@@ -1,7 +1,7 @@
 use std::{collections::HashSet, io, path::Path, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
-use flashmind::types::ReasoningLevel;
+use flashmind::types::{ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
 use iroh::SecretKey;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -18,6 +18,9 @@ pub struct Config {
     /// How much the assistant thinks before answering: off, low, medium or high.
     #[serde(default = "default_reasoning")]
     pub reasoning: ReasoningLevel,
+    /// OpenRouter provider routing. Replaces the default entirely when set.
+    #[serde(default = "default_routing")]
+    pub routing: ProviderPreferences,
     pub provider_key: Option<String>,
     pub firecrawl_key: Option<String>,
     pub composio_key: Option<String>,
@@ -30,6 +33,22 @@ pub struct Config {
 
 fn default_reasoning() -> ReasoningLevel {
     ReasoningLevel::Low
+}
+
+/// Fastest provider that keeps no data and serves at least fp8.
+fn default_routing() -> ProviderPreferences {
+    ProviderPreferences {
+        data_collection: Some("deny".into()),
+        quantizations: vec![
+            Quantization::Fp8,
+            Quantization::Fp16,
+            Quantization::Bf16,
+            Quantization::Fp32,
+            Quantization::Other("unknown".into()),
+        ],
+        sort: Some(ProviderSort::Throughput),
+        ..Default::default()
+    }
 }
 
 #[derive(Deserialize)]

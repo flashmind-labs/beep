@@ -56,9 +56,46 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 
-/** "web_search" becomes "Web search". */
-private fun humanize(name: String) =
-    name.replace('_', ' ').replace('.', ' ').trim().replaceFirstChar { it.uppercase() }
+/** What a tool is doing, in words. Unknown tools fall back to their name: "GMAIL_SEND_EMAIL" becomes "Gmail: send email". */
+fun toolLabel(name: String): String = toolLabels[name] ?: humanize(name)
+
+private fun humanize(name: String): String {
+    val words = name.split('_', '.', '-').filter { it.isNotBlank() }.map { it.lowercase() }
+    if (words.isEmpty()) return ""
+    // Connected app tools are named APP_ACTION.
+    if (name == name.uppercase() && words.size > 1)
+        return words[0].replaceFirstChar { it.uppercase() } + ": " + words.drop(1).joinToString(" ")
+    return words.joinToString(" ").replaceFirstChar { it.uppercase() }
+}
+
+private val toolLabels = mapOf(
+    "web_search" to "Searching the web",
+    "decision" to "Weighing the options",
+    "get_location" to "Checking your location",
+    "get_notifications" to "Reading notifications",
+    "get_time" to "Checking the time",
+    "open_app" to "Opening an app",
+    "open_browser" to "Opening a page",
+    "browser" to "Browsing",
+    "open_maps" to "Looking up a place",
+    "query_contacts" to "Looking up contacts",
+    "suggest_replies" to "Suggesting replies",
+    "task_progress" to "Updating progress",
+    "memory_store" to "Remembering",
+    "memory_recall" to "Recalling memories",
+    "memory_update" to "Updating a memory",
+    "memory_forget" to "Forgetting a memory",
+    "cron_create" to "Setting a reminder",
+    "schedule_once" to "Setting a reminder",
+    "cron_edit" to "Changing a reminder",
+    "cron_list" to "Checking reminders",
+    "cron_delete" to "Deleting a reminder",
+    "cron_history" to "Checking past reminders",
+    "habit_create" to "Creating a habit",
+    "habit_log" to "Logging a habit",
+    "habit_status" to "Checking habits",
+    "habit_delete" to "Deleting a habit",
+)
 
 /** "Searching the web…" becomes "Searched the web" once the tool is done. */
 private fun doneLabel(label: String): String {
@@ -74,6 +111,8 @@ private val pastTense = mapOf(
     "getting" to "Got", "creating" to "Created", "updating" to "Updated", "deleting" to "Deleted",
     "sending" to "Sent", "setting" to "Set", "using" to "Used", "remembering" to "Remembered",
     "loading" to "Loaded", "browsing" to "Browsed", "scheduling" to "Scheduled", "running" to "Ran",
+    "weighing" to "Weighed", "recalling" to "Recalled", "forgetting" to "Forgot", "changing" to "Changed",
+    "logging" to "Logged", "suggesting" to "Suggested",
 )
 
 private data class Source(val title: String, val url: String) {
@@ -105,7 +144,7 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
     val shape = RoundedCornerShape(50)
     val frame = if (quiet) Modifier.clip(shape).background(tint)
         else Modifier.beepFrame(shape, tint)
-    val described = call.description.ifBlank { humanize(call.name) }.ifBlank { "Using a tool" }
+    val described = toolLabel(call.name).ifBlank { call.description }.ifBlank { "Using a tool" }
     val sources = remember(call.result) { if (running) emptyList() else sourcesOf(call.result) }
     val label = when {
         running -> described
