@@ -98,7 +98,7 @@ async fn compact(store: &Store, summarizer: &Summarizer<'_>, session: &SessionRe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{CreateRun, FinishedTurn};
+    use crate::store::{CreateRun, FinishedTurn, RunStatus};
     use async_trait::async_trait;
     use flashmind::{
         core::{Conversation, ConversationEntry},
@@ -150,7 +150,7 @@ mod tests {
             prompt_tokens: tokens,
         };
         store
-            .finish("alice", &run, Some(turn), "completed")
+            .finish("alice", &run, Some(turn), RunStatus::Completed)
             .await
             .unwrap();
         SessionRef {
@@ -264,7 +264,7 @@ mod tests {
             prompt_tokens: 40_000,
         };
         store
-            .finish("alice", &run, Some(turn), "completed")
+            .finish("alice", &run, Some(turn), RunStatus::Completed)
             .await
             .unwrap();
 
