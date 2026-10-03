@@ -15,6 +15,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -165,9 +167,12 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
                 initialValue = -12f, targetValue = 12f,
                 animationSpec = infiniteRepeatable(tween(260), RepeatMode.Reverse), label = "tool-wiggle-angle")
                 else remember { mutableFloatStateOf(0f) }
-            Box(Modifier.size(26.dp).graphicsLayer { rotationZ = wiggle }.background(t.colors.surface, CircleShape),
+            val appLogo = remember(call.name) { appLogoForTool(call.name) }
+            Box(Modifier.size(26.dp).graphicsLayer { rotationZ = wiggle }
+                .background(if (appLogo != null) Color.White else t.colors.surface, CircleShape),
                 contentAlignment = Alignment.Center) {
-                Icon(toolIconFor(call.name.ifEmpty { call.description }), null, Modifier.size(15.dp), tint = t.colors.ink)
+                if (appLogo != null) Image(painterResource(appLogo), null, Modifier.size(15.dp))
+                else Icon(toolIconFor(call.name.ifEmpty { call.description }), null, Modifier.size(15.dp), tint = t.colors.ink)
             }
             Spacer(Modifier.width(8.dp))
             Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
