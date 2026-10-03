@@ -7,37 +7,37 @@
     <group android:translateX="0" android:translateY="1">
         <path
             android:strokeColor="#FFFFFF"
-            android:strokeWidth="3"
+            android:strokeWidth="4"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
-            android:pathData="M44,40H64A10,10 0,0 1,74 50V62A10,10 0,0 1,64 72H44A10,10 0,0 1,34 62V50A10,10 0,0 1,44 40Z" />
+            android:pathData="M68.4,33.1A8,8 0,0 1,74.9,39.6 M69.1,29.2A12,12 0,0 1,78.8,38.9" />
         <path
             android:strokeColor="#FFFFFF"
             android:strokeWidth="3"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
-            android:pathData="M29,51h5v10h-5a2,2 0,0 1,-2 -2v-6a2,2 0,0 1,2 -2Z M74,51h5a2,2 0,0 1,2 2v6a2,2 0,0 1,-2 2h-5Z" />
+            android:pathData="M42,38H58A12,12 0,0 1,70,50V64A12,12 0,0 1,58,76H42A12,12 0,0 1,30,64V50A12,12 0,0 1,42,38Z" />
         <path
             android:strokeColor="#FFFFFF"
             android:strokeWidth="3"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
-            android:pathData="M54,40V34" />
+            android:pathData="M42,43H58A7,7 0,0 1,65,50V64A7,7 0,0 1,58,71H42A7,7 0,0 1,35,64V50A7,7 0,0 1,42,43Z" />
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M50,30a4,4 0,1 0,8 0a4,4 0,1 0,-8 0Z M41,54a4,4 0,1 0,8 0a4,4 0,1 0,-8 0Z" />
+            android:pathData="M40.8,55a3.2,3.2 0,1 0,6.4 0a3.2,3.2 0,1 0,-6.4 0Z" />
         <path
             android:strokeColor="#FFFFFF"
             android:strokeWidth="3"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
-            android:pathData="M59,55Q64,50 69,55" />
+            android:pathData="M51.5,56Q55.5,52 59.5,56" />
         <path
             android:strokeColor="#FFFFFF"
             android:strokeWidth="3"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
-            android:pathData="M47,63Q54,68.5 61,63" />
+            android:pathData="M45,62Q50,66.5 56,62" />
     </group>
 
 </vector>

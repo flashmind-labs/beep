@@ -276,7 +276,7 @@ open class MainActivity : ComponentActivity() {
 }
 class BubbleActivity : MainActivity() { override val bubble = true }
 
-private enum class Screen { Chat, Memories, Crons, Integrations, CustomIntegrations }
+private enum class Screen { Chat, Memories, Crons, Integrations, CustomIntegrations, Settings }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -351,6 +351,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat }, onCustom = { screen = Screen.CustomIntegrations })
             Screen.CustomIntegrations -> IntegrationsScreen(repository, onBack = { screen = Screen.Integrations })
+            Screen.Settings -> SettingsScreen(status, onBack = { screen = Screen.Chat },
+                onBubbleSettings = onBubbleSettings, onConnection = { settingsOpen = true })
             Screen.Chat -> {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     LaunchedEffect(drawerOpen) { if (drawerOpen) { repository.refreshHistory(); drawerState.open() } else drawerState.close() }
@@ -482,17 +484,12 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     DrawerTile("Routines", Icons.Outlined.Schedule, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Crons; drawerOpen = false }
                     DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
                 }
-                Spacer(Modifier.height(14.dp))
-                ThemePicker(Modifier.padding(horizontal = 20.dp))
-                TextButton(onClick = onBubbleSettings, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
-                    Icon(Icons.Outlined.BubbleChart, null, Modifier.size(18.dp), tint = TextMuted); Spacer(Modifier.width(8.dp))
-                    Text("Floating chat settings", color = TextMuted)
-                }
+                Spacer(Modifier.height(8.dp))
             }
             Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { settingsOpen = true; drawerOpen = false }) {
+                TextButton(onClick = { if (bubble) settingsOpen = true else screen = Screen.Settings; drawerOpen = false }) {
                     Icon(Icons.Outlined.Settings, null, Modifier.size(18.dp), tint = TextMuted); Spacer(Modifier.width(8.dp))
-                    Text("Connection", color = TextMuted)
+                    Text(if (bubble) "Connection" else "Settings", color = TextMuted)
                 }
                 Spacer(Modifier.weight(1f))
                 ConnectionDot(connected, status); Spacer(Modifier.width(6.dp))
