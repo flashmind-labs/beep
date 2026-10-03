@@ -14,6 +14,7 @@
 
 use crate::{
     app::App,
+    mail::Email,
     protocol::MemorySource,
     starters::{Generator, unfence},
     store::{Embedded, Fact, MEMORY_CATEGORIES, MemoryRow, Store, Validity},
@@ -30,7 +31,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Write,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// The same model under its OpenAI and OpenRouter names, so stored
@@ -41,6 +42,8 @@ pub const OPENROUTER_EMBEDDING_MODEL: &str = "openai/text-embedding-3-small";
 const EMBED_TIMEOUT: Duration = Duration::from_secs(4);
 /// The run stays open while learning, so it gets little time.
 const LEARN_TIMEOUT: Duration = Duration::from_secs(15);
+/// Mail sync runs in the background, so a slow model can take its time.
+const EMAIL_LEARN_TIMEOUT: Duration = Duration::from_secs(90);
 const CURATE_TIMEOUT: Duration = Duration::from_secs(90);
 /// Missing embeddings filled per lookup.
 const BACKFILL: usize = 64;
@@ -50,6 +53,7 @@ const DUPLICATE: f32 = 0.88;
 const RECALLABLE: f32 = 0.22;
 const MAX_LEARN_OPS: usize = 5;
 const MAX_TURN_CHARS: usize = 1500;
+const MAX_EMAIL_CHARS: usize = 4000;
 /// Earlier turns the extractor sees to resolve "she" or "that place".
 pub const LEARN_CONTEXT_TURNS: usize = 3;
 const MAX_CONTEXT_CHARS: usize = 600;
@@ -298,29 +302,61 @@ impl Memories {
             let ops = parse_learn_ops(&answer)?;
             let mut learned = Vec::new();
             for op in ops {
-                learned.extend(self.apply(&user, &known, op).await?);
+                learned.extend(
+                    self.apply(&user, &known, op, MemorySource::Learned {})
+                        .await?,
+                );
             }
             anyhow::Ok(learned)
         };
-        match tokio::time::timeout(LEARN_TIMEOUT, attempt).await {
-            Ok(Ok(learned)) => {
-                if !learned.is_empty() {
-                    log::info!("memory learned {} change(s); user={user}", learned.len());
-                }
-                learned
-            }
-            Ok(Err(error)) => {
-                log::info!("memory learning skipped: {error}");
-                Vec::new()
-            }
-            Err(_) => {
-                log::info!("memory learning timed out");
-                Vec::new()
-            }
-        }
+        settle(&user, tokio::time::timeout(LEARN_TIMEOUT, attempt).await)
     }
 
-    async fn apply(&self, user: &str, known: &[Hit], op: LearnOp) -> Result<Option<Learned>> {
+    /// Reads one email from the user's mailbox and updates memory with what it
+    /// teaches about them, the same way `learn` does for a chat.
+    pub async fn learn_email(&self, generator: Generator<'_>, email: &Email) -> Vec<Learned> {
+        let user = generator.user.to_owned();
+        let started = Instant::now();
+        let attempt = async {
+            let query = format!("{}\n{}", email.subject, clip(&email.body, 300));
+            let mut known = self.search(&user, &query, None, 15).await?;
+            // Any email can mention the user's name or family, which a search
+            // on its text would not bring up, so personal facts always come along.
+            for hit in self.search(&user, "", Some("personal"), 15).await? {
+                if !known.iter().any(|k| k.id == hit.id) {
+                    known.push(hit);
+                }
+            }
+            let prompt = email_prompt(&known, email);
+            let answer = generator.text(EMAIL_SYSTEM, prompt).await?;
+            let mut learned = Vec::new();
+            for op in parse_learn_ops(&answer)? {
+                learned.extend(
+                    self.apply(&user, &known, op, MemorySource::Email {})
+                        .await?,
+                );
+            }
+            anyhow::Ok(learned)
+        };
+        let learned = settle(
+            &user,
+            tokio::time::timeout(EMAIL_LEARN_TIMEOUT, attempt).await,
+        );
+        log::debug!(
+            "memory email learning took {:.1}s; id={}",
+            started.elapsed().as_secs_f32(),
+            email.id
+        );
+        learned
+    }
+
+    async fn apply(
+        &self,
+        user: &str,
+        known: &[Hit],
+        op: LearnOp,
+        source: MemorySource,
+    ) -> Result<Option<Learned>> {
         let shown = op
             .id
             .as_deref()
@@ -351,7 +387,7 @@ impl Memories {
                 .category
                 .as_deref()
                 .filter(|c| MEMORY_CATEGORIES.contains(c)),
-            source: MemorySource::Learned {},
+            source,
             valid: op.validity(),
             embedding: None,
         };
@@ -529,6 +565,29 @@ impl Learned {
     }
 }
 
+/// Logs how a learning attempt went and returns its changes, none on failure.
+fn settle(
+    user: &str,
+    outcome: Result<Result<Vec<Learned>>, tokio::time::error::Elapsed>,
+) -> Vec<Learned> {
+    match outcome {
+        Ok(Ok(learned)) => {
+            if !learned.is_empty() {
+                log::info!("memory learned {} change(s); user={user}", learned.len());
+            }
+            learned
+        }
+        Ok(Err(error)) => {
+            log::info!("memory learning skipped: {error}");
+            Vec::new()
+        }
+        Err(_) => {
+            log::info!("memory learning timed out");
+            Vec::new()
+        }
+    }
+}
+
 fn clip(text: &str, chars: usize) -> String {
     text.chars().take(chars).collect()
 }
@@ -642,9 +701,8 @@ Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"i
 \"valid_from\": string, \"valid_until\": string}]}. \
 id only for update and forget; content and category only for add and update. At most 5 ops.";
 
-fn learn_prompt(known: &[Hit], exchange: &Exchange) -> String {
-    let mut text = String::new();
-    let _ = writeln!(text, "Today: {}", exchange.today.format("%A %Y-%m-%d"));
+/// The memories shown to a learner, with ids it can update or forget.
+fn write_known(text: &mut String, known: &[Hit]) {
     let _ = writeln!(text, "\nKnown memories:");
     if known.is_empty() {
         let _ = writeln!(text, "(none related)");
@@ -661,6 +719,12 @@ fn learn_prompt(known: &[Hit], exchange: &Exchange) -> String {
             h.content
         );
     }
+}
+
+fn learn_prompt(known: &[Hit], exchange: &Exchange) -> String {
+    let mut text = String::new();
+    let _ = writeln!(text, "Today: {}", exchange.today.format("%A %Y-%m-%d"));
+    write_known(&mut text, known);
     if !exchange.earlier.is_empty() {
         let _ = writeln!(text, "\nEarlier in the chat:");
         for turn in &exchange.earlier {
@@ -678,10 +742,44 @@ fn learn_prompt(known: &[Hit], exchange: &Exchange) -> String {
     text
 }
 
+const EMAIL_SYSTEM: &str = "You keep the long-term memory of Beep, a personal assistant app. \
+You get one email from the user's own mailbox: either sent by the user, or received by them. Decide what it \
+teaches about the user that is worth remembering. Most emails teach nothing lasting, such as newsletters, \
+marketing, notifications and routine receipts; then reply {\"ops\": []}.
+Worth keeping: the user's name, the people in their life and how they relate, where they live and work, their \
+job and ongoing projects, stable likes, dislikes and dietary needs, routines, important dates, goals, and plans \
+such as trips, visits and appointments that are still ahead. Only what the email clearly shows about the user, \
+not about the sender or anyone else, and only what is still likely true today. \
+Never keep one-off errands and admin (utilities, meters, deliveries, repairs, bookings, accounts, applications, \
+support requests), events and episodes that only mattered at the time, plans that are already over by today, \
+guesses, general knowledge, money, health, or secrets such as passwords, codes, tokens, card or account numbers. \
+The older the email, the higher the bar: from an email more than a few weeks old keep only stable facts, like \
+where the user lives, who they know, what they do and what they like, and nothing about what they were doing then.
+Known memories are listed with their ids. If a fact is already known, do nothing. If the email shows a known \
+fact changed or extends it, update it by id with the full new text. Forget a memory by id only when the email \
+shows it is no longer true; never because the email does not mention it. Otherwise add it.
+A fact that only holds for a while (a trip, a visit, a stay, an appointment, a temporary job) gets valid_from \
+and/or valid_until as YYYY-MM-DD, worked out from the date the email was sent. Lasting facts leave both out.
+Write each memory as one short self-contained sentence about the user in third person that names its subject, \
+like \"Has a dog named Rex.\" or \"Works at Acme as a designer.\", in the language most known memories are in, \
+English when there are none. Never translate a known memory.
+Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"id\": string, \"content\": string, \
+\"category\": \"personal\" | \"preference\" | \"work\" | \"location\" | \"routine\" | \"general\", \
+\"valid_from\": string, \"valid_until\": string}]}. \
+id only for update and forget; content and category only for add and update. At most 5 ops.";
+
+fn email_prompt(known: &[Hit], email: &Email) -> String {
+    let mut text = String::new();
+    let _ = writeln!(text, "Today: {}", Utc::now().format("%A %Y-%m-%d"));
+    write_known(&mut text, known);
+    let _ = writeln!(text, "\nEmail:\n{}", email.render(MAX_EMAIL_CHARS));
+    text
+}
+
 const CURATE_SYSTEM: &str = "You tidy the long-term memory of Beep, a personal assistant app. \
 You get every memory about one user with its id, category, source, last change date and, for facts that only \
 hold for a while, their days. Source \"user\" means the user said it or asked Beep to remember it; \"learned\" \
-means Beep picked it up from a chat.
+means Beep picked it up from a chat; \"email\" means Beep read it in the user's email.
 Clean it up:
 - Merge memories that say the same thing or are parts of one fact into one sentence, keeping every detail.
 - When two memories contradict each other, keep the newer one, unless the older was said by the user and the \

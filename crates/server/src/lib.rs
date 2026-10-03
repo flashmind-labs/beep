@@ -6,6 +6,7 @@ pub mod config;
 pub mod cron;
 pub mod decision;
 pub mod live;
+pub mod mail;
 pub mod mcp;
 pub mod memories;
 pub mod repeat;

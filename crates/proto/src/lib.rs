@@ -418,12 +418,14 @@ pub struct Memory {
 }
 
 wire_enum! {
-    /// Who a memory came from: the user saying so, or Beep picking it up from a chat.
+    /// Who a memory came from: the user saying so, Beep picking it up from a
+    /// chat, or Beep reading it in the user's email.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum MemorySource {
         0 User {}
         1 Learned {}
+        2 Email {}
     }
 }
 
@@ -432,6 +434,7 @@ impl MemorySource {
         match self {
             Self::User {} => "user",
             Self::Learned {} => "learned",
+            Self::Email {} => "email",
         }
     }
 
@@ -439,6 +442,7 @@ impl MemorySource {
     pub fn parse(text: &str) -> Self {
         match text {
             "user" => Self::User {},
+            "email" => Self::Email {},
             _ => Self::Learned {},
         }
     }

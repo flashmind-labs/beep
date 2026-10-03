@@ -29,7 +29,20 @@ pub struct Config {
     /// Where Composio sends the browser after an app connects, for example a
     /// deep link back into the phone app. Composio shows its own page if unset.
     pub composio_callback_url: Option<String>,
+    /// Where the daily log files go. Defaults to `logs` next to the database.
+    pub log_dir: Option<PathBuf>,
     pub users: Vec<UserConfig>,
+}
+
+impl Config {
+    pub fn log_dir(&self) -> PathBuf {
+        self.log_dir.clone().unwrap_or_else(|| {
+            self.database
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("logs")
+        })
+    }
 }
 
 fn default_reasoning() -> ReasoningLevel {
@@ -105,6 +118,11 @@ impl Auth {
             auth.testing_user = Some(user.clone());
         }
         Ok(auth)
+    }
+
+    /// Every configured user.
+    pub fn user_ids(&self) -> impl Iterator<Item = &str> {
+        self.users.iter().map(|(id, _)| id.as_str())
     }
 
     pub fn is_testing(&self) -> bool {

@@ -629,6 +629,20 @@ impl App {
         }
     }
 
+    /// Jev, when the server has an OpenRouter key.
+    pub fn decision(&self) -> Option<&DecisionTool> {
+        self.tools.decision.as_deref()
+    }
+
+    /// Plain completions on the assistant's model for `user`.
+    pub fn generator<'a>(&'a self, user: &'a str) -> Generator<'a> {
+        Generator {
+            provider: self.provider.as_ref(),
+            llm: &self.llm,
+            user,
+        }
+    }
+
     /// Tidies the memories of users whose memories changed today.
     pub async fn curate_memories(&self) {
         self.memories

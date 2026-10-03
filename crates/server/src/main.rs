@@ -16,22 +16,22 @@ use flashmind::{
 };
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
-use logforth::record::{Level, LevelFilter};
+use logforth::{
+    append::{Stderr, file::FileBuilder},
+    filter::rustlog::RustLogFilterBuilder,
+};
 use secrecy::SecretString;
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    logforth::starter_log::stderr()
-        .filter(LevelFilter::MoreSevereEqual(Level::Debug))
-        .apply();
-
     let config_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "config.toml".into());
     let config: Config = toml::from_str(
         &std::fs::read_to_string(&config_path).with_context(|| format!("reading {config_path}"))?,
     )?;
+    start_logging(&config)?;
 
     let auth = Auth::from_config(&config)?;
     let model: Model = config.model.parse()?;
@@ -86,6 +86,7 @@ async fn main() -> Result<()> {
     beep_server::compaction::start(app.clone());
     beep_server::titles::start(app.clone());
     beep_server::memories::start_curation(app.clone());
+    beep_server::mail::start(app.clone());
     let (cron_runner, _cron_registry) = beep_server::cron::start(app.clone(), &config.database);
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {
@@ -111,5 +112,27 @@ async fn main() -> Result<()> {
     tokio::signal::ctrl_c().await?;
     router.shutdown().await?;
     app.shutdown().await;
+    Ok(())
+}
+
+/// Daily log files kept before the oldest is deleted.
+const LOG_FILES_KEPT: usize = 14;
+
+/// Logs to stderr and to a file under `log_dir` that rolls over daily.
+/// Debug by default; `RUST_LOG` overrides it.
+fn start_logging(config: &Config) -> Result<()> {
+    let dir = config.log_dir();
+    let file = FileBuilder::new(&dir, "beep")
+        .filename_suffix("log")
+        .rollover_daily()
+        .max_log_files(NonZeroUsize::new(LOG_FILES_KEPT).expect("the count is not zero"))
+        .build()
+        .with_context(|| format!("opening the log directory {}", dir.display()))?;
+    let filter = || RustLogFilterBuilder::from_default_env_or("debug").build();
+    logforth::starter_log::builder()
+        .dispatch(|d| d.filter(filter()).append(Stderr::default()))
+        .dispatch(|d| d.filter(filter()).append(file))
+        .apply();
+    log::info!("logging to {}", dir.display());
     Ok(())
 }

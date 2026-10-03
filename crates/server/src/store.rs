@@ -1,6 +1,9 @@
-use crate::protocol::{Cron, Integration, Memory, MemorySource, PhoneNotification, Run, Session};
+use crate::{
+    mail::Mailbox,
+    protocol::{Cron, Integration, Memory, MemorySource, PhoneNotification, Run, Session},
+};
 use anyhow::{Result, bail};
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use flashmind::core::Conversation;
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
@@ -149,8 +152,10 @@ fn encode_embedding(embedding: &[f32]) -> Vec<u8> {
 }
 
 fn decode_embedding(blob: &[u8]) -> Vec<f32> {
-    blob.chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    blob.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
         .collect()
 }
 
@@ -277,7 +282,16 @@ impl Store {
                     PRIMARY KEY(user_id, session_id));
                 CREATE TABLE IF NOT EXISTS tool_failures (
                     user_id TEXT NOT NULL, session_id TEXT NOT NULL, call_id TEXT NOT NULL,
-                    PRIMARY KEY(user_id, session_id, call_id));",
+                    PRIMARY KEY(user_id, session_id, call_id));
+                CREATE TABLE IF NOT EXISTS mail_sync (
+                    user_id TEXT NOT NULL, mailbox TEXT NOT NULL, synced_at TEXT NOT NULL,
+                    PRIMARY KEY(user_id, mailbox));
+                CREATE TABLE IF NOT EXISTS mail_seen (
+                    user_id TEXT NOT NULL, mailbox TEXT NOT NULL, message_id TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    PRIMARY KEY(user_id, mailbox, message_id));
+                CREATE INDEX IF NOT EXISTS idx_mail_seen_received
+                    ON mail_seen(user_id, mailbox, received_at);",
             )?;
             // Migrations for existing databases
             let has_col = |table: &str, col: &str| -> rusqlite::Result<bool> {
@@ -1384,6 +1398,120 @@ impl Store {
             .await?)
     }
 
+    /// Whether `mailbox` finished a sync within `every`.
+    pub async fn mail_synced_recently(
+        &self,
+        user: &str,
+        mailbox: Mailbox,
+        every: Duration,
+    ) -> Result<bool> {
+        let (user, every) = (user.to_owned(), format!("-{} seconds", every.as_secs()));
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM mail_sync WHERE user_id=? AND mailbox=?
+                     AND synced_at > datetime('now', ?))",
+                    params![user, mailbox.slug(), every],
+                    |r| r.get(0),
+                )
+            })
+            .await?)
+    }
+
+    pub async fn mark_mail_synced(&self, user: &str, mailbox: Mailbox) -> Result<()> {
+        let user = user.to_owned();
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT INTO mail_sync (user_id, mailbox, synced_at)
+                     VALUES (?, ?, datetime('now'))
+                     ON CONFLICT(user_id, mailbox) DO UPDATE SET synced_at=excluded.synced_at",
+                    params![user, mailbox.slug()],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// When the newest processed email of `mailbox` arrived.
+    pub async fn mail_cursor(&self, user: &str, mailbox: Mailbox) -> Result<Option<DateTime<Utc>>> {
+        let user = user.to_owned();
+        let newest: Option<String> = self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.query_row(
+                    "SELECT max(received_at) FROM mail_seen WHERE user_id=? AND mailbox=?",
+                    params![user, mailbox.slug()],
+                    |r| r.get(0),
+                )
+            })
+            .await?;
+        Ok(newest
+            .and_then(|text| DateTime::parse_from_rfc3339(&text).ok())
+            .map(|date| date.with_timezone(&Utc)))
+    }
+
+    /// Ids of the emails of `mailbox` already processed.
+    pub async fn mail_seen(&self, user: &str, mailbox: Mailbox) -> Result<HashSet<String>> {
+        let user = user.to_owned();
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt =
+                    db.prepare("SELECT message_id FROM mail_seen WHERE user_id=? AND mailbox=?")?;
+                stmt.query_map(params![user, mailbox.slug()], |r| r.get(0))?
+                    .collect()
+            })
+            .await?)
+    }
+
+    pub async fn mark_mail_seen(
+        &self,
+        user: &str,
+        mailbox: Mailbox,
+        id: &str,
+        received: DateTime<Utc>,
+    ) -> Result<()> {
+        let (user, id) = (user.to_owned(), id.to_owned());
+        let received = received.to_rfc3339_opts(SecondsFormat::Secs, true);
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT OR IGNORE INTO mail_seen (user_id, mailbox, message_id, received_at)
+                     VALUES (?, ?, ?, ?)",
+                    params![user, mailbox.slug(), id, received],
+                )?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Forgets processed ids older than `before`, which no run reads again.
+    pub async fn prune_mail_seen(
+        &self,
+        user: &str,
+        mailbox: Mailbox,
+        before: DateTime<Utc>,
+    ) -> Result<usize> {
+        let user = user.to_owned();
+        let before = before.to_rfc3339_opts(SecondsFormat::Secs, true);
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                // The newest row is the cursor and always stays.
+                db.execute(
+                    "DELETE FROM mail_seen WHERE user_id=?1 AND mailbox=?2 AND received_at < ?3
+                     AND received_at < (SELECT max(received_at) FROM mail_seen
+                                        WHERE user_id=?1 AND mailbox=?2)",
+                    params![user, mailbox.slug(), before],
+                )
+            })
+            .await?)
+    }
+
     /// Users with at least one MCP server that holds credentials.
     pub async fn mcp_users(&self) -> Result<Vec<String>> {
         Ok(self
@@ -1918,5 +2046,75 @@ mod tests {
         assert!(rows.iter().all(|r| r.id.len() == 12));
         assert!(rows.iter().all(|r| r.source == MemorySource::User {}));
         assert!(store.forget("alice", &rows[1].id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn mail_cursor_follows_seen_mail_and_survives_pruning() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("db.sqlite")).await.unwrap();
+        let day = |d: u32| {
+            NaiveDate::from_ymd_opt(2026, 3, d)
+                .unwrap()
+                .and_hms_opt(12, 0, 0)
+                .unwrap()
+                .and_utc()
+        };
+        let gmail = Mailbox::Gmail;
+        assert!(store.mail_cursor("alice", gmail).await.unwrap().is_none());
+        for (id, d) in [("a", 1), ("b", 5), ("c", 3)] {
+            store
+                .mark_mail_seen("alice", gmail, id, day(d))
+                .await
+                .unwrap();
+        }
+        store
+            .mark_mail_seen("alice", gmail, "a", day(9))
+            .await
+            .unwrap();
+        assert_eq!(
+            store.mail_cursor("alice", gmail).await.unwrap(),
+            Some(day(5))
+        );
+        assert!(
+            store
+                .mail_cursor("alice", Mailbox::Fastmail)
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        // Everything is older than the cutoff, but the newest row stays.
+        let pruned = store
+            .prune_mail_seen("alice", gmail, day(20))
+            .await
+            .unwrap();
+        assert_eq!(pruned, 2);
+        assert_eq!(
+            store.mail_cursor("alice", gmail).await.unwrap(),
+            Some(day(5))
+        );
+        let seen = store.mail_seen("alice", gmail).await.unwrap();
+        assert_eq!(seen, HashSet::from(["b".to_owned()]));
+
+        let every = Duration::from_secs(60);
+        assert!(
+            !store
+                .mail_synced_recently("alice", gmail, every)
+                .await
+                .unwrap()
+        );
+        store.mark_mail_synced("alice", gmail).await.unwrap();
+        assert!(
+            store
+                .mail_synced_recently("alice", gmail, every)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .mail_synced_recently("bob", gmail, every)
+                .await
+                .unwrap()
+        );
     }
 }

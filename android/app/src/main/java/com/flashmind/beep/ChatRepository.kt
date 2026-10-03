@@ -267,12 +267,12 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
     data class Memory(
-        val id: String, val content: String, val category: String, val toldByUser: Boolean,
+        val id: String, val content: String, val category: String, val source: MemorySource,
         val updated: String, val validFrom: String?, val validUntil: String?,
     )
     suspend fun listMemories(): List<Memory> {
         return api().listMemories().map {
-            Memory(it.id, it.content, it.category, it.source == MemorySource.USER, it.updated, it.validFrom, it.validUntil)
+            Memory(it.id, it.content, it.category, it.source, it.updated, it.validFrom, it.validUntil)
         }
     }
     suspend fun deleteMemory(id: String) {

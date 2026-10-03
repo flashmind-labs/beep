@@ -13,6 +13,12 @@ const MAX_STATE_BYTES: usize = 20_000;
 const MAX_QUESTIONS: usize = 16;
 const MAX_ID_BYTES: usize = 64;
 
+/// What counts as a yes and as a no for a yes/no question.
+pub struct Criteria {
+    pub yes: &'static str,
+    pub no: &'static str,
+}
+
 /// Holds the key only inside the provider, which has no `Debug` and never logs it.
 pub struct DecisionTool {
     provider: OpenRouterProvider,
@@ -45,9 +51,32 @@ impl DecisionTool {
 
     /// Jev's probability that the answer to `instructions` about `state` is yes.
     pub async fn probability(&self, state: &str, instructions: &str) -> Result<f64> {
+        self.judge(state, instructions, None).await
+    }
+
+    /// Like `probability`, with a short question and what counts as yes and as no.
+    pub async fn probability_with(
+        &self,
+        state: &str,
+        instructions: &str,
+        criteria: &Criteria,
+    ) -> Result<f64> {
+        let criteria = BTreeMap::from([
+            ("true".to_owned(), criteria.yes.to_owned()),
+            ("false".to_owned(), criteria.no.to_owned()),
+        ]);
+        self.judge(state, instructions, Some(criteria)).await
+    }
+
+    async fn judge(
+        &self,
+        state: &str,
+        instructions: &str,
+        criteria: Option<BTreeMap<String, String>>,
+    ) -> Result<f64> {
         let question = JevQuestion::Noul {
             instructions: instructions.into(),
-            criteria: None,
+            criteria,
         };
         let request = JevRequest {
             model: JEV_LATEST_MODEL.into(),
