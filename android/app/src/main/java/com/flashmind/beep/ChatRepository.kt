@@ -36,6 +36,9 @@ class BeepApplication : Application() {
     }
 }
 
+/** How a localhost OAuth flow ended; `error` is null on success. */
+data class AppAuthResult(val slug: String, val error: String?)
+
 data class AppIntent(val app: String, val uri: String, val fallbackUrl: String)
 
 class ChatRepository(private val storage: LocalStorage) {
@@ -271,6 +274,31 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun listApps(): List<AppIntegration> = api().listApps()
     suspend fun connectApp(slug: String): String = api().connectApp(slug).url
     suspend fun disconnectApp(slug: String) = api().disconnectApp(slug)
+
+    /** Set when a localhost OAuth flow ends, so the app list reloads. */
+    val appAuthResults = MutableStateFlow<AppAuthResult?>(null)
+
+    /**
+     * Connects an app whose provider only redirects to localhost. Runs in the repository's
+     * scope so it survives the screen while the user is in the browser.
+     */
+    fun authorizeApp(slug: String, open: (String) -> Unit) {
+        scope.launch {
+            val error = try {
+                LoopbackAuth.run(
+                    start = { redirect -> api().startAppAuth(slug, redirect).url },
+                    open = open,
+                    finish = { api().finishAppAuth(slug, it.code, it.state, it.issuer) },
+                )
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.message ?: "Could not connect"
+            }
+            appAuthResults.value = AppAuthResult(slug, error)
+        }
+    }
 
     /** Conversation starters for an empty chat. The last good set stays up while a new one loads. */
     val starters = MutableStateFlow<List<PromptSuggestion>>(emptyList())

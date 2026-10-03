@@ -27,7 +27,6 @@ pub struct Config {
     /// Where Composio sends the browser after an app connects, for example a
     /// deep link back into the phone app. Composio shows its own page if unset.
     pub composio_callback_url: Option<String>,
-    pub fastmail_token: Option<String>,
     pub users: Vec<UserConfig>,
 }
 

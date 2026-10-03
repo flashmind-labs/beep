@@ -57,11 +57,6 @@ async fn main() -> Result<()> {
         key: SecretString::from(key),
         callback_url: config.composio_callback_url.clone(),
     });
-    let fastmail = config
-        .fastmail_token
-        .as_deref()
-        .map(|token| beep_server::mcp::fastmail_registry(token.to_owned()));
-
     let app = App::new(
         store,
         auth,
@@ -71,9 +66,9 @@ async fn main() -> Result<()> {
             search,
             decision,
             composio,
-            fastmail,
         },
     );
+    beep_server::mcp::start_keep_alive(app.clone());
     let (cron_runner, _cron_registry) = beep_server::cron::start(app.clone(), &config.database);
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {

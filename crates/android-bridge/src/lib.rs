@@ -6,11 +6,11 @@
 use beep_proto::{
     ApiError, AppIntegration, Call, CancelRun, Chat, ConnectApp, ConnectLink, CreateCron,
     CreateIntegration, Cron, DeleteCron, DeleteIntegration, DeleteMemory, DeleteSession,
-    DeviceAnswer, DeviceResult, DisconnectApp, Event, GetEvents, GetRun, GetSession, Health,
-    HistoryEntry, Integration, ListApps, ListCrons, ListIntegrations, ListMemories, ListSessions,
-    Memory, Notice, PhoneNotification, PinSession, PromptSuggestion, RegisterDevice, RenameSession,
-    Run, SaveNotifications, Session, Stream, StreamNotifications, SuggestPrompts, ToggleCron,
-    UnregisterDevice, UpdateCredentials, UpdateCron, UpdateLocation,
+    DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth, GetEvents, GetRun, GetSession,
+    Health, HistoryEntry, Integration, ListApps, ListCrons, ListIntegrations, ListMemories,
+    ListSessions, Memory, Notice, PhoneNotification, PinSession, PromptSuggestion, RegisterDevice,
+    RenameSession, Run, SaveNotifications, Session, StartAppAuth, Stream, StreamNotifications,
+    SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCredentials, UpdateCron, UpdateLocation,
     client::{Client, Replies},
 };
 use iroh::{EndpointAddr, PublicKey};
@@ -347,6 +347,33 @@ impl BeepClient {
 
     pub async fn disconnect_app(&self, slug: String) -> Result<(), BeepError> {
         self.call(DisconnectApp { slug }).await
+    }
+
+    /// Starts OAuth for an app whose provider redirects only to localhost.
+    /// The app listens on `redirect_uri` and opens the returned URL.
+    pub async fn start_app_auth(
+        &self,
+        slug: String,
+        redirect_uri: String,
+    ) -> Result<ConnectLink, BeepError> {
+        self.call(StartAppAuth { slug, redirect_uri }).await
+    }
+
+    /// Passes the redirect's query parameters back to the server.
+    pub async fn finish_app_auth(
+        &self,
+        slug: String,
+        code: String,
+        state: String,
+        issuer: Option<String>,
+    ) -> Result<(), BeepError> {
+        self.call(FinishAppAuth {
+            slug,
+            code,
+            state,
+            issuer,
+        })
+        .await
     }
 
     /// Conversation starters for the empty chat. Always four.

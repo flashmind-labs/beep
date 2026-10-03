@@ -1,4 +1,5 @@
-//! The curated app list and its Composio connections.
+//! The curated app list, its Composio connections and the MCP servers users
+//! connect with OAuth.
 //!
 //! Each user's Composio entity id is their user id, the same one the agent
 //! uses when it calls Composio tools. Errors reaching the client never carry
@@ -6,6 +7,7 @@
 
 use crate::{
     AsyncMutex,
+    mcp::{self, McpConnections},
     protocol::{ApiError, AppIntegration, AppKind, ConnectLink},
 };
 use anyhow::{Context, Result, bail};
@@ -99,16 +101,16 @@ struct ToolkitMeta {
 
 pub struct Apps {
     composio: Option<ComposioSettings>,
-    fastmail: bool,
+    mcp: Arc<McpConnections>,
     http: reqwest::Client,
     logos: AsyncMutex<Option<LogoCache>>,
 }
 
 impl Apps {
-    pub fn new(composio: Option<ComposioSettings>, fastmail: bool) -> Self {
+    pub fn new(composio: Option<ComposioSettings>, mcp: Arc<McpConnections>) -> Self {
         Self {
             composio,
-            fastmail,
+            mcp,
             http: reqwest::Client::new(),
             logos: AsyncMutex::new(None),
         }
@@ -124,23 +126,33 @@ impl Apps {
     }
 
     pub async fn list(&self, user: &str) -> Result<Vec<AppIntegration>, ApiError> {
+        // A Composio outage or bad key marks its apps unavailable instead of
+        // failing the list, so apps that do not use Composio still show.
         let (connected, logos) = match self.client(user) {
             Some(client) => {
                 let (connected, logos) = tokio::join!(connected_slugs(&client, user), self.logos());
-                (
-                    connected.map_err(internal("list connected accounts"))?,
-                    logos,
-                )
+                let connected = connected
+                    .map_err(|error| {
+                        log::warn!("apps: unable to list connected accounts: {error:#}")
+                    })
+                    .ok();
+                (connected, logos)
             }
-            None => (HashSet::new(), HashMap::new()),
+            None => (None, HashMap::new()),
         };
-        let composio = self.composio.is_some();
+        let composio = connected.is_some();
+        let connected = connected.unwrap_or_default();
+        let connected_mcp = self
+            .mcp
+            .connected(user)
+            .await
+            .map_err(internal("list MCP servers"))?;
         Ok(CATALOG
             .iter()
             .map(|app| {
                 let (configured, connected) = match app.kind {
                     AppKind::Composio {} => (composio, connected.contains(app.slug)),
-                    AppKind::Fastmail {} => (self.fastmail, self.fastmail),
+                    AppKind::Fastmail {} => (true, connected_mcp.contains(app.slug)),
                 };
                 AppIntegration {
                     slug: app.slug.to_owned(),
@@ -167,7 +179,53 @@ impl Apps {
         Ok(ConnectLink { url })
     }
 
+    /// Starts OAuth for an MCP app. The browser comes back to `redirect_uri`
+    /// on the phone, which passes the result to `finish_auth`.
+    pub async fn start_auth(
+        &self,
+        user: &str,
+        slug: &str,
+        redirect_uri: &str,
+    ) -> Result<ConnectLink, ApiError> {
+        mcp_app(slug)?;
+        mcp::check_redirect(redirect_uri)
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        let url = self
+            .mcp
+            .start_auth(user, slug, redirect_uri)
+            .await
+            .map_err(internal("start MCP OAuth"))?;
+        Ok(ConnectLink { url })
+    }
+
+    pub async fn finish_auth(
+        &self,
+        user: &str,
+        slug: &str,
+        code: &str,
+        state: &str,
+        issuer: Option<&str>,
+    ) -> Result<(), ApiError> {
+        mcp_app(slug)?;
+        self.mcp
+            .finish_auth(user, slug, code, state, issuer)
+            .await
+            .map_err(internal("finish MCP OAuth"))
+    }
+
     pub async fn disconnect(&self, user: &str, slug: &str) -> Result<(), ApiError> {
+        if catalog_app(slug).is_some_and(|app| app.kind == (AppKind::Fastmail {})) {
+            let removed = self
+                .mcp
+                .remove(user, slug)
+                .await
+                .map_err(internal("remove MCP server"))?;
+            return if removed {
+                Ok(())
+            } else {
+                Err(ApiError::NotFound {})
+            };
+        }
         let client = self.composio_app(user, slug)?;
         let accounts = client
             .list_connected_accounts_for_user(Some(slug), Some(user))
@@ -196,7 +254,7 @@ impl Apps {
         let app = catalog_app(slug).ok_or_else(|| ApiError::bad_request("unknown app"))?;
         if app.kind == (AppKind::Fastmail {}) {
             return Err(ApiError::bad_request(
-                "Fastmail is set up on the server with an API token, not from the app.",
+                "Fastmail connects through StartAppAuth with a localhost redirect.",
             ));
         }
         self.client(user).ok_or_else(|| {
@@ -273,6 +331,17 @@ impl Apps {
     }
 }
 
+/// Checks that `slug` is an app connected over MCP OAuth.
+fn mcp_app(slug: &str) -> Result<(), ApiError> {
+    match catalog_app(slug) {
+        Some(app) if app.kind == (AppKind::Fastmail {}) => Ok(()),
+        Some(_) => Err(ApiError::bad_request(
+            "This app connects through ConnectApp.",
+        )),
+        None => Err(ApiError::bad_request("unknown app")),
+    }
+}
+
 /// Slugs of the toolkits `user` has a usable account for.
 async fn connected_slugs(client: &ComposioClient, user: &str) -> Result<HashSet<String>> {
     let accounts = client
@@ -328,7 +397,7 @@ async fn connect_url(
 /// Logs a provider failure and hides it from the client.
 fn internal(what: &'static str) -> impl Fn(anyhow::Error) -> ApiError {
     move |error| {
-        log::warn!("composio: unable to {what}: {error:#}");
+        log::warn!("apps: unable to {what}: {error:#}");
         ApiError::Internal {}
     }
 }
@@ -336,11 +405,21 @@ fn internal(what: &'static str) -> impl Fn(anyhow::Error) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::Store;
+    use serde_json::json;
+
+    async fn apps() -> (Apps, Store, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("db.sqlite")).await.unwrap();
+        let mcp = Arc::new(McpConnections::new(store.clone()));
+        (Apps::new(None, mcp), store, dir)
+    }
 
     #[tokio::test]
     async fn lists_catalog_without_composio_key() {
-        let apps = Apps::new(None, true).list("alice").await.unwrap();
-        let slugs: Vec<&str> = apps.iter().map(|a| a.slug.as_str()).collect();
+        let (apps, store, _dir) = apps().await;
+        let list = apps.list("alice").await.unwrap();
+        let slugs: Vec<&str> = list.iter().map(|a| a.slug.as_str()).collect();
         assert_eq!(
             slugs,
             [
@@ -356,26 +435,60 @@ mod tests {
                 "fastmail"
             ]
         );
-        let (composio, fastmail) = apps.split_at(9);
+        let (composio, fastmail) = list.split_at(9);
         assert!(
             composio
                 .iter()
                 .all(|a| !a.connected && !a.configured && a.logo_url.is_none())
         );
-        assert!(fastmail[0].connected && fastmail[0].configured);
+        assert!(!fastmail[0].connected && fastmail[0].configured);
         assert_eq!(fastmail[0].kind, AppKind::Fastmail {});
+
+        store
+            .save_mcp_credentials("alice", "fastmail", json!({"client_id": "c"}))
+            .await
+            .unwrap();
+        let list = apps.list("alice").await.unwrap();
+        assert!(list[9].connected);
+        assert!(!apps.list("bob").await.unwrap()[9].connected);
     }
 
     #[tokio::test]
     async fn connect_explains_missing_setup() {
-        let apps = Apps::new(None, false);
+        let (apps, _store, _dir) = apps().await;
         let error = apps.connect("alice", "gmail").await.unwrap_err();
         assert!(
             matches!(error, ApiError::BadRequest { message } if message.contains("not configured"))
         );
         let error = apps.connect("alice", "fastmail").await.unwrap_err();
-        assert!(matches!(error, ApiError::BadRequest { message } if message.contains("server")));
+        assert!(
+            matches!(error, ApiError::BadRequest { message } if message.contains("StartAppAuth"))
+        );
         let error = apps.disconnect("alice", "myspace").await.unwrap_err();
         assert!(matches!(error, ApiError::BadRequest { .. }));
+    }
+
+    #[tokio::test]
+    async fn mcp_auth_checks_app_and_redirect() {
+        let (apps, store, _dir) = apps().await;
+        let error = apps
+            .start_auth("alice", "gmail", "http://localhost:4000/callback")
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ApiError::BadRequest { .. }));
+        let error = apps
+            .start_auth("alice", "fastmail", "https://example.com/callback")
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ApiError::BadRequest { .. }));
+
+        let error = apps.disconnect("alice", "fastmail").await.unwrap_err();
+        assert!(matches!(error, ApiError::NotFound {}));
+        store
+            .save_mcp_credentials("alice", "fastmail", json!({"client_id": "c"}))
+            .await
+            .unwrap();
+        apps.disconnect("alice", "fastmail").await.unwrap();
+        assert!(store.mcp_servers("alice").await.unwrap().is_empty());
     }
 }
