@@ -59,6 +59,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -229,19 +232,44 @@ private fun ConnectedChip(canDisconnect: Boolean, onDisconnect: () -> Unit) {
 private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
     clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick)
 
-/** The app's logo when the server knows one and it is a bitmap, otherwise its initial on a tint. */
+/** Bundled brand icons for the curated apps. */
+internal val bundledLogos = mapOf(
+    "gmail" to R.drawable.logo_gmail, "googlecalendar" to R.drawable.logo_googlecalendar,
+    "notion" to R.drawable.logo_notion, "googledrive" to R.drawable.logo_googledrive,
+    "slack" to R.drawable.logo_slack, "github" to R.drawable.logo_github,
+    "linear" to R.drawable.logo_linear, "todoist" to R.drawable.logo_todoist,
+    "spotify" to R.drawable.logo_spotify, "fastmail" to R.drawable.logo_fastmail,
+)
+
+/**
+ * The app's bundled icon, else the server's logo when it is a bitmap, else its initial on a tint.
+ * Logos sit on white so dark marks like GitHub's stay visible in dark themes.
+ */
 @Composable
-private fun AppLogo(app: AppIntegration) {
+fun AppLogo(slug: String, name: String, logoUrl: String? = null, size: Dp = 42.dp) {
     val t = Beep.colors
-    val logo by produceState<Bitmap?>(null, app.logoUrl) { value = app.logoUrl?.let { Logos.load(it) } }
+    val bundled = bundledLogos[slug]
+    val remote by produceState<Bitmap?>(null, logoUrl, bundled) {
+        value = if (bundled == null) logoUrl?.let { Logos.load(it) } else null
+    }
     val shape = RoundedCornerShape(Beep.shapes.smallRadius)
-    Box(Modifier.size(42.dp).clip(shape).background(if (logo != null) t.surface else t.tints[app.name.hashCode().mod(t.tints.size)]),
+    val hasLogo = bundled != null || remote != null
+    Box(Modifier.size(size).clip(shape).background(if (hasLogo) Color.White else t.tints[name.hashCode().mod(t.tints.size)]),
         contentAlignment = Alignment.Center) {
-        val image = logo
-        if (image != null) Image(image.asImageBitmap(), null, Modifier.size(30.dp), contentScale = ContentScale.Fit)
-        else Text(app.name.take(1).uppercase(), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = t.ink)
+        val image = remote
+        when {
+            bundled != null -> Image(painterResource(bundled), null, Modifier.size(size * 0.6f))
+            image != null -> Image(image.asImageBitmap(), null, Modifier.size(size * 0.7f), contentScale = ContentScale.Fit)
+            else -> Text(name.take(1).uppercase(), fontSize = (size.value * 0.43f).sp, fontWeight = FontWeight.Bold, color = t.ink)
+        }
     }
 }
+
+/** The bundled logo of the app a tool belongs to: Composio tools are `GMAIL_SEND_EMAIL`, MCP tools `fastmail_x`. */
+fun appLogoForTool(name: String): Int? = bundledLogos[name.substringBefore('_').lowercase()]
+
+@Composable
+private fun AppLogo(app: AppIntegration) = AppLogo(app.slug, app.name, app.logoUrl)
 
 private object Logos {
     private val cache = LruCache<String, Bitmap>(32)
