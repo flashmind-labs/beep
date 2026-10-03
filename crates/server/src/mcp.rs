@@ -180,6 +180,32 @@ impl McpConnections {
             .collect()
     }
 
+    /// Calls one tool on a connected server outside of any run and returns its
+    /// result, parsed as JSON when the server answered with JSON text.
+    pub async fn call(
+        &self,
+        user: &str,
+        server: &str,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<Value> {
+        let registry = self.registry(user).await;
+        let result = registry.call_tool(server, tool, arguments).await;
+        registry.drain_pending_ops();
+        let result = result?;
+        let text: String = result
+            .content
+            .iter()
+            .filter_map(|content| content.as_text())
+            .collect();
+        if result.is_error {
+            // Error text says what went wrong; it is clipped in case it echoes content.
+            let reason: String = text.chars().take(200).collect();
+            bail!("{server} {tool} returned an error: {reason}");
+        }
+        Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
+    }
+
     /// Starts OAuth and returns the URL to open in the browser.
     pub async fn start_auth(&self, user: &str, name: &str, redirect_uri: &str) -> Result<String> {
         let Some(config) = preset(name) else {

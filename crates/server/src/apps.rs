@@ -7,6 +7,7 @@
 
 use crate::{
     AsyncMutex,
+    mail::Mailbox,
     mcp::{self, McpConnections},
     protocol::{ApiError, AppIntegration, AppKind, ConnectLink},
 };
@@ -161,6 +162,28 @@ impl Apps {
                 Vec::new()
             }
         }
+    }
+
+    /// The mailboxes `user` has connected. A Composio outage leaves Gmail out.
+    pub async fn mailboxes(&self, user: &str) -> Vec<Mailbox> {
+        let mut mailboxes = Vec::new();
+        if let Some(client) = self.client(user) {
+            match connected_slugs(&client, user).await {
+                Ok(slugs) if slugs.contains(Mailbox::Gmail.slug()) => {
+                    mailboxes.push(Mailbox::Gmail)
+                }
+                Ok(_) => {}
+                Err(error) => log::warn!("apps: unable to list connected accounts: {error:#}"),
+            }
+        }
+        match self.mcp.connected(user).await {
+            Ok(servers) if servers.contains(Mailbox::Fastmail.slug()) => {
+                mailboxes.push(Mailbox::Fastmail)
+            }
+            Ok(_) => {}
+            Err(error) => log::warn!("apps: unable to list MCP servers: {error:#}"),
+        }
+        mailboxes
     }
 
     pub async fn list(&self, user: &str) -> Result<Vec<AppIntegration>, ApiError> {

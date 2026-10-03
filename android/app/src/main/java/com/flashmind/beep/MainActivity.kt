@@ -1,5 +1,6 @@
 package com.flashmind.beep
 
+import com.flashmind.beep.proto.MemorySource
 import kotlin.math.roundToInt
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.graphics.TransformOrigin
@@ -1802,7 +1803,12 @@ private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () 
     val ended = memory.validUntil?.let { it < today } == true
     val starts = memory.validFrom?.takeIf { it > today }?.let { "Starts ${shortDate(it)}" }
     val expires = memory.validUntil?.let { if (ended) "Expired ${shortDate(it)}" else "Expires ${shortDate(it)}" }
-    val details = listOfNotNull(if (memory.toldByUser) "You told Beep" else "Learned", shortDate(memory.updated), starts)
+    val origin = when (memory.source) {
+        MemorySource.USER -> "You told Beep"
+        MemorySource.EMAIL -> "From your email"
+        MemorySource.LEARNED -> "Learned"
+    }
+    val details = listOfNotNull(origin, shortDate(memory.updated), starts)
     BeepCard(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {

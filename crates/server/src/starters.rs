@@ -168,6 +168,7 @@ fn parse(answer: &str) -> Result<Vec<PromptSuggestion>> {
 }
 
 /// One model call.
+#[derive(Clone, Copy)]
 pub struct Generator<'a> {
     pub provider: &'a dyn LlmProvider,
     /// The assistant's model and provider routing; reasoning and budget are set here.
