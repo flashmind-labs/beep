@@ -11,26 +11,14 @@ mod progress;
 mod suggest;
 
 use crate::app::App;
-use flashmind::types::ToolRegistry;
+use flashmind::{tools::time::TimeTool, types::ToolRegistry};
 use std::sync::Arc;
 
 pub fn registry(app: Arc<App>, run_id: &str, user: &str) -> ToolRegistry {
     let store = app.store.clone();
     let mut registry = ToolRegistry::new();
-    for name in [
-        "memory_store",
-        "memory_recall",
-        "memory_forget",
-        "memory_update",
-        "get_time",
-    ] {
-        registry.register(Arc::new(memory::MemoryTool {
-            store: store.clone(),
-            memories: app.memories.clone(),
-            user: user.into(),
-            name,
-        }));
-    }
+    memory::register(&mut registry, store.clone(), app.memories.clone(), user);
+    registry.register(Arc::new(TimeTool));
     crate::cron::register_tools(&mut registry, store.clone(), user, None);
     registry.register(Arc::new(open_app::OpenAppTool));
     registry.register(Arc::new(alarm::SetAlarmTool));
