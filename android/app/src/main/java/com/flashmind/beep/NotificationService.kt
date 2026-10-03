@@ -14,7 +14,9 @@ import com.flashmind.beep.proto.Notice
 
 class NotificationService : Service() {
     companion object {
-        private const val CHANNEL_FOREGROUND = "beep_foreground"
+        // A channel keeps the importance it was created with, so the quieter one needed a new id.
+        private const val CHANNEL_FOREGROUND = "beep_connection"
+        private const val OLD_CHANNEL_FOREGROUND = "beep_foreground"
         private const val CHANNEL_MESSAGES = "beep_messages"
         private const val FOREGROUND_ID = 99
         private var nextId = 1000
@@ -32,8 +34,13 @@ class NotificationService : Service() {
     override fun onCreate() {
         super.onCreate()
         val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_FOREGROUND, "Background listener",
-            NotificationManager.IMPORTANCE_LOW).apply { description = "Keeps the QUIC connection alive" })
+        manager.deleteNotificationChannel(OLD_CHANNEL_FOREGROUND)
+        // Lowest importance: it sits collapsed in the silent section with no status bar icon.
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_FOREGROUND, "Background connection",
+            NotificationManager.IMPORTANCE_MIN).apply {
+            description = "Keeps Beep connected so routines and reminders arrive"
+            setShowBadge(false)
+        })
         manager.createNotificationChannel(NotificationChannel(CHANNEL_MESSAGES, "Messages",
             NotificationManager.IMPORTANCE_HIGH).apply {
             description = "Incoming notifications from your assistant"

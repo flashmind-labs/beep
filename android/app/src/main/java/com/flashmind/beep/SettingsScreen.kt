@@ -10,12 +10,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.BubbleChart
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -26,13 +30,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 
 /** Everything that is not a conversation or one of the drawer tiles. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,14 +58,49 @@ fun SettingsScreen(status: String, onBack: () -> Unit, onBubbleSettings: () -> U
             .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             ThemePicker()
-            AppIconPicker()
+            AvatarPicker()
+            BubblePicker(onBubbleSettings)
             Column {
-                HorizontalDivider(color = Beep.colors.softLine)
-                SettingsRow(Icons.Outlined.BubbleChart, "Floating chat", null, onBubbleSettings)
                 HorizontalDivider(color = Beep.colors.softLine)
                 SettingsRow(Icons.Outlined.Link, "Connection", status, onConnection)
                 HorizontalDivider(color = Beep.colors.softLine)
             }
+        }
+    }
+}
+
+/** Which floating chat the float button opens, and whether the overlay may draw yet. */
+@Composable
+private fun BubblePicker(onBubbleSettings: () -> Unit) {
+    val context = LocalContext.current
+    val kind = Bubble.kind.value ?: Bubble.kind(context)
+    var allowed by remember { mutableStateOf(Bubble.allowed(context)) }
+    LifecycleResumeEffect(Unit) { allowed = Bubble.allowed(context); onPauseOrDispose {} }
+    Column {
+        Text("Floating chat", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
+        Spacer(Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            BubbleKind.entries.forEach { option ->
+                val selected = option == kind
+                val shape = RoundedCornerShape(14.dp)
+                Row(Modifier.fillMaxWidth()
+                    .border(if (selected) 2.dp else 1.dp, if (selected) Beep.colors.ink else Beep.colors.softLine, shape)
+                    .clip(shape)
+                    .clickable { Bubble.pick(context, option) }
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(option.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
+                        Text(option.hint, fontSize = 12.sp, color = Beep.colors.muted)
+                    }
+                    if (selected) Icon(Icons.Outlined.Check, "Selected", Modifier.size(16.dp), tint = Beep.colors.ink)
+                }
+            }
+        }
+        if (kind == BubbleKind.Overlay && !allowed) {
+            Spacer(Modifier.height(4.dp))
+            SettingsRow(Icons.Outlined.BubbleChart, "Allow display over other apps",
+                "Until then the float button uses the Android bubble", onBubbleSettings)
         }
     }
 }

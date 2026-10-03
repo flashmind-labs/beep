@@ -33,40 +33,45 @@ import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import java.time.Month
 
-/** Launcher icons. Each one is an activity-alias in the manifest; only one is enabled at a time. */
-enum class AppIcon(val key: String, val label: String, val alias: String, @DrawableRes val foreground: Int) {
-    Beep("beep", "Beep", ".LauncherBeep", R.drawable.ic_launcher_foreground),
-    Bubble("bubble", "Bubble", ".LauncherBubble", R.drawable.ic_launcher_bubble_foreground),
-    Spark("spark", "Spark", ".LauncherSpark", R.drawable.ic_launcher_spark_foreground),
-    Ghost("ghost", "Ghost", ".LauncherGhost", R.drawable.ic_launcher_ghost_foreground);
+/** Beep's look, as the launcher icon and the bubble. Each one is an activity-alias in the manifest; only one is enabled at a time. */
+enum class Avatar(val key: String, val label: String, val alias: String, @DrawableRes val foreground: Int, @DrawableRes val bubbleIcon: Int) {
+    Beep("beep", "Beep", ".LauncherBeep", R.drawable.ic_launcher_foreground, R.drawable.ic_beep),
+    Bubble("bubble", "Bubble", ".LauncherBubble", R.drawable.ic_launcher_bubble_foreground, R.mipmap.ic_launcher_bubble),
+    Spark("spark", "Spark", ".LauncherSpark", R.drawable.ic_launcher_spark_foreground, R.mipmap.ic_launcher_spark),
+    Ghost("ghost", "Ghost", ".LauncherGhost", R.drawable.ic_launcher_ghost_foreground, R.mipmap.ic_launcher_ghost);
 
     companion object {
-        fun fromKey(key: String?): AppIcon? = entries.firstOrNull { it.key == key }
+        fun fromKey(key: String?): Avatar? = entries.firstOrNull { it.key == key }
     }
 }
 
-object AppIcons {
+object Avatars {
     private const val PREFS = "appearance"
     private const val KEY = "app_icon"
-    private val ManifestDefault = AppIcon.Beep
+    private val ManifestDefault = Avatar.Beep
 
     /** The user's pick, or null for automatic (the ghost in October, Beep otherwise). */
-    val choice = mutableStateOf<AppIcon?>(null)
+    val choice = mutableStateOf<Avatar?>(null)
     private var loaded = false
 
-    fun seasonal(today: LocalDate = LocalDate.now()): AppIcon =
-        if (today.month == Month.OCTOBER) AppIcon.Ghost else AppIcon.Beep
+    /** The avatar in use: the user's pick, or the season's. */
+    val current: Avatar get() = choice.value ?: seasonal()
+
+    fun seasonal(today: LocalDate = LocalDate.now()): Avatar =
+        if (today.month == Month.OCTOBER) Avatar.Ghost else Avatar.Beep
 
     fun load(context: Context) {
         if (loaded) return
         loaded = true
-        choice.value = AppIcon.fromKey(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null))
+        choice.value = Avatar.fromKey(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null))
     }
 
-    fun set(context: Context, icon: AppIcon?) {
+    fun set(context: Context, icon: Avatar?) {
         choice.value = icon
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, icon?.key).apply()
         apply(context)
+        // The Android bubble draws a fixed icon, so post it again with the new one.
+        if (SystemBubble.shown(context)) SystemBubble.show(context)
     }
 
     /** Enables the alias for the current icon and disables the rest, touching only aliases whose state changes. */
@@ -75,7 +80,7 @@ object AppIcons {
         val wanted = choice.value ?: seasonal()
         val pm = context.packageManager
         // Enable first so the app is never left without a launcher entry.
-        val ordered = AppIcon.entries.sortedByDescending { it == wanted }
+        val ordered = Avatar.entries.sortedByDescending { it == wanted }
         for (icon in ordered) {
             val component = ComponentName(context.packageName, context.packageName + icon.alias)
             val enabled = when (pm.getComponentEnabledSetting(component)) {
@@ -93,29 +98,29 @@ object AppIcons {
 
 private val IconGround = Color(0xFF2F8A69)
 
-/** Row of launcher icons. Auto follows the season; the others pin one icon. */
+/** Row of avatars. Auto follows the season; the others pin one icon. */
 @Composable
-fun AppIconPicker(modifier: Modifier = Modifier) {
+fun AvatarPicker(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    remember { AppIcons.load(context.applicationContext) }
-    val choice = AppIcons.choice.value
+    remember { Avatars.load(context.applicationContext) }
+    val choice = Avatars.choice.value
     Column(modifier) {
-        Text("App icon", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
+        Text("Avatar", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconOption("Auto", AppIcons.seasonal(), choice == null) { AppIcons.set(context, null) }
-            AppIcon.entries.forEach { icon ->
-                IconOption(icon.label, icon, choice == icon) { AppIcons.set(context, icon) }
+            IconOption("Auto", Avatars.seasonal(), choice == null) { Avatars.set(context, null) }
+            Avatar.entries.forEach { icon ->
+                IconOption(icon.label, icon, choice == icon) { Avatars.set(context, icon) }
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text("Auto uses the ghost in October. Your home screen may take a moment to update.",
+        Text("How Beep looks on your home screen and in the bubble. Auto uses the ghost in October. The home screen may take a moment to update.",
             fontSize = 11.sp, color = Beep.colors.muted)
     }
 }
 
 @Composable
-private fun IconOption(label: String, icon: AppIcon, selected: Boolean, onClick: () -> Unit) {
+private fun IconOption(label: String, icon: Avatar, selected: Boolean, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clip(CircleShape).clickable(onClick = onClick)) {
         Box(Modifier.size(44.dp)
