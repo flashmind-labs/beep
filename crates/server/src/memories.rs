@@ -17,6 +17,7 @@ use anyhow::{Result, ensure};
 use chrono::{NaiveDateTime, Utc};
 use flashmind::memory::EmbeddingProvider;
 use serde::Deserialize;
+use serde_json::{Value, json};
 use std::{collections::HashSet, fmt::Write, sync::Arc, time::Duration};
 
 /// The same model under its OpenAI and OpenRouter names, so stored
@@ -25,7 +26,8 @@ pub const EMBEDDING_MODEL: &str = "text-embedding-3-small";
 pub const OPENROUTER_EMBEDDING_MODEL: &str = "openai/text-embedding-3-small";
 /// Embedding calls sit in front of every turn, so they get little time.
 const EMBED_TIMEOUT: Duration = Duration::from_secs(4);
-const LEARN_TIMEOUT: Duration = Duration::from_secs(60);
+/// The run stays open while learning, so it gets little time.
+const LEARN_TIMEOUT: Duration = Duration::from_secs(15);
 /// Missing embeddings filled per lookup.
 const BACKFILL: usize = 64;
 /// Two texts this close say the same thing.
@@ -218,41 +220,54 @@ impl Memories {
     }
 
     /// Reads a finished exchange and updates memory with what it teaches about
-    /// the user. Runs in the background; failures are logged and dropped.
-    pub async fn learn(&self, generator: Generator<'_>, exchange: Exchange) {
+    /// the user, returning the changes made. Failures are logged and dropped.
+    pub async fn learn(&self, generator: Generator<'_>, exchange: Exchange) -> Vec<Learned> {
         let user = generator.user.to_owned();
         let attempt = async {
             if exchange.message.split_whitespace().count() < 3 {
-                return Ok(0);
+                return Ok(Vec::new());
             }
             let known = self.search(&user, &exchange.message, None, 12).await?;
             let prompt = learn_prompt(&known, &exchange);
             let answer = generator.text(LEARN_SYSTEM, prompt).await?;
             let ops = parse_ops(&answer)?;
-            let mut applied = 0;
+            let mut learned = Vec::new();
             for op in ops {
-                if self.apply(&user, &known, op).await? {
-                    applied += 1;
-                }
+                learned.extend(self.apply(&user, &known, op).await?);
             }
-            anyhow::Ok(applied)
+            anyhow::Ok(learned)
         };
         match tokio::time::timeout(LEARN_TIMEOUT, attempt).await {
-            Ok(Ok(0)) => {}
-            Ok(Ok(applied)) => log::info!("memory learned {applied} change(s); user={user}"),
-            Ok(Err(error)) => log::info!("memory learning skipped: {error}"),
-            Err(_) => log::info!("memory learning timed out"),
+            Ok(Ok(learned)) => {
+                if !learned.is_empty() {
+                    log::info!("memory learned {} change(s); user={user}", learned.len());
+                }
+                learned
+            }
+            Ok(Err(error)) => {
+                log::info!("memory learning skipped: {error}");
+                Vec::new()
+            }
+            Err(_) => {
+                log::info!("memory learning timed out");
+                Vec::new()
+            }
         }
     }
 
-    async fn apply(&self, user: &str, known: &[Hit], op: Op) -> Result<bool> {
+    async fn apply(&self, user: &str, known: &[Hit], op: Op) -> Result<Option<Learned>> {
         match op.op {
             OpKind::Forget => {
                 // Only what the extractor was shown can be forgotten.
                 if !known.iter().any(|h| h.key == op.key) {
-                    return Ok(false);
+                    return Ok(None);
                 }
-                self.store.forget(user, &op.key).await
+                let forgotten = self.store.forget(user, &op.key).await?;
+                Ok(forgotten.then_some(Learned {
+                    change: Change::Forgotten,
+                    key: op.key,
+                    content: None,
+                }))
             }
             OpKind::Add | OpKind::Update => {
                 let Some(content) = op
@@ -261,7 +276,7 @@ impl Memories {
                     .map(str::trim)
                     .filter(|c| !c.is_empty())
                 else {
-                    return Ok(false);
+                    return Ok(None);
                 };
                 let category = op
                     .category
@@ -273,19 +288,76 @@ impl Memories {
                             .find(|h| h.key == op.key)
                             .map(|h| h.category.as_str())
                     });
-                self.remember(
-                    user,
-                    NewMemory {
-                        key: &op.key,
-                        content,
-                        category,
-                        source: MemorySource::Auto,
+                let key = self
+                    .remember(
+                        user,
+                        NewMemory {
+                            key: &op.key,
+                            content,
+                            category,
+                            source: MemorySource::Auto,
+                        },
+                    )
+                    .await?;
+                let updated = known.iter().any(|h| h.key == key);
+                Ok(Some(Learned {
+                    change: if updated {
+                        Change::Updated
+                    } else {
+                        Change::Stored
                     },
-                )
-                .await?;
-                Ok(true)
+                    key,
+                    content: Some(content.to_owned()),
+                }))
             }
         }
+    }
+}
+
+/// A memory change made by `learn`, shown in the chat as the memory tool it
+/// stands for.
+#[derive(Debug)]
+pub struct Learned {
+    pub change: Change,
+    pub key: String,
+    /// The new text, `None` when forgotten.
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Change {
+    Stored,
+    Updated,
+    Forgotten,
+}
+
+impl Change {
+    /// The memory tool that makes the same change.
+    pub fn tool(self) -> &'static str {
+        match self {
+            Change::Stored => "memory_store",
+            Change::Updated => "memory_update",
+            Change::Forgotten => "memory_forget",
+        }
+    }
+}
+
+impl Learned {
+    pub fn arguments(&self) -> Value {
+        match &self.content {
+            Some(content) => json!({"key": self.key, "content": content}),
+            None => json!({"key": self.key}),
+        }
+    }
+
+    /// Matches what the memory tools return.
+    pub fn output(&self) -> String {
+        match self.change {
+            Change::Stored => json!({"stored": true, "key": self.key}),
+            Change::Updated => json!({"updated": true}),
+            Change::Forgotten => json!({"forgotten": true}),
+        }
+        .to_string()
     }
 }
 
@@ -372,7 +444,8 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 const LEARN_SYSTEM: &str = "You keep the long-term memory of Beep, a personal assistant app. \
 Read the latest exchange and decide what it teaches about the user that is worth remembering for months.
 First triage it: casual chatter, a one-off task, or something personal. Most exchanges teach nothing lasting; then reply {\"ops\": []}.
-Worth keeping: the user's name, the people and pets in their life and how they relate, where they live and work, \
+Worth keeping: the user's name, the people and pets in their life and how they relate (a person the user asks \
+about by name is someone in their life), where they live and work, \
 their job and ongoing projects, stable likes, dislikes and dietary needs, routines, important dates, goals, \
 and how they want Beep to answer. Only what the user said or clearly confirmed. Never guesses, general knowledge, \
 what Beep did, the content of a one-off request, or secrets such as passwords, codes, tokens, card or account numbers.

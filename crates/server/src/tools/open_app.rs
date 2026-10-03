@@ -2,6 +2,9 @@ use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
 
+const APPS: &str =
+    "spotify, youtube, whatsapp, maps, phone, clock, browser, chrome, gmail, calendar";
+
 pub(crate) struct OpenAppTool;
 
 #[async_trait]
@@ -10,7 +13,7 @@ impl Tool for OpenAppTool {
         "open_app"
     }
     fn description(&self) -> &str {
-        "Open an app on the user's Android phone with an optional action. Returns an intent for the client to execute."
+        "Ask the user's Android phone to open an app. The phone gets the request but never reports back whether the app opened, so say you are opening it, never that it opened."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -18,7 +21,7 @@ impl Tool for OpenAppTool {
             "properties": {
                 "app": {
                     "type": "string",
-                    "description": "App name: spotify, youtube, whatsapp, phone, clock, browser, chrome, gmail, calendar"
+                    "enum": APPS.split(", ").collect::<Vec<_>>()
                 },
                 "action": {
                     "type": "string",
@@ -26,7 +29,7 @@ impl Tool for OpenAppTool {
                 },
                 "uri": {
                     "type": "string",
-                    "description": "Optional deep link URI"
+                    "description": "Optional deep link, only one you know is valid for the app. Never guess a path. For Maps: geo:0,0?q=Dubai+Mall for a place, https://maps.google.com/location-sharing for people sharing their location."
                 }
             },
             "required": ["app", "action"],
@@ -38,70 +41,105 @@ impl Tool for OpenAppTool {
         let action = ctx.args.get("action").and_then(Value::as_str).unwrap_or("");
         let uri_override = ctx.args.get("uri").and_then(Value::as_str);
 
-        let (intent_action, default_uri, fallback_url, package) = match app.to_lowercase().as_str()
-        {
-            "spotify" => (
-                "android.intent.action.VIEW",
-                "spotify:",
-                "https://open.spotify.com/",
-                "com.spotify.music",
-            ),
-            "youtube" => (
-                "android.intent.action.VIEW",
-                "vnd.youtube:",
-                "https://www.youtube.com/",
-                "com.google.android.youtube",
-            ),
-            "whatsapp" => (
-                "android.intent.action.VIEW",
-                "whatsapp://send",
-                "https://wa.me/",
-                "com.whatsapp",
-            ),
-            "phone" => (
-                "android.intent.action.DIAL",
-                "tel:",
-                "tel:",
-                "com.android.dialer",
-            ),
-            "clock" => (
-                "android.intent.action.SET_ALARM",
-                "clock:",
-                "",
-                "com.google.android.deskclock",
-            ),
-            "browser" | "chrome" => (
-                "android.intent.action.VIEW",
-                "https://www.google.com/",
-                "https://www.google.com/",
-                "com.android.chrome",
-            ),
-            "gmail" => (
-                "android.intent.action.VIEW",
-                "mailto:",
-                "https://mail.google.com/",
-                "com.google.android.gm",
-            ),
-            "calendar" => (
-                "android.intent.action.VIEW",
-                "content://com.android.calendar/time/",
-                "https://calendar.google.com/",
-                "com.google.android.calendar",
-            ),
-            _ => ("android.intent.action.VIEW", "", "", ""),
+        let Some(target) = target(app) else {
+            return Ok(ToolResult::failure(
+                ctx.tool_call_id,
+                format!("Unknown app {app:?}. Supported: {APPS}."),
+            ));
         };
 
-        let uri = uri_override.unwrap_or(default_uri);
+        let uri = uri_override.unwrap_or(target.uri);
 
         let output = json!({
             "action": "open_app",
             "app": app,
-            "intent_action": intent_action,
+            "intent_action": target.intent_action,
             "uri": uri,
-            "fallback_url": fallback_url,
-            "package": package,
+            "fallback_url": target.fallback_url,
+            "package": target.package,
             "requested_action": action,
+            "status": "sent to the phone, not confirmed",
         });
         Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
+    }
+}
+
+/// How the phone opens an app.
+struct Target {
+    intent_action: &'static str,
+    uri: &'static str,
+    fallback_url: &'static str,
+    package: &'static str,
+}
+
+fn target(app: &str) -> Option<Target> {
+    Some(match app.to_lowercase().as_str() {
+        "spotify" => Target {
+            intent_action: "android.intent.action.VIEW",
+            uri: "spotify:",
+            fallback_url: "https://open.spotify.com/",
+            package: "com.spotify.music",
+        },
+        "youtube" => Target {
+            intent_action: "android.intent.action.VIEW",
+            uri: "vnd.youtube:",
+            fallback_url: "https://www.youtube.com/",
+            package: "com.google.android.youtube",
+        },
+        "whatsapp" => Target {
+            intent_action: "android.intent.action.VIEW",
+            uri: "whatsapp://send",
+            fallback_url: "https://wa.me/",
+            package: "com.whatsapp",
+        },
+        "maps" => Target {
+            intent_action: "android.intent.action.VIEW",
+            uri: "geo:0,0",
+            fallback_url: "https://maps.google.com/",
+            package: "com.google.android.apps.maps",
+        },
+        "phone" => Target {
+            intent_action: "android.intent.action.DIAL",
+            uri: "tel:",
+            fallback_url: "tel:",
+            package: "com.android.dialer",
+        },
+        "clock" => Target {
+            intent_action: "android.intent.action.SET_ALARM",
+            uri: "clock:",
+            fallback_url: "",
+            package: "com.google.android.deskclock",
+        },
+        "browser" | "chrome" => Target {
+            intent_action: "android.intent.action.VIEW",
+            uri: "https://www.google.com/",
+            fallback_url: "https://www.google.com/",
+            package: "com.android.chrome",
+        },
+        "gmail" => Target {
+            intent_action: "android.intent.action.VIEW",
+            uri: "mailto:",
+            fallback_url: "https://mail.google.com/",
+            package: "com.google.android.gm",
+        },
+        "calendar" => Target {
+            intent_action: "android.intent.action.VIEW",
+            uri: "content://com.android.calendar/time/",
+            fallback_url: "https://calendar.google.com/",
+            package: "com.google.android.calendar",
+        },
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_listed_app_opens() {
+        for app in APPS.split(", ") {
+            assert!(target(app).is_some(), "{app} has no target");
+        }
     }
 }

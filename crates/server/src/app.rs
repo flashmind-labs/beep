@@ -16,9 +16,9 @@ use anyhow::Result;
 use chrono::Utc;
 use chrono_tz::Tz;
 use flashmind::{
-    core::{Agent, CancellationToken, Conversation},
+    core::{Agent, CancellationToken, Conversation, ConversationEntry},
     memory::EmbeddingProvider,
-    types::{AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider},
+    types::{AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, ToolCall},
 };
 use futures::StreamExt;
 use serde::Deserialize;
@@ -476,6 +476,51 @@ impl App {
             let _ = self.store.log_cron_finish(&run.id, status, "").await;
         }
 
+        // Learn from the turn while the run is still open, so what was saved shows
+        // as memory tool chips under the reply. Scheduled prompts are written by
+        // the user once, not said in conversation.
+        if status == "completed" && !is_cron {
+            let generator = Generator {
+                provider: self.provider.as_ref(),
+                llm: &self.llm,
+                user,
+            };
+            let exchange = Exchange {
+                message: message.to_owned(),
+                reply,
+            };
+            let learned = self.memories.learn(generator, exchange).await;
+            if !learned.is_empty() {
+                let calls: Vec<ToolCall> = learned
+                    .iter()
+                    .map(|change| ToolCall {
+                        id: Uuid::new_v4().to_string(),
+                        name: change.change.tool().to_owned(),
+                        arguments: change.arguments(),
+                    })
+                    .collect();
+                conversation.add(ConversationEntry::assistant_with_tool_calls(
+                    "",
+                    calls.clone(),
+                    None,
+                ));
+                for (call, change) in calls.into_iter().zip(&learned) {
+                    live.push(RunEvent::ToolStarted {
+                        name: call.name.clone(),
+                        call_id: call.id.clone(),
+                        description: change.content.clone().unwrap_or_default(),
+                    });
+                    live.push(RunEvent::ToolResult {
+                        name: call.name,
+                        call_id: call.id.clone(),
+                        output: change.output(),
+                        success: true,
+                    });
+                    conversation.add(ConversationEntry::tool(call.id, change.output()));
+                }
+            }
+        }
+
         // Save the turn before clients see the run finish, so they can load it.
         if !failed_tools.is_empty()
             && let Err(error) = self
@@ -491,23 +536,6 @@ impl App {
         live.push(RunEvent::RunFinished {
             status: status.to_owned(),
         });
-
-        // Scheduled prompts are written by the user once, not said in conversation.
-        if status == "completed" && !is_cron {
-            let (app, user) = (self.clone(), user.to_owned());
-            let exchange = Exchange {
-                message: message.to_owned(),
-                reply,
-            };
-            tokio::spawn(async move {
-                let generator = Generator {
-                    provider: app.provider.as_ref(),
-                    llm: &app.llm,
-                    user: &user,
-                };
-                app.memories.learn(generator, exchange).await;
-            });
-        }
         Ok(())
     }
 
