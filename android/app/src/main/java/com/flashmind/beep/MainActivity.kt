@@ -1543,7 +1543,7 @@ private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.
     }
 }
 
-/** Swipe right starts a new chat, swipe left goes back to the last one, or opens the chat list when there is none. */
+/** Swipe left starts a new chat, swipe right goes back to the last one, or opens the chat list when there is none. */
 @Composable
 private fun SwipeChats(canStartNew: Boolean, hasPrevious: Boolean, onNew: () -> Unit, onBack: () -> Unit,
                        modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -1559,23 +1559,23 @@ private fun SwipeChats(canStartNew: Boolean, hasPrevious: Boolean, onNew: () -> 
         detectHorizontalDragGestures(
             onDragEnd = {
                 val moved = offset.value
-                if (moved >= trigger && latestCanStartNew) latestNew() else if (moved <= -trigger) latestBack()
+                if (moved <= -trigger && latestCanStartNew) latestNew() else if (moved >= trigger) latestBack()
                 scope.launch { offset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy)) }
             },
             onDragCancel = { scope.launch { offset.animateTo(0f) } },
         ) { change, amount ->
             change.consume()
             // Damped so the chat lags the finger, and capped once past the trigger.
-            val max = if (latestCanStartNew) limit else limit / 4
-            scope.launch { offset.snapTo((offset.value + amount * 0.5f).coerceIn(-limit, max)) }
+            val min = if (latestCanStartNew) -limit else -limit / 4
+            scope.launch { offset.snapTo((offset.value + amount * 0.5f).coerceIn(min, limit)) }
         }
     }) {
         val progress = (abs(offset.value) / trigger).coerceIn(0f, 1f)
-        if (offset.value > 0 && canStartNew)
-            SwipeHint(Icons.Outlined.Add, "New chat", progress, Modifier.align(Alignment.CenterStart).padding(start = 16.dp))
-        if (offset.value < 0)
+        if (offset.value < 0 && canStartNew)
+            SwipeHint(Icons.Outlined.Add, "New chat", progress, Modifier.align(Alignment.CenterEnd).padding(end = 16.dp))
+        if (offset.value > 0)
             SwipeHint(if (hasPrevious) Icons.AutoMirrored.Outlined.ArrowBack else Icons.Outlined.Menu,
-                if (hasPrevious) "Previous" else "All chats", progress, Modifier.align(Alignment.CenterEnd).padding(end = 16.dp))
+                if (hasPrevious) "Previous" else "All chats", progress, Modifier.align(Alignment.CenterStart).padding(start = 16.dp))
         Box(Modifier.fillMaxSize().graphicsLayer { translationX = offset.value; alpha = 1f - progress * 0.25f }) { content() }
     }
 }

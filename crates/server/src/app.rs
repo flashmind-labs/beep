@@ -474,7 +474,7 @@ impl App {
         }
         let generator = Generator {
             provider: self.provider.as_ref(),
-            model: &self.llm.model,
+            llm: &self.llm,
             user,
         };
         self.starters
