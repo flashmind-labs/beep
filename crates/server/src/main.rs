@@ -77,6 +77,7 @@ async fn main() -> Result<()> {
         llm,
         ServerTools {
             search,
+            firecrawl_key: config.firecrawl_key.as_deref().map(SecretString::from),
             decision,
             composio,
             embedder: Some(embedder),
