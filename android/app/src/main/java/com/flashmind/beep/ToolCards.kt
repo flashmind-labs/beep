@@ -80,8 +80,18 @@ import kotlin.math.tan
 
 /** What a finished tool call shows in the chat instead of a bare chip. */
 sealed class ToolCard {
-    /** [near] centers a search, such as "italian restaurant" around the user. */
-    data class Place(val name: String, val query: String, val directions: Boolean, val near: LatLon? = null) : ToolCard()
+    /**
+     * [near] centers a search, such as "italian restaurant" around the user. Directions start
+     * at [origin] when given, else at the phone.
+     */
+    data class Place(
+        val name: String,
+        val query: String,
+        val directions: Boolean,
+        val near: LatLon? = null,
+        val origin: String? = null,
+        val travelMode: String? = null,
+    ) : ToolCard()
     data class Here(val latitude: Double, val longitude: Double) : ToolCard()
     data class Contacts(val people: List<Contact>) : ToolCard()
     data class OpenedApp(val app: String, val uri: String, val fallbackUrl: String) : ToolCard()
@@ -140,7 +150,7 @@ private fun placeOf(json: JSONObject): ToolCard.Place? {
             val lon = n.optDouble("longitude", Double.NaN)
             if (lat.isNaN() || lon.isNaN()) null else LatLon(lat, lon, "")
         }
-        return ToolCard.Place(p.text("name") ?: query, query, directions, near)
+        return ToolCard.Place(p.text("name") ?: query, query, directions, near, p.text("origin"), p.text("travel_mode"))
     }
     val uri = json.optString("uri")
     val directions = uri.startsWith("google.navigation:")
@@ -283,9 +293,18 @@ private fun MapSnippet(point: LatLon?, height: Int, onOpen: () -> Unit) {
     }
 }
 
-private fun openMaps(context: Context, query: String, point: LatLon?, directions: Boolean, near: LatLon? = null) {
+/** google.navigation always starts at the phone, so a route from elsewhere uses the Maps URL. */
+private fun openDirections(context: Context, card: ToolCard.Place) {
+    val mode = card.travelMode ?: "driving"
+    val url = "https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(card.query)}&travelmode=$mode" +
+        card.origin?.let { "&origin=${Uri.encode(it)}" }.orEmpty()
+    val flag = when (mode) { "walking" -> "w"; "transit" -> "r"; "bicycling" -> "b"; else -> "d" }
+    val uri = if (card.origin != null) url else "google.navigation:q=${Uri.encode(card.query)}&mode=$flag"
+    AppLauncher.launch(context, "maps", uri, url)
+}
+
+private fun openMaps(context: Context, query: String, point: LatLon?, near: LatLon? = null) {
     val uri = when {
-        directions -> "google.navigation:q=${Uri.encode(query)}"
         // Maps runs the search itself around the user rather than jumping to one geocoded hit.
         near != null -> "geo:${near.latitude},${near.longitude}?q=${Uri.encode(query)}"
         point != null -> "geo:${point.latitude},${point.longitude}?q=${Uri.encode(query)}"
@@ -301,7 +320,7 @@ private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
     val found by produceState<LatLon?>(null, card.query, card.near) { value = Places.lookup(context, card.query, card.near) }
     val point = found ?: card.near
     BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
-        MapSnippet(point, if (compact) 110 else 150) { openMaps(context, card.query, point, directions = false, card.near) }
+        MapSnippet(point, if (compact) 110 else 150) { openMaps(context, card.query, point, card.near) }
         Column(Modifier.padding(14.dp)) {
             Text(card.name, style = displayStyle(if (compact) 15.sp else 17.sp), color = t.colors.ink,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -310,10 +329,14 @@ private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
                 Spacer(Modifier.height(3.dp))
                 Text(address, fontSize = 13.sp, color = t.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
+            card.origin?.let { origin ->
+                Spacer(Modifier.height(3.dp))
+                Text("From $origin", fontSize = 13.sp, color = t.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CardButton("Directions", Icons.Outlined.Directions, primary = true) { openMaps(context, card.query, point, directions = true) }
-                CardButton("Open in Maps", Icons.Outlined.Map) { openMaps(context, card.query, point, directions = false, card.near) }
+                CardButton("Directions", Icons.Outlined.Directions, primary = true) { openDirections(context, card) }
+                CardButton("Open in Maps", Icons.Outlined.Map) { openMaps(context, card.query, point, card.near) }
             }
         }
     }
@@ -327,7 +350,7 @@ private fun HereCard(card: ToolCard.Here, compact: Boolean) {
     val address by produceState("", card) { value = Places.addressAt(context, card.latitude, card.longitude) }
     val label = "%.5f, %.5f".format(card.latitude, card.longitude)
     BeepCard(Modifier.fillMaxWidth()) {
-        MapSnippet(point, if (compact) 100 else 130) { openMaps(context, label, point, directions = false) }
+        MapSnippet(point, if (compact) 100 else 130) { openMaps(context, label, point) }
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.MyLocation, null, Modifier.size(18.dp), tint = t.colors.brand)
             Spacer(Modifier.width(10.dp))
