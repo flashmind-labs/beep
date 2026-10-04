@@ -287,11 +287,7 @@ impl Tool for AppTool {
     }
 
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
-        let args = if ctx.args.is_null() {
-            json!({})
-        } else {
-            ctx.args
-        };
+        let args = drop_empty(ctx.args);
         if self.confirm.needed(&args) {
             let key = format!("{}\0{}\0{args}", self.scope.session_id, self.name);
             if !self.scope.confirmations.granted(key, &self.scope.run_id) {
@@ -344,6 +340,21 @@ impl Tool for AppTool {
     }
 }
 
+/// Leaves out arguments the model filled with nothing. Weaker models send
+/// every field in the schema, and Fastmail rejects a null or "None" `cursor`
+/// as an invalid page.
+fn drop_empty(args: Value) -> Value {
+    let Value::Object(mut args) = args else {
+        return json!({});
+    };
+    args.retain(|_, value| match value {
+        Value::Null => false,
+        Value::String(text) => !matches!(text.trim(), "" | "None" | "null"),
+        _ => true,
+    });
+    Value::Object(args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +370,19 @@ mod tests {
         // Granted once: the next call asks again.
         assert!(!confirmations.granted("s\0del\0{}".into(), "run3"));
         assert!(!confirmations.granted("s\0del\0{\"id\":1}".into(), "run4"));
+    }
+
+    #[test]
+    fn empty_arguments_are_left_out() {
+        assert_eq!(
+            drop_empty(json!({"query": "hotel", "cursor": null, "limit": 10})),
+            json!({"query": "hotel", "limit": 10})
+        );
+        assert_eq!(
+            drop_empty(json!({"query": "hotel", "cursor": "None"})),
+            json!({"query": "hotel"})
+        );
+        assert_eq!(drop_empty(Value::Null), json!({}));
     }
 
     #[test]
