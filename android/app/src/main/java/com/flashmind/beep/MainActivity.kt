@@ -148,7 +148,7 @@ private val TextMuted: Color @Composable @ReadOnlyComposable get() = Beep.colors
 private val TextDim: Color @Composable @ReadOnlyComposable get() = Beep.colors.dim
 
 /** Load, resize to at most [maxSize] px on the longest side, and JPEG-encode as a base64 data URI. */
-private fun encodeImageUri(context: Context, uri: Uri, maxSize: Int = 1024): String? {
+internal fun encodeImageUri(context: Context, uri: Uri, maxSize: Int = 1024): String? {
     return try {
         val bitmap = if (Build.VERSION.SDK_INT >= 28) {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
@@ -171,7 +171,7 @@ private fun encodeImageUri(context: Context, uri: Uri, maxSize: Int = 1024): Str
 }
 
 /** Decode a base64 data URI to a Bitmap for display. */
-private fun decodeImageBase64(dataUri: String): Bitmap? {
+internal fun decodeImageBase64(dataUri: String): Bitmap? {
     return try {
         val b64 = dataUri.substringAfter(",", "")
         if (b64.isEmpty()) return null
