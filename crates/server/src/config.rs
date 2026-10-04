@@ -32,6 +32,9 @@ pub struct Config {
     pub composio_callback_url: Option<String>,
     /// Where the daily log files and the cron log go. Defaults to `logs`.
     pub log_dir: Option<PathBuf>,
+    /// Holds a folder per user for downloads and code the agent runs under
+    /// Drop. The `execute_code` and `download_file` tools exist only when set.
+    pub sandbox_dir: Option<PathBuf>,
 }
 
 impl Config {

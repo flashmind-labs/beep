@@ -9,6 +9,7 @@ use crate::{
         DeviceAnswer, DeviceQuery, ForegroundApp, Notice, PromptSuggestions, Run, RunEvent, Usage,
     },
     repeat::RepeatGuard,
+    sandbox::{self, Sandbox},
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext},
     store::{CreateRun, FinishedTurn, Location, RunStatus, SessionRef, Store},
@@ -88,6 +89,8 @@ pub struct ServerTools {
     pub composio: Option<ComposioSettings>,
     /// Describes images; see `Config::vision_model`.
     pub vision_model: Option<Model>,
+    /// Per-user files and code execution; see `Config::sandbox_dir`.
+    pub sandbox: Option<Arc<Sandbox>>,
 }
 
 /// The part of `ServerTools` a run registers itself.
@@ -95,6 +98,7 @@ struct RunTools {
     search: Option<Arc<SearchTool>>,
     firecrawl_key: Option<SecretString>,
     decision: Option<Arc<DecisionTool>>,
+    sandbox: Option<Arc<Sandbox>>,
 }
 
 /// A `Notice` addressed to one user's open notification streams.
@@ -130,6 +134,7 @@ impl App {
             decision,
             composio,
             vision_model,
+            sandbox,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
         let shared = Shared {
@@ -147,6 +152,7 @@ impl App {
                 search,
                 firecrawl_key,
                 decision,
+                sandbox,
             },
             shared,
             users: StdMutex::new(HashMap::new()),
@@ -463,6 +469,9 @@ impl App {
         }
         if let Some(decision) = &self.tools.decision {
             registry.register(decision.clone());
+        }
+        if let Some(sandbox) = &self.tools.sandbox {
+            sandbox::register(&mut registry, sandbox, user);
         }
 
         let (composio, mcp) = tokio::join!(user.app_tools(), user.mcp_tools());
