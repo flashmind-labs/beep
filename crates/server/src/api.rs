@@ -3,6 +3,7 @@
 use crate::{
     app::Message,
     feeds,
+    images::{MAX_IMAGE_BYTES, MAX_IMAGES},
     live::Subscription,
     protocol::*,
     router::{Cx, Router, Sink},
@@ -79,12 +80,18 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
     if req.message.trim().is_empty() || req.message.len() > 32768 {
         return Err(ApiError::bad_request("message must be 1-32768 bytes"));
     }
+    if req.images.len() > MAX_IMAGES {
+        return Err(ApiError::bad_request("at most 8 images per message"));
+    }
+    if req.images.iter().any(|image| image.len() > MAX_IMAGE_BYTES) {
+        return Err(ApiError::bad_request("each image must be at most 2 MiB"));
+    }
     let message = Message {
         session_id: req.session_id,
         request_id: req.request_id,
         message: req.message,
         cron_id: None,
-        image: req.image,
+        images: req.images,
         foreground: req.foreground,
     };
     match cx.app.submit(&cx.user, message).await? {

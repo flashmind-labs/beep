@@ -86,7 +86,7 @@ impl CronHandler for BeepCronHandler {
             request_id,
             message,
             cron_id: Some(job.id.to_string()),
-            image: None,
+            images: Vec::new(),
             foreground: None,
         };
 

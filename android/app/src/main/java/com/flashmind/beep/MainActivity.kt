@@ -147,6 +147,9 @@ private val TextPrimary: Color @Composable @ReadOnlyComposable get() = Beep.colo
 private val TextMuted: Color @Composable @ReadOnlyComposable get() = Beep.colors.muted
 private val TextDim: Color @Composable @ReadOnlyComposable get() = Beep.colors.dim
 
+/** Most images one message may carry; the server refuses more. */
+const val MAX_IMAGES = 8
+
 /** Load, resize to at most [maxSize] px on the longest side, and JPEG-encode as a base64 data URI. */
 internal fun encodeImageUri(context: Context, uri: Uri, maxSize: Int = 1024): String? {
     return try {
@@ -700,15 +703,15 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                        focusInput: MutableState<Boolean> = mutableStateOf(false),
                        clipboardContent: MutableState<String?> = mutableStateOf(null)) {
     var draft by rememberSaveable(chat.id) { mutableStateOf("") }
-    var attachedImage by remember(chat.id) { mutableStateOf<String?>(null) }
+    var attachedImages by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val imageContext = androidx.compose.ui.platform.LocalContext.current
-    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_IMAGES)) { uris ->
+        if (uris.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
-                val encoded = encodeImageUri(imageContext, uri)
-                if (encoded != null) attachedImage = encoded
+                val encoded = uris.mapNotNull { encodeImageUri(imageContext, it) }
+                attachedImages = (attachedImages + encoded).take(MAX_IMAGES)
             }
         }
     }
@@ -746,13 +749,13 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
     // Dismiss clipboard banner when user starts typing
     LaunchedEffect(draft) { if (draft.isNotBlank()) clipboardContent.value = null }
     fun submit() {
-        val hasContent = draft.isNotBlank() || attachedImage != null
+        val hasContent = draft.isNotBlank() || attachedImages.isNotEmpty()
         if (hasContent && !chat.busy) {
             followLatest = true
-            val text = draft.ifBlank { "What is this?" }
-            repository.send(text, attachedImage)
+            val text = draft.ifBlank { if (attachedImages.size > 1) "What are these?" else "What is this?" }
+            repository.send(text, attachedImages)
             draft = ""
-            attachedImage = null
+            attachedImages = emptyList()
         }
     }
     // While nothing of the reply is written yet, its progress sits in the conversation where the reply will appear.
@@ -859,17 +862,29 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             draft = message.text.trim().lines().take(4).joinToString("\n") { "> $it" } + "\n\n"
                             inputFocusRequester.requestFocus()
                         }
-                        if (shownText.isNotBlank() || message.imageBase64 != null) Box {
+                        if (shownText.isNotBlank() || message.images.isNotEmpty()) Box {
                         // Long press belongs to text selection, so a tap opens the menu (copy, quote, share).
                         Column(bubbleModifier.clickable(enabled = !isStreaming, onClickLabel = "Message actions",
                             indication = null, interactionSource = remember { MutableInteractionSource() }) { menuOpen = true }) {
-                            // Show attached image thumbnail in user messages
-                            if (message.imageBase64 != null) {
-                                val msgBitmap = remember(message.imageBase64) { decodeImageBase64(message.imageBase64) }
+                            // One attached image fills the bubble; several sit in a row of thumbnails.
+                            if (message.images.size == 1) {
+                                val msgBitmap = remember(message.images[0]) { decodeImageBase64(message.images[0]) }
                                 if (msgBitmap != null) {
                                     Image(msgBitmap.asImageBitmap(), "Attached image",
                                         contentScale = ContentScale.FillWidth,
                                         modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp))
+                                }
+                            } else if (message.images.size > 1) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()).padding(6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    message.images.forEachIndexed { index, img ->
+                                        val msgBitmap = remember(img) { decodeImageBase64(img) }
+                                        if (msgBitmap != null) {
+                                            Image(msgBitmap.asImageBitmap(), "Attached image ${index + 1}",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.size(110.dp).clip(RoundedCornerShape(Beep.shapes.smallRadius)))
+                                        }
+                                    }
                                 }
                             }
                             if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
@@ -1010,21 +1025,25 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             }
         }
 
-        // Image attachment preview
-        AnimatedVisibility(visible = attachedImage != null,
+        // Image attachment previews
+        AnimatedVisibility(visible = attachedImages.isNotEmpty(),
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            attachedImage?.let { img ->
-                val previewBitmap = remember(img) { decodeImageBase64(img) }
-                if (previewBitmap != null) {
-                    Box(Modifier.padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 8.dp)) {
-                        Box(Modifier.size(72.dp).popIn(img).beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())) {
-                            Image(previewBitmap.asImageBitmap(), "Attached image",
-                                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                        }
-                        ChunkyButton(onClick = { attachedImage = null }, color = Beep.colors.ink, contentColor = Beep.colors.page,
-                            modifier = Modifier.size(24.dp).align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp),
-                            contentPadding = PaddingValues(0.dp)) {
-                            Icon(Icons.Outlined.Close, "Remove image", Modifier.size(14.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState())
+                .padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                attachedImages.forEachIndexed { index, img ->
+                    val previewBitmap = remember(img) { decodeImageBase64(img) }
+                    if (previewBitmap != null) {
+                        Box {
+                            Box(Modifier.size(72.dp).popIn(img).beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())) {
+                                Image(previewBitmap.asImageBitmap(), "Attached image ${index + 1}",
+                                    contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                            }
+                            ChunkyButton(onClick = { attachedImages = attachedImages - img }, color = Beep.colors.ink, contentColor = Beep.colors.page,
+                                modifier = Modifier.size(24.dp).align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp),
+                                contentPadding = PaddingValues(0.dp)) {
+                                Icon(Icons.Outlined.Close, "Remove image ${index + 1}", Modifier.size(14.dp))
+                            }
                         }
                     }
                 }
@@ -1038,7 +1057,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.weight(1f).heightIn(min = buttonSize).beepFrame(buttonShape, Surface, pressableLook()),
                 verticalAlignment = Alignment.CenterVertically) {
-                if (!chat.busy && draft.isBlank() && attachedImage == null) {
+                if (!chat.busy && draft.isBlank() && attachedImages.size < MAX_IMAGES) {
                     IconButton(onClick = {
                         photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }, modifier = Modifier.padding(start = 2.dp)) {
@@ -1047,7 +1066,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 }
                 TextField(value = draft, onValueChange = { if (it.toByteArray().size <= 32768) draft = it },
                     modifier = Modifier.weight(1f).focusRequester(inputFocusRequester),
-                    placeholder = { Text(if (listening) "Speak now..." else if (attachedImage != null) "Describe the image..." else "Ask anything...", fontSize = 15.sp, color = TextDim) },
+                    placeholder = { Text(if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else "Ask anything...", fontSize = 15.sp, color = TextDim) },
                     textStyle = LocalTextStyle.current.copy(fontSize = 15.sp),
                     colors = TextFieldDefaults.colors(unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, cursorColor = TextPrimary),
@@ -1060,7 +1079,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                     color = Beep.colors.ink, contentColor = Beep.colors.page, contentPadding = PaddingValues(0.dp)) {
                     Icon(Icons.Outlined.Stop, "Stop reply", Modifier.size(22.dp))
                 }
-                draft.isNotBlank() || attachedImage != null -> {
+                draft.isNotBlank() || attachedImages.isNotEmpty() -> {
                     // A quick squish on tap so sending feels physical.
                     val squish = remember { Animatable(1f) }
                     val noMotion = reduceMotion()

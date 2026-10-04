@@ -6,6 +6,7 @@ pub mod config;
 pub mod cron;
 pub mod decision;
 pub mod feeds;
+pub mod images;
 pub mod live;
 pub mod memories;
 pub mod repeat;

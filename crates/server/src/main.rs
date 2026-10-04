@@ -58,6 +58,11 @@ async fn main() -> Result<()> {
         key: SecretString::from(key),
         callback_url: config.composio_callback_url.clone(),
     });
+    let vision_model = config
+        .vision_model
+        .as_deref()
+        .map(str::parse::<Model>)
+        .transpose()?;
     let app = App::new(
         store,
         auth,
@@ -68,6 +73,7 @@ async fn main() -> Result<()> {
             firecrawl_key: config.firecrawl_key.as_deref().map(SecretString::from),
             decision,
             composio,
+            vision_model,
         },
     );
     for user in app.users() {

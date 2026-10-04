@@ -143,7 +143,7 @@ impl BeepClient {
         session_id: String,
         request_id: String,
         message: String,
-        image: Option<String>,
+        images: Vec<String>,
         foreground: Option<ForegroundApp>,
     ) -> Result<Arc<EventStream>, BeepError> {
         let uuid = |s: &str| Uuid::parse_str(s).map_err(|_| bad_request("invalid UUID"));
@@ -151,7 +151,7 @@ impl BeepClient {
             session_id: uuid(&session_id)?,
             request_id: uuid(&request_id)?,
             message,
-            image,
+            images,
             foreground,
         };
         let replies = self.stream(chat).await?;

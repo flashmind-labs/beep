@@ -3,6 +3,7 @@ use crate::{
     compaction::{self, Summarizer},
     config::Auth,
     decision::DecisionTool,
+    images::{self, Describer},
     live::LiveRun,
     memories::{self, Exchange, Hit, Turn},
     protocol::{
@@ -26,7 +27,8 @@ use flashmind::{
         search_read::WebSearchReadTool,
     },
     types::{
-        AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, ToolCall, ToolRegistry,
+        AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, Model, ToolCall,
+        ToolRegistry,
     },
 };
 use futures::StreamExt;
@@ -59,6 +61,8 @@ pub struct App {
     llm: AgentLlmConfig,
     /// The optional tools each run gets.
     tools: RunTools,
+    /// Describes images; without it only a model that sees them can.
+    vision_model: Option<Model>,
     /// Every configured user, by id.
     users: HashMap<String, Arc<User>>,
     /// Runs in progress, with their event feed.
@@ -77,6 +81,8 @@ pub struct ServerTools {
     pub decision: Option<Arc<DecisionTool>>,
     /// Composio apps the user connects from the phone.
     pub composio: Option<ComposioSettings>,
+    /// Describes images; see `Config::vision_model`.
+    pub vision_model: Option<Model>,
 }
 
 /// The part of `ServerTools` a run registers itself.
@@ -101,7 +107,7 @@ pub struct Message {
     #[serde(default)]
     pub cron_id: Option<String>,
     #[serde(default)]
-    pub image: Option<String>,
+    pub images: Vec<String>,
     #[serde(default)]
     pub foreground: Option<ForegroundApp>,
 }
@@ -119,6 +125,7 @@ impl App {
             firecrawl_key,
             decision,
             composio,
+            vision_model,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
         let shared = Shared {
@@ -136,6 +143,7 @@ impl App {
             notifications,
             provider,
             llm,
+            vision_model,
             tools: RunTools {
                 search,
                 firecrawl_key,
@@ -370,17 +378,17 @@ impl App {
         (!ctx.is_empty()).then_some(ctx)
     }
 
-    /// Parse a `data:image/jpeg;base64,...` URI into a `ContentPart::Image`.
-    fn parse_image_data_uri(uri: &str) -> Option<ContentPart> {
-        let rest = uri.strip_prefix("data:")?;
-        let (header, data) = rest.split_once(",")?;
-        let media_type = header.strip_suffix(";base64")?;
-        if !media_type.starts_with("image/") {
-            return None;
-        }
-        Some(ContentPart::Image {
-            media_type: media_type.to_owned(),
-            data: data.to_owned(),
+    /// The model that describes images: the configured vision model, or the
+    /// assistant's own when it sees images.
+    fn describer(&self, user: &User, sees_images: bool) -> Option<Describer> {
+        let model = self
+            .vision_model
+            .clone()
+            .or_else(|| sees_images.then(|| self.llm.model.clone()))?;
+        Some(Describer {
+            provider: self.provider.clone(),
+            model,
+            user: user.id().to_owned(),
         })
     }
 
@@ -434,16 +442,41 @@ impl App {
             .tools(registry)
             .build_sync();
 
+        // Every image is described alongside the run. A model that sees images
+        // gets them now and the descriptions replace them once the turn is
+        // saved; a model that does not waits for the descriptions instead.
+        let attached: Vec<ContentPart> = message
+            .images
+            .iter()
+            .filter_map(|uri| images::parse_data_uri(uri))
+            .collect();
+        let sees_images =
+            !attached.is_empty() && self.provider.capabilities(&self.llm.model).await.images;
+        let mut describing = (!attached.is_empty())
+            .then(|| self.describer(user, sees_images))
+            .flatten()
+            .map(|describer| {
+                let attached = attached.clone();
+                let message = message.message.clone();
+                tokio::spawn(async move { describer.describe_all(&attached, &message).await })
+            });
+        let parts = if sees_images {
+            images::labelled(&attached)
+        } else {
+            let mut descriptions = match describing.take() {
+                Some(task) => task.await.unwrap_or_default(),
+                None => Vec::new(),
+            };
+            descriptions.resize(attached.len(), None);
+            images::described(&descriptions)
+        };
+
         // Flashmind saves `context` as a developer message before the user message. It
         // stays in history, which keeps the cached prefix intact and timestamps each turn.
         let input = AgentInput::User {
             content: message.message.clone(),
             context,
-            parts: message
-                .image
-                .as_deref()
-                .and_then(Self::parse_image_data_uri)
-                .map(|part| vec![part]),
+            parts: (!parts.is_empty()).then_some(parts),
         };
 
         // Conversation entries do not record whether a tool failed; history needs it.
@@ -670,6 +703,18 @@ impl App {
                 .await
         {
             log::warn!("unable to record tool failures: {error}; run_id={}", run.id);
+        }
+        if let Some(task) = describing {
+            match task.await {
+                Ok(descriptions) => images::replace_with_descriptions(
+                    &mut conversation,
+                    turn_started,
+                    &descriptions,
+                ),
+                Err(error) => {
+                    log::warn!("image description task failed: {error}; run_id={}", run.id)
+                }
+            }
         }
         transcript.entries_mut().extend(
             conversation

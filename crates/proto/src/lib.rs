@@ -138,8 +138,9 @@ requests! {
     1 Health {} => Call<()>
     /// Starts a run and streams its events, starting with `RunStarted`. Resending
     /// the same `request_id` follows the existing run instead of starting another.
-    /// `foreground` is the app the user opened Beep's bubble over, if any.
-    2 Chat { session_id: Uuid, request_id: Uuid, message: String, image: Option<String>, foreground: Option<ForegroundApp> } => Stream<Event>
+    /// `images` are `data:image/...;base64,` URIs. `foreground` is the app the
+    /// user opened Beep's bubble over, if any.
+    2 Chat { session_id: Uuid, request_id: Uuid, message: String, images: Vec<String>, foreground: Option<ForegroundApp> } => Stream<Event>
     3 GetRun { id: String } => Call<Run>
     4 CancelRun { id: String } => Call<()>
     5 GetEvents { run_id: String, after: i64 } => Stream<Event>
@@ -539,7 +540,7 @@ mod tests {
             session_id: Uuid::new_v4(),
             request_id: Uuid::new_v4(),
             message: "hi".into(),
-            image: None,
+            images: vec!["data:image/jpeg;base64,AAAA".into()],
             foreground: Some(ForegroundApp {
                 name: "Maps".into(),
                 package: "com.example.maps".into(),
