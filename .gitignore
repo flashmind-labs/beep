@@ -1,5 +1,6 @@
 /target/
 /.dev/
+.neon
 /.firecrawl/
 .env
 *.db
