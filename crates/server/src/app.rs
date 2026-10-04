@@ -392,6 +392,12 @@ impl App {
         })
     }
 
+    /// The model that reads screenshots for `read_screen`.
+    pub(crate) async fn screen_reader(&self, user: &User) -> Option<Describer> {
+        let sees_images = self.provider.capabilities(&self.llm.model).await.images;
+        self.describer(user, sees_images)
+    }
+
     async fn execute(
         self: &Arc<Self>,
         user: &Arc<User>,
