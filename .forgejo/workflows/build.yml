@@ -1,5 +1,5 @@
 # Builds the server image on every push to main and puts it in the private
-# registry, tagged with the commit and `latest`. `just deploy-server` pulls it.
+# registry, tagged with the commit and `latest`. `just deploy-server` runs it.
 #
 # The registry host and account are repository variables and the token a
 # repository secret, so nothing about the box is written down here. `runs-on:

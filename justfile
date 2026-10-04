@@ -5,7 +5,7 @@ apk := "android/app/build/outputs/apk/debug/app-debug.apk"
 # The Docker host the server deploys to, as ssh://host. Set it in .env.
 remote_docker := env("BEEP_DOCKER_HOST", "")
 # The image Forgejo CI publishes, as registry/user/beep-server. Set it in .env.
-server_image := env("BEEP_IMAGE", "beep-server")
+server_image := env("BEEP_IMAGE", "")
 
 # Build and deploy everything: server on the remote host + Android APK
 deploy: deploy-server bake-profile build-android install-apk launch-app
@@ -43,7 +43,7 @@ install-apk:
 launch-app:
     adb shell am start -n com.flashmind.beep/.MainActivity
 
-# Server only: rebuild and redeploy on the remote host
+# Server only: redeploy the CI-built image on the remote host
 server: deploy-server
 
 # Stop the local server
@@ -51,26 +51,24 @@ stop-server:
     -pkill -f "beep-server {{server_config}}"
 
 # Run the image CI built for HEAD on the remote Docker host, with the local
-# config and iroh key. Waits for that image, so push to Forgejo first. Stops the
-# local server first: both would answer as the same node. The host needs
-# `docker login` to the registry once, with a token that can read packages.
+# config and iroh key. The Forgejo runner builds on that host, so the image
+# shows up in its daemon: push first, and this waits for it. Stops the local
+# server first: both would answer as the same node.
 deploy-server:
     #!/usr/bin/env bash
     set -euo pipefail
     test -n "{{remote_docker}}" || { echo "Set BEEP_DOCKER_HOST in .env"; exit 1; }
+    test -n "{{server_image}}" || { echo "Set BEEP_IMAGE in .env"; exit 1; }
     export BEEP_TAG=$(git rev-parse HEAD)
     export DOCKER_HOST={{remote_docker}}
     echo "Waiting for {{server_image}}:$BEEP_TAG"
-    # The registry is plain HTTP on the mesh, and `manifest inspect` ignores
-    # the daemon's insecure-registries setting.
-    for _ in $(seq 180); do
-        ssh {{trim_start_match(remote_docker, "ssh://")}} \
-            docker manifest inspect --insecure "{{server_image}}:$BEEP_TAG" > /dev/null 2>&1 && break
-        sleep 10
+    until docker image inspect "{{server_image}}:$BEEP_TAG" > /dev/null 2>&1; do
+        (( SECONDS < 1800 )) || { echo "No image for $BEEP_TAG after 30 minutes"; exit 1; }
+        sleep 5
     done
     just stop-server
     just push-server-config
-    docker compose up -d --force-recreate --no-build
+    docker compose up -d --force-recreate
     docker compose ps
 
 # Copy the dev config and iroh key into the remote data volume
