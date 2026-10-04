@@ -259,7 +259,8 @@ wire_enum! {
 
 wire_enum! {
     /// Work the server asks the phone to do during a run. `ReadScreen` asks for
-    /// the text of the app on screen behind Beep's bubble.
+    /// a screenshot of the app behind Beep's bubble, answered as JSON
+    /// `{"image": "data:image/jpeg;base64,..."}`.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum DeviceQuery {

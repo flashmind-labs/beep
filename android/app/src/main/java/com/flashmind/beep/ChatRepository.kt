@@ -515,7 +515,7 @@ class ChatRepository(private val storage: LocalStorage) {
     private suspend fun executeDeviceQuery(query: DeviceQuery): JSONObject = when (query) {
         is DeviceQuery.Contacts -> queryContacts(query.name)
         is DeviceQuery.Browser -> browser(query.command)
-        is DeviceQuery.ReadScreen -> withContext(Dispatchers.Main) { ScreenContext.read() }
+        is DeviceQuery.ReadScreen -> ScreenCapture.capture(storage.context)
     }
 
     private suspend fun browser(command: BrowserCommand): JSONObject {

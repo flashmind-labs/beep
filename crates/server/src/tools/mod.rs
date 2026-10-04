@@ -46,6 +46,7 @@ pub fn registry(app: Arc<App>, run: &Run, user: &Arc<User>) -> ToolRegistry {
     registry.register(Arc::new(screen::ReadScreenTool {
         app: app.clone(),
         run_id: run_id.to_owned(),
+        user: user.clone(),
     }));
     registry.register(Arc::new(contacts::ContactsTool {
         app,

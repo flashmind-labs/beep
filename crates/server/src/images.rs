@@ -28,6 +28,11 @@ First copy out any text in the image exactly, keeping numbers, names, prices and
 Then describe what the image shows: objects, people, place, layout and anything notable. \
 Be complete but brief, plain text, no preamble.";
 
+const SCREEN_PROMPT: &str = "This is a screenshot of the user's phone. \
+Copy out all the text on screen in reading order, marking text fields as [field] and buttons as [button]. \
+Then say in a sentence or two which app and screen it is. \
+If the screen is black or blank, say so: some apps block screenshots.";
+
 /// Parses a `data:image/jpeg;base64,...` URI into an image part.
 pub fn parse_data_uri(uri: &str) -> Option<ContentPart> {
     let rest = uri.strip_prefix("data:")?;
@@ -89,7 +94,11 @@ impl Describer {
     /// Describes every image at once, `None` for one that failed.
     pub async fn describe_all(&self, images: &[ContentPart], message: &str) -> Vec<Option<String>> {
         join_all(images.iter().map(|image| async move {
-            match self.describe(image, message).await {
+            let prompt = format!(
+                "The user sent this image with the message: {message}\n\
+                 Describe the whole image, not only what the message asks about."
+            );
+            match self.describe(image, prompt).await {
                 Ok(text) => Some(text),
                 Err(error) => {
                     log::warn!("unable to describe an image: {error}");
@@ -100,11 +109,12 @@ impl Describer {
         .await
     }
 
-    async fn describe(&self, image: &ContentPart, message: &str) -> Result<String> {
-        let prompt = format!(
-            "The user sent this image with the message: {message}\n\
-             Describe the whole image, not only what the message asks about."
-        );
+    /// Transcribes a screenshot of the user's phone for `read_screen`.
+    pub async fn read_screen(&self, image: &ContentPart) -> Result<String> {
+        self.describe(image, SCREEN_PROMPT.to_owned()).await
+    }
+
+    async fn describe(&self, image: &ContentPart, prompt: String) -> Result<String> {
         let request = CompletionRequest {
             model: self.model.clone(),
             messages: vec![

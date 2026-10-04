@@ -162,12 +162,19 @@ internal fun encodeImageUri(context: Context, uri: Uri, maxSize: Int = 1024): St
             @Suppress("DEPRECATION")
             android.provider.MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
         }
+        encodeBitmap(bitmap, maxSize)
+    } catch (_: Exception) { null }
+}
+
+/** Resize to at most [maxSize] px on the longest side and JPEG-encode as a base64 data URI. */
+internal fun encodeBitmap(bitmap: Bitmap, maxSize: Int, quality: Int = 80): String? {
+    return try {
         val scale = maxSize.toFloat() / maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)
         val resized = if (scale < 1f) {
             Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
         } else bitmap
         val stream = java.io.ByteArrayOutputStream()
-        resized.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+        resized.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         val encoded = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
         "data:image/jpeg;base64,$encoded"
     } catch (_: Exception) { null }
@@ -286,6 +293,7 @@ open class MainActivity : ComponentActivity() {
     }
     override fun onDestroy() {
         super.onDestroy()
+        ScreenCapture.chatGone(this)
         networkCallback?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -327,7 +335,7 @@ open class MainActivity : ComponentActivity() {
     }
     override fun onStart() {
         super.onStart()
-        if (!bubble) Bubble.appShown(true)
+        if (!bubble) Bubble.appShown(true) else ScreenCapture.chatShown(this)
         (application as BeepApplication).repository.chatScreenShown(true)
     }
     override fun onStop() {
