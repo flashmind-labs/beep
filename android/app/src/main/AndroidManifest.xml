@@ -14,7 +14,16 @@
         android:icon="@mipmap/ic_launcher" android:theme="@style/Theme.Beep"
         android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true" android:networkSecurityConfig="@xml/network_security_config">
-        <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Composio sends the browser here after an app connects. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="beep" android:host="apps" />
+            </intent-filter>
+        </activity>
         <!-- Launcher icons. AppIcons enables exactly one of these. -->
         <activity-alias android:name=".LauncherBeep" android:targetActivity=".MainActivity"
             android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"

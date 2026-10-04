@@ -237,11 +237,16 @@ open class MainActivity : ComponentActivity() {
         namedPlace = key to name
         return name
     }
+    /** A notice about an app, or the `beep://apps` link Composio returns to after sign-in. */
+    private fun opensApps(intent: Intent?): Boolean =
+        intent?.getBooleanExtra("open_apps", false) == true ||
+            (intent?.data?.scheme == "beep" && intent.data?.host == "apps")
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it) }
         if (intent.getBooleanExtra("focus_input", false)) pendingFocusInput.value = true
-        if (intent.getBooleanExtra("open_apps", false)) pendingOpenApps.value = true
+        if (opensApps(intent)) pendingOpenApps.value = true
     }
     override fun onResume() {
         super.onResume()
@@ -296,7 +301,7 @@ open class MainActivity : ComponentActivity() {
         }
         intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
         if (intent?.getBooleanExtra("focus_input", false) == true) pendingFocusInput.value = true
-        if (intent?.getBooleanExtra("open_apps", false) == true) pendingOpenApps.value = true
+        if (opensApps(intent)) pendingOpenApps.value = true
         setContent {
             BeepTheme {
                 BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, clipboardContent = clipboardContent, onFloat = {

@@ -11,6 +11,8 @@ provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # openai_key = "sk-YOUR-KEY-HERE"
 # Optional: enable Composio integration for third-party tools.
 # composio_key = "YOUR-COMPOSIO-KEY"
+# Sends the browser back to the phone app once an app connects.
+# composio_callback_url = "beep://apps/connected"
 
 [[users]]
 id = "owner"
