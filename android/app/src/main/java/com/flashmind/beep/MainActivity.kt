@@ -255,6 +255,8 @@ open class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         val repository = (application as BeepApplication).repository
+        // From the bubble, the app the user was just in; from Beep itself, none.
+        repository.foregroundApp = if (bubble) ScreenContext.foreground(this) else null
         if (pendingFloat) {
             pendingFloat = false
             float()

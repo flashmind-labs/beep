@@ -216,6 +216,7 @@ impl CronHandler for BeepCronHandler {
             message,
             cron_id: Some(job.id.to_string()),
             image: None,
+            foreground: None,
         };
 
         let Some(user) = self.app.user(user_id) else {

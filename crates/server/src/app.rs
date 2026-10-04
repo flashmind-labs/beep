@@ -5,7 +5,9 @@ use crate::{
     decision::DecisionTool,
     live::LiveRun,
     memories::{self, Exchange, Hit, Turn},
-    protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestions, Run, RunEvent, Usage},
+    protocol::{
+        DeviceAnswer, DeviceQuery, ForegroundApp, Notice, PromptSuggestions, Run, RunEvent, Usage,
+    },
     repeat::RepeatGuard,
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext},
@@ -100,6 +102,8 @@ pub struct Message {
     pub cron_id: Option<String>,
     #[serde(default)]
     pub image: Option<String>,
+    #[serde(default)]
+    pub foreground: Option<ForegroundApp>,
 }
 
 impl App {
@@ -172,8 +176,6 @@ impl App {
             runs.insert(run.id.clone(), live.clone());
 
             let (app, user, run) = (self.clone(), user.clone(), run.clone());
-            let is_cron = message.cron_id.is_some();
-            let image = message.image.clone();
             let session = SessionRef {
                 user: user.id().to_owned(),
                 id: run.session_id.clone(),
@@ -194,17 +196,7 @@ impl App {
                 Err(error) => log::warn!("unable to check title: {error}; run_id={}", run.id),
             }
             tokio::spawn(async move {
-                if let Err(error) = app
-                    .execute(
-                        &user,
-                        &run,
-                        &message.message,
-                        image.as_deref(),
-                        is_cron,
-                        &live,
-                    )
-                    .await
-                {
+                if let Err(error) = app.execute(&user, &run, &message, &live).await {
                     log::error!("run failed: {error}; run_id={}", run.id);
                     if let Err(error) = user.finish(&run, None, RunStatus::Failed).await {
                         log::error!("unable to persist failure: {error}; run_id={}", run.id);
@@ -344,9 +336,14 @@ impl App {
         }
     }
 
-    /// Time and location for this turn, sent as a developer message. Memories are
-    /// not included: the model looks them up with `memory_recall`.
-    async fn build_context(&self, user: &User) -> Option<String> {
+    /// Time, location and the app behind the bubble for this turn, sent as a
+    /// developer message. Memories are not included: the model looks them up
+    /// with `memory_recall`.
+    async fn build_context(
+        &self,
+        user: &User,
+        foreground: Option<&ForegroundApp>,
+    ) -> Option<String> {
         let mut ctx = String::new();
 
         // Time with user's timezone
@@ -364,6 +361,10 @@ impl App {
 
         if let Ok(Some(loc)) = user.get_location().await {
             let _ = writeln!(ctx, "{}", location_line(&loc, Utc::now()));
+        }
+
+        if let Some(app) = foreground {
+            let _ = writeln!(ctx, "{}", foreground_line(app));
         }
 
         (!ctx.is_empty()).then_some(ctx)
@@ -387,12 +388,11 @@ impl App {
         self: &Arc<Self>,
         user: &Arc<User>,
         run: &Run,
-        message: &str,
-        image: Option<&str>,
-        is_cron: bool,
+        message: &Message,
         live: &LiveRun,
     ) -> Result<()> {
         let cancel = &live.cancel;
+        let is_cron = message.cron_id.is_some();
 
         // The model runs on the context, which may be compacted; the transcript
         // keeps every message for the phone and gets this turn's entries appended.
@@ -409,7 +409,7 @@ impl App {
         // It stays static so the provider can cache it.
         conversation.set_system(include_str!("../prompts/assistant.md"));
         transcript.set_system(include_str!("../prompts/assistant.md"));
-        let context = self.build_context(user).await;
+        let context = self.build_context(user, message.foreground.as_ref()).await;
 
         let llm = self.llm.clone().with_user(user.id());
 
@@ -437,9 +437,11 @@ impl App {
         // Flashmind saves `context` as a developer message before the user message. It
         // stays in history, which keeps the cached prefix intact and timestamps each turn.
         let input = AgentInput::User {
-            content: message.to_owned(),
+            content: message.message.clone(),
             context,
-            parts: image
+            parts: message
+                .image
+                .as_deref()
                 .and_then(Self::parse_image_data_uri)
                 .map(|part| vec![part]),
         };
@@ -583,7 +585,7 @@ impl App {
                 today: user.today().await,
                 earlier: earlier_turns(&conversation, turn_started),
                 latest: Turn {
-                    message: message.to_owned(),
+                    message: message.message.clone(),
                     reply,
                 },
             };
@@ -875,6 +877,14 @@ fn location_line(loc: &Location, now: DateTime<Utc>) -> String {
         Some(place) => format!("Location: {place} ({coords}, {age})"),
         None => format!("Location: {coords} ({age})"),
     }
+}
+
+fn foreground_line(app: &ForegroundApp) -> String {
+    format!(
+        "Open app: {} ({}). The user is chatting from the bubble over this app; \
+         read_screen shows what is on it.",
+        app.name, app.package
+    )
 }
 
 #[cfg(test)]

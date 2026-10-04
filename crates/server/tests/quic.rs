@@ -171,6 +171,7 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         request_id: Uuid::new_v4(),
         message: "Remember I prefer tea".into(),
         image: None,
+        foreground: None,
     };
     let mut replies = c.stream(&chat).await.unwrap();
     let run_id = started(&mut replies).await;
@@ -257,6 +258,7 @@ async fn cancellation_busy_session_and_invalid_input() {
         request_id: Uuid::new_v4(),
         message: "slow".into(),
         image: None,
+        foreground: None,
     };
     let mut slow_events = c.stream(&slow).await.unwrap();
     let slow_run = started(&mut slow_events).await;
@@ -266,6 +268,7 @@ async fn cancellation_busy_session_and_invalid_input() {
         request_id: Uuid::new_v4(),
         message: "again".into(),
         image: None,
+        foreground: None,
     };
     let mut busy = c.stream(&busy).await.unwrap();
     assert!(matches!(
@@ -278,6 +281,7 @@ async fn cancellation_busy_session_and_invalid_input() {
         request_id: Uuid::new_v4(),
         message: " ".into(),
         image: None,
+        foreground: None,
     };
     let mut empty = c.stream(&empty).await.unwrap();
     assert!(matches!(

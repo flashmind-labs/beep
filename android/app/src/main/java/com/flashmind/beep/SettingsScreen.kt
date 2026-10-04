@@ -20,7 +20,9 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.BubbleChart
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -60,6 +62,7 @@ fun SettingsScreen(status: String, onBack: () -> Unit, onBubbleSettings: () -> U
             ThemePicker()
             AvatarPicker()
             BubblePicker(onBubbleSettings)
+            ScreenContextSettings()
             Column {
                 HorizontalDivider(color = Beep.colors.softLine)
                 SettingsRow(Icons.Outlined.Link, "Connection", status, onConnection)
@@ -101,6 +104,31 @@ private fun BubblePicker(onBubbleSettings: () -> Unit) {
             Spacer(Modifier.height(4.dp))
             SettingsRow(Icons.Outlined.BubbleChart, "Allow display over other apps",
                 "Until then the float button uses the Android bubble", onBubbleSettings)
+        }
+    }
+}
+
+/** Permissions that tell the assistant what the user is looking at behind the bubble. */
+@Composable
+private fun ScreenContextSettings() {
+    val context = LocalContext.current
+    var usage by remember { mutableStateOf(ScreenContext.usageAllowed(context)) }
+    var reader by remember { mutableStateOf(ScreenContext.readerOn(context)) }
+    LifecycleResumeEffect(Unit) {
+        usage = ScreenContext.usageAllowed(context)
+        reader = ScreenContext.readerOn(context)
+        onPauseOrDispose {}
+    }
+    Column {
+        Text("Screen context", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
+        SettingsRow(Icons.Outlined.Apps, "Name the open app",
+            if (usage) "On: the bubble tells Beep which app you are in" else "Off: allow usage access") {
+            ScreenContext.usageSettings(context)
+        }
+        HorizontalDivider(color = Beep.colors.softLine)
+        SettingsRow(Icons.Outlined.Visibility, "Read the screen",
+            if (reader) "On: Beep can read the app behind the bubble" else "Off: turn on Beep screen reading") {
+            ScreenContext.readerSettings(context)
         }
     }
 }

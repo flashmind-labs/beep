@@ -85,6 +85,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         message: req.message,
         cron_id: None,
         image: req.image,
+        foreground: req.foreground,
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,

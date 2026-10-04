@@ -8,6 +8,7 @@ mod memory;
 mod notifications;
 mod open_app;
 mod progress;
+mod screen;
 mod suggest;
 
 use crate::{app::App, user::User};
@@ -36,6 +37,10 @@ pub fn registry(app: Arc<App>, run_id: &str, user: &Arc<User>) -> ToolRegistry {
     registry.register(Arc::new(progress::TaskProgressTool));
     registry.register(Arc::new(suggest::SuggestRepliesTool));
     registry.register(Arc::new(browser::BrowserTool {
+        app: app.clone(),
+        run_id: run_id.to_owned(),
+    }));
+    registry.register(Arc::new(screen::ReadScreenTool {
         app: app.clone(),
         run_id: run_id.to_owned(),
     }));
