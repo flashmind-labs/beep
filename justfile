@@ -64,12 +64,20 @@ push-server-config:
     export DOCKER_HOST={{remote_docker}}
     docker volume create beep_data > /dev/null
     write() {
-        docker run --rm -i --entrypoint sh -v beep_data:/data beep-server \
+        docker run --rm -i --user beep --entrypoint sh -v beep_data:/data beep-server \
             -c "umask 077 && cat > /data/$1"
     }
     sed -e 's|^secret_key = .*|secret_key = "/data/iroh-key"|' \
-        -e 's|^log_dir = .*|log_dir = "/data/logs"|' {{server_config}} | write config.toml
+        -e 's|^log_dir = .*|log_dir = "/data/logs"|' -e '/^sandbox_dir = /d' {{server_config}} \
+        | { cat; echo 'sandbox_dir = "/data/sandboxes"'; } | write config.toml
     write iroh-key < .dev/iroh-key
+
+# Load the AppArmor profile that lets the server's sandbox use user namespaces
+install-apparmor:
+    @test -n "{{remote_docker}}" || (echo "Set BEEP_DOCKER_HOST in .env"; exit 1)
+    ssh {{trim_start_match(remote_docker, "ssh://")}} \
+        'sudo tee /etc/apparmor.d/beep-sandbox > /dev/null && sudo apparmor_parser -r /etc/apparmor.d/beep-sandbox' \
+        < deploy/beep-sandbox.apparmor
 
 # Tail the remote server's logs
 remote-logs:

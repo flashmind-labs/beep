@@ -12,6 +12,7 @@ pub mod memories;
 pub mod push;
 pub mod repeat;
 pub mod router;
+pub mod sandbox;
 pub mod search;
 pub mod starters;
 pub mod store;

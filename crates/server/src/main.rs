@@ -6,6 +6,7 @@ use beep_server::{
     decision::DecisionTool,
     memories,
     push::Pusher,
+    sandbox::Sandbox,
     search::SearchTool,
     store::Store,
     transport,
@@ -63,6 +64,14 @@ async fn main() -> Result<()> {
         .as_deref()
         .map(str::parse::<Model>)
         .transpose()?;
+    let sandbox = match &config.sandbox_dir {
+        Some(dir) => {
+            let sandbox = Sandbox::new(dir.clone()).await?;
+            sandbox.start_sweep();
+            Some(sandbox)
+        }
+        None => None,
+    };
     let app = App::new(
         store,
         provider,
@@ -73,6 +82,7 @@ async fn main() -> Result<()> {
             decision,
             composio,
             vision_model,
+            sandbox,
         },
     );
     // Subscribed before users start, so notices from their first crons wait
