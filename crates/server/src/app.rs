@@ -421,7 +421,7 @@ impl App {
 
         let llm = self.llm.clone().with_user(user.id());
 
-        let mut registry = tools::registry(self.clone(), &run.id, user);
+        let mut registry = tools::registry(self.clone(), run, user);
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }
@@ -615,6 +615,7 @@ impl App {
                 user: user.id(),
             };
             let exchange = Exchange {
+                session_id: run.session_id.clone(),
                 today: user.today().await,
                 earlier: earlier_turns(&conversation, turn_started),
                 latest: Turn {

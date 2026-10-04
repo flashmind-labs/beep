@@ -2,7 +2,9 @@
 //! Every memory carries its owner in the `user` metadata key, and every call
 //! here filters on it, so one user's memories never reach another's.
 
-use super::{MEMORY_CATEGORIES, MemoryRow, Store, Validity, format_date, parse_date, seconds};
+use super::{
+    MEMORY_CATEGORIES, MemoryRow, Origin, Store, Validity, format_date, parse_date, seconds,
+};
 use crate::{
     protocol::{Memory, MemorySource},
     user::UserKey,
@@ -23,6 +25,10 @@ const CATEGORY: &str = "category";
 const SOURCE: &str = "source";
 const VALID_FROM: &str = "valid_from";
 const VALID_UNTIL: &str = "valid_until";
+const ORIGIN: &str = "origin";
+const QUOTE: &str = "quote";
+/// Longest quote kept with a memory, in characters.
+const MAX_QUOTE_CHARS: usize = 200;
 /// `YYYY-MM-DD HH:MM:SS` in UTC of the last change.
 const UPDATED: &str = "updated";
 
@@ -35,6 +41,8 @@ pub struct Fact<'a> {
     pub source: MemorySource,
     /// `None` keeps the current days on an update, or leaves a new memory open.
     pub valid: Option<Validity>,
+    /// `None` keeps the current origin on an update.
+    pub origin: Option<Origin>,
 }
 
 /// A memory found by a search, with its relevance.
@@ -83,6 +91,7 @@ struct Meta<'a> {
     category: &'a str,
     source: MemorySource,
     valid: Validity,
+    origin: Option<&'a Origin>,
     updated: &'a str,
 }
 
@@ -99,6 +108,12 @@ impl Meta<'_> {
         }
         if let Some(until) = format_date(self.valid.until) {
             pairs.push((VALID_UNTIL, until));
+        }
+        if let Some(origin) = self.origin {
+            pairs.push((ORIGIN, origin.reference.clone()));
+            if let Some(quote) = &origin.quote {
+                pairs.push((QUOTE, quote.chars().take(MAX_QUOTE_CHARS).collect()));
+            }
         }
         pairs
     }
@@ -122,6 +137,10 @@ fn row_from(id: String, content: String, meta: &[(String, String)]) -> MemoryRow
             from: date(VALID_FROM),
             until: date(VALID_UNTIL),
         },
+        origin: meta.get(ORIGIN).map(|reference| Origin {
+            reference: reference.to_string(),
+            quote: meta.get(QUOTE).map(|quote| quote.to_string()),
+        }),
     }
 }
 
@@ -134,6 +153,19 @@ fn from_result(result: MemorySearchResult) -> Option<Scored> {
         score: result.score,
         row: row_from(result.id?, result.content, &result.meta),
     })
+}
+
+/// When a memory last changed by `now`, counting the start of the day after
+/// its last day as a change.
+fn last_change(row: &MemoryRow, now: NaiveDateTime) -> Option<NaiveDateTime> {
+    let updated = NaiveDateTime::parse_from_str(&row.updated_at, UPDATED_FORMAT).ok()?;
+    let ended = row
+        .valid
+        .until
+        .and_then(|until| until.succ_opt())
+        .and_then(|day| day.and_hms_opt(0, 0, 0))
+        .filter(|ended| *ended <= now);
+    Some(ended.map_or(updated, |ended| ended.max(updated)))
 }
 
 fn owned_by(record: &MemoryRecord, user: &UserKey) -> bool {
@@ -184,6 +216,7 @@ impl Store {
             category: &category,
             source: fact.source,
             valid,
+            origin: fact.origin.as_ref(),
             updated: &updated,
         };
         let mut builder = self
@@ -225,6 +258,7 @@ impl Store {
             category: &row.category,
             source: row.source,
             valid: row.valid,
+            origin: row.origin.as_ref(),
             updated: &updated,
         };
         let pairs = meta.pairs();
@@ -261,6 +295,9 @@ impl Store {
             }
             if let Some(valid) = fact.valid {
                 row.valid = valid;
+            }
+            if let Some(origin) = fact.origin {
+                row.origin = Some(origin);
             }
         })
         .await
@@ -363,6 +400,7 @@ impl Store {
                 source: row.source,
                 valid_from: format_date(row.valid.from),
                 valid_until: format_date(row.valid.until),
+                quote: row.origin.and_then(|origin| origin.quote),
             })
             .collect())
     }
@@ -372,19 +410,21 @@ impl Store {
         Ok(self.memories.delete_expired().await? as u64)
     }
 
-    /// Whether the user's memories changed since they were last curated,
-    /// at most once per `every`.
+    /// Whether the user's memories changed, or one of them ended, since they
+    /// were last curated, at most once per `every`. An ended memory is due so
+    /// curation can keep what lasts of it.
     pub(crate) async fn curation_due(&self, user: &UserKey, every: Duration) -> Result<bool> {
+        let now = Utc::now().naive_utc();
         let Some(changed) = self
             .memory_rows(user)
             .await?
-            .into_iter()
-            .map(|row| row.updated_at)
+            .iter()
+            .filter_map(|row| last_change(row, now))
             .max()
         else {
             return Ok(false);
         };
-        let changed = NaiveDateTime::parse_from_str(&changed, UPDATED_FORMAT)?.and_utc();
+        let changed = changed.and_utc();
         Ok(sqlx::query_scalar(
             "SELECT NOT EXISTS (SELECT 1 FROM memory_curation WHERE user_id = $1)
                  OR EXISTS (SELECT 1 FROM memory_curation WHERE user_id = $1
@@ -427,5 +467,25 @@ mod tests {
         };
         let expected = date("2026-02-01").and_hms_opt(0, 0, 0).unwrap();
         assert_eq!(expiry(&valid), Some(expected.and_utc().timestamp()));
+    }
+
+    #[test]
+    fn a_memory_changes_again_the_day_after_it_ends() {
+        let mut row = MemoryRow {
+            id: "t1".into(),
+            content: "Is in Lisbon.".into(),
+            category: "location".into(),
+            source: MemorySource::Learned {},
+            updated_at: "2026-09-01 08:00:00".into(),
+            valid: Validity::default(),
+            origin: None,
+        };
+        let at = |text| NaiveDateTime::parse_from_str(text, UPDATED_FORMAT).unwrap();
+        let now = at("2026-10-01 12:00:00");
+        assert_eq!(last_change(&row, now), Some(at("2026-09-01 08:00:00")));
+        row.valid.until = Some(date("2026-09-27"));
+        assert_eq!(last_change(&row, now), Some(at("2026-09-28 00:00:00")));
+        row.valid.until = Some(date("2026-10-05"));
+        assert_eq!(last_change(&row, now), Some(at("2026-09-01 08:00:00")));
     }
 }

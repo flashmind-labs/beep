@@ -11,13 +11,14 @@ mod progress;
 mod screen;
 mod suggest;
 
-use crate::{app::App, user::User};
+use crate::{app::App, protocol::Run, user::User};
 use flashmind::{tools::time::TimeTool, types::ToolRegistry};
 use std::sync::Arc;
 
-pub fn registry(app: Arc<App>, run_id: &str, user: &Arc<User>) -> ToolRegistry {
+pub fn registry(app: Arc<App>, run: &Run, user: &Arc<User>) -> ToolRegistry {
+    let run_id = run.id.as_str();
     let mut registry = ToolRegistry::new();
-    memory::register(&mut registry, user);
+    memory::register(&mut registry, user, &run.session_id);
     registry.register(Arc::new(TimeTool));
     crate::cron::register_tools(&mut registry, app.store.clone(), user.id(), None);
     registry.register(Arc::new(open_app::OpenAppTool));

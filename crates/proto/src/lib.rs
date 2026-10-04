@@ -322,12 +322,13 @@ wire_enum! {
 wire_enum! {
     /// A session message. An `Assistant` entry's `tools` are the tool results
     /// of the turn it ends; its `content` is empty when the turn had no text.
-    /// `memory_score` is Jev's score for the turn, on its last assistant entry.
+    /// `memory_score` is Jev's score for the turn, on its last assistant entry,
+    /// and `reasoning` is the model's reasoning over the whole turn.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum HistoryEntry {
         0 User { content: String, timestamp: i64 }
-        1 Assistant { content: String, timestamp: i64, tools: Vec<HistoryTool>, memory_score: Option<f64> }
+        1 Assistant { content: String, timestamp: i64, tools: Vec<HistoryTool>, memory_score: Option<f64>, reasoning: String }
     }
 }
 
@@ -439,6 +440,9 @@ pub struct Memory {
     /// `YYYY-MM-DD` bounds of a fact that only holds for a while, like a trip.
     pub valid_from: Option<String>,
     pub valid_until: Option<String>,
+    /// The words in the chat, email or Slack message the memory came from.
+    #[serde(default)]
+    pub quote: Option<String>,
 }
 
 wire_enum! {

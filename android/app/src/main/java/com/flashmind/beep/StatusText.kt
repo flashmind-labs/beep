@@ -15,8 +15,17 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -29,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,7 +53,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -104,9 +114,25 @@ private fun Shimmer(text: String) {
     }, fontSize = 13.sp, maxLines = 2)
 }
 
+/** Most reasoning kept for one reply, in characters. The oldest goes first. */
+const val MAX_REASONING = 16_000
+
+/** Reasoning `more` after `before`, a blank line apart. */
+fun joinReasoning(before: String, more: String): String {
+    val first = before.trim()
+    val next = more.trim()
+    val joined = when {
+        next.isEmpty() -> first
+        first.isEmpty() -> next
+        else -> "$first\n\n$next"
+    }
+    return joined.takeLast(MAX_REASONING)
+}
+
 /**
- * The tail of the model's reasoning while it thinks: a few lines in a soft box, the oldest fading
- * out at the top. It expands when reasoning starts and folds away once Beep moves on.
+ * The tail of the model's reasoning while it thinks: several lines in a soft box, the oldest fading
+ * out at the top. It expands when reasoning starts and folds away once Beep moves on; the reasoning
+ * then stays on the reply under [ReasoningRow].
  */
 @Composable
 fun ThinkingPreview(thinking: String, modifier: Modifier = Modifier) {
@@ -122,15 +148,42 @@ fun ThinkingPreview(thinking: String, modifier: Modifier = Modifier) {
             .clip(RoundedCornerShape(Beep.shapes.smallRadius))
             .background(Beep.colors.surface)
             .padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Box(Modifier.fillMaxWidth().heightIn(max = 68.dp).clipToBounds()
+            Box(Modifier.fillMaxWidth().heightIn(max = 140.dp).clipToBounds()
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
-                    drawRect(Brush.verticalGradient(0f to Color.Transparent, 0.45f to Color.Black), blendMode = BlendMode.DstIn)
+                    drawRect(Brush.verticalGradient(0f to Color.Transparent, 0.2f to Color.Black), blendMode = BlendMode.DstIn)
                 },
                 contentAlignment = Alignment.BottomStart) {
-                Text(shown.takeLast(600), color = muted, fontSize = 12.sp, lineHeight = 17.sp,
-                    fontStyle = FontStyle.Italic, modifier = Modifier.wrapContentHeight(Alignment.Bottom, unbounded = true))
+                Text(shown.takeLast(1500), color = muted, fontSize = 13.sp, lineHeight = 19.sp,
+                    modifier = Modifier.wrapContentHeight(Alignment.Bottom, unbounded = true))
+            }
+        }
+    }
+}
+
+/** The reasoning behind a reply, folded into a "Thoughts" row that opens on tap. */
+@Composable
+fun ReasoningRow(reasoning: String, modifier: Modifier = Modifier) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    val muted = Beep.colors.muted
+    val turn by animateFloatAsState(if (open) 180f else 0f, label = "thoughts-chevron")
+    Column(modifier) {
+        Row(Modifier.clip(RoundedCornerShape(Beep.shapes.smallRadius))
+            .clickable(onClickLabel = if (open) "Hide thoughts" else "Show thoughts") { open = !open }
+            .heightIn(min = 40.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("Thoughts", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = muted)
+            Icon(Icons.Outlined.KeyboardArrowDown, null,
+                Modifier.padding(start = 2.dp).size(16.dp).graphicsLayer { rotationZ = turn }, tint = muted)
+        }
+        AnimatedVisibility(open, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            SelectionContainer {
+                Text(reasoning, color = muted, fontSize = 13.sp, lineHeight = 19.sp,
+                    modifier = Modifier.padding(bottom = 6.dp).fillMaxWidth()
+                        .clip(RoundedCornerShape(Beep.shapes.smallRadius))
+                        .background(Beep.colors.surface)
+                        .padding(horizontal = 12.dp, vertical = 10.dp))
             }
         }
     }

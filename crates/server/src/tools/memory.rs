@@ -1,6 +1,6 @@
 use crate::{
     protocol::MemorySource,
-    store::{Fact, Validity},
+    store::{Fact, Origin, Validity},
     user::User,
 };
 use anyhow::{Result, anyhow};
@@ -22,17 +22,36 @@ const CATEGORIES: [&str; 6] = [
     "general",
 ];
 
-struct MemoryStoreTool(Arc<User>);
+/// Stores and updates in one chat, which becomes the origin of what they write.
+struct MemoryWriter {
+    user: Arc<User>,
+    session_id: String,
+}
+
+impl MemoryWriter {
+    fn origin(&self) -> Origin {
+        Origin {
+            reference: self.session_id.clone(),
+            quote: None,
+        }
+    }
+}
+
+struct MemoryStoreTool(MemoryWriter);
 struct MemoryRecallTool(Arc<User>);
 struct MemoryForgetTool(Arc<User>);
-struct MemoryUpdateTool(Arc<User>);
+struct MemoryUpdateTool(MemoryWriter);
 
-/// Registers the memory tools on one user's memories.
-pub fn register(registry: &mut ToolRegistry, user: &Arc<User>) {
-    registry.register(Arc::new(MemoryStoreTool(user.clone())));
+/// Registers the memory tools on one user's memories, in the chat `session_id`.
+pub fn register(registry: &mut ToolRegistry, user: &Arc<User>, session_id: &str) {
+    let writer = || MemoryWriter {
+        user: user.clone(),
+        session_id: session_id.to_owned(),
+    };
+    registry.register(Arc::new(MemoryStoreTool(writer())));
     registry.register(Arc::new(MemoryRecallTool(user.clone())));
     registry.register(Arc::new(MemoryForgetTool(user.clone())));
-    registry.register(Arc::new(MemoryUpdateTool(user.clone())));
+    registry.register(Arc::new(MemoryUpdateTool(writer())));
 }
 
 fn arg<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
@@ -53,7 +72,7 @@ fn date(args: &Value, name: &str) -> Result<Option<NaiveDate>> {
 }
 
 /// The fact the user asked to store or update, from the shared argument names.
-fn fact(args: &Value) -> Result<Fact<'_>> {
+fn fact(args: &Value, origin: Origin) -> Result<Fact<'_>> {
     let valid = Validity {
         from: date(args, "valid_from")?,
         until: date(args, "valid_until")?,
@@ -63,6 +82,7 @@ fn fact(args: &Value) -> Result<Fact<'_>> {
         category: opt_arg(args, "category"),
         source: MemorySource::User {},
         valid: (valid != Validity::default()).then_some(valid),
+        origin: Some(origin),
     })
 }
 
@@ -95,9 +115,9 @@ impl Tool for MemoryStoreTool {
         fact_schema(&["content"], json!({}))
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let fact = fact(&ctx.args)?;
+        let fact = fact(&ctx.args, self.0.origin())?;
         let content = fact.content;
-        let remembered = self.0.remember(fact).await?;
+        let remembered = self.0.user.remember(fact).await?;
         let change = if remembered.replaced {
             "updated"
         } else {
@@ -117,7 +137,7 @@ impl Tool for MemoryRecallTool {
         "memory_recall"
     }
     fn description(&self) -> &str {
-        "Search the user's memories by meaning, best first. An empty query lists the most recent. Each result has an id, a source (user, learned from a chat, email or slack), its last change date and, for temporary facts, its days."
+        "Search the user's memories by meaning, best first. An empty query lists the most recent. Each result has an id, a source (user, learned from a chat, email or slack), its last change date, for temporary facts its days, and when known a quote of the words it came from."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
@@ -166,9 +186,13 @@ impl Tool for MemoryUpdateTool {
         fact_schema(&["id", "content"], json!({"id":{"type":"string"}}))
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let fact = fact(&ctx.args)?;
+        let fact = fact(&ctx.args, self.0.origin())?;
         let content = fact.content;
-        let updated = self.0.update_memory(arg(&ctx.args, "id")?, fact).await?;
+        let updated = self
+            .0
+            .user
+            .update_memory(arg(&ctx.args, "id")?, fact)
+            .await?;
         reply(&ctx, json!({"updated": updated, "content": content}))
     }
 }

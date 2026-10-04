@@ -16,7 +16,7 @@ use crate::{
     config::Config,
     protocol::MemorySource,
     starters::unfence,
-    store::{MEMORY_CATEGORIES, MemoryRow, Validity},
+    store::{MEMORY_CATEGORIES, MemoryRow, Origin, Validity},
 };
 use anyhow::{Context, Result, ensure};
 use chrono::{NaiveDate, Utc};
@@ -84,6 +84,8 @@ pub struct Hit {
     /// `YYYY-MM-DD` of the last change.
     pub date: String,
     pub valid: Validity,
+    /// The words it was learned from, when known.
+    pub quote: Option<String>,
 }
 
 impl Hit {
@@ -102,6 +104,9 @@ impl Hit {
         if let Some(until) = self.valid.until {
             value["valid_until"] = json!(until.to_string());
         }
+        if let Some(quote) = &self.quote {
+            value["quote"] = json!(quote);
+        }
         value
     }
 }
@@ -114,6 +119,8 @@ pub struct Turn {
 
 /// What the extractor reads after a chat.
 pub struct Exchange {
+    /// The chat it happened in, kept as the origin of what it teaches.
+    pub session_id: String,
     /// The user's date, for resolving "next Friday".
     pub today: NaiveDate,
     /// Turns before the latest, oldest first, only for context.
@@ -231,6 +238,7 @@ pub(crate) fn hit(row: MemoryRow) -> Hit {
         category: row.category,
         source: row.source,
         valid: row.valid,
+        quote: row.origin.and_then(|origin| origin.quote),
     }
 }
 
@@ -265,8 +273,9 @@ like \"Has a dog named Rex.\" or \"Is in Singapore at the Mandarin Oriental.\", 
 latest message. Never translate a known memory.
 Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"id\": string, \"content\": string, \
 \"category\": \"personal\" | \"preference\" | \"work\" | \"location\" | \"routine\" | \"general\", \
-\"valid_from\": string, \"valid_until\": string}]}. \
-id only for update and forget; content and category only for add and update. At most 5 ops.";
+\"valid_from\": string, \"valid_until\": string, \"quote\": string}]}. \
+id only for update and forget; content and category only for add and update. quote, for add and update, is the \
+few words of the text that show the fact, copied exactly, at most 20 words. At most 5 ops.";
 
 /// The memories shown to a learner, with ids it can update or forget.
 fn write_known(text: &mut String, known: &[Hit]) {
@@ -377,8 +386,9 @@ like \"Has a dog named Rex.\" or \"Works at Acme as a designer.\", in the langua
 English when there are none. Never translate a known memory.
 Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"id\": string, \"content\": string, \
 \"category\": \"personal\" | \"preference\" | \"work\" | \"location\" | \"routine\" | \"general\", \
-\"valid_from\": string, \"valid_until\": string}]}. \
-id only for update and forget; content and category only for add and update. At most 5 ops.";
+\"valid_from\": string, \"valid_until\": string, \"quote\": string}]}. \
+id only for update and forget; content and category only for add and update. quote, for add and update, is the \
+few words of the text that show the fact, copied exactly, at most 20 words. At most 5 ops.";
 
 pub(crate) fn reading_prompt(known: &[Hit], reading: &Reading) -> String {
     let mut text = String::new();
@@ -398,8 +408,11 @@ Clean it up:
 - When two memories contradict each other, keep the newer one, unless the older was said by the user and the \
 newer was only learned; then merge them into one sentence that keeps the user's version.
 - Forget memories that are trivial, a one-off task, general knowledge rather than about the user, or a secret \
-such as a password or code. Forget learned memories whose days are over and that say nothing lasting. \
-Never forget a memory said by the user unless its days are over.
+such as a password or code. Never forget a memory said by the user unless its days are over.
+- A memory marked over has passed. When it still says something lasting about the user, like a place they went, \
+someone they met or a job they did, update it into a lasting fact in the past tense that names the month and year, \
+like \"Went to Lisbon in October 2026.\", with no days. Forget it when nothing about it lasts, like an \
+appointment or a deadline.
 - Fix a memory that is unclear without context so it names its subject.
 Leave everything else alone; most memories need nothing. Each id may appear in at most one op.
 Write memories as one short self-contained sentence in third person. Never translate: keep a memory in the \
@@ -465,11 +478,27 @@ pub(crate) struct LearnOp {
     pub(crate) valid_from: Option<String>,
     #[serde(default)]
     pub(crate) valid_until: Option<String>,
+    #[serde(default)]
+    pub(crate) quote: Option<String>,
 }
 
 impl LearnOp {
     pub(crate) fn validity(&self) -> Option<Validity> {
         validity(self.valid_from.as_deref(), self.valid_until.as_deref())
+    }
+
+    /// Where the fact came from: `reference` names the chat, email or Slack
+    /// thread, and the model's quote shows the words.
+    pub(crate) fn origin(&self, reference: &str) -> Origin {
+        Origin {
+            reference: reference.to_owned(),
+            quote: self
+                .quote
+                .as_deref()
+                .map(str::trim)
+                .filter(|quote| !quote.is_empty())
+                .map(str::to_owned),
+        }
     }
 }
 
@@ -592,7 +621,13 @@ pub(crate) fn plan_curation(
                 let Some(found) = claim(std::slice::from_ref(&id)) else {
                     continue;
                 };
-                if let Some(fact) = text(new, found[0].source) {
+                // An update without days keeps a memory's days, but one that is
+                // over becomes the lasting fact it was rewritten into.
+                let ended = found[0].valid.ended(today);
+                if let Some(mut fact) = text(new, found[0].source) {
+                    if ended && fact.valid.is_none() {
+                        fact.valid = Some(Validity::default());
+                    }
                     steps.push(Step::Rewrite {
                         keep: id,
                         fact,
@@ -642,6 +677,7 @@ mod tests {
             source: MemorySource::Learned {},
             updated_at: "2026-01-01 10:00:00".into(),
             valid: Validity::default(),
+            origin: None,
         }
     }
 
@@ -723,5 +759,52 @@ mod tests {
                 Step::Forget("u2".into()),
             ]
         );
+    }
+
+    #[test]
+    fn an_ended_memory_rewritten_without_days_lasts() {
+        let mut trip = row("t1", "Is in Lisbon.");
+        trip.valid = Validity {
+            from: Some(day("2026-09-20")),
+            until: Some(day("2026-09-27")),
+        };
+        let mut stay = row("t2", "Is staying with Ana.");
+        stay.valid.until = Some(day("2026-10-10"));
+        let rows: HashMap<&str, &MemoryRow> = [&trip, &stay]
+            .into_iter()
+            .map(|r| (r.id.as_str(), r))
+            .collect();
+        let ops = parse_curate_ops(
+            r#"{"ops":[
+            {"op":"update","id":"t1","content":"Went to Lisbon in September 2026."},
+            {"op":"update","id":"t2","content":"Is staying with Ana, a friend."}]}"#,
+        )
+        .unwrap();
+        let steps = plan_curation(ops, &rows, day("2026-10-03"));
+        let valid: Vec<Option<Validity>> = steps
+            .into_iter()
+            .map(|step| match step {
+                Step::Rewrite { fact, .. } => fact.valid,
+                Step::Forget(_) => panic!("unexpected forget"),
+            })
+            .collect();
+        assert_eq!(valid, vec![Some(Validity::default()), None]);
+    }
+
+    #[test]
+    fn learn_ops_carry_their_quote() {
+        let ops = parse_learn_ops(
+            r#"{"ops":[{"op":"add","content":"Has a dog named Rex.","quote":"  my dog Rex "},
+            {"op":"add","content":"Likes tea.","quote":" "}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            ops[0].origin("session-1"),
+            Origin {
+                reference: "session-1".into(),
+                quote: Some("my dog Rex".into()),
+            }
+        );
+        assert_eq!(ops[1].origin("session-1").quote, None);
     }
 }

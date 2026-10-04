@@ -33,14 +33,16 @@ data class ToolCall(
     val isDone: Boolean = false, val success: Boolean = true, val result: String = ""
 )
 
-data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val images: List<String> = emptyList(), val toolCalls: List<ToolCall> = emptyList(), val memoryScore: Double? = null)
+data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val images: List<String> = emptyList(), val toolCalls: List<ToolCall> = emptyList(), val memoryScore: Double? = null,
+    /** The model's reasoning before this reply, folded under a "Thoughts" row. */
+    val reasoning: String = "")
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = NEW_CHAT_TITLE,
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
     val requestId: String = "", val pendingText: String = "", val pendingImages: List<String> = emptyList(),
     val status: String = "", val error: String = "",
     val tool: String = "", val cancelRequested: Boolean = false, val pinned: Boolean = false,
-    /** The model's reasoning for the current step, shown live and dropped once it moves on. Not saved. */
+    /** The model's reasoning for the current step, shown live and moved onto the reply once it moves on. Not saved. */
     val thinking: String = ""
 ) { val busy get() = requestId.isNotEmpty() || runId.isNotEmpty() }
 const val NEW_CHAT_TITLE = "New conversation"
@@ -110,7 +112,7 @@ class LocalStorage(internal val context: Context) {
                         tc.optBoolean("isDone"), tc.optBoolean("success", true), tc.optString("result"))
                 } else emptyList()
                 ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
-                    m.optDouble("memoryScore").takeUnless { it.isNaN() })
+                    m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"),
                 status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"))
@@ -154,6 +156,7 @@ class LocalStorage(internal val context: Context) {
             c.messages.forEach { m ->
                 val msg = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text).apply { if (m.images.isNotEmpty()) put("images", JSONArray(m.images)) }
                     .apply { if (m.memoryScore != null) put("memoryScore", m.memoryScore) }
+                    .apply { if (m.reasoning.isNotEmpty()) put("reasoning", m.reasoning) }
                 if (m.cards.isNotEmpty()) {
                     val cardsArr = JSONArray()
                     m.cards.forEach { card -> cardsArr.put(JSONObject().put("type", card.type).put("data", card.data)) }

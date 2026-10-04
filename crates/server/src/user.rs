@@ -28,7 +28,7 @@ use crate::{
     starters::{Cached, FALLBACK_FRESH, FRESH, Generator, StarterContext, TIMEOUT, fallback},
     store::{
         CreateRun, Fact, Feed, FinishedTurn, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow,
-        RunStatus, Store, StoredContext,
+        Origin, RunStatus, Store, StoredContext,
     },
 };
 use anyhow::{Result, bail};
@@ -679,8 +679,9 @@ impl User {
             let ops = parse_learn_ops(&answer)?;
             let mut learned = Vec::new();
             for op in ops {
+                let origin = op.origin(&exchange.session_id);
                 learned.extend(
-                    self.apply_learned(known, op, MemorySource::Learned {})
+                    self.apply_learned(known, op, MemorySource::Learned {}, origin)
                         .await?,
                 );
             }
@@ -711,8 +712,9 @@ impl User {
                 .await?;
             let mut learned = Vec::new();
             for op in parse_learn_ops(&answer)? {
+                let origin = op.origin(&reading.id);
                 learned.extend(
-                    self.apply_learned(&known, op, reading.kind.source())
+                    self.apply_learned(&known, op, reading.kind.source(), origin)
                         .await?,
                 );
             }
@@ -736,6 +738,7 @@ impl User {
         known: &[Hit],
         op: LearnOp,
         source: MemorySource,
+        origin: Origin,
     ) -> Result<Option<Learned>> {
         let shown = op
             .id
@@ -769,6 +772,7 @@ impl User {
                 .filter(|c| MEMORY_CATEGORIES.contains(c)),
             source,
             valid: op.validity(),
+            origin: Some(origin),
         };
         // An update of a memory it was not shown is a new fact.
         if let Some(hit) = shown
@@ -832,6 +836,7 @@ impl User {
                         category: fact.category.as_deref(),
                         source: fact.source,
                         valid: fact.valid,
+                        origin: None,
                     };
                     if !self.update_memory(&keep, fact).await? {
                         continue;
@@ -1326,6 +1331,7 @@ mod tests {
             category: None,
             source: MemorySource::User {},
             valid: None,
+            origin: None,
         }
     }
 
@@ -1352,5 +1358,34 @@ mod tests {
         assert_eq!(found[0].id, first.id);
         assert!(!bob.forget(&first.id).await.unwrap());
         assert_eq!(alice.list_memories().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_memory_keeps_where_it_came_from() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = User::for_test(store, "alice");
+        let origin = Origin {
+            reference: "email-1".into(),
+            quote: Some("see you in Lisbon".into()),
+        };
+        let stored = alice
+            .remember(Fact {
+                origin: Some(origin.clone()),
+                ..fact("Is going to Lisbon.")
+            })
+            .await
+            .unwrap();
+        // An update that names no origin keeps the one it had.
+        assert!(
+            alice
+                .update_memory(&stored.id, fact("Is going to Lisbon with Ana."))
+                .await
+                .unwrap()
+        );
+        let rows = alice.memory_rows().await.unwrap();
+        assert_eq!(rows[0].origin, Some(origin));
+        let listed = alice.list_memories().await.unwrap();
+        assert_eq!(listed[0].quote.as_deref(), Some("see you in Lisbon"));
     }
 }

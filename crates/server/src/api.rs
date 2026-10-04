@@ -191,6 +191,8 @@ async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<History
 
 /// Tool outputs in history are cut to this many bytes.
 const MAX_HISTORY_TOOL_OUTPUT: usize = 16 * 1024;
+/// A turn's reasoning in history keeps its last this many bytes.
+const MAX_HISTORY_REASONING: usize = 16 * 1024;
 
 /// User and assistant messages, with each turn's tool results attached to the
 /// assistant message that ends the turn. A turn with tools but no text gets an
@@ -217,8 +219,16 @@ fn history(
             EntryKind::Assistant {
                 content,
                 tool_calls,
-                ..
+                reasoning,
             } => {
+                if let Some(reasoning) = reasoning.as_deref().map(str::trim)
+                    && !reasoning.is_empty()
+                {
+                    if !turn.reasoning.is_empty() {
+                        turn.reasoning.push_str("\n\n");
+                    }
+                    turn.reasoning.push_str(reasoning);
+                }
                 for call in tool_calls.iter().flatten() {
                     turn.names.insert(call.id.clone(), call.name.clone());
                 }
@@ -229,6 +239,7 @@ fn history(
                         timestamp,
                         tools: Vec::new(),
                         memory_score: None,
+                        reasoning: String::new(),
                     });
                 }
             }
@@ -256,6 +267,8 @@ struct Turn {
     last_reply: Option<usize>,
     last_tool: i64,
     score: Option<f64>,
+    /// Every step's reasoning, oldest first.
+    reasoning: String,
 }
 
 impl Turn {
@@ -265,10 +278,12 @@ impl Turn {
             Some(HistoryEntry::Assistant {
                 tools,
                 memory_score,
+                reasoning,
                 ..
             }) => {
                 *tools = turn.tools;
                 *memory_score = turn.score;
+                *reasoning = cap_tail(&turn.reasoning, MAX_HISTORY_REASONING);
             }
             _ if turn.tools.is_empty() => {}
             _ => history.push(HistoryEntry::Assistant {
@@ -276,9 +291,19 @@ impl Turn {
                 timestamp: turn.last_tool,
                 tools: turn.tools,
                 memory_score: turn.score,
+                reasoning: cap_tail(&turn.reasoning, MAX_HISTORY_REASONING),
             }),
         }
     }
+}
+
+/// The end of `text`, at most `max` bytes on a character boundary.
+fn cap_tail(text: &str, max: usize) -> String {
+    let mut start = text.len().saturating_sub(max);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    text[start..].to_owned()
 }
 
 /// `text` cut to at most `max` bytes on a character boundary.
@@ -547,9 +572,13 @@ mod tests {
         };
         let mut entries = [
             ConversationEntry::user("Where is lunch?"),
-            ConversationEntry::assistant_with_tool_calls("", vec![call("a", "open_maps")], None),
+            ConversationEntry::assistant_with_tool_calls(
+                "",
+                vec![call("a", "open_maps")],
+                Some("Look it up.".into()),
+            ),
             ConversationEntry::tool("a", "é".repeat(MAX_HISTORY_TOOL_OUTPUT)),
-            ConversationEntry::assistant("Here it is."),
+            ConversationEntry::assistant_with_reasoning("Here it is.", Some("Found one.".into())),
             ConversationEntry::user("Remind me"),
             ConversationEntry::assistant_with_tool_calls("", vec![call("b", "cron_create")], None),
             ConversationEntry::tool("b", "failed"),
@@ -568,6 +597,7 @@ mod tests {
                 content: first,
                 tools: first_tools,
                 memory_score: first_score,
+                reasoning: first_reasoning,
                 ..
             },
             HistoryEntry::User { .. },
@@ -575,6 +605,7 @@ mod tests {
                 content: second,
                 tools: second_tools,
                 memory_score: second_score,
+                reasoning: second_reasoning,
                 ..
             },
         ] = history.as_slice()
@@ -584,6 +615,8 @@ mod tests {
         assert_eq!(first, "Here it is.");
         assert_eq!(*first_score, Some(0.8));
         assert_eq!(*second_score, None);
+        assert_eq!(first_reasoning, "Look it up.\n\nFound one.");
+        assert!(second_reasoning.is_empty());
         assert_eq!(first_tools[0].name, "open_maps");
         assert!(first_tools[0].success);
         assert_eq!(first_tools[0].output.len(), MAX_HISTORY_TOOL_OUTPUT);

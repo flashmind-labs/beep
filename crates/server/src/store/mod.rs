@@ -198,6 +198,15 @@ impl Validity {
     }
 }
 
+/// Where a memory was picked up: the chat session, email or Slack thread it
+/// came from, and the words there that show it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Origin {
+    /// The session id, email id or Slack thread id, by the memory's source.
+    pub reference: String,
+    pub quote: Option<String>,
+}
+
 /// A stored memory.
 #[derive(Debug, Clone)]
 pub struct MemoryRow {
@@ -208,6 +217,7 @@ pub struct MemoryRow {
     /// `YYYY-MM-DD HH:MM:SS` in UTC.
     pub updated_at: String,
     pub valid: Validity,
+    pub origin: Option<Origin>,
 }
 
 impl MemoryRow {
