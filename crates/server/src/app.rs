@@ -6,7 +6,8 @@ use crate::{
     live::LiveRun,
     memories::{self, Exchange, Hit, Turn},
     protocol::{
-        DeviceAnswer, DeviceQuery, ForegroundApp, Notice, PromptSuggestions, Run, RunEvent, Usage,
+        AppIntegration, DeviceAnswer, DeviceQuery, ForegroundApp, Notice, PromptSuggestions, Run,
+        RunEvent, Usage,
     },
     repeat::RepeatGuard,
     sandbox::{self, Sandbox},
@@ -350,7 +351,6 @@ impl App {
             RunStatus::TimedOut => "The run timed out.",
             RunStatus::Stalled => "The model stopped responding.",
             RunStatus::Looped => "The model got stuck repeating itself and was stopped.",
-            RunStatus::ToolLimit => "The run used too many tools and was stopped.",
             RunStatus::Failed => "The run failed.",
         }
         .to_owned();
@@ -377,13 +377,14 @@ impl App {
         }
     }
 
-    /// Time, location and the app behind the bubble for this turn, sent as a
-    /// developer message. Memories are not included: the model looks them up
-    /// with `memory_recall`.
+    /// Time, location, the app behind the bubble and which apps are connected
+    /// for this turn, sent as a developer message. Memories are not included:
+    /// the model looks them up with `memory_recall`.
     async fn build_context(
         &self,
         user: &User,
         foreground: Option<&ForegroundApp>,
+        apps: &[AppIntegration],
     ) -> Option<String> {
         let mut ctx = String::new();
 
@@ -406,6 +407,10 @@ impl App {
 
         if let Some(app) = foreground {
             let _ = writeln!(ctx, "{}", foreground_line(app));
+        }
+
+        if let Some(line) = apps_line(apps) {
+            let _ = writeln!(ctx, "{line}");
         }
 
         (!ctx.is_empty()).then_some(ctx)
@@ -456,8 +461,6 @@ impl App {
         // It stays static so the provider can cache it.
         conversation.set_system(include_str!("../prompts/assistant.md"));
         transcript.set_system(include_str!("../prompts/assistant.md"));
-        let context = self.build_context(user, message.foreground.as_ref()).await;
-
         let llm = self.llm.clone().with_user(user.id());
 
         let mut registry = tools::registry(self.clone(), run, user);
@@ -474,10 +477,13 @@ impl App {
             sandbox::register(&mut registry, sandbox, user);
         }
 
-        let (composio, mcp) = tokio::join!(user.app_tools(), user.mcp_tools());
+        let (composio, mcp, apps) = tokio::join!(user.app_tools(), user.mcp_tools(), user.apps());
         for tool in composio.into_iter().chain(mcp) {
             registry.register(tool);
         }
+        let context = self
+            .build_context(user, message.foreground.as_ref(), &apps.unwrap_or_default())
+            .await;
 
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
@@ -537,7 +543,6 @@ impl App {
             let deadline = tokio::time::sleep(Duration::from_secs(180));
             tokio::pin!(deadline);
 
-            let mut tools_started = 0;
             let mut tools_running = 0usize;
             // A model repeating itself never stops on its own; end the run instead
             // of streaming the same sentence until the deadline.
@@ -579,12 +584,7 @@ impl App {
                         id,
                         humanized,
                     }) => {
-                        tools_started += 1;
                         tools_running += 1;
-                        if tools_started > 20 {
-                            cancel.cancel();
-                            break RunStatus::ToolLimit;
-                        }
                         RunEvent::ToolStarted {
                             name,
                             call_id: id,
@@ -967,6 +967,36 @@ fn location_line(loc: &Location, now: DateTime<Utc>) -> String {
     }
 }
 
+/// Which apps are connected and which the user could connect, so the model
+/// sends them to the Apps screen instead of guessing how accounts are linked.
+fn apps_line(apps: &[AppIntegration]) -> Option<String> {
+    let names = |connected: bool| {
+        apps.iter()
+            .filter(|app| app.configured && app.connected == connected)
+            .map(|app| app.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let (connected, available) = (names(true), names(false));
+    if connected.is_empty() && available.is_empty() {
+        return None;
+    }
+    let mut line = format!(
+        "Connected apps: {}.",
+        if connected.is_empty() {
+            "none"
+        } else {
+            &connected
+        }
+    );
+    if !available.is_empty() {
+        line.push_str(&format!(
+            " Not connected: {available}. The user connects these from Apps in Beep's menu."
+        ));
+    }
+    Some(line)
+}
+
 fn foreground_line(app: &ForegroundApp) -> String {
     format!(
         "Open app: {} ({}). The user is chatting from the bubble over this app; \
@@ -978,6 +1008,44 @@ fn foreground_line(app: &ForegroundApp) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::AppKind;
+
+    fn app(name: &str, connected: bool, configured: bool) -> AppIntegration {
+        AppIntegration {
+            slug: name.to_lowercase(),
+            name: name.into(),
+            description: String::new(),
+            logo_url: None,
+            connected,
+            configured,
+            kind: AppKind::Composio {},
+        }
+    }
+
+    #[test]
+    fn apps_line_names_connected_and_available_apps() {
+        let apps = [
+            app("Fastmail", true, true),
+            app("Outlook", false, true),
+            app("Teams", false, true),
+            app("Slack", false, false),
+        ];
+        assert_eq!(
+            apps_line(&apps).as_deref(),
+            Some(
+                "Connected apps: Fastmail. Not connected: Outlook, Teams. \
+                 The user connects these from Apps in Beep's menu."
+            )
+        );
+        assert_eq!(
+            apps_line(&[app("Gmail", false, true)]).as_deref(),
+            Some(
+                "Connected apps: none. Not connected: Gmail. \
+                 The user connects these from Apps in Beep's menu."
+            )
+        );
+        assert_eq!(apps_line(&[app("Slack", false, false)]), None);
+    }
 
     fn fix(place: Option<&str>, updated_at: DateTime<Utc>) -> Location {
         Location {

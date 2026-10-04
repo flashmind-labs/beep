@@ -160,7 +160,6 @@ pub enum RunStatus {
     TimedOut,
     Stalled,
     Looped,
-    ToolLimit,
     Failed,
 }
 
@@ -173,7 +172,6 @@ impl RunStatus {
             Self::TimedOut => "timed_out",
             Self::Stalled => "stalled",
             Self::Looped => "looped",
-            Self::ToolLimit => "tool_limit",
             Self::Failed => "failed",
         }
     }
