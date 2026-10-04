@@ -57,7 +57,7 @@ fn row_to_job(r: &rusqlite::Row) -> rusqlite::Result<CronJob> {
 
     Ok(CronJob {
         id,
-        schedule: JobSchedule::Cron(schedule),
+        schedule: decode_schedule(schedule),
         task: prompt,
         enabled,
         once: run_once,
@@ -65,6 +65,15 @@ fn row_to_job(r: &rusqlite::Row) -> rusqlite::Result<CronJob> {
         created_at: created,
         last_run,
     })
+}
+
+/// Reverses the encoding in `upsert`: a one-off time is stored as RFC 3339, anything else is
+/// a cron expression.
+fn decode_schedule(schedule: String) -> JobSchedule {
+    match DateTime::parse_from_rfc3339(&schedule) {
+        Ok(at) => JobSchedule::Once(at.with_timezone(&Utc)),
+        Err(_) => JobSchedule::Cron(schedule),
+    }
 }
 
 const SELECT_COLS: &str =
@@ -275,5 +284,21 @@ pub fn register_tools(
 
     if let Some(log) = cron_log {
         registry.register(Arc::new(flashmind::cron::CronHistoryTool::new(log)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_off_time_reads_back_as_once() {
+        let at = "2026-10-04T04:07:00+00:00"
+            .parse::<DateTime<Utc>>()
+            .expect("valid time");
+        assert!(matches!(decode_schedule(at.to_rfc3339()), JobSchedule::Once(t) if t == at));
+        assert!(
+            matches!(decode_schedule("0 8 * * *".to_owned()), JobSchedule::Cron(e) if e == "0 8 * * *")
+        );
     }
 }
