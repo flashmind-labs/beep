@@ -45,15 +45,6 @@ async fn main() -> Result<()> {
         .context("provider_key is required for OpenRouter")?;
     let provider = Arc::new(OpenRouterProvider::new(key.to_owned()));
 
-    config::ensure_parent_dir(&config.database)?;
-    let store = Store::open(&config.database).await?;
-    store.recover().await?;
-
-    let search = config
-        .firecrawl_key
-        .as_ref()
-        .map(|key| SearchTool::new(key.clone()).map(Arc::new))
-        .transpose()?;
     let embedder: Arc<dyn EmbeddingProvider> = match &config.openai_key {
         Some(openai_key) => Arc::new(OpenAIEmbedding::new(
             Some(openai_key.clone()),
@@ -65,6 +56,15 @@ async fn main() -> Result<()> {
             memories::OPENROUTER_EMBEDDING_MODEL.to_owned(),
         )?),
     };
+    config::ensure_parent_dir(&config.database)?;
+    let store = Store::open(&config.database, embedder).await?;
+    store.recover().await?;
+
+    let search = config
+        .firecrawl_key
+        .as_ref()
+        .map(|key| SearchTool::new(key.clone()).map(Arc::new))
+        .transpose()?;
     let decision = Some(Arc::new(DecisionTool::new(SecretString::from(key))?));
     let composio = config.composio_key.as_deref().map(|key| ComposioSettings {
         key: SecretString::from(key),
@@ -80,14 +80,14 @@ async fn main() -> Result<()> {
             firecrawl_key: config.firecrawl_key.as_deref().map(SecretString::from),
             decision,
             composio,
-            embedder: Some(embedder),
         },
     );
-    beep_server::mcp::start_keep_alive(app.clone());
+    for user in app.users() {
+        user.start(&app);
+    }
     beep_server::compaction::start(app.clone());
     beep_server::titles::start(app.clone());
-    beep_server::memories::start_curation(app.clone());
-    beep_server::feeds::start(app.clone());
+    beep_server::memories::start_purge(app.clone());
     let (cron_runner, _cron_registry) = beep_server::cron::start(app.clone(), &config.database);
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {

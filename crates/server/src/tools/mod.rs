@@ -10,35 +10,26 @@ mod open_app;
 mod progress;
 mod suggest;
 
-use crate::app::App;
+use crate::{app::App, user::User};
 use flashmind::{tools::time::TimeTool, types::ToolRegistry};
 use std::sync::Arc;
 
-pub fn registry(app: Arc<App>, run_id: &str, user: &str) -> ToolRegistry {
-    let store = app.store.clone();
+pub fn registry(app: Arc<App>, run_id: &str, user: &Arc<User>) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
-    memory::register(&mut registry, store.clone(), app.memories.clone(), user);
+    memory::register(&mut registry, user);
     registry.register(Arc::new(TimeTool));
-    crate::cron::register_tools(&mut registry, store.clone(), user, None);
+    crate::cron::register_tools(&mut registry, app.store.clone(), user.id(), None);
     registry.register(Arc::new(open_app::OpenAppTool));
     registry.register(Arc::new(alarm::SetAlarmTool));
-    registry.register(Arc::new(location::GetLocationTool {
-        store: store.clone(),
-        user: user.into(),
-    }));
+    registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));
     registry.register(Arc::new(browser::OpenBrowserTool));
-    registry.register(Arc::new(maps::OpenMapsTool {
-        store: store.clone(),
-        user: user.into(),
-    }));
+    registry.register(Arc::new(maps::OpenMapsTool { user: user.clone() }));
     registry.register(Arc::new(notifications::GetNotificationsTool {
-        store: store.clone(),
-        user: user.into(),
+        user: user.clone(),
     }));
     for variant in ["habit_create", "habit_log", "habit_status", "habit_delete"] {
         registry.register(Arc::new(habits::HabitTool {
-            store: store.clone(),
-            user: user.into(),
+            user: user.clone(),
             variant,
         }));
     }

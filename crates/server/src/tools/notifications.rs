@@ -1,7 +1,8 @@
-use crate::store::Store;
+use crate::user::User;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 const APP_FRIENDLY_NAMES: &[(&str, &str)] = &[
     ("com.whatsapp", "WhatsApp"),
@@ -32,8 +33,7 @@ fn friendly_app_name(package: &str) -> String {
 }
 
 pub(crate) struct GetNotificationsTool {
-    pub store: Store,
-    pub user: String,
+    pub user: Arc<User>,
 }
 
 #[async_trait]
@@ -78,14 +78,8 @@ impl Tool for GetNotificationsTool {
         });
 
         let mut notifications = self
-            .store
-            .query_notifications(
-                &self.user,
-                resolved_app.as_deref(),
-                minutes,
-                keyword,
-                Some(100),
-            )
+            .user
+            .query_notifications(resolved_app.as_deref(), minutes, keyword, Some(100))
             .await?;
 
         for n in &mut notifications {

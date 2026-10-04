@@ -8,6 +8,7 @@ use crate::{
         wire::{Rx, framed},
     },
     router::{Cx, Router},
+    user::User,
 };
 use anyhow::{Context, Result, ensure};
 use iroh::{
@@ -47,7 +48,7 @@ impl BeepHandler {
 impl ProtocolHandler for BeepHandler {
     async fn accept(&self, connection: Connection) -> std::result::Result<(), AcceptError> {
         let user = match authenticate(&self.app, &connection).await {
-            Ok(user) => user,
+            Ok(user) => user.clone(),
             Err(e) => {
                 log::debug!("connection rejected: {e:#}");
                 connection.close(VarInt::from_u32(CLOSE_UNAUTHORIZED), b"unauthorized");
@@ -56,7 +57,7 @@ impl ProtocolHandler for BeepHandler {
         };
         let cx = Cx {
             app: self.app.clone(),
-            user: user.into(),
+            user,
             connection: connection.clone(),
         };
         let streams = Arc::new(Semaphore::new(MAX_STREAMS));
@@ -79,13 +80,17 @@ impl ProtocolHandler for BeepHandler {
 
 /// Reads `Auth` from the first stream and returns the user. A bad token is
 /// answered with `Unauthorized` before the caller closes the connection.
-async fn authenticate(app: &App, connection: &Connection) -> Result<String> {
+async fn authenticate<'a>(app: &'a App, connection: &Connection) -> Result<&'a Arc<User>> {
     let (send, recv) = timeout(READ_TIMEOUT, connection.accept_bi())
         .await
         .context("auth timed out")??;
     let (mut tx, mut rx) = framed(send, recv);
     let token = read_auth(&mut rx).await?;
-    let Some(user) = app.auth.authenticate(Some(&format!("Bearer {token}"))) else {
+    let user = app
+        .auth
+        .authenticate(Some(&format!("Bearer {token}")))
+        .and_then(|id| app.user(&id));
+    let Some(user) = user else {
         tx.err(&ApiError::Unauthorized {}).await?;
         tx.finish()?;
         // Give the client time to read the reply before the connection closes.

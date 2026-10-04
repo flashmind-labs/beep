@@ -5,10 +5,7 @@
 //! provider error or a slow answer falls back to fixed starters. Memories are
 //! never logged.
 
-use crate::{
-    AsyncMutex,
-    protocol::{PromptSuggestion, PromptSuggestions},
-};
+use crate::protocol::{PromptSuggestion, PromptSuggestions};
 use anyhow::{Result, bail, ensure};
 use chrono::{DateTime, Local, Utc};
 use chrono_tz::Tz;
@@ -19,16 +16,15 @@ use flashmind::types::{
 use futures::StreamExt;
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
     fmt::Write,
     time::{Duration, Instant},
 };
 
 /// The app shows default starters while it waits, so this can be generous.
 pub const TIMEOUT: Duration = Duration::from_secs(25);
-const FRESH: Duration = Duration::from_secs(12 * 60 * 60);
+pub(crate) const FRESH: Duration = Duration::from_secs(12 * 60 * 60);
 /// A fallback is retried sooner than a real answer.
-const FALLBACK_FRESH: Duration = Duration::from_secs(5 * 60);
+pub(crate) const FALLBACK_FRESH: Duration = Duration::from_secs(5 * 60);
 const COUNT: usize = 4;
 const MAX_TITLE_CHARS: usize = 28;
 const MAX_PROMPT_CHARS: usize = 400;
@@ -177,7 +173,7 @@ pub struct Generator<'a> {
 }
 
 impl Generator<'_> {
-    async fn ask(&self, context: &StarterContext) -> Result<Vec<PromptSuggestion>> {
+    pub(crate) async fn ask(&self, context: &StarterContext) -> Result<Vec<PromptSuggestion>> {
         parse(&self.text(SYSTEM, context.render()).await?)
     }
 
@@ -226,62 +222,9 @@ pub(crate) fn unfence(answer: &str) -> &str {
     }
 }
 
-struct Cached {
-    expires: Instant,
-    suggestions: PromptSuggestions,
-}
-
-/// Per-user starters, kept for 12 hours.
-#[derive(Default)]
-pub struct Starters {
-    cache: AsyncMutex<HashMap<String, Cached>>,
-}
-
-impl Starters {
-    pub async fn cached(&self, user: &str) -> Option<PromptSuggestions> {
-        let cache = self.cache.lock().await;
-        let entry = cache.get(user).filter(|c| c.expires > Instant::now())?;
-        Some(entry.suggestions.clone())
-    }
-
-    /// Asks the model, falling back on any failure, and caches the result.
-    pub async fn generate(
-        &self,
-        generator: Generator<'_>,
-        context: impl Future<Output = StarterContext>,
-    ) -> PromptSuggestions {
-        let user = generator.user.to_owned();
-        let attempt = async {
-            let context = context.await;
-            generator.ask(&context).await
-        };
-        let (suggestions, personal) = match tokio::time::timeout(TIMEOUT, attempt).await {
-            Ok(Ok(suggestions)) => (suggestions, true),
-            Ok(Err(error)) => {
-                log::info!("prompt suggestions fell back: {error}");
-                (fallback(), false)
-            }
-            Err(_) => {
-                log::info!("prompt suggestions fell back: timed out");
-                (fallback(), false)
-            }
-        };
-        let fresh = if personal { FRESH } else { FALLBACK_FRESH };
-        let suggestions = PromptSuggestions {
-            suggestions,
-            personal,
-        };
-        let mut cache = self.cache.lock().await;
-        cache.retain(|_, c| c.expires > Instant::now());
-        cache.insert(
-            user,
-            Cached {
-                expires: Instant::now() + fresh,
-                suggestions: suggestions.clone(),
-            },
-        );
-        suggestions
-    }
+pub(crate) struct Cached {
+    pub(crate) expires: Instant,
+    pub(crate) suggestions: PromptSuggestions,
 }
 
 #[cfg(test)]

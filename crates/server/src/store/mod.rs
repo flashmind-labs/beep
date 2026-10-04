@@ -1,22 +1,35 @@
 use crate::{
-    mail::Mailbox,
-    protocol::{Cron, Integration, Memory, MemorySource, PhoneNotification, Run, Session},
-    slack::SLACK,
+    feeds::{mail::Mailbox, slack::SLACK},
+    protocol::{Cron, Integration, MemorySource, PhoneNotification, Run, Session},
+    user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
-use flashmind::core::Conversation;
+use flashmind::{
+    core::Conversation,
+    memory::{EmbeddingProvider, MemoryStore},
+};
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
+    path::Path,
+    sync::Arc,
     time::Duration,
 };
 use tokio_rusqlite::Connection;
 use uuid::Uuid;
 
+mod memories;
+
+pub use memories::{Fact, Scored, WordEmbedder};
+
 #[derive(Clone)]
-pub struct Store(Connection);
+pub struct Store {
+    db: Connection,
+    /// Every user's memories, each tagged with its owner.
+    memories: MemoryStore,
+}
 
 /// One row of `mcp_servers`.
 pub struct McpServerRow {
@@ -146,20 +159,7 @@ impl Validity {
     }
 }
 
-/// A fact to store or to replace a memory's text with.
-#[derive(Clone)]
-pub struct Fact<'a> {
-    pub content: &'a str,
-    /// `None` keeps the current category, or `general` for a new memory.
-    pub category: Option<&'a str>,
-    pub source: MemorySource,
-    /// `None` keeps the current days on an update, or leaves a new memory open.
-    pub valid: Option<Validity>,
-    /// Embedding of `content`, when one was computed.
-    pub embedding: Option<Vec<f32>>,
-}
-
-/// A stored memory with its embedding, if it has one yet.
+/// A stored memory.
 #[derive(Debug, Clone)]
 pub struct MemoryRow {
     pub id: String,
@@ -169,7 +169,6 @@ pub struct MemoryRow {
     /// SQLite `datetime('now')` text.
     pub updated_at: String,
     pub valid: Validity,
-    pub embedding: Option<Vec<f32>>,
 }
 
 impl MemoryRow {
@@ -177,18 +176,6 @@ impl MemoryRow {
     pub fn updated(&self) -> &str {
         self.updated_at.get(..10).unwrap_or_default()
     }
-}
-
-/// An embedding computed for one version of a memory's text.
-pub struct Embedded {
-    pub id: String,
-    pub content: String,
-    pub embedding: Vec<f32>,
-}
-
-/// A short random id for a new memory; models copy it back into tool calls.
-fn memory_id() -> String {
-    Uuid::new_v4().simple().to_string()[..12].to_owned()
 }
 
 fn parse_date(text: Option<String>) -> Option<NaiveDate> {
@@ -199,64 +186,19 @@ fn format_date(date: Option<NaiveDate>) -> Option<String> {
     date.map(|d| d.format("%Y-%m-%d").to_string())
 }
 
-const MEMORY_COLUMNS: &str =
-    "id, content, category, source, updated_at, valid_from, valid_until, embedding";
-
-fn memory_row(r: &rusqlite::Row) -> rusqlite::Result<MemoryRow> {
-    let source: String = r.get(3)?;
-    let blob: Option<Vec<u8>> = r.get(7)?;
-    Ok(MemoryRow {
-        id: r.get(0)?,
-        content: r.get(1)?,
-        category: r.get(2)?,
-        source: MemorySource::parse(&source),
-        updated_at: r.get(4)?,
-        valid: Validity {
-            from: parse_date(r.get(5)?),
-            until: parse_date(r.get(6)?),
-        },
-        embedding: blob.map(|b| decode_embedding(&b)),
-    })
-}
-
-fn encode_embedding(embedding: &[f32]) -> Vec<u8> {
-    embedding.iter().flat_map(|x| x.to_le_bytes()).collect()
-}
-
-fn decode_embedding(blob: &[u8]) -> Vec<f32> {
-    blob.as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| f32::from_le_bytes(*b))
-        .collect()
-}
-
-fn check_memory(content: &str) -> Result<()> {
-    if content.trim().is_empty() || content.len() > 4000 {
-        bail!("memory content length out of range");
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_category(category: Option<&str>) -> Result<String> {
-    let cat = category.unwrap_or("general");
-    if MEMORY_CATEGORIES.contains(&cat) {
-        Ok(cat.to_owned())
-    } else {
-        bail!(
-            "invalid category '{}', must be one of: {}",
-            cat,
-            MEMORY_CATEGORIES.join(", ")
-        );
-    }
-}
-
 impl Store {
     pub fn raw(&self) -> &Connection {
-        &self.0
+        &self.db
     }
 
-    pub async fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
+    /// Opens the database at `path` and the memory store beside it, and
+    /// moves any memories still in the old table into the memory store.
+    pub async fn open(
+        path: impl AsRef<Path>,
+        embedder: Arc<dyn EmbeddingProvider>,
+    ) -> Result<Self> {
+        let path = path.as_ref();
+        let memories = Self::open_memories(path, embedder).await?;
         let db = Connection::open(path).await?;
         db.call::<_, _, rusqlite::Error>(|db| {
             db.execute_batch(
@@ -272,6 +214,8 @@ impl Store {
                 CREATE UNIQUE INDEX IF NOT EXISTS one_active_run
                     ON runs(user_id, session_id) WHERE status = 'running';
                 DROP TABLE IF EXISTS events;
+                -- Memories now live in the memory store; rows left here are
+                -- moved over on open.
                 CREATE TABLE IF NOT EXISTS memories (
                     user_id TEXT NOT NULL, id TEXT NOT NULL, content TEXT NOT NULL,
                     category TEXT NOT NULL DEFAULT 'general',
@@ -456,12 +400,20 @@ impl Store {
             Ok(())
         })
         .await?;
-        Ok(Self(db))
+        let store = Self { db, memories };
+        store.move_legacy_memories().await?;
+        Ok(store)
+    }
+
+    /// Opens a store whose memories are embedded by `WordEmbedder`.
+    #[doc(hidden)]
+    pub async fn open_for_test(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open(path, Arc::new(WordEmbedder)).await
     }
 
     // Called once before accepting requests. A server restart never silently repeats tools.
     pub async fn recover(&self) -> Result<()> {
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(|db| {
                 db.execute(
                     "UPDATE runs SET status='interrupted' WHERE status='running'",
@@ -473,20 +425,21 @@ impl Store {
         Ok(())
     }
 
-    pub async fn create_run(
+    pub(crate) async fn create_run(
         &self,
-        user: &str,
+        user: &UserKey,
         session: &str,
         request: &str,
         message: &str,
     ) -> Result<CreateRun> {
+        let user = user.as_str();
         let (user, session, request, message) = (
             user.to_owned(),
             session.to_owned(),
             request.to_owned(),
             message.to_owned(),
         );
-        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
+        Ok(self.db.call::<_, _, rusqlite::Error>(move |db| {
             let tx = db.transaction()?;
             let existing = tx.query_row(
                 "SELECT id, session_id, status, message FROM runs WHERE user_id=? AND request_id=?",
@@ -506,10 +459,11 @@ impl Store {
         }).await?)
     }
 
-    pub async fn run(&self, user: &str, id: &str) -> Result<Option<Run>> {
+    pub(crate) async fn run(&self, user: &UserKey, id: &str) -> Result<Option<Run>> {
+        let user = user.as_str();
         let (user, id) = (user.to_owned(), id.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT id, session_id, status FROM runs WHERE user_id=? AND id=?",
@@ -527,9 +481,9 @@ impl Store {
             .await?)
     }
 
-    pub async fn sessions(&self, user: &str) -> Result<Vec<Session>> {
-        let user = user.to_owned();
-        Ok(self.0.call::<_, _, rusqlite::Error>(move |db| {
+    pub(crate) async fn sessions(&self, user: &UserKey) -> Result<Vec<Session>> {
+        let user = user.as_str().to_owned();
+        Ok(self.db.call::<_, _, rusqlite::Error>(move |db| {
             let mut statement = db.prepare(
                 "SELECT s.id, COALESCE(t.title, (SELECT substr(message,1,80) FROM runs r WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.rowid LIMIT 1), 'Conversation'), s.pinned
                  FROM sessions s LEFT JOIN session_titles t ON t.user_id=s.user_id AND t.session_id=s.id
@@ -540,14 +494,20 @@ impl Store {
         }).await?)
     }
 
-    pub async fn rename_session(&self, user: &str, session_id: &str, title: &str) -> Result<bool> {
+    pub(crate) async fn rename_session(
+        &self,
+        user: &UserKey,
+        session_id: &str,
+        title: &str,
+    ) -> Result<bool> {
+        let user = user.as_str();
         if title.is_empty() || title.len() > 200 {
             bail!("session title must be 1-200 characters");
         }
         let (user, session_id) = (user.to_owned(), session_id.to_owned());
         let title = title.to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let exists: bool = db.query_row(
                     "SELECT EXISTS(SELECT 1 FROM runs WHERE user_id=? AND session_id=?)",
@@ -574,7 +534,7 @@ impl Store {
     pub async fn set_generated_title(&self, session: &SessionRef, title: &str) -> Result<bool> {
         let (user, id, title) = (session.user.clone(), session.id.clone(), title.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO session_titles (user_id, session_id, title, titled_at)
@@ -592,7 +552,7 @@ impl Store {
     pub async fn needs_first_title(&self, session: &SessionRef) -> Result<bool> {
         let (user, id) = (session.user.clone(), session.id.clone());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT (SELECT COUNT(*) FROM runs WHERE user_id=?1 AND session_id=?2) = 1
@@ -611,7 +571,7 @@ impl Store {
     pub async fn sessions_to_title(&self, idle: Duration) -> Result<Vec<SessionRef>> {
         let idle = format!("-{} seconds", idle.as_secs());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
                     "SELECT s.user_id, s.id FROM sessions s
@@ -635,7 +595,7 @@ impl Store {
             .await?)
     }
 
-    pub async fn delete_session(&self, user: &str, session_id: &str) -> Result<bool> {
+    pub(crate) async fn delete_session(&self, user: &UserKey, session_id: &str) -> Result<bool> {
         Ok(self
             .delete_sessions(user, vec![session_id.to_owned()])
             .await?
@@ -643,10 +603,10 @@ impl Store {
     }
 
     /// Deletes sessions with their runs and returns how many existed.
-    pub async fn delete_sessions(&self, user: &str, ids: Vec<String>) -> Result<u64> {
-        let user = user.to_owned();
+    pub(crate) async fn delete_sessions(&self, user: &UserKey, ids: Vec<String>) -> Result<u64> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;
                 let mut deleted = 0;
@@ -668,10 +628,16 @@ impl Store {
             .await?)
     }
 
-    pub async fn pin_session(&self, user: &str, session_id: &str, pinned: bool) -> Result<bool> {
+    pub(crate) async fn pin_session(
+        &self,
+        user: &UserKey,
+        session_id: &str,
+        pinned: bool,
+    ) -> Result<bool> {
+        let user = user.as_str();
         let (user, session_id) = (user.to_owned(), session_id.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let changed = db.execute(
                     "UPDATE sessions SET pinned=? WHERE user_id=? AND id=?",
@@ -682,10 +648,23 @@ impl Store {
             .await?)
     }
 
-    pub async fn conversation(&self, user: &str, session: &str) -> Result<Option<Conversation>> {
+    pub(crate) async fn conversation(
+        &self,
+        user: &UserKey,
+        session: &str,
+    ) -> Result<Option<Conversation>> {
+        self.conversation_of(user.as_str(), session).await
+    }
+
+    /// The conversation of a session the store picked for a sweep.
+    pub async fn session_conversation(&self, session: &SessionRef) -> Result<Option<Conversation>> {
+        self.conversation_of(&session.user, &session.id).await
+    }
+
+    async fn conversation_of(&self, user: &str, session: &str) -> Result<Option<Conversation>> {
         let (user, session) = (user.to_owned(), session.to_owned());
         let raw: Option<String> = self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT conversation FROM sessions WHERE user_id=? AND id=?",
@@ -701,10 +680,23 @@ impl Store {
 
     /// What the model sees for a session: the compacted context, or the
     /// transcript when the session was never compacted.
-    pub async fn context(&self, user: &str, session: &str) -> Result<Option<StoredContext>> {
+    pub(crate) async fn context(
+        &self,
+        user: &UserKey,
+        session: &str,
+    ) -> Result<Option<StoredContext>> {
+        self.context_of(user.as_str(), session).await
+    }
+
+    /// The context of a session the store picked for a sweep.
+    pub async fn session_context(&self, session: &SessionRef) -> Result<Option<StoredContext>> {
+        self.context_of(&session.user, &session.id).await
+    }
+
+    async fn context_of(&self, user: &str, session: &str) -> Result<Option<StoredContext>> {
         let (user, session) = (user.to_owned(), session.to_owned());
         let raw: Option<String> = self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT COALESCE(context, conversation) FROM sessions WHERE user_id=? AND id=?",
@@ -733,7 +725,7 @@ impl Store {
         let before = before.raw.clone();
         let compacted = serde_json::to_string(compacted)?;
         let changed = self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "UPDATE sessions SET context=?, context_tokens=0
@@ -754,7 +746,7 @@ impl Store {
     ) -> Result<Vec<SessionRef>> {
         let idle = format!("-{} seconds", idle.as_secs());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
                     "SELECT user_id, id FROM sessions s
@@ -774,13 +766,14 @@ impl Store {
             .await?)
     }
 
-    pub async fn finish(
+    pub(crate) async fn finish(
         &self,
-        user: &str,
+        user: &UserKey,
         run: &Run,
         turn: Option<FinishedTurn<'_>>,
         status: RunStatus,
     ) -> Result<()> {
+        let user = user.as_str();
         let (user, run, status) = (user.to_owned(), run.clone(), status.as_str());
         let turn = turn
             .map(|turn| {
@@ -791,7 +784,7 @@ impl Store {
                 ))
             })
             .transpose()?;
-        self.0.call::<_, _, rusqlite::Error>(move |db| {
+        self.db.call::<_, _, rusqlite::Error>(move |db| {
             let tx = db.transaction()?;
             if let Some((transcript, context, tokens)) = turn {
                 tx.execute(
@@ -811,17 +804,18 @@ impl Store {
     }
 
     /// Records tool calls that failed, since the conversation keeps only their output.
-    pub async fn record_tool_failures(
+    pub(crate) async fn record_tool_failures(
         &self,
-        user: &str,
+        user: &UserKey,
         session: &str,
         call_ids: Vec<String>,
     ) -> Result<()> {
+        let user = user.as_str();
         if call_ids.is_empty() {
             return Ok(());
         }
         let (user, session) = (user.to_owned(), session.to_owned());
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;
                 for id in call_ids {
@@ -837,10 +831,15 @@ impl Store {
     }
 
     /// Ids of the session's tool calls that failed.
-    pub async fn tool_failures(&self, user: &str, session: &str) -> Result<HashSet<String>> {
+    pub(crate) async fn tool_failures(
+        &self,
+        user: &UserKey,
+        session: &str,
+    ) -> Result<HashSet<String>> {
+        let user = user.as_str();
         let (user, session) = (user.to_owned(), session.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
                     "SELECT call_id FROM tool_failures WHERE user_id=? AND session_id=?",
@@ -853,15 +852,16 @@ impl Store {
 
     /// Records Jev's memory score for the turn whose user message was sent at
     /// `turn_at`, in milliseconds since the epoch.
-    pub async fn record_memory_score(
+    pub(crate) async fn record_memory_score(
         &self,
-        user: &str,
+        user: &UserKey,
         session: &str,
         turn_at: i64,
         probability: f64,
     ) -> Result<()> {
+        let user = user.as_str();
         let (user, session) = (user.to_owned(), session.to_owned());
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT OR REPLACE INTO memory_scores VALUES (?, ?, ?, ?)",
@@ -873,10 +873,15 @@ impl Store {
     }
 
     /// The session's memory scores by the time of each turn's user message.
-    pub async fn memory_scores(&self, user: &str, session: &str) -> Result<HashMap<i64, f64>> {
+    pub(crate) async fn memory_scores(
+        &self,
+        user: &UserKey,
+        session: &str,
+    ) -> Result<HashMap<i64, f64>> {
+        let user = user.as_str();
         let (user, session) = (user.to_owned(), session.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
                     "SELECT turn_at, probability FROM memory_scores
@@ -888,218 +893,10 @@ impl Store {
             .await?)
     }
 
-    /// Stores a new memory and returns its id.
-    pub async fn add_memory(&self, user: &str, fact: Fact<'_>) -> Result<String> {
-        check_memory(fact.content)?;
-        let category = validate_category(fact.category)?;
-        let (user, id, content) = (user.to_owned(), memory_id(), fact.content.to_owned());
-        let source = fact.source.as_str();
-        let valid = fact.valid.unwrap_or_default();
-        let (from, until) = (format_date(valid.from), format_date(valid.until));
-        let embedding = fact.embedding.as_deref().map(encode_embedding);
-        let stored = id.clone();
-        self.0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "INSERT INTO memories (user_id, id, content, category, source, valid_from, \
-                     valid_until, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    params![
-                        user, stored, content, category, source, from, until, embedding
-                    ],
-                )
-            })
-            .await?;
-        Ok(id)
-    }
-
-    /// Replaces a memory's text, and its days when given. A memory the user
-    /// stated stays stated. Returns whether it exists.
-    pub async fn update_memory(&self, user: &str, id: &str, fact: Fact<'_>) -> Result<bool> {
-        check_memory(fact.content)?;
-        let category = fact
-            .category
-            .map(|c| validate_category(Some(c)))
-            .transpose()?;
-        let (user, id, content) = (user.to_owned(), id.to_owned(), fact.content.to_owned());
-        let source = fact.source.as_str();
-        let keep_valid = fact.valid.is_none();
-        let valid = fact.valid.unwrap_or_default();
-        let (from, until) = (format_date(valid.from), format_date(valid.until));
-        let embedding = fact.embedding.as_deref().map(encode_embedding);
+    pub(crate) async fn list_crons(&self, user: &UserKey) -> Result<Vec<Cron>> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "UPDATE memories SET content=?1, category=coalesce(?2, category), \
-                     source=CASE WHEN source='user' THEN 'user' ELSE ?3 END, \
-                     valid_from=CASE WHEN ?9 THEN valid_from ELSE ?4 END, \
-                     valid_until=CASE WHEN ?9 THEN valid_until ELSE ?5 END, \
-                     updated_at=datetime('now'), \
-                     embedding=CASE WHEN ?6 IS NOT NULL THEN ?6 \
-                         WHEN content=?1 THEN embedding END \
-                     WHERE user_id=?7 AND id=?8",
-                    params![
-                        content, category, source, from, until, embedding, user, id, keep_valid
-                    ],
-                )
-                .map(|changed| changed > 0)
-            })
-            .await?)
-    }
-
-    /// Replaces only a memory's text, as the user does from the Memories
-    /// screen; it then counts as stated by the user.
-    pub async fn edit_memory(&self, user: &str, id: &str, content: &str) -> Result<bool> {
-        check_memory(content)?;
-        let (user, id, content) = (user.to_owned(), id.to_owned(), content.to_owned());
-        Ok(self
-            .0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "UPDATE memories SET content=?1, source='user', updated_at=datetime('now'), \
-                     embedding=CASE WHEN content=?1 THEN embedding END \
-                     WHERE user_id=?2 AND id=?3",
-                    params![content, user, id],
-                )
-                .map(|changed| changed > 0)
-            })
-            .await?)
-    }
-
-    /// Every memory of a user with its embedding, newest first.
-    pub async fn memory_rows(&self, user: &str) -> Result<Vec<MemoryRow>> {
-        let user = user.to_owned();
-        Ok(self
-            .0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                let mut stmt = db.prepare(&format!(
-                    "SELECT {MEMORY_COLUMNS} FROM memories WHERE user_id=? \
-                     ORDER BY updated_at DESC LIMIT 2000"
-                ))?;
-                stmt.query_map([user], memory_row)?.collect()
-            })
-            .await?)
-    }
-
-    /// Saves embeddings, skipping any memory whose text changed since it was embedded.
-    pub async fn set_embeddings(&self, user: &str, embedded: Vec<Embedded>) -> Result<()> {
-        let user = user.to_owned();
-        self.0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                let tx = db.transaction()?;
-                for Embedded {
-                    id,
-                    content,
-                    embedding,
-                } in embedded
-                {
-                    tx.execute(
-                        "UPDATE memories SET embedding=? WHERE user_id=? AND id=? AND content=?",
-                        params![encode_embedding(&embedding), user, id, content],
-                    )?;
-                }
-                tx.commit()
-            })
-            .await?;
-        Ok(())
-    }
-
-    pub async fn forget(&self, user: &str, id: &str) -> Result<bool> {
-        let (user, id) = (user.to_owned(), id.to_owned());
-        Ok(self
-            .0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                Ok(db.execute(
-                    "DELETE FROM memories WHERE user_id=? AND id=?",
-                    params![user, id],
-                )? > 0)
-            })
-            .await?)
-    }
-
-    /// Deletes every memory of a user and returns how many there were.
-    pub async fn forget_all(&self, user: &str) -> Result<u64> {
-        let user = user.to_owned();
-        Ok(self
-            .0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute("DELETE FROM memories WHERE user_id=?", [user])
-                    .map(|n| n as u64)
-            })
-            .await?)
-    }
-
-    /// Every memory for the Memories screen, newest first.
-    pub async fn list_memories(&self, user: &str) -> Result<Vec<Memory>> {
-        Ok(self
-            .memory_rows(user)
-            .await?
-            .into_iter()
-            .map(|row| Memory {
-                updated: row.updated().to_owned(),
-                id: row.id,
-                content: row.content,
-                category: row.category,
-                source: row.source,
-                valid_from: format_date(row.valid.from),
-                valid_until: format_date(row.valid.until),
-            })
-            .collect())
-    }
-
-    /// Deletes memories whose time ended more than `keep_days` ago and returns
-    /// how many.
-    pub async fn purge_ended_memories(&self, keep_days: u32) -> Result<u64> {
-        let cutoff = format!("-{keep_days} days");
-        Ok(self
-            .0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "DELETE FROM memories WHERE valid_until < date('now', ?)",
-                    [cutoff],
-                )
-                .map(|n| n as u64)
-            })
-            .await?)
-    }
-
-    /// Users with memories changed since their last curation, which was at
-    /// least `every` ago.
-    pub async fn users_to_curate(&self, every: Duration) -> Result<Vec<String>> {
-        let every = format!("-{} seconds", every.as_secs());
-        Ok(self
-            .0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                let mut stmt = db.prepare(
-                    "SELECT m.user_id FROM memories m
-                     LEFT JOIN memory_curation c ON c.user_id = m.user_id
-                     GROUP BY m.user_id, c.curated_at
-                     HAVING c.curated_at IS NULL
-                         OR (c.curated_at <= datetime('now', ?) AND max(m.updated_at) > c.curated_at)",
-                )?;
-                stmt.query_map([every], |r| r.get(0))?.collect()
-            })
-            .await?)
-    }
-
-    pub async fn mark_curated(&self, user: &str) -> Result<()> {
-        let user = user.to_owned();
-        self.0
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "INSERT INTO memory_curation (user_id, curated_at) VALUES (?, datetime('now'))
-                     ON CONFLICT(user_id) DO UPDATE SET curated_at=excluded.curated_at",
-                    [user],
-                )
-            })
-            .await?;
-        Ok(())
-    }
-
-    pub async fn list_crons(&self, user: &str) -> Result<Vec<Cron>> {
-        let user = user.to_owned();
-        Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
                     "SELECT id, label, prompt, schedule, enabled, created_at, run_once, last_run_at, last_status, last_error FROM crons WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
@@ -1126,9 +923,9 @@ impl Store {
             .await?)
     }
 
-    pub async fn create_cron(
+    pub(crate) async fn create_cron(
         &self,
-        user: &str,
+        user: &UserKey,
         label: &str,
         schedule: &str,
         prompt: &str,
@@ -1137,14 +934,15 @@ impl Store {
             .await
     }
 
-    pub async fn create_cron_ex(
+    pub(crate) async fn create_cron_ex(
         &self,
-        user: &str,
+        user: &UserKey,
         label: &str,
         schedule: &str,
         prompt: &str,
         run_once: bool,
     ) -> Result<String> {
+        let user = user.as_str();
         if label.is_empty() || label.len() > 200 {
             bail!("cron label must be 1–200 characters");
         }
@@ -1162,7 +960,7 @@ impl Store {
             prompt.to_owned(),
             schedule.to_owned(),
         );
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once) VALUES (?, ?, ?, ?, ?, ?)",
@@ -1174,20 +972,21 @@ impl Store {
         Ok(id)
     }
 
-    pub async fn update_cron(
+    pub(crate) async fn update_cron(
         &self,
-        user: &str,
+        user: &UserKey,
         id: &str,
         enabled: Option<bool>,
         label: Option<&str>,
         schedule: Option<&str>,
     ) -> Result<bool> {
+        let user = user.as_str();
         let (user, id) = (user.to_owned(), id.to_owned());
         let set_enabled = enabled;
         let label = label.map(|s| s.to_owned());
         let schedule = schedule.map(|s| s.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;
                 let mut changed = false;
@@ -1215,10 +1014,11 @@ impl Store {
             .await?)
     }
 
-    pub async fn toggle_cron(&self, user: &str, id: &str) -> Result<Option<bool>> {
+    pub(crate) async fn toggle_cron(&self, user: &UserKey, id: &str) -> Result<Option<bool>> {
+        let user = user.as_str();
         let (user, id) = (user.to_owned(), id.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let new_enabled: Option<bool> = db
                     .query_row(
@@ -1232,10 +1032,11 @@ impl Store {
             .await?)
     }
 
-    pub async fn delete_cron(&self, user: &str, id: &str) -> Result<bool> {
+    pub(crate) async fn delete_cron(&self, user: &UserKey, id: &str) -> Result<bool> {
+        let user = user.as_str();
         let (user, id) = (user.to_owned(), id.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 Ok(db.execute(
                     "DELETE FROM crons WHERE user_id=? AND id=?",
@@ -1245,15 +1046,16 @@ impl Store {
             .await?)
     }
 
-    pub async fn register_device(
+    pub(crate) async fn register_device(
         &self,
-        user: &str,
+        user: &UserKey,
         device_id: &str,
         fcm_token: &str,
     ) -> Result<()> {
+        let user = user.as_str();
         let (user, device_id, fcm_token) =
             (user.to_owned(), device_id.to_owned(), fcm_token.to_owned());
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO devices (user_id, device_id, fcm_token) VALUES (?, ?, ?) ON CONFLICT(user_id, device_id) DO UPDATE SET fcm_token=excluded.fcm_token, created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')",
@@ -1265,10 +1067,11 @@ impl Store {
         Ok(())
     }
 
-    pub async fn unregister_device(&self, user: &str, device_id: &str) -> Result<bool> {
+    pub(crate) async fn unregister_device(&self, user: &UserKey, device_id: &str) -> Result<bool> {
+        let user = user.as_str();
         let (user, device_id) = (user.to_owned(), device_id.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 Ok(db.execute(
                     "DELETE FROM devices WHERE user_id=? AND device_id=?",
@@ -1280,7 +1083,7 @@ impl Store {
 
     pub async fn due_crons(&self) -> Result<Vec<(String, Value)>> {
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(|db| {
                 let mut stmt = db.prepare(
                     "SELECT user_id, id, label, prompt, schedule, run_once FROM crons WHERE enabled=1",
@@ -1304,9 +1107,15 @@ impl Store {
             .await?)
     }
 
-    pub async fn log_cron_start(&self, user: &str, cron_id: &str, run_id: &str) -> Result<()> {
+    pub(crate) async fn log_cron_start(
+        &self,
+        user: &UserKey,
+        cron_id: &str,
+        run_id: &str,
+    ) -> Result<()> {
+        let user = user.as_str();
         let (user, cron_id, run_id) = (user.to_owned(), cron_id.to_owned(), run_id.to_owned());
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO cron_logs (user_id, cron_id, run_id, started_at, status) VALUES (?, ?, ?, datetime('now'), 'running')",
@@ -1325,7 +1134,7 @@ impl Store {
         error: &str,
     ) -> Result<()> {
         let (run_id, status, error) = (run_id.to_owned(), status.as_str(), error.to_owned());
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;
                 tx.execute(
@@ -1345,10 +1154,15 @@ impl Store {
         Ok(())
     }
 
-    pub async fn cron_last_run(&self, user: &str, cron_id: &str) -> Result<Option<String>> {
+    pub(crate) async fn cron_last_run(
+        &self,
+        user: &UserKey,
+        cron_id: &str,
+    ) -> Result<Option<String>> {
+        let user = user.as_str();
         let (user, cron_id) = (user.to_owned(), cron_id.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT started_at FROM cron_logs WHERE user_id=? AND cron_id=? ORDER BY id DESC LIMIT 1",
@@ -1360,10 +1174,10 @@ impl Store {
             .await?)
     }
 
-    pub async fn device_tokens(&self, user: &str) -> Result<Vec<String>> {
-        let user = user.to_owned();
+    pub(crate) async fn device_tokens(&self, user: &UserKey) -> Result<Vec<String>> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare("SELECT fcm_token FROM devices WHERE user_id=?")?;
                 let rows = stmt
@@ -1374,10 +1188,10 @@ impl Store {
             .await?)
     }
 
-    pub async fn list_mcp_connections(&self, user: &str) -> Result<Vec<Integration>> {
-        let user = user.to_owned();
+    pub(crate) async fn list_mcp_connections(&self, user: &UserKey) -> Result<Vec<Integration>> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
                     "SELECT id, provider, label, status, created_at FROM mcp_connections WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
@@ -1399,10 +1213,15 @@ impl Store {
     }
 
     #[allow(dead_code)]
-    pub async fn get_mcp_connection(&self, user: &str, id: &str) -> Result<Option<Value>> {
+    pub(crate) async fn get_mcp_connection(
+        &self,
+        user: &UserKey,
+        id: &str,
+    ) -> Result<Option<Value>> {
+        let user = user.as_str();
         let (user, id) = (user.to_owned(), id.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT id, provider, label, config, credentials, status FROM mcp_connections WHERE user_id=? AND id=?",
@@ -1423,13 +1242,14 @@ impl Store {
             .await?)
     }
 
-    pub async fn create_mcp_connection(
+    pub(crate) async fn create_mcp_connection(
         &self,
-        user: &str,
+        user: &UserKey,
         provider: &str,
         label: &str,
         config: &str,
     ) -> Result<String> {
+        let user = user.as_str();
         if provider.is_empty() || provider.len() > 100 {
             bail!("provider must be 1–100 characters");
         }
@@ -1447,7 +1267,7 @@ impl Store {
             label.to_owned(),
             config.to_owned(),
         );
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO mcp_connections (user_id, id, provider, label, config) VALUES (?, ?, ?, ?, ?)",
@@ -1459,13 +1279,14 @@ impl Store {
         Ok(id)
     }
 
-    pub async fn update_mcp_credentials(
+    pub(crate) async fn update_mcp_credentials(
         &self,
-        user: &str,
+        user: &UserKey,
         id: &str,
         credentials: &str,
         status: &str,
     ) -> Result<bool> {
+        let user = user.as_str();
         let (user, id, credentials, status) = (
             user.to_owned(),
             id.to_owned(),
@@ -1473,7 +1294,7 @@ impl Store {
             status.to_owned(),
         );
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 Ok(db.execute(
                     "UPDATE mcp_connections SET credentials=?, status=? WHERE user_id=? AND id=?",
@@ -1483,10 +1304,11 @@ impl Store {
             .await?)
     }
 
-    pub async fn delete_mcp_connection(&self, user: &str, id: &str) -> Result<bool> {
+    pub(crate) async fn delete_mcp_connection(&self, user: &UserKey, id: &str) -> Result<bool> {
+        let user = user.as_str();
         let (user, id) = (user.to_owned(), id.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 Ok(db.execute(
                     "DELETE FROM mcp_connections WHERE user_id=? AND id=?",
@@ -1497,10 +1319,10 @@ impl Store {
     }
 
     /// The user's server-managed MCP servers.
-    pub async fn mcp_servers(&self, user: &str) -> Result<Vec<McpServerRow>> {
-        let user = user.to_owned();
+    pub(crate) async fn mcp_servers(&self, user: &UserKey) -> Result<Vec<McpServerRow>> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
                     "SELECT name, config, credentials FROM mcp_servers WHERE user_id=? ORDER BY name",
@@ -1520,15 +1342,16 @@ impl Store {
     }
 
     /// Whether `feed` finished a sync within `every`.
-    pub async fn feed_synced_recently(
+    pub(crate) async fn feed_synced_recently(
         &self,
-        user: &str,
+        user: &UserKey,
         feed: Feed,
         every: Duration,
     ) -> Result<bool> {
+        let user = user.as_str();
         let (user, every) = (user.to_owned(), format!("-{} seconds", every.as_secs()));
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT EXISTS(SELECT 1 FROM mail_sync WHERE user_id=? AND mailbox=?
@@ -1540,9 +1363,9 @@ impl Store {
             .await?)
     }
 
-    pub async fn mark_feed_synced(&self, user: &str, feed: Feed) -> Result<()> {
-        let user = user.to_owned();
-        self.0
+    pub(crate) async fn mark_feed_synced(&self, user: &UserKey, feed: Feed) -> Result<()> {
+        let user = user.as_str().to_owned();
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO mail_sync (user_id, mailbox, synced_at)
@@ -1557,10 +1380,14 @@ impl Store {
     }
 
     /// When the newest processed item of `feed` arrived.
-    pub async fn feed_cursor(&self, user: &str, feed: Feed) -> Result<Option<DateTime<Utc>>> {
-        let user = user.to_owned();
+    pub(crate) async fn feed_cursor(
+        &self,
+        user: &UserKey,
+        feed: Feed,
+    ) -> Result<Option<DateTime<Utc>>> {
+        let user = user.as_str().to_owned();
         let newest: Option<String> = self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT max(received_at) FROM mail_seen WHERE user_id=? AND mailbox=?",
@@ -1575,10 +1402,10 @@ impl Store {
     }
 
     /// Ids of the items of `feed` already processed.
-    pub async fn feed_seen(&self, user: &str, feed: Feed) -> Result<HashSet<String>> {
-        let user = user.to_owned();
+    pub(crate) async fn feed_seen(&self, user: &UserKey, feed: Feed) -> Result<HashSet<String>> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt =
                     db.prepare("SELECT message_id FROM mail_seen WHERE user_id=? AND mailbox=?")?;
@@ -1588,16 +1415,17 @@ impl Store {
             .await?)
     }
 
-    pub async fn mark_feed_seen(
+    pub(crate) async fn mark_feed_seen(
         &self,
-        user: &str,
+        user: &UserKey,
         feed: Feed,
         id: &str,
         received: DateTime<Utc>,
     ) -> Result<()> {
+        let user = user.as_str();
         let (user, id) = (user.to_owned(), id.to_owned());
         let received = received.to_rfc3339_opts(SecondsFormat::Secs, true);
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT OR IGNORE INTO mail_seen (user_id, mailbox, message_id, received_at)
@@ -1611,16 +1439,16 @@ impl Store {
     }
 
     /// Forgets processed ids older than `before`, which no run reads again.
-    pub async fn prune_feed_seen(
+    pub(crate) async fn prune_feed_seen(
         &self,
-        user: &str,
+        user: &UserKey,
         feed: Feed,
         before: DateTime<Utc>,
     ) -> Result<usize> {
-        let user = user.to_owned();
+        let user = user.as_str().to_owned();
         let before = before.to_rfc3339_opts(SecondsFormat::Secs, true);
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 // The newest row is the cursor and always stays.
                 db.execute(
@@ -1633,28 +1461,18 @@ impl Store {
             .await?)
     }
 
-    /// Users with at least one MCP server that holds credentials.
-    pub async fn mcp_users(&self) -> Result<Vec<String>> {
-        Ok(self
-            .0
-            .call::<_, _, rusqlite::Error>(|db| {
-                let mut stmt = db.prepare(
-                    "SELECT DISTINCT user_id FROM mcp_servers WHERE credentials IS NOT NULL",
-                )?;
-                let rows = stmt
-                    .query_map([], |r| r.get(0))?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                Ok(rows)
-            })
-            .await?)
-    }
-
     /// Saves a server's config. Credentials are untouched: they change only
     /// through `save_mcp_credentials`, so a stale config cannot roll back a
     /// rotated refresh token.
-    pub async fn save_mcp_config(&self, user: &str, name: &str, config: Value) -> Result<()> {
+    pub(crate) async fn save_mcp_config(
+        &self,
+        user: &UserKey,
+        name: &str,
+        config: Value,
+    ) -> Result<()> {
+        let user = user.as_str();
         let (user, name) = (user.to_owned(), name.to_owned());
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO mcp_servers(user_id, name, config) VALUES(?,?,?)
@@ -1668,15 +1486,16 @@ impl Store {
     }
 
     /// Saves a server's OAuth credentials; `Value::Null` clears them.
-    pub async fn save_mcp_credentials(
+    pub(crate) async fn save_mcp_credentials(
         &self,
-        user: &str,
+        user: &UserKey,
         name: &str,
         credentials: Value,
     ) -> Result<()> {
+        let user = user.as_str();
         let (user, name) = (user.to_owned(), name.to_owned());
         let credentials = (!credentials.is_null()).then_some(credentials);
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO mcp_servers(user_id, name, credentials) VALUES(?,?,?)
@@ -1689,10 +1508,11 @@ impl Store {
         Ok(())
     }
 
-    pub async fn delete_mcp_server(&self, user: &str, name: &str) -> Result<bool> {
+    pub(crate) async fn delete_mcp_server(&self, user: &UserKey, name: &str) -> Result<bool> {
+        let user = user.as_str();
         let (user, name) = (user.to_owned(), name.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 Ok(db.execute(
                     "DELETE FROM mcp_servers WHERE user_id=? AND name=?",
@@ -1702,10 +1522,10 @@ impl Store {
             .await?)
     }
 
-    pub async fn update_location(&self, user: &str, fix: &Location) -> Result<()> {
-        let user = user.to_owned();
+    pub(crate) async fn update_location(&self, user: &UserKey, fix: &Location) -> Result<()> {
+        let user = user.as_str().to_owned();
         let fix = fix.clone();
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO locations (user_id, latitude, longitude, accuracy, timezone, place, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET latitude=excluded.latitude, longitude=excluded.longitude, accuracy=excluded.accuracy, timezone=excluded.timezone, place=excluded.place, updated_at=excluded.updated_at",
@@ -1725,10 +1545,10 @@ impl Store {
         Ok(())
     }
 
-    pub async fn get_location(&self, user: &str) -> Result<Option<Location>> {
-        let user = user.to_owned();
+    pub(crate) async fn get_location(&self, user: &UserKey) -> Result<Option<Location>> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT latitude, longitude, accuracy, timezone, place, updated_at FROM locations WHERE user_id=?",
@@ -1752,10 +1572,10 @@ impl Store {
             .await?)
     }
 
-    pub async fn get_timezone(&self, user: &str) -> Result<String> {
-        let user = user.to_owned();
+    pub(crate) async fn get_timezone(&self, user: &UserKey) -> Result<String> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT timezone FROM locations WHERE user_id=?",
@@ -1768,14 +1588,14 @@ impl Store {
             .await?)
     }
 
-    pub async fn save_notifications(
+    pub(crate) async fn save_notifications(
         &self,
-        user: &str,
+        user: &UserKey,
         notifications: Vec<PhoneNotification>,
     ) -> Result<usize> {
-        let user = user.to_owned();
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;
                 let mut count = 0usize;
@@ -1796,21 +1616,21 @@ impl Store {
             .await?)
     }
 
-    pub async fn query_notifications(
+    pub(crate) async fn query_notifications(
         &self,
-        user: &str,
+        user: &UserKey,
         app: Option<&str>,
         since_minutes: Option<i64>,
         keyword: Option<&str>,
         limit: Option<i64>,
     ) -> Result<Vec<Value>> {
-        let user = user.to_owned();
+        let user = user.as_str().to_owned();
         let app = app.map(|s| s.to_owned());
         let keyword = keyword.map(|s| s.to_owned());
         let since_minutes = since_minutes.unwrap_or(60);
         let limit = limit.unwrap_or(100).min(500);
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let cutoff_ms =
                     chrono::Utc::now().timestamp_millis() - since_minutes * 60 * 1000;
@@ -1851,7 +1671,7 @@ impl Store {
 
     pub async fn purge_old_notifications(&self) -> Result<u64> {
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(|db| {
                 let cutoff_ms = chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000;
                 let deleted = db.execute(
@@ -1863,7 +1683,13 @@ impl Store {
             .await?)
     }
 
-    pub async fn create_habit(&self, user: &str, name: &str, frequency: &str) -> Result<String> {
+    pub(crate) async fn create_habit(
+        &self,
+        user: &UserKey,
+        name: &str,
+        frequency: &str,
+    ) -> Result<String> {
+        let user = user.as_str();
         if name.is_empty() || name.len() > 200 {
             bail!("habit name must be 1-200 characters");
         }
@@ -1882,7 +1708,7 @@ impl Store {
             name.to_owned(),
             frequency.to_owned(),
         );
-        self.0
+        self.db
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
                     "INSERT INTO habits (id, user_id, name, frequency) VALUES (?, ?, ?, ?)",
@@ -1894,10 +1720,10 @@ impl Store {
         Ok(id)
     }
 
-    pub async fn list_habits(&self, user: &str) -> Result<Vec<Value>> {
-        let user = user.to_owned();
+    pub(crate) async fn list_habits(&self, user: &UserKey) -> Result<Vec<Value>> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt = db.prepare(
                     "SELECT h.id, h.name, h.frequency, h.created_at,
@@ -1934,18 +1760,19 @@ impl Store {
             .await?)
     }
 
-    pub async fn log_habit(
+    pub(crate) async fn log_habit(
         &self,
-        user: &str,
+        user: &UserKey,
         habit_name: &str,
         value: f64,
         note: Option<&str>,
     ) -> Result<()> {
+        let user = user.as_str();
         let (user, habit_name) = (user.to_owned(), habit_name.to_owned());
         let note = note.map(|s| s.to_owned());
         let id = Uuid::new_v4().to_string();
         let found = self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let habit_id: Option<String> = db
                     .query_row(
@@ -1971,10 +1798,16 @@ impl Store {
         Ok(())
     }
 
-    pub async fn habit_status(&self, user: &str, habit_name: &str, days: i64) -> Result<Value> {
+    pub(crate) async fn habit_status(
+        &self,
+        user: &UserKey,
+        habit_name: &str,
+        days: i64,
+    ) -> Result<Value> {
+        let user = user.as_str();
         let (user, habit_name) = (user.to_owned(), habit_name.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let row: Option<(String, String, String, String)> = db
                     .query_row(
@@ -2027,10 +1860,11 @@ impl Store {
             .await?)
     }
 
-    pub async fn archive_habit(&self, user: &str, habit_name: &str) -> Result<bool> {
+    pub(crate) async fn archive_habit(&self, user: &UserKey, habit_name: &str) -> Result<bool> {
+        let user = user.as_str();
         let (user, habit_name) = (user.to_owned(), habit_name.to_owned());
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 Ok(db.execute(
                     "UPDATE habits SET archived=1 WHERE user_id=? AND name=? AND archived=0",
@@ -2041,7 +1875,7 @@ impl Store {
     }
 
     /// Create default cron jobs for a user if they have none yet.
-    pub async fn ensure_default_crons(&self, user: &str) -> Result<()> {
+    pub(crate) async fn ensure_default_crons(&self, user: &UserKey) -> Result<()> {
         let existing = self.list_crons(user).await?;
         if !existing.is_empty() {
             return Ok(());
@@ -2059,7 +1893,7 @@ impl Store {
     /// Return user IDs who have had a session or registered a device.
     pub async fn active_users(&self) -> Result<Vec<String>> {
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(|db| {
                 let mut stmt = db.prepare(
                     "SELECT DISTINCT user_id FROM sessions
@@ -2075,10 +1909,14 @@ impl Store {
     }
 
     /// Count notifications for a user received in the last `minutes` minutes.
-    pub async fn notification_count_since(&self, user: &str, minutes: i64) -> Result<i64> {
-        let user = user.to_owned();
+    pub(crate) async fn notification_count_since(
+        &self,
+        user: &UserKey,
+        minutes: i64,
+    ) -> Result<i64> {
+        let user = user.as_str().to_owned();
         Ok(self
-            .0
+            .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let cutoff_ms = chrono::Utc::now().timestamp_millis() - minutes * 60 * 1000;
                 db.query_row(
@@ -2139,7 +1977,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn keyed_memories_get_ids_and_keep_their_subject() {
+    async fn old_memories_move_to_the_memory_store() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("old.db");
         let old = rusqlite::Connection::open(&path).unwrap();
@@ -2148,25 +1986,47 @@ mod tests {
                  user_id TEXT NOT NULL, key TEXT NOT NULL, content TEXT NOT NULL,
                  PRIMARY KEY(user_id, key));
              INSERT INTO memories VALUES ('alice', 'dog_name', 'Rex');
-             INSERT INTO memories VALUES ('alice', 'home', 'Lives in Lisbon');",
+             INSERT INTO memories VALUES ('alice', 'home', 'Lives in Lisbon');
+             INSERT INTO memories VALUES ('bob', 'home', 'Lives in Porto');",
         )
         .unwrap();
         drop(old);
 
-        let store = Store::open(&path).await.unwrap();
-        let mut rows = store.memory_rows("alice").await.unwrap();
+        let store = Store::open_for_test(&path).await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let mut rows = store.memory_rows(&alice).await.unwrap();
         rows.sort_by(|a, b| a.content.cmp(&b.content));
         let contents: Vec<_> = rows.iter().map(|r| r.content.as_str()).collect();
         assert_eq!(contents, ["Lives in Lisbon", "dog name: Rex"]);
-        assert!(rows.iter().all(|r| r.id.len() == 12));
         assert!(rows.iter().all(|r| r.source == MemorySource::User {}));
-        assert!(store.forget("alice", &rows[1].id).await.unwrap());
+        assert!(
+            !store
+                .forget(&UserKey::for_test("bob"), &rows[1].id)
+                .await
+                .unwrap()
+        );
+        assert!(store.forget(&alice, &rows[1].id).await.unwrap());
+
+        // Opening again moves nothing twice.
+        drop(store);
+        let store = Store::open_for_test(&path).await.unwrap();
+        assert_eq!(store.memory_rows(&alice).await.unwrap().len(), 1);
+        assert_eq!(
+            store
+                .memory_rows(&UserKey::for_test("bob"))
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]
     async fn feed_cursor_follows_seen_items_and_survives_pruning() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join("db.sqlite")).await.unwrap();
+        let store = Store::open_for_test(dir.path().join("db.sqlite"))
+            .await
+            .unwrap();
         let day = |d: u32| {
             NaiveDate::from_ymd_opt(2026, 3, d)
                 .unwrap()
@@ -2175,24 +2035,33 @@ mod tests {
                 .and_utc()
         };
         let gmail = Feed::Mail(Mailbox::Gmail);
-        assert!(store.feed_cursor("alice", gmail).await.unwrap().is_none());
+        assert!(
+            store
+                .feed_cursor(&UserKey::for_test("alice"), gmail)
+                .await
+                .unwrap()
+                .is_none()
+        );
         for (id, d) in [("a", 1), ("b", 5), ("c", 3)] {
             store
-                .mark_feed_seen("alice", gmail, id, day(d))
+                .mark_feed_seen(&UserKey::for_test("alice"), gmail, id, day(d))
                 .await
                 .unwrap();
         }
         store
-            .mark_feed_seen("alice", gmail, "a", day(9))
+            .mark_feed_seen(&UserKey::for_test("alice"), gmail, "a", day(9))
             .await
             .unwrap();
         assert_eq!(
-            store.feed_cursor("alice", gmail).await.unwrap(),
+            store
+                .feed_cursor(&UserKey::for_test("alice"), gmail)
+                .await
+                .unwrap(),
             Some(day(5))
         );
         assert!(
             store
-                .feed_cursor("alice", Feed::Slack)
+                .feed_cursor(&UserKey::for_test("alice"), Feed::Slack)
                 .await
                 .unwrap()
                 .is_none()
@@ -2200,34 +2069,43 @@ mod tests {
 
         // Everything is older than the cutoff, but the newest row stays.
         let pruned = store
-            .prune_feed_seen("alice", gmail, day(20))
+            .prune_feed_seen(&UserKey::for_test("alice"), gmail, day(20))
             .await
             .unwrap();
         assert_eq!(pruned, 2);
         assert_eq!(
-            store.feed_cursor("alice", gmail).await.unwrap(),
+            store
+                .feed_cursor(&UserKey::for_test("alice"), gmail)
+                .await
+                .unwrap(),
             Some(day(5))
         );
-        let seen = store.feed_seen("alice", gmail).await.unwrap();
+        let seen = store
+            .feed_seen(&UserKey::for_test("alice"), gmail)
+            .await
+            .unwrap();
         assert_eq!(seen, HashSet::from(["b".to_owned()]));
 
         let every = Duration::from_secs(60);
         assert!(
             !store
-                .feed_synced_recently("alice", gmail, every)
+                .feed_synced_recently(&UserKey::for_test("alice"), gmail, every)
                 .await
                 .unwrap()
         );
-        store.mark_feed_synced("alice", gmail).await.unwrap();
+        store
+            .mark_feed_synced(&UserKey::for_test("alice"), gmail)
+            .await
+            .unwrap();
         assert!(
             store
-                .feed_synced_recently("alice", gmail, every)
+                .feed_synced_recently(&UserKey::for_test("alice"), gmail, every)
                 .await
                 .unwrap()
         );
         assert!(
             !store
-                .feed_synced_recently("bob", gmail, every)
+                .feed_synced_recently(&UserKey::for_test("bob"), gmail, every)
                 .await
                 .unwrap()
         );

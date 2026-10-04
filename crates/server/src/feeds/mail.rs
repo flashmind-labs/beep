@@ -13,9 +13,11 @@
 
 use crate::{
     app::App,
+    apps::mcp::FASTMAIL,
     decision::{Criteria, DecisionTool},
     memories::{Reading, ReadingKind},
     store::Feed,
+    user::User,
 };
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Duration as Days, Utc};
@@ -63,7 +65,7 @@ impl Mailbox {
     pub fn slug(self) -> &'static str {
         match self {
             Mailbox::Gmail => "gmail",
-            Mailbox::Fastmail => crate::mcp::FASTMAIL,
+            Mailbox::Fastmail => FASTMAIL,
         }
     }
 }
@@ -121,18 +123,17 @@ struct Page {
 /// Where a user's mail is read from.
 enum Source<'a> {
     Gmail(Arc<ComposioClient>),
-    Fastmail { app: &'a App, user: &'a str },
+    Fastmail(&'a User),
 }
 
 impl<'a> Source<'a> {
-    fn new(app: &'a App, user: &'a str, mailbox: Mailbox) -> Result<Self> {
+    fn new(user: &'a User, mailbox: Mailbox) -> Result<Self> {
         Ok(match mailbox {
             Mailbox::Gmail => Source::Gmail(
-                app.apps
-                    .client(user)
+                user.composio_client()
                     .context("Composio is not configured")?,
             ),
-            Mailbox::Fastmail => Source::Fastmail { app, user },
+            Mailbox::Fastmail => Source::Fastmail(user),
         })
     }
 
@@ -154,17 +155,14 @@ impl<'a> Source<'a> {
                 }
                 parse_gmail(&response.data)
             }
-            Source::Fastmail { app, user } => {
+            Source::Fastmail(user) => {
                 // Fastmail only takes days; the overlap and seen ids cover the rest.
                 let query = format!("after:{}", after.format("%Y-%m-%d"));
                 let mut arguments = json!({"query": query, "limit": PAGE_SIZE});
                 if let Some(cursor) = cursor {
                     arguments["cursor"] = json!(cursor);
                 }
-                let value = app
-                    .mcp
-                    .call(user, crate::mcp::FASTMAIL, "search_email", arguments)
-                    .await?;
+                let value = user.call_mcp(FASTMAIL, "search_email", arguments).await?;
                 parse_fastmail(&value)
             }
         }
@@ -173,15 +171,11 @@ impl<'a> Source<'a> {
     /// Replaces a Fastmail preview with the whole body. On failure the
     /// preview stays and is scored as it is.
     async fn fill_body(&self, email: &mut Email) {
-        let Source::Fastmail { app, user } = self else {
+        let Source::Fastmail(user) = self else {
             return;
         };
         let arguments = json!({"id": email.id});
-        match app
-            .mcp
-            .call(user, crate::mcp::FASTMAIL, "read_email", arguments)
-            .await
-        {
+        match user.call_mcp(FASTMAIL, "read_email", arguments).await {
             Ok(value) => {
                 if let Some(body) = value["bodyText"].as_str() {
                     email.body = body.to_owned();
@@ -245,20 +239,18 @@ impl fmt::Display for Outcome {
 pub(crate) async fn sync(
     app: &App,
     decision: &DecisionTool,
-    user: &str,
+    user: &User,
     mailbox: Mailbox,
 ) -> Result<Outcome> {
-    let source = Source::new(app, user, mailbox)?;
-    let store = &app.store;
+    let source = Source::new(user, mailbox)?;
     let feed = Feed::Mail(mailbox);
-    let after = match store.feed_cursor(user, feed).await? {
+    let after = match user.feed_cursor(feed).await? {
         Some(cursor) => cursor - Days::days(OVERLAP_DAYS),
         None => Utc::now() - Days::days(BACKFILL_DAYS),
     };
-    store
-        .prune_feed_seen(user, feed, after - Days::days(OVERLAP_DAYS))
+    user.prune_feed_seen(feed, after - Days::days(OVERLAP_DAYS))
         .await?;
-    let seen = store.feed_seen(user, feed).await?;
+    let seen = user.feed_seen(feed).await?;
     let listed = source.list(after).await?;
     let mut outcome = Outcome {
         listed: listed.len(),
@@ -277,7 +269,7 @@ pub(crate) async fn sync(
     let mut scored = stream::iter(fresh)
         .map(|email| score(decision, &source, &today, email))
         .buffered(CONCURRENCY);
-    let generator = app.generator(user);
+    let generator = app.generator(user.id());
     while let Some((email, score)) = scored.next().await {
         // Stop at the first unscored email so the cursor never passes it.
         let probability = score.context("Jev failed")?;
@@ -285,15 +277,9 @@ pub(crate) async fn sync(
         outcome.scored += 1;
         if probability >= MEMORY_THRESHOLD {
             outcome.passed += 1;
-            outcome.learned += app
-                .memories
-                .learn_reading(generator, &email.reading())
-                .await
-                .len();
+            outcome.learned += user.learn_reading(generator, &email.reading()).await.len();
         }
-        store
-            .mark_feed_seen(user, feed, &email.id, email.received)
-            .await?;
+        user.mark_feed_seen(feed, &email.id, email.received).await?;
     }
     Ok(outcome)
 }

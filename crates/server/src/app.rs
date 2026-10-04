@@ -1,25 +1,23 @@
 use crate::{
-    apps::{Apps, ComposioSettings},
+    apps::{Composio, ComposioSettings},
     compaction::{self, Summarizer},
     config::Auth,
     decision::DecisionTool,
-    feeds::Syncing,
     live::LiveRun,
-    mcp::McpConnections,
-    memories::{self, Exchange, Memories, Turn},
+    memories::{self, Exchange, Turn},
     protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestions, Run, RunEvent, Usage},
     repeat::RepeatGuard,
     search::SearchTool,
-    starters::{Generator, LocalTime, MemoryNote, StarterContext, Starters},
+    starters::{Generator, LocalTime, MemoryNote, StarterContext},
     store::{CreateRun, FinishedTurn, Location, RunStatus, SessionRef, Store},
     titles, tools,
+    user::{Shared, User},
 };
 use anyhow::Result;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation, ConversationEntry},
-    memory::EmbeddingProvider,
     tools::{
         firecrawl::{WebCrawlTool, WebExtractTool, WebMapTool, WebScrapeTool},
         search_cache::{SearchCacheRef, SearchResultCache},
@@ -45,27 +43,30 @@ const MEMORY_QUESTION: &str = "Does this exchange reveal, correct or ask to forg
 use tokio::sync::{Mutex, RwLock, broadcast, oneshot};
 use uuid::Uuid;
 
+/// The server's shared state: storage, users, the model and the
+/// integrations every request and background task works through.
 pub struct App {
     pub store: Store,
+    /// The users allowed in and their tokens.
     pub auth: Auth,
+    /// Notices for the phones; each stream keeps only its user's.
     pub notifications: broadcast::Sender<UserNotice>,
+    /// The model behind runs, titles and starters.
     provider: Arc<dyn LlmProvider>,
     /// Model, reasoning and token budget for every run; each run adds its user.
     llm: AgentLlmConfig,
-    tools: ServerTools,
-    pub mcp: Arc<McpConnections>,
-    pub apps: Apps,
-    pub memories: Memories,
-    starters: Starters,
+    /// The optional tools each run gets.
+    tools: RunTools,
+    /// Every configured user, by id.
+    users: HashMap<String, Arc<User>>,
     /// Runs in progress, with their event feed.
     runs: Mutex<HashMap<String, Arc<LiveRun>>>,
+    /// Questions sent to a phone, keyed by query id, waiting for its answer.
     device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
-    /// Feeds being synced, so the hourly sweep and a new connection never
-    /// read the same feed at once.
-    pub syncing: Syncing,
 }
 
-/// Optional tools and integrations that need server credentials.
+/// Optional tools and integrations that need server credentials, as
+/// `App::new` takes them.
 #[derive(Default)]
 pub struct ServerTools {
     pub search: Option<Arc<SearchTool>>,
@@ -74,8 +75,13 @@ pub struct ServerTools {
     pub decision: Option<Arc<DecisionTool>>,
     /// Composio apps the user connects from the phone.
     pub composio: Option<ComposioSettings>,
-    /// Embeds memories for recall by meaning; without it recall matches words.
-    pub embedder: Option<Arc<dyn EmbeddingProvider>>,
+}
+
+/// The part of `ServerTools` a run registers itself.
+struct RunTools {
+    search: Option<Arc<SearchTool>>,
+    firecrawl_key: Option<SecretString>,
+    decision: Option<Arc<DecisionTool>>,
 }
 
 /// A `Notice` addressed to one user's open notification streams.
@@ -102,36 +108,56 @@ impl App {
         auth: Auth,
         provider: Arc<dyn LlmProvider>,
         llm: AgentLlmConfig,
-        mut tools: ServerTools,
+        tools: ServerTools,
     ) -> Arc<Self> {
+        let ServerTools {
+            search,
+            firecrawl_key,
+            decision,
+            composio,
+        } = tools;
         let (notifications, _) = broadcast::channel(64);
-        let mcp = Arc::new(McpConnections::new(store.clone(), notifications.clone()));
-        let apps = Apps::new(tools.composio.take(), mcp.clone());
-        let memories = Memories::new(store.clone(), tools.embedder.take());
+        let shared = Shared {
+            store: store.clone(),
+            notifications: notifications.clone(),
+            composio: composio.map(|settings| Arc::new(Composio::new(settings))),
+        };
+        let users = auth
+            .user_ids()
+            .map(|id| (id.to_owned(), User::new(id, &shared)))
+            .collect();
         Arc::new(Self {
-            memories,
             store,
             auth,
             notifications,
             provider,
             llm,
-            tools,
-            mcp,
-            apps,
-            starters: Starters::default(),
+            tools: RunTools {
+                search,
+                firecrawl_key,
+                decision,
+            },
+            users,
             runs: Mutex::new(HashMap::new()),
             device_queries: Mutex::new(HashMap::new()),
-            syncing: Syncing::default(),
         })
     }
 
-    pub async fn submit(self: &Arc<Self>, user: &str, message: Message) -> Result<CreateRun> {
+    /// The configured user with `id`.
+    pub fn user(&self, id: &str) -> Option<&Arc<User>> {
+        self.users.get(id)
+    }
+
+    /// Every configured user.
+    pub fn users(&self) -> impl Iterator<Item = &Arc<User>> {
+        self.users.values()
+    }
+
+    pub async fn submit(self: &Arc<Self>, user: &Arc<User>, message: Message) -> Result<CreateRun> {
         // Serialize registration with cancellation so a newly created run can always be stopped.
         let mut runs = self.runs.lock().await;
-        let result = self
-            .store
+        let result = user
             .create_run(
-                user,
                 &message.session_id.to_string(),
                 &message.request_id.to_string(),
                 &message.message,
@@ -145,11 +171,11 @@ impl App {
             });
             runs.insert(run.id.clone(), live.clone());
 
-            let (app, user, run) = (self.clone(), user.to_owned(), run.clone());
+            let (app, user, run) = (self.clone(), user.clone(), run.clone());
             let is_cron = message.cron_id.is_some();
             let image = message.image.clone();
             let session = SessionRef {
-                user: user.clone(),
+                user: user.id().to_owned(),
                 id: run.session_id.clone(),
             };
             match self.store.needs_first_title(&session).await {
@@ -180,8 +206,7 @@ impl App {
                     .await
                 {
                     log::error!("run failed: {error}; run_id={}", run.id);
-                    if let Err(error) = app.store.finish(&user, &run, None, RunStatus::Failed).await
-                    {
+                    if let Err(error) = user.finish(&run, None, RunStatus::Failed).await {
                         log::error!("unable to persist failure: {error}; run_id={}", run.id);
                     }
                     live.push(RunEvent::RunFinished {
@@ -266,9 +291,9 @@ impl App {
         }
     }
 
-    pub async fn notify_run_complete(&self, user: &str, run: &Run, status: RunStatus) {
+    pub async fn notify_run_complete(&self, user: &User, run: &Run, status: RunStatus) {
         // Build a title from the session's first message (truncated).
-        let title = match self.store.sessions(user).await {
+        let title = match user.sessions().await {
             Ok(sessions) => sessions
                 .into_iter()
                 .find(|s| s.id == run.session_id)
@@ -287,7 +312,7 @@ impl App {
         }
         .to_owned();
         let notice = UserNotice {
-            user: user.to_owned(),
+            user: user.id().to_owned(),
             notice: Notice {
                 title,
                 body,
@@ -297,7 +322,7 @@ impl App {
         };
         // Best-effort: ignore send errors (no active receivers).
         let _ = self.notifications.send(notice);
-        if let Ok(tokens) = self.store.device_tokens(user).await
+        if let Ok(tokens) = user.device_tokens().await
             && !tokens.is_empty()
         {
             log::info!(
@@ -311,11 +336,11 @@ impl App {
 
     /// Time and location for this turn, sent as a developer message. Memories are
     /// not included: the model looks them up with `memory_recall`.
-    async fn build_context(&self, user: &str) -> Option<String> {
+    async fn build_context(&self, user: &User) -> Option<String> {
         let mut ctx = String::new();
 
         // Time with user's timezone
-        if let Ok(tz_name) = self.store.get_timezone(user).await {
+        if let Ok(tz_name) = user.get_timezone().await {
             let now = if let Ok(tz) = tz_name.parse::<Tz>() {
                 Utc::now()
                     .with_timezone(&tz)
@@ -327,7 +352,7 @@ impl App {
             let _ = writeln!(ctx, "Time: {now}");
         }
 
-        if let Ok(Some(loc)) = self.store.get_location(user).await {
+        if let Ok(Some(loc)) = user.get_location().await {
             let _ = writeln!(ctx, "{}", location_line(&loc, Utc::now()));
         }
 
@@ -350,7 +375,7 @@ impl App {
 
     async fn execute(
         self: &Arc<Self>,
-        user: &str,
+        user: &Arc<User>,
         run: &Run,
         message: &str,
         image: Option<&str>,
@@ -361,14 +386,12 @@ impl App {
 
         // The model runs on the context, which may be compacted; the transcript
         // keeps every message for the phone and gets this turn's entries appended.
-        let mut transcript = self
-            .store
-            .conversation(user, &run.session_id)
+        let mut transcript = user
+            .conversation(&run.session_id)
             .await?
             .unwrap_or_else(Conversation::new);
-        let mut conversation = self
-            .store
-            .context(user, &run.session_id)
+        let mut conversation = user
+            .context(&run.session_id)
             .await?
             .map_or_else(|| transcript.clone(), |context| context.conversation);
 
@@ -378,7 +401,7 @@ impl App {
         transcript.set_system(include_str!("../prompts/assistant.md"));
         let context = self.build_context(user).await;
 
-        let llm = self.llm.clone().with_user(user);
+        let llm = self.llm.clone().with_user(user.id());
 
         let mut registry = tools::registry(self.clone(), &run.id, user);
         if let Some(search) = &self.tools.search {
@@ -391,7 +414,7 @@ impl App {
             registry.register(decision.clone());
         }
 
-        let (composio, mcp) = tokio::join!(self.apps.tools(user), self.mcp.tools(user));
+        let (composio, mcp) = tokio::join!(user.app_tools(), user.mcp_tools());
         for tool in composio.into_iter().chain(mcp) {
             registry.register(tool);
         }
@@ -544,7 +567,7 @@ impl App {
             let generator = Generator {
                 provider: self.provider.as_ref(),
                 llm: &self.llm,
-                user,
+                user: user.id(),
             };
             let score = self
                 .memory_score(format!("User: {message}\n\nAssistant: {reply}"))
@@ -558,10 +581,8 @@ impl App {
                     .iter()
                     .find(|entry| entry.timestamp >= turn_started && entry.is_user());
                 if let Some(asked) = asked
-                    && let Err(error) = self
-                        .store
+                    && let Err(error) = user
                         .record_memory_score(
-                            user,
                             &run.session_id,
                             asked.timestamp.timestamp_millis(),
                             probability,
@@ -572,7 +593,7 @@ impl App {
                 }
             }
             let exchange = Exchange {
-                today: self.today(user).await,
+                today: user.today().await,
                 earlier: earlier_turns(&conversation, turn_started),
                 latest: Turn {
                     message: message.to_owned(),
@@ -582,7 +603,7 @@ impl App {
             // Without a score (Jev not configured or failing) every turn is read.
             let learned = match score {
                 Some(probability) if probability < MEMORY_THRESHOLD => Vec::new(),
-                _ => self.memories.learn(generator, exchange).await,
+                _ => user.learn(generator, exchange).await,
             };
             if !learned.is_empty() {
                 let calls: Vec<ToolCall> = learned
@@ -617,9 +638,8 @@ impl App {
 
         // Save the turn before clients see the run finish, so they can load it.
         if !failed_tools.is_empty()
-            && let Err(error) = self
-                .store
-                .record_tool_failures(user, &run.session_id, failed_tools)
+            && let Err(error) = user
+                .record_tool_failures(&run.session_id, failed_tools)
                 .await
         {
             log::warn!("unable to record tool failures: {error}; run_id={}", run.id);
@@ -636,7 +656,7 @@ impl App {
             context: &conversation,
             prompt_tokens,
         };
-        self.store.finish(user, run, Some(turn), status).await?;
+        user.finish(run, Some(turn), status).await?;
         live.push(RunEvent::RunFinished {
             status: status.as_str().to_owned(),
         });
@@ -684,50 +704,23 @@ impl App {
         }
     }
 
-    /// Tidies the memories of users whose memories changed today.
-    pub async fn curate_memories(&self) {
-        self.memories
-            .curate_due(self.provider.as_ref(), &self.llm)
-            .await;
-    }
-
-    /// The user's date in their timezone, UTC when unknown.
-    async fn today(&self, user: &str) -> NaiveDate {
-        let now = Utc::now();
-        match self
-            .store
-            .get_timezone(user)
-            .await
-            .map(|tz| tz.parse::<Tz>())
-        {
-            Ok(Ok(tz)) => now.with_timezone(&tz).date_naive(),
-            _ => now.date_naive(),
-        }
-    }
-
     /// Conversation starters for the empty chat, personalized and cached for
     /// 12 hours unless `refresh`. Never fails: falls back to fixed starters.
-    pub async fn suggest_prompts(&self, user: &str, refresh: bool) -> PromptSuggestions {
-        if !refresh && let Some(cached) = self.starters.cached(user).await {
+    pub async fn suggest_prompts(&self, user: &User, refresh: bool) -> PromptSuggestions {
+        if !refresh && let Some(cached) = user.cached_starters().await {
             return cached;
         }
-        let generator = Generator {
-            provider: self.provider.as_ref(),
-            llm: &self.llm,
-            user,
-        };
-        self.starters
-            .generate(generator, self.starter_context(user))
+        user.generate_starters(self.generator(user.id()), self.starter_context(user))
             .await
     }
 
-    async fn starter_context(&self, user: &str) -> StarterContext {
-        let today = self.today(user).await;
+    async fn starter_context(&self, user: &User) -> StarterContext {
+        let today = user.today().await;
         let (memories, sessions, location, apps) = tokio::join!(
-            self.store.memory_rows(user),
-            self.store.sessions(user),
-            self.store.get_location(user),
-            self.apps.list(user),
+            user.memory_rows(),
+            user.sessions(),
+            user.get_location(),
+            user.apps(),
         );
         let memories = memories
             .unwrap_or_default()
