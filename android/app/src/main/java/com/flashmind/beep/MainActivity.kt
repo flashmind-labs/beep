@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import kotlin.math.abs
+import kotlin.reflect.KProperty
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -525,7 +526,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             var confirmBulkDelete by remember { mutableStateOf(false) }
             LaunchedEffect(drawerOpen) { if (!drawerOpen) picked = null }
             BackHandler(enabled = picked != null) { picked = null }
-            val drawerScope = rememberCoroutineScope()
             val visibleChats = state.conversations.filter { !it.isUnused && it.title.contains(historyQuery, ignoreCase = true) }
             picked?.let { ids ->
                 Row(Modifier.padding(start = 20.dp, end = 8.dp, bottom = 4.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -570,7 +570,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                                 onClick = { contextMenuChat = null; showRenameDialog = chat })
                             DropdownMenuItem(text = { Text(if (chat.pinned) "Unpin" else "Pin") },
                                 leadingIcon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
-                                onClick = { contextMenuChat = null; drawerScope.launch { runCatching { repository.pinSession(chat.id, !chat.pinned) } } })
+                                onClick = { contextMenuChat = null; repository.pinSession(chat.id, !chat.pinned) })
                             DropdownMenuItem(text = { Text("Delete", color = Coral) },
                                 leadingIcon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp), tint = Coral) },
                                 onClick = { contextMenuChat = null; showDeleteDialog = chat })
@@ -585,7 +585,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     onDismissRequest = { showRenameDialog = null },
                     confirmButton = { TextButton(onClick = {
                         val title = renameText.trim()
-                        if (title.isNotEmpty()) { drawerScope.launch { runCatching { repository.renameSession(chat.id, title) } }; showRenameDialog = null }
+                        if (title.isNotEmpty()) { repository.renameSession(chat.id, title); showRenameDialog = null }
                     }) { Text("Rename") } },
                     dismissButton = { TextButton(onClick = { showRenameDialog = null }) { Text("Cancel") } },
                     title = { Text("Rename conversation") },
@@ -598,7 +598,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 AlertDialog(
                     onDismissRequest = { showDeleteDialog = null },
                     confirmButton = { TextButton(onClick = {
-                        drawerScope.launch { runCatching { repository.deleteSession(chat.id) } }; showDeleteDialog = null
+                        repository.deleteSession(chat.id); showDeleteDialog = null
                     }) { Text("Delete", color = Coral) } },
                     dismissButton = { TextButton(onClick = { showDeleteDialog = null }) { Text("Cancel") } },
                     title = { Text("Delete conversation?") },
@@ -611,7 +611,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     onDismissRequest = { confirmBulkDelete = false },
                     confirmButton = { TextButton(onClick = {
                         confirmBulkDelete = false; picked = null
-                        drawerScope.launch { runCatching { repository.deleteSessions(ids) } }
+                        repository.deleteSessions(ids)
                     }) { Text("Delete", color = Coral) } },
                     dismissButton = { TextButton(onClick = { confirmBulkDelete = false }) { Text("Cancel") } },
                     title = { Text(if (ids.size == 1) "Delete 1 conversation?" else "Delete ${ids.size} conversations?") },
@@ -704,12 +704,18 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }
 }
 
+/** Reads and writes one part of a chat's draft, which the repository holds so every chat window sees the same one. */
+private class DraftField<T>(private val read: () -> T, private val write: (T) -> Unit) {
+    operator fun getValue(thisRef: Any?, property: KProperty<*>): T = read()
+    operator fun setValue(thisRef: Any?, property: KProperty<*>, value: T) = write(value)
+}
+
 @Composable
 private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier: Modifier, compact: Boolean,
                        focusInput: MutableState<Boolean> = mutableStateOf(false),
                        clipboardContent: MutableState<String?> = mutableStateOf(null)) {
-    var draft by rememberSaveable(chat.id) { mutableStateOf("") }
-    var attachedImages by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
+    var draft by DraftField({ repository.draft(chat.id).text }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(text = it)) }
+    var attachedImages by DraftField({ repository.draft(chat.id).images }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(images = it)) }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val imageContext = androidx.compose.ui.platform.LocalContext.current
