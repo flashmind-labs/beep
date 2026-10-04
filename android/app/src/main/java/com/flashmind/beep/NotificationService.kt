@@ -7,11 +7,20 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.IBinder
 import kotlinx.coroutines.*
+import com.flashmind.beep.ffi.BeepClient
+import com.flashmind.beep.ffi.NoticeListener
 import com.flashmind.beep.proto.Notice
 
+/**
+ * Keeps the process alive with Beep's endpoint bound, so the server can dial the phone with a
+ * notice while no connection is open, and tells the endpoint when the network changes.
+ */
 class NotificationService : Service() {
     companion object {
         // A channel keeps the importance it was created with, so the quieter one needed a new id.
@@ -26,7 +35,17 @@ class NotificationService : Service() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var streamJob: Job? = null
+    private var listenJob: Job? = null
+    private var networkJob: Job? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    /** The network the phone last caught up on. */
+    @Volatile private var caughtUpOn: Network? = null
+    private val listener = object : NoticeListener {
+        override fun onNotice(notice: Notice): Boolean {
+            handleNotice(notice)
+            return true
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -37,22 +56,22 @@ class NotificationService : Service() {
         // Lowest importance: it sits collapsed in the silent section with no status bar icon.
         manager.createNotificationChannel(NotificationChannel(CHANNEL_FOREGROUND, "Background connection",
             NotificationManager.IMPORTANCE_MIN).apply {
-            description = "Keeps Beep connected so routines and reminders arrive"
+            description = "Lets routines and reminders reach the phone"
             setShowBadge(false)
         })
         ChatNotifications.ensureChannel(this)
         startForeground(FOREGROUND_ID, buildForegroundNotification())
-        startStreaming()
+        watchNetwork()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Restart streaming if a new start is requested (e.g. after settings change).
-        streamJob?.cancel()
-        startStreaming()
+        // Started again after the settings change, which may mean a new client.
+        listen()
         return START_STICKY
     }
 
     override fun onDestroy() {
+        networkCallback?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) }
         scope.cancel()
         super.onDestroy()
     }
@@ -69,24 +88,84 @@ class NotificationService : Service() {
             .build()
     }
 
-    private fun startStreaming() {
-        streamJob = scope.launch {
+    /** Binds the endpoint and hands it the listener. No connection stays open. */
+    private fun listen() {
+        listenJob?.cancel()
+        listenJob = scope.launch {
             val storage = LocalStorage(this@NotificationService)
+            val config = storage.loadSettings()
+            if (!config.configured) return@launch
             var attempt = 0
             while (isActive) {
-                val config = storage.loadSettings()
-                if (!config.configured) { delay(5000); continue }
                 try {
-                    BeepClients.client(config, storage.identity()).notifications().use { notices ->
-                        attempt = 0
-                        while (true) handleNotice(notices.next() ?: break)
-                    }
+                    val client = BeepClients.client(config, storage.identity())
+                    client.listen(listener)
+                    catchUp(client)
+                    return@launch
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
                     attempt++
                 }
-                delay(minOf(1000L * (attempt + 1), 15000L))
+                delay(minOf(30_000L * attempt, 300_000L))
             }
+        }
+    }
+
+    /**
+     * Android gives iroh no way to watch the network itself. Capability updates arrive often
+     * (signal strength among them), so only a change of transport or validation counts, and a
+     * burst of callbacks becomes one call.
+     */
+    private fun watchNetwork() {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            private var last: NetworkCapabilities? = null
+            override fun onAvailable(network: Network) = changed()
+            override fun onLost(network: Network) = changed()
+            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = changed()
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                val before = last
+                last = capabilities
+                if (before == null || differs(before, capabilities)) changed()
+            }
+        }
+        getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
+        networkCallback = callback
+    }
+
+    private fun differs(a: NetworkCapabilities, b: NetworkCapabilities): Boolean =
+        listOf(NetworkCapabilities.TRANSPORT_WIFI, NetworkCapabilities.TRANSPORT_CELLULAR,
+            NetworkCapabilities.TRANSPORT_ETHERNET, NetworkCapabilities.TRANSPORT_VPN)
+            .any { a.hasTransport(it) != b.hasTransport(it) } ||
+            a.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) !=
+            b.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+
+    /** Callbacks all run on one thread, so the job needs no lock. */
+    private fun changed() {
+        networkJob?.cancel()
+        networkJob = scope.launch {
+            delay(400)
+            val client = BeepClients.current() ?: return@launch
+            client.networkChanged()
+            val cm = getSystemService(ConnectivityManager::class.java)
+            val network = cm.activeNetwork ?: return@launch
+            val online = cm.getNetworkCapabilities(network)
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+            if (online && network != caughtUpOn) {
+                caughtUpOn = network
+                catchUp(client)
+            }
+        }
+    }
+
+    /**
+     * Connects once, so the server sends what it queued while the phone was offline. The
+     * connection closes itself when idle.
+     */
+    private suspend fun catchUp(client: BeepClient) {
+        try {
+            client.health()
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
         }
     }
 

@@ -11,8 +11,14 @@ object BeepClients {
     @Synchronized
     fun client(config: ConnectionSettings, identity: ByteArray): BeepClient {
         cached?.let { if (it.config == config && it.identity.contentEquals(identity)) return it.client }
+        // The old client's endpoint would otherwise keep pinging its relay until collected.
+        cached?.client?.destroy()
         return BeepClient(config.nodeId, identity).also { cached = Cached(config, identity, it) }
     }
+
+    /** The client in use, without making one. */
+    @Synchronized
+    fun current(): BeepClient? = cached?.client
 }
 
 /** Text to show for a failed call. */

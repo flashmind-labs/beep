@@ -3,6 +3,7 @@ package com.flashmind.beep
 import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
+import android.location.Location
 import android.provider.ContactsContract
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.core.content.ContextCompat
@@ -582,6 +583,16 @@ class ChatRepository(private val storage: LocalStorage) {
         val tz = java.util.TimeZone.getDefault().id
         api().updateLocation(fix.latitude, fix.longitude, fix.accuracy.toDouble(), tz, fix.place)
         locatedAt = System.currentTimeMillis()
+        reported = fix
+    }
+    private var reported: Fix? = null
+
+    /** True unless [fix] is within 50 m of the last reported one. */
+    private fun moved(fix: Fix): Boolean {
+        val last = reported ?: return true
+        val distance = FloatArray(1)
+        Location.distanceBetween(last.latitude, last.longitude, fix.latitude, fix.longitude, distance)
+        return distance[0] >= 50f
     }
 
     fun startLocationUpdates(getLocation: suspend () -> Fix?) {
@@ -590,9 +601,10 @@ class ChatRepository(private val storage: LocalStorage) {
         locationJob = scope.launch {
             while (isActive) {
                 if (connected.value) {
-                    try { getLocation()?.let { updateLocation(it) } } catch (_: Exception) {}
+                    try { getLocation()?.takeIf { moved(it) }?.let { updateLocation(it) } } catch (_: Exception) {}
                 }
-                delay(5 * 60 * 1000L)
+                // Each report opens a connection, so it stays rare and skips a phone that hasn't moved.
+                delay(15 * 60 * 1000L)
             }
         }
     }

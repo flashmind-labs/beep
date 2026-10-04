@@ -31,29 +31,32 @@ class BeepNotificationListener : NotificationListenerService() {
 }
 
 /**
- * In-memory buffer that accumulates captured notifications and flushes them
- * to the server every 30 seconds or when 20 items have been buffered.
+ * Buffers captured notifications and sends them in batches, since each send wakes the radio:
+ * at 20 items, 10 minutes after the first one, or at once while a connection is open anyway.
  */
 object NotificationBuffer {
+    private const val BATCH = 20
+    private const val MAX_WAIT = 10 * 60 * 1000L
     private val buffer = CopyOnWriteArrayList<PhoneNotification>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var flushJob: Job? = null
 
     fun add(notification: PhoneNotification) {
         buffer.add(notification)
-        if (buffer.size >= 20) {
+        if (buffer.size >= BATCH) {
             flush()
+            return
         }
-        ensureFlushLoop()
+        scope.launch { if (BeepClients.current()?.isConnected() == true) flush() }
+        scheduleFlush()
     }
 
-    private fun ensureFlushLoop() {
+    @Synchronized
+    private fun scheduleFlush() {
         if (flushJob?.isActive == true) return
         flushJob = scope.launch {
-            while (isActive) {
-                delay(30_000)
-                flush()
-            }
+            delay(MAX_WAIT)
+            flush()
         }
     }
 
@@ -67,6 +70,7 @@ object NotificationBuffer {
             } catch (_: Exception) {
                 // Put them back for the next attempt
                 buffer.addAll(batch)
+                scheduleFlush()
             }
         }
     }

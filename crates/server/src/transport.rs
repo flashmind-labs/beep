@@ -3,6 +3,7 @@
 use crate::{
     api,
     app::App,
+    push::Pusher,
     router::{Cx, Router},
 };
 use iroh::{
@@ -21,6 +22,7 @@ const CLOSE_UNAVAILABLE: u32 = 503;
 #[derive(Clone)]
 pub struct BeepHandler {
     app: Arc<App>,
+    pusher: Arc<Pusher>,
     router: Arc<Router>,
 }
 
@@ -31,9 +33,10 @@ impl fmt::Debug for BeepHandler {
 }
 
 impl BeepHandler {
-    pub fn new(app: Arc<App>) -> Self {
+    pub fn new(app: Arc<App>, pusher: Arc<Pusher>) -> Self {
         Self {
             app,
+            pusher,
             router: Arc::new(api::router()),
         }
     }
@@ -50,6 +53,7 @@ impl ProtocolHandler for BeepHandler {
                 return Ok(());
             }
         };
+        self.pusher.connected(connection.clone());
         let cx = Cx {
             app: self.app.clone(),
             user,

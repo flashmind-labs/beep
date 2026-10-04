@@ -19,6 +19,11 @@ use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 /// `beep/1` clients sent a token first; `beep/2` ones never do.
 pub const ALPN: &[u8] = b"beep/2";
 
+/// Connections the server dials to the phone. They only carry notices: the
+/// server opens a bi stream, sends one `Notice` frame and waits for an empty
+/// reply as the ack. The same exchange runs on `ALPN` connections too.
+pub const PUSH_ALPN: &[u8] = b"beep-push/1";
+
 const MAX_FRAME: usize = 8 * 1024 * 1024;
 
 /// Reply frame tags.
