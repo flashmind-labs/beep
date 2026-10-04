@@ -2,10 +2,11 @@
 
 use crate::{
     app::Message,
+    feeds,
     live::Subscription,
     protocol::*,
     router::{Cx, Router, Sink},
-    store::{CreateRun, Location},
+    store::{CreateRun, Feed, Location},
 };
 use chrono::Utc;
 use flashmind::{
@@ -283,7 +284,18 @@ fn cap(text: &str, max: usize) -> String {
 }
 
 async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {
-    cx.app.apps.list(&cx.user).await
+    let apps = cx.app.apps.list(&cx.user).await?;
+    // OAuth ends in the browser and the phone lists apps again on return,
+    // so this is the first moment the server sees a new mailbox or Slack.
+    let feeds: Vec<Feed> = apps
+        .iter()
+        .filter(|app| app.connected)
+        .filter_map(|app| Feed::from_slug(&app.slug))
+        .collect();
+    if !feeds.is_empty() {
+        feeds::spawn_sync(&cx.app, &cx.user, feeds);
+    }
+    Ok(apps)
 }
 
 async fn connect_app(cx: Cx, ConnectApp { slug }: ConnectApp) -> Reply<ConnectLink> {

@@ -125,7 +125,7 @@ impl Tool for MemoryRecallTool {
         "memory_recall"
     }
     fn description(&self) -> &str {
-        "Search the user's memories by meaning, best first. An empty query lists the most recent. Each result has an id, a source (user, learned from a chat, or email), its last change date and, for temporary facts, its days."
+        "Search the user's memories by meaning, best first. An empty query lists the most recent. Each result has an id, a source (user, learned from a chat, email or slack), its last change date and, for temporary facts, its days."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{

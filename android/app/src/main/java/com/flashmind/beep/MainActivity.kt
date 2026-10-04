@@ -1857,6 +1857,7 @@ private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () 
     val origin = when (memory.source) {
         MemorySource.USER -> "You told Beep"
         MemorySource.EMAIL -> "From your email"
+        MemorySource.SLACK -> "From Slack"
         MemorySource.LEARNED -> "Learned"
     }
     val details = listOfNotNull(origin, shortDate(memory.updated), starts)

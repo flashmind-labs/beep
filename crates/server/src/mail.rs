@@ -14,20 +14,24 @@
 use crate::{
     app::App,
     decision::{Criteria, DecisionTool},
+    memories::{Reading, ReadingKind},
+    store::Feed,
 };
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Duration as Days, Utc};
 use flashmind::tools::composio::ComposioClient;
 use futures::{StreamExt, stream};
 use serde_json::{Value, json};
-use std::{collections::HashSet, fmt::Write, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    fmt::{self, Write},
+    sync::Arc,
+};
 
 /// How far back the first run reads.
 const BACKFILL_DAYS: i64 = 183;
 /// Each run starts this long before the cursor; seen ids skip the overlap.
 const OVERLAP_DAYS: i64 = 1;
-const SYNC_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
-const SYNC_SWEEP: Duration = Duration::from_secs(60 * 60);
 /// Jev calls, and Fastmail body reads, in flight at once.
 const CONCURRENCY: usize = 8;
 const PAGE_SIZE: usize = 50;
@@ -35,6 +39,8 @@ const PAGE_SIZE: usize = 50;
 const MAX_PAGES: usize = 400;
 /// What Jev sees of each email: headers and the start of the body.
 const JEV_EMAIL_CHARS: usize = 2500;
+/// What the learner reads of an email Jev passed.
+const LEARN_EMAIL_CHARS: usize = 4000;
 /// Above this Jev score the learner reads the email.
 const MEMORY_THRESHOLD: f64 = 0.8;
 const EMAIL_QUESTION: &str = "Does this email from the user's mailbox show a fact about the user still worth remembering today?";
@@ -46,7 +52,7 @@ or facts only about other people",
 };
 
 /// A mailbox the user can connect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mailbox {
     Gmail,
     Fastmail,
@@ -93,6 +99,16 @@ impl Email {
         let _ = writeln!(text, "Subject: {}", self.subject);
         let _ = write!(text, "\n{}", clip(self.body.trim(), chars));
         text
+    }
+
+    /// The email as the memory learner reads it.
+    fn reading(&self) -> Reading {
+        Reading {
+            kind: ReadingKind::Email,
+            id: self.id.clone(),
+            query: format!("{}\n{}", self.subject, clip(&self.body, 300)),
+            text: format!("Email:\n{}", self.render(LEARN_EMAIL_CHARS)),
+        }
     }
 }
 
@@ -204,72 +220,45 @@ impl<'a> Source<'a> {
 
 /// How a mailbox run went.
 #[derive(Debug, Default)]
-struct Outcome {
+pub(crate) struct Outcome {
     listed: usize,
     scored: usize,
     passed: usize,
     learned: usize,
 }
 
-/// Syncs every connected mailbox not synced in the last day.
-pub async fn sync_due(app: &App) {
-    let Some(decision) = app.decision() else {
-        log::debug!("mail: Jev is not configured; skipping mail sync");
-        return;
-    };
-    for user in app.auth.user_ids() {
-        for mailbox in app.apps.mailboxes(user).await {
-            match app
-                .store
-                .mail_synced_recently(user, mailbox, SYNC_EVERY)
-                .await
-            {
-                Ok(true) => {
-                    log::debug!("mail: {} synced recently; user={user}", mailbox.slug());
-                    continue;
-                }
-                Ok(false) => {}
-                Err(error) => {
-                    log::warn!("mail: unable to read sync state: {error:#}");
-                    continue;
-                }
-            }
-            log::info!("mail: syncing {}; user={user}", mailbox.slug());
-            match sync(app, decision, user, mailbox).await {
-                Ok(outcome) => {
-                    log::info!(
-                        "mail: synced {}; user={user} listed={} scored={} passed={} learned={}",
-                        mailbox.slug(),
-                        outcome.listed,
-                        outcome.scored,
-                        outcome.passed,
-                        outcome.learned
-                    );
-                    if let Err(error) = app.store.mark_mail_synced(user, mailbox).await {
-                        log::warn!("mail: unable to save sync state: {error:#}");
-                    }
-                }
-                // Not marked, so the next sweep tries again; progress so far is kept.
-                Err(error) => log::warn!(
-                    "mail: sync of {} stopped: {error:#}; user={user}",
-                    mailbox.slug()
-                ),
-            }
-        }
+impl fmt::Display for Outcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Outcome {
+            listed,
+            scored,
+            passed,
+            learned,
+        } = self;
+        write!(
+            f,
+            "listed={listed} scored={scored} passed={passed} learned={learned}"
+        )
     }
 }
 
-async fn sync(app: &App, decision: &DecisionTool, user: &str, mailbox: Mailbox) -> Result<Outcome> {
+pub(crate) async fn sync(
+    app: &App,
+    decision: &DecisionTool,
+    user: &str,
+    mailbox: Mailbox,
+) -> Result<Outcome> {
     let source = Source::new(app, user, mailbox)?;
     let store = &app.store;
-    let after = match store.mail_cursor(user, mailbox).await? {
+    let feed = Feed::Mail(mailbox);
+    let after = match store.feed_cursor(user, feed).await? {
         Some(cursor) => cursor - Days::days(OVERLAP_DAYS),
         None => Utc::now() - Days::days(BACKFILL_DAYS),
     };
     store
-        .prune_mail_seen(user, mailbox, after - Days::days(OVERLAP_DAYS))
+        .prune_feed_seen(user, feed, after - Days::days(OVERLAP_DAYS))
         .await?;
-    let seen = store.mail_seen(user, mailbox).await?;
+    let seen = store.feed_seen(user, feed).await?;
     let listed = source.list(after).await?;
     let mut outcome = Outcome {
         listed: listed.len(),
@@ -296,10 +285,14 @@ async fn sync(app: &App, decision: &DecisionTool, user: &str, mailbox: Mailbox) 
         outcome.scored += 1;
         if probability >= MEMORY_THRESHOLD {
             outcome.passed += 1;
-            outcome.learned += app.memories.learn_email(generator, &email).await.len();
+            outcome.learned += app
+                .memories
+                .learn_reading(generator, &email.reading())
+                .await
+                .len();
         }
         store
-            .mark_mail_seen(user, mailbox, &email.id, email.received)
+            .mark_feed_seen(user, feed, &email.id, email.received)
             .await?;
     }
     Ok(outcome)
@@ -327,18 +320,6 @@ fn unseen(emails: Vec<Email>, seen: &HashSet<String>) -> Vec<Email> {
         .into_iter()
         .filter(|email| !seen.contains(&email.id) && ids.insert(email.id.clone()))
         .collect()
-}
-
-/// Runs the mail sync once at start and then every hour.
-pub fn start(app: Arc<App>) {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(SYNC_SWEEP);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            interval.tick().await;
-            sync_due(&app).await;
-        }
-    });
 }
 
 fn parse_gmail(data: &Value) -> Result<Page> {
