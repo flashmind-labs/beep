@@ -648,24 +648,36 @@ impl User {
 
     /// Reads a finished exchange and updates memory with what it teaches about
     /// the user, returning the changes made. Failures are logged and dropped.
-    pub async fn learn(&self, generator: Generator<'_>, exchange: Exchange) -> Vec<Learned> {
+    /// The memories closest to the latest exchange. Jev and the learner both
+    /// see them, so a fact already known neither scores high nor is stored again.
+    pub async fn related_memories(&self, exchange: &Exchange) -> Result<Vec<Hit>> {
+        let query = format!(
+            "{}\n{}",
+            exchange.latest.message,
+            clip(&exchange.latest.reply, 300)
+        );
+        self.search_memories(&query, None, 15).await
+    }
+
+    /// Updates memory with what the exchange teaches. `known` comes from
+    /// `related_memories`.
+    pub async fn learn(
+        &self,
+        generator: Generator<'_>,
+        exchange: Exchange,
+        known: &[Hit],
+    ) -> Vec<Learned> {
         let attempt = async {
             if exchange.latest.message.split_whitespace().count() < 3 {
                 return Ok(Vec::new());
             }
-            let query = format!(
-                "{}\n{}",
-                exchange.latest.message,
-                clip(&exchange.latest.reply, 300)
-            );
-            let known = self.search_memories(&query, None, 15).await?;
-            let prompt = learn_prompt(&known, &exchange);
+            let prompt = learn_prompt(known, &exchange);
             let answer = generator.text(LEARN_SYSTEM, prompt).await?;
             let ops = parse_learn_ops(&answer)?;
             let mut learned = Vec::new();
             for op in ops {
                 learned.extend(
-                    self.apply_learned(&known, op, MemorySource::Learned {})
+                    self.apply_learned(known, op, MemorySource::Learned {})
                         .await?,
                 );
             }

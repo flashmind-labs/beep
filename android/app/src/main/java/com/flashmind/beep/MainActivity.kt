@@ -134,6 +134,9 @@ private fun java.io.InputStream.readProfileBytes(): ByteArray {
 }
 
 // Short names for the current theme's colors.
+/** Mirrors the server's MEMORY_THRESHOLD: above it the learner reads the turn. */
+private const val MEMORY_THRESHOLD = 0.8
+private val MEMORY_TOOLS = setOf("memory_store", "memory_update", "memory_forget")
 private val Ink: Color @Composable @ReadOnlyComposable get() = Beep.colors.page
 private val Surface: Color @Composable @ReadOnlyComposable get() = Beep.colors.surface
 private val Elevated: Color @Composable @ReadOnlyComposable get() = Beep.colors.raised
@@ -891,7 +894,9 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             }
                             // Jev's estimate that this turn held something worth remembering.
                             message.memoryScore?.let { score ->
-                                Text("Memory ${(score * 100).roundToInt()}%", fontSize = 11.sp, color = TextDim,
+                                val saved = message.toolCalls.any { it.name in MEMORY_TOOLS }
+                                val note = if (score >= MEMORY_THRESHOLD && !saved) " · nothing new" else ""
+                                Text("Memory ${(score * 100).roundToInt()}%$note", fontSize = 11.sp, color = TextDim,
                                     modifier = Modifier.padding(start = 8.dp))
                             }
                         }

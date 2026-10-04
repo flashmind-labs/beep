@@ -226,8 +226,9 @@ Worth keeping: the user's name, the people and pets in their life and how they r
 about by name is someone in their life), where they live and work, \
 their job and ongoing projects, stable likes, dislikes and dietary needs, routines, important dates, goals, \
 plans such as trips, visits and appointments, and how they want Beep to answer. Only what the user said or clearly \
-confirmed. Never guesses, general knowledge, what Beep did, the content of a one-off request, or secrets such as \
-passwords, codes, tokens, card or account numbers.
+confirmed, or what Beep found about the user in their own data (calendar, mail, notes) at their request, such as \
+upcoming trips, events and appointments. Never guesses, general knowledge, Beep's own suggestions, the content of a \
+one-off request, or secrets such as passwords, codes, tokens, card or account numbers.
 Known memories are listed with their ids. If a fact is already known, do nothing. If the exchange corrects or \
 extends one, update it by id with the full new text. If the user says something is no longer true or asks \
 Beep to forget it, forget it by id. Otherwise add it.
