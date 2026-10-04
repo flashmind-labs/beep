@@ -247,7 +247,7 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
     }
 }
 
-/** Three small previews of the looks. Tapping one switches the whole app. */
+/** Small previews of the looks. Tapping one switches the whole app. */
 @Composable
 fun ThemePicker(modifier: Modifier = Modifier) {
     val context = LocalContext.current

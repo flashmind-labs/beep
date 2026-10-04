@@ -64,7 +64,8 @@ import androidx.compose.ui.unit.em
 enum class BeepStyle(val key: String, val label: String) {
     MintQuiet("mint_quiet", "Mint Quiet"),
     SoftClay("soft_clay", "Soft Clay"),
-    Bubblegum("bubblegum", "Bubblegum");
+    Bubblegum("bubblegum", "Bubblegum"),
+    Rodeo("rodeo", "Rodeo");
 
     companion object {
         fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: MintQuiet
@@ -144,6 +145,7 @@ data class BeepTokens(val style: BeepStyle, val colors: BeepColors, val shapes: 
             BeepStyle.MintQuiet -> MintQuiet
             BeepStyle.SoftClay -> SoftClay
             BeepStyle.Bubblegum -> Bubblegum
+            BeepStyle.Rodeo -> Rodeo
         }
     }
 }
@@ -214,6 +216,23 @@ private val Bubblegum = BeepTokens(
     BeepShapes(outline = 2.dp, drop = DpOffset(3.dp, 3.dp), radius = 16.dp, smallRadius = 10.dp,
         card = CardLook.Chunky, botBubble = true),
     BeepFonts(Sniglet, FontWeight.ExtraBold, displayUppercase = true, displayTracking = 0.em, body = FontFamily.Default),
+)
+
+private val Rodeo = BeepTokens(
+    BeepStyle.Rodeo,
+    BeepColors(
+        page = Color(0xFFF3EFE7), surface = Color(0xFFFBF9F5), raised = Color(0xFFE9E4DA),
+        ink = Color(0xFF111111), muted = Color(0xFF77736C), dim = Color(0xFFA9A49B),
+        line = Color(0xFF111111), softLine = Color(0xFFE2DCD1), ledge = Color(0xFF111111),
+        user = Color(0xFF111111), onUser = Color.White, userLedge = Color(0xFF111111),
+        brand = Color(0xFF3B6FD9), accent = Color(0xFF111111), onAccent = Color.White,
+        ok = Color(0xFF3B6FD9), warn = Color(0xFFD9932B), error = Color(0xFFDC3B2E),
+        tints = listOf(Color(0xFFEDE4D3), Color(0xFFE2E9F3), Color(0xFFF5E1DC)),
+        code = Color(0xFFEAE5DB), onCode = Color(0xFF111111),
+    ),
+    BeepShapes(outline = 1.5.dp, drop = DpOffset(0.dp, 0.dp), radius = 16.dp, smallRadius = 12.dp,
+        card = CardLook.Hairline, botBubble = false),
+    BeepFonts(Bricolage, FontWeight.ExtraBold, displayUppercase = false, displayTracking = (-0.04).em, body = FontFamily.Default),
 )
 
 val LocalBeep = staticCompositionLocalOf { MintQuiet }
