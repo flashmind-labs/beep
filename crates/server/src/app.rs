@@ -498,7 +498,8 @@ impl App {
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
             .tools(registry)
-            .build_sync();
+            .build()
+            .await;
 
         // Every image is described alongside the run. A model that sees images
         // gets them now and the descriptions replace them once the turn is
