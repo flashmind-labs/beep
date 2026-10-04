@@ -56,6 +56,27 @@ impl CronStore for BeepCronStore {
     }
 }
 
+/// The user message a routine wakes the agent with. History reads it back
+/// with [`scheduled_label`] so clients can show it as a routine, not a prompt.
+fn scheduled_prompt(label: &str, task: &str) -> String {
+    if label.is_empty() {
+        format!("[Scheduled] {task}")
+    } else {
+        format!("[Scheduled: {label}] {task}")
+    }
+}
+
+/// The routine's label when `content` is a [`scheduled_prompt`], empty for an
+/// unlabelled routine, and `None` for anything the user wrote.
+pub fn scheduled_label(content: &str) -> Option<&str> {
+    if content.starts_with("[Scheduled] ") {
+        return Some("");
+    }
+    let rest = content.strip_prefix("[Scheduled: ")?;
+    let (label, _) = rest.split_once("] ")?;
+    Some(label)
+}
+
 struct BeepCronHandler {
     app: Arc<App>,
 }
@@ -76,11 +97,7 @@ impl CronHandler for BeepCronHandler {
 
         let session_id = Uuid::new_v4();
         let request_id = Uuid::new_v4();
-        let message = if label.is_empty() {
-            format!("[Scheduled] {}", job.task)
-        } else {
-            format!("[Scheduled: {label}] {}", job.task)
-        };
+        let message = scheduled_prompt(label, &job.task);
         let msg = Message {
             session_id,
             request_id,
@@ -184,6 +201,20 @@ mod tests {
     use chrono::{DateTime, TimeDelta, Utc};
     use flashmind::cron::JobSchedule;
     use std::time::Duration;
+
+    #[test]
+    fn scheduled_prompts_read_back_their_label() {
+        assert_eq!(
+            scheduled_label(&scheduled_prompt("", "Water the plants")),
+            Some("")
+        );
+        assert_eq!(
+            scheduled_label(&scheduled_prompt("Plants", "Water them")),
+            Some("Plants")
+        );
+        assert_eq!(scheduled_label("Water the plants"), None);
+        assert_eq!(scheduled_label("[Scheduled]"), None);
+    }
 
     #[test]
     fn one_off_time_reads_back_as_once() {
