@@ -45,11 +45,12 @@ use flashmind::{
     },
     types::Tool,
 };
+use futures::future::try_join_all;
 use secrecy::ExposeSecret;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
-    fmt,
+    fmt, slice,
     sync::{Arc, Mutex, PoisonError, Weak},
     time::{Duration, Instant},
 };
@@ -1065,10 +1066,14 @@ impl User {
                     catalog_app(slug).is_some_and(|app| app.kind == AppKind::Composio {})
                 })
                 .collect();
-            if toolkits.is_empty() {
-                return Ok(Vec::new());
-            }
-            client.list_tools_tagged(&toolkits, &["important"]).await
+            // Composio takes one toolkit_slug per request and rejects a
+            // repeated one, so each app is listed on its own.
+            let pages =
+                try_join_all(toolkits.iter().map(|toolkit| {
+                    client.list_tools_tagged(slice::from_ref(toolkit), &["important"])
+                }))
+                .await?;
+            anyhow::Ok(pages.into_iter().flatten().collect::<Vec<_>>())
         };
         match tokio::time::timeout(TOOLS_TIMEOUT, fetch).await {
             Ok(Ok(defs)) => make_composio_tool_wrappers(&client, &defs),
