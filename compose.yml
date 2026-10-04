@@ -1,11 +1,10 @@
 # The server on the remote Docker host. Forgejo CI publishes the image on
-# every push to main and `just deploy-server` pulls and starts it there. The
+# every push to main and `just deploy-server` starts it there. The
 # config and iroh key live in the `beep_data` volume.
 name: beep
 services:
   server:
-    build: .
-    image: ${BEEP_IMAGE:-beep-server}:${BEEP_TAG:-latest}
+    image: ${BEEP_IMAGE:?Set BEEP_IMAGE in .env}:${BEEP_TAG:-latest}
     restart: unless-stopped
     # Host networking lets iroh hole-punch direct paths to the phone.
     network_mode: host
