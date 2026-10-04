@@ -57,6 +57,15 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
     ),
     composio("notion", "Notion", "Search and update pages"),
     composio("googledrive", "Google Drive", "Find and read your files"),
+    composio("outlook", "Outlook", "Email, calendar and contacts"),
+    composio(
+        "microsoft_teams",
+        "Microsoft Teams",
+        "Read and send messages",
+    ),
+    composio("one_drive", "OneDrive", "Find and read your files"),
+    composio("excel", "Excel", "Read and edit workbooks"),
+    composio("share_point", "SharePoint", "Sites, lists and documents"),
     composio(SLACK, "Slack", "Read and send messages"),
     composio("github", "GitHub", "Issues, pull requests and repos"),
     composio("linear", "Linear", "Track and update issues"),
@@ -284,6 +293,11 @@ mod tests {
                 "googlecalendar",
                 "notion",
                 "googledrive",
+                "outlook",
+                "microsoft_teams",
+                "one_drive",
+                "excel",
+                "share_point",
                 "slack",
                 "github",
                 "linear",
@@ -291,7 +305,7 @@ mod tests {
                 "fastmail"
             ]
         );
-        let (composio, fastmail) = list.split_at(8);
+        let (composio, fastmail) = list.split_at(13);
         assert!(
             composio
                 .iter()
@@ -305,12 +319,12 @@ mod tests {
             .await
             .unwrap();
         let list = alice.apps().await.unwrap();
-        assert!(list[8].connected);
+        assert!(list[13].connected);
         User::for_test(store.clone(), "bob")
             .save_mcp_credentials("fastmail", json!({"client_id": "c"}))
             .await
             .unwrap();
-        assert!(alice.apps().await.unwrap()[8].connected);
+        assert!(alice.apps().await.unwrap()[13].connected);
     }
 
     #[tokio::test]
