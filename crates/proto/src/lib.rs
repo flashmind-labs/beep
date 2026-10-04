@@ -301,11 +301,12 @@ wire_enum! {
 wire_enum! {
     /// A session message. An `Assistant` entry's `tools` are the tool results
     /// of the turn it ends; its `content` is empty when the turn had no text.
+    /// `memory_score` is Jev's score for the turn, on its last assistant entry.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum HistoryEntry {
         0 User { content: String, timestamp: i64 }
-        1 Assistant { content: String, timestamp: i64, tools: Vec<HistoryTool> }
+        1 Assistant { content: String, timestamp: i64, tools: Vec<HistoryTool>, memory_score: Option<f64> }
     }
 }
 

@@ -116,14 +116,14 @@ class ChatRepository(private val storage: LocalStorage) {
                         ToolCall(it.callId, it.name, toolLabel(it.name), isDone = true, success = it.success, result = it.output)
                     }
                     if (entry.content.isBlank()) { pending = tools; null }
-                    else { pending = emptyList(); ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools) }
+                    else { pending = emptyList(); ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools, memoryScore = entry.memoryScore) }
                 }
             }
         }
         if (settings.value != config) return
-        // Jev scores only reach the phone live, so they carry over to the same replies from history.
+        // Turns from before the server kept Jev scores only have the one the phone saw live.
         val scores = before.messages.filter { it.memoryScore != null }.associate { it.text to it.memoryScore }
-        val scored = messages.map { m -> scores[m.text]?.let { m.copy(memoryScore = it) } ?: m }
+        val scored = messages.map { m -> if (m.memoryScore != null) m else scores[m.text]?.let { m.copy(memoryScore = it) } ?: m }
         updateChat(id) { current -> if (current == before) current.copy(messages = scored) else current }
     }
     fun refreshHistory() { scope.launch { runCatching { syncHistory(settings.value) } } }

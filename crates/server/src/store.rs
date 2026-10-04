@@ -7,7 +7,10 @@ use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use flashmind::core::Conversation;
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 use tokio_rusqlite::Connection;
 use uuid::Uuid;
 
@@ -323,6 +326,10 @@ impl Store {
                 CREATE TABLE IF NOT EXISTS tool_failures (
                     user_id TEXT NOT NULL, session_id TEXT NOT NULL, call_id TEXT NOT NULL,
                     PRIMARY KEY(user_id, session_id, call_id));
+                CREATE TABLE IF NOT EXISTS memory_scores (
+                    user_id TEXT NOT NULL, session_id TEXT NOT NULL, turn_at INTEGER NOT NULL,
+                    probability REAL NOT NULL,
+                    PRIMARY KEY(user_id, session_id, turn_at));
                 CREATE TABLE IF NOT EXISTS mail_sync (
                     user_id TEXT NOT NULL, mailbox TEXT NOT NULL, synced_at TEXT NOT NULL,
                     PRIMARY KEY(user_id, mailbox));
@@ -615,7 +622,7 @@ impl Store {
                 let tx = db.transaction()?;
                 let mut deleted = 0;
                 for id in &ids {
-                    for table in ["runs", "tool_failures", "session_titles"] {
+                    for table in ["runs", "tool_failures", "memory_scores", "session_titles"] {
                         tx.execute(
                             &format!("DELETE FROM {table} WHERE user_id=? AND session_id=?"),
                             params![user, id],
@@ -810,6 +817,43 @@ impl Store {
                     "SELECT call_id FROM tool_failures WHERE user_id=? AND session_id=?",
                 )?;
                 stmt.query_map(params![user, session], |r| r.get(0))?
+                    .collect()
+            })
+            .await?)
+    }
+
+    /// Records Jev's memory score for the turn whose user message was sent at
+    /// `turn_at`, in milliseconds since the epoch.
+    pub async fn record_memory_score(
+        &self,
+        user: &str,
+        session: &str,
+        turn_at: i64,
+        probability: f64,
+    ) -> Result<()> {
+        let (user, session) = (user.to_owned(), session.to_owned());
+        self.0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                db.execute(
+                    "INSERT OR REPLACE INTO memory_scores VALUES (?, ?, ?, ?)",
+                    params![user, session, turn_at, probability],
+                )
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// The session's memory scores by the time of each turn's user message.
+    pub async fn memory_scores(&self, user: &str, session: &str) -> Result<HashMap<i64, f64>> {
+        let (user, session) = (user.to_owned(), session.to_owned());
+        Ok(self
+            .0
+            .call::<_, _, rusqlite::Error>(move |db| {
+                let mut stmt = db.prepare(
+                    "SELECT turn_at, probability FROM memory_scores
+                     WHERE user_id=? AND session_id=?",
+                )?;
+                stmt.query_map(params![user, session], |r| Ok((r.get(0)?, r.get(1)?)))?
                     .collect()
             })
             .await?)
