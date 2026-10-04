@@ -13,6 +13,14 @@ If the phone is not on ADB, send the same APK with
 `ray send phone.example <apk>`, which queues it while the phone is offline.
 Never serve the file over HTTP.
 
+## UI changes
+
+Every screen of the app is mocked in the Beep screens artifact:
+https://claude.ai/artifact/BwYePcE9BHvLcYSvkRwvxD
+
+Before changing the Android UI, update the mock first so it shows the new
+screen or state, then change the app to match.
+
 ## Server tests
 
 `just test` starts the local Postgres and runs the server tests. A plain
