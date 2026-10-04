@@ -68,10 +68,9 @@ deploy-server:
             docker manifest inspect --insecure "{{server_image}}:$BEEP_TAG" > /dev/null 2>&1 && break
         sleep 10
     done
-    docker compose pull
     just stop-server
     just push-server-config
-    docker compose up -d --force-recreate
+    docker compose up -d --force-recreate --no-build
     docker compose ps
 
 # Copy the dev config and iroh key into the remote data volume
