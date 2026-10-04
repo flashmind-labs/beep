@@ -7,9 +7,9 @@ use beep_proto::{
     ApiError, AppIntegration, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink,
     CreateCron, CreateIntegration, Cron, DeleteCron, DeleteIntegration, DeleteMemory,
     DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth,
-    GetEvents, GetRun, GetSession, Health, HistoryEntry, Integration, ListApps, ListCrons,
-    ListIntegrations, ListMemories, ListSessions, Memory, Notice, PhoneNotification, PinSession,
-    PromptSuggestions, RegisterDevice, RenameSession, Run, SaveNotifications, Session,
+    ForegroundApp, GetEvents, GetRun, GetSession, Health, HistoryEntry, Integration, ListApps,
+    ListCrons, ListIntegrations, ListMemories, ListSessions, Memory, Notice, PhoneNotification,
+    PinSession, PromptSuggestions, RegisterDevice, RenameSession, Run, SaveNotifications, Session,
     StartAppAuth, Stream, StreamNotifications, SuggestPrompts, ToggleCron, UnregisterDevice,
     UpdateCredentials, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Replies},
@@ -144,6 +144,7 @@ impl BeepClient {
         request_id: String,
         message: String,
         image: Option<String>,
+        foreground: Option<ForegroundApp>,
     ) -> Result<Arc<EventStream>, BeepError> {
         let uuid = |s: &str| Uuid::parse_str(s).map_err(|_| bad_request("invalid UUID"));
         let chat = Chat {
@@ -151,6 +152,7 @@ impl BeepClient {
             request_id: uuid(&request_id)?,
             message,
             image,
+            foreground,
         };
         let replies = self.stream(chat).await?;
         Ok(Arc::new(EventStream(AsyncMutex::new(replies))))

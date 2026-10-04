@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="screen_reader_description">Lets Beep read the app you are looking at when you ask about it from the floating chat. Beep reads the screen only when the assistant asks for it, and never acts on other apps.</string>
+</resources>
