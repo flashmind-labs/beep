@@ -17,6 +17,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::sync::Notify;
 use tokio_rusqlite::Connection;
 use uuid::Uuid;
 
@@ -29,6 +30,8 @@ pub struct Store {
     db: Connection,
     /// Every user's memories, each tagged with its owner.
     memories: MemoryStore,
+    /// Woken after any write to `crons`, so the scheduler picks the change up.
+    crons_changed: Arc<Notify>,
 }
 
 /// One row of `mcp_servers`.
@@ -189,6 +192,17 @@ fn format_date(date: Option<NaiveDate>) -> Option<String> {
 impl Store {
     pub fn raw(&self) -> &Connection {
         &self.db
+    }
+
+    /// Woken after any write to `crons`.
+    pub fn crons_changed(&self) -> Arc<Notify> {
+        self.crons_changed.clone()
+    }
+
+    /// Tells the scheduler the `crons` table changed. `notify_one` keeps a permit
+    /// when nobody is waiting, so a write between two waits is not lost.
+    pub(crate) fn notify_crons_changed(&self) {
+        self.crons_changed.notify_one();
     }
 
     /// Opens the database at `path` and the memory store beside it, and
@@ -400,7 +414,11 @@ impl Store {
             Ok(())
         })
         .await?;
-        let store = Self { db, memories };
+        let store = Self {
+            db,
+            memories,
+            crons_changed: Arc::new(Notify::new()),
+        };
         store.move_legacy_memories().await?;
         Ok(store)
     }
@@ -969,6 +987,7 @@ impl Store {
                 Ok(())
             })
             .await?;
+        self.notify_crons_changed();
         Ok(id)
     }
 
@@ -985,7 +1004,7 @@ impl Store {
         let set_enabled = enabled;
         let label = label.map(|s| s.to_owned());
         let schedule = schedule.map(|s| s.to_owned());
-        Ok(self
+        let changed = self
             .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let tx = db.transaction()?;
@@ -1011,13 +1030,15 @@ impl Store {
                 tx.commit()?;
                 Ok(changed)
             })
-            .await?)
+            .await?;
+        self.notify_crons_changed();
+        Ok(changed)
     }
 
     pub(crate) async fn toggle_cron(&self, user: &UserKey, id: &str) -> Result<Option<bool>> {
         let user = user.as_str();
         let (user, id) = (user.to_owned(), id.to_owned());
-        Ok(self
+        let new_enabled = self
             .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 let new_enabled: Option<bool> = db
@@ -1029,13 +1050,15 @@ impl Store {
                     .optional()?;
                 Ok(new_enabled)
             })
-            .await?)
+            .await?;
+        self.notify_crons_changed();
+        Ok(new_enabled)
     }
 
     pub(crate) async fn delete_cron(&self, user: &UserKey, id: &str) -> Result<bool> {
         let user = user.as_str();
         let (user, id) = (user.to_owned(), id.to_owned());
-        Ok(self
+        let deleted = self
             .db
             .call::<_, _, rusqlite::Error>(move |db| {
                 Ok(db.execute(
@@ -1043,7 +1066,9 @@ impl Store {
                     params![user, id],
                 )? > 0)
             })
-            .await?)
+            .await?;
+        self.notify_crons_changed();
+        Ok(deleted)
     }
 
     pub(crate) async fn register_device(
