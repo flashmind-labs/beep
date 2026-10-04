@@ -276,6 +276,13 @@ wire_enum! {
         3 Scroll { direction: ScrollDirection }
         4 GetText { selector: String }
         5 GetPageInfo {}
+        6 Back {}
+        7 Forward {}
+        8 Reload {}
+        9 ReadPage {}
+        10 ClickElement { index: u32 }
+        11 TypeElement { index: u32, text: String, submit: bool }
+        12 WaitFor { selector: String }
     }
 }
 
@@ -537,6 +544,16 @@ mod tests {
         let buf = rmp_serde::to_vec(&event).unwrap();
         let decoded: Event = rmp_serde::from_slice(&buf).unwrap();
         assert_eq!(rmp_serde::to_vec(&decoded).unwrap(), buf);
+
+        let query = DeviceQuery::Browser {
+            command: BrowserCommand::TypeElement {
+                index: 3,
+                text: "rust".into(),
+                submit: true,
+            },
+        };
+        let buf = rmp_serde::to_vec(&query).unwrap();
+        assert_eq!(rmp_serde::from_slice::<DeviceQuery>(&buf).unwrap(), query);
     }
 
     #[test]

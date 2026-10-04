@@ -398,7 +398,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val connected by repository.connected.collectAsStateWithLifecycle()
     val pendingAppIntent by repository.pendingIntent.collectAsStateWithLifecycle()
     val pendingAlarm by repository.pendingAlarm.collectAsStateWithLifecycle()
-    val browserUrlState by repository.browserUrl.collectAsStateWithLifecycle()
+    val browserOpen by repository.browserOpen.collectAsStateWithLifecycle()
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var drawerOpen by remember { mutableStateOf(false) }
     var bubbleMenu by remember { mutableStateOf(false) }
@@ -684,12 +684,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     } // end when
     } // end Crossfade
     // Browser overlay
-    AnimatedVisibility(visible = browserUrlState != null,
+    AnimatedVisibility(visible = browserOpen,
         enter = fadeIn() + slideInVertically { it },
         exit = fadeOut() + slideOutVertically { it }) {
-        browserUrlState?.let { url ->
-            BrowserScreen(url = url, onClose = { repository.browserUrl.value = null },
-                onContentExtracted = { /* content available for future use */ })
+        BrowserScreen(onClose = { repository.closeBrowser() }) { modifier ->
+            ChatScreen(state.current, repository, modifier, compact = true)
         }
     }
 }
@@ -846,7 +845,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         val chips = toolCards.filter { (call, card) -> card == null && call.name != "suggest_replies" }
                         if (chips.isNotEmpty()) {
                             Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                chips.forEachIndexed { i, (tc, _) -> ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size]) { repository.browserUrl.value = it } }
+                                chips.forEachIndexed { i, (tc, _) -> ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size]) { repository.openBrowser(it) } }
                             }
                         }
                         val isStreaming = isLastAssistant && chat.busy
@@ -876,12 +875,12 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         }
                         MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote)
                         }
-                        if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact) { repository.browserUrl.value = it }
+                        if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact) { repository.openBrowser(it) }
                         if (!isUser && !isStreaming && message.text.isNotBlank()) {
                             val shownLinks = toolCards.mapNotNull { (it.second as? ToolCard.Link)?.url }.toSet()
                             val links = remember(message.text) { linksIn(message.text) }.filter { it !in shownLinks }
                             if (links.isNotEmpty()) Column(Modifier.padding(top = 8.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                links.forEach { LinkPreview(it) { url -> repository.browserUrl.value = url } }
+                                links.forEach { LinkPreview(it) { url -> repository.openBrowser(url) } }
                             }
                         }
                         if (message.cards.isNotEmpty()) {
@@ -1379,7 +1378,7 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
             ChunkyButton(
                 onClick = {
                     when (action) {
-                        "open_browser" -> repository.browserUrl.value = button.optString("url", "")
+                        "open_browser" -> repository.openBrowser(button.optString("url", ""))
                         "open_maps" -> {
                             val query = button.optString("query", label)
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}")))
@@ -1469,7 +1468,7 @@ internal fun toolIconFor(name: String): androidx.compose.ui.graphics.vector.Imag
 private fun CardView(card: Card, repository: ChatRepository, compact: Boolean) {
     when (card.type) {
         "place" -> PlaceCard(card.data, compact)
-        "link" -> LinkCard(card.data, onBrowse = { repository.browserUrl.value = it }, compact)
+        "link" -> LinkCard(card.data, onBrowse = { repository.openBrowser(it) }, compact)
         "action_buttons" -> ActionButtonRow(card.data, repository)
     }
 }
