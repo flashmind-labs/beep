@@ -13,12 +13,14 @@
 
 use crate::{
     app::App,
+    config::Config,
     protocol::MemorySource,
     starters::unfence,
     store::{MEMORY_CATEGORIES, MemoryRow, Validity},
 };
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use chrono::{NaiveDate, Utc};
+use flashmind::memory::{EmbeddingProvider, OpenAIEmbedding, OpenRouterEmbedding};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -32,6 +34,24 @@ use std::{
 /// embeddings stay comparable whichever provider is configured.
 pub const EMBEDDING_MODEL: &str = "text-embedding-3-small";
 pub const OPENROUTER_EMBEDDING_MODEL: &str = "openai/text-embedding-3-small";
+
+/// Embeds through OpenAI when `openai_key` is set, else through OpenRouter.
+pub fn embedder(config: &Config) -> Result<Arc<dyn EmbeddingProvider>> {
+    Ok(match &config.openai_key {
+        Some(openai_key) => Arc::new(OpenAIEmbedding::new(
+            Some(openai_key.clone()),
+            EMBEDDING_MODEL.to_owned(),
+            None,
+        )?),
+        None => Arc::new(OpenRouterEmbedding::new(
+            config
+                .provider_key
+                .clone()
+                .context("provider_key is required for OpenRouter")?,
+            OPENROUTER_EMBEDDING_MODEL.to_owned(),
+        )?),
+    })
+}
 /// The run stays open while learning, so it gets little time.
 pub(crate) const LEARN_TIMEOUT: Duration = Duration::from_secs(15);
 /// Mail and Slack sync run in the background, so a slow model can take its time.

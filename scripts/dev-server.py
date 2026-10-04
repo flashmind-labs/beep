@@ -36,7 +36,7 @@ if not token_path.exists():
 token = token_path.read_text().strip()
 config = f'''secret_key = ".dev/iroh-key"
 testing_user = "development"
-database = ".dev/android-demo.db"
+database_url = "postgres://beep:beep@127.0.0.1:55432/beep"
 model = "openai:beep-test"
 provider_url = "http://127.0.0.1:18080/"
 [[users]]

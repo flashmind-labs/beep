@@ -11,7 +11,6 @@ use beep_server::{
 };
 use flashmind::{
     llm::OpenRouterProvider,
-    memory::{EmbeddingProvider, OpenAIEmbedding, OpenRouterEmbedding},
     types::{AgentLlmConfig, Model},
 };
 use iroh::endpoint::presets;
@@ -45,19 +44,8 @@ async fn main() -> Result<()> {
         .context("provider_key is required for OpenRouter")?;
     let provider = Arc::new(OpenRouterProvider::new(key.to_owned()));
 
-    let embedder: Arc<dyn EmbeddingProvider> = match &config.openai_key {
-        Some(openai_key) => Arc::new(OpenAIEmbedding::new(
-            Some(openai_key.clone()),
-            memories::EMBEDDING_MODEL.to_owned(),
-            None,
-        )?),
-        None => Arc::new(OpenRouterEmbedding::new(
-            key.to_owned(),
-            memories::OPENROUTER_EMBEDDING_MODEL.to_owned(),
-        )?),
-    };
-    config::ensure_parent_dir(&config.database)?;
-    let store = Store::open(&config.database, embedder).await?;
+    let embedder = memories::embedder(&config)?;
+    let store = Store::open(&config.database_url()?, embedder).await?;
     store.recover().await?;
 
     let search = config
@@ -88,7 +76,7 @@ async fn main() -> Result<()> {
     beep_server::compaction::start(app.clone());
     beep_server::titles::start(app.clone());
     beep_server::memories::start_purge(app.clone());
-    let (cron_runner, _cron_registry) = beep_server::cron::start(app.clone(), &config.database);
+    let (cron_runner, _cron_registry) = beep_server::cron::start(app.clone(), &config.log_dir());
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {
             log::error!("cron runner failed: {e}");

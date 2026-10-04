@@ -1309,13 +1309,12 @@ impl fmt::Display for User {
 mod tests {
     use super::*;
     use crate::feeds::mail::Mailbox;
+    use crate::store::TestDb;
 
     #[tokio::test]
     async fn a_claimed_feed_cannot_be_claimed_again_until_released() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_for_test(&dir.path().join("beep.db"))
-            .await
-            .unwrap();
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
         let user = User::for_test(store, "alice");
         let claim = user.claim_feed(Feed::Slack).expect("feed is free");
         assert!(user.claim_feed(Feed::Slack).is_none());
@@ -1336,10 +1335,8 @@ mod tests {
 
     #[tokio::test]
     async fn memories_dedupe_within_a_user_and_stay_apart_across_users() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_for_test(&dir.path().join("beep.db"))
-            .await
-            .unwrap();
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
         let alice = User::for_test(store.clone(), "alice");
         let bob = User::for_test(store, "bob");
 

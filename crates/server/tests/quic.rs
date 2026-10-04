@@ -8,7 +8,7 @@ use beep_server::{
         Health, HistoryEntry, ListApps, MemorySource, RunEvent, StartAppAuth, SuggestPrompts,
     },
     starters,
-    store::{CreateRun, Fact, Store},
+    store::{CreateRun, Fact, TestDb},
     transport,
     user::User,
 };
@@ -87,7 +87,7 @@ impl LlmProvider for ProviderStub {
 }
 
 struct Harness {
-    dir: tempfile::TempDir,
+    db: TestDb,
     router: Router,
     app: Arc<App>,
     provider: Arc<ProviderStub>,
@@ -95,10 +95,8 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_for_test(dir.path().join("test.db"))
-            .await
-            .unwrap();
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
         let auth = Auth::new(vec![("alice".into(), ALICE.into())]).unwrap();
         let provider = Arc::new(ProviderStub {
             calls: AtomicUsize::new(0),
@@ -119,7 +117,7 @@ impl Harness {
             .accept(transport::ALPN, transport::BeepHandler::new(app.clone()))
             .spawn();
         Self {
-            dir,
+            db,
             router,
             app,
             provider,
@@ -226,9 +224,7 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
 
     assert_eq!(h.provider.calls.load(Ordering::SeqCst), 2);
 
-    let reopened = Store::open_for_test(h.dir.path().join("test.db"))
-        .await
-        .unwrap();
+    let reopened = h.db.store().await.unwrap();
     assert_eq!(
         User::for_test(reopened.clone(), "alice")
             .memory_rows()
@@ -318,9 +314,8 @@ async fn cancellation_busy_session_and_invalid_input() {
 
 #[tokio::test]
 async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("test.db");
-    let store = Store::open_for_test(&path).await.unwrap();
+    let db = TestDb::new().await.unwrap();
+    let store = db.store().await.unwrap();
     let run = match User::for_test(store.clone(), "alice")
         .create_run("session", "request", "hello")
         .await
@@ -382,7 +377,7 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
         "water"
     );
     drop(store);
-    let store = Store::open_for_test(&path).await.unwrap();
+    let store = db.store().await.unwrap();
     store.recover().await.unwrap();
     store.recover().await.unwrap();
     assert_eq!(

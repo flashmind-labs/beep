@@ -142,7 +142,7 @@ fn clip(text: &str, chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{CreateRun, FinishedTurn, RunStatus};
+    use crate::store::{CreateRun, FinishedTurn, RunStatus, TestDb};
     use crate::user::User;
     use flashmind::core::ConversationEntry;
 
@@ -184,33 +184,26 @@ mod tests {
         }
     }
 
-    async fn set_updated(store: &Store, session: &str, modifier: &str) {
-        let (session, modifier) = (session.to_owned(), modifier.to_owned());
-        store
-            .raw()
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "UPDATE sessions SET updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now',?) WHERE id=?",
-                    [modifier, session],
-                )
-            })
+    async fn set_updated(store: &Store, session: &str, ago: &str) {
+        sqlx::query("UPDATE sessions SET updated_at = now() - $1::interval WHERE id = $2")
+            .bind(ago)
+            .bind(session)
+            .execute(store.pool())
             .await
             .unwrap();
     }
 
     #[tokio::test]
     async fn picks_quiet_changed_sessions_and_keeps_manual_titles() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_for_test(dir.path().join("test.db"))
-            .await
-            .unwrap();
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
         let quiet = chat(&store, "quiet").await;
         let busy = chat(&store, "busy").await;
         let renamed = chat(&store, "renamed").await;
         let old = chat(&store, "old").await;
-        set_updated(&store, &quiet.id, "-5 minutes").await;
-        set_updated(&store, &renamed.id, "-5 minutes").await;
-        set_updated(&store, &old.id, "-2 days").await;
+        set_updated(&store, &quiet.id, "5 minutes").await;
+        set_updated(&store, &renamed.id, "5 minutes").await;
+        set_updated(&store, &old.id, "2 days").await;
         assert!(
             User::for_test(store.clone(), "alice")
                 .rename_session(&renamed.id, "Mine")
@@ -222,17 +215,13 @@ mod tests {
         assert_eq!(picked, vec![quiet.clone()]);
 
         // A title written after the last change is current until the next one.
-        store
-            .raw()
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "INSERT INTO session_titles (user_id, session_id, title, titled_at)
-                     VALUES ('alice', 'quiet', 'Greeting', strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
-                    [],
-                )
-            })
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO session_titles (user_id, session_id, title, titled_at)
+             VALUES ('alice', 'quiet', 'Greeting', now())",
+        )
+        .execute(store.pool())
+        .await
+        .unwrap();
         assert!(
             store
                 .sessions_to_title(IDLE_BEFORE_RETITLE)
@@ -263,10 +252,8 @@ mod tests {
 
     #[tokio::test]
     async fn deletes_sessions_in_bulk() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_for_test(dir.path().join("test.db"))
-            .await
-            .unwrap();
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
         for id in ["a", "b", "c"] {
             chat(&store, id).await;
         }

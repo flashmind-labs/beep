@@ -259,21 +259,22 @@ pub(crate) fn internal(what: &'static str) -> impl Fn(anyhow::Error) -> ApiError
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{store::Store, user::User};
+    use crate::{
+        store::{Store, TestDb},
+        user::User,
+    };
     use serde_json::json;
     use std::sync::Arc;
 
-    async fn alice() -> (Arc<User>, Store, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_for_test(dir.path().join("db.sqlite"))
-            .await
-            .unwrap();
-        (User::for_test(store.clone(), "alice"), store, dir)
+    async fn alice() -> (Arc<User>, Store, TestDb) {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        (User::for_test(store.clone(), "alice"), store, db)
     }
 
     #[tokio::test]
     async fn lists_catalog_without_composio_key() {
-        let (alice, store, _dir) = alice().await;
+        let (alice, store, _db) = alice().await;
         let list = alice.apps().await.unwrap();
         let slugs: Vec<&str> = list.iter().map(|a| a.slug.as_str()).collect();
         assert_eq!(
@@ -314,7 +315,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_explains_missing_setup() {
-        let (alice, _store, _dir) = alice().await;
+        let (alice, _store, _db) = alice().await;
         let error = alice.connect_app("gmail").await.unwrap_err();
         assert!(
             matches!(error, ApiError::BadRequest { message } if message.contains("not configured"))
@@ -329,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_auth_checks_app_and_redirect() {
-        let (alice, _store, _dir) = alice().await;
+        let (alice, _store, _db) = alice().await;
         let error = alice
             .start_app_auth("gmail", "http://localhost:4000/callback")
             .await
