@@ -60,7 +60,7 @@ object ChatNotifications {
         val style = Notification.MessagingStyle(Person.Builder().setName("You").setKey("self").build())
             .setConversationTitle(chat.title.takeIf { it != NEW_CHAT_TITLE })
         val now = System.currentTimeMillis()
-        val recent = chat.messages.filter { it.text.isNotBlank() || it.role == "assistant" }.takeLast(SHOWN_MESSAGES)
+        val recent = chat.messages.filter { it.role != "scheduled" && (it.text.isNotBlank() || it.role == "assistant") }.takeLast(SHOWN_MESSAGES)
         recent.forEachIndexed { i, message ->
             val time = now - (recent.size - i)
             if (message.role == "user") style.addMessage(message.text, time, null as Person?)

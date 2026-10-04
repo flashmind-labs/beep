@@ -828,6 +828,10 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                     val isUser = message.role == "user"
                     val fresh = message.id !in settled
                     SideEffect { settled.add(message.id) }
+                    if (message.role == "scheduled") {
+                        ScheduledMarker(message.text, Modifier.animateItem(fadeOutSpec = null))
+                        return@itemsIndexed
+                    }
                     Column(Modifier.fillMaxWidth().animateItem(fadeOutSpec = null)
                         .popIn(message.id, play = fresh, origin = TransformOrigin(if (isUser) 1f else 0f, 1f)),
                         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
@@ -1507,6 +1511,17 @@ internal data class InlineColors(val link: Color, val muted: Color, val code: Co
 @Composable
 @ReadOnlyComposable
 private fun inlineColors() = Beep.colors.let { InlineColors(it.brand, it.muted, it.code, it.onCode) }
+
+/** Where a routine woke Beep: its prompt is the routine's, not something the user said. */
+@Composable
+private fun ScheduledMarker(label: String, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.Schedule, null, Modifier.size(13.dp), tint = TextDim)
+        Spacer(Modifier.width(6.dp))
+        Text(if (label.isBlank()) "Scheduled" else "Scheduled · $label", fontSize = 11.sp, color = TextDim,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
 
 @Composable
 private fun MessageContent(text: String, role: String, compact: Boolean, padded: Boolean = role == "user") {

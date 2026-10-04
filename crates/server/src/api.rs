@@ -2,7 +2,7 @@
 
 use crate::{
     app::Message,
-    feeds,
+    cron, feeds,
     images::{MAX_IMAGE_BYTES, MAX_IMAGES},
     live::Subscription,
     protocol::*,
@@ -205,9 +205,15 @@ fn history(
             EntryKind::User { content, .. } => {
                 turn.finish(&mut history);
                 turn.score = scores.get(&timestamp).copied();
-                history.push(HistoryEntry::User {
-                    content: content.clone(),
-                    timestamp,
+                history.push(match cron::scheduled_label(content) {
+                    Some(label) => HistoryEntry::Scheduled {
+                        label: label.to_owned(),
+                        timestamp,
+                    },
+                    None => HistoryEntry::User {
+                        content: content.clone(),
+                        timestamp,
+                    },
                 });
             }
             EntryKind::Assistant {
@@ -617,5 +623,22 @@ mod tests {
         assert!(second.is_empty());
         assert_eq!(second_tools[0].call_id, "b");
         assert!(!second_tools[0].success);
+    }
+
+    #[test]
+    fn history_marks_a_routine_prompt_as_scheduled() {
+        let entries = [
+            ConversationEntry::user("[Scheduled: Plants] Remind me to water the plants"),
+            ConversationEntry::assistant("Time to water the plants."),
+        ];
+        let history = history(&entries, &HashSet::new(), &HashMap::new());
+        let [
+            HistoryEntry::Scheduled { label, .. },
+            HistoryEntry::Assistant { .. },
+        ] = history.as_slice()
+        else {
+            panic!("unexpected history: {history:?}");
+        };
+        assert_eq!(label, "Plants");
     }
 }

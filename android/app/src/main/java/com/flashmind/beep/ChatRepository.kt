@@ -167,6 +167,7 @@ class ChatRepository(private val storage: LocalStorage) {
         val messages = api(config).getSession(id).mapIndexedNotNull { i, entry ->
             when (entry) {
                 is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "user", entry.content) }
+                is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
                         ToolCall(it.callId, it.name, toolLabel(it.name), isDone = true, success = it.success, result = it.output)
