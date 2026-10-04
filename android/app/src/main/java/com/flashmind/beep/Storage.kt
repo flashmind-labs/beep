@@ -94,14 +94,10 @@ class LocalStorage(internal val context: Context) {
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    fun loadSettings(): ConnectionSettings {
-        if (!prefs.contains("nodeId") && BuildConfig.DEBUG) {
-            runCatching {
-                context.assets.open("testing-profile.json").bufferedReader().use { ConnectionSettings.fromJson(it.readText()) }
-            }.getOrNull()?.takeIf { it.configured }?.let { saveSettings(it); return it }
-        }
-        return ConnectionSettings(prefs.getString("nodeId", "").orEmpty())
-    }
+    /** The server picked in Connection settings, else the one built into the app. */
+    fun loadSettings(): ConnectionSettings =
+        ConnectionSettings(prefs.getString("nodeId", null) ?: BuildConfig.SERVER_NODE_ID)
+    fun hasSavedSettings(): Boolean = prefs.contains("nodeId")
     fun saveSettings(settings: ConnectionSettings) {
         check(prefs.edit().putString("nodeId", settings.nodeId).remove("token").commit()) { "Could not save connection" }
     }

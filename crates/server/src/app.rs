@@ -42,7 +42,14 @@ use std::{
     sync::{Arc, Mutex as StdMutex, PoisonError},
     time::Duration,
 };
+use tokio::time::Instant;
 
+/// How long a run may go without a tool call succeeding. Text, reasoning and
+/// failed calls are not progress; time spent waiting on a tool does not count.
+/// A run that keeps getting results keeps going, up to [`MAX_RUN`].
+const PROGRESS_TIMEOUT: Duration = Duration::from_secs(30);
+/// The longest any run may take, progress or not.
+const MAX_RUN: Duration = Duration::from_secs(15 * 60);
 /// How long a run may go without a single event from the model or a tool.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// The same while a tool runs: crawls and extractions poll quietly for up to
@@ -543,8 +550,10 @@ impl App {
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
 
-            let deadline = tokio::time::sleep(Duration::from_secs(180));
+            let deadline = tokio::time::sleep(PROGRESS_TIMEOUT);
             tokio::pin!(deadline);
+            let hard_stop = tokio::time::sleep(MAX_RUN);
+            tokio::pin!(hard_stop);
 
             let mut tools_running = 0usize;
             // A model repeating itself never stops on its own; end the run instead
@@ -555,7 +564,8 @@ impl App {
                 let event = tokio::select! {
                     biased;
                     _ = cancel.cancelled() => break RunStatus::Cancelled,
-                    _ = &mut deadline => { cancel.cancel(); break RunStatus::TimedOut; },
+                    _ = &mut deadline, if tools_running == 0 => { cancel.cancel(); break RunStatus::TimedOut; },
+                    _ = &mut hard_stop => { cancel.cancel(); break RunStatus::TimedOut; },
                     event = tokio::time::timeout(
                         if tools_running > 0 { TOOL_IDLE_TIMEOUT } else { IDLE_TIMEOUT },
                         stream.next(),
@@ -602,7 +612,9 @@ impl App {
                         ..
                     }) => {
                         tools_running = tools_running.saturating_sub(1);
-                        if !success {
+                        if success {
+                            deadline.as_mut().reset(Instant::now() + PROGRESS_TIMEOUT);
+                        } else {
                             failed_tools.push(id.clone());
                         }
                         RunEvent::ToolResult {

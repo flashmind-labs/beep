@@ -122,7 +122,7 @@ class ChatRepository(private val storage: LocalStorage) {
         if (storage.storedIdentity() != null) return
         val backup = cloud.load() ?: return
         storage.saveIdentity(backup.identity)
-        if (!settings.value.configured && backup.nodeId.isNotBlank()) {
+        if (!storage.hasSavedSettings() && backup.nodeId.isNotBlank()) {
             val restored = ConnectionSettings(backup.nodeId)
             storage.saveSettings(restored)
             settings.value = restored
