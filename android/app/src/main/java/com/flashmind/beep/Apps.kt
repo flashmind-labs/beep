@@ -236,6 +236,9 @@ private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
 internal val bundledLogos = mapOf(
     "gmail" to R.drawable.logo_gmail, "googlecalendar" to R.drawable.logo_googlecalendar,
     "notion" to R.drawable.logo_notion, "googledrive" to R.drawable.logo_googledrive,
+    "outlook" to R.drawable.logo_outlook, "microsoft_teams" to R.drawable.logo_microsoft_teams,
+    "one_drive" to R.drawable.logo_one_drive, "excel" to R.drawable.logo_excel,
+    "share_point" to R.drawable.logo_share_point,
     "slack" to R.drawable.logo_slack, "github" to R.drawable.logo_github,
     "linear" to R.drawable.logo_linear, "todoist" to R.drawable.logo_todoist,
     "fastmail" to R.drawable.logo_fastmail,
@@ -265,8 +268,14 @@ fun AppLogo(slug: String, name: String, logoUrl: String? = null, size: Dp = 42.d
     }
 }
 
-/** The bundled logo of the app a tool belongs to: Composio tools are `GMAIL_SEND_EMAIL`, MCP tools `fastmail_x`. */
-fun appLogoForTool(name: String): Int? = bundledLogos[name.substringBefore('_').lowercase()]
+/**
+ * The bundled logo of the app a tool belongs to: Composio tools are `GMAIL_SEND_EMAIL`, MCP tools `fastmail_x`.
+ * Some slugs have an underscore themselves, like `MICROSOFT_TEAMS_SEND_MESSAGE`.
+ */
+fun appLogoForTool(name: String): Int? {
+    val lower = name.lowercase()
+    return bundledLogos.entries.firstOrNull { lower.startsWith(it.key + "_") }?.value
+}
 
 @Composable
 private fun AppLogo(app: AppIntegration) = AppLogo(app.slug, app.name, app.logoUrl)
