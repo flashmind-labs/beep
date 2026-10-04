@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -204,17 +205,35 @@ open class MainActivity : ComponentActivity() {
             else -> return
         }
         try {
-            locationManager.requestLocationUpdates(provider, 5 * 60 * 1000L, 50f, object : LocationListener {
-                override fun onLocationChanged(location: Location) {}
+            locationManager.requestLocationUpdates(provider, 60 * 1000L, 25f, object : LocationListener {
+                override fun onLocationChanged(location: Location) { latestFix = location }
             })
         } catch (_: Exception) {}
         repository.startLocationUpdates {
-            try {
-                val loc = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            val loc = latestFix ?: try {
+                locationManager.getLastKnownLocation(provider)
+                    ?: locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                     ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                if (loc != null) Triple(loc.latitude, loc.longitude, loc.accuracy) else null
             } catch (_: Exception) { null }
+            loc?.let { ChatRepository.Fix(it.latitude, it.longitude, it.accuracy, placeName(it.latitude, it.longitude)) }
         }
+    }
+    @Volatile private var latestFix: Location? = null
+    private var namedPlace: Pair<String, String?>? = null
+
+    /** "Shinjuku, Tokyo, Japan" from the phone's geocoder, reused within about 100 m. */
+    @Suppress("DEPRECATION")
+    private suspend fun placeName(latitude: Double, longitude: Double): String? {
+        val key = "%.3f,%.3f".format(java.util.Locale.ROOT, latitude, longitude)
+        namedPlace?.takeIf { it.first == key }?.let { return it.second }
+        if (!Geocoder.isPresent()) return null
+        val address = withContext(Dispatchers.IO) {
+            runCatching { Geocoder(this@MainActivity).getFromLocation(latitude, longitude, 1)?.firstOrNull() }.getOrNull()
+        } ?: return null
+        val name = listOfNotNull(address.locality ?: address.subAdminArea ?: address.subLocality, address.adminArea, address.countryName)
+            .filter { it.isNotBlank() }.distinct().joinToString(", ").ifEmpty { null }
+        namedPlace = key to name
+        return name
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

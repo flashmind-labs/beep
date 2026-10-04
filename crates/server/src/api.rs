@@ -5,7 +5,7 @@ use crate::{
     live::Subscription,
     protocol::*,
     router::{Cx, Router, Sink},
-    store::CreateRun,
+    store::{CreateRun, Location},
 };
 use chrono::Utc;
 use flashmind::{
@@ -414,6 +414,7 @@ async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
         longitude,
         accuracy,
         timezone,
+        place,
     } = req;
     let valid = latitude.is_finite()
         && longitude.is_finite()
@@ -423,10 +424,18 @@ async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
     if !valid {
         return Err(ApiError::bad_request("invalid coordinates"));
     }
-    let store = &cx.app.store;
-    store
-        .update_location_tz(&cx.user, latitude, longitude, accuracy, &timezone)
-        .await?;
+    let place = place
+        .map(|p| p.trim().chars().take(200).collect::<String>())
+        .filter(|p| !p.is_empty());
+    let fix = Location {
+        latitude,
+        longitude,
+        accuracy,
+        timezone,
+        place,
+        updated_at: Utc::now(),
+    };
+    cx.app.store.update_location(&cx.user, &fix).await?;
     Ok(())
 }
 

@@ -14,14 +14,21 @@ impl Tool for GetLocationTool {
         "get_location"
     }
     fn description(&self) -> &str {
-        "Get the user's last known location (latitude, longitude). Requires the user to have enabled location sharing on their device."
+        "Get the user's last known location: coordinates, place name and when it was taken. Requires the user to have enabled location sharing on their device."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{},"additionalProperties":false})
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let output = match self.store.get_location(&self.user).await? {
-            Some(loc) => loc,
+            Some(loc) => json!({
+                "latitude": loc.latitude,
+                "longitude": loc.longitude,
+                "accuracy": loc.accuracy,
+                "timezone": loc.timezone,
+                "place": loc.place,
+                "updated_at": loc.updated_at,
+            }),
             None => json!({
                 "message": "Location data will be available when the user enables it on their device"
             }),

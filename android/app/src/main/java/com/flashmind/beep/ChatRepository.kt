@@ -232,6 +232,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     updateChat(id) { it.copy(error = "", status = if (it.runId.isEmpty()) "Sending…" else "Beep is thinking…") }
                     if (chat.runId.isNotEmpty() && chat.cancelRequested) api.cancelRun(chat.runId)
 
+                    if (chat.runId.isEmpty()) refreshLocation()
                     // A new message streams its run from the start; a run we lost is resumed from the cursor.
                     val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImage)
                         else api.events(chat.runId, chat.cursor)
@@ -466,23 +467,37 @@ class ChatRepository(private val storage: LocalStorage) {
         return result.toString().trim()
     }
 
-    suspend fun updateLocation(latitude: Double, longitude: Double, accuracy: Float) {
+    /** A position to report, with the phone's name for the area. */
+    data class Fix(val latitude: Double, val longitude: Double, val accuracy: Float, val place: String?)
+
+    private var locate: (suspend () -> Fix?)? = null
+    @Volatile private var locatedAt = 0L
+
+    private suspend fun updateLocation(fix: Fix) {
         val tz = java.util.TimeZone.getDefault().id
-        api().updateLocation(latitude, longitude, accuracy.toDouble(), tz)
+        api().updateLocation(fix.latitude, fix.longitude, fix.accuracy.toDouble(), tz, fix.place)
+        locatedAt = System.currentTimeMillis()
     }
 
-    fun startLocationUpdates(getLocation: suspend () -> Triple<Double, Double, Float>?) {
+    fun startLocationUpdates(getLocation: suspend () -> Fix?) {
+        locate = getLocation
         locationJob?.cancel()
         locationJob = scope.launch {
             while (isActive) {
                 if (connected.value) {
-                    try {
-                        val loc = getLocation()
-                        if (loc != null) updateLocation(loc.first, loc.second, loc.third)
-                    } catch (_: Exception) {}
+                    try { getLocation()?.let { updateLocation(it) } } catch (_: Exception) {}
                 }
                 delay(5 * 60 * 1000L)
             }
+        }
+    }
+
+    /** Reports the position before a message when the last report is over a minute old, so "nearby" means here. */
+    private suspend fun refreshLocation() {
+        val getLocation = locate ?: return
+        if (System.currentTimeMillis() - locatedAt < 60_000L) return
+        withTimeoutOrNull(2_000L) {
+            try { getLocation()?.let { updateLocation(it) } } catch (_: Exception) {}
         }
     }
 

@@ -87,6 +87,19 @@ impl RunStatus {
     }
 }
 
+/// The phone's last reported position.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Location {
+    pub latitude: f64,
+    pub longitude: f64,
+    /// Radius in meters.
+    pub accuracy: f64,
+    pub timezone: String,
+    /// Reverse-geocoded name, such as "Shinjuku, Tokyo, Japan".
+    pub place: Option<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// The days a fact holds, like the dates of a trip. Both open by default.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Validity {
@@ -256,7 +269,7 @@ impl Store {
                     PRIMARY KEY(user_id, device_id));
                 CREATE TABLE IF NOT EXISTS locations (
                     user_id TEXT PRIMARY KEY, latitude REAL NOT NULL, longitude REAL NOT NULL,
-                    accuracy REAL NOT NULL, timezone TEXT NOT NULL DEFAULT 'UTC',
+                    accuracy REAL NOT NULL, timezone TEXT NOT NULL DEFAULT 'UTC', place TEXT,
                     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));
                 CREATE TABLE IF NOT EXISTS mcp_connections (
                     user_id TEXT NOT NULL, id TEXT NOT NULL,
@@ -337,6 +350,9 @@ impl Store {
                 db.execute_batch(
                     "ALTER TABLE locations ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC';",
                 )?;
+            }
+            if !has_col("locations", "place")? {
+                db.execute_batch("ALTER TABLE locations ADD COLUMN place TEXT;")?;
             }
             if !has_col("crons", "last_run_at")? {
                 db.execute_batch("ALTER TABLE crons ADD COLUMN last_run_at TEXT;")?;
@@ -1613,32 +1629,22 @@ impl Store {
             .await?)
     }
 
-    pub async fn update_location(
-        &self,
-        user: &str,
-        latitude: f64,
-        longitude: f64,
-        accuracy: f64,
-    ) -> Result<()> {
-        self.update_location_tz(user, latitude, longitude, accuracy, "UTC")
-            .await
-    }
-
-    pub async fn update_location_tz(
-        &self,
-        user: &str,
-        latitude: f64,
-        longitude: f64,
-        accuracy: f64,
-        timezone: &str,
-    ) -> Result<()> {
+    pub async fn update_location(&self, user: &str, fix: &Location) -> Result<()> {
         let user = user.to_owned();
-        let timezone = timezone.to_owned();
+        let fix = fix.clone();
         self.0
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.execute(
-                    "INSERT INTO locations (user_id, latitude, longitude, accuracy, timezone, updated_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) ON CONFLICT(user_id) DO UPDATE SET latitude=excluded.latitude, longitude=excluded.longitude, accuracy=excluded.accuracy, timezone=excluded.timezone, updated_at=excluded.updated_at",
-                    params![user, latitude, longitude, accuracy, timezone],
+                    "INSERT INTO locations (user_id, latitude, longitude, accuracy, timezone, place, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET latitude=excluded.latitude, longitude=excluded.longitude, accuracy=excluded.accuracy, timezone=excluded.timezone, place=excluded.place, updated_at=excluded.updated_at",
+                    params![
+                        user,
+                        fix.latitude,
+                        fix.longitude,
+                        fix.accuracy,
+                        fix.timezone,
+                        fix.place,
+                        fix.updated_at.to_rfc3339_opts(SecondsFormat::Secs, true)
+                    ],
                 )?;
                 Ok(())
             })
@@ -1646,22 +1652,26 @@ impl Store {
         Ok(())
     }
 
-    pub async fn get_location(&self, user: &str) -> Result<Option<Value>> {
+    pub async fn get_location(&self, user: &str) -> Result<Option<Location>> {
         let user = user.to_owned();
         Ok(self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
-                    "SELECT latitude, longitude, accuracy, timezone, updated_at FROM locations WHERE user_id=?",
+                    "SELECT latitude, longitude, accuracy, timezone, place, updated_at FROM locations WHERE user_id=?",
                     params![user],
                     |r| {
-                        Ok(json!({
-                            "latitude": r.get::<_, f64>(0)?,
-                            "longitude": r.get::<_, f64>(1)?,
-                            "accuracy": r.get::<_, f64>(2)?,
-                            "timezone": r.get::<_, String>(3)?,
-                            "updated_at": r.get::<_, String>(4)?,
-                        }))
+                        let updated_at: String = r.get(5)?;
+                        Ok(Location {
+                            latitude: r.get(0)?,
+                            longitude: r.get(1)?,
+                            accuracy: r.get(2)?,
+                            timezone: r.get(3)?,
+                            place: r.get(4)?,
+                            updated_at: DateTime::parse_from_rfc3339(&updated_at)
+                                .map(|t| t.with_timezone(&Utc))
+                                .unwrap_or_default(),
+                        })
                     },
                 )
                 .optional()

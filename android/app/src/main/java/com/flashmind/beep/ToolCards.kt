@@ -80,7 +80,8 @@ import kotlin.math.tan
 
 /** What a finished tool call shows in the chat instead of a bare chip. */
 sealed class ToolCard {
-    data class Place(val name: String, val query: String, val directions: Boolean) : ToolCard()
+    /** [near] centers a search, such as "italian restaurant" around the user. */
+    data class Place(val name: String, val query: String, val directions: Boolean, val near: LatLon? = null) : ToolCard()
     data class Here(val latitude: Double, val longitude: Double) : ToolCard()
     data class Contacts(val people: List<Contact>) : ToolCard()
     data class OpenedApp(val app: String, val uri: String, val fallbackUrl: String) : ToolCard()
@@ -134,7 +135,12 @@ private fun placeOf(json: JSONObject): ToolCard.Place? {
     json.optJSONObject("place")?.let { p ->
         val directions = p.optString("mode") == "directions"
         val query = (if (directions) p.text("destination") else null) ?: p.text("query") ?: p.text("name") ?: return null
-        return ToolCard.Place(p.text("name") ?: query, query, directions)
+        val near = p.optJSONObject("near")?.let { n ->
+            val lat = n.optDouble("latitude", Double.NaN)
+            val lon = n.optDouble("longitude", Double.NaN)
+            if (lat.isNaN() || lon.isNaN()) null else LatLon(lat, lon, "")
+        }
+        return ToolCard.Place(p.text("name") ?: query, query, directions, near)
     }
     val uri = json.optString("uri")
     val directions = uri.startsWith("google.navigation:")
@@ -150,17 +156,30 @@ private object Places {
     private val found = LruCache<String, LatLon>(64)
 
     @Suppress("DEPRECATION")
-    suspend fun lookup(context: Context, query: String): LatLon? = found.get(query) ?: withContext(Dispatchers.IO) {
-        val system = if (Geocoder.isPresent()) {
-            runCatching { Geocoder(context).getFromLocationName(query, 1)?.firstOrNull() }.getOrNull()
-                ?.let { LatLon(it.latitude, it.longitude, it.getAddressLine(0).orEmpty()) }
-        } else null
-        (system ?: nominatim(query))?.also { found.put(query, it) }
+    /** Within about 20 km of [near] when given, so a search finds places close by. */
+    suspend fun lookup(context: Context, query: String, near: LatLon? = null): LatLon? {
+        val key = near?.let { "$query@%.2f,%.2f".format(java.util.Locale.ROOT, it.latitude, it.longitude) } ?: query
+        return found.get(key) ?: withContext(Dispatchers.IO) {
+            val system = if (Geocoder.isPresent()) {
+                runCatching {
+                    val geocoder = Geocoder(context)
+                    if (near == null) geocoder.getFromLocationName(query, 1)?.firstOrNull()
+                    else geocoder.getFromLocationName(query, 1, near.latitude - SPAN, near.longitude - SPAN,
+                        near.latitude + SPAN, near.longitude + SPAN)?.firstOrNull()
+                }.getOrNull()?.let { LatLon(it.latitude, it.longitude, it.getAddressLine(0).orEmpty()) }
+            } else null
+            (system ?: nominatim(query, near))?.also { found.put(key, it) }
+        }
     }
 
+    private const val SPAN = 0.2
+
     /** OpenStreetMap search, for phones without a working system geocoder. */
-    private fun nominatim(query: String): LatLon? = runCatching {
-        val url = URL("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + URLEncoder.encode(query, "UTF-8"))
+    private fun nominatim(query: String, near: LatLon?): LatLon? = runCatching {
+        val box = near?.let {
+            "&bounded=1&viewbox=${it.longitude - SPAN},${it.latitude + SPAN},${it.longitude + SPAN},${it.latitude - SPAN}"
+        }.orEmpty()
+        val url = URL("https://nominatim.openstreetmap.org/search?format=json&limit=1$box&q=" + URLEncoder.encode(query, "UTF-8"))
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = 8000
         connection.readTimeout = 8000
@@ -264,9 +283,11 @@ private fun MapSnippet(point: LatLon?, height: Int, onOpen: () -> Unit) {
     }
 }
 
-private fun openMaps(context: Context, query: String, point: LatLon?, directions: Boolean) {
+private fun openMaps(context: Context, query: String, point: LatLon?, directions: Boolean, near: LatLon? = null) {
     val uri = when {
         directions -> "google.navigation:q=${Uri.encode(query)}"
+        // Maps runs the search itself around the user rather than jumping to one geocoded hit.
+        near != null -> "geo:${near.latitude},${near.longitude}?q=${Uri.encode(query)}"
         point != null -> "geo:${point.latitude},${point.longitude}?q=${Uri.encode(query)}"
         else -> "geo:0,0?q=${Uri.encode(query)}"
     }
@@ -277,13 +298,14 @@ private fun openMaps(context: Context, query: String, point: LatLon?, directions
 private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
     val t = LocalBeep.current
     val context = LocalContext.current
-    val point by produceState<LatLon?>(null, card.query) { value = Places.lookup(context, card.query) }
+    val found by produceState<LatLon?>(null, card.query, card.near) { value = Places.lookup(context, card.query, card.near) }
+    val point = found ?: card.near
     BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
-        MapSnippet(point, if (compact) 110 else 150) { openMaps(context, card.query, point, directions = false) }
+        MapSnippet(point, if (compact) 110 else 150) { openMaps(context, card.query, point, directions = false, card.near) }
         Column(Modifier.padding(14.dp)) {
             Text(card.name, style = displayStyle(if (compact) 15.sp else 17.sp), color = t.colors.ink,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val address = point?.address.orEmpty()
+            val address = found?.address.orEmpty()
             if (address.isNotBlank() && address != card.name) {
                 Spacer(Modifier.height(3.dp))
                 Text(address, fontSize = 13.sp, color = t.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -291,7 +313,7 @@ private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CardButton("Directions", Icons.Outlined.Directions, primary = true) { openMaps(context, card.query, point, directions = true) }
-                CardButton("Open in Maps", Icons.Outlined.Map) { openMaps(context, card.query, point, directions = false) }
+                CardButton("Open in Maps", Icons.Outlined.Map) { openMaps(context, card.query, point, directions = false, card.near) }
             }
         }
     }

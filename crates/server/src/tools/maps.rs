@@ -1,9 +1,13 @@
+use crate::store::Store;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-pub(crate) struct OpenMapsTool;
+pub(crate) struct OpenMapsTool {
+    pub store: Store,
+    pub user: String,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -28,6 +32,16 @@ struct Place {
     /// Directions only: driving, walking, transit or bicycling.
     #[serde(skip_serializing_if = "Option::is_none")]
     travel_mode: Option<String>,
+    /// Search only: where to look, the given point or else the user's last
+    /// location, so "italian restaurant" finds ones nearby.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    near: Option<Point>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+struct Point {
+    latitude: f64,
+    longitude: f64,
 }
 
 #[async_trait]
@@ -49,15 +63,15 @@ impl Tool for OpenMapsTool {
                 },
                 "query": {
                     "type": "string",
-                    "description": "Search query or place name, e.g. 'restaurants near me' or 'Lau Pa Sat Singapore'"
+                    "description": "Search query or place name, e.g. 'italian restaurant', 'ramen near Hotel Gracery Shinjuku' or 'Lau Pa Sat Singapore'. Searches run around the user's location unless latitude/longitude are given."
                 },
                 "latitude": {
                     "type": "number",
-                    "description": "Latitude for place or directions destination"
+                    "description": "Latitude for place or directions destination, or the center of a search"
                 },
                 "longitude": {
                     "type": "number",
-                    "description": "Longitude for directions destination"
+                    "description": "Longitude for place or directions destination, or the center of a search"
                 },
                 "travel_mode": {
                     "type": "string",
@@ -81,6 +95,23 @@ impl Tool for OpenMapsTool {
             .unwrap_or("driving");
 
         let encoded_query = query.replace(' ', "+");
+        let near = match (action, latitude, longitude) {
+            ("search", Some(latitude), Some(longitude)) => Some(Point {
+                latitude,
+                longitude,
+            }),
+            ("search", _, _) => self
+                .store
+                .get_location(&self.user)
+                .await
+                .ok()
+                .flatten()
+                .map(|loc| Point {
+                    latitude: loc.latitude,
+                    longitude: loc.longitude,
+                }),
+            _ => None,
+        };
 
         let uri = match action {
             "search" => {
@@ -90,7 +121,10 @@ impl Tool for OpenMapsTool {
                         "query is required for search action",
                     ));
                 }
-                format!("geo:0,0?q={encoded_query}")
+                match near {
+                    Some(p) => format!("geo:{},{}?q={encoded_query}", p.latitude, p.longitude),
+                    None => format!("geo:0,0?q={encoded_query}"),
+                }
             }
             "place" => {
                 if let (Some(lat), Some(lng)) = (latitude, longitude) {
@@ -144,9 +178,10 @@ impl Tool for OpenMapsTool {
                 (Some(lat), Some(lng)) => format!("{lat},{lng}"),
                 _ => query.to_owned(),
             }),
-            latitude,
-            longitude,
+            latitude: latitude.filter(|_| action != "search"),
+            longitude: longitude.filter(|_| action != "search"),
             travel_mode: directions.then(|| travel_mode.to_owned()),
+            near,
         };
         let output = json!({
             "action": "open_maps",
