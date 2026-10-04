@@ -95,13 +95,19 @@ impl Tool for MemoryStoreTool {
         fact_schema(&["content"], json!({}))
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let remembered = self.0.remember(fact(&ctx.args)?).await?;
+        let fact = fact(&ctx.args)?;
+        let content = fact.content;
+        let remembered = self.0.remember(fact).await?;
         let change = if remembered.replaced {
             "updated"
         } else {
             "stored"
         };
-        reply(&ctx, json!({change: true, "id": remembered.id}))
+        // The content lets the chat show what was remembered.
+        reply(
+            &ctx,
+            json!({change: true, "id": remembered.id, "content": content}),
+        )
     }
 }
 
@@ -160,10 +166,9 @@ impl Tool for MemoryUpdateTool {
         fact_schema(&["id", "content"], json!({"id":{"type":"string"}}))
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let updated = self
-            .0
-            .update_memory(arg(&ctx.args, "id")?, fact(&ctx.args)?)
-            .await?;
-        reply(&ctx, json!({"updated": updated}))
+        let fact = fact(&ctx.args)?;
+        let content = fact.content;
+        let updated = self.0.update_memory(arg(&ctx.args, "id")?, fact).await?;
+        reply(&ctx, json!({"updated": updated, "content": content}))
     }
 }

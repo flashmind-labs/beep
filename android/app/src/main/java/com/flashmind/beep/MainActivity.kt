@@ -115,6 +115,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import android.provider.Settings as SystemSettings
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -716,8 +717,14 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
         }
     }
     LaunchedEffect(chat.id) { if (chat.messages.isNotEmpty()) list.scrollToEnd(animated = false) }
-    LaunchedEffect(chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status, list.layoutInfo.viewportSize) {
+    LaunchedEffect(chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status) {
         if (chat.messages.isNotEmpty() && followLatest) list.scrollToEnd(animated = true)
+    }
+    // The keyboard and a growing input resize the list every frame, so stay at the bottom without animating.
+    LaunchedEffect(list, chat.id) {
+        snapshotFlow { list.layoutInfo.viewportSize }.drop(1).collect {
+            if (followLatest && chat.messages.isNotEmpty()) list.scrollToEnd(animated = false)
+        }
     }
     // Auto-dismiss clipboard banner after 10 seconds
     val clipText = clipboardContent.value
@@ -794,7 +801,9 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
             // Only messages that arrive while the chat is open pop in; history is drawn at rest.
             val settled = remember(chat.id) { chat.messages.map { it.id }.toHashSet() }
             val radius = Beep.shapes.radius
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp)) {
+            // The "Latest reply" button floats over the list, so showing it does not resize the list.
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp)) {
                 itemsIndexed(chat.messages, key = { _, it -> it.id }) { index, message ->
                     val isUser = message.role == "user"
                     val fresh = message.id !in settled
@@ -914,13 +923,14 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                     }
                 }
             }
-        }
-        AnimatedVisibility(visible = !followLatest && list.canScrollForward && chat.messages.isNotEmpty(),
-            enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically(),
-            modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            ChunkyButton(onClick = { followLatest = true; scope.launch { list.scrollToEnd(animated = true) } },
-                modifier = Modifier.padding(vertical = 6.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp)) {
-                Icon(Icons.Outlined.ArrowDownward, null, Modifier.size(16.dp)); Text("Latest reply", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            androidx.compose.animation.AnimatedVisibility(visible = !followLatest && list.canScrollForward,
+                enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut() + slideOutVertically { it / 2 },
+                modifier = Modifier.align(Alignment.BottomCenter)) {
+                ChunkyButton(onClick = { followLatest = true; scope.launch { list.scrollToEnd(animated = true) } },
+                    modifier = Modifier.padding(vertical = 8.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp)) {
+                    Icon(Icons.Outlined.ArrowDownward, null, Modifier.size(16.dp)); Text("Latest reply", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+            }
             }
         }
         // The streaming text is its own progress, so "Replying" needs no line of its own.
@@ -1587,11 +1597,15 @@ internal fun formattedMessage(text: String, colors: InlineColors) = buildAnnotat
     }
 }
 
-/** Scroll to the very bottom, including the tail of a last item taller than the screen. */
+/**
+ * Scroll to the very bottom, including the tail of a last item taller than the screen.
+ * When the last item is already on screen it only scrolls by what is left of it, since
+ * scrolling to the item first would line up its top and bounce a long reply up then down.
+ */
 private suspend fun LazyListState.scrollToEnd(animated: Boolean) {
     val last = layoutInfo.totalItemsCount - 1
     if (last < 0) return
-    if (animated) animateScrollToItem(last) else scrollToItem(last)
+    if (layoutInfo.visibleItemsInfo.lastOrNull()?.index != last) scrollToItem(last)
     val item = layoutInfo.visibleItemsInfo.lastOrNull() ?: return
     val overflow = item.offset + item.size - (layoutInfo.viewportEndOffset - layoutInfo.afterContentPadding)
     if (overflow > 0) { if (animated) animateScrollBy(overflow.toFloat()) else scrollBy(overflow.toFloat()) }
