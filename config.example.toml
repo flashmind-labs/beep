@@ -6,6 +6,8 @@ secret_key = ".dev/iroh-key"
 # `just test-db` starts one locally.
 database_url = "postgres://beep:beep@127.0.0.1:55432/beep"
 model = "openrouter:z-ai/glm-5.3-flash"
+# Describes images for models without vision. Defaults to `model` when it sees images.
+vision_model = "openrouter:z-ai/glm-5v-turbo"
 provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # Optional: enable Firecrawl web search.
 # firecrawl_key = "fc-YOUR-KEY-HERE"
