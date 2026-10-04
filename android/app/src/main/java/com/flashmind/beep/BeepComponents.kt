@@ -81,6 +81,8 @@ private val toolLabels = mapOf(
     "open_browser" to "Opening a page",
     "browser" to "Browsing",
     "read_screen" to "Reading your screen",
+    "mcp_search" to "Finding the right app tool",
+    "mcp" to "Using a connected app",
     "open_maps" to "Looking up a place",
     "query_contacts" to "Looking up contacts",
     "suggest_replies" to "Suggesting replies",
