@@ -5,8 +5,8 @@ apk := "android/app/build/outputs/apk/debug/app-debug.apk"
 # The Docker host the server deploys to, as ssh://host. Set it in .env.
 remote_docker := env("BEEP_DOCKER_HOST", "")
 
-# Build and deploy everything: server + Android APK
-deploy: build-server restart-server bake-profile build-android install-apk launch-app
+# Build and deploy everything: server on the remote host + Android APK
+deploy: deploy-server bake-profile build-android install-apk launch-app
 
 # Build the server
 build-server:
@@ -40,8 +40,8 @@ install-apk:
 launch-app:
     adb shell am start -n com.flashmind.beep/.MainActivity
 
-# Server only: rebuild and restart
-server: build-server restart-server
+# Server only: rebuild and redeploy on the remote host
+server: deploy-server
 
 # Stop the local server
 stop-server:
