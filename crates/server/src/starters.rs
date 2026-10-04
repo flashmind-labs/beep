@@ -1,13 +1,17 @@
 //! Personalized conversation starters for the empty chat screen.
 //!
-//! The model gets the user's memories, recent session titles, local time and
-//! connected apps, and answers with four starters as JSON. Anything else, a
+//! The model gets the user's memories, recent session titles, local time,
+//! place and connected apps, and answers with four starters as JSON. A starter
+//! tied to an event says until when it holds, and the set goes stale then. Anything else, a
 //! provider error or a slow answer falls back to fixed starters. Memories are
 //! never logged.
 
-use crate::protocol::{PromptSuggestion, PromptSuggestions};
+use crate::{
+    protocol::{PromptSuggestion, PromptSuggestions},
+    store::Location,
+};
 use anyhow::{Result, bail, ensure};
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Local, NaiveDateTime, TimeDelta, TimeZone, Utc};
 use chrono_tz::Tz;
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, LlmProvider, Message, ReasoningLevel, SamplingParams,
@@ -31,11 +35,19 @@ const MAX_PROMPT_CHARS: usize = 400;
 const MAX_MEMORIES: usize = 40;
 const MAX_MEMORY_CHARS: usize = 200;
 const MAX_TITLES: usize = 8;
+/// Moving farther than this, like flying to another city, makes new starters.
+const MOVED_KM: f64 = 50.0;
+/// The earliest a set goes stale, so a time already past does not make the
+/// starters regenerate on every visit.
+const MIN_STALE: TimeDelta = TimeDelta::minutes(30);
 
 const SYSTEM: &str = "You write conversation starters for Beep, a personal assistant app on the user's phone. \
-Reply with only a JSON array of exactly 4 objects, each {\"title\": string, \"prompt\": string}, and nothing else. \
+Reply with only a JSON array of exactly 4 objects, each {\"title\": string, \"prompt\": string, \"until\": string or null}, and nothing else. \
 title: at most 28 characters, shown on a small chip. \
 prompt: the full message the user would send, in first person, one or two sentences. \
+until: when the starter stops being useful, as local time YYYY-MM-DDTHH:MM, for one tied to an event, \
+like a few hours after a flight lands or the end of a meeting; null when it stays useful. \
+Leave out starters about events that are already over, judging by the local time and place. \
 Make them varied, specific to the context and useful at this time of day. \
 Only use facts given in the context, and never include secrets. \
 Write in the language the context suggests the user speaks, else English.";
@@ -73,7 +85,15 @@ pub struct StarterContext {
     pub memories: Vec<MemoryNote>,
     pub recent_titles: Vec<String>,
     pub now: LocalTime,
+    /// Where the phone last was, like "Marina Bay, Singapore".
+    pub place: Option<String>,
     pub connected_apps: Vec<String>,
+}
+
+/// Starters from the model and when the first of them stops being useful.
+pub struct Starters {
+    pub suggestions: Vec<PromptSuggestion>,
+    pub stale_at: Option<DateTime<Utc>>,
 }
 
 pub struct MemoryNote {
@@ -95,12 +115,31 @@ impl LocalTime {
             None => self.time.with_timezone(&Local).format(FORMAT).to_string(),
         }
     }
+
+    /// Reads a local time without an offset, as the model writes it.
+    fn read(&self, text: &str) -> Option<DateTime<Utc>> {
+        let naive = NaiveDateTime::parse_from_str(text.trim(), "%Y-%m-%dT%H:%M").ok()?;
+        let local = match self.timezone {
+            Some(tz) => tz
+                .from_local_datetime(&naive)
+                .earliest()?
+                .with_timezone(&Utc),
+            None => Local
+                .from_local_datetime(&naive)
+                .earliest()?
+                .with_timezone(&Utc),
+        };
+        Some(local)
+    }
 }
 
 impl StarterContext {
     fn render(&self) -> String {
         let mut text = String::new();
         let _ = writeln!(text, "Local time: {}", self.now.describe());
+        if let Some(place) = &self.place {
+            let _ = writeln!(text, "Location: {}", clip(place, 80));
+        }
         if !self.connected_apps.is_empty() {
             let _ = writeln!(text, "Connected apps: {}", self.connected_apps.join(", "));
         }
@@ -135,15 +174,25 @@ fn clip(text: &str, max: usize) -> String {
 struct RawSuggestion {
     title: String,
     prompt: String,
+    #[serde(default)]
+    until: Option<String>,
 }
 
 /// Parses the model's answer: a JSON array of exactly four valid starters,
-/// optionally inside a Markdown code fence.
-fn parse(answer: &str) -> Result<Vec<PromptSuggestion>> {
+/// optionally inside a Markdown code fence. An `until` that does not parse
+/// is ignored, and one in the past counts as soon.
+fn parse(answer: &str, now: &LocalTime) -> Result<Starters> {
     // serde_json errors name a position, never the input.
     let raw: Vec<RawSuggestion> = serde_json::from_str(unfence(answer))?;
     ensure!(raw.len() == COUNT, "expected {COUNT} suggestions");
-    raw.into_iter()
+    let soonest = now.time + MIN_STALE;
+    let stale_at = raw
+        .iter()
+        .filter_map(|s| now.read(s.until.as_deref()?))
+        .map(|at| at.max(soonest))
+        .min();
+    let suggestions = raw
+        .into_iter()
         .map(|s| {
             let title = s.title.trim();
             let prompt = s.prompt.trim();
@@ -160,7 +209,11 @@ fn parse(answer: &str) -> Result<Vec<PromptSuggestion>> {
                 prompt: prompt.to_owned(),
             })
         })
-        .collect()
+        .collect::<Result<_>>()?;
+    Ok(Starters {
+        suggestions,
+        stale_at,
+    })
 }
 
 /// One model call.
@@ -173,8 +226,8 @@ pub struct Generator<'a> {
 }
 
 impl Generator<'_> {
-    pub(crate) async fn ask(&self, context: &StarterContext) -> Result<Vec<PromptSuggestion>> {
-        parse(&self.text(SYSTEM, context.render()).await?)
+    pub(crate) async fn ask(&self, context: &StarterContext) -> Result<Starters> {
+        parse(&self.text(SYSTEM, context.render()).await?, &context.now)
     }
 
     /// One plain completion with no tools, returning the whole answer.
@@ -225,6 +278,31 @@ pub(crate) fn unfence(answer: &str) -> &str {
 pub(crate) struct Cached {
     pub(crate) expires: Instant,
     pub(crate) suggestions: PromptSuggestions,
+    /// Where the phone was when they were made.
+    pub(crate) location: Option<Location>,
+}
+
+impl Cached {
+    /// Still fresh for a phone at `here`: not past its time, and not made
+    /// before the phone moved to another city.
+    pub(crate) fn fresh(&self, here: Option<&Location>) -> bool {
+        let moved = match (&self.location, here) {
+            (Some(then), Some(now)) => km_between(then, now) > MOVED_KM,
+            (None, Some(_)) => true,
+            (_, None) => false,
+        };
+        self.expires > Instant::now() && !moved
+    }
+}
+
+/// Great-circle distance in kilometers.
+fn km_between(a: &Location, b: &Location) -> f64 {
+    const EARTH_KM: f64 = 6371.0;
+    let (lat1, lat2) = (a.latitude.to_radians(), b.latitude.to_radians());
+    let dlat = lat2 - lat1;
+    let dlon = (b.longitude - a.longitude).to_radians();
+    let h = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+    2.0 * EARTH_KM * h.sqrt().asin()
 }
 
 #[cfg(test)]
@@ -239,19 +317,44 @@ mod tests {
  {"title":"Dinner idea","prompt":"Suggest a quick dinner."},
  {"title":"Inbox","prompt":"Summarize my unread email."}]
 ```"#;
-        let parsed = parse(good).unwrap();
-        assert_eq!(parsed.len(), 4);
-        assert_eq!(parsed[3].title, "Inbox");
+        let now = singapore("2026-10-04T22:00:00+08:00");
+        let parsed = parse(good, &now).unwrap();
+        assert_eq!(parsed.suggestions.len(), 4);
+        assert_eq!(parsed.suggestions[3].title, "Inbox");
+        assert_eq!(parsed.stale_at, None);
 
-        assert!(parse("Sure! Here are some ideas").is_err());
-        assert!(parse(r#"[{"title":"a","prompt":"b"}]"#).is_err());
+        assert!(parse("Sure! Here are some ideas", &now).is_err());
+        assert!(parse(r#"[{"title":"a","prompt":"b"}]"#, &now).is_err());
         let long = format!(
             r#"[{{"title":"{}","prompt":"p"}},{{"title":"a","prompt":"b"}},{{"title":"a","prompt":"b"}},{{"title":"a","prompt":"b"}}]"#,
             "x".repeat(29)
         );
-        assert!(parse(&long).is_err());
+        assert!(parse(&long, &now).is_err());
         let extra = r#"[{"title":"a","prompt":"b","x":1},{"title":"a","prompt":"b"},{"title":"a","prompt":"b"},{"title":"a","prompt":"b"}]"#;
-        assert!(parse(extra).is_err());
+        assert!(parse(extra, &now).is_err());
+    }
+
+    fn singapore(time: &str) -> LocalTime {
+        LocalTime {
+            time: time.parse().expect("valid time"),
+            timezone: Some(Tz::Asia__Singapore),
+        }
+    }
+
+    #[test]
+    fn starters_go_stale_at_the_first_until() {
+        let now = singapore("2026-10-04T22:00:00+08:00");
+        let answer = r#"[{"title":"a","prompt":"b","until":"2026-10-05T14:00"},
+ {"title":"a","prompt":"b","until":"2026-10-05T09:30"},
+ {"title":"a","prompt":"b","until":null},
+ {"title":"a","prompt":"b","until":"soon"}]"#;
+        let stale_at = parse(answer, &now).unwrap().stale_at;
+        assert_eq!(stale_at, Some("2026-10-05T01:30:00Z".parse().unwrap()));
+
+        // A time already past waits a little instead of regenerating at once.
+        let past = answer.replace("2026-10-05T09:30", "2026-10-04T08:00");
+        let stale_at = parse(&past, &now).unwrap().stale_at;
+        assert_eq!(stale_at, Some(now.time + MIN_STALE));
     }
 
     #[test]
@@ -263,5 +366,33 @@ mod tests {
                 .iter()
                 .all(|s| s.title.chars().count() <= MAX_TITLE_CHARS)
         );
+    }
+
+    fn at(latitude: f64, longitude: f64) -> Location {
+        Location {
+            latitude,
+            longitude,
+            accuracy: 10.0,
+            timezone: "UTC".into(),
+            place: None,
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn starters_go_stale_after_moving_to_another_city() {
+        let dubai = at(25.2, 55.27);
+        let cached = Cached {
+            expires: Instant::now() + FRESH,
+            suggestions: PromptSuggestions {
+                suggestions: fallback(),
+                personal: true,
+            },
+            location: Some(dubai.clone()),
+        };
+        assert!(cached.fresh(Some(&dubai)));
+        assert!(cached.fresh(Some(&at(25.25, 55.3))));
+        assert!(cached.fresh(None));
+        assert!(!cached.fresh(Some(&at(1.29, 103.85))));
     }
 }

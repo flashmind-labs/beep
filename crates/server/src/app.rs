@@ -478,11 +478,12 @@ impl App {
             sandbox::register(&mut registry, sandbox, user);
         }
 
-        let (composio, mcp, apps) = tokio::join!(user.app_tools(), user.mcp_tools(), user.apps());
+        let (composio, mcp, apps) =
+            tokio::join!(user.app_tools(), user.mcp_tools(run), user.apps());
         for tool in composio.into_iter().chain(mcp) {
             registry.register(tool);
         }
-        repeat::guard_tool_calls(&mut registry);
+        let refusals = repeat::guard_tool_calls(&mut registry);
         let context = self
             .build_context(user, message.foreground.as_ref(), &apps.unwrap_or_default())
             .await;
@@ -639,6 +640,11 @@ impl App {
                 };
 
                 live.push(data);
+                // The model keeps repeating calls it was told will not work.
+                if refusals.exhausted() {
+                    cancel.cancel();
+                    break RunStatus::Looped;
+                }
             }
         };
 
@@ -821,24 +827,23 @@ impl App {
         }
     }
 
-    /// Conversation starters for the empty chat, personalized and cached for
-    /// 12 hours unless `refresh`. Never fails: falls back to fixed starters.
+    /// Conversation starters for the empty chat, personalized and cached
+    /// until they go stale, unless `refresh`. Never fails: falls back to fixed
+    /// starters.
     pub async fn suggest_prompts(&self, user: &User, refresh: bool) -> PromptSuggestions {
-        if !refresh && let Some(cached) = user.cached_starters().await {
+        let here = user.get_location().await.ok().flatten();
+        if !refresh && let Some(cached) = user.cached_starters(here.as_ref()).await {
             return cached;
         }
-        user.generate_starters(self.generator(user.id()), self.starter_context(user))
+        let context = self.starter_context(user, here.clone());
+        user.generate_starters(self.generator(user.id()), context, here)
             .await
     }
 
-    async fn starter_context(&self, user: &User) -> StarterContext {
+    async fn starter_context(&self, user: &User, location: Option<Location>) -> StarterContext {
         let today = user.today().await;
-        let (memories, sessions, location, apps) = tokio::join!(
-            user.memory_rows(),
-            user.sessions(),
-            user.get_location(),
-            user.apps(),
-        );
+        let (memories, sessions, apps) =
+            tokio::join!(user.memory_rows(), user.sessions(), user.apps());
         let memories = memories
             .unwrap_or_default()
             .into_iter()
@@ -854,9 +859,9 @@ impl App {
             .map(|session| session.title)
             .collect();
         let timezone = location
-            .ok()
-            .flatten()
+            .as_ref()
             .and_then(|location| location.timezone.parse::<Tz>().ok());
+        let place = location.and_then(|location| location.place);
         let connected_apps = apps
             .unwrap_or_default()
             .into_iter()
@@ -870,6 +875,7 @@ impl App {
                 time: Utc::now(),
                 timezone,
             },
+            place,
             connected_apps,
         }
     }

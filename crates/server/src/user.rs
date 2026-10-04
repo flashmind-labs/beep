@@ -11,7 +11,10 @@ use crate::{
     app::{App, UserNotice},
     apps::{
         CATALOG, Composio, TOOLS_TIMEOUT, catalog_app, connect_url, connected_slugs, internal,
-        mcp::{KEEP_ALIVE, StoreProvider, check_redirect, display_name, lost_login, preset},
+        mcp::{
+            Confirmations, KEEP_ALIVE, RunScope, StoreProvider, app_tools, check_redirect,
+            display_name, lost_login, preset,
+        },
         mcp_app,
     },
     feeds::{self, SYNC_SWEEP},
@@ -38,10 +41,7 @@ use flashmind::{
     core::Conversation,
     tools::{
         composio::{ComposioClient, make_composio_tool_wrappers},
-        mcp::{
-            McpRegistry,
-            tools::{McpExecuteTool, McpSearchTool},
-        },
+        mcp::McpRegistry,
     },
     types::Tool,
 };
@@ -85,6 +85,8 @@ pub struct User {
     pub(crate) composio: Option<Arc<Composio>>,
     /// MCP servers the user connected, such as Fastmail, made on first use.
     pub(crate) mcp: OnceCell<McpRegistry>,
+    /// Remote tool calls waiting for the user's OK.
+    confirmations: Arc<Confirmations>,
     pub(crate) notifications: broadcast::Sender<UserNotice>,
     /// Suggested prompts, kept for 12 hours.
     pub(crate) starters: AsyncMutex<Option<Cached>>,
@@ -110,6 +112,7 @@ impl User {
             me: me.clone(),
             composio: shared.composio.clone(),
             mcp: OnceCell::new(),
+            confirmations: Arc::default(),
             notifications: shared.notifications.clone(),
             starters: AsyncMutex::new(None),
             syncing: Mutex::new(HashSet::new()),
@@ -928,27 +931,27 @@ impl User {
             .collect())
     }
 
-    /// Agent tools for the servers the user has connected: `mcp_search` to
-    /// find a tool and load its schema, and `mcp` to call it. Two small tools
-    /// instead of one per server tool keeps every prompt thousands of tokens
-    /// shorter.
-    pub async fn mcp_tools(&self) -> Vec<Arc<dyn Tool>> {
-        match self.mcp_connected().await {
-            Ok(connected) if !connected.is_empty() => {}
+    /// Agent tools for the servers the user has connected, one per remote
+    /// tool Beep exposes, for `run`.
+    pub async fn mcp_tools(&self, run: &Run) -> Vec<Arc<dyn Tool>> {
+        let connected = match self.mcp_connected().await {
+            Ok(connected) if !connected.is_empty() => connected,
             Ok(_) => return Vec::new(),
             Err(error) => {
                 log::warn!("mcp: unable to list servers: {error:#}");
                 return Vec::new();
             }
-        }
+        };
         let registry = self.mcp_registry().await;
-        // The meta tools read `current_mcp_tools` on every call, so the queued
-        // register and unregister ops are not needed.
+        // The tools are made from `current_mcp_tools` on every run, so the
+        // queued register and unregister ops are not needed.
         registry.drain_pending_ops();
-        vec![
-            Arc::new(McpSearchTool::new(registry.clone())),
-            Arc::new(McpExecuteTool::new(registry.clone())),
-        ]
+        let scope = Arc::new(RunScope {
+            run_id: run.id.clone(),
+            session_id: run.session_id.clone(),
+            confirmations: self.confirmations.clone(),
+        });
+        app_tools(registry, &connected, &scope)
     }
 
     /// Calls one tool on a connected server outside of any run and returns its
@@ -1245,12 +1248,13 @@ impl User {
     }
 }
 
-/// A user's starters are kept for 12 hours.
+/// A user's starters are kept for 12 hours, until one of them is about an
+/// event that is over, or until the phone moves to another city.
 impl User {
-    /// Starters made in the last 12 hours, if any.
-    pub async fn cached_starters(&self) -> Option<PromptSuggestions> {
+    /// The cached starters, if they still fit a phone at `here`.
+    pub async fn cached_starters(&self, here: Option<&Location>) -> Option<PromptSuggestions> {
         let cache = self.starters.lock().await;
-        let entry = cache.as_ref().filter(|c| c.expires > Instant::now())?;
+        let entry = cache.as_ref().filter(|c| c.fresh(here))?;
         Some(entry.suggestions.clone())
     }
 
@@ -1259,23 +1263,31 @@ impl User {
         &self,
         generator: Generator<'_>,
         context: impl Future<Output = StarterContext>,
+        here: Option<Location>,
     ) -> PromptSuggestions {
         let attempt = async {
             let context = context.await;
             generator.ask(&context).await
         };
-        let (suggestions, personal) = match tokio::time::timeout(TIMEOUT, attempt).await {
-            Ok(Ok(suggestions)) => (suggestions, true),
+        let (suggestions, fresh) = match tokio::time::timeout(TIMEOUT, attempt).await {
+            Ok(Ok(starters)) => {
+                let until_stale = starters
+                    .stale_at
+                    .and_then(|at| (at - Utc::now()).to_std().ok())
+                    .unwrap_or(FRESH);
+                (starters.suggestions, Some(until_stale.min(FRESH)))
+            }
             Ok(Err(error)) => {
                 log::info!("prompt suggestions fell back: {error}");
-                (fallback(), false)
+                (fallback(), None)
             }
             Err(_) => {
                 log::info!("prompt suggestions fell back: timed out");
-                (fallback(), false)
+                (fallback(), None)
             }
         };
-        let fresh = if personal { FRESH } else { FALLBACK_FRESH };
+        let personal = fresh.is_some();
+        let fresh = fresh.unwrap_or(FALLBACK_FRESH);
         let suggestions = PromptSuggestions {
             suggestions,
             personal,
@@ -1283,6 +1295,7 @@ impl User {
         *self.starters.lock().await = Some(Cached {
             expires: Instant::now() + fresh,
             suggestions: suggestions.clone(),
+            location: here,
         });
         suggestions
     }
