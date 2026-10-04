@@ -148,9 +148,14 @@ class ChatRepository(private val storage: LocalStorage) {
         s.copy(conversations = s.conversations.map { if (it.id == id) transform(it) else it })
     }
     fun select(id: String) {
-        update { it.copy(selected = id) }
+        // A routine's chat may be new to the phone; it gets its title and turns from the server.
+        val known = state.value.conversations.any { it.id == id }
+        update { s ->
+            if (s.conversations.any { it.id == id }) s.copy(selected = id)
+            else s.copy(conversations = listOf(Conversation(id = id)) + s.conversations, selected = id)
+        }
         ChatNotifications.cancel(storage.context, id)
-        scope.launch { runCatching { loadHistory(id, settings.value) } }
+        scope.launch { runCatching { if (known) loadHistory(id, settings.value) else syncHistory(settings.value) } }
     }
     private suspend fun loadHistory(id: String, config: ConnectionSettings) {
         val before = state.value.conversations.find { it.id == id } ?: return
