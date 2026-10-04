@@ -9,7 +9,10 @@ use flashmind::types::{
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 /// How many back-to-back copies of a chunk count as a loop.
@@ -58,6 +61,10 @@ impl RepeatGuard {
 /// How many times one run may call a tool with the same arguments.
 const SAME_CALLS: usize = 2;
 
+/// How many refused calls end the run. A model that ignores the refusal keeps
+/// making the same call until the deadline otherwise.
+const MAX_REFUSALS: usize = 3;
+
 /// Tools that read state that changes between calls, so calling them again
 /// with the same arguments is not a loop.
 const LIVE_TOOLS: &[&str] = &[
@@ -72,9 +79,10 @@ const LIVE_TOOLS: &[&str] = &[
 /// Wraps every tool in `registry` so a run that calls one with the same
 /// arguments more than [`SAME_CALLS`] times gets an error back instead of
 /// another identical result. Call it once per run, after the last tool is
-/// registered.
-pub fn guard_tool_calls(registry: &mut ToolRegistry) {
+/// registered. The returned [`Refusals`] says when to give up on the run.
+pub fn guard_tool_calls(registry: &mut ToolRegistry) -> Refusals {
     let calls = Arc::new(Mutex::new(HashMap::new()));
+    let refusals = Refusals::default();
     let tools: Vec<Arc<dyn Tool>> = registry
         .list()
         .into_iter()
@@ -85,7 +93,21 @@ pub fn guard_tool_calls(registry: &mut ToolRegistry) {
         registry.register(Arc::new(CallGuard {
             tool,
             calls: calls.clone(),
+            refusals: refusals.clone(),
         }));
+    }
+    refusals
+}
+
+/// Counts the calls a run's guard refused.
+#[derive(Clone, Default)]
+pub struct Refusals(Arc<AtomicUsize>);
+
+impl Refusals {
+    /// True once the model has ignored enough refusals that it is not going to
+    /// change course.
+    pub fn exhausted(&self) -> bool {
+        self.0.load(Ordering::Relaxed) >= MAX_REFUSALS
     }
 }
 
@@ -93,6 +115,7 @@ struct CallGuard {
     tool: Arc<dyn Tool>,
     /// Calls so far in this run, by tool name and arguments.
     calls: Arc<Mutex<HashMap<String, usize>>>,
+    refusals: Refusals,
 }
 
 #[async_trait]
@@ -118,6 +141,7 @@ impl Tool for CallGuard {
             *count
         };
         if count > SAME_CALLS {
+            self.refusals.0.fetch_add(1, Ordering::Relaxed);
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 "You already made this exact call and it will return the same result. \
@@ -175,7 +199,7 @@ mod tests {
     async fn refuses_the_same_tool_call_after_two_tries() {
         let mut registry = ToolRegistry::new();
         registry.register(Arc::new(Echo));
-        guard_tool_calls(&mut registry);
+        let refusals = guard_tool_calls(&mut registry);
         let tool = registry.get("echo").expect("echo registered");
         let cancel = CancellationToken::new();
         let call = |args: Value| tool.execute(ToolContext::new("call", args, None, &cancel));
@@ -184,6 +208,10 @@ mod tests {
         assert!(call(json!({"q": "a"})).await.unwrap().is_success());
         assert!(!call(json!({"q": "a"})).await.unwrap().is_success());
         assert!(call(json!({"q": "b"})).await.unwrap().is_success());
+        assert!(!refusals.exhausted());
+        call(json!({"q": "a"})).await.unwrap();
+        call(json!({"q": "a"})).await.unwrap();
+        assert!(refusals.exhausted());
     }
 
     #[test]

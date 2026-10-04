@@ -235,7 +235,7 @@ class ChatRepository(private val storage: LocalStorage) {
         scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
         NotificationService.start(storage.context)
         connection.value = "Connected"
-        if (changedAccount) { startersFetchedAt = 0; starters.value = emptyList() }
+        if (changedAccount) starters.value = emptyList()
         loadStarters()
         resumePending()
         pushChanges()
@@ -429,21 +429,20 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
 
-    private val STARTERS_MAX_AGE_MS = 12 * 60 * 60 * 1000L
     /** Conversation starters for an empty chat, kept on disk so the home screen never waits for them. */
-    private val savedStarters = storage.loadStarters()
-    val starters = MutableStateFlow(savedStarters.first)
-    private var startersFetchedAt = savedStarters.second
+    val starters = MutableStateFlow(storage.loadStarters().first)
     private var startersJob: Job? = null
-    /** Fetches starters when there is no personal set from the last 12 hours, or always with `refresh`. */
+    /**
+     * Asks the server for starters, showing the saved ones meanwhile. The server
+     * answers from its cache and decides when they are stale, like after a
+     * flight lands; `refresh` makes new ones.
+     */
     fun loadStarters(refresh: Boolean = false) {
-        val fresh = System.currentTimeMillis() - startersFetchedAt < STARTERS_MAX_AGE_MS
-        if (!refresh && (fresh || startersJob?.isActive == true)) return
+        if (!refresh && startersJob?.isActive == true) return
         startersJob = scope.launch {
             runCatching { api().suggestPrompts(refresh) }.onSuccess { result ->
                 if (result.personal) {
-                    startersFetchedAt = System.currentTimeMillis()
-                    storage.saveStarters(result.suggestions, startersFetchedAt)
+                    storage.saveStarters(result.suggestions, System.currentTimeMillis())
                     starters.value = result.suggestions
                 } else if (starters.value.isEmpty()) {
                     // The fixed fallback is shown but not kept, so the next visit asks again.
