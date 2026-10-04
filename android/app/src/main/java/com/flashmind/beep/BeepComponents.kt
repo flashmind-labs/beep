@@ -133,10 +133,16 @@ private fun sourcesOf(result: String): List<Source> {
     }
 }
 
+/** The sentence a memory tool stored, updated or forgot, from its `{"content"}` output. */
+private fun memoryOf(name: String, result: String): String {
+    if (!name.startsWith("memory_") || !result.trimStart().startsWith("{")) return ""
+    return runCatching { JSONObject(result).optString("content") }.getOrNull().orEmpty()
+}
+
 /**
  * One tool call as a tinted pill. The icon wiggles while the tool runs and a
  * check gets stamped on when it finishes. A finished search says how many pages
- * it read, and tapping it lists them.
+ * it read, and tapping it lists them. Tapping a memory chip shows the memory.
  */
 @Composable
 fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen: (String) -> Unit = {}) {
@@ -149,6 +155,8 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
         else Modifier.beepFrame(shape, tint)
     val described = toolLabel(call.name).ifBlank { call.description }.ifBlank { "Using a tool" }
     val sources = remember(call.result) { if (running) emptyList() else sourcesOf(call.result) }
+    val memory = remember(call.result) { if (running) "" else memoryOf(call.name, call.result) }
+    val expandable = sources.isNotEmpty() || memory.isNotEmpty()
     val label = when {
         running -> described
         sources.isNotEmpty() -> doneLabel(described) + " \u00b7 " + (if (sources.size == 1) "1 source" else "${sources.size} sources")
@@ -161,7 +169,7 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
     Column(modifier) {
         Row(Modifier.popIn(call.callId.ifEmpty { call.name }, play = running)
             .then(frame)
-            .then(if (sources.isNotEmpty()) Modifier.clickable { open = !open } else Modifier)
+            .then(if (expandable) Modifier.clickable { open = !open } else Modifier)
             .padding(start = 5.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically) {
             val wiggle by if (running && !noMotion) rememberInfiniteTransition(label = "tool-wiggle").animateFloat(
@@ -200,9 +208,10 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
                     }
                 }
             }
-            if (sources.isNotEmpty()) {
+            if (expandable) {
                 val turn by animateFloatAsState(if (open) 180f else 0f, label = "sources-chevron")
-                Icon(Icons.Outlined.KeyboardArrowDown, if (open) "Hide sources" else "Show sources",
+                val what = if (sources.isNotEmpty()) "sources" else "memory"
+                Icon(Icons.Outlined.KeyboardArrowDown, if (open) "Hide $what" else "Show $what",
                     Modifier.padding(start = 4.dp).size(18.dp).graphicsLayer { rotationZ = turn }, tint = t.colors.muted)
             }
         }
@@ -211,6 +220,9 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
                 .border(1.dp, t.colors.softLine, RoundedCornerShape(t.shapes.smallRadius))
                 .clip(RoundedCornerShape(t.shapes.smallRadius))
                 .background(t.colors.surface)) {
+                if (memory.isNotEmpty())
+                    Text(memory, fontSize = 13.sp, color = t.colors.ink, lineHeight = 18.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
                 sources.forEachIndexed { i, source ->
                     if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(t.colors.softLine))
                     Row(Modifier.fillMaxWidth().clickable { onOpen(source.url) }.padding(horizontal = 12.dp, vertical = 9.dp),

@@ -162,9 +162,9 @@ impl Learned {
     /// Matches what the memory tools return.
     pub fn output(&self) -> String {
         match self.change {
-            Change::Stored => json!({"stored": true, "id": self.id}),
-            Change::Updated => json!({"updated": true, "id": self.id}),
-            Change::Forgotten => json!({"forgotten": true}),
+            Change::Stored => json!({"stored": true, "id": self.id, "content": self.content}),
+            Change::Updated => json!({"updated": true, "id": self.id, "content": self.content}),
+            Change::Forgotten => json!({"forgotten": true, "content": self.content}),
         }
         .to_string()
     }
