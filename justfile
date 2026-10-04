@@ -4,7 +4,8 @@ server_config := ".dev/android-server.toml"
 apk := "android/app/build/outputs/apk/debug/app-debug.apk"
 # The Docker host the server deploys to, as ssh://host. Set it in .env.
 remote_docker := env("BEEP_DOCKER_HOST", "")
-server_image := "ghcr.io/flashmind-labs/beep-server"
+# The image Forgejo CI publishes, as registry/user/beep-server. Set it in .env.
+server_image := env("BEEP_IMAGE", "beep-server")
 
 # Build and deploy everything: server on the remote host + Android APK
 deploy: deploy-server bake-profile build-android install-apk launch-app
@@ -50,18 +51,21 @@ stop-server:
     -pkill -f "beep-server {{server_config}}"
 
 # Run the image CI built for HEAD on the remote Docker host, with the local
-# config and iroh key. Waits for that CI run, so push first. Stops the local
-# server first: both would answer as the same node. The host needs
-# `docker login ghcr.io` once, with a token that can read packages.
+# config and iroh key. Waits for that image, so push to Forgejo first. Stops the
+# local server first: both would answer as the same node. The host needs
+# `docker login` to the registry once, with a token that can read packages.
 deploy-server:
     #!/usr/bin/env bash
     set -euo pipefail
     test -n "{{remote_docker}}" || { echo "Set BEEP_DOCKER_HOST in .env"; exit 1; }
     export BEEP_TAG=$(git rev-parse HEAD)
-    run=$(gh run list --workflow server-image.yml --commit "$BEEP_TAG" --json databaseId -q '.[0].databaseId')
-    test -n "$run" || { echo "No image build for $BEEP_TAG. Push it first."; exit 1; }
-    gh run watch "$run" --exit-status > /dev/null
     export DOCKER_HOST={{remote_docker}}
+    echo "Waiting for {{server_image}}:$BEEP_TAG"
+    for _ in $(seq 180); do
+        ssh {{trim_start_match(remote_docker, "ssh://")}} \
+            docker manifest inspect "{{server_image}}:$BEEP_TAG" > /dev/null 2>&1 && break
+        sleep 10
+    done
     docker compose pull
     just stop-server
     just push-server-config
