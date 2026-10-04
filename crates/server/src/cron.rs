@@ -44,11 +44,15 @@ impl CronStore for BeepCronStore {
     }
 
     async fn upsert(&self, job: &CronJob) -> Result<()> {
-        self.store.upsert_cron_job(job).await
+        self.store.upsert_cron_job(job).await?;
+        self.store.notify_crons_changed();
+        Ok(())
     }
 
     async fn delete(&self, id: Uuid) -> Result<bool> {
-        self.store.delete_cron_job(id, self.user.as_deref()).await
+        let deleted = self.store.delete_cron_job(id, self.user.as_deref()).await?;
+        self.store.notify_crons_changed();
+        Ok(deleted)
     }
 }
 
@@ -72,7 +76,11 @@ impl CronHandler for BeepCronHandler {
 
         let session_id = Uuid::new_v4();
         let request_id = Uuid::new_v4();
-        let message = format!("[Scheduled: {label}] {}", job.task);
+        let message = if label.is_empty() {
+            format!("[Scheduled] {}", job.task)
+        } else {
+            format!("[Scheduled: {label}] {}", job.task)
+        };
         let msg = Message {
             session_id,
             request_id,
@@ -123,6 +131,17 @@ pub fn start(app: Arc<App>, log_dir: &Path) -> (CronRunner, Arc<CronRegistry>) {
 
     let tz = Arc::new(BeepTimezoneResolver { app: app.clone() });
 
+    // The agent's tools and the API write through their own stores, whose
+    // registries the runner never hears from. Pass their writes on to it.
+    let changed = app.store.crons_changed();
+    let reload = registry.notify();
+    tokio::spawn(async move {
+        loop {
+            changed.notified().await;
+            reload.notify_one();
+        }
+    });
+
     let runner = CronRunner::new(registry.clone(), handler, cancel)
         .with_log(log)
         .with_timezone_resolver(tz);
@@ -159,9 +178,11 @@ pub fn register_tools(
 
 #[cfg(test)]
 mod tests {
-    use crate::store::decode_schedule;
-    use chrono::{DateTime, Utc};
+    use super::*;
+    use crate::store::{TestDb, decode_schedule};
+    use chrono::{DateTime, TimeDelta, Utc};
     use flashmind::cron::JobSchedule;
+    use std::time::Duration;
 
     #[test]
     fn one_off_time_reads_back_as_once() {
@@ -172,5 +193,28 @@ mod tests {
         assert!(
             matches!(decode_schedule("0 8 * * *".to_owned()), JobSchedule::Cron(e) if e == "0 8 * * *")
         );
+    }
+
+    #[tokio::test]
+    async fn a_reminder_from_the_tools_wakes_the_scheduler() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store opens");
+        let changed = store.crons_changed();
+        let tools = CronRegistry::new(Arc::new(BeepCronStore::for_user(store, "user")));
+
+        let at = Utc::now() + TimeDelta::minutes(1);
+        tools
+            .create_with_metadata(
+                JobSchedule::Once(at),
+                "ping".to_owned(),
+                true,
+                json!({"user_id": "user"}),
+            )
+            .await
+            .expect("reminder saved");
+
+        tokio::time::timeout(Duration::from_secs(1), changed.notified())
+            .await
+            .expect("saving a reminder notifies the scheduler");
     }
 }

@@ -22,6 +22,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 mod cron_jobs;
@@ -65,6 +66,8 @@ pub struct Store {
     pool: PgPool,
     /// Every user's memories, each tagged with its owner.
     memories: MemoryStore,
+    /// Woken after any write to `crons`, so the scheduler picks the change up.
+    crons_changed: Arc<Notify>,
 }
 
 /// One row of `mcp_servers`.
@@ -247,7 +250,22 @@ impl Store {
     pub async fn with_pool(pool: PgPool, embedder: Arc<dyn EmbeddingProvider>) -> Result<Self> {
         migrator().run(&pool).await?;
         let memories = MemoryStore::connect_postgres(pool.clone(), embedder).await?;
-        Ok(Self { pool, memories })
+        Ok(Self {
+            pool,
+            memories,
+            crons_changed: Arc::new(Notify::new()),
+        })
+    }
+
+    /// Woken after any write to `crons`.
+    pub fn crons_changed(&self) -> Arc<Notify> {
+        self.crons_changed.clone()
+    }
+
+    /// Tells the scheduler the `crons` table changed. `notify_one` keeps a permit
+    /// when nobody is waiting, so a write between two waits is not lost.
+    pub(crate) fn notify_crons_changed(&self) {
+        self.crons_changed.notify_one();
     }
 
     #[cfg(test)]
@@ -803,6 +821,7 @@ impl Store {
         .bind(run_once)
         .execute(&self.pool)
         .await?;
+        self.notify_crons_changed();
         Ok(id)
     }
 
@@ -827,17 +846,20 @@ impl Store {
         .execute(&self.pool)
         .await?
         .rows_affected();
+        self.notify_crons_changed();
         Ok(changed > 0)
     }
 
     pub(crate) async fn toggle_cron(&self, user: &UserKey, id: &str) -> Result<Option<bool>> {
-        Ok(sqlx::query_scalar(
+        let new_enabled = sqlx::query_scalar(
             "UPDATE crons SET enabled = NOT enabled WHERE user_id=$1 AND id=$2 RETURNING enabled",
         )
         .bind(user.as_str())
         .bind(id)
         .fetch_optional(&self.pool)
-        .await?)
+        .await?;
+        self.notify_crons_changed();
+        Ok(new_enabled)
     }
 
     pub(crate) async fn delete_cron(&self, user: &UserKey, id: &str) -> Result<bool> {
@@ -847,6 +869,7 @@ impl Store {
             .execute(&self.pool)
             .await?
             .rows_affected();
+        self.notify_crons_changed();
         Ok(deleted > 0)
     }
 

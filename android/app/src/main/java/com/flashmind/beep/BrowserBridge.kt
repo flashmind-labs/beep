@@ -35,8 +35,7 @@ object BrowserBridge {
     val canGoBack = MutableStateFlow(false)
     val canGoForward = MutableStateFlow(false)
 
-    /** The WebView, made on first use. Call on the main thread. */
-    @SuppressLint("SetJavaScriptEnabled")
+    /** The WebView for the browser screen to attach, moved out of any old parent. Call on the main thread. */
     fun webView(context: Context): WebView {
         view?.let { existing ->
             (existing.context as MutableContextWrapper).baseContext = context
@@ -44,7 +43,15 @@ object BrowserBridge {
             existing.onResume()
             return existing
         }
-        return WebView(MutableContextWrapper(context)).apply {
+        return create(context)
+    }
+
+    /** The WebView to load pages into, left attached if the screen is showing it. */
+    private fun loader(context: Context): WebView = view?.also { it.onResume() } ?: create(context)
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun create(context: Context): WebView =
+        WebView(MutableContextWrapper(context)).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.loadWithOverviewMode = true
@@ -77,7 +84,6 @@ object BrowserBridge {
             }
             view = this
         }
-    }
 
     private fun history(view: WebView) {
         canGoBack.value = view.canGoBack()
@@ -91,12 +97,12 @@ object BrowserBridge {
 
     /** Start loading [target] without waiting, for links the user taps. */
     suspend fun open(context: Context, target: String) = withContext(Dispatchers.Main) {
-        val webView = webView(context)
+        val webView = loader(context)
         if (webView.url != target) startLoad(webView) { it.loadUrl(target) }
     }
 
     suspend fun navigate(context: Context, target: String): JSONObject = withContext(Dispatchers.Main) {
-        val webView = webView(context)
+        val webView = loader(context)
         startLoad(webView) { it.loadUrl(target) }
         awaitLoad()
         pageInfo(webView)
