@@ -17,6 +17,9 @@ pub struct Config {
     /// Postgres connection string. Falls back to `DATABASE_URL`.
     pub database_url: Option<SecretString>,
     pub model: String,
+    /// Describes images for models without vision, and for the saved
+    /// conversation. Defaults to `model` when that one sees images.
+    pub vision_model: Option<String>,
     /// How much the assistant thinks before answering: off, low, medium or high.
     #[serde(default = "default_reasoning")]
     pub reasoning: ReasoningLevel,

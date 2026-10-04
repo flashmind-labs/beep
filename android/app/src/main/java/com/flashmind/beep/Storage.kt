@@ -33,11 +33,11 @@ data class ToolCall(
     val isDone: Boolean = false, val success: Boolean = true, val result: String = ""
 )
 
-data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val imageBase64: String? = null, val toolCalls: List<ToolCall> = emptyList(), val memoryScore: Double? = null)
+data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val images: List<String> = emptyList(), val toolCalls: List<ToolCall> = emptyList(), val memoryScore: Double? = null)
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = NEW_CHAT_TITLE,
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
-    val requestId: String = "", val pendingText: String = "", val pendingImage: String? = null,
+    val requestId: String = "", val pendingText: String = "", val pendingImages: List<String> = emptyList(),
     val status: String = "", val error: String = "",
     val tool: String = "", val cancelRequested: Boolean = false, val pinned: Boolean = false,
     /** The model's reasoning for the current step, shown live and dropped once it moves on. Not saved. */
@@ -47,7 +47,7 @@ const val NEW_CHAT_TITLE = "New conversation"
 
 /** A chat opened but never used. It is not kept once the user moves on, nor listed. */
 val Conversation.isUnused get() =
-    messages.isEmpty() && !busy && pendingText.isEmpty() && pendingImage == null && title == NEW_CHAT_TITLE
+    messages.isEmpty() && !busy && pendingText.isEmpty() && pendingImages.isEmpty() && title == NEW_CHAT_TITLE
 
 data class ChatState(val conversations: List<Conversation> = listOf(Conversation()), val selected: String = "") {
     val current get() = conversations.firstOrNull { it.id == selected } ?: conversations.first()
@@ -109,10 +109,10 @@ class LocalStorage(internal val context: Context) {
                     ToolCall(tc.optString("callId"), tc.optString("name"), tc.optString("description"),
                         tc.optBoolean("isDone"), tc.optBoolean("success", true), tc.optString("result"))
                 } else emptyList()
-                ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, m.optString("imageBase64", null), toolCalls,
+                ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
                     m.optDouble("memoryScore").takeUnless { it.isNaN() })
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
-                pendingImage = c.optString("pendingImage", null),
+                pendingImages = readImages(c, "pendingImages", "pendingImage"),
                 status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"))
         }
         check(conversations.isNotEmpty())
@@ -152,7 +152,7 @@ class LocalStorage(internal val context: Context) {
         state.conversations.forEach { c ->
             val messages = JSONArray()
             c.messages.forEach { m ->
-                val msg = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text).apply { if (m.imageBase64 != null) put("imageBase64", m.imageBase64) }
+                val msg = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text).apply { if (m.images.isNotEmpty()) put("images", JSONArray(m.images)) }
                     .apply { if (m.memoryScore != null) put("memoryScore", m.memoryScore) }
                 if (m.cards.isNotEmpty()) {
                     val cardsArr = JSONArray()
@@ -174,7 +174,7 @@ class LocalStorage(internal val context: Context) {
             }
             list.put(JSONObject().put("id", c.id).put("title", c.title).put("messages", messages)
                 .put("runId", c.runId).put("cursor", c.cursor).put("requestId", c.requestId)
-                .put("pendingText", c.pendingText).apply { if (c.pendingImage != null) put("pendingImage", c.pendingImage) }
+                .put("pendingText", c.pendingText).apply { if (c.pendingImages.isNotEmpty()) put("pendingImages", JSONArray(c.pendingImages)) }
                 .put("status", c.status).put("cancelRequested", c.cancelRequested)
                 .put("pinned", c.pinned))
         }
@@ -184,4 +184,11 @@ class LocalStorage(internal val context: Context) {
             file.finishWrite(out)
         } catch (error: Exception) { file.failWrite(out); throw error }
     }
+}
+
+/** The images saved under [key], or the single image older versions saved under [legacyKey]. */
+private fun readImages(json: JSONObject, key: String, legacyKey: String): List<String> {
+    val list = json.optJSONArray(key)
+    if (list != null) return (0 until list.length()).map { list.getString(it) }
+    return listOfNotNull(json.optString(legacyKey, null))
 }

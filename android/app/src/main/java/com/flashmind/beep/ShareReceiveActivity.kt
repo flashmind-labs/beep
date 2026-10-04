@@ -12,6 +12,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -36,19 +37,17 @@ class ShareReceiveActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (intent?.action != Intent.ACTION_SEND) {
+        val action = intent?.action
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) {
             finish()
             return
         }
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
-        val sharedImage = if (intent.type?.startsWith("image/") == true) {
-            @Suppress("DEPRECATION")
-            val uri = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                else intent.getParcelableExtra(Intent.EXTRA_STREAM)
-            uri?.let { encodeImageUri(this, it) }
-        } else null
+        val sharedImages = if (intent.type?.startsWith("image/") == true) {
+            sharedUris(intent).take(MAX_IMAGES).mapNotNull { encodeImageUri(this, it) }
+        } else emptyList()
 
-        if (sharedText.isBlank() && sharedImage == null) {
+        if (sharedText.isBlank() && sharedImages.isEmpty()) {
             finish()
             return
         }
@@ -59,7 +58,7 @@ class ShareReceiveActivity : ComponentActivity() {
             BeepTheme {
                 ShareScreen(
                     sharedText = sharedText,
-                    sharedImage = sharedImage,
+                    sharedImages = sharedImages,
                     repository = repository,
                     onSent = {
                         Toast.makeText(this, "Sent to Beep", Toast.LENGTH_SHORT).show()
@@ -76,12 +75,22 @@ class ShareReceiveActivity : ComponentActivity() {
     }
 }
 
+/** The images in a single or multiple share. */
+@Suppress("DEPRECATION")
+private fun sharedUris(intent: Intent): List<Uri> = if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+    if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+    else intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+} else {
+    listOfNotNull(if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        else intent.getParcelableExtra(Intent.EXTRA_STREAM))
+}
+
 private val Suggestions = listOf("Summarize", "Translate", "Explain", "Save to memory")
 
 @Composable
 private fun ShareScreen(
     sharedText: String,
-    sharedImage: String?,
+    sharedImages: List<String>,
     repository: ChatRepository,
     onSent: () -> Unit,
     onDismiss: () -> Unit
@@ -143,16 +152,23 @@ private fun ShareScreen(
             ) {
                 Text("Shared content", color = textMuted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(4.dp))
-                val bitmap = remember(sharedImage) { sharedImage?.let(::decodeImageBase64) }
-                if (bitmap != null) {
-                    Image(
-                        bitmap.asImageBitmap(), contentDescription = "Shared image",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp))
-                    )
+                if (sharedImages.isNotEmpty()) {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        sharedImages.forEachIndexed { index, image ->
+                            val bitmap = remember(image) { decodeImageBase64(image) }
+                            if (bitmap != null) Image(
+                                bitmap.asImageBitmap(), contentDescription = "Shared image ${index + 1}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp))
+                            )
+                        }
+                    }
                 }
                 if (sharedText.isNotBlank()) {
-                    if (bitmap != null) Spacer(Modifier.height(6.dp))
+                    if (sharedImages.isNotEmpty()) Spacer(Modifier.height(6.dp))
                     Text(
                         sharedText, color = textPrimary, fontSize = 14.sp,
                         maxLines = 6, overflow = TextOverflow.Ellipsis,
@@ -211,12 +227,14 @@ private fun ShareScreen(
                     if (sending) return@Button
                     sending = true
                     val message = when {
-                        sharedText.isBlank() -> instruction.trim().ifBlank { "What's in this image?" }
+                        sharedText.isBlank() -> instruction.trim().ifBlank {
+                            if (sharedImages.size > 1) "What's in these images?" else "What's in this image?"
+                        }
                         instruction.isBlank() -> sharedText
                         else -> "${instruction.trim()}:\n\n$sharedText"
                     }
                     repository.newChat()
-                    repository.send(message, imageBase64 = sharedImage)
+                    repository.send(message, images = sharedImages)
                     onSent()
                 },
                 enabled = !sending,

@@ -203,7 +203,7 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
     private fun resumePending() { state.value.conversations.filter { it.busy }.forEach { launchRun(it.id) } }
-    fun send(text: String, imageBase64: String? = null, conversationId: String = state.value.current.id) {
+    fun send(text: String, images: List<String> = emptyList(), conversationId: String = state.value.current.id) {
         // A routine's chat may not be listed here yet.
         if (state.value.conversations.none { it.id == conversationId })
             update { it.copy(conversations = it.conversations + Conversation(id = conversationId, title = text.trim().take(44))) }
@@ -211,8 +211,8 @@ class ChatRepository(private val storage: LocalStorage) {
         if (text.isBlank() || chat.busy || !settings.value.configured) return
         val request = UUID.randomUUID().toString()
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
-            messages = it.messages + ChatMessage(role = "user", text = text.trim(), imageBase64 = imageBase64),
-            requestId = request, pendingText = text.trim(), pendingImage = imageBase64,
+            messages = it.messages + ChatMessage(role = "user", text = text.trim(), images = images),
+            requestId = request, pendingText = text.trim(), pendingImages = images,
             status = "Sending…", error = "", cancelRequested = false) }
         launchRun(chat.id)
     }
@@ -240,7 +240,7 @@ class ChatRepository(private val storage: LocalStorage) {
 
                     if (chat.runId.isEmpty()) refreshLocation()
                     // A new message streams its run from the start; a run we lost is resumed from the cursor.
-                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImage, foregroundApp)
+                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImages, foregroundApp)
                         else api.events(chat.runId, chat.cursor)
                     var runId = chat.runId
                     var missed = false
@@ -251,7 +251,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             val started = received.event as? RunEvent.RunStarted
                             if (started != null) {
                                 runId = started.runId
-                                updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImage = null, cursor = 0) }
+                                updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImages = emptyList(), cursor = 0) }
                                 if (state.value.conversations.first { it.id == id }.cancelRequested) api.cancelRun(runId)
                             }
 
@@ -260,7 +260,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             first = false
                             if (missed && runId.isEmpty()) {
                                 // A resent message whose run already finished: we never learned its id.
-                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImage = null, status = "", tool = "", cancelRequested = false) }
+                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), status = "", tool = "", cancelRequested = false) }
                             } else {
                                 event(id, runId, received)
                             }
@@ -444,7 +444,7 @@ class ChatRepository(private val storage: LocalStorage) {
         var cursor = 0L
         var finished = false
         while (!finished) {
-            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, null, null) else api.events(runId, cursor)
+            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, emptyList(), null) else api.events(runId, cursor)
             stream.use { events ->
                 var first = true
                 while (true) {
