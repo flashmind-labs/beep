@@ -10,7 +10,7 @@ use crate::{
     repeat::RepeatGuard,
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext, Starters},
-    store::{CreateRun, FinishedTurn, RunStatus, SessionRef, Store},
+    store::{CreateRun, FinishedTurn, Location, RunStatus, SessionRef, Store},
     titles, tools,
 };
 use anyhow::Result;
@@ -309,18 +309,8 @@ impl App {
             let _ = writeln!(ctx, "Time: {now}");
         }
 
-        // Location
-        if let Ok(Some(loc)) = self.store.get_location(user).await
-            && let (Some(lat), Some(lon)) = (loc["latitude"].as_f64(), loc["longitude"].as_f64())
-        {
-            let ns = if lat >= 0.0 { "N" } else { "S" };
-            let ew = if lon >= 0.0 { "E" } else { "W" };
-            let _ = writeln!(
-                ctx,
-                "Location: {:.4} {ns}, {:.4} {ew}",
-                lat.abs(),
-                lon.abs()
-            );
+        if let Ok(Some(loc)) = self.store.get_location(user).await {
+            let _ = writeln!(ctx, "{}", location_line(&loc, Utc::now()));
         }
 
         (!ctx.is_empty()).then_some(ctx)
@@ -710,7 +700,7 @@ impl App {
         let timezone = location
             .ok()
             .flatten()
-            .and_then(|location| location["timezone"].as_str()?.parse::<Tz>().ok());
+            .and_then(|location| location.timezone.parse::<Tz>().ok());
         let connected_apps = apps
             .unwrap_or_default()
             .into_iter()
@@ -754,4 +744,67 @@ fn earlier_turns(conversation: &Conversation, turn_started: DateTime<Utc>) -> Ve
     }
     let skip = turns.len().saturating_sub(memories::LEARN_CONTEXT_TURNS);
     turns.split_off(skip)
+}
+
+/// `Location: Shinjuku, Tokyo, Japan (35.6938 N, 139.7034 E, 3 min ago)`.
+/// The age tells the model whether "nearby" still means where the user is.
+fn location_line(loc: &Location, now: DateTime<Utc>) -> String {
+    let ns = if loc.latitude >= 0.0 { "N" } else { "S" };
+    let ew = if loc.longitude >= 0.0 { "E" } else { "W" };
+    let coords = format!(
+        "{:.4} {ns}, {:.4} {ew}",
+        loc.latitude.abs(),
+        loc.longitude.abs()
+    );
+    let minutes = (now - loc.updated_at).num_minutes().max(0);
+    let age = match minutes {
+        0 => "just now".to_owned(),
+        1..60 => format!("{minutes} min ago"),
+        60..2880 => format!("{} h ago", minutes / 60),
+        _ => format!("{} days ago", minutes / 1440),
+    };
+    match &loc.place {
+        Some(place) => format!("Location: {place} ({coords}, {age})"),
+        None => format!("Location: {coords} ({age})"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fix(place: Option<&str>, updated_at: DateTime<Utc>) -> Location {
+        Location {
+            latitude: 35.69384,
+            longitude: 139.70341,
+            accuracy: 12.0,
+            timezone: "Asia/Tokyo".into(),
+            place: place.map(Into::into),
+            updated_at,
+        }
+    }
+
+    #[test]
+    fn location_line_names_the_place_and_its_age() {
+        let now = Utc::now();
+        let loc = fix(
+            Some("Shinjuku, Tokyo, Japan"),
+            now - Duration::from_secs(180),
+        );
+        assert_eq!(
+            location_line(&loc, now),
+            "Location: Shinjuku, Tokyo, Japan (35.6938 N, 139.7034 E, 3 min ago)"
+        );
+    }
+
+    #[test]
+    fn location_line_without_a_place_keeps_the_coordinates() {
+        let now = Utc::now();
+        let loc = fix(None, now - Duration::from_secs(3 * 3600));
+        assert_eq!(
+            location_line(&loc, now),
+            "Location: 35.6938 N, 139.7034 E (3 h ago)"
+        );
+        assert!(location_line(&fix(None, now), now).ends_with("(just now)"));
+    }
 }

@@ -161,7 +161,9 @@ requests! {
     18 UpdateCron { id: String, enabled: Option<bool>, label: Option<String>, schedule: Option<String> } => Call<()>
     19 RegisterDevice { device_id: String, fcm_token: String } => Call<()>
     20 UnregisterDevice { device_id: String } => Call<()>
-    21 UpdateLocation { latitude: f64, longitude: f64, accuracy: f64, timezone: String } => Call<()>
+    /// `place` is the phone's reverse-geocoded name for the fix, such as
+    /// "Shinjuku, Tokyo, Japan", when it has one.
+    21 UpdateLocation { latitude: f64, longitude: f64, accuracy: f64, timezone: String, place: Option<String> } => Call<()>
     /// Returns how many notifications were stored.
     22 SaveNotifications { notifications: Vec<PhoneNotification> } => Call<u64>
     23 StreamNotifications {} => Stream<Notice>

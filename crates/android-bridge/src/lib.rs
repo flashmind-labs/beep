@@ -291,12 +291,14 @@ impl BeepClient {
         longitude: f64,
         accuracy: f64,
         timezone: String,
+        place: Option<String>,
     ) -> Result<(), BeepError> {
         self.call(UpdateLocation {
             latitude,
             longitude,
             accuracy,
             timezone,
+            place,
         })
         .await
     }

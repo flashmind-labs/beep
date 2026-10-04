@@ -27,7 +27,10 @@ pub fn registry(app: Arc<App>, run_id: &str, user: &str) -> ToolRegistry {
         user: user.into(),
     }));
     registry.register(Arc::new(browser::OpenBrowserTool));
-    registry.register(Arc::new(maps::OpenMapsTool));
+    registry.register(Arc::new(maps::OpenMapsTool {
+        store: store.clone(),
+        user: user.into(),
+    }));
     registry.register(Arc::new(notifications::GetNotificationsTool {
         store: store.clone(),
         user: user.into(),

@@ -45,17 +45,41 @@ impl SearchTool {
                 .filter(|n| (1..=5).contains(n))
                 .ok_or("Search limit must be between 1 and 5.")?,
         };
-        let response = self
-            .client
-            .post(&self.endpoint)
-            .bearer_auth(&self.key)
-            .json(
-                &json!({"query":query,"limit":limit,"sources":["web"],"timeout":35000,
-                "scrapeOptions":{"formats":["markdown"],"onlyMainContent":true}}),
-            )
-            .send()
-            .await
-            .map_err(|_| "Search could not reach Firecrawl. Try again shortly.")?;
+        let location = match args.get("location") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .map(canonical_location)
+                    .filter(|l| !l.is_empty() && l.len() <= 200)
+                    .ok_or("Search location must be a place name of 1–200 bytes.")?,
+            ),
+        };
+        let country = match args.get("country") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .filter(|c| c.len() == 2 && c.bytes().all(|b| b.is_ascii_alphabetic()))
+                    .map(str::to_ascii_uppercase)
+                    .ok_or("Search country must be a two-letter ISO code.")?,
+            ),
+        };
+        let mut request = json!({"query":query,"limit":limit,"sources":["web"],"timeout":35000,
+            "scrapeOptions":{"formats":["markdown"],"onlyMainContent":true}});
+        if let Some(country) = country {
+            request["country"] = country.into();
+        }
+        if let Some(location) = &location {
+            request["location"] = location.as_str().into();
+        }
+        let mut response = self.send(&request).await?;
+        // Firecrawl only knows Google's place names; a near miss is worth a
+        // search without it rather than a failed one.
+        if response.status().as_u16() == 400 && location.is_some() {
+            request.as_object_mut().map(|r| r.remove("location"));
+            response = self.send(&request).await?;
+        }
         if !response.status().is_success() {
             return Err(match response.status().as_u16() {
                 401 | 403 => "Search credentials were rejected. Check the server configuration.",
@@ -77,6 +101,27 @@ impl SearchTool {
         let data: Value = serde_json::from_slice(&body).map_err(|_| "Invalid search response.")?;
         normalize(&data, limit as usize)
     }
+
+    async fn send(&self, request: &Value) -> Result<reqwest::Response, String> {
+        self.client
+            .post(&self.endpoint)
+            .bearer_auth(&self.key)
+            .json(request)
+            .send()
+            .await
+            .map_err(|_| "Search could not reach Firecrawl. Try again shortly.".into())
+    }
+}
+
+/// Firecrawl's place names are Google's, comma separated with no spaces:
+/// "Shinjuku, Tokyo, Japan" becomes "Shinjuku,Tokyo,Japan".
+fn canonical_location(location: &str) -> String {
+    location
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn normalize(data: &Value, limit: usize) -> Result<Value, String> {
@@ -122,10 +167,10 @@ impl Tool for SearchTool {
         "web_search"
     }
     fn description(&self) -> &str {
-        "Search the live web with Firecrawl and read relevant page excerpts. Use for web searches and current facts. Cite returned URLs. Never send secrets or unnecessary personal data in queries."
+        "Search the live web with Firecrawl and read relevant page excerpts. Use for web searches and current facts. Cite returned URLs. For anything nearby, pass `location` (the place from the context, e.g. 'Shinjuku,Tokyo,Japan') and `country` so results are local. Never send secrets or unnecessary personal data in queries."
     }
     fn parameters(&self) -> Value {
-        json!({"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":1000},"limit":{"type":"integer","minimum":1,"maximum":5}},"required":["query"],"additionalProperties":false})
+        json!({"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":1000},"limit":{"type":"integer","minimum":1,"maximum":5},"location":{"type":"string","maxLength":200,"description":"Area to search from as District,Region,Country, e.g. 'Shinjuku,Tokyo,Japan' or 'Tokyo,Japan'."},"country":{"type":"string","minLength":2,"maxLength":2,"description":"ISO country code, e.g. 'JP'."}},"required":["query"],"additionalProperties":false})
     }
     fn humanize(&self, _args: &Value) -> String {
         "Searching the web…".into()
@@ -187,9 +232,14 @@ mod tests {
             assert!(request.contains("Bearer private-test-key"));
             assert!(request.contains("\"query\":\"hello\""));
             assert!(request.contains("\"sources\":[\"web\"]"));
+            assert!(request.contains("\"location\":\"Shinjuku,Tokyo,Japan\""));
+            assert!(request.contains("\"country\":\"JP\""));
             stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 16\r\nConnection: close\r\n\r\nprivate-test-key").await.unwrap();
         });
-        let error = tool.search(&json!({"query":"hello"})).await.unwrap_err();
+        let error = tool
+            .search(&json!({"query":"hello","location":"Shinjuku, Tokyo, Japan","country":"jp"}))
+            .await
+            .unwrap_err();
         assert!(error.contains("rate limited"));
         assert!(!error.contains("private-test-key"));
         server.await.unwrap();
