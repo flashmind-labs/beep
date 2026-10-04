@@ -59,6 +59,8 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import kotlin.math.abs
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -465,7 +467,16 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 onBubbleSettings = onBubbleSettings, onConnection = { settingsOpen = true })
             Screen.Chat -> {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
-    LaunchedEffect(drawerOpen) { if (drawerOpen) { repository.refreshHistory(); drawerState.open() } else drawerState.close() }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(drawerOpen) {
+        if (drawerOpen) {
+            // The composer keeps focus behind the drawer otherwise, and the keyboard covers the list.
+            focusManager.clearFocus()
+            keyboard?.hide()
+            repository.refreshHistory(); drawerState.open()
+        } else drawerState.close()
+    }
     LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
     BackHandler(enabled = drawerOpen) { drawerOpen = false }
     // Closed, horizontal swipes belong to the chat (new chat or back), so the drawer only takes them to close.
