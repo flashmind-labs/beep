@@ -1,0 +1,17 @@
+# The server on the remote Docker host. `just deploy-server` builds and starts
+# it there. The config and iroh key live in the `beep_data` volume.
+name: beep
+services:
+  server:
+    build: .
+    image: beep-server
+    restart: unless-stopped
+    # Host networking lets iroh hole-punch direct paths to the phone.
+    network_mode: host
+    volumes:
+      - data:/data
+volumes:
+  # Created by `just push-server-config`, which fills it before the first start.
+  data:
+    name: beep_data
+    external: true
