@@ -546,13 +546,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                                 onLongClick = { if (selecting != null) toggle() else contextMenuChat = chat.id })
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            when {
-                                selecting != null -> Icon(if (chat.id in selecting) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                                    null, Modifier.size(18.dp), tint = if (chat.id in selecting) Coral else TextMuted)
-                                else -> Icon(if (chat.pinned) Icons.Outlined.PushPin else Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = if (chat.pinned) Moss else TextMuted)
-                            }
+                            if (selecting != null) Icon(if (chat.id in selecting) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                                null, Modifier.size(18.dp), tint = if (chat.id in selecting) Coral else TextMuted)
                             Text(chat.title, maxLines = 2, fontSize = 14.sp, overflow = TextOverflow.Ellipsis,
-                                color = if (highlighted) Beep.colors.onUser else Color.Unspecified)
+                                color = if (highlighted) Beep.colors.onUser else Color.Unspecified, modifier = Modifier.weight(1f))
+                            if (chat.pinned && selecting == null) Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(16.dp), tint = Moss)
                         }
                         DropdownMenu(expanded = contextMenuChat == chat.id, onDismissRequest = { contextMenuChat = null },
                             containerColor = Surface) {
@@ -1536,6 +1534,7 @@ private fun MessageContent(text: String, role: String, compact: Boolean, padded:
                 is MsgBlock.Table -> TableView(block.headers, block.rows, compact)
                 is MsgBlock.Quote -> BlockQuoteView(block.content, compact)
                 MsgBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Border)
+                is MsgBlock.Picture -> ReplyImage(block.url, block.alt, compact)
             }
         }
     } }
