@@ -7,18 +7,16 @@ pub mod cron;
 pub mod decision;
 pub mod feeds;
 pub mod live;
-pub mod mail;
-pub mod mcp;
 pub mod memories;
 pub mod repeat;
 pub mod router;
 pub mod search;
-pub mod slack;
 pub mod starters;
 pub mod store;
 pub mod titles;
 pub mod tools;
 pub mod transport;
+pub mod user;
 
 pub use beep_proto::{self as protocol, client};
 

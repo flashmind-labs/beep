@@ -97,13 +97,19 @@ impl CronStore for SqliteCronStore {
 
     async fn get(&self, id: Uuid) -> Result<Option<CronJob>> {
         let id_str = id.to_string();
+        let user = self.user.clone();
         Ok(self
             .store
             .raw()
             .call::<_, _, rusqlite::Error>(move |db| {
-                let sql = format!("SELECT {SELECT_COLS} FROM crons WHERE id=?");
+                // A user's store only sees that user's jobs.
+                let sql = format!(
+                    "SELECT {SELECT_COLS} FROM crons WHERE id=?1 AND (?2 IS NULL OR user_id=?2)"
+                );
                 let mut stmt = db.prepare(&sql)?;
-                let job = stmt.query_row([&id_str], row_to_job).optional()?;
+                let job = stmt
+                    .query_row(params![id_str, user], row_to_job)
+                    .optional()?;
                 Ok(job)
             })
             .await?)
@@ -152,11 +158,16 @@ impl CronStore for SqliteCronStore {
 
     async fn delete(&self, id: Uuid) -> Result<bool> {
         let id_str = id.to_string();
+        let user = self.user.clone();
         Ok(self
             .store
             .raw()
             .call::<_, _, rusqlite::Error>(move |db| {
-                Ok(db.execute("DELETE FROM crons WHERE id=?", params![id_str])? > 0)
+                let deleted = db.execute(
+                    "DELETE FROM crons WHERE id=?1 AND (?2 IS NULL OR user_id=?2)",
+                    params![id_str, user],
+                )?;
+                Ok(deleted > 0)
             })
             .await?)
     }
@@ -191,7 +202,11 @@ impl CronHandler for BeepCronHandler {
             image: None,
         };
 
-        match self.app.submit(user_id, msg).await {
+        let Some(user) = self.app.user(user_id) else {
+            log::warn!("cron job for an unknown user; job_id={}", job.id);
+            return Ok(None);
+        };
+        match self.app.submit(user, msg).await {
             Ok(CreateRun::Created(run)) => Ok(Some(run.id)),
             Ok(_) => {
                 log::debug!("cron run not created (conflict); job_id={}", job.id);
@@ -206,14 +221,14 @@ impl CronHandler for BeepCronHandler {
 }
 
 struct BeepTimezoneResolver {
-    store: Store,
+    app: Arc<App>,
 }
 
 #[async_trait]
 impl TimezoneResolver for BeepTimezoneResolver {
     async fn resolve(&self, job: &CronJob) -> Option<chrono_tz::Tz> {
         let user_id = job.metadata.get("user_id")?.as_str()?;
-        let tz_name = self.store.get_timezone(user_id).await.ok()?;
+        let tz_name = self.app.user(user_id)?.get_timezone().await.ok()?;
         tz_name.parse().ok()
     }
 }
@@ -227,9 +242,7 @@ pub fn start(app: Arc<App>, db_path: &std::path::Path) -> (CronRunner, Arc<CronR
     let log_path = db_path.with_extension("cron.log");
     let log = Arc::new(CronLog::new(log_path));
 
-    let tz = Arc::new(BeepTimezoneResolver {
-        store: app.store.clone(),
-    });
+    let tz = Arc::new(BeepTimezoneResolver { app: app.clone() });
 
     let runner = CronRunner::new(registry.clone(), handler, cancel)
         .with_log(log)

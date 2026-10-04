@@ -76,7 +76,7 @@ pub async fn compact_idle(store: &Store, summarizer: Summarizer<'_>) {
 
 /// Returns whether the session's context was replaced.
 async fn compact(store: &Store, summarizer: &Summarizer<'_>, session: &SessionRef) -> Result<bool> {
-    let Some(before) = store.context(&session.user, &session.id).await? else {
+    let Some(before) = store.session_context(session).await? else {
         return Ok(false);
     };
     let mut context = before.conversation.clone();
@@ -99,6 +99,7 @@ async fn compact(store: &Store, summarizer: &Summarizer<'_>, session: &SessionRe
 mod tests {
     use super::*;
     use crate::store::{CreateRun, FinishedTurn, RunStatus};
+    use crate::user::User;
     use async_trait::async_trait;
     use flashmind::{
         core::{Conversation, ConversationEntry},
@@ -136,8 +137,8 @@ mod tests {
     }
 
     async fn save(store: &Store, session: &str, tokens: u32) -> SessionRef {
-        let CreateRun::Created(run) = store
-            .create_run("alice", session, &format!("req-{session}"), "hi")
+        let CreateRun::Created(run) = User::for_test(store.clone(), "alice")
+            .create_run(session, &format!("req-{session}"), "hi")
             .await
             .unwrap()
         else {
@@ -149,8 +150,8 @@ mod tests {
             context: &chat,
             prompt_tokens: tokens,
         };
-        store
-            .finish("alice", &run, Some(turn), RunStatus::Completed)
+        User::for_test(store.clone(), "alice")
+            .finish(&run, Some(turn), RunStatus::Completed)
             .await
             .unwrap();
         SessionRef {
@@ -185,7 +186,9 @@ mod tests {
     #[tokio::test]
     async fn compacts_only_long_idle_sessions_and_keeps_the_transcript() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join("test.db")).await.unwrap();
+        let store = Store::open_for_test(dir.path().join("test.db"))
+            .await
+            .unwrap();
         let model: Model = "openai:test".parse().unwrap();
         let summarizer = || Summarizer {
             provider: &SummaryStub,
@@ -203,8 +206,8 @@ mod tests {
         let context = |s: SessionRef| {
             let store = store.clone();
             async move {
-                store
-                    .context(&s.user, &s.id)
+                User::for_test(store.clone(), &s.user)
+                    .context(&s.id)
                     .await
                     .unwrap()
                     .unwrap()
@@ -217,8 +220,8 @@ mod tests {
         // The two newest turns are kept verbatim after the summary.
         assert_eq!(compacted.entries().last().unwrap().content(), "reply 3");
 
-        let transcript = store
-            .conversation(&long_idle.user, &long_idle.id)
+        let transcript = User::for_test(store.clone(), &long_idle.user)
+            .conversation(&long_idle.id)
             .await
             .unwrap()
             .unwrap();
@@ -240,10 +243,12 @@ mod tests {
     #[tokio::test]
     async fn a_run_during_compaction_wins() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join("test.db")).await.unwrap();
+        let store = Store::open_for_test(dir.path().join("test.db"))
+            .await
+            .unwrap();
         let session = save(&store, "busy", 40_000).await;
-        let before = store
-            .context(&session.user, &session.id)
+        let before = User::for_test(store.clone(), &session.user)
+            .context(&session.id)
             .await
             .unwrap()
             .unwrap();
@@ -251,8 +256,8 @@ mod tests {
         // A new turn lands after the sweep read the context.
         let mut newer = long_chat();
         newer.add(ConversationEntry::user("one more"));
-        let CreateRun::Created(run) = store
-            .create_run("alice", "busy", "req-busy-2", "one more")
+        let CreateRun::Created(run) = User::for_test(store.clone(), "alice")
+            .create_run("busy", "req-busy-2", "one more")
             .await
             .unwrap()
         else {
@@ -263,8 +268,8 @@ mod tests {
             context: &newer,
             prompt_tokens: 40_000,
         };
-        store
-            .finish("alice", &run, Some(turn), RunStatus::Completed)
+        User::for_test(store.clone(), "alice")
+            .finish(&run, Some(turn), RunStatus::Completed)
             .await
             .unwrap();
 
@@ -273,7 +278,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!replaced);
-        let context = store.context("alice", "busy").await.unwrap().unwrap();
+        let context = User::for_test(store.clone(), "alice")
+            .context("busy")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(
             context.conversation.entries().last().unwrap().content(),
             "one more"

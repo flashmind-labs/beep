@@ -8,6 +8,7 @@ use crate::{
         wire::{Frame, Tx, framed},
     },
     transport::READ_TIMEOUT,
+    user::User,
 };
 use anyhow::{Context, Result, bail};
 use futures::future::BoxFuture;
@@ -20,7 +21,7 @@ use tokio::time::timeout;
 #[derive(Clone)]
 pub struct Cx {
     pub app: Arc<App>,
-    pub user: Arc<str>,
+    pub user: Arc<User>,
     pub connection: Connection,
 }
 

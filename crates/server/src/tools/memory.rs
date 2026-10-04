@@ -1,7 +1,7 @@
 use crate::{
-    memories::Memories,
     protocol::MemorySource,
-    store::{Fact, Store, Validity},
+    store::{Fact, Validity},
+    user::User,
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -22,29 +22,17 @@ const CATEGORIES: [&str; 6] = [
     "general",
 ];
 
-/// What every memory tool needs to reach one user's memories.
-#[derive(Clone)]
-struct Access {
-    store: Store,
-    memories: Memories,
-    user: String,
-}
+struct MemoryStoreTool(Arc<User>);
+struct MemoryRecallTool(Arc<User>);
+struct MemoryForgetTool(Arc<User>);
+struct MemoryUpdateTool(Arc<User>);
 
-struct MemoryStoreTool(Access);
-struct MemoryRecallTool(Access);
-struct MemoryForgetTool(Access);
-struct MemoryUpdateTool(Access);
-
-pub fn register(registry: &mut ToolRegistry, store: Store, memories: Memories, user: &str) {
-    let access = Access {
-        store,
-        memories,
-        user: user.to_owned(),
-    };
-    registry.register(Arc::new(MemoryStoreTool(access.clone())));
-    registry.register(Arc::new(MemoryRecallTool(access.clone())));
-    registry.register(Arc::new(MemoryForgetTool(access.clone())));
-    registry.register(Arc::new(MemoryUpdateTool(access)));
+/// Registers the memory tools on one user's memories.
+pub fn register(registry: &mut ToolRegistry, user: &Arc<User>) {
+    registry.register(Arc::new(MemoryStoreTool(user.clone())));
+    registry.register(Arc::new(MemoryRecallTool(user.clone())));
+    registry.register(Arc::new(MemoryForgetTool(user.clone())));
+    registry.register(Arc::new(MemoryUpdateTool(user.clone())));
 }
 
 fn arg<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
@@ -75,7 +63,6 @@ fn fact(args: &Value) -> Result<Fact<'_>> {
         category: opt_arg(args, "category"),
         source: MemorySource::User {},
         valid: (valid != Validity::default()).then_some(valid),
-        embedding: None,
     })
 }
 
@@ -108,8 +95,7 @@ impl Tool for MemoryStoreTool {
         fact_schema(&["content"], json!({}))
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let Access { memories, user, .. } = &self.0;
-        let remembered = memories.remember(user, fact(&ctx.args)?).await?;
+        let remembered = self.0.remember(fact(&ctx.args)?).await?;
         let change = if remembered.replaced {
             "updated"
         } else {
@@ -134,12 +120,12 @@ impl Tool for MemoryRecallTool {
         },"required":["query"],"additionalProperties":false})
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let Access { memories, user, .. } = &self.0;
         let query = arg(&ctx.args, "query")?;
         // An empty query is a request to see what Beep knows.
         let limit = if query.trim().is_empty() { 100 } else { 30 };
-        let hits = memories
-            .search(user, query, opt_arg(&ctx.args, "category"), limit)
+        let hits = self
+            .0
+            .search_memories(query, opt_arg(&ctx.args, "category"), limit)
             .await?;
         reply(&ctx, hits.iter().map(|h| h.to_json()).collect())
     }
@@ -157,8 +143,7 @@ impl Tool for MemoryForgetTool {
         json!({"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false})
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let Access { store, user, .. } = &self.0;
-        let forgotten = store.forget(user, arg(&ctx.args, "id")?).await?;
+        let forgotten = self.0.forget(arg(&ctx.args, "id")?).await?;
         reply(&ctx, json!({"forgotten": forgotten}))
     }
 }
@@ -175,9 +160,9 @@ impl Tool for MemoryUpdateTool {
         fact_schema(&["id", "content"], json!({"id":{"type":"string"}}))
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let Access { memories, user, .. } = &self.0;
-        let updated = memories
-            .update(user, arg(&ctx.args, "id")?, fact(&ctx.args)?)
+        let updated = self
+            .0
+            .update_memory(arg(&ctx.args, "id")?, fact(&ctx.args)?)
             .await?;
         reply(&ctx, json!({"updated": updated}))
     }

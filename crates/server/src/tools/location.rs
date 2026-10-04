@@ -1,11 +1,11 @@
-use crate::store::Store;
+use crate::user::User;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 pub(crate) struct GetLocationTool {
-    pub store: Store,
-    pub user: String,
+    pub user: Arc<User>,
 }
 
 #[async_trait]
@@ -20,7 +20,7 @@ impl Tool for GetLocationTool {
         json!({"type":"object","properties":{},"additionalProperties":false})
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
-        let output = match self.store.get_location(&self.user).await? {
+        let output = match self.user.get_location().await? {
             Some(loc) => json!({
                 "latitude": loc.latitude,
                 "longitude": loc.longitude,

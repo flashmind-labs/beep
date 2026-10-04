@@ -167,18 +167,17 @@ async fn device_result(cx: Cx, req: DeviceResult) -> Reply<bool> {
 }
 
 async fn list_sessions(cx: Cx, _: ListSessions) -> Reply<Vec<Session>> {
-    Ok(cx.app.store.sessions(&cx.user).await?)
+    Ok(cx.user.sessions().await?)
 }
 
 async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<HistoryEntry>> {
     let conv = cx
-        .app
-        .store
-        .conversation(&cx.user, &id)
+        .user
+        .conversation(&id)
         .await?
         .ok_or(ApiError::NotFound {})?;
-    let failures = cx.app.store.tool_failures(&cx.user, &id).await?;
-    let scores = cx.app.store.memory_scores(&cx.user, &id).await?;
+    let failures = cx.user.tool_failures(&id).await?;
+    let scores = cx.user.memory_scores(&id).await?;
     Ok(history(conv.entries(), &failures, &scores))
 }
 
@@ -284,7 +283,7 @@ fn cap(text: &str, max: usize) -> String {
 }
 
 async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {
-    let apps = cx.app.apps.list(&cx.user).await?;
+    let apps = cx.user.apps().await?;
     // OAuth ends in the browser and the phone lists apps again on return,
     // so this is the first moment the server sees a new mailbox or Slack.
     let feeds: Vec<Feed> = apps
@@ -299,30 +298,23 @@ async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {
 }
 
 async fn connect_app(cx: Cx, ConnectApp { slug }: ConnectApp) -> Reply<ConnectLink> {
-    cx.app.apps.connect(&cx.user, &slug).await
+    cx.user.connect_app(&slug).await
 }
 
 async fn disconnect_app(cx: Cx, DisconnectApp { slug }: DisconnectApp) -> Reply<()> {
-    cx.app.apps.disconnect(&cx.user, &slug).await
+    cx.user.disconnect_app(&slug).await
 }
 
 async fn start_app_auth(
     cx: Cx,
     StartAppAuth { slug, redirect_uri }: StartAppAuth,
 ) -> Reply<ConnectLink> {
-    cx.app.apps.start_auth(&cx.user, &slug, &redirect_uri).await
+    cx.user.start_app_auth(&slug, &redirect_uri).await
 }
 
 async fn finish_app_auth(cx: Cx, req: FinishAppAuth) -> Reply<()> {
-    cx.app
-        .apps
-        .finish_auth(
-            &cx.user,
-            &req.slug,
-            &req.code,
-            &req.state,
-            req.issuer.as_deref(),
-        )
+    cx.user
+        .finish_app_auth(&req.slug, &req.code, &req.state, req.issuer.as_deref())
         .await
 }
 
@@ -337,30 +329,30 @@ async fn rename_session(cx: Cx, RenameSession { id, title }: RenameSession) -> R
     if title.is_empty() {
         return Err(ApiError::bad_request("title required"));
     }
-    found(cx.app.store.rename_session(&cx.user, &id, &title).await?)
+    found(cx.user.rename_session(&id, &title).await?)
 }
 
 async fn delete_session(cx: Cx, DeleteSession { id }: DeleteSession) -> Reply<()> {
-    found(cx.app.store.delete_session(&cx.user, &id).await?)
+    found(cx.user.delete_session(&id).await?)
 }
 
 async fn delete_sessions(cx: Cx, DeleteSessions { ids }: DeleteSessions) -> Reply<u64> {
     if ids.len() > 200 {
         return Err(ApiError::bad_request("at most 200 sessions at once"));
     }
-    Ok(cx.app.store.delete_sessions(&cx.user, ids).await?)
+    Ok(cx.user.delete_sessions(ids).await?)
 }
 
 async fn pin_session(cx: Cx, PinSession { id, pinned }: PinSession) -> Reply<()> {
-    found(cx.app.store.pin_session(&cx.user, &id, pinned).await?)
+    found(cx.user.pin_session(&id, pinned).await?)
 }
 
 async fn list_memories(cx: Cx, _: ListMemories) -> Reply<Vec<Memory>> {
-    Ok(cx.app.store.list_memories(&cx.user).await?)
+    Ok(cx.user.list_memories().await?)
 }
 
 async fn delete_memory(cx: Cx, DeleteMemory { id }: DeleteMemory) -> Reply<()> {
-    found(cx.app.store.forget(&cx.user, &id).await?)
+    found(cx.user.forget(&id).await?)
 }
 
 /// The new text is embedded on the next lookup.
@@ -369,21 +361,20 @@ async fn update_memory(cx: Cx, UpdateMemory { id, content }: UpdateMemory) -> Re
     if content.is_empty() || content.len() > 4000 {
         return Err(ApiError::bad_request("memory text must be 1 to 4000 bytes"));
     }
-    found(cx.app.store.edit_memory(&cx.user, &id, content).await?)
+    found(cx.user.edit_memory(&id, content).await?)
 }
 
 async fn clear_memories(cx: Cx, _: ClearMemories) -> Reply<u64> {
-    Ok(cx.app.store.forget_all(&cx.user).await?)
+    Ok(cx.user.forget_all().await?)
 }
 
 async fn list_crons(cx: Cx, _: ListCrons) -> Reply<Vec<Cron>> {
     let tz = cx
-        .app
-        .store
-        .get_timezone(&cx.user)
+        .user
+        .get_timezone()
         .await
         .unwrap_or_else(|_| "UTC".into());
-    let mut crons = cx.app.store.list_crons(&cx.user).await?;
+    let mut crons = cx.user.list_crons().await?;
     for c in &mut crons {
         c.next_run_at = next_run_at(&c.schedule, &tz);
     }
@@ -391,48 +382,40 @@ async fn list_crons(cx: Cx, _: ListCrons) -> Reply<Vec<Cron>> {
 }
 
 async fn create_cron(cx: Cx, req: CreateCron) -> Reply<String> {
-    cx.app
-        .store
-        .create_cron(&cx.user, &req.label, &req.prompt, &req.schedule)
+    cx.user
+        .create_cron(&req.label, &req.prompt, &req.schedule)
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))
 }
 
 async fn toggle_cron(cx: Cx, ToggleCron { id }: ToggleCron) -> Reply<bool> {
-    let enabled = cx.app.store.toggle_cron(&cx.user, &id).await?;
+    let enabled = cx.user.toggle_cron(&id).await?;
     enabled.ok_or(ApiError::NotFound {})
 }
 
 async fn delete_cron(cx: Cx, DeleteCron { id }: DeleteCron) -> Reply<()> {
-    found(cx.app.store.delete_cron(&cx.user, &id).await?)
+    found(cx.user.delete_cron(&id).await?)
 }
 
 async fn update_cron(cx: Cx, req: UpdateCron) -> Reply<()> {
     let label = req.label.as_deref();
     let schedule = req.schedule.as_deref();
     let updated = cx
-        .app
-        .store
-        .update_cron(&cx.user, &req.id, req.enabled, label, schedule)
+        .user
+        .update_cron(&req.id, req.enabled, label, schedule)
         .await?;
     found(updated)
 }
 
 async fn register_device(cx: Cx, req: RegisterDevice) -> Reply<()> {
-    let store = &cx.app.store;
-    store
-        .register_device(&cx.user, &req.device_id, &req.fcm_token)
+    cx.user
+        .register_device(&req.device_id, &req.fcm_token)
         .await?;
     Ok(())
 }
 
 async fn unregister_device(cx: Cx, req: UnregisterDevice) -> Reply<()> {
-    found(
-        cx.app
-            .store
-            .unregister_device(&cx.user, &req.device_id)
-            .await?,
-    )
+    found(cx.user.unregister_device(&req.device_id).await?)
 }
 
 async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
@@ -462,15 +445,12 @@ async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
         place,
         updated_at: Utc::now(),
     };
-    cx.app.store.update_location(&cx.user, &fix).await?;
+    cx.user.update_location(&fix).await?;
     Ok(())
 }
 
 async fn save_notifications(cx: Cx, req: SaveNotifications) -> Reply<u64> {
-    let store = &cx.app.store;
-    let count = store
-        .save_notifications(&cx.user, req.notifications)
-        .await?;
+    let count = cx.user.save_notifications(req.notifications).await?;
     Ok(count as u64)
 }
 
@@ -481,7 +461,7 @@ async fn stream_notifications(cx: Cx, _: StreamNotifications, sink: Sink<Notice>
         tokio::select! {
             _ = cx.connection.closed() => return Ok(()),
             received = rx.recv() => match received {
-                Ok(event) if event.user == *cx.user => {
+                Ok(event) if event.user == cx.user.id() => {
                     match timeout(SEND_TIMEOUT, sink.send(&event.notice)).await {
                         Ok(sent) => sent?,
                         Err(_) => return Ok(()),
@@ -495,32 +475,31 @@ async fn stream_notifications(cx: Cx, _: StreamNotifications, sink: Sink<Notice>
 }
 
 async fn list_integrations(cx: Cx, _: ListIntegrations) -> Reply<Vec<Integration>> {
-    Ok(cx.app.store.list_mcp_connections(&cx.user).await?)
+    Ok(cx.user.list_mcp_connections().await?)
 }
 
 async fn create_integration(cx: Cx, req: CreateIntegration) -> Reply<String> {
-    cx.app
-        .store
-        .create_mcp_connection(&cx.user, &req.provider, &req.label, &req.config)
+    cx.user
+        .create_mcp_connection(&req.provider, &req.label, &req.config)
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))
 }
 
 async fn delete_integration(cx: Cx, DeleteIntegration { id }: DeleteIntegration) -> Reply<()> {
-    found(cx.app.store.delete_mcp_connection(&cx.user, &id).await?)
+    found(cx.user.delete_mcp_connection(&id).await?)
 }
 
 async fn update_credentials(cx: Cx, req: UpdateCredentials) -> Reply<()> {
-    let store = &cx.app.store;
-    let updated = store
-        .update_mcp_credentials(&cx.user, &req.id, &req.credentials, &req.status)
+    let updated = cx
+        .user
+        .update_mcp_credentials(&req.id, &req.credentials, &req.status)
         .await?;
     found(updated)
 }
 
 /// The run, if it belongs to the caller.
 async fn owned_run(cx: &Cx, id: &str) -> Reply<Run> {
-    let run = cx.app.store.run(&cx.user, id).await?;
+    let run = cx.user.run(id).await?;
     run.ok_or(ApiError::NotFound {})
 }
 

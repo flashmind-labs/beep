@@ -77,7 +77,7 @@ pub async fn retitle_idle(store: &Store, provider: &dyn LlmProvider, llm: &Agent
 }
 
 async fn retitle(store: &Store, generator: Generator<'_>, session: &SessionRef) -> Result<()> {
-    let Some(chat) = store.conversation(&session.user, &session.id).await? else {
+    let Some(chat) = store.session_conversation(session).await? else {
         return Ok(());
     };
     let text = render(&chat);
@@ -143,6 +143,7 @@ fn clip(text: &str, chars: usize) -> String {
 mod tests {
     use super::*;
     use crate::store::{CreateRun, FinishedTurn, RunStatus};
+    use crate::user::User;
     use flashmind::core::ConversationEntry;
 
     #[test]
@@ -159,8 +160,8 @@ mod tests {
     }
 
     async fn chat(store: &Store, session: &str) -> SessionRef {
-        let CreateRun::Created(run) = store
-            .create_run("alice", session, &format!("req-{session}"), "hi")
+        let CreateRun::Created(run) = User::for_test(store.clone(), "alice")
+            .create_run(session, &format!("req-{session}"), "hi")
             .await
             .unwrap()
         else {
@@ -173,8 +174,8 @@ mod tests {
             context: &chat,
             prompt_tokens: 10,
         };
-        store
-            .finish("alice", &run, Some(turn), RunStatus::Completed)
+        User::for_test(store.clone(), "alice")
+            .finish(&run, Some(turn), RunStatus::Completed)
             .await
             .unwrap();
         SessionRef {
@@ -200,7 +201,9 @@ mod tests {
     #[tokio::test]
     async fn picks_quiet_changed_sessions_and_keeps_manual_titles() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join("test.db")).await.unwrap();
+        let store = Store::open_for_test(dir.path().join("test.db"))
+            .await
+            .unwrap();
         let quiet = chat(&store, "quiet").await;
         let busy = chat(&store, "busy").await;
         let renamed = chat(&store, "renamed").await;
@@ -209,8 +212,8 @@ mod tests {
         set_updated(&store, &renamed.id, "-5 minutes").await;
         set_updated(&store, &old.id, "-2 days").await;
         assert!(
-            store
-                .rename_session("alice", &renamed.id, "Mine")
+            User::for_test(store.clone(), "alice")
+                .rename_session(&renamed.id, "Mine")
                 .await
                 .unwrap()
         );
@@ -245,8 +248,8 @@ mod tests {
                 .unwrap()
         );
         assert!(store.set_generated_title(&busy, "Busy one").await.unwrap());
-        let titles: Vec<(String, String)> = store
-            .sessions("alice")
+        let titles: Vec<(String, String)> = User::for_test(store.clone(), "alice")
+            .sessions()
             .await
             .unwrap()
             .into_iter()
@@ -261,17 +264,19 @@ mod tests {
     #[tokio::test]
     async fn deletes_sessions_in_bulk() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join("test.db")).await.unwrap();
+        let store = Store::open_for_test(dir.path().join("test.db"))
+            .await
+            .unwrap();
         for id in ["a", "b", "c"] {
             chat(&store, id).await;
         }
-        let deleted = store
-            .delete_sessions("alice", vec!["a".into(), "c".into(), "missing".into()])
+        let deleted = User::for_test(store.clone(), "alice")
+            .delete_sessions(vec!["a".into(), "c".into(), "missing".into()])
             .await
             .unwrap();
         assert_eq!(deleted, 2);
-        let left: Vec<String> = store
-            .sessions("alice")
+        let left: Vec<String> = User::for_test(store.clone(), "alice")
+            .sessions()
             .await
             .unwrap()
             .into_iter()

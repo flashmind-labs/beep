@@ -18,6 +18,7 @@ use crate::{
     decision::{Criteria, DecisionTool},
     memories::{Reading, ReadingKind},
     store::Feed,
+    user::User,
 };
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Duration as Days, Utc};
@@ -207,15 +208,13 @@ impl fmt::Display for Outcome {
     }
 }
 
-pub(crate) async fn sync(app: &App, decision: &DecisionTool, user: &str) -> Result<Outcome> {
-    let client = app
-        .apps
-        .client(user)
+pub(crate) async fn sync(app: &App, decision: &DecisionTool, user: &User) -> Result<Outcome> {
+    let client = user
+        .composio_client()
         .context("Composio is not configured")?;
-    let store = &app.store;
     let after = Utc::now() - Days::days(LOOKBACK_DAYS);
-    store.prune_feed_seen(user, Feed::Slack, after).await?;
-    let seen = store.feed_seen(user, Feed::Slack).await?;
+    user.prune_feed_seen(Feed::Slack, after).await?;
+    let seen = user.feed_seen(Feed::Slack).await?;
 
     let Some(me) = own_id(&client).await? else {
         log::info!("slack: the user never wrote a message; user={user}");
@@ -240,7 +239,7 @@ pub(crate) async fn sync(app: &App, decision: &DecisionTool, user: &str) -> Resu
     let mut scored = stream::iter(windows)
         .map(|window| score(decision, &names, &today, window))
         .buffered(CONCURRENCY);
-    let generator = app.generator(user);
+    let generator = app.generator(user.id());
     while let Some((window, score)) = scored.next().await {
         let probability = score.context("Jev failed")?;
         log::debug!(
@@ -249,15 +248,13 @@ pub(crate) async fn sync(app: &App, decision: &DecisionTool, user: &str) -> Resu
         );
         if probability >= MEMORY_THRESHOLD {
             outcome.passed += 1;
-            outcome.learned += app
-                .memories
+            outcome.learned += user
                 .learn_reading(generator, &window.reading(&names))
                 .await
                 .len();
         }
         for message in &window.messages {
-            store
-                .mark_feed_seen(user, Feed::Slack, &message.id, message.at)
+            user.mark_feed_seen(Feed::Slack, &message.id, message.at)
                 .await?;
         }
     }

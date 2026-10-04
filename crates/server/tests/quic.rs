@@ -10,6 +10,7 @@ use beep_server::{
     starters,
     store::{CreateRun, Fact, Store},
     transport,
+    user::User,
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role,
@@ -95,7 +96,9 @@ struct Harness {
 impl Harness {
     async fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join("test.db")).await.unwrap();
+        let store = Store::open_for_test(dir.path().join("test.db"))
+            .await
+            .unwrap();
         let auth = Auth::new(vec![("alice".into(), ALICE.into())]).unwrap();
         let provider = Arc::new(ProviderStub {
             calls: AtomicUsize::new(0),
@@ -223,14 +226,20 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
 
     assert_eq!(h.provider.calls.load(Ordering::SeqCst), 2);
 
-    let reopened = Store::open(h.dir.path().join("test.db")).await.unwrap();
+    let reopened = Store::open_for_test(h.dir.path().join("test.db"))
+        .await
+        .unwrap();
     assert_eq!(
-        reopened.memory_rows("alice").await.unwrap()[0].content,
+        User::for_test(reopened.clone(), "alice")
+            .memory_rows()
+            .await
+            .unwrap()[0]
+            .content,
         "Prefers tea"
     );
     assert!(
-        reopened
-            .conversation("alice", &session.to_string())
+        User::for_test(reopened.clone(), "alice")
+            .conversation(&session.to_string())
             .await
             .unwrap()
             .is_some()
@@ -311,9 +320,9 @@ async fn cancellation_busy_session_and_invalid_input() {
 async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.db");
-    let store = Store::open(&path).await.unwrap();
-    let run = match store
-        .create_run("alice", "session", "request", "hello")
+    let store = Store::open_for_test(&path).await.unwrap();
+    let run = match User::for_test(store.clone(), "alice")
+        .create_run("session", "request", "hello")
         .await
         .unwrap()
     {
@@ -325,27 +334,69 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
         category: None,
         source: MemorySource::User {},
         valid: None,
-        embedding: None,
     };
-    let coffee = store.add_memory("alice", memory("coffee")).await.unwrap();
-    store.add_memory("alice", memory("tea")).await.unwrap();
-    store.add_memory("bob", memory("water")).await.unwrap();
-    assert!(!store.forget("bob", "unknown").await.unwrap());
-    assert!(!store.forget("bob", &coffee).await.unwrap());
-    assert!(store.forget("alice", &coffee).await.unwrap());
-    assert_eq!(store.memory_rows("alice").await.unwrap()[0].content, "tea");
-    assert_eq!(store.memory_rows("bob").await.unwrap()[0].content, "water");
+    let coffee = User::for_test(store.clone(), "alice")
+        .add_memory(memory("coffee"))
+        .await
+        .unwrap();
+    User::for_test(store.clone(), "alice")
+        .add_memory(memory("tea"))
+        .await
+        .unwrap();
+    User::for_test(store.clone(), "bob")
+        .add_memory(memory("water"))
+        .await
+        .unwrap();
+    assert!(
+        !User::for_test(store.clone(), "bob")
+            .forget("unknown")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !User::for_test(store.clone(), "bob")
+            .forget(&coffee)
+            .await
+            .unwrap()
+    );
+    assert!(
+        User::for_test(store.clone(), "alice")
+            .forget(&coffee)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        User::for_test(store.clone(), "alice")
+            .memory_rows()
+            .await
+            .unwrap()[0]
+            .content,
+        "tea"
+    );
+    assert_eq!(
+        User::for_test(store.clone(), "bob")
+            .memory_rows()
+            .await
+            .unwrap()[0]
+            .content,
+        "water"
+    );
     drop(store);
-    let store = Store::open(&path).await.unwrap();
+    let store = Store::open_for_test(&path).await.unwrap();
     store.recover().await.unwrap();
     store.recover().await.unwrap();
     assert_eq!(
-        store.run("alice", &run.id).await.unwrap().unwrap().status,
+        User::for_test(store.clone(), "alice")
+            .run(&run.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
         "interrupted"
     );
     assert!(matches!(
-        store
-            .create_run("alice", "session", "new-request", "hello")
+        User::for_test(store.clone(), "alice")
+            .create_run("session", "new-request", "hello")
             .await
             .unwrap(),
         CreateRun::Created(_)

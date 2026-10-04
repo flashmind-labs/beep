@@ -1,12 +1,12 @@
-use crate::store::Store;
+use crate::user::User;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Serialize;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 pub(crate) struct OpenMapsTool {
-    pub store: Store,
-    pub user: String,
+    pub user: Arc<User>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -101,8 +101,8 @@ impl Tool for OpenMapsTool {
                 longitude,
             }),
             ("search", _, _) => self
-                .store
-                .get_location(&self.user)
+                .user
+                .get_location()
                 .await
                 .ok()
                 .flatten()

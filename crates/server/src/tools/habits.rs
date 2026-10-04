@@ -1,11 +1,11 @@
-use crate::store::Store;
+use crate::user::User;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 pub(crate) struct HabitTool {
-    pub store: Store,
-    pub user: String,
+    pub user: Arc<User>,
     pub variant: &'static str,
 }
 
@@ -79,7 +79,7 @@ impl Tool for HabitTool {
                 if name.is_empty() {
                     return Ok(ToolResult::failure(ctx.tool_call_id, "name is required"));
                 }
-                match self.store.create_habit(&self.user, name, frequency).await {
+                match self.user.create_habit(name, frequency).await {
                     Ok(_id) => json!({"created": true, "name": name, "frequency": frequency}),
                     Err(e) => {
                         let msg = e.to_string();
@@ -103,7 +103,7 @@ impl Tool for HabitTool {
                         "habit name is required",
                     ));
                 }
-                match self.store.log_habit(&self.user, habit, value, note).await {
+                match self.user.log_habit(habit, value, note).await {
                     Ok(()) => json!({"logged": true, "habit": habit, "value": value}),
                     Err(e) => {
                         return Ok(ToolResult::failure(ctx.tool_call_id, e.to_string()));
@@ -114,9 +114,9 @@ impl Tool for HabitTool {
                 let habit = ctx.args.get("habit").and_then(Value::as_str);
                 let days = ctx.args.get("days").and_then(Value::as_i64).unwrap_or(7);
                 match habit {
-                    Some(name) => self.store.habit_status(&self.user, name, days).await?,
+                    Some(name) => self.user.habit_status(name, days).await?,
                     None => {
-                        let habits = self.store.list_habits(&self.user).await?;
+                        let habits = self.user.list_habits().await?;
                         json!({"habits": habits})
                     }
                 }
@@ -129,7 +129,7 @@ impl Tool for HabitTool {
                         "habit name is required",
                     ));
                 }
-                let archived = self.store.archive_habit(&self.user, habit).await?;
+                let archived = self.user.archive_habit(habit).await?;
                 json!({"archived": archived, "habit": habit})
             }
             _ => json!({}),
