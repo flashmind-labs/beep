@@ -1,5 +1,9 @@
+set dotenv-load
+
 server_config := ".dev/android-server.toml"
 apk := "android/app/build/outputs/apk/debug/app-debug.apk"
+# The Docker host the server deploys to, as ssh://host. Set it in .env.
+remote_docker := env("BEEP_DOCKER_HOST", "")
 
 # Build and deploy everything: server + Android APK
 deploy: build-server restart-server bake-profile build-android install-apk launch-app
@@ -38,6 +42,38 @@ launch-app:
 
 # Server only: rebuild and restart
 server: build-server restart-server
+
+# Stop the local server
+stop-server:
+    -pkill -f "beep-server {{server_config}}"
+
+# Build and run the server on the remote Docker host with the local config and
+# iroh key. Stops the local server first: both would answer as the same node.
+deploy-server:
+    @test -n "{{remote_docker}}" || (echo "Set BEEP_DOCKER_HOST in .env"; exit 1)
+    DOCKER_HOST={{remote_docker}} docker compose build
+    just stop-server
+    just push-server-config
+    DOCKER_HOST={{remote_docker}} docker compose up -d --force-recreate
+    DOCKER_HOST={{remote_docker}} docker compose ps
+
+# Copy the dev config and iroh key into the remote data volume
+push-server-config:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export DOCKER_HOST={{remote_docker}}
+    docker volume create beep_data > /dev/null
+    write() {
+        docker run --rm -i --entrypoint sh -v beep_data:/data beep-server \
+            -c "umask 077 && cat > /data/$1"
+    }
+    sed -e 's|^secret_key = .*|secret_key = "/data/iroh-key"|' \
+        -e 's|^log_dir = .*|log_dir = "/data/logs"|' {{server_config}} | write config.toml
+    write iroh-key < .dev/iroh-key
+
+# Tail the remote server's logs
+remote-logs:
+    DOCKER_HOST={{remote_docker}} docker compose logs -f
 
 # Android only: rebuild, install, launch
 android: bake-profile build-android install-apk launch-app
