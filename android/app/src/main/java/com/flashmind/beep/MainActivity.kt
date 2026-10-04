@@ -412,8 +412,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         }
     }
     // Chats left by starting a new one, newest last, so a swipe right can go back to them.
-    // Opening a chat from the list starts over: swiping right from it shows the list.
+    // The trail only holds while the user stays on the chat the swipes led to: opening one from the
+    // list, a notification or a share starts over, and it lives no longer than this screen.
     var visited by remember { mutableStateOf(listOf<String>()) }
+    var trailEnd by remember { mutableStateOf<String?>(null) }
     fun openChat(id: String) {
         visited = emptyList()
         repository.select(id)
@@ -422,8 +424,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         if (state.current.messages.isEmpty()) return
         visited = visited.filter { it != state.current.id } + state.current.id
         repository.newChat()
+        trailEnd = repository.state.value.current.id
     }
     fun previousChat(): String? {
+        if (trailEnd != state.current.id) return null
         val ids = state.conversations.map { it.id }.toSet()
         return visited.lastOrNull { it in ids && it != state.current.id }
     }
@@ -431,6 +435,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         val id = previousChat() ?: run { drawerOpen = true; return }
         visited = visited.dropLastWhile { it != id }.dropLast(1)
         repository.select(id)
+        trailEnd = id
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     // Handle pending app launch intents
@@ -668,7 +673,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         }) { padding ->
             SwipeChats(canStartNew = state.current.messages.isNotEmpty(), hasPrevious = previousChat() != null,
                 onNew = { startNewChat() }, onBack = { goBack() }, modifier = Modifier.padding(padding).fillMaxSize()) {
-                ChatScreen(state.current, repository, Modifier.fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent)
+                // Each chat gets its own list, so rows of the chat being left never animate under the next one.
+                key(state.current.id) {
+                    ChatScreen(state.current, repository, Modifier.fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent)
+                }
             }
         }
     } // end ModalNavigationDrawer
@@ -811,7 +819,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                     val isUser = message.role == "user"
                     val fresh = message.id !in settled
                     SideEffect { settled.add(message.id) }
-                    Column(Modifier.fillMaxWidth().animateItem()
+                    Column(Modifier.fillMaxWidth().animateItem(fadeOutSpec = null)
                         .popIn(message.id, play = fresh, origin = TransformOrigin(if (isUser) 1f else 0f, 1f)),
                         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
                         val isLastAssistant = !isUser && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
@@ -909,7 +917,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                     }
                 }
                 if (workingInline) item(key = "working") {
-                    Column(Modifier.fillMaxWidth().animateItem().popIn("working-${chat.id}", origin = TransformOrigin(0f, 1f))) {
+                    Column(Modifier.fillMaxWidth().animateItem(fadeOutSpec = null).popIn("working-${chat.id}", origin = TransformOrigin(0f, 1f))) {
                         if (chat.messages.lastOrNull()?.role != "assistant" && !compact) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 10.dp)) {
                                 BeepAvatar(isThinking = true)
