@@ -3,6 +3,7 @@ use crate::{
     compaction::{self, Summarizer},
     config::Auth,
     decision::DecisionTool,
+    feeds::Syncing,
     live::LiveRun,
     mcp::McpConnections,
     memories::{self, Exchange, Memories, Turn},
@@ -59,6 +60,9 @@ pub struct App {
     /// Runs in progress, with their event feed.
     runs: Mutex<HashMap<String, Arc<LiveRun>>>,
     device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
+    /// Feeds being synced, so the hourly sweep and a new connection never
+    /// read the same feed at once.
+    pub syncing: Syncing,
 }
 
 /// Optional tools and integrations that need server credentials.
@@ -117,6 +121,7 @@ impl App {
             starters: Starters::default(),
             runs: Mutex::new(HashMap::new()),
             device_queries: Mutex::new(HashMap::new()),
+            syncing: Syncing::default(),
         })
     }
 

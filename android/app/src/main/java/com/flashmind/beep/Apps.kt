@@ -238,7 +238,7 @@ internal val bundledLogos = mapOf(
     "notion" to R.drawable.logo_notion, "googledrive" to R.drawable.logo_googledrive,
     "slack" to R.drawable.logo_slack, "github" to R.drawable.logo_github,
     "linear" to R.drawable.logo_linear, "todoist" to R.drawable.logo_todoist,
-    "spotify" to R.drawable.logo_spotify, "fastmail" to R.drawable.logo_fastmail,
+    "fastmail" to R.drawable.logo_fastmail,
 )
 
 /**

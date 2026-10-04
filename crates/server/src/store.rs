@@ -1,6 +1,7 @@
 use crate::{
     mail::Mailbox,
     protocol::{Cron, Integration, Memory, MemorySource, PhoneNotification, Run, Session},
+    slack::SLACK,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
@@ -62,6 +63,34 @@ pub(crate) const MEMORY_CATEGORIES: &[&str] = &[
     "routine",
     "general",
 ];
+
+/// Something synced once a day for memories: a mailbox or Slack. Its slug
+/// keys the sync state tables, which predate Slack and keep their mail names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Feed {
+    Mail(Mailbox),
+    Slack,
+}
+
+impl Feed {
+    pub const ALL: [Feed; 3] = [
+        Feed::Mail(Mailbox::Gmail),
+        Feed::Mail(Mailbox::Fastmail),
+        Feed::Slack,
+    ];
+
+    /// The feed of the app with `slug`, if that app is synced.
+    pub fn from_slug(slug: &str) -> Option<Feed> {
+        Feed::ALL.into_iter().find(|feed| feed.slug() == slug)
+    }
+
+    pub fn slug(self) -> &'static str {
+        match self {
+            Feed::Mail(mailbox) => mailbox.slug(),
+            Feed::Slack => SLACK,
+        }
+    }
+}
 
 /// How an agent run ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1490,11 +1519,11 @@ impl Store {
             .await?)
     }
 
-    /// Whether `mailbox` finished a sync within `every`.
-    pub async fn mail_synced_recently(
+    /// Whether `feed` finished a sync within `every`.
+    pub async fn feed_synced_recently(
         &self,
         user: &str,
-        mailbox: Mailbox,
+        feed: Feed,
         every: Duration,
     ) -> Result<bool> {
         let (user, every) = (user.to_owned(), format!("-{} seconds", every.as_secs()));
@@ -1504,14 +1533,14 @@ impl Store {
                 db.query_row(
                     "SELECT EXISTS(SELECT 1 FROM mail_sync WHERE user_id=? AND mailbox=?
                      AND synced_at > datetime('now', ?))",
-                    params![user, mailbox.slug(), every],
+                    params![user, feed.slug(), every],
                     |r| r.get(0),
                 )
             })
             .await?)
     }
 
-    pub async fn mark_mail_synced(&self, user: &str, mailbox: Mailbox) -> Result<()> {
+    pub async fn mark_feed_synced(&self, user: &str, feed: Feed) -> Result<()> {
         let user = user.to_owned();
         self.0
             .call::<_, _, rusqlite::Error>(move |db| {
@@ -1519,7 +1548,7 @@ impl Store {
                     "INSERT INTO mail_sync (user_id, mailbox, synced_at)
                      VALUES (?, ?, datetime('now'))
                      ON CONFLICT(user_id, mailbox) DO UPDATE SET synced_at=excluded.synced_at",
-                    params![user, mailbox.slug()],
+                    params![user, feed.slug()],
                 )?;
                 Ok(())
             })
@@ -1527,15 +1556,15 @@ impl Store {
         Ok(())
     }
 
-    /// When the newest processed email of `mailbox` arrived.
-    pub async fn mail_cursor(&self, user: &str, mailbox: Mailbox) -> Result<Option<DateTime<Utc>>> {
+    /// When the newest processed item of `feed` arrived.
+    pub async fn feed_cursor(&self, user: &str, feed: Feed) -> Result<Option<DateTime<Utc>>> {
         let user = user.to_owned();
         let newest: Option<String> = self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 db.query_row(
                     "SELECT max(received_at) FROM mail_seen WHERE user_id=? AND mailbox=?",
-                    params![user, mailbox.slug()],
+                    params![user, feed.slug()],
                     |r| r.get(0),
                 )
             })
@@ -1545,24 +1574,24 @@ impl Store {
             .map(|date| date.with_timezone(&Utc)))
     }
 
-    /// Ids of the emails of `mailbox` already processed.
-    pub async fn mail_seen(&self, user: &str, mailbox: Mailbox) -> Result<HashSet<String>> {
+    /// Ids of the items of `feed` already processed.
+    pub async fn feed_seen(&self, user: &str, feed: Feed) -> Result<HashSet<String>> {
         let user = user.to_owned();
         Ok(self
             .0
             .call::<_, _, rusqlite::Error>(move |db| {
                 let mut stmt =
                     db.prepare("SELECT message_id FROM mail_seen WHERE user_id=? AND mailbox=?")?;
-                stmt.query_map(params![user, mailbox.slug()], |r| r.get(0))?
+                stmt.query_map(params![user, feed.slug()], |r| r.get(0))?
                     .collect()
             })
             .await?)
     }
 
-    pub async fn mark_mail_seen(
+    pub async fn mark_feed_seen(
         &self,
         user: &str,
-        mailbox: Mailbox,
+        feed: Feed,
         id: &str,
         received: DateTime<Utc>,
     ) -> Result<()> {
@@ -1573,7 +1602,7 @@ impl Store {
                 db.execute(
                     "INSERT OR IGNORE INTO mail_seen (user_id, mailbox, message_id, received_at)
                      VALUES (?, ?, ?, ?)",
-                    params![user, mailbox.slug(), id, received],
+                    params![user, feed.slug(), id, received],
                 )?;
                 Ok(())
             })
@@ -1582,10 +1611,10 @@ impl Store {
     }
 
     /// Forgets processed ids older than `before`, which no run reads again.
-    pub async fn prune_mail_seen(
+    pub async fn prune_feed_seen(
         &self,
         user: &str,
-        mailbox: Mailbox,
+        feed: Feed,
         before: DateTime<Utc>,
     ) -> Result<usize> {
         let user = user.to_owned();
@@ -1598,7 +1627,7 @@ impl Store {
                     "DELETE FROM mail_seen WHERE user_id=?1 AND mailbox=?2 AND received_at < ?3
                      AND received_at < (SELECT max(received_at) FROM mail_seen
                                         WHERE user_id=?1 AND mailbox=?2)",
-                    params![user, mailbox.slug(), before],
+                    params![user, feed.slug(), before],
                 )
             })
             .await?)
@@ -2135,7 +2164,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mail_cursor_follows_seen_mail_and_survives_pruning() {
+    async fn feed_cursor_follows_seen_items_and_survives_pruning() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path().join("db.sqlite")).await.unwrap();
         let day = |d: u32| {
@@ -2145,25 +2174,25 @@ mod tests {
                 .unwrap()
                 .and_utc()
         };
-        let gmail = Mailbox::Gmail;
-        assert!(store.mail_cursor("alice", gmail).await.unwrap().is_none());
+        let gmail = Feed::Mail(Mailbox::Gmail);
+        assert!(store.feed_cursor("alice", gmail).await.unwrap().is_none());
         for (id, d) in [("a", 1), ("b", 5), ("c", 3)] {
             store
-                .mark_mail_seen("alice", gmail, id, day(d))
+                .mark_feed_seen("alice", gmail, id, day(d))
                 .await
                 .unwrap();
         }
         store
-            .mark_mail_seen("alice", gmail, "a", day(9))
+            .mark_feed_seen("alice", gmail, "a", day(9))
             .await
             .unwrap();
         assert_eq!(
-            store.mail_cursor("alice", gmail).await.unwrap(),
+            store.feed_cursor("alice", gmail).await.unwrap(),
             Some(day(5))
         );
         assert!(
             store
-                .mail_cursor("alice", Mailbox::Fastmail)
+                .feed_cursor("alice", Feed::Slack)
                 .await
                 .unwrap()
                 .is_none()
@@ -2171,34 +2200,34 @@ mod tests {
 
         // Everything is older than the cutoff, but the newest row stays.
         let pruned = store
-            .prune_mail_seen("alice", gmail, day(20))
+            .prune_feed_seen("alice", gmail, day(20))
             .await
             .unwrap();
         assert_eq!(pruned, 2);
         assert_eq!(
-            store.mail_cursor("alice", gmail).await.unwrap(),
+            store.feed_cursor("alice", gmail).await.unwrap(),
             Some(day(5))
         );
-        let seen = store.mail_seen("alice", gmail).await.unwrap();
+        let seen = store.feed_seen("alice", gmail).await.unwrap();
         assert_eq!(seen, HashSet::from(["b".to_owned()]));
 
         let every = Duration::from_secs(60);
         assert!(
             !store
-                .mail_synced_recently("alice", gmail, every)
+                .feed_synced_recently("alice", gmail, every)
                 .await
                 .unwrap()
         );
-        store.mark_mail_synced("alice", gmail).await.unwrap();
+        store.mark_feed_synced("alice", gmail).await.unwrap();
         assert!(
             store
-                .mail_synced_recently("alice", gmail, every)
+                .feed_synced_recently("alice", gmail, every)
                 .await
                 .unwrap()
         );
         assert!(
             !store
-                .mail_synced_recently("bob", gmail, every)
+                .feed_synced_recently("bob", gmail, every)
                 .await
                 .unwrap()
         );

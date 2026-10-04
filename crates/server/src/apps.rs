@@ -7,9 +7,10 @@
 
 use crate::{
     AsyncMutex,
-    mail::Mailbox,
     mcp::{self, McpConnections},
     protocol::{ApiError, AppIntegration, AppKind, ConnectLink},
+    slack::SLACK,
+    store::Feed,
 };
 use anyhow::{Context, Result, bail};
 use flashmind::{
@@ -60,11 +61,10 @@ const CATALOG: &[CatalogApp] = &[
     ),
     composio("notion", "Notion", "Search and update pages"),
     composio("googledrive", "Google Drive", "Find and read your files"),
-    composio("slack", "Slack", "Read and send messages"),
+    composio(SLACK, "Slack", "Read and send messages"),
     composio("github", "GitHub", "Issues, pull requests and repos"),
     composio("linear", "Linear", "Track and update issues"),
     composio("todoist", "Todoist", "Manage tasks and projects"),
-    composio("spotify", "Spotify", "Control music and playlists"),
     CatalogApp {
         slug: "fastmail",
         name: "Fastmail",
@@ -164,26 +164,24 @@ impl Apps {
         }
     }
 
-    /// The mailboxes `user` has connected. A Composio outage leaves Gmail out.
-    pub async fn mailboxes(&self, user: &str) -> Vec<Mailbox> {
-        let mut mailboxes = Vec::new();
+    /// The synced feeds `user` has connected, from Composio and MCP. An
+    /// outage of either leaves its feeds out.
+    pub async fn feeds(&self, user: &str) -> Vec<Feed> {
+        let mut connected = HashSet::new();
         if let Some(client) = self.client(user) {
             match connected_slugs(&client, user).await {
-                Ok(slugs) if slugs.contains(Mailbox::Gmail.slug()) => {
-                    mailboxes.push(Mailbox::Gmail)
-                }
-                Ok(_) => {}
+                Ok(slugs) => connected.extend(slugs),
                 Err(error) => log::warn!("apps: unable to list connected accounts: {error:#}"),
             }
         }
         match self.mcp.connected(user).await {
-            Ok(servers) if servers.contains(Mailbox::Fastmail.slug()) => {
-                mailboxes.push(Mailbox::Fastmail)
-            }
-            Ok(_) => {}
+            Ok(servers) => connected.extend(servers),
             Err(error) => log::warn!("apps: unable to list MCP servers: {error:#}"),
         }
-        mailboxes
+        Feed::ALL
+            .into_iter()
+            .filter(|feed| connected.contains(feed.slug()))
+            .collect()
     }
 
     pub async fn list(&self, user: &str) -> Result<Vec<AppIntegration>, ApiError> {
@@ -493,11 +491,10 @@ mod tests {
                 "github",
                 "linear",
                 "todoist",
-                "spotify",
                 "fastmail"
             ]
         );
-        let (composio, fastmail) = list.split_at(9);
+        let (composio, fastmail) = list.split_at(8);
         assert!(
             composio
                 .iter()
@@ -511,8 +508,8 @@ mod tests {
             .await
             .unwrap();
         let list = apps.list("alice").await.unwrap();
-        assert!(list[9].connected);
-        assert!(!apps.list("bob").await.unwrap()[9].connected);
+        assert!(list[8].connected);
+        assert!(!apps.list("bob").await.unwrap()[8].connected);
     }
 
     #[tokio::test]
