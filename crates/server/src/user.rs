@@ -38,7 +38,10 @@ use flashmind::{
     core::Conversation,
     tools::{
         composio::{ComposioClient, make_composio_tool_wrappers},
-        mcp::{McpRegistry, make_mcp_tool_wrappers},
+        mcp::{
+            McpRegistry,
+            tools::{McpExecuteTool, McpSearchTool},
+        },
     },
     types::Tool,
 };
@@ -919,34 +922,27 @@ impl User {
             .collect())
     }
 
-    /// Agent tools for every server the user has connected.
+    /// Agent tools for the servers the user has connected: `mcp_search` to
+    /// find a tool and load its schema, and `mcp` to call it. Two small tools
+    /// instead of one per server tool keeps every prompt thousands of tokens
+    /// shorter.
     pub async fn mcp_tools(&self) -> Vec<Arc<dyn Tool>> {
-        let connected = match self.mcp_connected().await {
-            Ok(connected) if !connected.is_empty() => connected,
+        match self.mcp_connected().await {
+            Ok(connected) if !connected.is_empty() => {}
             Ok(_) => return Vec::new(),
             Err(error) => {
                 log::warn!("mcp: unable to list servers: {error:#}");
                 return Vec::new();
             }
-        };
+        }
         let registry = self.mcp_registry().await;
-        // Tools are rebuilt from `current_mcp_tools` on every run, so the
-        // queued register and unregister ops are not needed.
+        // The meta tools read `current_mcp_tools` on every call, so the queued
+        // register and unregister ops are not needed.
         registry.drain_pending_ops();
-        registry
-            .current_mcp_tools()
-            .into_iter()
-            .filter(|(server, _)| connected.contains(server))
-            .flat_map(|(server, defs)| {
-                make_mcp_tool_wrappers(
-                    registry,
-                    &server,
-                    &defs,
-                    registry.restrictions_for(&server),
-                    registry.session_approved_for(&server),
-                )
-            })
-            .collect()
+        vec![
+            Arc::new(McpSearchTool::new(registry.clone())),
+            Arc::new(McpExecuteTool::new(registry.clone())),
+        ]
     }
 
     /// Calls one tool on a connected server outside of any run and returns its
