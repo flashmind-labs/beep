@@ -9,7 +9,7 @@ use crate::{
         AppIntegration, DeviceAnswer, DeviceQuery, ForegroundApp, Notice, PromptSuggestions, Run,
         RunEvent, Usage,
     },
-    repeat::RepeatGuard,
+    repeat::{self, RepeatGuard},
     sandbox::{self, Sandbox},
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext},
@@ -482,6 +482,7 @@ impl App {
         for tool in composio.into_iter().chain(mcp) {
             registry.register(tool);
         }
+        repeat::guard_tool_calls(&mut registry);
         let context = self
             .build_context(user, message.foreground.as_ref(), &apps.unwrap_or_default())
             .await;

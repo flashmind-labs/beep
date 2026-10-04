@@ -1,4 +1,16 @@
-//! Spots a model stuck emitting the same text over and over.
+//! Spots a model stuck emitting the same text, or making the same tool call,
+//! over and over.
+
+use async_trait::async_trait;
+use flashmind::types::{
+    ToolRegistry,
+    tool::{Tool, ToolContext, ToolResult},
+};
+use serde_json::Value;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 /// How many back-to-back copies of a chunk count as a loop.
 const COPIES: usize = 4;
@@ -43,9 +55,136 @@ impl RepeatGuard {
     }
 }
 
+/// How many times one run may call a tool with the same arguments.
+const SAME_CALLS: usize = 2;
+
+/// Tools that read state that changes between calls, so calling them again
+/// with the same arguments is not a loop.
+const LIVE_TOOLS: &[&str] = &[
+    "browser",
+    "read_screen",
+    "get_notifications",
+    "get_location",
+    "get_time",
+    "task_progress",
+];
+
+/// Wraps every tool in `registry` so a run that calls one with the same
+/// arguments more than [`SAME_CALLS`] times gets an error back instead of
+/// another identical result. Call it once per run, after the last tool is
+/// registered.
+pub fn guard_tool_calls(registry: &mut ToolRegistry) {
+    let calls = Arc::new(Mutex::new(HashMap::new()));
+    let tools: Vec<Arc<dyn Tool>> = registry
+        .list()
+        .into_iter()
+        .filter(|name| !LIVE_TOOLS.contains(name))
+        .filter_map(|name| registry.get(name).cloned())
+        .collect();
+    for tool in tools {
+        registry.register(Arc::new(CallGuard {
+            tool,
+            calls: calls.clone(),
+        }));
+    }
+}
+
+struct CallGuard {
+    tool: Arc<dyn Tool>,
+    /// Calls so far in this run, by tool name and arguments.
+    calls: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+#[async_trait]
+impl Tool for CallGuard {
+    fn name(&self) -> &str {
+        self.tool.name()
+    }
+
+    fn description(&self) -> &str {
+        self.tool.description()
+    }
+
+    fn parameters(&self) -> Value {
+        self.tool.parameters()
+    }
+
+    async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+        let key = format!("{}\0{}", self.tool.name(), ctx.args);
+        let count = {
+            let mut calls = self.calls.lock().unwrap_or_else(PoisonError::into_inner);
+            let count = calls.entry(key).or_default();
+            *count += 1;
+            *count
+        };
+        if count > SAME_CALLS {
+            return Ok(ToolResult::failure(
+                ctx.tool_call_id,
+                "You already made this exact call and it will return the same result. \
+                 Change the arguments, try another tool, or answer with what you have.",
+            ));
+        }
+        self.tool.execute(ctx).await
+    }
+
+    fn timeout_secs(&self) -> Option<u64> {
+        self.tool.timeout_secs()
+    }
+
+    fn max_output_bytes(&self) -> usize {
+        self.tool.max_output_bytes()
+    }
+
+    fn max_output_lines(&self) -> usize {
+        self.tool.max_output_lines()
+    }
+
+    fn humanize(&self, args: &Value) -> String {
+        self.tool.humanize(args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flashmind::core::CancellationToken;
+    use serde_json::json;
+
+    struct Echo;
+
+    #[async_trait]
+    impl Tool for Echo {
+        fn name(&self) -> &str {
+            "echo"
+        }
+
+        fn description(&self) -> &str {
+            "Echoes"
+        }
+
+        fn parameters(&self) -> Value {
+            json!({"type": "object"})
+        }
+
+        async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::success(ctx.tool_call_id, ctx.args.to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn refuses_the_same_tool_call_after_two_tries() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(Echo));
+        guard_tool_calls(&mut registry);
+        let tool = registry.get("echo").expect("echo registered");
+        let cancel = CancellationToken::new();
+        let call = |args: Value| tool.execute(ToolContext::new("call", args, None, &cancel));
+
+        assert!(call(json!({"q": "a"})).await.unwrap().is_success());
+        assert!(call(json!({"q": "a"})).await.unwrap().is_success());
+        assert!(!call(json!({"q": "a"})).await.unwrap().is_success());
+        assert!(call(json!({"q": "b"})).await.unwrap().is_success());
+    }
 
     #[test]
     fn stops_a_repeated_sentence() {
