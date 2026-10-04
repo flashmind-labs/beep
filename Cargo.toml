@@ -1,3 +1,10 @@
 [workspace]
 resolver = "3"
 members = ["crates/proto", "crates/server", "crates/android-bridge"]
+
+# Size-tuned build for the Android native library.
+[profile.android-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1

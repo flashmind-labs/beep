@@ -16,6 +16,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
     }
+    androidResources { localeFilters += "en" }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // No release keystore yet; the debug key lets this install over the debug build.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
     sourceSets.getByName("debug").assets.srcDir("../../.dev/android-assets")
     sourceSets.getByName("main").java.srcDir("build/generated/uniffi")
     buildFeatures { compose = true; buildConfig = true }
@@ -24,7 +34,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    packaging { jniLibs.useLegacyPackaging = false }
+    packaging { jniLibs.useLegacyPackaging = true }
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 dependencies {
