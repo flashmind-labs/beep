@@ -211,6 +211,11 @@ class ChatRepository(private val storage: LocalStorage) {
     fun newChat() = update { state ->
         val chat = Conversation(); state.copy(conversations = listOf(chat) + state.conversations, selected = chat.id)
     }
+    /** Opens a new chat with `text` typed in, for the user to finish and send. */
+    fun newChatWithDraft(text: String) {
+        newChat()
+        setDraft(state.value.current.id, Draft(text))
+    }
     /** Connects to `config`'s server, as `identity` when one was imported, else as this phone. */
     suspend fun connect(config: ConnectionSettings, identity: ByteArray? = null) {
         require(config.configured) { "Enter your server's node ID." }
@@ -372,9 +377,10 @@ class ChatRepository(private val storage: LocalStorage) {
         api().clearMemories()
     }
 
-    data class Cron(val id: String, val label: String, val prompt: String, val schedule: String, val enabled: Boolean)
+    /** `nextRunAt` is an RFC 3339 time the server works out in the user's timezone. */
+    data class Cron(val id: String, val label: String, val prompt: String, val schedule: String, val enabled: Boolean, val nextRunAt: String?)
     suspend fun listCrons(): List<Cron> {
-        return api().listCrons().map { Cron(it.id, it.label, it.prompt, it.schedule, it.enabled) }
+        return api().listCrons().map { Cron(it.id, it.label, it.prompt, it.schedule, it.enabled, it.nextRunAt) }
     }
     suspend fun createCron(label: String, prompt: String, schedule: String) {
         api().createCron(label, prompt, schedule)
