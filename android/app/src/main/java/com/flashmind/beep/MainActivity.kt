@@ -607,11 +607,13 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                         Text(displayText("Beep"), style = displayStyle(24.sp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             ConnectionDot(connected, status)
-                            Spacer(Modifier.width(6.dp))
-                            Text(if (connected) "Here to help" else "Tap to reconnect", fontSize = 12.sp, color = TextMuted,
-                                fontFamily = Beep.fonts.body, fontWeight = FontWeight.Medium,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.clickable { repository.reconnect() })
+                            if (!connected) {
+                                Spacer(Modifier.width(6.dp))
+                                Text("Tap to reconnect", fontSize = 12.sp, color = TextMuted,
+                                    fontFamily = Beep.fonts.body, fontWeight = FontWeight.Medium,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.clickable { repository.reconnect() })
+                            }
                         }
                     }
                 }
