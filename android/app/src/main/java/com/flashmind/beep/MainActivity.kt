@@ -825,15 +825,6 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         .popIn(message.id, play = fresh, origin = TransformOrigin(if (isUser) 1f else 0f, 1f)),
                         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
                         val isLastAssistant = !isUser && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
-                        // Consecutive replies from Beep share one avatar and name.
-                        val followsBeep = chat.messages.getOrNull(index - 1)?.role == "assistant"
-                        if (!isUser && !compact && !followsBeep) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-                                BeepAvatar(isThinking = isLastAssistant && chat.busy)
-                                Spacer(Modifier.width(8.dp))
-                                Text(displayText("Beep"), style = displayStyle(14.sp), color = TextPrimary)
-                            }
-                        }
                         val bubbleShape = if (isUser) RoundedCornerShape(radius, radius, 6.dp, radius)
                             else RoundedCornerShape(6.dp, radius, radius, radius)
                         val bubbleModifier = when {
@@ -933,13 +924,6 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 }
                 if (workingInline) item(key = "working") {
                     Column(Modifier.fillMaxWidth().animateItem(fadeOutSpec = null).popIn("working-${chat.id}", origin = TransformOrigin(0f, 1f))) {
-                        if (chat.messages.lastOrNull()?.role != "assistant" && !compact) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 10.dp)) {
-                                BeepAvatar(isThinking = true)
-                                Spacer(Modifier.width(8.dp))
-                                Text(displayText("Beep"), style = displayStyle(14.sp), color = TextPrimary)
-                            }
-                        }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)
                             .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))) {
                             PulsingDots()
@@ -1696,43 +1680,6 @@ private fun ConnectionDot(connected: Boolean, status: String) {
         Box(Modifier.size(7.dp).background(Beep.colors.warn.copy(alpha = alpha), CircleShape))
     } else {
         Box(Modifier.size(7.dp).background(if (connected) Beep.colors.ok else Beep.colors.error, CircleShape))
-    }
-}
-
-@Composable
-fun BeepAvatar(isThinking: Boolean, modifier: Modifier = Modifier) {
-    val noMotion = reduceMotion()
-    val infiniteTransition = rememberInfiniteTransition(label = "beep-avatar")
-    val face = Beep.colors.user
-    val line = Beep.colors.line
-    val outline = Beep.shapes.outline
-    val dot = Beep.colors.onUser
-
-    // Idle: still. Thinking: a small bob.
-    val bob by if (noMotion || !isThinking) remember { mutableStateOf(0f) } else infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(520, easing = EaseInOutCubic), RepeatMode.Reverse),
-        label = "avatar-bob"
-    )
-
-    Box(modifier.size(30.dp)
-        .graphicsLayer { translationY = -2.dp.toPx() * bob; rotationZ = -6f * bob }
-        .background(face, CircleShape)
-        .then(if (outline > 0.dp) Modifier.border(outline, line, CircleShape) else Modifier),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-            repeat(3) { index ->
-                val offset by if (isThinking && !noMotion) infiniteTransition.animateFloat(
-                    initialValue = 0f, targetValue = -3f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(400, delayMillis = index * 120, easing = EaseInOutCubic),
-                        repeatMode = RepeatMode.Reverse
-                    ), label = "dot-bounce-$index"
-                ) else remember { mutableStateOf(0f) }
-                Canvas(Modifier.size(4.dp).graphicsLayer { translationY = offset.dp.toPx() }) { drawCircle(dot) }
-            }
-        }
     }
 }
 
