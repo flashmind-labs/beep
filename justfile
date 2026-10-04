@@ -4,6 +4,7 @@ server_config := ".dev/android-server.toml"
 apk := "android/app/build/outputs/apk/debug/app-debug.apk"
 # The Docker host the server deploys to, as ssh://host. Set it in .env.
 remote_docker := env("BEEP_DOCKER_HOST", "")
+server_image := "ghcr.io/flashmind-labs/beep-server"
 
 # Build and deploy everything: server on the remote host + Android APK
 deploy: deploy-server bake-profile build-android install-apk launch-app
@@ -48,24 +49,34 @@ server: deploy-server
 stop-server:
     -pkill -f "beep-server {{server_config}}"
 
-# Build and run the server on the remote Docker host with the local config and
-# iroh key. Stops the local server first: both would answer as the same node.
+# Run the image CI built for HEAD on the remote Docker host, with the local
+# config and iroh key. Waits for that CI run, so push first. Stops the local
+# server first: both would answer as the same node. The host needs
+# `docker login ghcr.io` once, with a token that can read packages.
 deploy-server:
-    @test -n "{{remote_docker}}" || (echo "Set BEEP_DOCKER_HOST in .env"; exit 1)
-    DOCKER_HOST={{remote_docker}} docker compose build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -n "{{remote_docker}}" || { echo "Set BEEP_DOCKER_HOST in .env"; exit 1; }
+    export BEEP_TAG=$(git rev-parse HEAD)
+    run=$(gh run list --workflow server-image.yml --commit "$BEEP_TAG" --json databaseId -q '.[0].databaseId')
+    test -n "$run" || { echo "No image build for $BEEP_TAG. Push it first."; exit 1; }
+    gh run watch "$run" --exit-status > /dev/null
+    export DOCKER_HOST={{remote_docker}}
+    docker compose pull
     just stop-server
     just push-server-config
-    DOCKER_HOST={{remote_docker}} docker compose up -d --force-recreate
-    DOCKER_HOST={{remote_docker}} docker compose ps
+    docker compose up -d --force-recreate
+    docker compose ps
 
 # Copy the dev config and iroh key into the remote data volume
 push-server-config:
     #!/usr/bin/env bash
     set -euo pipefail
     export DOCKER_HOST={{remote_docker}}
+    export BEEP_TAG=${BEEP_TAG:-latest}
     docker volume create beep_data > /dev/null
     write() {
-        docker run --rm -i --user beep --entrypoint sh -v beep_data:/data beep-server \
+        docker run --rm -i --user beep --entrypoint sh -v beep_data:/data {{server_image}}:$BEEP_TAG \
             -c "umask 077 && cat > /data/$1"
     }
     sed -e 's|^secret_key = .*|secret_key = "/data/iroh-key"|' \
