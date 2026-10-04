@@ -4,7 +4,7 @@ use crate::{
     config::Auth,
     decision::DecisionTool,
     live::LiveRun,
-    memories::{self, Exchange, Turn},
+    memories::{self, Exchange, Hit, Turn},
     protocol::{DeviceAnswer, DeviceQuery, Notice, PromptSuggestions, Run, RunEvent, Usage},
     repeat::RepeatGuard,
     search::SearchTool,
@@ -39,7 +39,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 const TOOL_IDLE_TIMEOUT: Duration = Duration::from_secs(150);
 /// Above this Jev score the learner reads the turn; below it nothing is stored.
 const MEMORY_THRESHOLD: f64 = 0.8;
-const MEMORY_QUESTION: &str = "Does this exchange reveal, correct or ask to forget a lasting fact about the user worth remembering for future chats, such as their name, preferences, people, places, work, routines or plans, whether the user said it or the assistant found it in their data at their request? Answer no for small talk, one-off questions, or facts only about the world.";
+const MEMORY_QUESTION: &str = "Does this exchange reveal a lasting fact about the user worth remembering for future chats that is not already remembered, correct one that is, or ask to forget one? Such facts are their name, preferences, people, places, work, routines or plans, whether the user said it or the assistant found it in their data at their request. Answer no for small talk, one-off questions, facts only about the world, or facts the already remembered list covers.";
 use tokio::sync::{Mutex, RwLock, broadcast, oneshot};
 use uuid::Uuid;
 
@@ -569,9 +569,25 @@ impl App {
                 llm: &self.llm,
                 user: user.id(),
             };
-            let score = self
-                .memory_score(format!("User: {message}\n\nAssistant: {reply}"))
-                .await;
+            let exchange = Exchange {
+                today: user.today().await,
+                earlier: earlier_turns(&conversation, turn_started),
+                latest: Turn {
+                    message: message.to_owned(),
+                    reply,
+                },
+            };
+            let known = user
+                .related_memories(&exchange)
+                .await
+                .unwrap_or_else(|error| {
+                    log::warn!(
+                        "unable to find related memories: {error}; run_id={}",
+                        run.id
+                    );
+                    Vec::new()
+                });
+            let score = self.memory_score(memory_state(&known, &exchange)).await;
             if let Some(probability) = score {
                 live.push(RunEvent::MemoryScore { probability });
                 // Kept by the time of the turn's user message, so history can show it
@@ -592,19 +608,18 @@ impl App {
                     log::warn!("unable to record memory score: {error}; run_id={}", run.id);
                 }
             }
-            let exchange = Exchange {
-                today: user.today().await,
-                earlier: earlier_turns(&conversation, turn_started),
-                latest: Turn {
-                    message: message.to_owned(),
-                    reply,
-                },
-            };
             // Without a score (Jev not configured or failing) every turn is read.
             let learned = match score {
                 Some(probability) if probability < MEMORY_THRESHOLD => Vec::new(),
-                _ => user.learn(generator, exchange).await,
+                _ => user.learn(generator, exchange, &known).await,
             };
+            if let Some(probability) = score {
+                log::info!(
+                    "memory score {probability:.2}, {} change(s); run_id={}",
+                    learned.len(),
+                    run.id
+                );
+            }
             if !learned.is_empty() {
                 let calls: Vec<ToolCall> = learned
                     .iter()
@@ -756,6 +771,25 @@ impl App {
             connected_apps,
         }
     }
+}
+
+/// What Jev reads to score a turn: what is already remembered, then the
+/// exchange, so a fact that is already known does not score high.
+fn memory_state(known: &[Hit], exchange: &Exchange) -> String {
+    let mut state = String::from("Already remembered:\n");
+    if known.is_empty() {
+        state.push_str("(nothing related)\n");
+    }
+    for hit in known {
+        let _ = writeln!(state, "- {}", hit.content);
+    }
+    let latest = &exchange.latest;
+    let _ = write!(
+        state,
+        "\nUser: {}\n\nAssistant: {}",
+        latest.message, latest.reply
+    );
+    state
 }
 
 /// The last few turns before `turn_started`, oldest first, for the memory
