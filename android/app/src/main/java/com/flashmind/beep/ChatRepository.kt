@@ -4,11 +4,15 @@ import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.flashmind.beep.ffi.BeepClient
+import com.flashmind.beep.ffi.BeepException
 import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.DeviceAnswer
@@ -80,6 +84,16 @@ class ChatRepository(private val storage: LocalStorage) {
     /** The app behind the bubble while it is in front, sent with each message. */
     @Volatile var foregroundApp: ForegroundApp? = null
     private var reconnectJob: Job? = null
+    /** Renames, pins and deletes not yet on the server, oldest first. Guarded by [lock]. */
+    private var changes = storage.loadChanges()
+    private val pushing = Mutex()
+    /** What is typed in each chat but not sent, shared by the app, the bubble and the panel. Only the text is saved. */
+    private val drafts = mutableStateMapOf<String, Draft>().apply { storage.loadDrafts().forEach { (id, text) -> put(id, Draft(text)) } }
+    fun draft(id: String): Draft = drafts[id] ?: Draft()
+    fun setDraft(id: String, draft: Draft) {
+        if (draft == Draft()) drafts.remove(id) else drafts[id] = draft
+        storage.saveDrafts(drafts.mapValues { it.value.text }.filterValues { it.isNotEmpty() })
+    }
     private var locationJob: Job? = null
     /** Chat screens currently started: the app, the bubble or the panel. */
     private val chatScreens = AtomicInteger(0)
@@ -150,7 +164,7 @@ class ChatRepository(private val storage: LocalStorage) {
             val updated = state.conversations.map { c ->
                 server[c.id]?.let { c.copy(title = it.title, pinned = it.pinned) } ?: c
             }
-            state.copy(conversations = (updated + added).sortedByDescending { it.pinned })
+            withChanges(state.copy(conversations = (updated + added).sortedByDescending { it.pinned }))
         }
         if (sessions.any { it.id == state.value.current.id })
             loadHistory(state.value.current.id, config)
@@ -167,7 +181,10 @@ class ChatRepository(private val storage: LocalStorage) {
         synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
         storage.saveSettings(effective)
         settings.value = effective
-        if (changedAccount) update { ChatState() }
+        if (changedAccount) {
+            synchronized(lock) { changes = emptyList(); storage.saveChanges(changes) }
+            update { ChatState() }
+        }
         connected.value = true
         scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
         NotificationService.start(storage.context)
@@ -175,6 +192,7 @@ class ChatRepository(private val storage: LocalStorage) {
         if (changedAccount) { startersFetchedAt = 0; starters.value = emptyList() }
         loadStarters()
         resumePending()
+        pushChanges()
         runCatching { syncHistory(effective) }
     }
     fun reconnect() {
@@ -190,6 +208,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     NotificationService.start(storage.context)
                     connection.value = "Connected"
                     resumePending()
+                    pushChanges()
                     runCatching { syncHistory(settings.value) }
                     return@launch
                 } catch (error: Exception) {
@@ -387,18 +406,71 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
 
-    suspend fun renameSession(id: String, title: String) {
-        api().renameSession(id, title)
-        updateChat(id) { it.copy(title = title) }
+    fun renameSession(id: String, title: String) = queue(ChatChange.Rename(id, title))
+    fun deleteSession(id: String) = queue(ChatChange.Delete(listOf(id)))
+    fun deleteSessions(ids: Set<String>) { if (ids.isNotEmpty()) queue(ChatChange.Delete(ids.toList())) }
+    fun pinSession(id: String, pinned: Boolean) = queue(ChatChange.Pin(id, pinned))
+
+    /** Shows [change] at once and sends it to the server now, or once the app is back online. */
+    private fun queue(change: ChatChange) {
+        synchronized(lock) {
+            // A later change to the same chat makes the earlier one moot.
+            val kept = changes.mapNotNull { old ->
+                when {
+                    change is ChatChange.Delete && old is ChatChange.Delete -> old
+                    change is ChatChange.Delete -> old.takeUnless { changedChat(it) in change.ids }
+                    old::class == change::class && changedChat(old) == changedChat(change) -> null
+                    else -> old
+                }
+            }
+            changes = kept + change
+            storage.saveChanges(changes)
+            update { applyChange(it, change) }
+        }
+        if (change is ChatChange.Delete) change.ids.forEach { setDraft(it, Draft()) }
+        scope.launch { pushChanges() }
+    }
+    private fun changedChat(change: ChatChange): String? = when (change) {
+        is ChatChange.Delete -> null
+        is ChatChange.Rename -> change.id
+        is ChatChange.Pin -> change.id
     }
 
-    suspend fun deleteSession(id: String) {
-        api().deleteSession(id)
-        update { state ->
-            val remaining = state.conversations.filter { it.id != id }
-            val safe = remaining.ifEmpty { listOf(Conversation()) }
-            state.copy(conversations = safe, selected = if (state.selected == id) safe.first().id else state.selected)
+    /** Sends queued changes in order, stopping at the first that fails to reach the server. */
+    private suspend fun pushChanges() = pushing.withLock {
+        while (true) {
+            val change = synchronized(lock) { changes.firstOrNull() } ?: return@withLock
+            try {
+                when (change) {
+                    is ChatChange.Delete -> change.ids.chunked(200).forEach { api().deleteSessions(it) }
+                    is ChatChange.Rename -> api().renameSession(change.id, change.title)
+                    is ChatChange.Pin -> api().pinSession(change.id, change.pinned)
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                // A chat the server never had, or a change it refuses, will not go through on a retry either.
+                if (error !is BeepException.NotFound && error !is BeepException.BadRequest) return@withLock
+            }
+            synchronized(lock) {
+                changes = changes.filter { it !== change }
+                storage.saveChanges(changes)
+            }
         }
+    }
+
+    /** [state] with the changes the server does not have yet laid over it. */
+    private fun withChanges(state: ChatState): ChatState = synchronized(lock) { changes.fold(state, ::applyChange) }
+
+    private fun applyChange(state: ChatState, change: ChatChange): ChatState = when (change) {
+        is ChatChange.Delete -> {
+            val remaining = state.conversations.filter { it.id !in change.ids }
+            val safe = remaining.ifEmpty { listOf(Conversation()) }
+            state.copy(conversations = safe, selected = if (state.selected in change.ids) safe.first().id else state.selected)
+        }
+        is ChatChange.Rename -> state.copy(conversations = state.conversations.map { if (it.id == change.id) it.copy(title = change.title) else it })
+        is ChatChange.Pin -> state.copy(conversations = state.conversations
+            .map { if (it.id == change.id) it.copy(pinned = change.pinned) else it }
+            .sortedByDescending { it.pinned })
     }
 
     /** Titles are written by the server after the first message and once a chat goes quiet. */
@@ -408,26 +480,8 @@ class ChatRepository(private val storage: LocalStorage) {
             runCatching {
                 val titles = api(config).listSessions().associate { it.id to it.title }
                 if (settings.value != config) return@runCatching
-                update { state -> state.copy(conversations = state.conversations.map { c -> titles[c.id]?.let { c.copy(title = it) } ?: c }) }
+                update { state -> withChanges(state.copy(conversations = state.conversations.map { c -> titles[c.id]?.let { c.copy(title = it) } ?: c })) }
             }
-        }
-    }
-
-    suspend fun deleteSessions(ids: Set<String>) {
-        if (ids.isEmpty()) return
-        api().deleteSessions(ids.toList())
-        update { state ->
-            val remaining = state.conversations.filter { it.id !in ids }
-            val safe = remaining.ifEmpty { listOf(Conversation()) }
-            state.copy(conversations = safe, selected = if (state.selected in ids) safe.first().id else state.selected)
-        }
-    }
-
-    suspend fun pinSession(id: String, pinned: Boolean) {
-        api().pinSession(id, pinned)
-        updateChat(id) { it.copy(pinned = pinned) }
-        update { state ->
-            state.copy(conversations = state.conversations.sortedByDescending { it.pinned })
         }
     }
 

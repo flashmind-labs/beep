@@ -51,6 +51,15 @@ const val NEW_CHAT_TITLE = "New conversation"
 val Conversation.isUnused get() =
     messages.isEmpty() && !busy && pendingText.isEmpty() && pendingImages.isEmpty() && title == NEW_CHAT_TITLE
 
+/** A change to the chat list made on the phone, kept until the server has it. */
+sealed interface ChatChange {
+    data class Delete(val ids: List<String>) : ChatChange
+    data class Rename(val id: String, val title: String) : ChatChange
+    data class Pin(val id: String, val pinned: Boolean) : ChatChange
+}
+
+data class Draft(val text: String = "", val images: List<String> = emptyList())
+
 data class ChatState(val conversations: List<Conversation> = listOf(Conversation()), val selected: String = "") {
     val current get() = conversations.firstOrNull { it.id == selected } ?: conversations.first()
 }
@@ -58,6 +67,7 @@ data class ChatState(val conversations: List<Conversation> = listOf(Conversation
 class LocalStorage(internal val context: Context) {
     private val prefs = context.getSharedPreferences("connection", Context.MODE_PRIVATE)
     private val file = AtomicFile(File(context.filesDir, "conversations.json"))
+    private val changesFile = AtomicFile(File(context.filesDir, "pending-changes.json"))
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey("beep-token", null) as? SecretKey)?.let { return it }
@@ -137,6 +147,15 @@ class LocalStorage(internal val context: Context) {
         prefs.edit().putString("starters", JSONObject().put("items", items).put("fetched_at", fetchedAt).toString()).apply()
     }
 
+    fun loadDrafts(): Map<String, String> = runCatching {
+        val json = JSONObject(prefs.getString("drafts", null) ?: return@runCatching null)
+        json.keys().asSequence().associateWith { json.getString(it) }
+    }.getOrNull().orEmpty()
+
+    fun saveDrafts(drafts: Map<String, String>) {
+        prefs.edit().putString("drafts", JSONObject(drafts).toString()).apply()
+    }
+
     var onboardingDone: Boolean
         get() = prefs.getBoolean("onboarding_done", false)
         set(value) { prefs.edit().putBoolean("onboarding_done", value).apply() }
@@ -147,6 +166,35 @@ class LocalStorage(internal val context: Context) {
         val id = UUID.randomUUID().toString()
         prefs.edit().putString("device_id", id).apply()
         return id
+    }
+
+    fun loadChanges(): List<ChatChange> = runCatching {
+        val list = JSONArray(changesFile.openRead().bufferedReader().use { it.readText() })
+        (0 until list.length()).mapNotNull { i ->
+            val c = list.getJSONObject(i)
+            when (c.getString("kind")) {
+                "delete" -> c.getJSONArray("ids").let { ids -> ChatChange.Delete((0 until ids.length()).map { ids.getString(it) }) }
+                "rename" -> ChatChange.Rename(c.getString("id"), c.getString("title"))
+                "pin" -> ChatChange.Pin(c.getString("id"), c.getBoolean("pinned"))
+                else -> null
+            }
+        }
+    }.getOrElse { emptyList() }
+
+    fun saveChanges(changes: List<ChatChange>) {
+        val list = JSONArray()
+        changes.forEach { change ->
+            list.put(when (change) {
+                is ChatChange.Delete -> JSONObject().put("kind", "delete").put("ids", JSONArray(change.ids))
+                is ChatChange.Rename -> JSONObject().put("kind", "rename").put("id", change.id).put("title", change.title)
+                is ChatChange.Pin -> JSONObject().put("kind", "pin").put("id", change.id).put("pinned", change.pinned)
+            })
+        }
+        val out = changesFile.startWrite()
+        try {
+            out.write(list.toString().toByteArray())
+            changesFile.finishWrite(out)
+        } catch (error: Exception) { changesFile.failWrite(out); throw error }
     }
 
     fun saveState(state: ChatState) {
