@@ -19,18 +19,29 @@ use chrono_tz::Tz;
 use flashmind::{
     core::{Agent, CancellationToken, Conversation, ConversationEntry},
     memory::EmbeddingProvider,
-    types::{AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, ToolCall},
+    tools::{
+        firecrawl::{WebCrawlTool, WebExtractTool, WebMapTool, WebScrapeTool},
+        search_cache::{SearchCacheRef, SearchResultCache},
+        search_read::WebSearchReadTool,
+    },
+    types::{
+        AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, ToolCall, ToolRegistry,
+    },
 };
 use futures::StreamExt;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::{collections::HashMap, fmt::Write, sync::Arc, time::Duration};
 
 /// How long a run may go without a single event from the model or a tool.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+/// The same while a tool runs: crawls and extractions poll quietly for up to
+/// two minutes. The run's overall deadline still applies.
+const TOOL_IDLE_TIMEOUT: Duration = Duration::from_secs(150);
 /// Above this Jev score the learner reads the turn; below it nothing is stored.
 const MEMORY_THRESHOLD: f64 = 0.8;
 const MEMORY_QUESTION: &str = "Does this exchange reveal, correct or ask to forget a lasting fact about the user worth remembering for future chats, such as their name, preferences, people, places, work, routines or plans, whether the user said it or the assistant found it in their data at their request? Answer no for small talk, one-off questions, or facts only about the world.";
-use tokio::sync::{Mutex, broadcast, oneshot};
+use tokio::sync::{Mutex, RwLock, broadcast, oneshot};
 use uuid::Uuid;
 
 pub struct App {
@@ -54,6 +65,8 @@ pub struct App {
 #[derive(Default)]
 pub struct ServerTools {
     pub search: Option<Arc<SearchTool>>,
+    /// Firecrawl key for scraping, mapping, crawling and extracting pages.
+    pub firecrawl_key: Option<SecretString>,
     pub decision: Option<Arc<DecisionTool>>,
     /// Composio apps the user connects from the phone.
     pub composio: Option<ComposioSettings>,
@@ -366,6 +379,9 @@ impl App {
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }
+        if let Some(key) = &self.tools.firecrawl_key {
+            register_web_tools(&mut registry, key.expose_secret());
+        }
         if let Some(decision) = &self.tools.decision {
             registry.register(decision.clone());
         }
@@ -407,6 +423,7 @@ impl App {
             tokio::pin!(deadline);
 
             let mut tools_started = 0;
+            let mut tools_running = 0usize;
             // A model repeating itself never stops on its own; end the run instead
             // of streaming the same sentence until the deadline.
             let mut text_guard = RepeatGuard::default();
@@ -416,7 +433,10 @@ impl App {
                     biased;
                     _ = cancel.cancelled() => break RunStatus::Cancelled,
                     _ = &mut deadline => { cancel.cancel(); break RunStatus::TimedOut; },
-                    event = tokio::time::timeout(IDLE_TIMEOUT, stream.next()) => match event {
+                    event = tokio::time::timeout(
+                        if tools_running > 0 { TOOL_IDLE_TIMEOUT } else { IDLE_TIMEOUT },
+                        stream.next(),
+                    ) => match event {
                         Ok(event) => event,
                         // Nothing from the model or a tool for this long: the stream is stuck.
                         Err(_) => { cancel.cancel(); break RunStatus::Stalled; }
@@ -445,6 +465,7 @@ impl App {
                         humanized,
                     }) => {
                         tools_started += 1;
+                        tools_running += 1;
                         if tools_started > 20 {
                             cancel.cancel();
                             break RunStatus::ToolLimit;
@@ -462,6 +483,7 @@ impl App {
                         success,
                         ..
                     }) => {
+                        tools_running = tools_running.saturating_sub(1);
                         if !success {
                             failed_tools.push(id.clone());
                         }
@@ -744,6 +766,17 @@ fn earlier_turns(conversation: &Conversation, turn_started: DateTime<Utc>) -> Ve
     }
     let skip = turns.len().saturating_sub(memories::LEARN_CONTEXT_TURNS);
     turns.split_off(skip)
+}
+
+/// Firecrawl's page tools. Each run gets its own cache, so `web_search_read`
+/// only reaches pages this run crawled.
+fn register_web_tools(registry: &mut ToolRegistry, key: &str) {
+    let cache: SearchCacheRef = Arc::new(RwLock::new(SearchResultCache::new()));
+    registry.register(Arc::new(WebScrapeTool::new(key.to_owned())));
+    registry.register(Arc::new(WebMapTool::new(key.to_owned())));
+    registry.register(Arc::new(WebCrawlTool::new(key.to_owned(), cache.clone())));
+    registry.register(Arc::new(WebExtractTool::new(key.to_owned())));
+    registry.register(Arc::new(WebSearchReadTool::new(cache)));
 }
 
 /// `Location: Shinjuku, Tokyo, Japan (35.6938 N, 139.7034 E, 3 min ago)`.
