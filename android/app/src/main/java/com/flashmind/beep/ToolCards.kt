@@ -98,7 +98,10 @@ sealed class ToolCard {
     data class Link(val url: String) : ToolCard()
     data class Alarm(val alarm: AlarmRequest) : ToolCard()
     data class Replies(val replies: List<String>, val choice: Boolean) : ToolCard()
+    data class Images(val images: List<SentImage>) : ToolCard()
 }
+
+data class SentImage(val url: String, val caption: String)
 
 data class Contact(val name: String, val phone: String, val email: String)
 
@@ -131,6 +134,14 @@ fun cardFor(call: ToolCall): ToolCard? {
         "open_app" -> json.text("app")?.let { ToolCard.OpenedApp(it, json.optString("uri"), json.optString("fallback_url")) }
         "open_browser" -> json.text("url")?.let { ToolCard.Link(it) }
         "set_alarm" -> AlarmRequest.from(json)?.let { ToolCard.Alarm(it) }
+        "send_image" -> {
+            val list = json.optJSONArray("images") ?: return null
+            val images = (0 until list.length()).mapNotNull { i ->
+                val image = list.optJSONObject(i) ?: return@mapNotNull null
+                image.text("url")?.let { SentImage(it, image.text("caption").orEmpty()) }
+            }
+            if (images.isEmpty()) null else ToolCard.Images(images)
+        }
         else -> null
     }
 }
@@ -545,6 +556,12 @@ fun ToolCards(cards: List<ToolCard>, compact: Boolean, onBrowse: (String) -> Uni
                 is ToolCard.OpenedApp -> OpenedAppCard(card)
                 is ToolCard.Link -> LinkPreview(card.url, onBrowse)
                 is ToolCard.Alarm -> AlarmCard(card.alarm)
+                is ToolCard.Images -> card.images.forEach { image ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ReplyImage(image.url, image.caption, compact)
+                        if (image.caption.isNotBlank()) Text(image.caption, fontSize = 13.sp, color = LocalBeep.current.colors.muted)
+                    }
+                }
                 is ToolCard.Replies -> Unit
             }
         }

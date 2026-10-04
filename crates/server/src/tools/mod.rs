@@ -2,6 +2,7 @@ mod alarm;
 mod browser;
 mod contacts;
 mod habits;
+mod image;
 mod location;
 mod maps;
 mod memory;
@@ -25,6 +26,7 @@ pub fn registry(app: Arc<App>, run: &Run, user: &Arc<User>) -> ToolRegistry {
     registry.register(Arc::new(alarm::SetAlarmTool));
     registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));
     registry.register(Arc::new(browser::OpenBrowserTool));
+    registry.register(Arc::new(image::SendImageTool));
     registry.register(Arc::new(maps::OpenMapsTool { user: user.clone() }));
     registry.register(Arc::new(notifications::GetNotificationsTool {
         user: user.clone(),

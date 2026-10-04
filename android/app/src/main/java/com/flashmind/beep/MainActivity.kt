@@ -1260,7 +1260,10 @@ private sealed class MsgBlock {
     data class Table(val headers: List<String>, val rows: List<List<String>>) : MsgBlock()
     data class Quote(val content: String) : MsgBlock()
     data object Rule : MsgBlock()
+    data class Picture(val url: String, val alt: String) : MsgBlock()
 }
+
+private val imageToken = Regex("""!\[([^\]]*)]\((https://[^\s)]+|data:image/[^\s)]+)\)""")
 
 private fun parseBlocks(text: String): List<MsgBlock> {
     val blocks = mutableListOf<MsgBlock>()
@@ -1299,6 +1302,20 @@ private fun parseBlocks(text: String): List<MsgBlock> {
                 quoteLines.add(lines[i].trimStart().removePrefix("> ").removePrefix(">")); i++
             }
             blocks.add(MsgBlock.Quote(quoteLines.joinToString("\n"))); continue
+        }
+        // An image breaks the paragraph it sits in: text before it, the image, then the rest.
+        if (imageToken.containsMatchIn(line)) {
+            var rest = line
+            while (true) {
+                val match = imageToken.find(rest) ?: break
+                val before = rest.substring(0, match.range.first)
+                if (before.isNotBlank()) { if (pending.isNotEmpty()) pending.append('\n'); pending.append(before.trimEnd()) }
+                flush()
+                blocks.add(MsgBlock.Picture(match.groupValues[2], match.groupValues[1]))
+                rest = rest.substring(match.range.last + 1).trimStart()
+            }
+            if (rest.isNotBlank()) pending.append(rest)
+            i++; continue
         }
         if (pending.isNotEmpty()) pending.append('\n')
         pending.append(line); i++
