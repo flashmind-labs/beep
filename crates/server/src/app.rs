@@ -546,6 +546,25 @@ impl App {
                 .await;
             if let Some(probability) = score {
                 live.push(RunEvent::MemoryScore { probability });
+                // Kept by the time of the turn's user message, so history can show it
+                // to a phone that was not watching the run.
+                let asked = conversation
+                    .entries()
+                    .iter()
+                    .find(|entry| entry.timestamp >= turn_started && entry.is_user());
+                if let Some(asked) = asked
+                    && let Err(error) = self
+                        .store
+                        .record_memory_score(
+                            user,
+                            &run.session_id,
+                            asked.timestamp.timestamp_millis(),
+                            probability,
+                        )
+                        .await
+                {
+                    log::warn!("unable to record memory score: {error}; run_id={}", run.id);
+                }
             }
             let exchange = Exchange {
                 today: self.today(user).await,

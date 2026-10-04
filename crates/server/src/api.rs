@@ -177,7 +177,8 @@ async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<History
         .await?
         .ok_or(ApiError::NotFound {})?;
     let failures = cx.app.store.tool_failures(&cx.user, &id).await?;
-    Ok(history(conv.entries(), &failures))
+    let scores = cx.app.store.memory_scores(&cx.user, &id).await?;
+    Ok(history(conv.entries(), &failures, &scores))
 }
 
 /// Tool outputs in history are cut to this many bytes.
@@ -185,8 +186,13 @@ const MAX_HISTORY_TOOL_OUTPUT: usize = 16 * 1024;
 
 /// User and assistant messages, with each turn's tool results attached to the
 /// assistant message that ends the turn. A turn with tools but no text gets an
-/// empty assistant message to carry them.
-fn history(entries: &[ConversationEntry], failures: &HashSet<String>) -> Vec<HistoryEntry> {
+/// empty assistant message to carry them. `scores` holds Jev's memory scores
+/// by the millisecond timestamp of the user message that started the turn.
+fn history(
+    entries: &[ConversationEntry],
+    failures: &HashSet<String>,
+    scores: &HashMap<i64, f64>,
+) -> Vec<HistoryEntry> {
     let mut history = Vec::new();
     let mut turn = Turn::default();
     for entry in entries {
@@ -194,6 +200,7 @@ fn history(entries: &[ConversationEntry], failures: &HashSet<String>) -> Vec<His
         match &entry.kind {
             EntryKind::User { content, .. } => {
                 turn.finish(&mut history);
+                turn.score = scores.get(&timestamp).copied();
                 history.push(HistoryEntry::User {
                     content: content.clone(),
                     timestamp,
@@ -213,6 +220,7 @@ fn history(entries: &[ConversationEntry], failures: &HashSet<String>) -> Vec<His
                         content: content.clone(),
                         timestamp,
                         tools: Vec::new(),
+                        memory_score: None,
                     });
                 }
             }
@@ -239,20 +247,27 @@ struct Turn {
     /// Index in the history of this turn's latest assistant message.
     last_reply: Option<usize>,
     last_tool: i64,
+    score: Option<f64>,
 }
 
 impl Turn {
     fn finish(&mut self, history: &mut Vec<HistoryEntry>) {
         let turn = mem::take(self);
-        if turn.tools.is_empty() {
-            return;
-        }
         match turn.last_reply.and_then(|index| history.get_mut(index)) {
-            Some(HistoryEntry::Assistant { tools, .. }) => *tools = turn.tools,
+            Some(HistoryEntry::Assistant {
+                tools,
+                memory_score,
+                ..
+            }) => {
+                *tools = turn.tools;
+                *memory_score = turn.score;
+            }
+            _ if turn.tools.is_empty() => {}
             _ => history.push(HistoryEntry::Assistant {
                 content: String::new(),
                 timestamp: turn.last_tool,
                 tools: turn.tools,
+                memory_score: turn.score,
             }),
         }
     }
@@ -531,7 +546,7 @@ mod tests {
             name: name.into(),
             arguments: json!({}),
         };
-        let entries = [
+        let mut entries = [
             ConversationEntry::user("Where is lunch?"),
             ConversationEntry::assistant_with_tool_calls("", vec![call("a", "open_maps")], None),
             ConversationEntry::tool("a", "é".repeat(MAX_HISTORY_TOOL_OUTPUT)),
@@ -540,18 +555,27 @@ mod tests {
             ConversationEntry::assistant_with_tool_calls("", vec![call("b", "cron_create")], None),
             ConversationEntry::tool("b", "failed"),
         ];
-        let history = history(&entries, &HashSet::from(["b".to_owned()]));
+        // Each turn's score is found by its user message's time, so they must differ.
+        entries[4].timestamp = entries[0].timestamp + chrono::Duration::seconds(1);
+        let asked = entries[0].timestamp.timestamp_millis();
+        let history = history(
+            &entries,
+            &HashSet::from(["b".to_owned()]),
+            &HashMap::from([(asked, 0.8)]),
+        );
         let [
             HistoryEntry::User { .. },
             HistoryEntry::Assistant {
                 content: first,
                 tools: first_tools,
+                memory_score: first_score,
                 ..
             },
             HistoryEntry::User { .. },
             HistoryEntry::Assistant {
                 content: second,
                 tools: second_tools,
+                memory_score: second_score,
                 ..
             },
         ] = history.as_slice()
@@ -559,6 +583,8 @@ mod tests {
             panic!("unexpected history: {history:?}");
         };
         assert_eq!(first, "Here it is.");
+        assert_eq!(*first_score, Some(0.8));
+        assert_eq!(*second_score, None);
         assert_eq!(first_tools[0].name, "open_maps");
         assert!(first_tools[0].success);
         assert_eq!(first_tools[0].output.len(), MAX_HISTORY_TOOL_OUTPUT);
