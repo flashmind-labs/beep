@@ -61,9 +61,11 @@ deploy-server:
     export BEEP_TAG=$(git rev-parse HEAD)
     export DOCKER_HOST={{remote_docker}}
     echo "Waiting for {{server_image}}:$BEEP_TAG"
+    # The registry is plain HTTP on the mesh, and `manifest inspect` ignores
+    # the daemon's insecure-registries setting.
     for _ in $(seq 180); do
         ssh {{trim_start_match(remote_docker, "ssh://")}} \
-            docker manifest inspect "{{server_image}}:$BEEP_TAG" > /dev/null 2>&1 && break
+            docker manifest inspect --insecure "{{server_image}}:$BEEP_TAG" > /dev/null 2>&1 && break
         sleep 10
     done
     docker compose pull
