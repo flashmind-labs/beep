@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
+import com.flashmind.beep.ffi.newIdentity
 import com.flashmind.beep.proto.PromptSuggestion
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,12 +17,25 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-data class ConnectionSettings(val nodeId: String = "", val token: String = "") {
+data class ConnectionSettings(val nodeId: String = "") {
     val configured get() = nodeId.isNotBlank()
     companion object {
-        fun fromJson(raw: String): ConnectionSettings {
-            val json = JSONObject(raw)
-            return ConnectionSettings(json.getString("node_id"), json.optString("token"))
+        fun fromJson(raw: String): ConnectionSettings = ConnectionSettings(JSONObject(raw).getString("node_id"))
+    }
+}
+
+/** A connection profile file: the server and, when exported from a phone, its identity. */
+class Profile(val settings: ConnectionSettings, val identity: ByteArray?) {
+    fun toJson(): String = JSONObject().put("node_id", settings.nodeId)
+        .apply { identity?.let { put("identity", it.joinToString("") { b -> "%02x".format(b) }) } }.toString()
+    companion object {
+        fun fromJson(raw: String): Profile {
+            val hex = JSONObject(raw).optString("identity")
+            val identity = hex.takeIf { it.isNotEmpty() }?.let {
+                require(it.length == 64 && it.all { c -> c in "0123456789abcdefABCDEF" }) { "The profile's identity is not a key" }
+                it.chunked(2).map { b -> b.toInt(16).toByte() }.toByteArray()
+            }
+            return Profile(ConnectionSettings.fromJson(raw), identity)
         }
     }
 }
@@ -64,15 +78,19 @@ data class ChatState(val conversations: List<Conversation> = listOf(Conversation
     val current get() = conversations.firstOrNull { it.id == selected } ?: conversations.first()
 }
 
+private val identityLock = Any()
+/** Shared by every `LocalStorage`, so the keystore is read once per process. */
+@Volatile private var cachedIdentity: ByteArray? = null
+
 class LocalStorage(internal val context: Context) {
     private val prefs = context.getSharedPreferences("connection", Context.MODE_PRIVATE)
     private val file = AtomicFile(File(context.filesDir, "conversations.json"))
     private val changesFile = AtomicFile(File(context.filesDir, "pending-changes.json"))
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey("beep-token", null) as? SecretKey)?.let { return it }
+        (store.getKey("beep-identity", null) as? SecretKey)?.let { return it }
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder("beep-token", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            init(KeyGenParameterSpec.Builder("beep-identity", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
@@ -82,20 +100,31 @@ class LocalStorage(internal val context: Context) {
                 context.assets.open("testing-profile.json").bufferedReader().use { ConnectionSettings.fromJson(it.readText()) }
             }.getOrNull()?.takeIf { it.configured }?.let { saveSettings(it); return it }
         }
-        val encrypted = prefs.getString("token", "").orEmpty()
-        val token = if (encrypted.isEmpty()) "" else runCatching {
+        return ConnectionSettings(prefs.getString("nodeId", "").orEmpty())
+    }
+    fun saveSettings(settings: ConnectionSettings) {
+        check(prefs.edit().putString("nodeId", settings.nodeId).remove("token").commit()) { "Could not save connection" }
+    }
+    /** The saved iroh identity, or null if this phone has none yet. */
+    fun storedIdentity(): ByteArray? = synchronized(identityLock) {
+        cachedIdentity?.let { return it }
+        val encrypted = prefs.getString("identity", null) ?: return null
+        runCatching {
             val bytes = Base64.decode(encrypted, Base64.NO_WRAP)
             Cipher.getInstance("AES/GCM/NoPadding").apply {
                 init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
-            }.doFinal(bytes.copyOfRange(12, bytes.size)).toString(Charsets.UTF_8)
-        }.getOrDefault("")
-        return ConnectionSettings(prefs.getString("nodeId", "").orEmpty(), token)
+            }.doFinal(bytes.copyOfRange(12, bytes.size))
+        }.getOrNull()?.takeIf { it.size == 32 }?.also { cachedIdentity = it }
     }
-    fun saveSettings(settings: ConnectionSettings) {
+    /** This phone's iroh identity, which is the user's account. Made on first use. */
+    fun identity(): ByteArray = synchronized(identityLock) {
+        storedIdentity() ?: newIdentity().also { saveIdentity(it) }
+    }
+    fun saveIdentity(identity: ByteArray) = synchronized(identityLock) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
-        val encrypted = Base64.encodeToString(cipher.iv + cipher.doFinal(settings.token.toByteArray()), Base64.NO_WRAP)
-        check(prefs.edit().putString("nodeId", settings.nodeId)
-            .putString("token", encrypted).commit()) { "Could not save connection" }
+        val encrypted = Base64.encodeToString(cipher.iv + cipher.doFinal(identity), Base64.NO_WRAP)
+        check(prefs.edit().putString("identity", encrypted).commit()) { "Could not save identity" }
+        cachedIdentity = identity
     }
     fun loadState(): ChatState = runCatching {
         val json = JSONObject(file.openRead().bufferedReader().use { it.readText() })

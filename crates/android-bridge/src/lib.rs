@@ -13,9 +13,9 @@ use beep_proto::{
     StartAppAuth, Stream, StreamNotifications, SuggestPrompts, ToggleCron, UnregisterDevice,
     UpdateCredentials, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Replies},
+    names::username,
 };
-use iroh::{EndpointAddr, PublicKey};
-use secrecy::{ExposeSecret, SecretString};
+use iroh::{EndpointAddr, PublicKey, SecretKey};
 use std::{future::Future, sync::Arc, time::Duration};
 use tokio::{sync::Mutex as AsyncMutex, time::timeout};
 use uuid::Uuid;
@@ -34,7 +34,7 @@ pub enum BeepError {
     NotFound,
     #[error("{reason}")]
     Conflict { reason: String },
-    #[error("token rejected")]
+    #[error("unauthorized")]
     Unauthorized,
     #[error("server error")]
     Internal,
@@ -84,10 +84,30 @@ async fn timed<T>(
     }
 }
 
+fn secret_key(bytes: &[u8]) -> Result<SecretKey, BeepError> {
+    let bytes: &[u8; 32] = bytes
+        .try_into()
+        .map_err(|_| bad_request("an identity is 32 bytes"))?;
+    Ok(SecretKey::from_bytes(bytes))
+}
+
+/// A new random identity, as `BeepClient::new` takes it.
+#[uniffi::export]
+pub fn new_identity() -> Vec<u8> {
+    SecretKey::generate().to_bytes().to_vec()
+}
+
+/// The readable name of `identity`, such as `mega-fox-trot`.
+#[uniffi::export]
+pub fn identity_name(identity: Vec<u8>) -> Result<String, BeepError> {
+    Ok(username(&secret_key(&identity)?.public()))
+}
+
 #[derive(uniffi::Object)]
 pub struct BeepClient {
     addr: EndpointAddr,
-    token: SecretString,
+    /// Who this phone is to the server. Its `Debug` prints nothing.
+    identity: SecretKey,
     client: AsyncMutex<Option<Arc<Client>>>,
 }
 
@@ -97,8 +117,7 @@ impl BeepClient {
         if let Some(client) = cached.as_ref().filter(|c| !c.is_closed()) {
             return Ok(client.clone());
         }
-        let token = self.token.expose_secret();
-        let connect = Client::connect(self.addr.clone(), token);
+        let connect = Client::connect(self.addr.clone(), self.identity.clone());
         let client = Arc::new(timed(CONNECT_TIMEOUT, "connect", connect).await?);
         *cached = Some(client.clone());
         Ok(client)
@@ -117,16 +136,17 @@ impl BeepClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl BeepClient {
-    /// `node_id` is the server's iroh public key.
+    /// `node_id` is the server's iroh public key. `identity` is this user's
+    /// 32 byte iroh secret key; see `new_identity`.
     #[uniffi::constructor]
-    pub fn new(node_id: String, token: String) -> Result<Arc<Self>, BeepError> {
+    pub fn new(node_id: String, identity: Vec<u8>) -> Result<Arc<Self>, BeepError> {
         let key: PublicKey = node_id
             .trim()
             .parse()
             .map_err(|_| bad_request("invalid node ID"))?;
         Ok(Arc::new(Self {
             addr: EndpointAddr::new(key),
-            token: token.trim().into(),
+            identity: secret_key(&identity)?,
             client: AsyncMutex::new(None),
         }))
     }

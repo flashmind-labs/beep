@@ -1,23 +1,25 @@
 use anyhow::{Context, Result, bail, ensure};
 use beep_server::{
     client::Client,
+    config::load_secret_key,
     protocol::{
         GetEvents, Health, ListCrons, ListIntegrations, ListMemories, ListSessions,
         StreamNotifications,
     },
 };
 use iroh::{EndpointAddr, PublicKey};
-use std::{fmt::Debug, time::Duration};
+use std::{fmt::Debug, path::Path, time::Duration};
 
-const USAGE: &str = "usage: beep-probe NODE_ID health|sessions|memories|crons|integrations|notifications|events RUN_ID; token from BEEP_TOKEN";
+const USAGE: &str = "usage: beep-probe NODE_ID health|sessions|memories|crons|integrations|notifications|events RUN_ID; key file from BEEP_IDENTITY, made if missing";
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     ensure!((2..=3).contains(&args.len()), USAGE);
-    let token = std::env::var("BEEP_TOKEN").context("set BEEP_TOKEN")?;
+    let identity = std::env::var_os("BEEP_IDENTITY").context("set BEEP_IDENTITY")?;
+    let identity = load_secret_key(Some(Path::new(&identity)))?;
     let node_id: PublicKey = args[0].parse().context("invalid node ID")?;
-    let c = Client::connect(EndpointAddr::new(node_id), &token).await?;
+    let c = Client::connect(EndpointAddr::new(node_id), identity).await?;
     match (args[1].as_str(), args.get(2)) {
         ("health", None) => show(c.call(&Health {}).await?),
         ("sessions", None) => show(c.call(&ListSessions {}).await?),

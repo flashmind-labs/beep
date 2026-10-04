@@ -77,7 +77,7 @@ class NotificationService : Service() {
                 val config = storage.loadSettings()
                 if (!config.configured) { delay(5000); continue }
                 try {
-                    BeepClients.client(config).notifications().use { notices ->
+                    BeepClients.client(config, storage.identity()).notifications().use { notices ->
                         attempt = 0
                         while (true) handleNotice(notices.next() ?: break)
                     }

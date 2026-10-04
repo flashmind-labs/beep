@@ -3,20 +3,21 @@ package com.flashmind.beep
 import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
 
-/** One client per connection settings, so calls share a connection. */
+/** One client per server and identity, so calls share a connection. */
 object BeepClients {
-    private var cached: Pair<ConnectionSettings, BeepClient>? = null
+    private class Cached(val config: ConnectionSettings, val identity: ByteArray, val client: BeepClient)
+    private var cached: Cached? = null
 
     @Synchronized
-    fun client(config: ConnectionSettings): BeepClient {
-        cached?.let { (settings, client) -> if (settings == config) return client }
-        return BeepClient(config.nodeId, config.token).also { cached = config to it }
+    fun client(config: ConnectionSettings, identity: ByteArray): BeepClient {
+        cached?.let { if (it.config == config && it.identity.contentEquals(identity)) return it.client }
+        return BeepClient(config.nodeId, identity).also { cached = Cached(config, identity, it) }
     }
 }
 
 /** Text to show for a failed call. */
 fun userMessage(error: Throwable): String = when (error) {
-    is BeepException.Unauthorized -> "Your app token was rejected. Check Connection settings."
+    is BeepException.Unauthorized -> "The server refused this phone."
     is BeepException.NotFound -> "This conversation or run is no longer available on the server."
     is BeepException.Conflict -> "This conversation is busy. Retry shortly."
     is BeepException.BadRequest -> error.reason

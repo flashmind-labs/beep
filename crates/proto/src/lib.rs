@@ -9,6 +9,7 @@
 //! bindings.
 
 pub mod client;
+pub mod names;
 pub mod wire;
 
 #[cfg(feature = "uniffi")]
@@ -133,8 +134,6 @@ macro_rules! requests {
 }
 
 requests! {
-    /// First request on every connection; the server closes it on a bad token.
-    0 Auth { token: String } => Call<()>
     1 Health {} => Call<()>
     /// Starts a run and streams its events, starting with `RunStarted`. Resending
     /// the same `request_id` follows the existing run instead of starting another.

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use beep_server::{
     app::{App, ServerTools},
     apps::ComposioSettings,
-    config::{self, Auth, Config},
+    config::{self, Config},
     decision::DecisionTool,
     memories,
     search::SearchTool,
@@ -32,7 +32,6 @@ async fn main() -> Result<()> {
     )?;
     start_logging(&config)?;
 
-    let auth = Auth::from_config(&config)?;
     let model: Model = config.model.parse()?;
     let mut llm = AgentLlmConfig::new(model).with_reasoning(config.reasoning);
     // Reasoning shares this budget with the reply.
@@ -65,7 +64,6 @@ async fn main() -> Result<()> {
         .transpose()?;
     let app = App::new(
         store,
-        auth,
         provider,
         llm,
         ServerTools {
@@ -76,9 +74,7 @@ async fn main() -> Result<()> {
             vision_model,
         },
     );
-    for user in app.users() {
-        user.start(&app);
-    }
+    app.start_users().await?;
     beep_server::compaction::start(app.clone());
     beep_server::titles::start(app.clone());
     beep_server::memories::start_purge(app.clone());

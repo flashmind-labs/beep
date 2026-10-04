@@ -1,5 +1,6 @@
 package com.flashmind.beep
 
+import com.flashmind.beep.ffi.identityName
 import com.flashmind.beep.proto.MemorySource
 import kotlin.math.roundToInt
 import androidx.activity.compose.BackHandler
@@ -94,8 +95,6 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -466,8 +465,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         }
     }
     if (settingsOpen || !config.configured) {
-        ConnectionScreen(config, canGoBack = config.configured, onBack = { settingsOpen = false }, onConnect = {
-            withContext(Dispatchers.IO) { repository.connect(it) }; settingsOpen = false
+        val accountName by repository.accountName.collectAsState()
+        ConnectionScreen(config, accountName, canGoBack = config.configured, onBack = { settingsOpen = false }, onConnect = { settings, identity ->
+            withContext(Dispatchers.IO) { repository.connect(settings, identity) }; settingsOpen = false
         })
         return
     }
@@ -491,7 +491,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat }, onCustom = { screen = Screen.CustomIntegrations })
             Screen.CustomIntegrations -> IntegrationsScreen(repository, onBack = { screen = Screen.Integrations })
-            Screen.Settings -> SettingsScreen(status, onBack = { screen = Screen.Chat },
+            Screen.Settings -> SettingsScreen(status, repository, onBack = { screen = Screen.Chat },
                 onBubbleSettings = onBubbleSettings, onConnection = { settingsOpen = true })
             Screen.Chat -> {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -2237,10 +2237,10 @@ private fun PermissionCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ConnectionScreen(initial: ConnectionSettings, canGoBack: Boolean, onBack: () -> Unit, onConnect: suspend (ConnectionSettings) -> Unit) {
+private fun ConnectionScreen(initial: ConnectionSettings, accountName: String, canGoBack: Boolean, onBack: () -> Unit, onConnect: suspend (ConnectionSettings, ByteArray?) -> Unit) {
     var nodeId by remember { mutableStateOf(initial.nodeId) }
-    var token by remember { mutableStateOf(initial.token) }
-    var reveal by remember { mutableStateOf(false) }
+    /** An identity from an imported profile, used instead of this phone's. */
+    var imported by remember { mutableStateOf<ByteArray?>(null) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -2250,9 +2250,9 @@ private fun ConnectionScreen(initial: ConnectionSettings, canGoBack: Boolean, on
             try {
                 val config = withContext(Dispatchers.IO) {
                     val raw = context.contentResolver.openInputStream(uri)?.use { it.readProfileBytes() } ?: error("Cannot open profile")
-                    require(raw.size <= 65536) { "Profile is too large" }; ConnectionSettings.fromJson(raw.toString(Charsets.UTF_8))
+                    require(raw.size <= 65536) { "Profile is too large" }; Profile.fromJson(raw.toString(Charsets.UTF_8))
                 }
-                nodeId = config.nodeId; token = config.token; error = ""
+                nodeId = config.settings.nodeId; imported = config.identity; error = ""
             } catch (e: Exception) { error = e.message.orEmpty() }
         }
     }
@@ -2273,18 +2273,18 @@ private fun ConnectionScreen(initial: ConnectionSettings, canGoBack: Boolean, on
                 Icon(Icons.Outlined.FileOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Import connection profile", fontWeight = FontWeight.Medium)
             } }
             item { OutlinedTextField(nodeId, { nodeId = it }, label = { Text("Node ID") }, placeholder = { Text("hex public key") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving) }
-            item { OutlinedTextField(token, { token = it }, label = { Text("App token (optional in testing)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving,
-                visualTransformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = { IconButton(onClick = { reveal = !reveal }) { Icon(if (reveal) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, "Toggle token visibility") } }) }
             item {
-                Text("The node ID is printed when the server starts. Testing servers do not require an app token.", fontSize = 12.sp, color = TextMuted, lineHeight = 18.sp)
+                val account = imported?.let { "You will sign in as ${identityName(it)}, from the profile. This replaces the account on this phone." }
+                    ?: "You sign in as $accountName. This phone's key is your account, so there is no password."
+                Text(account, fontSize = 12.sp, color = TextMuted, lineHeight = 18.sp)
+                Text("The node ID is printed when the server starts.", modifier = Modifier.padding(top = 8.dp), fontSize = 12.sp, color = TextMuted, lineHeight = 18.sp)
                 if (canGoBack) Text("Changing the server or account clears this device’s chat cache. Server history is kept.", modifier = Modifier.padding(top = 8.dp), fontSize = 12.sp, color = TextMuted)
             }
             if (error.isNotEmpty()) item { Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             item { ChunkyButton(onClick = {
                 saving = true; error = ""
                 scope.launch {
-                    try { onConnect(ConnectionSettings(nodeId.trim(), token.trim())) }
+                    try { onConnect(ConnectionSettings(nodeId.trim()), imported) }
                     catch (e: Exception) { error = e.message ?: "Could not connect" }
                     finally { saving = false }
                 }

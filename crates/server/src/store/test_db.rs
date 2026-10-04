@@ -14,6 +14,9 @@ use uuid::Uuid;
 /// `postgres://beep:beep@127.0.0.1:55432/beep`.
 const URL_VAR: &str = "BEEP_TEST_DATABASE_URL";
 
+/// Accounts every test store has, since rows need an account to belong to.
+const TEST_USERS: &[&str] = &["alice", "bob", "user"];
+
 /// A schema of its own in the test database, dropped with this value.
 #[doc(hidden)]
 pub struct TestDb {
@@ -50,7 +53,8 @@ impl TestDb {
         Ok(Self { url, schema })
     }
 
-    /// Opens a store on this schema. Opening it again sees the same data.
+    /// Opens a store on this schema, with the accounts tests use. Opening it
+    /// again sees the same data.
     pub async fn store(&self) -> Result<Store> {
         let options = PgConnectOptions::from_str(&self.url)?
             .options([("search_path", format!("{},public", self.schema))]);
@@ -58,7 +62,15 @@ impl TestDb {
             .max_connections(4)
             .connect_with(options)
             .await?;
-        Store::with_pool(pool, Arc::new(WordEmbedder)).await
+        let store = Store::with_pool(pool, Arc::new(WordEmbedder)).await?;
+        sqlx::query(
+            "INSERT INTO users (id, name) SELECT id, id FROM unnest($1::text[]) id \
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(TEST_USERS)
+        .execute(&store.pool)
+        .await?;
+        Ok(store)
     }
 }
 

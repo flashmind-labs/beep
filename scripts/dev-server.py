@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import secrets
 import signal
 import subprocess
 import time
@@ -29,20 +28,12 @@ if args.firecrawl_key_file:
     if not firecrawl_key or any(c.isspace() for c in firecrawl_key):
         raise SystemExit("Key file must contain only the Firecrawl API key")
 
-token_path = Path(".dev/android-app-token")
-if not token_path.exists():
-    Path(".dev").mkdir(exist_ok=True)
-    token_path.write_text(secrets.token_hex(32))
-token = token_path.read_text().strip()
+Path(".dev").mkdir(exist_ok=True)
 config = f'''secret_key = ".dev/iroh-key"
-testing_user = "development"
 database_url = "postgres://beep:beep@127.0.0.1:55432/beep"
 log_dir = ".dev/logs"
 model = "openai:beep-test"
 provider_url = "http://127.0.0.1:18080/"
-[[users]]
-id = "development"
-token = "{token}"
 '''
 if openrouter_key:
     config = config.replace('model = "openai:beep-test"', "model = " + json.dumps("openrouter:" + args.model))

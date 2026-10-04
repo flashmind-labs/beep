@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use beep_server::{
     app::{App, ServerTools},
     client::{Client, Replies},
-    config::Auth,
     protocol::{
         ApiError, AppKind, CancelRun, Chat, ConnectApp, Event, GetEvents, GetRun, GetSession,
-        Health, HistoryEntry, ListApps, MemorySource, RunEvent, StartAppAuth, SuggestPrompts,
+        Health, HistoryEntry, ListApps, ListSessions, MemorySource, RunEvent, StartAppAuth,
+        SuggestPrompts,
     },
     starters,
     store::{CreateRun, Fact, TestDb},
@@ -29,7 +29,10 @@ use std::{
 };
 use uuid::Uuid;
 
-const ALICE: &str = "alice-token-0123456789abcdef0123456789";
+/// Alice's key; the server knows her by its public half.
+fn alice() -> SecretKey {
+    SecretKey::from_bytes(&[1; 32])
+}
 
 struct ProviderStub {
     calls: AtomicUsize,
@@ -97,13 +100,11 @@ impl Harness {
     async fn new() -> Self {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
-        let auth = Auth::new(vec![("alice".into(), ALICE.into())]).unwrap();
         let provider = Arc::new(ProviderStub {
             calls: AtomicUsize::new(0),
         });
         let app = App::new(
             store,
-            auth,
             provider.clone(),
             AgentLlmConfig::new("openai:test".parse().unwrap()),
             ServerTools::default(),
@@ -125,7 +126,11 @@ impl Harness {
     }
 
     async fn client(&self) -> Client {
-        Client::connect(self.router.endpoint().addr(), ALICE)
+        self.client_as(alice()).await
+    }
+
+    async fn client_as(&self, identity: SecretKey) -> Client {
+        Client::connect(self.router.endpoint().addr(), identity)
             .await
             .unwrap()
     }
@@ -158,10 +163,6 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     let c = h.client().await;
 
     c.call(&Health {}).await.unwrap();
-    let Err(rejected) = Client::connect(h.router.endpoint().addr(), "wrong-token").await else {
-        panic!("wrong token accepted");
-    };
-    assert_eq!(api_error(rejected), ApiError::Unauthorized {});
 
     let session = Uuid::new_v4();
     let chat = Chat {
@@ -225,9 +226,16 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
 
     assert_eq!(h.provider.calls.load(Ordering::SeqCst), 2);
 
+    // Another key is another user, made on its first connection.
+    let stranger = h.client_as(SecretKey::generate()).await;
+    assert!(stranger.call(&ListSessions {}).await.unwrap().is_empty());
+    assert_eq!(c.call(&ListSessions {}).await.unwrap().len(), 1);
+    let alice_id = alice().public().to_string();
+    assert!(h.app.user(&alice_id).is_some());
+
     let reopened = h.db.store().await.unwrap();
     assert_eq!(
-        User::for_test(reopened.clone(), "alice")
+        User::for_test(reopened.clone(), &alice_id)
             .memory_rows()
             .await
             .unwrap()[0]
@@ -235,7 +243,7 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         "Prefers tea"
     );
     assert!(
-        User::for_test(reopened.clone(), "alice")
+        User::for_test(reopened.clone(), &alice_id)
             .conversation(&session.to_string())
             .await
             .unwrap()
@@ -448,4 +456,21 @@ async fn prompt_suggestions_fall_back_and_apps_list_without_composio() {
         .await
         .unwrap_err();
     assert!(matches!(api_error(error), ApiError::BadRequest { .. }));
+}
+
+#[tokio::test]
+async fn a_key_signs_in_as_the_same_user_every_time() {
+    let db = TestDb::new().await.unwrap();
+    let store = db.store().await.unwrap();
+    let key = alice().public();
+    let first = store.sign_in(&key).await.unwrap();
+    assert_eq!(first, key.to_string());
+    assert_eq!(store.sign_in(&key).await.unwrap(), first);
+    let other = store
+        .sign_in(&SecretKey::generate().public())
+        .await
+        .unwrap();
+    assert_ne!(other, first);
+    let users = store.user_ids().await.unwrap();
+    assert!(users.contains(&first) && users.contains(&other));
 }

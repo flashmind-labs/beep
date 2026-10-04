@@ -1,7 +1,5 @@
 # Persistent iroh identity. Generated on first run if the file does not exist.
 secret_key = ".dev/iroh-key"
-# Testing only: omit this to require authentication.
-# testing_user = "owner"
 # Postgres with pgvector. Falls back to the DATABASE_URL environment variable.
 # `just test-db` starts one locally.
 database_url = "postgres://beep:beep@127.0.0.1:55432/beep"
@@ -17,12 +15,3 @@ provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # composio_key = "YOUR-COMPOSIO-KEY"
 # Sends the browser back to the phone app once an app connects.
 # composio_callback_url = "beep://apps/connected"
-
-[[users]]
-id = "owner"
-token = "YOUR-RANDOM-TOKEN-AT-LEAST-32-CHARACTERS"
-
-# Each user gets a distinct random bearer token (at least 32 characters).
-# [[users]]
-# id = "another-user"
-# token = "ANOTHER-RANDOM-TOKEN-AT-LEAST-32-CHARACTERS"

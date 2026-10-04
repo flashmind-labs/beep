@@ -75,6 +75,6 @@ object NotificationBuffer {
         val app = BeepApplication.instance ?: return
         val config = app.repository.settings.value
         if (!config.configured) return
-        BeepClients.client(config).saveNotifications(notifications)
+        BeepClients.client(config, LocalStorage(app).identity()).saveNotifications(notifications)
     }
 }

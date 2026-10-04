@@ -3,26 +3,20 @@
 use crate::{
     api,
     app::App,
-    protocol::{
-        ApiError, Auth, Op,
-        wire::{Rx, framed},
-    },
     router::{Cx, Router},
-    user::User,
 };
-use anyhow::{Context, Result, ensure};
 use iroh::{
     endpoint::{Connection, VarInt},
     protocol::{AcceptError, ProtocolHandler},
 };
 use std::{fmt, sync::Arc, time::Duration};
-use tokio::{sync::Semaphore, time::timeout};
+use tokio::sync::Semaphore;
 
 pub use crate::protocol::wire::ALPN;
 
 const MAX_STREAMS: usize = 32;
 pub(crate) const READ_TIMEOUT: Duration = Duration::from_secs(10);
-const CLOSE_UNAUTHORIZED: u32 = 401;
+const CLOSE_UNAVAILABLE: u32 = 503;
 
 #[derive(Clone)]
 pub struct BeepHandler {
@@ -47,11 +41,12 @@ impl BeepHandler {
 
 impl ProtocolHandler for BeepHandler {
     async fn accept(&self, connection: Connection) -> std::result::Result<(), AcceptError> {
-        let user = match authenticate(&self.app, &connection).await {
-            Ok(user) => user.clone(),
+        // The key the client connected with is who it is.
+        let user = match self.app.sign_in(&connection.remote_id()).await {
+            Ok(user) => user,
             Err(e) => {
-                log::debug!("connection rejected: {e:#}");
-                connection.close(VarInt::from_u32(CLOSE_UNAUTHORIZED), b"unauthorized");
+                log::warn!("sign in failed: {e:#}");
+                connection.close(VarInt::from_u32(CLOSE_UNAVAILABLE), b"unavailable");
                 return Ok(());
             }
         };
@@ -76,38 +71,4 @@ impl ProtocolHandler for BeepHandler {
         }
         Ok(())
     }
-}
-
-/// Reads `Auth` from the first stream and returns the user. A bad token is
-/// answered with `Unauthorized` before the caller closes the connection.
-async fn authenticate<'a>(app: &'a App, connection: &Connection) -> Result<&'a Arc<User>> {
-    let (send, recv) = timeout(READ_TIMEOUT, connection.accept_bi())
-        .await
-        .context("auth timed out")??;
-    let (mut tx, mut rx) = framed(send, recv);
-    let token = read_auth(&mut rx).await?;
-    let user = app
-        .auth
-        .authenticate(Some(&format!("Bearer {token}")))
-        .and_then(|id| app.user(&id));
-    let Some(user) = user else {
-        tx.err(&ApiError::Unauthorized {}).await?;
-        tx.finish()?;
-        // Give the client time to read the reply before the connection closes.
-        let _ = timeout(READ_TIMEOUT, connection.closed()).await;
-        anyhow::bail!("invalid token");
-    };
-    tx.ok(&()).await?;
-    tx.finish()?;
-    Ok(user)
-}
-
-async fn read_auth(rx: &mut Rx) -> Result<String> {
-    let frame = timeout(READ_TIMEOUT, rx.frame())
-        .await
-        .context("auth timed out")??
-        .context("auth stream empty")?;
-    ensure!(frame.tag == Op::Auth as u8, "first request must be Auth");
-    let Auth { token } = frame.decode()?;
-    Ok(token)
 }

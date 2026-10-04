@@ -4,7 +4,7 @@
 //! frame's tag is its `Op`; a reply frame's tag says whether the body is the
 //! reply or an `ApiError`.
 //!
-//! The first bi stream on a connection carries `Auth`. After that each request
+//! The client's iroh key is its identity, so there is no login. Each request
 //! gets its own bi stream: one request frame in, reply frames out until the
 //! server finishes the stream.
 
@@ -16,7 +16,8 @@ use iroh::endpoint::{RecvStream, SendStream};
 use serde::{Serialize, de::DeserializeOwned};
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
-pub const ALPN: &[u8] = b"beep/1";
+/// `beep/1` clients sent a token first; `beep/2` ones never do.
+pub const ALPN: &[u8] = b"beep/2";
 
 const MAX_FRAME: usize = 8 * 1024 * 1024;
 

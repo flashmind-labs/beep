@@ -1,16 +1,16 @@
 use crate::{
-    Auth, Call, Rpc, Stream,
+    Call, Rpc, Stream,
     wire::{ALPN, Rx, framed},
 };
 use anyhow::{Context, Result};
 use iroh::{
-    Endpoint, EndpointAddr,
+    Endpoint, EndpointAddr, SecretKey,
     endpoint::{Connection, presets},
 };
 use serde::de::DeserializeOwned;
 use std::{marker::PhantomData, time::Duration};
 
-/// One authenticated iroh connection. Requests run concurrently, one stream each.
+/// One iroh connection, made with the user's own key. Requests run concurrently, one stream each.
 /// Errors the server sends back are `ApiError`, recoverable by downcast.
 pub struct Client {
     _endpoint: Endpoint,
@@ -23,21 +23,21 @@ impl Client {
         self.connection.close_reason().is_some()
     }
 
-    pub async fn connect(addr: impl Into<EndpointAddr>, token: &str) -> Result<Self> {
-        let endpoint = Endpoint::bind(presets::N0).await?;
+    /// Connects as `identity`. The server knows the user by its public key,
+    /// and a key it has not seen before starts a new account.
+    pub async fn connect(addr: impl Into<EndpointAddr>, identity: SecretKey) -> Result<Self> {
+        let endpoint = Endpoint::builder(presets::N0)
+            .secret_key(identity)
+            .bind()
+            .await?;
         let connection =
             tokio::time::timeout(Duration::from_secs(15), endpoint.connect(addr, ALPN))
                 .await
                 .context("connect timed out")??;
-        let client = Self {
+        Ok(Self {
             _endpoint: endpoint,
             connection,
-        };
-        let auth = Auth {
-            token: token.to_owned(),
-        };
-        client.call(&auth).await.context("authentication failed")?;
-        Ok(client)
+        })
     }
 
     /// Sends a request and returns its reply.
