@@ -29,6 +29,9 @@ struct Place {
     latitude: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     longitude: Option<f64>,
+    /// Directions only: where to start, when not from the user's location.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin: Option<String>,
     /// Directions only: driving, walking, transit or bicycling.
     #[serde(skip_serializing_if = "Option::is_none")]
     travel_mode: Option<String>,
@@ -50,7 +53,7 @@ impl Tool for OpenMapsTool {
         "open_maps"
     }
     fn description(&self) -> &str {
-        "Show a place, a place search or directions as a map card in the chat. The card has Directions and Open in Maps buttons; Google Maps does not open by itself. Afterwards, say the place is on the map card below, never that Maps opened. To open the Google Maps app itself, use open_app with app \"maps\"."
+        "Show a place, a place search or directions as a map card in the chat. The card has Directions and Open in Maps buttons; Google Maps does not open by itself. For directions, query is the destination alone and origin is the starting point; never write \"X from Y\" in query. The card shows the destination, not the drawn route. Afterwards, say the place is on the map card below, never that Maps opened. To open the Google Maps app itself, use open_app with app \"maps\"."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -73,6 +76,10 @@ impl Tool for OpenMapsTool {
                     "type": "number",
                     "description": "Longitude for place or directions destination, or the center of a search"
                 },
+                "origin": {
+                    "type": "string",
+                    "description": "Directions only: the starting place, e.g. 'Changi Airport Terminal 3'. Leave out to start from the user's location."
+                },
                 "travel_mode": {
                     "type": "string",
                     "enum": ["driving", "walking", "transit", "bicycling"],
@@ -93,6 +100,12 @@ impl Tool for OpenMapsTool {
             .get("travel_mode")
             .and_then(Value::as_str)
             .unwrap_or("driving");
+        let origin = ctx
+            .args
+            .get("origin")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|o| !o.is_empty() && action == "directions");
 
         let encoded_query = query.replace(' ', "+");
         let near = match (action, latitude, longitude) {
@@ -149,13 +162,22 @@ impl Tool for OpenMapsTool {
                         "query or latitude/longitude required for directions",
                     ));
                 };
-                let mode_flag = match travel_mode {
-                    "walking" => "w",
-                    "transit" => "r",
-                    "bicycling" => "b",
-                    _ => "d",
-                };
-                format!("google.navigation:q={dest}&mode={mode_flag}")
+                if let Some(origin) = origin {
+                    // google.navigation always starts from the phone, so a route from
+                    // somewhere else goes through the Maps URL.
+                    format!(
+                        "https://www.google.com/maps/dir/?api=1&origin={}&destination={dest}&travelmode={travel_mode}",
+                        origin.replace(' ', "+")
+                    )
+                } else {
+                    let mode_flag = match travel_mode {
+                        "walking" => "w",
+                        "transit" => "r",
+                        "bicycling" => "b",
+                        _ => "d",
+                    };
+                    format!("google.navigation:q={dest}&mode={mode_flag}")
+                }
             }
             _ => {
                 return Ok(ToolResult::failure(
@@ -180,6 +202,7 @@ impl Tool for OpenMapsTool {
             }),
             latitude: latitude.filter(|_| action != "search"),
             longitude: longitude.filter(|_| action != "search"),
+            origin: origin.map(str::to_owned),
             travel_mode: directions.then(|| travel_mode.to_owned()),
             near,
         };
