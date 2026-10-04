@@ -24,12 +24,13 @@ restart-server:
     @sleep 2
     @pgrep -f "beep-server {{server_config}}" > /dev/null && echo "Server started" || (echo "Server failed to start, check .dev/server.log"; exit 1)
 
-# Write the server's node ID into the debug asset profile
+# Write the server's node ID where the Android build picks it up
 bake-profile:
     #!/usr/bin/env bash
     node_id=$(sed 's/\x1b\[[0-9;]*m//g' .dev/logs/beep.log | grep -o 'node_id=[0-9a-f]*' | tail -1 | cut -d= -f2)
     if [ -z "$node_id" ]; then echo "No node ID in server log"; exit 1; fi
-    printf '{"node_id":"%s"}\n' "$node_id" > android/app/src/main/assets/testing-profile.json
+    mkdir -p .dev/android-assets
+    printf '{"node_id":"%s"}\n' "$node_id" > .dev/android-assets/testing-profile.json
     echo "Baked node ID: ${node_id:0:12}..."
 
 # Install APK on connected device

@@ -122,6 +122,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.FormatStyle
 import java.time.format.TextStyle
 import java.util.Locale
@@ -489,7 +490,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         when (currentScreen) {
             Screen.Memories -> MemoriesScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat },
-                onAskBeep = { repository.newChatWithDraft("Set up an automation: "); screen = Screen.Chat })
+                onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat }, onCustom = { screen = Screen.CustomIntegrations })
             Screen.CustomIntegrations -> IntegrationsScreen(repository, onBack = { screen = Screen.Integrations })
             Screen.Settings -> SettingsScreen(status, repository, onBack = { screen = Screen.Chat },
@@ -858,8 +859,26 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         val chips = toolCards.filter { (call, card) -> card == null && call.name != "suggest_replies" }
                         if (!isUser && message.reasoning.isNotBlank()) ReasoningRow(message.reasoning, Modifier.padding(bottom = 4.dp))
                         if (chips.isNotEmpty()) {
-                            Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                chips.forEachIndexed { i, (tc, _) -> ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size]) { repository.openBrowser(it) } }
+                            // While the reply runs only the latest few chips show and the earlier ones fold into one
+                            // line; once it is done a long run folds away entirely. The line opens the full list.
+                            var allTools by remember(message.id) { mutableStateOf(false) }
+                            val finished = !(isLastAssistant && chat.busy) && chips.all { it.first.isDone }
+                            val folded = if (finished && chips.size > SHOWN_TOOLS) chips.size
+                                else (chips.size - SHOWN_TOOLS).coerceAtLeast(0)
+                            val hidden = if (allTools) 0 else folded
+                            Column(Modifier.padding(bottom = 8.dp)) {
+                                AnimatedVisibility(folded > 0, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                                    FoldedTools(chips.take(folded).map { it.first }, finished = folded == chips.size,
+                                        open = allTools, onToggle = { allTools = !allTools })
+                                }
+                                chips.forEachIndexed { i, (tc, _) ->
+                                    key(tc.callId.ifEmpty { "$i" }) {
+                                        AnimatedVisibility(i >= hidden, enter = expandVertically() + fadeIn(),
+                                            exit = shrinkVertically() + fadeOut()) {
+                                            ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size], Modifier.padding(top = 6.dp)) { repository.openBrowser(it) }
+                                        }
+                                    }
+                                }
                             }
                         }
                         val isStreaming = isLastAssistant && chat.busy
@@ -1932,6 +1951,9 @@ private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () 
     }
 }
 
+/** How many tool chips a message shows before folding the earlier ones away. */
+private const val SHOWN_TOOLS = 3
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBeep: () -> Unit) {
@@ -1956,27 +1978,27 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBee
         })
     }
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text(displayText("Automations"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Routines"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = { ChunkyButton(onClick = { showCreate = true }, modifier = Modifier.padding(end = 14.dp), color = Beep.colors.accent,
-                contentColor = Beep.colors.onAccent, contentPadding = PaddingValues(8.dp)) { Icon(Icons.Outlined.Add, "New automation", Modifier.size(20.dp)) } },
+                contentColor = Beep.colors.onAccent, contentPadding = PaddingValues(8.dp)) { Icon(Icons.Outlined.Add, "New routine", Modifier.size(20.dp)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             if (loading) Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
-            else if (crons.isEmpty()) Text("No automations yet.\nSchedule tasks for Beep to run on a timer.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
+            else if (crons.isEmpty()) Text("No routines yet.\nSchedule tasks for Beep to run on a timer.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
             else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(crons, key = { it.id }) { cron ->
                     BeepCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
                             Column(Modifier.weight(1f)) {
-                                Text(cron.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(cron.label.ifBlank { "Reminder" }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.height(3.dp))
                                 Text(cron.prompt, fontSize = 12.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
                                 Spacer(Modifier.height(4.dp))
                                 Text(describeSchedule(cron.schedule), fontSize = 11.sp, color = TextDim)
-                                if (cron.enabled) cron.nextRunAt?.let(::describeNextRun)?.let {
+                                if (cron.enabled && onceAt(cron.schedule) == null) cron.nextRunAt?.let(::describeNextRun)?.let {
                                     Text(it, fontSize = 11.sp, color = TextDim)
                                 }
                             }
@@ -2015,6 +2037,7 @@ private fun clockTime(hour: Int, minute: Int): String =
 
 /** Reads the cron shapes the dialog writes as words. Anything else is shown as written. */
 private fun describeSchedule(expression: String): String {
+    onceAt(expression)?.let { return "Once, " + describeDay(it) }
     val parts = expression.trim().split(Regex("\\s+"))
     if (parts.size != 5 || parts[2] != "*" || parts[3] != "*") return expression
     val (min, hour, _, _, days) = parts
@@ -2030,17 +2053,26 @@ private fun describeSchedule(expression: String): String {
     }
 }
 
-/** "Next: Mon 9:00" in the phone's own timezone. */
-private fun describeNextRun(rfc3339: String): String? = try {
-    val next = OffsetDateTime.parse(rfc3339).atZoneSameInstant(ZoneId.systemDefault())
+/** A one-off reminder's time in the phone's timezone; its schedule is a timestamp rather than cron. */
+private fun onceAt(schedule: String): ZonedDateTime? =
+    runCatching { OffsetDateTime.parse(schedule.trim()).atZoneSameInstant(ZoneId.systemDefault()) }.getOrNull()
+
+/** "today 9:00", "tomorrow 9:00", "Mon 9:00" or, further out, "12 Oct 9:00". */
+private fun describeDay(at: ZonedDateTime): String {
     val today = LocalDate.now()
-    val day = when (next.toLocalDate()) {
-        today -> "today"
-        today.plusDays(1) -> "tomorrow"
-        else -> next.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    val date = at.toLocalDate()
+    val day = when {
+        date == today -> "today"
+        date == today.plusDays(1) -> "tomorrow"
+        date.isBefore(today.plusDays(7)) && !date.isBefore(today) -> at.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+        else -> "${date.dayOfMonth} ${date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())}"
     }
-    "Next: $day ${clockTime(next.hour, next.minute)}"
-} catch (_: Exception) { null }
+    return "$day ${clockTime(at.hour, at.minute)}"
+}
+
+/** "Next: Mon 9:00" in the phone's own timezone. */
+private fun describeNextRun(rfc3339: String): String? =
+    onceAt(rfc3339)?.let { "Next: " + describeDay(it) }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -2065,7 +2097,7 @@ private fun CreateCronDialog(onDismiss: () -> Unit, onAskBeep: () -> Unit, onCre
         text = { TimePicker(time) },
         confirmButton = { TextButton(onClick = { pickingTime = false }) { Text("Done") } })
     AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
-        title = { Text(displayText("New automation"), style = displayStyle(22.sp)) },
+        title = { Text(displayText("New routine"), style = displayStyle(22.sp)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(label, { label = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Morning briefing") }, colors = fieldColors)
@@ -2258,7 +2290,7 @@ private fun OnboardingScreen(
                 PermissionCard(
                     icon = Icons.Outlined.Notifications,
                     title = "Notifications",
-                    description = "Get notified when scheduled automations finish or when Beep has something for you.",
+                    description = "Get notified when scheduled routines finish or when Beep has something for you.",
                     granted = notificationGranted,
                     onRequest = { notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 )

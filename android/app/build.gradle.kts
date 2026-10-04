@@ -15,6 +15,14 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
+        // The server this build talks to, so a new install needs no setup. `just bake-profile`
+        // writes it from the server log; -PbeepNodeId overrides it.
+        val profile = rootProject.file("../.dev/android-assets/testing-profile.json")
+        val nodeId = providers.gradleProperty("beepNodeId").orNull
+            ?: profile.takeIf { it.exists() }?.readText()
+                ?.let { Regex("\"node_id\"\\s*:\\s*\"([0-9a-f]{64})\"").find(it)?.groupValues?.get(1) }
+            ?: ""
+        buildConfigField("String", "SERVER_NODE_ID", "\"$nodeId\"")
     }
     androidResources { localeFilters += "en" }
     buildTypes {
@@ -26,7 +34,6 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
-    sourceSets.getByName("debug").assets.srcDir("../../.dev/android-assets")
     sourceSets.getByName("main").java.srcDir("build/generated/uniffi")
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {

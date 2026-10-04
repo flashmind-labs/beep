@@ -1,7 +1,11 @@
 package com.flashmind.beep
 
 import android.net.Uri
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -51,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -140,6 +145,49 @@ private fun sourcesOf(result: String): List<Source> {
 private fun memoryOf(name: String, result: String): String {
     if (!name.startsWith("memory_") || !result.trimStart().startsWith("{")) return ""
     return runCatching { JSONObject(result).optString("content") }.getOrNull().orEmpty()
+}
+
+/**
+ * The line that stands in for folded tool calls: one bubble per app, the newest
+ * on top, then "+5 tools" while the reply runs or "8 tools, 1 failed" once it is
+ * done. The count rolls up as chips fold into it. Tapping opens the full list.
+ */
+@Composable
+fun FoldedTools(calls: List<ToolCall>, finished: Boolean, open: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+    val t = LocalBeep.current
+    val apps = calls.withIndex()
+        .associateBy { (_, call) -> appLogoForTool(call.name) ?: toolIconFor(call.name.ifEmpty { call.description }) }
+        .values.sortedBy { it.index }.takeLast(4)
+    val failed = calls.count { it.isDone && !it.success }
+    val edge = if (t.colors.line.alpha > 0f) t.colors.line else t.colors.softLine
+    Row(modifier.clip(RoundedCornerShape(50))
+        .clickable(onClickLabel = if (open) "Hide tools" else "Show tools", onClick = onToggle)
+        .padding(start = 4.dp, end = 8.dp, top = 3.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width((20 + 14 * (apps.size - 1)).dp).height(20.dp)) {
+            apps.forEachIndexed { k, (i, call) ->
+                val logo = appLogoForTool(call.name)
+                Box(Modifier.padding(start = (14 * k).dp).zIndex(k.toFloat()).size(20.dp)
+                    .background(if (logo != null) Color.White else t.colors.tints[i % t.colors.tints.size], CircleShape)
+                    .border(1.5.dp, edge, CircleShape),
+                    contentAlignment = Alignment.Center) {
+                    if (logo != null) Image(painterResource(logo), null, Modifier.size(11.dp))
+                    else Icon(toolIconFor(call.name.ifEmpty { call.description }), null, Modifier.size(11.dp), tint = t.colors.ink)
+                }
+            }
+        }
+        Spacer(Modifier.width(6.dp))
+        val prefix = if (finished) "" else "+"
+        if (!finished) Text(prefix, fontSize = 12.sp, color = t.colors.muted)
+        AnimatedContent(calls.size, label = "folded-count", transitionSpec = {
+            (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut())
+        }) { n -> Text("$n", fontSize = 12.sp, color = t.colors.muted) }
+        val unit = if (calls.size == 1) " tool" else " tools"
+        Text(unit + if (finished && failed > 0) ", $failed failed" else "", fontSize = 12.sp, color = t.colors.muted)
+        val turn by animateFloatAsState(if (open) 180f else 0f, label = "folded-chevron")
+        Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.padding(start = 2.dp).size(16.dp).graphicsLayer { rotationZ = turn },
+            tint = t.colors.muted)
+    }
 }
 
 /**
