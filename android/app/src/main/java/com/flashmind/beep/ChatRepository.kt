@@ -14,6 +14,7 @@ import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.DeviceAnswer
 import com.flashmind.beep.proto.DeviceQuery
 import com.flashmind.beep.proto.Event
+import com.flashmind.beep.proto.ForegroundApp
 import com.flashmind.beep.proto.HistoryEntry
 import com.flashmind.beep.proto.MemorySource
 import com.flashmind.beep.proto.PromptSuggestion
@@ -76,6 +77,8 @@ class ChatRepository(private val storage: LocalStorage) {
     val pendingIntent = MutableStateFlow<AppIntent?>(null)
     val pendingAlarm = MutableStateFlow<AlarmRequest?>(null)
     val browserOpen = MutableStateFlow(false)
+    /** The app behind the bubble while it is in front, sent with each message. */
+    @Volatile var foregroundApp: ForegroundApp? = null
     private var reconnectJob: Job? = null
     private var locationJob: Job? = null
     /** Chat screens currently started: the app, the bubble or the panel. */
@@ -237,7 +240,7 @@ class ChatRepository(private val storage: LocalStorage) {
 
                     if (chat.runId.isEmpty()) refreshLocation()
                     // A new message streams its run from the start; a run we lost is resumed from the cursor.
-                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImage)
+                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImage, foregroundApp)
                         else api.events(chat.runId, chat.cursor)
                     var runId = chat.runId
                     var missed = false
@@ -441,7 +444,7 @@ class ChatRepository(private val storage: LocalStorage) {
         var cursor = 0L
         var finished = false
         while (!finished) {
-            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, null) else api.events(runId, cursor)
+            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, null, null) else api.events(runId, cursor)
             stream.use { events ->
                 var first = true
                 while (true) {
@@ -507,6 +510,7 @@ class ChatRepository(private val storage: LocalStorage) {
     private suspend fun executeDeviceQuery(query: DeviceQuery): JSONObject = when (query) {
         is DeviceQuery.Contacts -> queryContacts(query.name)
         is DeviceQuery.Browser -> browser(query.command)
+        is DeviceQuery.ReadScreen -> withContext(Dispatchers.Main) { ScreenContext.read() }
     }
 
     private suspend fun browser(command: BrowserCommand): JSONObject {

@@ -138,7 +138,8 @@ requests! {
     1 Health {} => Call<()>
     /// Starts a run and streams its events, starting with `RunStarted`. Resending
     /// the same `request_id` follows the existing run instead of starting another.
-    2 Chat { session_id: Uuid, request_id: Uuid, message: String, image: Option<String> } => Stream<Event>
+    /// `foreground` is the app the user opened Beep's bubble over, if any.
+    2 Chat { session_id: Uuid, request_id: Uuid, message: String, image: Option<String>, foreground: Option<ForegroundApp> } => Stream<Event>
     3 GetRun { id: String } => Call<Run>
     4 CancelRun { id: String } => Call<()>
     5 GetEvents { run_id: String, after: i64 } => Stream<Event>
@@ -256,13 +257,25 @@ wire_enum! {
 }
 
 wire_enum! {
-    /// Work the server asks the phone to do during a run.
+    /// Work the server asks the phone to do during a run. `ReadScreen` asks for
+    /// the text of the app on screen behind Beep's bubble.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum DeviceQuery {
         0 Contacts { name: String }
         1 Browser { command: BrowserCommand }
+        2 ReadScreen {}
     }
+}
+
+/// The app the user was in when they opened Beep's bubble.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ForegroundApp {
+    /// The app's label, such as "Maps".
+    pub name: String,
+    /// The Android package name, such as "com.google.android.apps.maps".
+    pub package: String,
 }
 
 wire_enum! {
@@ -527,6 +540,10 @@ mod tests {
             request_id: Uuid::new_v4(),
             message: "hi".into(),
             image: None,
+            foreground: Some(ForegroundApp {
+                name: "Maps".into(),
+                package: "com.example.maps".into(),
+            }),
         };
         let buf = rmp_serde::to_vec(&chat).unwrap();
         assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);
