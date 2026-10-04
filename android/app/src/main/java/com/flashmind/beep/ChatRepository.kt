@@ -75,7 +75,7 @@ class ChatRepository(private val storage: LocalStorage) {
     val connected = MutableStateFlow(false)
     val pendingIntent = MutableStateFlow<AppIntent?>(null)
     val pendingAlarm = MutableStateFlow<AlarmRequest?>(null)
-    val browserUrl = MutableStateFlow<String?>(null)
+    val browserOpen = MutableStateFlow(false)
     private var reconnectJob: Job? = null
     private var locationJob: Job? = null
     /** Chat screens currently started: the app, the bubble or the panel. */
@@ -509,25 +509,39 @@ class ChatRepository(private val storage: LocalStorage) {
         is DeviceQuery.Browser -> browser(query.command)
     }
 
-    private suspend fun browser(command: BrowserCommand): JSONObject = when (command) {
-        is BrowserCommand.Navigate -> if (command.url.isNotEmpty()) {
-            browserUrl.value = command.url
-            // Give the WebView a moment to open and load
-            delay(2000)
-            JSONObject().put("navigated", true).put("url", command.url)
-        } else {
-            JSONObject().put("error", "missing_url").put("message", "URL is required for navigate action")
+    private suspend fun browser(command: BrowserCommand): JSONObject {
+        val ctx = storage.context
+        val (action, params) = when (command) {
+            is BrowserCommand.Navigate -> {
+                browserOpen.value = true
+                return BrowserBridge.navigate(ctx, command.url)
+            }
+            BrowserCommand.ReadPage -> "read_page" to JSONObject()
+            is BrowserCommand.Click -> "click" to JSONObject().put("selector", command.selector)
+            is BrowserCommand.ClickElement -> "click" to JSONObject().put("index", command.index.toInt())
+            is BrowserCommand.Type -> "type" to JSONObject().put("selector", command.selector).put("text", command.text)
+            is BrowserCommand.TypeElement -> "type" to JSONObject().put("index", command.index.toInt())
+                .put("text", command.text).put("submit", command.submit)
+            is BrowserCommand.Scroll -> "scroll" to
+                JSONObject().put("direction", if (command.direction == ScrollDirection.UP) "up" else "down")
+            is BrowserCommand.GetText -> "get_text" to JSONObject().put("selector", command.selector)
+            is BrowserCommand.WaitFor -> "wait_for" to JSONObject().put("selector", command.selector)
+            BrowserCommand.Back -> "back" to JSONObject()
+            BrowserCommand.Forward -> "forward" to JSONObject()
+            BrowserCommand.Reload -> "reload" to JSONObject()
+            BrowserCommand.GetPageInfo -> "get_page_info" to JSONObject()
         }
-        is BrowserCommand.Click ->
-            BrowserBridge.executeCommand("click", JSONObject().put("selector", command.selector))
-        is BrowserCommand.Type -> BrowserBridge.executeCommand("type",
-            JSONObject().put("selector", command.selector).put("text", command.text))
-        is BrowserCommand.Scroll -> BrowserBridge.executeCommand("scroll",
-            JSONObject().put("direction", if (command.direction == ScrollDirection.UP) "up" else "down"))
-        is BrowserCommand.GetText ->
-            BrowserBridge.executeCommand("get_text", JSONObject().put("selector", command.selector))
-        BrowserCommand.GetPageInfo -> BrowserBridge.executeCommand("get_page_info", JSONObject())
+        return BrowserBridge.executeCommand(ctx, action, params)
     }
+
+    /** Show the in-app browser on [url]. */
+    fun openBrowser(url: String) {
+        if (url.isEmpty()) return
+        browserOpen.value = true
+        scope.launch { BrowserBridge.open(storage.context, url) }
+    }
+
+    fun closeBrowser() { browserOpen.value = false }
 
     private fun queryContacts(query: String): JSONObject {
         val ctx = storage.context
@@ -608,7 +622,9 @@ class ChatRepository(private val storage: LocalStorage) {
     }
 
     private suspend fun sendDeviceResult(runId: String, queryId: String, result: JSONObject) {
-        api().deviceResult(runId, queryId, DeviceAnswer.Ok(result.toString()))
+        val answer = if (result.has("error")) DeviceAnswer.Err(result.optString("message", result.optString("error")))
+            else DeviceAnswer.Ok(result.toString())
+        api().deviceResult(runId, queryId, answer)
     }
 
     private fun extractCardsFromText(message: ChatMessage): ChatMessage {
@@ -681,7 +697,7 @@ class ChatRepository(private val storage: LocalStorage) {
                                     uri = outputJson.optString("uri", ""),
                                     fallbackUrl = outputJson.optString("fallback_url", ""))
                                 "set_alarm" -> pendingAlarm.value = AlarmRequest.from(outputJson)
-                                "open_browser" -> browserUrl.value = outputJson.optString("url", "")
+                                "open_browser" -> openBrowser(outputJson.optString("url", ""))
                                 // Places show as a map card in the chat; Maps opens only when the user taps it.
                             }
                             if (outputJson.optString("type") == "task_progress") {
@@ -720,7 +736,9 @@ class ChatRepository(private val storage: LocalStorage) {
                 is RunEvent.DeviceQuery -> {
                     scope.launch {
                         runCatching {
-                            val result = executeDeviceQuery(event.query)
+                            val result = runCatching { executeDeviceQuery(event.query) }.getOrElse {
+                                JSONObject().put("error", "device_error").put("message", it.message ?: "The phone could not do that.")
+                            }
                             sendDeviceResult(chat.runId, event.queryId, result)
                         }
                     }
