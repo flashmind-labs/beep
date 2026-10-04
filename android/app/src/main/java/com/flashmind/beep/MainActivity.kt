@@ -117,7 +117,14 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.FormatStyle
+import java.time.format.TextStyle
+import java.util.Locale
 import java.time.format.DateTimeFormatter
 
 private fun java.io.InputStream.readProfileBytes(): ByteArray {
@@ -481,7 +488,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     Crossfade(targetState = activeScreen, animationSpec = tween(300), label = "screen-transition") { currentScreen ->
         when (currentScreen) {
             Screen.Memories -> MemoriesScreen(repository, onBack = { screen = Screen.Chat })
-            Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat })
+            Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat },
+                onAskBeep = { repository.newChatWithDraft("Set up an automation: "); screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat }, onCustom = { screen = Screen.CustomIntegrations })
             Screen.CustomIntegrations -> IntegrationsScreen(repository, onBack = { screen = Screen.Integrations })
             Screen.Settings -> SettingsScreen(status, repository, onBack = { screen = Screen.Chat },
@@ -1926,7 +1934,7 @@ private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit) {
+private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBeep: () -> Unit) {
     var crons by remember { mutableStateOf<List<ChatRepository.Cron>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
@@ -1940,7 +1948,7 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit) {
     } }
     LaunchedEffect(Unit) { refresh() }
     if (showCreate) {
-        CreateCronDialog(onDismiss = { showCreate = false }, onCreate = { label, prompt, schedule ->
+        CreateCronDialog(onDismiss = { showCreate = false }, onAskBeep = { showCreate = false; onAskBeep() }, onCreate = { label, prompt, schedule ->
             scope.launch {
                 try { withContext(Dispatchers.IO) { repository.createCron(label, prompt, schedule) }; showCreate = false; refresh() }
                 catch (e: Exception) { error = e.message.orEmpty() }
@@ -1967,7 +1975,10 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit) {
                                 Spacer(Modifier.height(3.dp))
                                 Text(cron.prompt, fontSize = 12.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
                                 Spacer(Modifier.height(4.dp))
-                                Text(cron.schedule, fontSize = 11.sp, color = TextDim, fontFamily = FontFamily.Monospace)
+                                Text(describeSchedule(cron.schedule), fontSize = 11.sp, color = TextDim)
+                                if (cron.enabled) cron.nextRunAt?.let(::describeNextRun)?.let {
+                                    Text(it, fontSize = 11.sp, color = TextDim)
+                                }
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Switch(checked = cron.enabled, onCheckedChange = { enabled ->
@@ -1991,26 +2002,91 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit) {
     }
 }
 
+private enum class Repeat(val title: String) { Daily("Every day"), Weekdays("Weekdays"), Weekly("Weekly"), Hourly("Every hour"), Custom("Cron") }
+
+/** Cron weekday numbers, Sunday being 0, in the order the picker shows them. */
+private val cronDays = listOf(1, 2, 3, 4, 5, 6, 0)
+
+private fun cronDayName(day: Int, style: TextStyle = TextStyle.SHORT): String =
+    DayOfWeek.of(if (day == 0) 7 else day).getDisplayName(style, Locale.getDefault())
+
+private fun clockTime(hour: Int, minute: Int): String =
+    LocalTime.of(hour, minute).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
+
+/** Reads the cron shapes the dialog writes as words. Anything else is shown as written. */
+private fun describeSchedule(expression: String): String {
+    val parts = expression.trim().split(Regex("\\s+"))
+    if (parts.size != 5 || parts[2] != "*" || parts[3] != "*") return expression
+    val (min, hour, _, _, days) = parts
+    val minute = min.toIntOrNull()?.takeIf { it in 0..59 } ?: return expression
+    if (hour == "*" && days == "*") return if (minute == 0) "Every hour" else "Every hour at :%02d".format(minute)
+    val at = clockTime(hour.toIntOrNull()?.takeIf { it in 0..23 } ?: return expression, minute)
+    return when {
+        days == "*" -> "Every day at $at"
+        days == "1-5" -> "Weekdays at $at"
+        days.toIntOrNull() in 0..6 -> "Every ${cronDayName(days.toInt(), TextStyle.FULL)} at $at"
+        days.split(",").all { it.toIntOrNull() in 0..6 } -> days.split(",").joinToString(", ") { cronDayName(it.toInt()) } + " at $at"
+        else -> expression
+    }
+}
+
+/** "Next: Mon 9:00" in the phone's own timezone. */
+private fun describeNextRun(rfc3339: String): String? = try {
+    val next = OffsetDateTime.parse(rfc3339).atZoneSameInstant(ZoneId.systemDefault())
+    val today = LocalDate.now()
+    val day = when (next.toLocalDate()) {
+        today -> "today"
+        today.plusDays(1) -> "tomorrow"
+        else -> next.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    }
+    "Next: $day ${clockTime(next.hour, next.minute)}"
+} catch (_: Exception) { null }
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun CreateCronDialog(onDismiss: () -> Unit, onCreate: (String, String, String) -> Unit) {
+private fun CreateCronDialog(onDismiss: () -> Unit, onAskBeep: () -> Unit, onCreate: (String, String, String) -> Unit) {
     var label by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf("") }
-    var schedule by remember { mutableStateOf("") }
+    var repeat by remember { mutableStateOf(Repeat.Daily) }
+    var days by remember { mutableStateOf(setOf(1)) }
+    var custom by remember { mutableStateOf("") }
+    var pickingTime by remember { mutableStateOf(false) }
+    val time = rememberTimePickerState(initialHour = 9, initialMinute = 0)
+    val schedule = when (repeat) {
+        Repeat.Daily -> "${time.minute} ${time.hour} * * *"
+        Repeat.Weekdays -> "${time.minute} ${time.hour} * * 1-5"
+        Repeat.Weekly -> if (days.isEmpty()) "" else "${time.minute} ${time.hour} * * ${cronDays.filter { it in days }.joinToString(",")}"
+        Repeat.Hourly -> "${time.minute} * * * *"
+        Repeat.Custom -> custom.trim()
+    }
+    val fieldColors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
+        unfocusedBorderColor = Border, focusedBorderColor = Moss)
+    if (pickingTime) AlertDialog(onDismissRequest = { pickingTime = false }, containerColor = Surface,
+        text = { TimePicker(time) },
+        confirmButton = { TextButton(onClick = { pickingTime = false }) { Text("Done") } })
     AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
         title = { Text(displayText("New automation"), style = displayStyle(22.sp)) },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(label, { label = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Morning briefing") },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
-                    unfocusedBorderColor = Border, focusedBorderColor = Moss))
-            OutlinedTextField(schedule, { schedule = it }, label = { Text("Schedule (cron)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("0 9 * * *") },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
-                    unfocusedBorderColor = Border, focusedBorderColor = Moss))
-            OutlinedTextField(prompt, { prompt = it }, label = { Text("Prompt") }, maxLines = 4, modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Give me a summary of...") },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
-                    unfocusedBorderColor = Border, focusedBorderColor = Moss))
+                placeholder = { Text("Morning briefing") }, colors = fieldColors)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Repeat.entries.forEach { r -> FilterChip(selected = repeat == r, onClick = { repeat = r }, label = { Text(r.title) }) }
+            }
+            if (repeat == Repeat.Weekly) FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                cronDays.forEach { d ->
+                    FilterChip(selected = d in days, onClick = { days = if (d in days) days - d else days + d },
+                        label = { Text(cronDayName(d, TextStyle.NARROW)) })
+                }
+            }
+            when (repeat) {
+                Repeat.Custom -> OutlinedTextField(custom, { custom = it }, label = { Text("Cron expression") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(), placeholder = { Text("0 9 * * *") }, colors = fieldColors)
+                Repeat.Hourly -> OutlinedButton(onClick = { pickingTime = true }) { Text("At :%02d past the hour".format(time.minute)) }
+                else -> OutlinedButton(onClick = { pickingTime = true }) { Text("At ${clockTime(time.hour, time.minute)}") }
+            }
+            OutlinedTextField(prompt, { prompt = it }, label = { Text("What should Beep do?") }, maxLines = 4, modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Give me a summary of...") }, colors = fieldColors)
+            TextButton(onClick = onAskBeep, contentPadding = PaddingValues(0.dp)) { Text("Or just tell Beep in a chat") }
         } },
         confirmButton = { ChunkyButton(onClick = { onCreate(label, prompt, schedule) }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
             enabled = label.isNotBlank() && prompt.isNotBlank() && schedule.isNotBlank()) { Text("Create", fontWeight = FontWeight.SemiBold) } },

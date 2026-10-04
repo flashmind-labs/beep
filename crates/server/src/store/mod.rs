@@ -1308,13 +1308,17 @@ impl Store {
         Ok(deleted > 0)
     }
 
+    /// Saves the phone's location. A new timezone reloads the scheduler, since
+    /// recurring jobs run in the user's local time.
     pub(crate) async fn update_location(&self, user: &UserKey, fix: &Location) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO locations (user_id, latitude, longitude, accuracy, timezone, place, updated_at)
+        let previous: Option<String> = sqlx::query_scalar(
+            "WITH old AS (SELECT timezone FROM locations WHERE user_id=$1)
+             INSERT INTO locations (user_id, latitude, longitude, accuracy, timezone, place, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (user_id) DO UPDATE SET latitude=excluded.latitude,
                  longitude=excluded.longitude, accuracy=excluded.accuracy,
-                 timezone=excluded.timezone, place=excluded.place, updated_at=excluded.updated_at",
+                 timezone=excluded.timezone, place=excluded.place, updated_at=excluded.updated_at
+             RETURNING (SELECT timezone FROM old)",
         )
         .bind(user.as_str())
         .bind(fix.latitude)
@@ -1323,8 +1327,11 @@ impl Store {
         .bind(&fix.timezone)
         .bind(&fix.place)
         .bind(fix.updated_at)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
+        if previous.as_deref() != Some(fix.timezone.as_str()) {
+            self.notify_crons_changed();
+        }
         Ok(())
     }
 
@@ -1773,5 +1780,42 @@ mod tests {
                 .await
                 .unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn a_new_timezone_reloads_the_scheduler() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let changed = store.crons_changed();
+        let user = UserKey::for_test("alice");
+        let at = |timezone: &str| Location {
+            latitude: 1.0,
+            longitude: 2.0,
+            accuracy: 10.0,
+            timezone: timezone.to_owned(),
+            place: None,
+            updated_at: Utc::now(),
+        };
+        let reloads = || async {
+            tokio::time::timeout(Duration::from_millis(200), changed.notified())
+                .await
+                .is_ok()
+        };
+
+        store
+            .update_location(&user, &at("Europe/Madrid"))
+            .await
+            .unwrap();
+        assert!(reloads().await, "the first timezone reloads");
+        store
+            .update_location(&user, &at("Europe/Madrid"))
+            .await
+            .unwrap();
+        assert!(!reloads().await, "the same timezone does not");
+        store
+            .update_location(&user, &at("Asia/Tokyo"))
+            .await
+            .unwrap();
+        assert!(reloads().await, "a new timezone does");
     }
 }
