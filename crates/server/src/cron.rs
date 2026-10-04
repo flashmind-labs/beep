@@ -171,6 +171,7 @@ pub fn register_tools(
     registry: &mut flashmind::types::ToolRegistry,
     store: Store,
     user: &str,
+    timezone: Option<&str>,
     cron_log: Option<Arc<CronLog>>,
 ) {
     let cron_store = Arc::new(BeepCronStore::for_user(store, user));
@@ -179,14 +180,16 @@ pub fn register_tools(
 
     registry.register(Arc::new(CronCreateTool::with_metadata(
         cron_registry.clone(),
-        user_meta.clone(),
+        user_meta,
     )));
     registry.register(Arc::new(CronListTool::new(cron_registry.clone())));
     registry.register(Arc::new(CronEditTool::new(cron_registry.clone())));
     registry.register(Arc::new(CronDeleteTool::new(cron_registry.clone())));
+    // schedule_once reads a datetime without an offset in this timezone; the
+    // model writes local times like "2026-10-05T11:30:00".
     registry.register(Arc::new(ScheduleOnceTool::with_metadata(
         cron_registry,
-        user_meta,
+        json!({"user_id": user, "timezone": timezone}),
     )));
 
     if let Some(log) = cron_log {
@@ -199,7 +202,7 @@ mod tests {
     use super::*;
     use crate::store::{TestDb, decode_schedule};
     use chrono::{DateTime, TimeDelta, Utc};
-    use flashmind::cron::JobSchedule;
+    use flashmind::{cron::JobSchedule, types::tool::ToolContext};
     use std::time::Duration;
 
     #[test]
@@ -248,5 +251,30 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), changed.notified())
             .await
             .expect("saving a reminder notifies the scheduler");
+    }
+
+    #[tokio::test]
+    async fn a_local_reminder_time_is_read_in_the_users_timezone() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store opens");
+        let mut registry = flashmind::types::ToolRegistry::new();
+        register_tools(&mut registry, store, "user", Some("Asia/Singapore"), None);
+        let tool = registry
+            .get("schedule_once")
+            .expect("schedule_once registered");
+
+        let cancel = CancellationToken::new();
+        let args = json!({"datetime": "2026-10-05T11:30:00", "task": "ping"});
+        let result = tool
+            .execute(ToolContext::new("call", args, None, &cancel))
+            .await
+            .expect("tool runs");
+
+        assert!(result.is_success(), "{}", result.output());
+        assert!(
+            result.output().contains("2026-10-05 03:30 UTC"),
+            "{}",
+            result.output()
+        );
     }
 }

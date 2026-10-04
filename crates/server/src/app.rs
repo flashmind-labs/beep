@@ -463,7 +463,8 @@ impl App {
         transcript.set_system(include_str!("../prompts/assistant.md"));
         let llm = self.llm.clone().with_user(user.id());
 
-        let mut registry = tools::registry(self.clone(), run, user);
+        let timezone = user.get_timezone().await.ok();
+        let mut registry = tools::registry(self.clone(), run, user, timezone.as_deref());
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }

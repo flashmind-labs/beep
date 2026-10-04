@@ -16,12 +16,17 @@ use crate::{app::App, protocol::Run, user::User};
 use flashmind::{tools::time::TimeTool, types::ToolRegistry};
 use std::sync::Arc;
 
-pub fn registry(app: Arc<App>, run: &Run, user: &Arc<User>) -> ToolRegistry {
+pub fn registry(
+    app: Arc<App>,
+    run: &Run,
+    user: &Arc<User>,
+    timezone: Option<&str>,
+) -> ToolRegistry {
     let run_id = run.id.as_str();
     let mut registry = ToolRegistry::new();
     memory::register(&mut registry, user, &run.session_id);
     registry.register(Arc::new(TimeTool));
-    crate::cron::register_tools(&mut registry, app.store.clone(), user.id(), None);
+    crate::cron::register_tools(&mut registry, app.store.clone(), user.id(), timezone, None);
     registry.register(Arc::new(open_app::OpenAppTool));
     registry.register(Arc::new(alarm::SetAlarmTool));
     registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));
