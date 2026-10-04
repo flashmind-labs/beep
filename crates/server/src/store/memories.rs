@@ -1,18 +1,17 @@
-//! Memories live in a flashmind `MemoryStore`, next to the main database.
+//! Memories live in a flashmind `MemoryStore`, in the same database.
 //! Every memory carries its owner in the `user` metadata key, and every call
 //! here filters on it, so one user's memories never reach another's.
 
-use super::{MEMORY_CATEGORIES, MemoryRow, Store, Validity, format_date, parse_date};
+use super::{MEMORY_CATEGORIES, MemoryRow, Store, Validity, format_date, parse_date, seconds};
 use crate::{
     protocol::{Memory, MemorySource},
     user::UserKey,
 };
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use chrono::{Days, Utc};
-use flashmind::memory::{EmbeddingProvider, MemoryRecord, MemorySearchResult, MemoryStore};
-use rusqlite::params;
-use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
+use chrono::{Days, NaiveDateTime, Utc};
+use flashmind::memory::{EmbeddingProvider, MemoryRecord, MemorySearchResult};
+use std::{collections::HashMap, time::Duration};
 
 /// Memories whose days are over are kept this long, then deleted.
 const ENDED_KEPT_DAYS: u64 = 30;
@@ -24,7 +23,7 @@ const CATEGORY: &str = "category";
 const SOURCE: &str = "source";
 const VALID_FROM: &str = "valid_from";
 const VALID_UNTIL: &str = "valid_until";
-/// SQLite `datetime('now')` text of the last change.
+/// `YYYY-MM-DD HH:MM:SS` in UTC of the last change.
 const UPDATED: &str = "updated";
 
 /// A fact to store or to replace a memory's text with.
@@ -64,8 +63,10 @@ pub(crate) fn validate_category(category: Option<&str>) -> Result<String> {
     }
 }
 
+const UPDATED_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+
 fn now_text() -> String {
-    Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
+    Utc::now().format(UPDATED_FORMAT).to_string()
 }
 
 /// When the store may delete a memory: a while after its days are over.
@@ -172,91 +173,6 @@ impl EmbeddingProvider for WordEmbedder {
 }
 
 impl Store {
-    pub(super) async fn open_memories(
-        path: &Path,
-        embedder: Arc<dyn EmbeddingProvider>,
-    ) -> Result<MemoryStore> {
-        Ok(MemoryStore::connect(&path.with_extension("memories.db"), embedder).await?)
-    }
-
-    /// Moves memories from the old `memories` table into the memory store,
-    /// keeping their embeddings when they fit. Each row is deleted once
-    /// copied, so a failed start picks up where it stopped.
-    pub(super) async fn move_legacy_memories(&self) -> Result<()> {
-        let rows = self
-            .db
-            .call::<_, _, rusqlite::Error>(|db| {
-                let mut stmt = db.prepare(
-                    "SELECT user_id, id, content, category, source, updated_at, valid_from, \
-                     valid_until, embedding FROM memories",
-                )?;
-                stmt.query_map([], |r| {
-                    let blob: Option<Vec<u8>> = r.get(8)?;
-                    Ok(LegacyMemory {
-                        user: r.get(0)?,
-                        id: r.get(1)?,
-                        content: r.get(2)?,
-                        category: r.get(3)?,
-                        source: r.get(4)?,
-                        updated: r.get(5)?,
-                        valid: Validity {
-                            from: parse_date(r.get(6)?),
-                            until: parse_date(r.get(7)?),
-                        },
-                        embedding: blob.map(|b| {
-                            b.as_chunks::<4>()
-                                .0
-                                .iter()
-                                .map(|c| f32::from_le_bytes(*c))
-                                .collect()
-                        }),
-                    })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()
-            })
-            .await?;
-        if rows.is_empty() {
-            return Ok(());
-        }
-        let dims = self.memories.embedder().dimensions();
-        let mut moved = 0;
-        for row in rows {
-            let meta = Meta {
-                user: &row.user,
-                category: &row.category,
-                source: MemorySource::parse(&row.source),
-                valid: row.valid,
-                updated: &row.updated,
-            };
-            let mut builder = self
-                .memories
-                .store(&row.content)
-                .expires_at_opt(expiry(&row.valid));
-            for (key, value) in meta.pairs() {
-                builder = builder.meta(key, &value);
-            }
-            if let Some(embedding) = row.embedding.filter(|e| e.len() == dims) {
-                builder = builder.embedding(embedding);
-            }
-            if let Err(error) = builder.await {
-                log::warn!("unable to move a memory, retrying on next start: {error}");
-                continue;
-            }
-            let (user, id) = (row.user, row.id);
-            self.db
-                .call::<_, _, rusqlite::Error>(move |db| {
-                    db.execute(
-                        "DELETE FROM memories WHERE user_id=? AND id=?",
-                        params![user, id],
-                    )
-                })
-                .await?;
-            moved += 1;
-        }
-        log::info!("moved {moved} memories to the memory store");
-        Ok(())
-    }
-
     /// Stores a new memory and returns its id.
     pub(crate) async fn add_memory(&self, user: &UserKey, fact: Fact<'_>) -> Result<String> {
         check_memory(fact.content)?;
@@ -468,47 +384,29 @@ impl Store {
         else {
             return Ok(false);
         };
-        let id = user.as_str().to_owned();
-        let every = format!("-{} seconds", every.as_secs());
-        Ok(self
-            .db
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.query_row(
-                    "SELECT NOT EXISTS (SELECT 1 FROM memory_curation WHERE user_id = ?1)
-                         OR EXISTS (SELECT 1 FROM memory_curation WHERE user_id = ?1
-                             AND curated_at <= datetime('now', ?2) AND curated_at < ?3)",
-                    params![id, every, changed],
-                    |r| r.get(0),
-                )
-            })
-            .await?)
+        let changed = NaiveDateTime::parse_from_str(&changed, UPDATED_FORMAT)?.and_utc();
+        Ok(sqlx::query_scalar(
+            "SELECT NOT EXISTS (SELECT 1 FROM memory_curation WHERE user_id = $1)
+                 OR EXISTS (SELECT 1 FROM memory_curation WHERE user_id = $1
+                     AND curated_at <= now() - make_interval(secs => $2) AND curated_at < $3)",
+        )
+        .bind(user.as_str())
+        .bind(seconds(every))
+        .bind(changed)
+        .fetch_one(&self.pool)
+        .await?)
     }
 
     pub(crate) async fn mark_curated(&self, user: &UserKey) -> Result<()> {
-        let user = user.as_str().to_owned();
-        self.db
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "INSERT INTO memory_curation (user_id, curated_at) VALUES (?, datetime('now'))
-                     ON CONFLICT(user_id) DO UPDATE SET curated_at=excluded.curated_at",
-                    [user],
-                )
-            })
-            .await?;
+        sqlx::query(
+            "INSERT INTO memory_curation (user_id, curated_at) VALUES ($1, now())
+             ON CONFLICT (user_id) DO UPDATE SET curated_at=excluded.curated_at",
+        )
+        .bind(user.as_str())
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
-}
-
-/// A row of the old `memories` table.
-struct LegacyMemory {
-    user: String,
-    id: String,
-    content: String,
-    category: String,
-    source: String,
-    updated: String,
-    valid: Validity,
-    embedding: Option<Vec<f32>>,
 }
 
 #[cfg(test)]

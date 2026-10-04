@@ -30,7 +30,11 @@ iroh handles NAT traversal through relay servers.
 
 Keep the same client token for future starts using your secret manager or a
 local, ignored environment file. Each configured user has a distinct random
-token of at least 32 characters. Run one server process per database.
+token of at least 32 characters.
+
+The server keeps its data in Postgres with the pgvector extension. Set
+`database_url` in the config or `DATABASE_URL` in the environment;
+`just test-db` starts a local one in Docker.
 
 ## Test the endpoint
 

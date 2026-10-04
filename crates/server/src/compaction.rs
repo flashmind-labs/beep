@@ -98,7 +98,7 @@ async fn compact(store: &Store, summarizer: &Summarizer<'_>, session: &SessionRe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{CreateRun, FinishedTurn, RunStatus};
+    use crate::store::{CreateRun, FinishedTurn, RunStatus, TestDb};
     use crate::user::User;
     use async_trait::async_trait;
     use flashmind::{
@@ -161,15 +161,9 @@ mod tests {
     }
 
     async fn make_idle(store: &Store, session: &str) {
-        let session = session.to_owned();
-        store
-            .raw()
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "UPDATE sessions SET updated_at='2000-01-01T00:00:00Z' WHERE id=?",
-                    [session],
-                )
-            })
+        sqlx::query("UPDATE sessions SET updated_at='2000-01-01T00:00:00Z' WHERE id=$1")
+            .bind(session)
+            .execute(store.pool())
             .await
             .unwrap();
     }
@@ -185,10 +179,8 @@ mod tests {
 
     #[tokio::test]
     async fn compacts_only_long_idle_sessions_and_keeps_the_transcript() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_for_test(dir.path().join("test.db"))
-            .await
-            .unwrap();
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
         let model: Model = "openai:test".parse().unwrap();
         let summarizer = || Summarizer {
             provider: &SummaryStub,
@@ -242,10 +234,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_run_during_compaction_wins() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_for_test(dir.path().join("test.db"))
-            .await
-            .unwrap();
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
         let session = save(&store, "busy", 40_000).await;
         let before = User::for_test(store.clone(), &session.user)
             .context(&session.id)

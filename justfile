@@ -42,6 +42,17 @@ server: build-server restart-server
 # Android only: rebuild, install, launch
 android: bake-profile build-android install-apk launch-app
 
+# Start a local Postgres with pgvector for the server and the tests
+test-db:
+    #!/usr/bin/env bash
+    docker start beep-pg 2>/dev/null || docker run -d --name beep-pg -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep -p 127.0.0.1:55432:5432 pgvector/pgvector:pg17
+    until docker exec beep-pg pg_isready -U beep >/dev/null 2>&1; do sleep 1; done
+    echo "export BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:55432/beep"
+
+# Run the server tests against the local Postgres
+test: test-db
+    BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:55432/beep cargo test -p beep-server
+
 # Tail server logs
 logs:
     tail -f .dev/server.log

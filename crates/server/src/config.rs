@@ -1,8 +1,9 @@
-use std::{collections::HashSet, io, path::Path, path::PathBuf};
+use std::{collections::HashSet, env, io, path::Path, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use flashmind::types::{ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
 use iroh::SecretKey;
+use secrecy::SecretString;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -13,7 +14,8 @@ pub struct Config {
     pub secret_key: Option<PathBuf>,
     /// Explicit shared account for credential-free development. Disabled by default.
     pub testing_user: Option<String>,
-    pub database: PathBuf,
+    /// Postgres connection string. Falls back to `DATABASE_URL`.
+    pub database_url: Option<SecretString>,
     pub model: String,
     /// How much the assistant thinks before answering: off, low, medium or high.
     #[serde(default = "default_reasoning")]
@@ -29,19 +31,26 @@ pub struct Config {
     /// Where Composio sends the browser after an app connects, for example a
     /// deep link back into the phone app. Composio shows its own page if unset.
     pub composio_callback_url: Option<String>,
-    /// Where the daily log files go. Defaults to `logs` next to the database.
+    /// Where the daily log files and the cron log go. Defaults to `logs`.
     pub log_dir: Option<PathBuf>,
     pub users: Vec<UserConfig>,
 }
 
 impl Config {
     pub fn log_dir(&self) -> PathBuf {
-        self.log_dir.clone().unwrap_or_else(|| {
-            self.database
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join("logs")
-        })
+        self.log_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("logs"))
+    }
+
+    /// The Postgres connection string from the config or `DATABASE_URL`.
+    pub fn database_url(&self) -> Result<SecretString> {
+        if let Some(url) = &self.database_url {
+            return Ok(url.clone());
+        }
+        env::var("DATABASE_URL")
+            .map(SecretString::from)
+            .context("set database_url in the config or DATABASE_URL")
     }
 }
 

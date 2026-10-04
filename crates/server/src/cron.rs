@@ -1,27 +1,26 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use flashmind::core::CancellationToken;
 use flashmind::cron::CronListTool;
 use flashmind::cron::{
     CronCreateTool, CronDeleteTool, CronEditTool, CronHandler, CronJob, CronLog, CronRegistry,
-    CronRunner, CronStore, JobSchedule, ScheduleOnceTool, TimezoneResolver,
+    CronRunner, CronStore, ScheduleOnceTool, TimezoneResolver,
 };
-use rusqlite::{OptionalExtension, params};
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::app::{App, Message};
 use crate::store::{CreateRun, Store};
 
-pub struct SqliteCronStore {
+/// Cron jobs kept in the `crons` table, all of them or one user's.
+pub struct BeepCronStore {
     store: Store,
     user: Option<String>,
 }
 
-impl SqliteCronStore {
+impl BeepCronStore {
     pub fn all(store: Store) -> Self {
         Self { store, user: None }
     }
@@ -34,151 +33,22 @@ impl SqliteCronStore {
     }
 }
 
-fn row_to_job(r: &rusqlite::Row) -> rusqlite::Result<CronJob> {
-    let id_str: String = r.get("id")?;
-    let user_id: String = r.get("user_id")?;
-    let label: String = r.get("label")?;
-    let prompt: String = r.get("prompt")?;
-    let schedule: String = r.get("schedule")?;
-    let enabled: bool = r.get("enabled")?;
-    let run_once: bool = r.get("run_once")?;
-    let created_at: String = r.get("created_at")?;
-    let last_run_at: Option<String> = r.get("last_run_at")?;
-
-    let id = id_str.parse::<Uuid>().unwrap_or_else(|_| Uuid::new_v4());
-    let created = DateTime::parse_from_rfc3339(&created_at)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now());
-    let last_run = last_run_at.and_then(|s| {
-        DateTime::parse_from_rfc3339(&s)
-            .map(|dt| dt.with_timezone(&Utc))
-            .ok()
-    });
-
-    Ok(CronJob {
-        id,
-        schedule: decode_schedule(schedule),
-        task: prompt,
-        enabled,
-        once: run_once,
-        metadata: json!({"user_id": user_id, "label": label}),
-        created_at: created,
-        last_run,
-    })
-}
-
-/// Reverses the encoding in `upsert`: a one-off time is stored as RFC 3339, anything else is
-/// a cron expression.
-fn decode_schedule(schedule: String) -> JobSchedule {
-    match DateTime::parse_from_rfc3339(&schedule) {
-        Ok(at) => JobSchedule::Once(at.with_timezone(&Utc)),
-        Err(_) => JobSchedule::Cron(schedule),
-    }
-}
-
-const SELECT_COLS: &str =
-    "id, user_id, label, prompt, schedule, enabled, run_once, created_at, last_run_at";
-
 #[async_trait]
-impl CronStore for SqliteCronStore {
+impl CronStore for BeepCronStore {
     async fn list(&self) -> Result<Vec<CronJob>> {
-        let user = self.user.clone();
-        Ok(self
-            .store
-            .raw()
-            .call::<_, _, rusqlite::Error>(move |db| {
-                if let Some(ref u) = user {
-                    let mut stmt = db.prepare(&format!(
-                        "SELECT {SELECT_COLS} FROM crons WHERE user_id=? ORDER BY created_at DESC LIMIT 200"
-                    ))?;
-                    stmt.query_map([u], row_to_job)?
-                        .collect::<rusqlite::Result<Vec<_>>>()
-                } else {
-                    let mut stmt = db.prepare(&format!(
-                        "SELECT {SELECT_COLS} FROM crons ORDER BY created_at DESC LIMIT 500"
-                    ))?;
-                    stmt.query_map([], row_to_job)?
-                        .collect::<rusqlite::Result<Vec<_>>>()
-                }
-            })
-            .await?)
+        self.store.cron_jobs(self.user.as_deref()).await
     }
 
     async fn get(&self, id: Uuid) -> Result<Option<CronJob>> {
-        let id_str = id.to_string();
-        let user = self.user.clone();
-        Ok(self
-            .store
-            .raw()
-            .call::<_, _, rusqlite::Error>(move |db| {
-                // A user's store only sees that user's jobs.
-                let sql = format!(
-                    "SELECT {SELECT_COLS} FROM crons WHERE id=?1 AND (?2 IS NULL OR user_id=?2)"
-                );
-                let mut stmt = db.prepare(&sql)?;
-                let job = stmt
-                    .query_row(params![id_str, user], row_to_job)
-                    .optional()?;
-                Ok(job)
-            })
-            .await?)
+        self.store.cron_job(id, self.user.as_deref()).await
     }
 
     async fn upsert(&self, job: &CronJob) -> Result<()> {
-        let id = job.id.to_string();
-        let user_id = job
-            .metadata
-            .get("user_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_owned();
-        let label = job
-            .metadata
-            .get("label")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_owned();
-        let schedule = match &job.schedule {
-            JobSchedule::Cron(expr) => expr.clone(),
-            JobSchedule::Once(dt) => dt.to_rfc3339(),
-            JobSchedule::OnWake { .. } => "on_wake".to_owned(),
-        };
-        let prompt = job.task.clone();
-        let enabled = job.enabled;
-        let run_once = job.once;
-        let created_at = job.created_at.to_rfc3339();
-        let last_run_at = job.last_run.map(|dt| dt.to_rfc3339());
-
-        self.store
-            .raw()
-            .call::<_, _, rusqlite::Error>(move |db| {
-                db.execute(
-                    "INSERT INTO crons (user_id, id, label, prompt, schedule, enabled, run_once, created_at, last_run_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                     ON CONFLICT(user_id, id) DO UPDATE SET
-                       label=?3, prompt=?4, schedule=?5, enabled=?6, run_once=?7, last_run_at=?9",
-                    params![user_id, id, label, prompt, schedule, enabled, run_once, created_at, last_run_at],
-                )?;
-                Ok(())
-            })
-            .await?;
-        Ok(())
+        self.store.upsert_cron_job(job).await
     }
 
     async fn delete(&self, id: Uuid) -> Result<bool> {
-        let id_str = id.to_string();
-        let user = self.user.clone();
-        Ok(self
-            .store
-            .raw()
-            .call::<_, _, rusqlite::Error>(move |db| {
-                let deleted = db.execute(
-                    "DELETE FROM crons WHERE id=?1 AND (?2 IS NULL OR user_id=?2)",
-                    params![id_str, user],
-                )?;
-                Ok(deleted > 0)
-            })
-            .await?)
+        self.store.delete_cron_job(id, self.user.as_deref()).await
     }
 }
 
@@ -242,13 +112,13 @@ impl TimezoneResolver for BeepTimezoneResolver {
     }
 }
 
-pub fn start(app: Arc<App>, db_path: &std::path::Path) -> (CronRunner, Arc<CronRegistry>) {
-    let store = Arc::new(SqliteCronStore::all(app.store.clone()));
+pub fn start(app: Arc<App>, log_dir: &Path) -> (CronRunner, Arc<CronRegistry>) {
+    let store = Arc::new(BeepCronStore::all(app.store.clone()));
     let registry = Arc::new(CronRegistry::new(store));
     let handler = Arc::new(BeepCronHandler { app: app.clone() });
     let cancel = CancellationToken::new();
 
-    let log_path = db_path.with_extension("cron.log");
+    let log_path = log_dir.join("cron.log");
     let log = Arc::new(CronLog::new(log_path));
 
     let tz = Arc::new(BeepTimezoneResolver { app: app.clone() });
@@ -266,7 +136,7 @@ pub fn register_tools(
     user: &str,
     cron_log: Option<Arc<CronLog>>,
 ) {
-    let cron_store = Arc::new(SqliteCronStore::for_user(store, user));
+    let cron_store = Arc::new(BeepCronStore::for_user(store, user));
     let cron_registry = Arc::new(CronRegistry::new(cron_store));
     let user_meta = json!({"user_id": user});
 
@@ -289,7 +159,9 @@ pub fn register_tools(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::store::decode_schedule;
+    use chrono::{DateTime, Utc};
+    use flashmind::cron::JobSchedule;
 
     #[test]
     fn one_off_time_reads_back_as_once() {

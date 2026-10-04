@@ -128,7 +128,7 @@ pub(crate) fn lost_login(error: &anyhow::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Store;
+    use crate::store::TestDb;
 
     #[test]
     fn redirect_must_be_loopback_http_with_port() {
@@ -143,10 +143,8 @@ mod tests {
 
     #[tokio::test]
     async fn provider_keeps_credentials_out_of_config() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open_for_test(&dir.path().join("db.sqlite"))
-            .await
-            .unwrap();
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
         let user = User::for_test(store, "alice");
         let provider = StoreProvider {
             user: Arc::downgrade(&user),
