@@ -1,14 +1,14 @@
 use anyhow::{Context, Result, bail, ensure};
 use beep_server::{
-    client::Client,
+    client::{Node, OnNotice},
     config::load_secret_key,
     protocol::{
         GetEvents, Health, ListCrons, ListIntegrations, ListMemories, ListSessions,
         StreamNotifications,
     },
 };
-use iroh::{EndpointAddr, PublicKey};
-use std::{fmt::Debug, path::Path, time::Duration};
+use iroh::PublicKey;
+use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
 
 const USAGE: &str = "usage: beep-probe NODE_ID health|sessions|memories|crons|integrations|notifications|events RUN_ID; key file from BEEP_IDENTITY, made if missing";
 
@@ -19,7 +19,12 @@ async fn main() -> Result<()> {
     let identity = std::env::var_os("BEEP_IDENTITY").context("set BEEP_IDENTITY")?;
     let identity = load_secret_key(Some(Path::new(&identity)))?;
     let node_id: PublicKey = args[0].parse().context("invalid node ID")?;
-    let c = Client::connect(EndpointAddr::new(node_id), identity).await?;
+    let on_notice: OnNotice = Arc::new(|notice| {
+        show(notice);
+        true
+    });
+    let node = Node::bind(identity, node_id, on_notice).await?;
+    let c = node.connect().await?;
     match (args[1].as_str(), args.get(2)) {
         ("health", None) => show(c.call(&Health {}).await?),
         ("sessions", None) => show(c.call(&ListSessions {}).await?),

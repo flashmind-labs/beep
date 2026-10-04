@@ -5,6 +5,7 @@ use beep_server::{
     config::{self, Config},
     decision::DecisionTool,
     memories,
+    push::Pusher,
     search::SearchTool,
     store::Store,
     transport,
@@ -74,6 +75,9 @@ async fn main() -> Result<()> {
             vision_model,
         },
     );
+    // Subscribed before users start, so notices from their first crons wait
+    // for the pusher instead of being dropped.
+    let notices = app.notifications.subscribe();
     app.start_users().await?;
     beep_server::compaction::start(app.clone());
     beep_server::titles::start(app.clone());
@@ -93,7 +97,9 @@ async fn main() -> Result<()> {
 
     log::info!("iroh endpoint bound; node_id={}", endpoint.id());
 
-    let handler = transport::BeepHandler::new(app.clone());
+    let pusher = Pusher::new(endpoint.clone());
+    pusher.start(notices);
+    let handler = transport::BeepHandler::new(app.clone(), pusher);
     let router = Router::builder(endpoint)
         .accept(transport::ALPN, handler)
         .spawn();

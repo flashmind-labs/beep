@@ -13,8 +13,6 @@ import android.content.Intent
 import android.net.Uri
 import android.content.pm.PackageManager
 import android.location.Geocoder
-import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
@@ -220,13 +218,9 @@ open class MainActivity : ComponentActivity() {
             locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
             else -> return
         }
-        try {
-            locationManager.requestLocationUpdates(provider, 60 * 1000L, 25f, object : LocationListener {
-                override fun onLocationChanged(location: Location) { latestFix = location }
-            })
-        } catch (_: Exception) {}
+        // No listener: the last known fix is read only when a report is due.
         repository.startLocationUpdates {
-            val loc = latestFix ?: try {
+            val loc = try {
                 locationManager.getLastKnownLocation(provider)
                     ?: locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                     ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
@@ -234,7 +228,6 @@ open class MainActivity : ComponentActivity() {
             loc?.let { ChatRepository.Fix(it.latitude, it.longitude, it.accuracy, placeName(it.latitude, it.longitude)) }
         }
     }
-    @Volatile private var latestFix: Location? = null
     private var namedPlace: Pair<String, String?>? = null
 
     /** "Shinjuku, Tokyo, Japan" from the phone's geocoder, reused within about 100 m. */

@@ -1,12 +1,13 @@
 use async_trait::async_trait;
 use beep_server::{
-    app::{App, ServerTools},
-    client::{Client, Replies},
+    app::{App, ServerTools, UserNotice},
+    client::{Client, Node, OnNotice, Replies},
     protocol::{
         ApiError, AppKind, CancelRun, Chat, ConnectApp, Event, GetEvents, GetRun, GetSession,
-        Health, HistoryEntry, ListApps, ListSessions, MemorySource, RunEvent, StartAppAuth,
+        Health, HistoryEntry, ListApps, ListSessions, MemorySource, Notice, RunEvent, StartAppAuth,
         SuggestPrompts,
     },
+    push::Pusher,
     starters,
     store::{CreateRun, Fact, TestDb},
     transport,
@@ -17,16 +18,19 @@ use flashmind::types::{
     StreamEvent,
 };
 use iroh::SecretKey;
+use iroh::address_lookup::MemoryLookup;
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
 use serde_json::json;
 use std::{
+    ops::Deref,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
+use tokio::{sync::mpsc, time::timeout};
 use uuid::Uuid;
 
 /// Alice's key; the server knows her by its public half.
@@ -114,8 +118,13 @@ impl Harness {
             .bind()
             .await
             .unwrap();
+        let pusher = Pusher::with_retry_waits(endpoint.clone(), vec![Duration::from_millis(200)]);
+        pusher.start(app.notifications.subscribe());
         let router = Router::builder(endpoint)
-            .accept(transport::ALPN, transport::BeepHandler::new(app.clone()))
+            .accept(
+                transport::ALPN,
+                transport::BeepHandler::new(app.clone(), pusher),
+            )
             .spawn();
         Self {
             db,
@@ -125,15 +134,80 @@ impl Harness {
         }
     }
 
-    async fn client(&self) -> Client {
+    async fn client(&self) -> Phone {
         self.client_as(alice()).await
     }
 
-    async fn client_as(&self, identity: SecretKey) -> Client {
-        Client::connect(self.router.endpoint().addr(), identity)
+    async fn client_as(&self, identity: SecretKey) -> Phone {
+        let node = self.node(identity, Arc::new(|_| true)).await;
+        let client = node.connect().await.unwrap();
+        Phone {
+            _node: node,
+            client,
+        }
+    }
+
+    async fn node(&self, identity: SecretKey, on_notice: OnNotice) -> Node {
+        Node::bind(identity, self.router.endpoint().addr(), on_notice)
             .await
             .unwrap()
     }
+
+    /// Sends `notice` to Alice the way a finished run or cron does.
+    fn notify(&self, title: &str) {
+        let notice = UserNotice {
+            user: alice().public().to_string(),
+            notice: Notice {
+                title: title.into(),
+                body: String::new(),
+                session_id: String::new(),
+                app: None,
+            },
+        };
+        self.app.notifications.send(notice).unwrap();
+    }
+
+    /// Lets the server dial `node` without a relay or pkarr.
+    fn introduce(&self, node: &Node) {
+        let lookup = MemoryLookup::new();
+        lookup.add_endpoint_info(node.endpoint().addr());
+        self.router.endpoint().address_lookup().unwrap().add(lookup);
+    }
+}
+
+/// A phone's node and its connection, dropped together.
+struct Phone {
+    _node: Node,
+    client: Client,
+}
+
+impl Deref for Phone {
+    type Target = Client;
+    fn deref(&self) -> &Client {
+        &self.client
+    }
+}
+
+/// Collects the titles of the notices a node takes. While `refuse` is set
+/// it takes none, like a phone that cannot show them yet.
+fn inbox() -> (OnNotice, mpsc::UnboundedReceiver<String>, Arc<AtomicBool>) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let refuse = Arc::new(AtomicBool::new(false));
+    let refusing = refuse.clone();
+    let on_notice: OnNotice = Arc::new(move |notice: Notice| {
+        if refusing.load(Ordering::SeqCst) {
+            return false;
+        }
+        tx.send(notice.title).is_ok()
+    });
+    (on_notice, rx, refuse)
+}
+
+async fn next_title(rx: &mut mpsc::UnboundedReceiver<String>) -> String {
+    timeout(Duration::from_secs(20), rx.recv())
+        .await
+        .expect("a notice arrives")
+        .expect("the inbox is open")
 }
 
 fn api_error(err: anyhow::Error) -> ApiError {
@@ -473,4 +547,49 @@ async fn a_key_signs_in_as_the_same_user_every_time() {
     assert_ne!(other, first);
     let users = store.user_ids().await.unwrap();
     assert!(users.contains(&first) && users.contains(&other));
+}
+
+#[tokio::test]
+async fn notices_reach_the_phone_open_idle_retried_or_after_being_away() {
+    let h = Harness::new().await;
+    let (on_notice, mut titles, refuse) = inbox();
+    let node = h
+        .node(alice(), on_notice)
+        .await
+        .with_idle_timeout(Duration::from_millis(500));
+    h.introduce(&node);
+
+    // Over the connection the phone opened.
+    let c = node.connect().await.unwrap();
+    c.call(&Health {}).await.unwrap();
+    h.notify("open");
+    assert_eq!(next_title(&mut titles).await, "open");
+
+    // The connection closes once idle, and the server dials the phone.
+    timeout(Duration::from_secs(5), async {
+        while !c.is_closed() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("an idle connection closes");
+    h.notify("dialed");
+    assert_eq!(next_title(&mut titles).await, "dialed");
+
+    // A notice the phone can't take waits for its next connection.
+    refuse.store(true, Ordering::SeqCst);
+    h.notify("queued");
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(titles.try_recv().is_err());
+    refuse.store(false, Ordering::SeqCst);
+    let c = node.connect().await.unwrap();
+    assert_eq!(next_title(&mut titles).await, "queued");
+    drop(c);
+
+    // The server keeps trying without waiting for the phone to connect.
+    refuse.store(true, Ordering::SeqCst);
+    h.notify("retried");
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    refuse.store(false, Ordering::SeqCst);
+    assert_eq!(next_title(&mut titles).await, "retried");
 }
