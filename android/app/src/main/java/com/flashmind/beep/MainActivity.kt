@@ -848,6 +848,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         // A finished tool that has something to show becomes a card; the rest stay chips.
                         val toolCards = remember(message.toolCalls) { message.toolCalls.map { it to cardFor(it) } }
                         val chips = toolCards.filter { (call, card) -> card == null && call.name != "suggest_replies" }
+                        if (!isUser && message.reasoning.isNotBlank()) ReasoningRow(message.reasoning, Modifier.padding(bottom = 4.dp))
                         if (chips.isNotEmpty()) {
                             Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 chips.forEachIndexed { i, (tc, _) -> ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size]) { repository.openBrowser(it) } }
@@ -1919,6 +1920,10 @@ private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () 
                 Text(memory.content, fontSize = 13.sp, lineHeight = 19.sp, color = if (ended) TextMuted else Color.Unspecified)
                 Spacer(Modifier.height(4.dp))
                 Text(details.joinToString(" \u00b7 "), fontSize = 11.sp, color = TextDim)
+                memory.quote?.let { quote ->
+                    Text("\u201c$quote\u201d", fontSize = 11.sp, lineHeight = 15.sp, color = TextDim, fontStyle = FontStyle.Italic,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                }
                 if (expires != null) {
                     Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.Schedule, null, Modifier.size(12.dp), tint = if (ended) TextDim else Beep.colors.accent)

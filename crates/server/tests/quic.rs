@@ -333,6 +333,7 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
         category: None,
         source: MemorySource::User {},
         valid: None,
+        origin: None,
     };
     let coffee = User::for_test(store.clone(), "alice")
         .add_memory(memory("coffee"))

@@ -109,17 +109,22 @@ class ChatRepository(private val storage: LocalStorage) {
         val before = state.value.conversations.find { it.id == id } ?: return
         if (before.busy) return
         // A turn where the model only called tools has no text, and would show as an empty
-        // reply, so its tools move onto the next reply that has text.
+        // reply, so its tools and reasoning move onto the next reply that has text.
         var pending = emptyList<ToolCall>()
+        var pendingReasoning = ""
         val messages = api(config).getSession(id).mapIndexedNotNull { i, entry ->
             when (entry) {
-                is HistoryEntry.User -> { pending = emptyList(); ChatMessage("history-$id-$i", "user", entry.content) }
+                is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "user", entry.content) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
                         ToolCall(it.callId, it.name, toolLabel(it.name), isDone = true, success = it.success, result = it.output)
                     }
-                    if (entry.content.isBlank()) { pending = tools; null }
-                    else { pending = emptyList(); ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools, memoryScore = entry.memoryScore) }
+                    val reasoning = joinReasoning(pendingReasoning, entry.reasoning)
+                    if (entry.content.isBlank()) { pending = tools; pendingReasoning = reasoning; null }
+                    else {
+                        pending = emptyList(); pendingReasoning = ""
+                        ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools, memoryScore = entry.memoryScore, reasoning = reasoning)
+                    }
                 }
             }
         }
@@ -284,11 +289,11 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     data class Memory(
         val id: String, val content: String, val category: String, val source: MemorySource,
-        val updated: String, val validFrom: String?, val validUntil: String?,
+        val updated: String, val validFrom: String?, val validUntil: String?, val quote: String?,
     )
     suspend fun listMemories(): List<Memory> {
         return api().listMemories().map {
-            Memory(it.id, it.content, it.category, it.source, it.updated, it.validFrom, it.validUntil)
+            Memory(it.id, it.content, it.category, it.source, it.updated, it.validFrom, it.validUntil, it.quote)
         }
     }
     suspend fun deleteMemory(id: String) {
@@ -662,18 +667,18 @@ class ChatRepository(private val storage: LocalStorage) {
                     val messageId = "assistant-${chat.runId}"
                     val existing = next.messages.find { it.id == messageId }
                     val newText = existing?.text.orEmpty() + event.delta
-                    val message = if (existing != null) existing.copy(text = newText)
-                        else ChatMessage(messageId, "assistant", newText)
+                    val message = if (existing != null) existing.copy(text = newText, reasoning = joinReasoning(existing.reasoning, chat.thinking))
+                        else ChatMessage(messageId, "assistant", newText, reasoning = chat.thinking.trim())
                     next = next.copy(messages = if (existing == null) next.messages + message else next.messages.map { if (it.id == messageId) message else it }, status = "Replying...", tool = "", thinking = "")
                 }
-                is RunEvent.ReasoningDelta -> next = next.copy(thinking = (chat.thinking + event.delta).takeLast(4000))
+                is RunEvent.ReasoningDelta -> next = next.copy(thinking = (chat.thinking + event.delta).takeLast(MAX_REASONING))
                 is RunEvent.ToolStarted -> {
                     val description = toolLabel(event.name).ifEmpty { "Using a tool..." }
                     val messageId = "assistant-${chat.runId}"
                     val existing = next.messages.find { it.id == messageId }
                     val tc = ToolCall(callId = event.callId, name = event.name, description = description)
-                    val msg = if (existing != null) existing.copy(toolCalls = existing.toolCalls + tc)
-                        else ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc))
+                    val msg = if (existing != null) existing.copy(toolCalls = existing.toolCalls + tc, reasoning = joinReasoning(existing.reasoning, chat.thinking))
+                        else ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc), reasoning = chat.thinking.trim())
                     next = next.copy(
                         messages = if (existing == null) next.messages + msg else next.messages.map { if (it.id == messageId) msg else it },
                         tool = description, status = "Working...", thinking = "")
@@ -754,7 +759,9 @@ class ChatRepository(private val storage: LocalStorage) {
                     // Extract any card JSON embedded in assistant text
                     val messageId = "assistant-${chat.runId}"
                     next = next.copy(
-                        messages = next.messages.map { if (it.id == messageId) extractCardsFromText(it) else it },
+                        messages = next.messages.map {
+                            if (it.id == messageId) extractCardsFromText(it).copy(reasoning = joinReasoning(it.reasoning, chat.thinking)) else it
+                        },
                         runId = "", status = "", tool = "", thinking = "", cancelRequested = false, error = when (status) {
                         "completed" -> ""
                         "cancelled" -> "Stopped"
