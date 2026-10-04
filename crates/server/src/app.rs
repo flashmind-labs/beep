@@ -291,17 +291,27 @@ impl App {
         }
     }
 
-    pub async fn notify_run_complete(&self, user: &User, run: &Run, status: RunStatus) {
+    /// Tells the phone a scheduled run finished. A completed run shows its reply,
+    /// which the prompt asks to be written as the reminder itself.
+    pub async fn notify_run_complete(
+        &self,
+        user: &User,
+        run: &Run,
+        status: RunStatus,
+        reply: &str,
+    ) {
         // Build a title from the session's first message (truncated).
         let title = match user.sessions().await {
             Ok(sessions) => sessions
                 .into_iter()
                 .find(|s| s.id == run.session_id)
                 .map(|s| s.title)
-                .unwrap_or_else(|| "Run finished".to_owned()),
-            Err(_) => "Run finished".to_owned(),
+                .unwrap_or_else(|| "Beep".to_owned()),
+            Err(_) => "Beep".to_owned(),
         };
+        let reply = notification_text(reply);
         let body = match status {
+            RunStatus::Completed if !reply.is_empty() => reply.as_str(),
             RunStatus::Completed => "Your request completed successfully.",
             RunStatus::Cancelled => "The run was cancelled.",
             RunStatus::TimedOut => "The run timed out.",
@@ -555,7 +565,7 @@ impl App {
 
         if is_cron {
             // Notify registered devices for cron-triggered runs only.
-            self.notify_run_complete(user, run, status).await;
+            self.notify_run_complete(user, run, status, &reply).await;
             // Log cron completion.
             let _ = self.store.log_cron_finish(&run.id, status, "").await;
         }
@@ -832,6 +842,20 @@ fn register_web_tools(registry: &mut ToolRegistry, key: &str) {
 
 /// `Location: Shinjuku, Tokyo, Japan (35.6938 N, 139.7034 E, 3 min ago)`.
 /// The age tells the model whether "nearby" still means where the user is.
+/// Longest notification body, in characters; the full reply stays in the chat.
+const NOTICE_CHARS: usize = 400;
+
+/// A reply as notification text: emphasis and code marks dropped, since the
+/// notification shows them literally, and cut to `NOTICE_CHARS`.
+fn notification_text(reply: &str) -> String {
+    let plain = reply.replace("**", "").replace("__", "").replace('`', "");
+    let plain = plain.trim();
+    match plain.char_indices().nth(NOTICE_CHARS) {
+        Some((end, _)) => format!("{}...", plain[..end].trim_end()),
+        None => plain.to_owned(),
+    }
+}
+
 fn location_line(loc: &Location, now: DateTime<Utc>) -> String {
     let ns = if loc.latitude >= 0.0 { "N" } else { "S" };
     let ew = if loc.longitude >= 0.0 { "E" } else { "W" };
@@ -890,5 +914,19 @@ mod tests {
             "Location: 35.6938 N, 139.7034 E (3 h ago)"
         );
         assert!(location_line(&fix(None, now), now).ends_with("(just now)"));
+    }
+
+    #[test]
+    fn notification_text_is_plain_and_short() {
+        assert_eq!(
+            notification_text("  Time to leave: **check-in** closes at `11:45`.\n"),
+            "Time to leave: check-in closes at 11:45."
+        );
+        let long = "a".repeat(NOTICE_CHARS + 10);
+        assert_eq!(
+            notification_text(&long),
+            format!("{}...", "a".repeat(NOTICE_CHARS))
+        );
+        assert_eq!(notification_text("  "), "");
     }
 }
