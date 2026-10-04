@@ -45,11 +45,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Everything that is not a conversation or one of the drawer tiles. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(status: String, onBack: () -> Unit, onBubbleSettings: () -> Unit, onConnection: () -> Unit) {
+fun SettingsScreen(status: String, repository: ChatRepository, onBack: () -> Unit, onBubbleSettings: () -> Unit, onConnection: () -> Unit) {
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(title = { Text(displayText("Settings"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
@@ -64,11 +73,43 @@ fun SettingsScreen(status: String, onBack: () -> Unit, onBubbleSettings: () -> U
             ScreenContextSettings()
             Column {
                 HorizontalDivider(color = Beep.colors.softLine)
+                AccountRow(repository)
+                HorizontalDivider(color = Beep.colors.softLine)
                 SettingsRow(Icons.Outlined.Link, "Connection", status, onConnection)
                 HorizontalDivider(color = Beep.colors.softLine)
             }
         }
     }
+}
+
+/**
+ * This phone's account name and whether its key is safe. Without the Google
+ * backup the user can save the key as a profile file, and import that file
+ * on the connection screen of a new phone.
+ */
+@Composable
+private fun AccountRow(repository: ChatRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val name by repository.accountName.collectAsState()
+    val backedUp by repository.backedUp.collectAsState()
+    var saved by remember { mutableStateOf(false) }
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) scope.launch {
+            saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(repository.exportProfile().toByteArray()) } != null
+                }.getOrDefault(false)
+            }
+            Toast.makeText(context, if (saved) "Key saved. Keep the file private." else "Could not save the key", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val detail = when {
+        backedUp == true -> "Key backed up to your Google account"
+        saved -> "Key saved to a file"
+        else -> "Key not backed up · tap to save it to a file"
+    }
+    SettingsRow(Icons.Outlined.Key, name.ifEmpty { "Account" }, detail) { export.launch("beep-$name.json") }
 }
 
 /** Which floating chat the float button opens, and whether the overlay may draw yet. */

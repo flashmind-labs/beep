@@ -19,7 +19,6 @@ Requires Rust 1.93+ and the sibling `../flashmind` repository.
 
 ```sh
 cp config.example.toml config.toml
-export BEEP_TOKEN="$(openssl rand -hex 32)"
 # Edit config.toml: set your model and provider key env var.
 cargo run -p beep-server --bin beep-server -- config.toml
 ```
@@ -28,9 +27,12 @@ The server prints its iroh node ID on startup. Use this ID to connect from
 the Android app or the probe. No TLS certificates or port forwarding needed:
 iroh handles NAT traversal through relay servers.
 
-Keep the same client token for future starts using your secret manager or a
-local, ignored environment file. Each configured user has a distinct random
-token of at least 32 characters.
+There are no accounts to configure. Each client signs in with its own iroh
+key, and a key the server has not seen before becomes a new user, shown with
+a name read from the key such as `mega-fox-trot`. Anyone who knows the node
+ID can make an account. The Android app keeps its key in Google Block Store,
+end-to-end encrypted, so a new phone on the same Google account signs back
+in. Without that backup the user can save the key to a file from Settings.
 
 The server keeps its data in Postgres with the pgvector extension. Set
 `database_url` in the config or `DATABASE_URL` in the environment;
@@ -39,8 +41,8 @@ The server keeps its data in Postgres with the pgvector extension. Set
 ## Test the endpoint
 
 ```sh
-export BEEP_TOKEN="your-token-here"
-cargo run -q -p beep-server --bin beep-probe -- NODE_ID GET /v1/health
+export BEEP_IDENTITY=.dev/probe-key  # made on first use
+cargo run -q -p beep-server --bin beep-probe -- NODE_ID health
 ```
 
 ## Development server
@@ -50,16 +52,15 @@ python3 scripts/dev-server.py \
   --openrouter-key-file .dev/openrouter-key --model z-ai/glm-5.3-flash
 ```
 
-The launcher sets up testing-mode authentication (shared development account,
-no credentials required) and writes an iroh secret key to `.dev/iroh-key`.
+The launcher writes an iroh secret key to `.dev/iroh-key`.
 Without `--openrouter-key-file` it starts a scripted test provider instead.
 
 ## Wire protocol
 
-The iroh transport uses ALPN `beep/1`. Requests are a 4-byte header length
-(big-endian) followed by a JSON header `{"m":"METHOD","p":"/path","a":"Bearer token"}`
-and an optional body. Responses are a 2-byte status code (big-endian) followed
-by the response body until stream finish.
+The iroh transport uses ALPN `beep/2`. The client's iroh key is its identity,
+so there is no login step. Each request gets its own bi stream of
+length-delimited frames: a tag byte, then a msgpack body. See
+`crates/proto/src/wire.rs`.
 
 ## Validation
 

@@ -1,6 +1,6 @@
 use crate::{
     feeds::{mail::Mailbox, slack::SLACK},
-    protocol::{Cron, Integration, MemorySource, PhoneNotification, Run, Session},
+    protocol::{Cron, Integration, MemorySource, PhoneNotification, Run, Session, names::username},
     user::UserKey,
 };
 use anyhow::{Result, bail};
@@ -9,6 +9,7 @@ use flashmind::{
     core::Conversation,
     memory::{EmbeddingProvider, MemoryStore},
 };
+use iroh::EndpointId;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use sqlx::{
@@ -36,8 +37,15 @@ pub use test_db::TestDb;
 
 /// The schema, oldest first. Embedded by hand because `sqlx::migrate!`
 /// needs sqlx's `migrate` feature, which clashes with rusqlite.
-const MIGRATIONS: &[(i64, &str, &str)] =
-    &[(1, "init", include_str!("../../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+    (1, "init", include_str!("../../migrations/0001_init.sql")),
+    (2, "users", include_str!("../../migrations/0002_users.sql")),
+    (
+        3,
+        "accounts",
+        include_str!("../../migrations/0003_accounts.sql"),
+    ),
+];
 
 fn migrator() -> Migrator {
     let migrations = MIGRATIONS
@@ -289,6 +297,26 @@ impl Store {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// The user `endpoint` signs in as: its own id, made on its first
+    /// connection.
+    pub async fn sign_in(&self, endpoint: &EndpointId) -> Result<String> {
+        let id = endpoint.to_string();
+        sqlx::query("INSERT INTO users (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING")
+            .bind(&id)
+            .bind(username(endpoint))
+            .execute(&self.pool)
+            .await?;
+        Ok(id)
+    }
+
+    /// Every account.
+    pub async fn user_ids(&self) -> Result<Vec<String>> {
+        let users = sqlx::query_scalar("SELECT id FROM users")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(users)
     }
 
     pub(crate) async fn create_run(

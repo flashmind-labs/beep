@@ -94,7 +94,7 @@ impl CronHandler for BeepCronHandler {
             log::warn!("cron job for an unknown user; job_id={}", job.id);
             return Ok(None);
         };
-        match self.app.submit(user, msg).await {
+        match self.app.submit(&user, msg).await {
             Ok(CreateRun::Created(run)) => Ok(Some(run.id)),
             Ok(_) => {
                 log::debug!("cron run not created (conflict); job_id={}", job.id);

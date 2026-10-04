@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
+import com.flashmind.beep.ffi.identityName
 import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.DeviceAnswer
@@ -99,9 +100,40 @@ class ChatRepository(private val storage: LocalStorage) {
     private val chatScreens = AtomicInteger(0)
     fun chatScreenShown(shown: Boolean) { if (shown) chatScreens.incrementAndGet() else chatScreens.decrementAndGet() }
     private fun onScreen(id: String) = chatScreens.get() > 0 && state.value.current.id == id
-    init { if (settings.value.configured) reconnect() }
+    private val cloud = CloudBackup(storage.context)
+    /** The readable name of this phone's identity, such as mega-fox-trot. */
+    val accountName = MutableStateFlow("")
+    /** Whether the identity is in the Google account backup; null until known. */
+    val backedUp = MutableStateFlow<Boolean?>(null)
+    init {
+        scope.launch {
+            restoreIdentity()
+            accountName.value = identityName(storage.identity())
+            if (settings.value.configured) reconnect()
+        }
+    }
 
-    private fun api(config: ConnectionSettings = settings.value): BeepClient = BeepClients.client(config)
+    private fun api(config: ConnectionSettings = settings.value, identity: ByteArray = storage.identity()): BeepClient =
+        BeepClients.client(config, identity)
+
+    /** On a new phone, takes the identity and server back from the Google account backup. */
+    private suspend fun restoreIdentity() {
+        if (storage.storedIdentity() != null) return
+        val backup = cloud.load() ?: return
+        storage.saveIdentity(backup.identity)
+        if (!settings.value.configured && backup.nodeId.isNotBlank()) {
+            val restored = ConnectionSettings(backup.nodeId)
+            storage.saveSettings(restored)
+            settings.value = restored
+        }
+    }
+
+    private fun backUp() {
+        scope.launch { backedUp.value = cloud.save(storage.identity(), settings.value.nodeId) }
+    }
+
+    /** The server and this phone's identity, for a user to keep when the Google backup is not available. */
+    fun exportProfile(): String = Profile(settings.value, storage.identity()).toJson()
 
     private fun update(transform: (ChatState) -> ChatState) = synchronized(lock) {
         val next = transform(mutableState.value).let { s ->
@@ -172,15 +204,22 @@ class ChatRepository(private val storage: LocalStorage) {
     fun newChat() = update { state ->
         val chat = Conversation(); state.copy(conversations = listOf(chat) + state.conversations, selected = chat.id)
     }
-    suspend fun connect(config: ConnectionSettings) {
+    /** Connects to `config`'s server, as `identity` when one was imported, else as this phone. */
+    suspend fun connect(config: ConnectionSettings, identity: ByteArray? = null) {
         require(config.configured) { "Enter your server's node ID." }
         connection.value = "Connecting…"
-        try { api(config).health() } catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
+        val current = storage.identity()
+        try { api(config, identity ?: current).health() } catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
         val effective = config
-        val changedAccount = settings.value.nodeId != effective.nodeId || settings.value.token != effective.token
+        val changedAccount = settings.value.nodeId != effective.nodeId || (identity != null && !identity.contentEquals(current))
         synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
         storage.saveSettings(effective)
         settings.value = effective
+        if (identity != null) {
+            storage.saveIdentity(identity)
+            accountName.value = identityName(identity)
+        }
+        backUp()
         if (changedAccount) {
             synchronized(lock) { changes = emptyList(); storage.saveChanges(changes) }
             update { ChatState() }
@@ -207,6 +246,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
                     NotificationService.start(storage.context)
                     connection.value = "Connected"
+                    backUp()
                     resumePending()
                     pushChanges()
                     runCatching { syncHistory(settings.value) }

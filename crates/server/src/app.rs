@@ -1,7 +1,6 @@
 use crate::{
     apps::{Composio, ComposioSettings},
     compaction::{self, Summarizer},
-    config::Auth,
     decision::DecisionTool,
     images::{self, Describer},
     live::LiveRun,
@@ -32,9 +31,15 @@ use flashmind::{
     },
 };
 use futures::StreamExt;
+use iroh::EndpointId;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
-use std::{collections::HashMap, fmt::Write, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Write,
+    sync::{Arc, Mutex as StdMutex, PoisonError},
+    time::Duration,
+};
 
 /// How long a run may go without a single event from the model or a tool.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
@@ -51,8 +56,6 @@ use uuid::Uuid;
 /// integrations every request and background task works through.
 pub struct App {
     pub store: Store,
-    /// The users allowed in and their tokens.
-    pub auth: Auth,
     /// Notices for the phones; each stream keeps only its user's.
     pub notifications: broadcast::Sender<UserNotice>,
     /// The model behind runs, titles and starters.
@@ -63,8 +66,10 @@ pub struct App {
     tools: RunTools,
     /// Describes images; without it only a model that sees them can.
     vision_model: Option<Model>,
-    /// Every configured user, by id.
-    users: HashMap<String, Arc<User>>,
+    /// What a new `User` is built from.
+    shared: Shared,
+    /// Every user signed in since the server started, by id.
+    users: StdMutex<HashMap<String, Arc<User>>>,
     /// Runs in progress, with their event feed.
     runs: Mutex<HashMap<String, Arc<LiveRun>>>,
     /// Questions sent to a phone, keyed by query id, waiting for its answer.
@@ -115,7 +120,6 @@ pub struct Message {
 impl App {
     pub fn new(
         store: Store,
-        auth: Auth,
         provider: Arc<dyn LlmProvider>,
         llm: AgentLlmConfig,
         tools: ServerTools,
@@ -133,13 +137,8 @@ impl App {
             notifications: notifications.clone(),
             composio: composio.map(|settings| Arc::new(Composio::new(settings))),
         };
-        let users = auth
-            .user_ids()
-            .map(|id| (id.to_owned(), User::new(id, &shared)))
-            .collect();
         Arc::new(Self {
             store,
-            auth,
             notifications,
             provider,
             llm,
@@ -149,20 +148,48 @@ impl App {
                 firecrawl_key,
                 decision,
             },
-            users,
+            shared,
+            users: StdMutex::new(HashMap::new()),
             runs: Mutex::new(HashMap::new()),
             device_queries: Mutex::new(HashMap::new()),
         })
     }
 
-    /// The configured user with `id`.
-    pub fn user(&self, id: &str) -> Option<&Arc<User>> {
-        self.users.get(id)
+    /// The signed in user with `id`.
+    pub fn user(&self, id: &str) -> Option<Arc<User>> {
+        self.users
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(id)
+            .cloned()
     }
 
-    /// Every configured user.
-    pub fn users(&self) -> impl Iterator<Item = &Arc<User>> {
-        self.users.values()
+    /// The user `endpoint` is, made and started on its first connection.
+    pub async fn sign_in(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Arc<User>> {
+        let id = self.store.sign_in(endpoint).await?;
+        Ok(self.start_user(&id))
+    }
+
+    /// Starts every user that signed in before, so their crons and feeds
+    /// run without a connection.
+    pub async fn start_users(self: &Arc<Self>) -> Result<()> {
+        for id in self.store.user_ids().await? {
+            self.start_user(&id);
+        }
+        Ok(())
+    }
+
+    fn start_user(self: &Arc<Self>, id: &str) -> Arc<User> {
+        let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(user) = users.get(id) {
+            return user.clone();
+        }
+        let user = User::new(id, &self.shared);
+        users.insert(id.to_owned(), user.clone());
+        // `start` only spawns, so holding the lock here is fine.
+        user.start(self);
+        log::info!("user started; user={id}");
+        user
     }
 
     pub async fn submit(self: &Arc<Self>, user: &Arc<User>, message: Message) -> Result<CreateRun> {
