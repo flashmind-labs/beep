@@ -17,7 +17,6 @@ class NotificationService : Service() {
         // A channel keeps the importance it was created with, so the quieter one needed a new id.
         private const val CHANNEL_FOREGROUND = "beep_connection"
         private const val OLD_CHANNEL_FOREGROUND = "beep_foreground"
-        private const val CHANNEL_MESSAGES = "beep_messages"
         private const val FOREGROUND_ID = 99
         private var nextId = 1000
 
@@ -41,12 +40,7 @@ class NotificationService : Service() {
             description = "Keeps Beep connected so routines and reminders arrive"
             setShowBadge(false)
         })
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_MESSAGES, "Messages",
-            NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Incoming notifications from your assistant"
-            enableLights(true)
-            lightColor = 0xFF3B9B7A.toInt()
-        })
+        ChatNotifications.ensureChannel(this)
         startForeground(FOREGROUND_ID, buildForegroundNotification())
         startStreaming()
     }
@@ -110,7 +104,7 @@ class NotificationService : Service() {
         val pending = PendingIntent.getActivity(this, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-        val notification = Notification.Builder(this, CHANNEL_MESSAGES)
+        val builder = Notification.Builder(this, ChatNotifications.CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(title)
             .setContentText(body)
@@ -118,8 +112,10 @@ class NotificationService : Service() {
             .setAutoCancel(true)
             .setColor(0xFF3B9B7A.toInt())
             .setStyle(Notification.BigTextStyle().bigText(body))
-            .build()
+        // A routine's result can be answered in place, like a chat reply.
+        if (conversationId.isNotEmpty() && notice.app == null)
+            builder.addAction(ChatNotifications.replyAction(this, conversationId))
 
-        getSystemService(NotificationManager::class.java).notify(nextId++, notification)
+        getSystemService(NotificationManager::class.java).notify(nextId++, builder.build())
     }
 }

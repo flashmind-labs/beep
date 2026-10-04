@@ -22,6 +22,7 @@ import com.flashmind.beep.proto.ScrollDirection
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 class BeepApplication : Application() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -77,6 +78,10 @@ class ChatRepository(private val storage: LocalStorage) {
     val browserUrl = MutableStateFlow<String?>(null)
     private var reconnectJob: Job? = null
     private var locationJob: Job? = null
+    /** Chat screens currently started: the app, the bubble or the panel. */
+    private val chatScreens = AtomicInteger(0)
+    fun chatScreenShown(shown: Boolean) { if (shown) chatScreens.incrementAndGet() else chatScreens.decrementAndGet() }
+    private fun onScreen(id: String) = chatScreens.get() > 0 && state.value.current.id == id
     init { if (settings.value.configured) reconnect() }
 
     private fun api(config: ConnectionSettings = settings.value): BeepClient = BeepClients.client(config)
@@ -94,6 +99,7 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     fun select(id: String) {
         update { it.copy(selected = id) }
+        ChatNotifications.cancel(storage.context, id)
         scope.launch { runCatching { loadHistory(id, settings.value) } }
     }
     private suspend fun loadHistory(id: String, config: ConnectionSettings) {
@@ -191,8 +197,11 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
     private fun resumePending() { state.value.conversations.filter { it.busy }.forEach { launchRun(it.id) } }
-    fun send(text: String, imageBase64: String? = null) {
-        val chat = state.value.current
+    fun send(text: String, imageBase64: String? = null, conversationId: String = state.value.current.id) {
+        // A routine's chat may not be listed here yet.
+        if (state.value.conversations.none { it.id == conversationId })
+            update { it.copy(conversations = it.conversations + Conversation(id = conversationId, title = text.trim().take(44))) }
+        val chat = state.value.conversations.first { it.id == conversationId }
         if (text.isBlank() || chat.busy || !settings.value.configured) return
         val request = UUID.randomUUID().toString()
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
@@ -604,8 +613,10 @@ class ChatRepository(private val storage: LocalStorage) {
 
     private fun event(id: String, runId: String, received: Event) {
         val sequence = received.seq
+        var finished = false
         updateChat(id) { chat ->
             if (runId != chat.runId || sequence <= chat.cursor) return@updateChat chat
+            finished = received.event is RunEvent.RunFinished
             check(sequence == chat.cursor + 1) { "Missing server event; reconnecting" }
             var next = chat.copy(cursor = sequence)
             when (val event = received.event) {
@@ -722,5 +733,7 @@ class ChatRepository(private val storage: LocalStorage) {
             }
             next
         }
+        if (finished && !onScreen(id))
+            state.value.conversations.find { it.id == id }?.let { ChatNotifications.show(storage.context, it) }
     }
 }

@@ -290,8 +290,16 @@ open class MainActivity : ComponentActivity() {
             }
         }
     }
-    override fun onStart() { super.onStart(); if (!bubble) Bubble.appShown(true) }
-    override fun onStop() { super.onStop(); if (!bubble) Bubble.appShown(false) }
+    override fun onStart() {
+        super.onStart()
+        if (!bubble) Bubble.appShown(true)
+        (application as BeepApplication).repository.chatScreenShown(true)
+    }
+    override fun onStop() {
+        super.onStop()
+        if (!bubble) Bubble.appShown(false)
+        (application as BeepApplication).repository.chatScreenShown(false)
+    }
     /** Float Beep: the overlay bubble when picked and allowed, otherwise the system bubble. */
     private fun float() {
         if (Bubble.kind(this) == BubbleKind.Overlay && Bubble.show(this)) {
