@@ -45,15 +45,15 @@ impl SearchTool {
                 .filter(|n| (1..=5).contains(n))
                 .ok_or("Search limit must be between 1 and 5.")?,
         };
+        // Models often send "" for "no location", so blank means none.
         let location = match args.get("location") {
             None | Some(Value::Null) => None,
-            Some(value) => Some(
-                value
-                    .as_str()
-                    .map(canonical_location)
-                    .filter(|l| !l.is_empty() && l.len() <= 200)
-                    .ok_or("Search location must be a place name of 1–200 bytes.")?,
-            ),
+            Some(value) => value
+                .as_str()
+                .map(canonical_location)
+                .filter(|l| l.len() <= 200)
+                .ok_or("Search location must be a place name of at most 200 bytes.")
+                .map(|l| Some(l).filter(|l| !l.is_empty()))?,
         };
         let country = match args.get("country") {
             None | Some(Value::Null) => None,
@@ -291,5 +291,30 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn a_blank_location_searches_without_one() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut tool = SearchTool::new("key".into()).unwrap();
+        tool.endpoint = format!("http://{}/v2/search", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut data = Vec::new();
+            while !data.ends_with(b"}") {
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap();
+                assert!(n > 0);
+                data.extend_from_slice(&buf[..n]);
+            }
+            assert!(!String::from_utf8(data).unwrap().contains("location"));
+            stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+        });
+        let error = tool
+            .search(&json!({"query":"hello","location":" , "}))
+            .await
+            .unwrap_err();
+        assert!(error.contains("rate limited"));
+        server.await.unwrap();
     }
 }
