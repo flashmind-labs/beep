@@ -113,13 +113,6 @@
             android:foregroundServiceType="dataSync" />
         <receiver android:name=".ReplyReceiver" android:exported="false" />
         <receiver android:name=".ApprovalReceiver" android:exported="false" />
-        <service android:name=".BeepNotificationListener"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
         <!-- read_screen: Android's capture prompt, then one frame from a foreground service. -->
         <activity android:name=".ScreenCaptureActivity" android:exported="false"
             android:theme="@style/Theme.Beep.Translucent" android:excludeFromRecents="true"

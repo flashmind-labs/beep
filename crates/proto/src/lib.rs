@@ -15,6 +15,7 @@ pub mod wire;
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+pub use flashmind_types::ReasoningLevel;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt;
 use uuid::Uuid;
@@ -166,8 +167,6 @@ requests! {
     /// `place` is the phone's reverse-geocoded name for the fix, such as
     /// "Shinjuku, Tokyo, Japan", when it has one.
     21 UpdateLocation { latitude: f64, longitude: f64, accuracy: f64, timezone: String, place: Option<String> } => Call<()>
-    /// Returns how many notifications were stored.
-    22 SaveNotifications { notifications: Vec<PhoneNotification> } => Call<u64>
     23 StreamNotifications {} => Stream<Notice>
     /// The curated apps the assistant can use, with this user's connection state.
     28 ListApps {} => Call<Vec<AppIntegration>>
@@ -213,6 +212,8 @@ requests! {
     /// gives it, with the reply and tool calls that followed it, from both
     /// the history and what the model sees. Fails while the chat has a run.
     44 DeleteTurn { session_id: String, timestamp: i64 } => Call<()>
+    /// Picks how long the model reasons on the caller's turns. Admins only.
+    45 SetThinking { level: ReasoningLevel } => Call<Models>
 }
 
 wire_enum! {
@@ -344,6 +345,17 @@ wire_enum! {
     }
 }
 
+/// How long the model reasons before it answers. `Off` sends no reasoning
+/// setting, so the model uses its own default.
+#[cfg(feature = "uniffi")]
+#[uniffi::remote(Enum)]
+pub enum ReasoningLevel {
+    Off,
+    Low,
+    Medium,
+    High,
+}
+
 impl ApprovalDecision {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -382,6 +394,10 @@ pub struct Models {
     pub choices: Vec<ModelChoice>,
     /// The `id` of the model the caller's turns use.
     pub selected: String,
+    /// How long the model reasons on the caller's turns. Defaults so a
+    /// phone's cached `Models` from before this field still decodes.
+    #[serde(default)]
+    pub thinking: ReasoningLevel,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -647,17 +663,6 @@ pub struct Cron {
     pub run_once: bool,
     pub last_run_at: Option<String>,
     pub next_run_at: Option<String>,
-}
-
-/// A notification captured on the phone and uploaded for the assistant.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PhoneNotification {
-    pub app: String,
-    pub title: String,
-    pub text: String,
-    /// Milliseconds since the Unix epoch.
-    pub timestamp: i64,
 }
 
 /// A message the server pushes to the user's open notification streams.

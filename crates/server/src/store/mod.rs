@@ -1,8 +1,6 @@
 use crate::{
     feeds::{mail::Mailbox, slack::SLACK},
-    protocol::{
-        Cron, MemorySource, PermissionLevel, PhoneNotification, Run, Session, names::username,
-    },
+    protocol::{Cron, MemorySource, PermissionLevel, Run, Session, names::username},
     user::UserKey,
 };
 use anyhow::{Result, bail};
@@ -77,6 +75,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         9,
         "turn_models",
         include_str!("../../migrations/0009_turn_models.sql"),
+    ),
+    (
+        10,
+        "drop_notifications",
+        include_str!("../../migrations/0010_drop_notifications.sql"),
+    ),
+    (
+        11,
+        "user_thinking",
+        include_str!("../../migrations/0011_user_thinking.sql"),
     ),
 ];
 
@@ -380,6 +388,24 @@ impl Store {
         sqlx::query("UPDATE users SET model=$2 WHERE id=$1")
             .bind(user.as_str())
             .bind(model)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The reasoning level the user picked, if any.
+    pub(crate) async fn user_thinking(&self, user: &UserKey) -> Result<Option<String>> {
+        let thinking = sqlx::query_scalar("SELECT thinking FROM users WHERE id=$1")
+            .bind(user.as_str())
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(thinking.flatten())
+    }
+
+    pub(crate) async fn set_user_thinking(&self, user: &UserKey, thinking: &str) -> Result<()> {
+        sqlx::query("UPDATE users SET thinking=$2 WHERE id=$1")
+            .bind(user.as_str())
+            .bind(thinking)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -1401,85 +1427,6 @@ impl Store {
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(timezone.unwrap_or_else(|| "UTC".into()))
-    }
-
-    pub(crate) async fn save_notifications(
-        &self,
-        user: &UserKey,
-        notifications: Vec<PhoneNotification>,
-    ) -> Result<usize> {
-        let mut tx = self.pool.begin().await?;
-        let mut count = 0;
-        for n in &notifications {
-            if n.app.is_empty() || n.timestamp == 0 {
-                continue;
-            }
-            let inserted = sqlx::query(
-                "INSERT INTO notifications (id, user_id, app, title, text, timestamp)
-                 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-            )
-            .bind(Uuid::new_v4().to_string())
-            .bind(user.as_str())
-            .bind(&n.app)
-            .bind(&n.title)
-            .bind(&n.text)
-            .bind(n.timestamp)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-            count += usize::try_from(inserted)?;
-        }
-        tx.commit().await?;
-        Ok(count)
-    }
-
-    pub(crate) async fn query_notifications(
-        &self,
-        user: &UserKey,
-        app: Option<&str>,
-        since_minutes: Option<i64>,
-        keyword: Option<&str>,
-        limit: Option<i64>,
-    ) -> Result<Vec<Value>> {
-        let since_minutes = since_minutes.unwrap_or(60);
-        let limit = limit.unwrap_or(100).min(500);
-        let cutoff_ms = Utc::now().timestamp_millis() - since_minutes * 60 * 1000;
-        let rows = sqlx::query(
-            "SELECT app, title, text, timestamp FROM notifications
-             WHERE user_id=$1 AND timestamp>=$2
-               AND ($3::text IS NULL OR app=$3 OR strpos(lower(app), lower($3)) > 0)
-               AND ($4::text IS NULL OR strpos(lower(title), lower($4)) > 0
-                    OR strpos(lower(text), lower($4)) > 0)
-             ORDER BY timestamp DESC LIMIT $5",
-        )
-        .bind(user.as_str())
-        .bind(cutoff_ms)
-        .bind(app)
-        .bind(keyword)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(|r| {
-                Ok(json!({
-                    "app": r.try_get::<String, _>(0)?,
-                    "title": r.try_get::<Option<String>, _>(1)?,
-                    "text": r.try_get::<Option<String>, _>(2)?,
-                    "timestamp": r.try_get::<i64, _>(3)?,
-                }))
-            })
-            .collect()
-    }
-
-    pub async fn purge_old_notifications(&self) -> Result<u64> {
-        let cutoff_ms = Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000;
-        Ok(
-            sqlx::query("DELETE FROM notifications WHERE timestamp < $1")
-                .bind(cutoff_ms)
-                .execute(&self.pool)
-                .await?
-                .rows_affected(),
-        )
     }
 
     pub(crate) async fn create_habit(

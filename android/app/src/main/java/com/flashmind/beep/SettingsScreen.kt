@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.flashmind.beep.proto.ModelChoice
 import com.flashmind.beep.proto.Models
+import com.flashmind.beep.proto.ReasoningLevel
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -153,7 +155,7 @@ private fun BubblePicker(onBubbleSettings: () -> Unit) {
 }
 
 /**
- * The model an admin's own turns run on. The server sends choices only to
+ * The model and thinking level an admin's own turns run on. The server sends choices only to
  * admins, so everyone else never sees this section.
  */
 @Composable
@@ -172,6 +174,15 @@ private fun ModelPicker(repository: ChatRepository) {
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { repository.setModel(choice.id) } }
                 .onSuccess { models = it; Toast.makeText(context, "Model set for your turns", Toast.LENGTH_SHORT).show() }
+                .onFailure { models = current; Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
+        }
+    }
+    fun think(level: ReasoningLevel) {
+        if (level == current.thinking) return
+        models = current.copy(thinking = level)
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { repository.setThinking(level) } }
+                .onSuccess { models = it; Toast.makeText(context, "Thinking set for your turns", Toast.LENGTH_SHORT).show() }
                 .onFailure { models = current; Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
         }
     }
@@ -195,6 +206,15 @@ private fun ModelPicker(repository: ChatRepository) {
                     }
                     if (selected) Icon(Icons.Outlined.Check, "Selected", Modifier.size(16.dp), tint = Beep.colors.ink)
                 }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Thinking", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ReasoningLevel.entries.forEach { level ->
+                FilterChip(selected = level == current.thinking, onClick = { think(level) },
+                    label = { Text(level.name.lowercase().replaceFirstChar { it.uppercase() }) })
             }
         }
         Spacer(Modifier.height(6.dp))

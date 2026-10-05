@@ -33,8 +33,8 @@ use flashmind::{
         search_read::WebSearchReadTool,
     },
     types::{
-        AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, Model, ToolCall,
-        ToolRegistry, tool::ToolResult,
+        AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, Model, ReasoningLevel,
+        ToolCall, ToolRegistry, tool::ToolResult,
     },
 };
 use futures::StreamExt;
@@ -576,6 +576,22 @@ impl App {
         self.models.for_user(user.id(), picked.as_deref()).clone()
     }
 
+    /// How long the model reasons on `user`'s turns: their pick when they are
+    /// an admin, else the config's.
+    pub(crate) async fn thinking_for(&self, user: &User) -> ReasoningLevel {
+        if !self.models.is_admin(user.id()) {
+            return self.llm.reasoning;
+        }
+        let picked = user.thinking().await.unwrap_or_else(|e| {
+            log::warn!(
+                "reading the picked thinking failed; user={}: {e:#}",
+                user.id()
+            );
+            None
+        });
+        picked.unwrap_or(self.llm.reasoning)
+    }
+
     /// The model that describes images: the configured vision model, or
     /// `own`, the assistant's, when it sees images.
     fn describer(&self, user: &User, own: &Model, sees_images: bool) -> Option<Describer> {
@@ -627,7 +643,11 @@ impl App {
             Some(model) => model,
             None => self.model_for(user).await,
         };
-        let mut llm = self.llm.with_model(model.clone()).with_user(user.id());
+        let mut llm = self
+            .llm
+            .with_model(model.clone())
+            .with_user(user.id())
+            .with_reasoning(self.thinking_for(user).await);
         if let Some(routing) = self.models.routing(&model) {
             llm.provider_preferences = Some(routing.clone());
         }

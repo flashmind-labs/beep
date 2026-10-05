@@ -11,10 +11,10 @@ use beep_proto::{
     DeleteSession, DeleteSessions, DeleteTurn, DeviceAnswer, DeviceResult, DisconnectApp, Event,
     ExistingSessions, FinishAppAuth, ForegroundApp, GetAppPermissions, GetEvents, GetModels,
     GetRun, GetSession, Health, HistoryEntry, ListApps, ListCrons, ListMemories, ListSessions,
-    Memory, Models, Notice, PermissionLevel, PhoneNotification, PinSession, PromptSuggestions,
-    RegisterDevice, RenameSession, Run, RunCron, SaveNotifications, Session, SetAppPermissions,
-    SetModel, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron,
-    UpdateLocation, UpdateMemory,
+    Memory, Models, Notice, PermissionLevel, PinSession, PromptSuggestions, ReasoningLevel,
+    RegisterDevice, RenameSession, Run, RunCron, Session, SetAppPermissions, SetModel, SetThinking,
+    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation,
+    UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
 };
@@ -32,6 +32,7 @@ use tokio::{
 use uuid::Uuid;
 
 uniffi::setup_scaffolding!();
+uniffi::use_remote_type!(beep_proto::ReasoningLevel);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
@@ -438,13 +439,6 @@ impl BeepClient {
         .await
     }
 
-    pub async fn save_notifications(
-        &self,
-        notifications: Vec<PhoneNotification>,
-    ) -> Result<u64, BeepError> {
-        self.call(SaveNotifications { notifications }).await
-    }
-
     /// The curated app list with each app's connection state.
     pub async fn list_apps(&self) -> Result<Vec<AppIntegration>, BeepError> {
         self.call(ListApps {}).await
@@ -473,6 +467,11 @@ impl BeepClient {
     /// Picks the model for this user's turns, by `ModelChoice::id`.
     pub async fn set_model(&self, id: String) -> Result<Models, BeepError> {
         self.call(SetModel { id }).await
+    }
+
+    /// Picks how long the model reasons on this user's turns.
+    pub async fn set_thinking(&self, level: ReasoningLevel) -> Result<Models, BeepError> {
+        self.call(SetThinking { level }).await
     }
 
     /// `allowed` names, by tool, the actions that run without asking.
@@ -562,6 +561,7 @@ mod tests {
             models: Some(Models {
                 choices: Vec::new(),
                 selected: "model-a".into(),
+                thinking: ReasoningLevel::Medium,
             }),
             ..ListCache::default()
         };

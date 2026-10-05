@@ -54,7 +54,6 @@ pub fn router() -> Router {
         .call(register_device)
         .call(unregister_device)
         .call(update_location)
-        .call(save_notifications)
         .stream(stream_notifications)
         .call(list_apps)
         .call(connect_app)
@@ -67,6 +66,7 @@ pub fn router() -> Router {
         .call(answer_approval)
         .call(get_models)
         .call(set_model)
+        .call(set_thinking)
         .call(existing_sessions)
         .call(delete_turn)
 }
@@ -376,7 +376,8 @@ async fn disconnect_app(cx: Cx, DisconnectApp { slug }: DisconnectApp) -> Reply<
 
 async fn get_models(cx: Cx, _: GetModels) -> Reply<Models> {
     let selected = cx.app.model_for(&cx.user).await;
-    Ok(cx.app.models.for_picker(cx.user.id(), &selected))
+    let thinking = cx.app.thinking_for(&cx.user).await;
+    Ok(cx.app.models.for_picker(cx.user.id(), &selected, thinking))
 }
 
 async fn set_model(cx: Cx, SetModel { id }: SetModel) -> Reply<Models> {
@@ -391,7 +392,18 @@ async fn set_model(cx: Cx, SetModel { id }: SetModel) -> Reply<Models> {
         .clone();
     cx.user.set_model(&model).await?;
     log::info!("model picked; user={} model={model}", cx.user.id());
-    Ok(cx.app.models.for_picker(cx.user.id(), &model))
+    let thinking = cx.app.thinking_for(&cx.user).await;
+    Ok(cx.app.models.for_picker(cx.user.id(), &model, thinking))
+}
+
+async fn set_thinking(cx: Cx, SetThinking { level }: SetThinking) -> Reply<Models> {
+    if !cx.app.models.is_admin(cx.user.id()) {
+        return Err(ApiError::Unauthorized {});
+    }
+    cx.user.set_thinking(level).await?;
+    log::info!("thinking picked; user={} level={level}", cx.user.id());
+    let selected = cx.app.model_for(&cx.user).await;
+    Ok(cx.app.models.for_picker(cx.user.id(), &selected, level))
 }
 
 async fn get_app_permissions(
@@ -648,11 +660,6 @@ async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
     };
     cx.user.update_location(&fix).await?;
     Ok(())
-}
-
-async fn save_notifications(cx: Cx, req: SaveNotifications) -> Reply<u64> {
-    let count = cx.user.save_notifications(req.notifications).await?;
-    Ok(count as u64)
 }
 
 /// Pushes the user's notices until the connection closes.

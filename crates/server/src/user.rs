@@ -26,7 +26,7 @@ use crate::{
     permissions::Rules,
     protocol::{
         ApiError, AppIntegration, AppKind, ConnectLink, Cron, Memory, MemorySource, Notice,
-        PhoneNotification, PromptSuggestions, Run, Session,
+        PromptSuggestions, Run, Session,
     },
     starters::{Cached, FALLBACK_FRESH, FRESH, Generator, StarterContext, TIMEOUT, fallback},
     store::{
@@ -45,7 +45,7 @@ use flashmind::{
         composio::{ComposioClient, make_composio_tool_wrappers},
         mcp::McpRegistry,
     },
-    types::{Model, Tool},
+    types::{Model, ReasoningLevel, Tool},
 };
 use secrecy::ExposeSecret;
 use serde_json::Value;
@@ -557,6 +557,18 @@ impl User {
             .await
     }
 
+    /// The reasoning level the user picked, if any.
+    pub(crate) async fn thinking(&self) -> Result<Option<ReasoningLevel>> {
+        let picked = self.store.user_thinking(&self.key).await?;
+        Ok(picked.and_then(|level| level.parse().ok()))
+    }
+
+    pub(crate) async fn set_thinking(&self, level: ReasoningLevel) -> Result<()> {
+        self.store
+            .set_user_thinking(&self.key, &level.to_string())
+            .await
+    }
+
     pub(crate) async fn save_app_permissions(&self, row: &AppPermissionRow) -> Result<()> {
         self.store.save_app_permissions(&self.key, row).await
     }
@@ -579,26 +591,6 @@ impl User {
     /// The user's timezone name from their last location, `UTC` when unknown.
     pub async fn get_timezone(&self) -> Result<String> {
         self.store.get_timezone(&self.key).await
-    }
-
-    /// Stores notifications sent by the phone and returns how many were new.
-    pub async fn save_notifications(&self, notifications: Vec<PhoneNotification>) -> Result<usize> {
-        self.store
-            .save_notifications(&self.key, notifications)
-            .await
-    }
-
-    /// Stored notifications matching every filter given, newest first.
-    pub async fn query_notifications(
-        &self,
-        app: Option<&str>,
-        since_minutes: Option<i64>,
-        keyword: Option<&str>,
-        limit: Option<i64>,
-    ) -> Result<Vec<Value>> {
-        self.store
-            .query_notifications(&self.key, app, since_minutes, keyword, limit)
-            .await
     }
 
     /// Starts tracking a habit and returns its id.
