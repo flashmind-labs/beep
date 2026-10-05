@@ -50,7 +50,6 @@ pub fn registry(
         }));
     }
     registry.register(Arc::new(progress::TaskProgressTool));
-    registry.register(Arc::new(suggest::SuggestRepliesTool));
     registry.register(Arc::new(browser::BrowserTool {
         app: app.clone(),
         run_id: run_id.to_owned(),
