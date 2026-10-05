@@ -47,6 +47,7 @@ pub fn router() -> Router {
         .call(toggle_cron)
         .call(delete_cron)
         .call(update_cron)
+        .call(run_cron)
         .call(register_device)
         .call(unregister_device)
         .call(update_location)
@@ -438,6 +439,19 @@ async fn update_cron(cx: Cx, req: UpdateCron) -> Reply<()> {
         .update_cron(&req.id, req.enabled, label, schedule)
         .await?;
     found(updated)
+}
+
+async fn run_cron(cx: Cx, RunCron { id }: RunCron) -> Reply<String> {
+    let uuid = id.parse().map_err(|_| ApiError::NotFound {})?;
+    let job = cx.user.cron_job(uuid).await?.ok_or(ApiError::NotFound {})?;
+    let run = cron::run_job(&cx.app, &cx.user, &job)
+        .await?
+        .ok_or_else(|| ApiError::bad_request("the routine could not start"))?;
+    // A one-off reminder that ran early is done; leaving it would run it again.
+    if job.once {
+        cx.user.delete_cron(&id).await?;
+    }
+    Ok(run.session_id)
 }
 
 async fn register_device(cx: Cx, req: RegisterDevice) -> Reply<()> {

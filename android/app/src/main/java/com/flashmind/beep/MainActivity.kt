@@ -490,7 +490,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         when (currentScreen) {
             Screen.Memories -> MemoriesScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat },
-                onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat })
+                onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat },
+                onOpenChat = { id -> repository.select(id); screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat }, onCustom = { screen = Screen.CustomIntegrations })
             Screen.CustomIntegrations -> IntegrationsScreen(repository, onBack = { screen = Screen.Integrations })
             Screen.Settings -> SettingsScreen(status, repository, onBack = { screen = Screen.Chat },
@@ -1956,7 +1957,7 @@ private const val SHOWN_TOOLS = 3
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBeep: () -> Unit) {
+private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBeep: () -> Unit, onOpenChat: (String) -> Unit) {
     var crons by remember { mutableStateOf<List<ChatRepository.Cron>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
@@ -2009,6 +2010,12 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBee
                                         catch (e: Exception) { error = e.message.orEmpty() }
                                     }
                                 }, modifier = Modifier.height(28.dp), colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok, uncheckedTrackColor = Border))
+                                IconButton(onClick = { scope.launch {
+                                    try { onOpenChat(withContext(Dispatchers.IO) { repository.runCron(cron.id) }) }
+                                    catch (e: Exception) { error = e.message.orEmpty() }
+                                } }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Outlined.PlayArrow, "Run now", Modifier.size(18.dp), tint = Beep.colors.accent)
+                                }
                                 IconButton(onClick = { scope.launch {
                                     try { withContext(Dispatchers.IO) { repository.deleteCron(cron.id) }; refresh() }
                                     catch (e: Exception) { error = e.message.orEmpty() }

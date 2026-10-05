@@ -388,6 +388,8 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun deleteCron(id: String) {
         api().deleteCron(id)
     }
+    /** Runs a routine now and returns the chat it ran in. */
+    suspend fun runCron(id: String): String = api().runCron(id)
     suspend fun toggleCron(id: String, enabled: Boolean) {
         api().updateCron(id, enabled, null, null)
     }
