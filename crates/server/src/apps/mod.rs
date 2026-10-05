@@ -13,10 +13,11 @@ use crate::{
     protocol::{ApiError, AppKind},
 };
 use anyhow::{Context, Result, bail};
-use flashmind::tools::composio::{ComposioClient, SessionToolkits};
+use flashmind::tools::composio::{ComposioClient, ComposioToolDef, SessionToolkits};
 use futures::future::join_all;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
+use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     time::{Duration, Instant},
@@ -36,45 +37,205 @@ pub(crate) struct CatalogApp {
     pub(crate) name: &'static str,
     pub(crate) description: &'static str,
     pub(crate) kind: AppKind,
+    /// The Composio tools the agent gets once the app is connected. Every
+    /// tool's schema goes out on each model request, and an app's full set
+    /// runs to tens of thousands of tokens, so only the common ones are
+    /// picked.
+    pub(crate) tools: &'static [&'static str],
 }
 
-const fn composio(slug: &'static str, name: &'static str, description: &'static str) -> CatalogApp {
+const fn composio(
+    slug: &'static str,
+    name: &'static str,
+    description: &'static str,
+    tools: &'static [&'static str],
+) -> CatalogApp {
     CatalogApp {
         slug,
         name,
         description,
         kind: AppKind::Composio {},
+        tools,
     }
 }
 
 /// Shown in this order.
 pub(crate) const CATALOG: &[CatalogApp] = &[
-    composio("gmail", "Gmail", "Read, search and send email"),
+    composio(
+        "gmail",
+        "Gmail",
+        "Read, search and send email",
+        &[
+            "GMAIL_FETCH_EMAILS",
+            "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+            "GMAIL_SEND_EMAIL",
+            "GMAIL_REPLY_TO_THREAD",
+            "GMAIL_CREATE_EMAIL_DRAFT",
+            "GMAIL_MOVE_TO_TRASH",
+            "GMAIL_SEARCH_PEOPLE",
+        ],
+    ),
     composio(
         "googlecalendar",
         "Google Calendar",
         "See and schedule events",
+        &[
+            "GOOGLECALENDAR_EVENTS_LIST_ALL_CALENDARS",
+            "GOOGLECALENDAR_CREATE_EVENT",
+            "GOOGLECALENDAR_PATCH_EVENT",
+            "GOOGLECALENDAR_DELETE_EVENT",
+            "GOOGLECALENDAR_FREE_BUSY_QUERY",
+        ],
     ),
-    composio("notion", "Notion", "Search and update pages"),
-    composio("googledrive", "Google Drive", "Find and read your files"),
-    composio("outlook", "Outlook", "Email, calendar and contacts"),
+    composio(
+        "notion",
+        "Notion",
+        "Search and update pages",
+        &[
+            "NOTION_SEARCH_NOTION_PAGE",
+            "NOTION_GET_PAGE_MARKDOWN",
+            "NOTION_CREATE_NOTION_PAGE",
+            "NOTION_ADD_MULTIPLE_PAGE_CONTENT",
+            "NOTION_UPDATE_PAGE",
+            "NOTION_QUERY_DATABASE",
+            "NOTION_INSERT_ROW_FROM_NL",
+        ],
+    ),
+    composio(
+        "googledrive",
+        "Google Drive",
+        "Find and read your files",
+        &[
+            "GOOGLEDRIVE_LIST_FILES",
+            "GOOGLEDRIVE_GET_FILE_METADATA",
+            "GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE",
+            "GOOGLEDRIVE_DOWNLOAD_FILE",
+        ],
+    ),
+    composio(
+        "outlook",
+        "Outlook",
+        "Email, calendar and contacts",
+        &[
+            "OUTLOOK_QUERY_EMAILS",
+            "OUTLOOK_SEND_EMAIL",
+            "OUTLOOK_REPLY_EMAIL",
+            "OUTLOOK_CREATE_DRAFT",
+            "OUTLOOK_MOVE_MESSAGE",
+            "OUTLOOK_GET_CALENDAR_VIEW",
+            "OUTLOOK_CALENDAR_CREATE_EVENT",
+            "OUTLOOK_DECLINE_EVENT",
+        ],
+    ),
     composio(
         "microsoft_teams",
         "Microsoft Teams",
         "Read and send messages",
+        &[
+            "MICROSOFT_TEAMS_SEARCH_MESSAGES",
+            "MICROSOFT_TEAMS_CHATS_GET_ALL_CHATS",
+            "MICROSOFT_TEAMS_GET_CHAT_MESSAGE",
+            "MICROSOFT_TEAMS_TEAMS_LIST_CHANNEL_MESSAGES",
+            "MICROSOFT_TEAMS_TEAMS_POST_CHAT_MESSAGE",
+        ],
     ),
-    composio("one_drive", "OneDrive", "Find and read your files"),
-    composio("excel", "Excel", "Read and edit workbooks"),
-    composio("share_point", "SharePoint", "Sites, lists and documents"),
-    composio(SLACK, "Slack", "Read and send messages"),
-    composio("github", "GitHub", "Issues, pull requests and repos"),
-    composio("linear", "Linear", "Track and update issues"),
-    composio("todoist", "Todoist", "Manage tasks and projects"),
+    composio(
+        "one_drive",
+        "OneDrive",
+        "Find and read your files",
+        &[
+            "ONE_DRIVE_SEARCH_DRIVE_ITEMS",
+            "ONE_DRIVE_GET_RECENT_ITEMS",
+            "ONE_DRIVE_GET_SHARED_ITEMS",
+            "ONE_DRIVE_GET_ITEM",
+            "ONE_DRIVE_DOWNLOAD_FILE",
+        ],
+    ),
+    composio(
+        "excel",
+        "Excel",
+        "Read and edit workbooks",
+        &[
+            "EXCEL_SEARCH_FILES",
+            "EXCEL_GET_WORKSHEET_USED_RANGE",
+            "EXCEL_LIST_TABLE_COLUMNS",
+            "EXCEL_INSERT_RANGE",
+        ],
+    ),
+    composio(
+        "share_point",
+        "SharePoint",
+        "Sites, lists and documents",
+        &[
+            "SHARE_POINT_SEARCH_FILES",
+            "SHARE_POINT_LIST_SITES",
+            "SHARE_POINT_GET_SITE_PAGE_CONTENT",
+            "SHARE_POINT_GET_FILE_BY_SERVER_RELATIVE_URL",
+            "SHARE_POINT_CREATE_LIST_ITEM_BY_ID",
+            "SHARE_POINT_UPDATE_LIST_ITEM",
+        ],
+    ),
+    composio(
+        SLACK,
+        "Slack",
+        "Read and send messages",
+        &[
+            "SLACK_SEARCH_MESSAGES",
+            "SLACK_FETCH_CONVERSATION_HISTORY",
+            "SLACK_LIST_UNREAD_CHANNEL_MESSAGES",
+            "SLACK_FIND_CHANNELS",
+            "SLACK_FIND_USERS",
+            "SLACK_SEND_MESSAGE",
+        ],
+    ),
+    composio(
+        "github",
+        "GitHub",
+        "Issues, pull requests and repos",
+        &[
+            "GITHUB_SEARCH_ISSUES",
+            "GITHUB_GET_AN_ISSUE",
+            "GITHUB_GET_ISSUE_COMMENTS",
+            "GITHUB_CREATE_AN_ISSUE",
+            "GITHUB_CREATE_AN_ISSUE_COMMENT",
+            "GITHUB_LIST_PULL_REQUESTS",
+            "GITHUB_GET_A_PULL_REQUEST",
+            "GITHUB_LIST_NOTIFICATIONS",
+            "GITHUB_GET_REPOSITORY_CONTENT",
+        ],
+    ),
+    composio(
+        "linear",
+        "Linear",
+        "Track and update issues",
+        &[
+            "LINEAR_SEARCH_ISSUES",
+            "LINEAR_GET_LINEAR_ISSUE",
+            "LINEAR_CREATE_LINEAR_ISSUE",
+            "LINEAR_UPDATE_ISSUE",
+            "LINEAR_LIST_COMMENTS",
+            "LINEAR_CREATE_LINEAR_COMMENT",
+        ],
+    ),
+    composio(
+        "todoist",
+        "Todoist",
+        "Manage tasks and projects",
+        &[
+            "TODOIST_FILTER_TASKS",
+            "TODOIST_GET_ALL_TASKS",
+            "TODOIST_GET_ALL_PROJECTS",
+            "TODOIST_CREATE_TASK",
+            "TODOIST_UPDATE_TASK",
+            "TODOIST_CLOSE_TASK",
+        ],
+    ),
     CatalogApp {
         slug: "fastmail",
         name: "Fastmail",
         description: "Email, contacts and calendar",
         kind: AppKind::Fastmail {},
+        tools: &[],
     },
 ];
 
@@ -107,6 +268,46 @@ struct ToolkitDetails {
 struct ToolkitMeta {
     #[serde(default)]
     logo: Option<String>,
+}
+
+/// A page of `GET /tools`.
+#[derive(Deserialize)]
+struct ToolList {
+    #[serde(default)]
+    items: Vec<ToolItem>,
+}
+
+#[derive(Deserialize)]
+struct ToolItem {
+    slug: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    input_parameters: Value,
+    #[serde(default)]
+    toolkit: Option<ToolkitRef>,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ToolkitRef {
+    slug: String,
+}
+
+impl From<ToolItem> for ComposioToolDef {
+    fn from(item: ToolItem) -> Self {
+        Self {
+            slug: item.slug,
+            display_name: item.name,
+            description: item.description,
+            input_schema: item.input_parameters,
+            toolkit_slug: item.toolkit.map(|toolkit| toolkit.slug),
+            tags: item.tags,
+        }
+    }
 }
 
 /// The Composio account every user shares, with its logo cache.
@@ -167,6 +368,31 @@ impl Composio {
             });
         }
         logos
+    }
+
+    /// The definitions of the Composio tools named in `slugs`, in one request.
+    pub(crate) async fn tools(&self, slugs: &[&str]) -> Result<Vec<ComposioToolDef>> {
+        if slugs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let response = self
+            .http
+            .get(format!("{COMPOSIO_URL}/tools"))
+            .header("x-api-key", self.settings.key.expose_secret())
+            .query(&[
+                ("tool_slugs", slugs.join(",")),
+                ("limit", slugs.len().to_string()),
+            ])
+            .timeout(TOOLS_TIMEOUT)
+            .send()
+            .await
+            .context("request failed")?;
+        let status = response.status();
+        if !status.is_success() {
+            bail!("Composio returned {status}");
+        }
+        let page: ToolList = response.json().await.context("invalid tool list")?;
+        Ok(page.items.into_iter().map(ComposioToolDef::from).collect())
     }
 
     async fn fetch_logo(&self, slug: &str) -> Result<Option<String>> {
@@ -274,6 +500,25 @@ mod tests {
     };
     use serde_json::json;
     use std::sync::Arc;
+
+    #[test]
+    fn composio_apps_pick_their_own_tools() {
+        for app in CATALOG {
+            if app.kind != (AppKind::Composio {}) {
+                assert!(app.tools.is_empty(), "{}", app.slug);
+                continue;
+            }
+            assert!(!app.tools.is_empty(), "{} has no tools", app.slug);
+            let prefix = format!("{}_", app.slug.to_uppercase());
+            for tool in app.tools {
+                assert!(
+                    tool.starts_with(&prefix),
+                    "{tool} is not a {} tool",
+                    app.slug
+                );
+            }
+        }
+    }
 
     async fn alice() -> (Arc<User>, Store, TestDb) {
         let db = TestDb::new().await.unwrap();

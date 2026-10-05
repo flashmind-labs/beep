@@ -45,12 +45,11 @@ use flashmind::{
     },
     types::Tool,
 };
-use futures::future::try_join_all;
 use secrecy::ExposeSecret;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
-    fmt, slice,
+    fmt,
     sync::{Arc, Mutex, PoisonError, Weak},
     time::{Duration, Instant},
 };
@@ -1061,22 +1060,17 @@ impl User {
         let Some(client) = self.composio_client() else {
             return Vec::new();
         };
+        let Some(composio) = &self.composio else {
+            return Vec::new();
+        };
         let fetch = async {
-            let toolkits: Vec<String> = connected_slugs(&client, self.id())
-                .await?
-                .into_iter()
-                .filter(|slug| {
-                    catalog_app(slug).is_some_and(|app| app.kind == AppKind::Composio {})
-                })
+            let connected = connected_slugs(&client, self.id()).await?;
+            let slugs: Vec<&str> = connected
+                .iter()
+                .filter_map(|slug| catalog_app(slug))
+                .flat_map(|app| app.tools.iter().copied())
                 .collect();
-            // Composio takes one toolkit_slug per request and rejects a
-            // repeated one, so each app is listed on its own.
-            let pages =
-                try_join_all(toolkits.iter().map(|toolkit| {
-                    client.list_tools_tagged(slice::from_ref(toolkit), &["important"])
-                }))
-                .await?;
-            anyhow::Ok(pages.into_iter().flatten().collect::<Vec<_>>())
+            composio.tools(&slugs).await
         };
         match tokio::time::timeout(TOOLS_TIMEOUT, fetch).await {
             Ok(Ok(defs)) => make_composio_tool_wrappers(&client, &defs),
