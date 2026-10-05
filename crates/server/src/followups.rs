@@ -6,7 +6,7 @@ use crate::{
     starters::{Generator, unfence},
     tools::{SUGGEST_REPLIES, replies_output},
 };
-use anyhow::Result;
+use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use flashmind::core::{Conversation, EntryKind};
 
@@ -80,8 +80,22 @@ pub fn render(earlier: &[Turn], latest: &Turn) -> String {
 }
 
 /// The writer's replies; `replies_output` drops duplicates and checks the count.
+/// Models sometimes wrap the array in a sentence, so the outermost brackets
+/// are taken when the whole answer does not parse.
 fn parse(answer: &str) -> Result<Vec<String>> {
-    Ok(serde_json::from_str(unfence(answer))?)
+    let text = unfence(answer);
+    if let Ok(replies) = serde_json::from_str(text) {
+        return Ok(replies);
+    }
+    let array = text
+        .find('[')
+        .zip(text.rfind(']'))
+        .filter(|(start, end)| start < end)
+        .map(|(start, end)| &text[start..=end]);
+    match array {
+        Some(array) => Ok(serde_json::from_str(array)?),
+        None => bail!("no JSON array in a {}-character answer", answer.len()),
+    }
 }
 
 #[cfg(test)]
@@ -95,7 +109,10 @@ mod tests {
     fn parses_fenced_arrays() {
         let replies = parse("```json\n[\"How are they priced?\", \"Show me one\"]\n```").unwrap();
         assert_eq!(replies, ["How are they priced?", "Show me one"]);
+        let replies = parse("Here are some:\n[\"Show me one\", \"Who built it?\"]").unwrap();
+        assert_eq!(replies, ["Show me one", "Who built it?"]);
         assert!(parse("Sure! Here you go").is_err());
+        assert!(parse("").is_err());
     }
 
     #[test]
