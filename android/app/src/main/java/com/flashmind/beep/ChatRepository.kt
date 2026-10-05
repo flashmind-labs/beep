@@ -400,20 +400,6 @@ class ChatRepository(private val storage: LocalStorage) {
         api().updateCron(id, enabled, null, null)
     }
 
-    data class McpConnection(val id: String, val provider: String, val label: String, val status: String)
-    suspend fun listIntegrations(): List<McpConnection> {
-        return api().listIntegrations().map { McpConnection(it.id, it.provider, it.label, it.status) }
-    }
-    suspend fun createIntegration(provider: String, label: String, config: String = "{}") {
-        api().createIntegration(provider, label, config)
-    }
-    suspend fun uploadCredentials(id: String, credentials: String) {
-        api().updateCredentials(id, credentials, "connected")
-    }
-    suspend fun deleteIntegration(id: String) {
-        api().deleteIntegration(id)
-    }
-
     suspend fun listApps(): List<AppIntegration> = api().listApps()
     suspend fun connectApp(slug: String): String = api().connectApp(slug).url
     suspend fun disconnectApp(slug: String) = api().disconnectApp(slug)

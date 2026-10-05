@@ -7,14 +7,13 @@
 
 use beep_proto::{
     AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
-    Chat, ClearMemories, ConnectApp, ConnectLink, CreateCron, CreateIntegration, Cron, DeleteCron,
-    DeleteIntegration, DeleteMemory, DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult,
-    DisconnectApp, Event, FinishAppAuth, ForegroundApp, GetAppPermissions, GetEvents, GetRun,
-    GetSession, Health, HistoryEntry, Integration, ListApps, ListCrons, ListIntegrations,
-    ListMemories, ListSessions, Memory, Notice, PermissionLevel, PhoneNotification, PinSession,
-    PromptSuggestions, RegisterDevice, RenameSession, Run, RunCron, SaveNotifications, Session,
-    SetAppPermissions, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice,
-    UpdateCredentials, UpdateCron, UpdateLocation, UpdateMemory,
+    Chat, ClearMemories, ConnectApp, ConnectLink, CreateCron, Cron, DeleteCron, DeleteMemory,
+    DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth,
+    ForegroundApp, GetAppPermissions, GetEvents, GetRun, GetSession, Health, HistoryEntry,
+    ListApps, ListCrons, ListMemories, ListSessions, Memory, Notice, PermissionLevel,
+    PhoneNotification, PinSession, PromptSuggestions, RegisterDevice, RenameSession, Run, RunCron,
+    SaveNotifications, Session, SetAppPermissions, StartAppAuth, Stream, SuggestPrompts,
+    ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
 };
@@ -400,42 +399,6 @@ impl BeepClient {
         notifications: Vec<PhoneNotification>,
     ) -> Result<u64, BeepError> {
         self.call(SaveNotifications { notifications }).await
-    }
-
-    pub async fn list_integrations(&self) -> Result<Vec<Integration>, BeepError> {
-        self.call(ListIntegrations {}).await
-    }
-
-    pub async fn create_integration(
-        &self,
-        provider: String,
-        label: String,
-        config: String,
-    ) -> Result<String, BeepError> {
-        self.call(CreateIntegration {
-            provider,
-            label,
-            config,
-        })
-        .await
-    }
-
-    pub async fn delete_integration(&self, id: String) -> Result<(), BeepError> {
-        self.call(DeleteIntegration { id }).await
-    }
-
-    pub async fn update_credentials(
-        &self,
-        id: String,
-        credentials: String,
-        status: String,
-    ) -> Result<(), BeepError> {
-        self.call(UpdateCredentials {
-            id,
-            credentials,
-            status,
-        })
-        .await
     }
 
     /// The curated app list with each app's connection state.

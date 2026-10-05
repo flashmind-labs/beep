@@ -400,7 +400,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-private enum class Screen { Chat, Memories, Crons, Integrations, CustomIntegrations, Settings }
+private enum class Screen { Chat, Memories, Crons, Integrations, Settings }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -488,7 +488,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }
     val activeScreen = if (bubble) Screen.Chat else screen
     BackHandler(enabled = activeScreen != Screen.Chat) {
-        screen = if (screen == Screen.CustomIntegrations) Screen.Integrations else Screen.Chat
+        screen = Screen.Chat
     }
     Crossfade(targetState = activeScreen, animationSpec = tween(300), label = "screen-transition") { currentScreen ->
         when (currentScreen) {
@@ -496,8 +496,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat },
                 onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat },
                 onOpenChat = { id -> repository.select(id); screen = Screen.Chat })
-            Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat }, onCustom = { screen = Screen.CustomIntegrations })
-            Screen.CustomIntegrations -> IntegrationsScreen(repository, onBack = { screen = Screen.Integrations })
+            Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Settings -> SettingsScreen(status, repository, onBack = { screen = Screen.Chat },
                 onBubbleSettings = onBubbleSettings, onConnection = { settingsOpen = true })
             Screen.Chat -> {
@@ -2198,100 +2197,6 @@ private fun CreateCronDialog(onDismiss: () -> Unit, onAskBeep: () -> Unit, onCre
         } },
         confirmButton = { ChunkyButton(onClick = { onCreate(label, prompt, schedule) }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
             enabled = label.isNotBlank() && prompt.isNotBlank() && schedule.isNotBlank()) { Text("Create", fontWeight = FontWeight.SemiBold) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun IntegrationsScreen(repository: ChatRepository, onBack: () -> Unit) {
-    var integrations by remember { mutableStateOf<List<ChatRepository.McpConnection>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf("") }
-    var showCreate by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    fun refresh() { scope.launch {
-        loading = true; error = ""
-        try { integrations = withContext(Dispatchers.IO) { repository.listIntegrations() } }
-        catch (e: Exception) { error = e.message.orEmpty() }
-        finally { loading = false }
-    } }
-    LaunchedEffect(Unit) { refresh() }
-    if (showCreate) {
-        CreateIntegrationDialog(onDismiss = { showCreate = false }, onCreate = { provider, label ->
-            scope.launch {
-                try { withContext(Dispatchers.IO) { repository.createIntegration(provider, label) }; showCreate = false; refresh() }
-                catch (e: Exception) { error = e.message.orEmpty() }
-            }
-        })
-    }
-    Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text(displayText("Custom connections"), style = displayStyle(24.sp)) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-            actions = { ChunkyButton(onClick = { showCreate = true }, modifier = Modifier.padding(end = 14.dp), color = Beep.colors.accent,
-                contentColor = Beep.colors.onAccent, contentPadding = PaddingValues(8.dp)) { Icon(Icons.Outlined.Add, "New integration", Modifier.size(20.dp)) } },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
-    }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-            if (loading) Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
-            else if (integrations.isEmpty()) Text("No integrations yet.\nConnect services like email, calendar, and more.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
-            else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(integrations, key = { it.id }) { integration ->
-                    BeepCard(Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-                            Column(Modifier.weight(1f)) {
-                                Text(integration.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.height(3.dp))
-                                Text(integration.provider, fontSize = 12.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.height(4.dp))
-                                Text(integration.status, fontSize = 11.sp,
-                                    color = if (integration.status == "connected") Beep.colors.ok else TextDim,
-                                    fontWeight = FontWeight.Medium)
-                            }
-                            IconButton(onClick = { scope.launch {
-                                try { withContext(Dispatchers.IO) { repository.deleteIntegration(integration.id) }; refresh() }
-                                catch (e: Exception) { error = e.message.orEmpty() }
-                            } }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Outlined.Delete, "Delete", Modifier.size(16.dp), tint = TextDim)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CreateIntegrationDialog(onDismiss: () -> Unit, onCreate: (String, String) -> Unit) {
-    val providers = listOf("fastmail", "composio", "custom")
-    var selectedProvider by remember { mutableStateOf(providers[0]) }
-    var label by remember { mutableStateOf("") }
-    var expanded by remember { mutableStateOf(false) }
-    AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
-        title = { Text(displayText("New integration"), style = displayStyle(22.sp)) },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                OutlinedTextField(selectedProvider, {}, readOnly = true, label = { Text("Provider") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
-                        unfocusedBorderColor = Border, focusedBorderColor = Moss))
-                ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    providers.forEach { provider ->
-                        DropdownMenuItem(text = { Text(provider) }, onClick = { selectedProvider = provider; expanded = false })
-                    }
-                }
-            }
-            OutlinedTextField(label, { label = it }, label = { Text("Label") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("My Email") },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
-                    unfocusedBorderColor = Border, focusedBorderColor = Moss))
-        } },
-        confirmButton = { ChunkyButton(onClick = { onCreate(selectedProvider, label) }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
-            enabled = label.isNotBlank()) { Text("Create", fontWeight = FontWeight.SemiBold) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }

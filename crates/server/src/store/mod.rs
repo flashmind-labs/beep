@@ -1,8 +1,7 @@
 use crate::{
     feeds::{mail::Mailbox, slack::SLACK},
     protocol::{
-        Cron, Integration, MemorySource, PermissionLevel, PhoneNotification, Run, Session,
-        names::username,
+        Cron, MemorySource, PermissionLevel, PhoneNotification, Run, Session, names::username,
     },
     user::UserKey,
 };
@@ -813,8 +812,7 @@ impl Store {
 
     pub(crate) async fn list_crons(&self, user: &UserKey) -> Result<Vec<Cron>> {
         let rows = sqlx::query(
-            "SELECT id, label, prompt, schedule, enabled, created_at, run_once, last_run_at,
-                 last_status, last_error
+            "SELECT id, label, prompt, schedule, enabled, created_at, run_once, last_run_at
              FROM crons WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100",
         )
         .bind(user.as_str())
@@ -831,8 +829,6 @@ impl Store {
                     created_at: format_time(r.try_get(5)?),
                     run_once: r.try_get(6)?,
                     last_run_at: r.try_get::<Option<DateTime<Utc>>, _>(7)?.map(format_time),
-                    last_status: r.try_get(8)?,
-                    last_error: r.try_get(9)?,
                     next_run_at: None,
                 })
             })
@@ -846,18 +842,6 @@ impl Store {
         schedule: &str,
         prompt: &str,
     ) -> Result<String> {
-        self.create_cron_ex(user, label, schedule, prompt, false)
-            .await
-    }
-
-    pub(crate) async fn create_cron_ex(
-        &self,
-        user: &UserKey,
-        label: &str,
-        schedule: &str,
-        prompt: &str,
-        run_once: bool,
-    ) -> Result<String> {
         if label.is_empty() || label.len() > 200 {
             bail!("cron label must be 1–200 characters");
         }
@@ -869,15 +853,14 @@ impl Store {
         }
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once)
-             VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO crons (user_id, id, label, prompt, schedule)
+             VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(user.as_str())
         .bind(&id)
         .bind(label)
         .bind(prompt)
         .bind(schedule)
-        .bind(run_once)
         .execute(&self.pool)
         .await?;
         self.notify_crons_changed();
@@ -961,90 +944,6 @@ impl Store {
         Ok(deleted > 0)
     }
 
-    pub async fn due_crons(&self) -> Result<Vec<(String, Value)>> {
-        let rows = sqlx::query(
-            "SELECT user_id, id, label, prompt, schedule, run_once FROM crons WHERE enabled",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(|r| {
-                Ok((
-                    r.try_get::<String, _>(0)?,
-                    json!({
-                        "id": r.try_get::<String, _>(1)?,
-                        "label": r.try_get::<String, _>(2)?,
-                        "prompt": r.try_get::<String, _>(3)?,
-                        "schedule": r.try_get::<String, _>(4)?,
-                        "run_once": r.try_get::<bool, _>(5)?,
-                    }),
-                ))
-            })
-            .collect()
-    }
-
-    pub(crate) async fn log_cron_start(
-        &self,
-        user: &UserKey,
-        cron_id: &str,
-        run_id: &str,
-    ) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO cron_logs (user_id, cron_id, run_id, started_at, status)
-             VALUES ($1, $2, $3, now(), 'running')",
-        )
-        .bind(user.as_str())
-        .bind(cron_id)
-        .bind(run_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    pub async fn log_cron_finish(
-        &self,
-        run_id: &str,
-        status: RunStatus,
-        error: &str,
-    ) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("UPDATE cron_logs SET finished_at=now(), status=$1, error=$2 WHERE run_id=$3")
-            .bind(status.as_str())
-            .bind(error)
-            .bind(run_id)
-            .execute(&mut *tx)
-            .await?;
-        // Denormalize last run info onto the crons row.
-        sqlx::query(
-            "UPDATE crons SET last_run_at=now(), last_status=$1, last_error=NULLIF($2, '')
-             WHERE (user_id, id) IN (SELECT user_id, cron_id FROM cron_logs WHERE run_id=$3)",
-        )
-        .bind(status.as_str())
-        .bind(error)
-        .bind(run_id)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
-    /// When the job last started, as `YYYY-MM-DD HH:MM:SS` in UTC.
-    pub(crate) async fn cron_last_run(
-        &self,
-        user: &UserKey,
-        cron_id: &str,
-    ) -> Result<Option<String>> {
-        let started: Option<DateTime<Utc>> = sqlx::query_scalar(
-            "SELECT started_at FROM cron_logs WHERE user_id=$1 AND cron_id=$2
-             ORDER BY id DESC LIMIT 1",
-        )
-        .bind(user.as_str())
-        .bind(cron_id)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(started.map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string()))
-    }
-
     pub(crate) async fn device_tokens(&self, user: &UserKey) -> Result<Vec<String>> {
         Ok(
             sqlx::query_scalar("SELECT fcm_token FROM devices WHERE user_id=$1")
@@ -1052,115 +951,6 @@ impl Store {
                 .fetch_all(&self.pool)
                 .await?,
         )
-    }
-
-    pub(crate) async fn list_mcp_connections(&self, user: &UserKey) -> Result<Vec<Integration>> {
-        let rows = sqlx::query(
-            "SELECT id, provider, label, status, created_at FROM mcp_connections
-             WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100",
-        )
-        .bind(user.as_str())
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(|r| {
-                Ok(Integration {
-                    id: r.try_get(0)?,
-                    provider: r.try_get(1)?,
-                    label: r.try_get(2)?,
-                    status: r.try_get(3)?,
-                    created_at: format_time(r.try_get(4)?),
-                })
-            })
-            .collect()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) async fn get_mcp_connection(
-        &self,
-        user: &UserKey,
-        id: &str,
-    ) -> Result<Option<Value>> {
-        let row = sqlx::query(
-            "SELECT id, provider, label, config, credentials, status FROM mcp_connections
-             WHERE user_id=$1 AND id=$2",
-        )
-        .bind(user.as_str())
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
-        row.map(|r| {
-            Ok(json!({
-                "id": r.try_get::<String, _>(0)?,
-                "provider": r.try_get::<String, _>(1)?,
-                "label": r.try_get::<String, _>(2)?,
-                "config": r.try_get::<String, _>(3)?,
-                "credentials": r.try_get::<String, _>(4)?,
-                "status": r.try_get::<String, _>(5)?,
-            }))
-        })
-        .transpose()
-    }
-
-    pub(crate) async fn create_mcp_connection(
-        &self,
-        user: &UserKey,
-        provider: &str,
-        label: &str,
-        config: &str,
-    ) -> Result<String> {
-        if provider.is_empty() || provider.len() > 100 {
-            bail!("provider must be 1–100 characters");
-        }
-        if label.is_empty() || label.len() > 200 {
-            bail!("label must be 1–200 characters");
-        }
-        if serde_json::from_str::<Value>(config).is_err() {
-            bail!("config must be valid JSON");
-        }
-        let id = Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO mcp_connections (user_id, id, provider, label, config)
-             VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(user.as_str())
-        .bind(&id)
-        .bind(provider)
-        .bind(label)
-        .bind(config)
-        .execute(&self.pool)
-        .await?;
-        Ok(id)
-    }
-
-    pub(crate) async fn update_mcp_credentials(
-        &self,
-        user: &UserKey,
-        id: &str,
-        credentials: &str,
-        status: &str,
-    ) -> Result<bool> {
-        let changed = sqlx::query(
-            "UPDATE mcp_connections SET credentials=$1, status=$2 WHERE user_id=$3 AND id=$4",
-        )
-        .bind(credentials)
-        .bind(status)
-        .bind(user.as_str())
-        .bind(id)
-        .execute(&self.pool)
-        .await?
-        .rows_affected();
-        Ok(changed > 0)
-    }
-
-    pub(crate) async fn delete_mcp_connection(&self, user: &UserKey, id: &str) -> Result<bool> {
-        let deleted = sqlx::query("DELETE FROM mcp_connections WHERE user_id=$1 AND id=$2")
-            .bind(user.as_str())
-            .bind(id)
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
-        Ok(deleted > 0)
     }
 
     /// The user's server-managed MCP servers.
@@ -1665,47 +1455,6 @@ impl Store {
         .await?
         .rows_affected();
         Ok(changed > 0)
-    }
-
-    /// Create default cron jobs for a user if they have none yet.
-    pub(crate) async fn ensure_default_crons(&self, user: &UserKey) -> Result<()> {
-        let existing = self.list_crons(user).await?;
-        if !existing.is_empty() {
-            return Ok(());
-        }
-        self.create_cron(
-            user,
-            "Morning briefing",
-            "0 8 * * *",
-            "Give me a brief morning update: current time, any scheduled crons coming up today, and a motivational note. Keep it to 2-3 sentences.",
-        )
-        .await?;
-        Ok(())
-    }
-
-    /// Return user IDs who have had a session or registered a device.
-    pub async fn active_users(&self) -> Result<Vec<String>> {
-        Ok(sqlx::query_scalar(
-            "SELECT DISTINCT user_id FROM sessions UNION SELECT DISTINCT user_id FROM devices",
-        )
-        .fetch_all(&self.pool)
-        .await?)
-    }
-
-    /// Count notifications for a user received in the last `minutes` minutes.
-    pub(crate) async fn notification_count_since(
-        &self,
-        user: &UserKey,
-        minutes: i64,
-    ) -> Result<i64> {
-        let cutoff_ms = Utc::now().timestamp_millis() - minutes * 60 * 1000;
-        Ok(sqlx::query_scalar(
-            "SELECT COUNT(*) FROM notifications WHERE user_id=$1 AND timestamp >= $2",
-        )
-        .bind(user.as_str())
-        .bind(cutoff_ms)
-        .fetch_one(&self.pool)
-        .await?)
     }
 }
 

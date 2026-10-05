@@ -848,10 +848,6 @@ impl App {
             // Notify registered devices for cron-triggered runs only.
             self.notify_run_complete(user, run, status, &reply).await;
         }
-        if is_cron {
-            // Log cron completion.
-            let _ = self.store.log_cron_finish(&run.id, status, "").await;
-        }
 
         // Learn from the turn while the run is still open, so what was saved shows
         // as memory tool chips under the reply. Scheduled prompts are written by
