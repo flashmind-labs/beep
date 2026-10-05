@@ -3,6 +3,7 @@ use crate::{
     compaction::{self, Summarizer},
     cron,
     decision::DecisionTool,
+    followups,
     images::{self, Describer},
     live::LiveRun,
     memories::{self, Exchange, Hit, Turn},
@@ -974,78 +975,85 @@ impl App {
                     reply,
                 },
             };
-            let known = user
-                .related_memories(&exchange)
-                .await
-                .unwrap_or_else(|error| {
-                    log::warn!(
-                        "unable to find related memories: {error}; run_id={}",
+            // Written alongside learning, when the model offered no replies itself.
+            let follow_up = self
+                .decision()
+                .filter(|_| !followups::offered(&conversation, turn_started))
+                .map(|decision| {
+                    (
+                        decision,
+                        followups::render(&exchange.earlier, &exchange.latest),
+                    )
+                });
+            let follow_up = async {
+                let (decision, state) = follow_up?;
+                followups::write(decision, generator, state).await
+            };
+            let learning = async {
+                let known = user
+                    .related_memories(&exchange)
+                    .await
+                    .unwrap_or_else(|error| {
+                        log::warn!(
+                            "unable to find related memories: {error}; run_id={}",
+                            run.id
+                        );
+                        Vec::new()
+                    });
+                let score = self.memory_score(memory_state(&known, &exchange)).await;
+                if let Some(probability) = score {
+                    live.push(RunEvent::MemoryScore { probability });
+                    // Kept by the time of the turn's user message, so history can show it
+                    // to a phone that was not watching the run.
+                    let asked = conversation
+                        .entries()
+                        .iter()
+                        .find(|entry| entry.timestamp >= turn_from && entry.is_user());
+                    if let Some(asked) = asked
+                        && let Err(error) = user
+                            .record_memory_score(
+                                &run.session_id,
+                                asked.timestamp.timestamp_millis(),
+                                probability,
+                            )
+                            .await
+                    {
+                        log::warn!("unable to record memory score: {error}; run_id={}", run.id);
+                    }
+                }
+                // Without a score (Jev not configured or failing) every turn is read.
+                let learned = match score {
+                    Some(probability) if probability < MEMORY_THRESHOLD => Vec::new(),
+                    _ => user.learn(generator, exchange, &known).await,
+                };
+                if let Some(probability) = score {
+                    log::info!(
+                        "memory score {probability:.2}, {} change(s); run_id={}",
+                        learned.len(),
                         run.id
                     );
-                    Vec::new()
-                });
-            let score = self.memory_score(memory_state(&known, &exchange)).await;
-            if let Some(probability) = score {
-                live.push(RunEvent::MemoryScore { probability });
-                // Kept by the time of the turn's user message, so history can show it
-                // to a phone that was not watching the run.
-                let asked = conversation
-                    .entries()
-                    .iter()
-                    .find(|entry| entry.timestamp >= turn_from && entry.is_user());
-                if let Some(asked) = asked
-                    && let Err(error) = user
-                        .record_memory_score(
-                            &run.session_id,
-                            asked.timestamp.timestamp_millis(),
-                            probability,
-                        )
-                        .await
-                {
-                    log::warn!("unable to record memory score: {error}; run_id={}", run.id);
                 }
-            }
-            // Without a score (Jev not configured or failing) every turn is read.
-            let learned = match score {
-                Some(probability) if probability < MEMORY_THRESHOLD => Vec::new(),
-                _ => user.learn(generator, exchange, &known).await,
+                learned
             };
-            if let Some(probability) = score {
-                log::info!(
-                    "memory score {probability:.2}, {} change(s); run_id={}",
-                    learned.len(),
-                    run.id
-                );
+            let (learned, follow_up) = tokio::join!(learning, follow_up);
+            let mut calls: Vec<ServerCall> = learned
+                .iter()
+                .map(|change| ServerCall {
+                    name: change.change.tool().to_owned(),
+                    arguments: change.arguments(),
+                    description: change.content.clone(),
+                    output: change.output(),
+                })
+                .collect();
+            if let Some(output) = follow_up {
+                calls.push(ServerCall {
+                    name: tools::SUGGEST_REPLIES.to_owned(),
+                    arguments: serde_json::json!({}),
+                    description: tools::SUGGESTING_REPLIES.to_owned(),
+                    output,
+                });
             }
-            if !learned.is_empty() {
-                let calls: Vec<ToolCall> = learned
-                    .iter()
-                    .map(|change| ToolCall {
-                        id: Uuid::new_v4().to_string(),
-                        name: change.change.tool().to_owned(),
-                        arguments: change.arguments(),
-                    })
-                    .collect();
-                conversation.add(ConversationEntry::assistant_with_tool_calls(
-                    "",
-                    calls.clone(),
-                    None,
-                ));
-                for (call, change) in calls.into_iter().zip(&learned) {
-                    live.push(RunEvent::ToolStarted {
-                        name: call.name.clone(),
-                        call_id: call.id.clone(),
-                        description: change.content.clone(),
-                    });
-                    live.push(RunEvent::ToolResult {
-                        name: call.name,
-                        call_id: call.id.clone(),
-                        output: change.output(),
-                        success: true,
-                    });
-                    conversation.add(ConversationEntry::tool(call.id, change.output()));
-                }
-            }
+            add_server_calls(&mut conversation, live, calls);
         }
 
         // Save the turn before clients see the run finish, so they can load it.
@@ -1216,6 +1224,54 @@ impl App {
     }
 }
 
+/// A call the server made for the turn after the model finished, shown and
+/// saved like one the model made.
+struct ServerCall {
+    name: String,
+    arguments: serde_json::Value,
+    description: String,
+    output: String,
+}
+
+fn add_server_calls(conversation: &mut Conversation, live: &LiveRun, calls: Vec<ServerCall>) {
+    if calls.is_empty() {
+        return;
+    }
+    let calls: Vec<(ToolCall, ServerCall)> = calls
+        .into_iter()
+        .map(|call| {
+            let tool_call = ToolCall {
+                id: Uuid::new_v4().to_string(),
+                name: call.name.clone(),
+                arguments: call.arguments.clone(),
+            };
+            (tool_call, call)
+        })
+        .collect();
+    conversation.add(ConversationEntry::assistant_with_tool_calls(
+        "",
+        calls
+            .iter()
+            .map(|(tool_call, _)| tool_call.clone())
+            .collect(),
+        None,
+    ));
+    for (tool_call, call) in calls {
+        live.push(RunEvent::ToolStarted {
+            name: call.name.clone(),
+            call_id: tool_call.id.clone(),
+            description: call.description,
+        });
+        live.push(RunEvent::ToolResult {
+            name: call.name,
+            call_id: tool_call.id.clone(),
+            output: call.output.clone(),
+            success: true,
+        });
+        conversation.add(ConversationEntry::tool(tool_call.id, call.output));
+    }
+}
+
 /// What Jev reads to score a turn: what is already remembered, then the
 /// exchange, so a fact that is already known does not score high.
 fn memory_state(known: &[Hit], exchange: &Exchange) -> String {
@@ -1226,12 +1282,7 @@ fn memory_state(known: &[Hit], exchange: &Exchange) -> String {
     for hit in known {
         let _ = writeln!(state, "- {}", hit.content);
     }
-    let latest = &exchange.latest;
-    let _ = write!(
-        state,
-        "\nUser: {}\n\nAssistant: {}",
-        latest.message, latest.reply
-    );
+    let _ = write!(state, "\n{}", exchange.latest);
     state
 }
 

@@ -12,6 +12,10 @@ mod progress;
 mod screen;
 mod suggest;
 
+pub(crate) use suggest::{
+    NAME as SUGGEST_REPLIES, SUGGESTING as SUGGESTING_REPLIES, replies_output,
+};
+
 use crate::{app::App, protocol::Run, user::User};
 use flashmind::{tools::time::TimeTool, types::ToolRegistry};
 use std::sync::Arc;

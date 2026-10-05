@@ -7,6 +7,7 @@ pub mod cron;
 pub mod decision;
 pub mod digest;
 pub mod feeds;
+pub(crate) mod followups;
 pub mod images;
 pub mod live;
 pub mod memories;

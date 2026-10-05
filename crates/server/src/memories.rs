@@ -25,7 +25,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Write,
+    fmt::{self, Write},
     sync::Arc,
     time::Duration,
 };
@@ -115,6 +115,18 @@ impl Hit {
 pub struct Turn {
     pub message: String,
     pub reply: String,
+}
+
+/// The turn as Jev reads it, each side clipped to `MAX_TURN_CHARS`.
+impl fmt::Display for Turn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "User: {}\n\nAssistant: {}",
+            clip(&self.message, MAX_TURN_CHARS),
+            clip(&self.reply, MAX_TURN_CHARS)
+        )
+    }
 }
 
 /// What the extractor reads after a chat.

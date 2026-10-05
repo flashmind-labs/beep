@@ -7,6 +7,8 @@ const MAX_REPLY_CHARS: usize = 40;
 const MIN_REPLIES: usize = 2;
 const MAX_REPLIES: usize = 4;
 const MAX_QUESTION_CHARS: usize = 120;
+pub(crate) const NAME: &str = "suggest_replies";
+pub(crate) const SUGGESTING: &str = "Suggesting replies";
 
 /// Offers tappable replies under the assistant's message.
 pub(crate) struct SuggestRepliesTool;
@@ -56,6 +58,10 @@ fn shorten(text: &str, max: usize) -> String {
 
 fn build(args: &Value) -> Result<Suggestions, String> {
     let args = SuggestArgs::deserialize(args).map_err(|e| format!("Invalid suggestions: {e}"))?;
+    suggestions(args)
+}
+
+fn suggestions(args: SuggestArgs) -> Result<Suggestions, String> {
     let mut replies: Vec<String> = Vec::new();
     for reply in &args.replies {
         let reply = shorten(reply, MAX_REPLY_CHARS);
@@ -81,10 +87,22 @@ fn build(args: &Value) -> Result<Suggestions, String> {
     })
 }
 
+/// The tool result for `replies`, as if the model had offered them, or
+/// `None` when fewer than two are usable.
+pub(crate) fn replies_output(replies: Vec<String>) -> Option<String> {
+    let suggestions = suggestions(SuggestArgs {
+        replies,
+        kind: SuggestionKind::Replies,
+        question: None,
+    })
+    .ok()?;
+    serde_json::to_string(&suggestions).ok()
+}
+
 #[async_trait]
 impl Tool for SuggestRepliesTool {
     fn name(&self) -> &str {
-        "suggest_replies"
+        NAME
     }
     fn description(&self) -> &str {
         "Show 2-4 short tappable replies under your message. Call it last, after your text, whenever there are useful next steps, like a reminder for a meeting you just looked up, or when the user must pick between options. Each reply is what the user would send, in their language, at most 40 characters. Use kind \"choice\" when the user must pick one option, with an optional short question."
@@ -118,7 +136,7 @@ impl Tool for SuggestRepliesTool {
     fn humanize(&self, args: &Value) -> String {
         match args.get("kind").and_then(Value::as_str) {
             Some("choice") => "Offering choices".into(),
-            _ => "Suggesting replies".into(),
+            _ => SUGGESTING.into(),
         }
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
