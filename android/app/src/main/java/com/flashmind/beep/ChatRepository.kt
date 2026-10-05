@@ -305,6 +305,19 @@ class ChatRepository(private val storage: LocalStorage) {
         launchRun(chat.id)
     }
     fun retry() { launchRun(state.value.current.id) }
+    /**
+     * Sends the last message again after its run ended without finishing.
+     * The message is already on screen, so it is not added twice.
+     */
+    fun retryLast() {
+        val chat = state.value.current
+        if (chat.busy) { retry(); return }
+        val last = chat.messages.lastOrNull { it.role == "user" } ?: return
+        if (!settings.value.configured) return
+        updateChat(chat.id) { it.copy(requestId = UUID.randomUUID().toString(), pendingText = last.text,
+            pendingImages = last.images, status = "Sending…", error = "", cancelRequested = false) }
+        launchRun(chat.id)
+    }
     fun cancel() {
         val chat = state.value.current
         updateChat(chat.id) { it.copy(cancelRequested = true, status = "Stopping…") }
@@ -950,7 +963,7 @@ class ChatRepository(private val storage: LocalStorage) {
                         // Stopped on an approval card; the answer starts the next run.
                         "completed", "waiting" -> ""
                         "cancelled" -> "Stopped"
-                        "interrupted" -> "The server restarted. Send a new message to continue."
+                        "interrupted" -> "The server restarted before Beep finished."
                         "timed_out" -> "That took too long, so Beep stopped. Try again."
                         "stalled" -> "The model stopped responding. Try again."
                         "looped" -> "Beep got stuck repeating itself and was stopped. Try again."

@@ -1017,7 +1017,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                 .clip(RoundedCornerShape(Beep.shapes.smallRadius)).background(Beep.colors.error.copy(alpha = 0.10f))
                 .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(chat.error, fontSize = 13.sp, color = Beep.colors.error, modifier = Modifier.weight(1f).padding(vertical = 8.dp), maxLines = 4)
-                if (chat.busy) TextButton(onClick = repository::retry) { Text("Retry", color = Beep.colors.error, fontWeight = FontWeight.SemiBold) }
+                if (chat.busy || chat.messages.any { it.role == "user" }) TextButton(onClick = repository::retryLast) { Text("Retry", color = Beep.colors.error, fontWeight = FontWeight.SemiBold) }
             }
         }
         // Voice input state
