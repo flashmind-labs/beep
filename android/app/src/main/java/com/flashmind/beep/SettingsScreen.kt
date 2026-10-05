@@ -49,7 +49,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import com.flashmind.beep.proto.ModelChoice
+import com.flashmind.beep.proto.Models
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -71,6 +74,7 @@ fun SettingsScreen(status: String, repository: ChatRepository, onBack: () -> Uni
             AvatarPicker()
             BubblePicker(onBubbleSettings)
             ScreenContextSettings()
+            ModelPicker(repository)
             Column {
                 HorizontalDivider(color = Beep.colors.softLine)
                 AccountRow(repository)
@@ -146,6 +150,62 @@ private fun BubblePicker(onBubbleSettings: () -> Unit) {
                 "Until then the float button uses the Android bubble", onBubbleSettings)
         }
     }
+}
+
+/**
+ * The model an admin's own turns run on. The server sends choices only to
+ * admins, so everyone else never sees this section.
+ */
+@Composable
+private fun ModelPicker(repository: ChatRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var models by remember { mutableStateOf<Models?>(null) }
+    LaunchedEffect(Unit) {
+        models = runCatching { withContext(Dispatchers.IO) { repository.models() } }.getOrNull()
+    }
+    val current = models ?: return
+    if (current.choices.isEmpty()) return
+    fun pick(choice: ModelChoice) {
+        if (choice.id == current.selected) return
+        models = current.copy(selected = choice.id)
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { repository.setModel(choice.id) } }
+                .onSuccess { models = it; Toast.makeText(context, "Model set for your turns", Toast.LENGTH_SHORT).show() }
+                .onFailure { models = current; Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
+        }
+    }
+    Column {
+        Text("Model (admin)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
+        Spacer(Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            current.choices.forEach { choice ->
+                val selected = choice.id == current.selected
+                val shape = RoundedCornerShape(14.dp)
+                Row(Modifier.fillMaxWidth()
+                    .border(if (selected) 2.dp else 1.dp, if (selected) Beep.colors.ink else Beep.colors.softLine, shape)
+                    .clip(shape)
+                    .clickable { pick(choice) }
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(if (choice.default) "${choice.name} (default)" else choice.name,
+                            fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
+                        Text(modelDetail(choice), fontSize = 12.sp, color = Beep.colors.muted)
+                    }
+                    if (selected) Icon(Icons.Outlined.Check, "Selected", Modifier.size(16.dp), tint = Beep.colors.ink)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("Applies to your own turns. Everyone else stays on the default.", fontSize = 12.sp, color = Beep.colors.muted)
+    }
+}
+
+private fun modelDetail(choice: ModelChoice): String {
+    val price = { usd: Double? -> usd?.let { "$" + "%.2f".format(it) } ?: "?" }
+    val prices = "${price(choice.inputPrice)} in, ${price(choice.outputPrice)} out per M tokens"
+    return if (choice.seesImages) prices else "$prices, text only"
 }
 
 /** Permissions that tell the assistant what the user is looking at behind the bubble. */

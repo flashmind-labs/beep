@@ -57,6 +57,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "app_permissions",
         include_str!("../../migrations/0005_app_permissions.sql"),
     ),
+    (
+        6,
+        "drop_unused",
+        include_str!("../../migrations/0006_drop_unused.sql"),
+    ),
+    (
+        7,
+        "user_model",
+        include_str!("../../migrations/0007_user_model.sql"),
+    ),
 ];
 
 fn migrator() -> Migrator {
@@ -329,6 +339,25 @@ impl Store {
             .execute(&self.pool)
             .await?;
         Ok(id)
+    }
+
+    /// The model the user picked, if any.
+    pub(crate) async fn user_model(&self, user: &UserKey) -> Result<Option<String>> {
+        let model = sqlx::query_scalar("SELECT model FROM users WHERE id=$1")
+            .bind(user.as_str())
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(model.flatten())
+    }
+
+    /// Picks the user's model; `None` goes back to the server default.
+    pub(crate) async fn set_user_model(&self, user: &UserKey, model: Option<&str>) -> Result<()> {
+        sqlx::query("UPDATE users SET model=$2 WHERE id=$1")
+            .bind(user.as_str())
+            .bind(model)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     /// Every account.

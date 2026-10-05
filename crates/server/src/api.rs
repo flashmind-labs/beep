@@ -65,6 +65,8 @@ pub fn router() -> Router {
         .call(get_app_permissions)
         .call(set_app_permissions)
         .call(answer_approval)
+        .call(get_models)
+        .call(set_model)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -340,6 +342,26 @@ async fn connect_app(cx: Cx, ConnectApp { slug }: ConnectApp) -> Reply<ConnectLi
 
 async fn disconnect_app(cx: Cx, DisconnectApp { slug }: DisconnectApp) -> Reply<()> {
     cx.user.disconnect_app(&slug).await
+}
+
+async fn get_models(cx: Cx, _: GetModels) -> Reply<Models> {
+    let selected = cx.app.model_for(&cx.user).await;
+    Ok(cx.app.models.for_picker(cx.user.id(), &selected))
+}
+
+async fn set_model(cx: Cx, SetModel { id }: SetModel) -> Reply<Models> {
+    if !cx.app.models.is_admin(cx.user.id()) {
+        return Err(ApiError::Unauthorized {});
+    }
+    let model = cx
+        .app
+        .models
+        .find(&id)
+        .ok_or(ApiError::NotFound {})?
+        .clone();
+    cx.user.set_model(&model).await?;
+    log::info!("model picked; user={} model={model}", cx.user.id());
+    Ok(cx.app.models.for_picker(cx.user.id(), &model))
 }
 
 async fn get_app_permissions(

@@ -44,7 +44,7 @@ use flashmind::{
         composio::{ComposioClient, make_composio_tool_wrappers},
         mcp::McpRegistry,
     },
-    types::Tool,
+    types::{Model, Tool},
 };
 use secrecy::ExposeSecret;
 use serde_json::Value;
@@ -461,6 +461,17 @@ impl User {
         Ok(Rules::from_rows(
             self.store.app_permissions(&self.key).await?,
         ))
+    }
+
+    /// The model the user picked, if any.
+    pub(crate) async fn model(&self) -> Result<Option<String>> {
+        self.store.user_model(&self.key).await
+    }
+
+    pub(crate) async fn set_model(&self, model: &Model) -> Result<()> {
+        self.store
+            .set_user_model(&self.key, Some(&model.to_string()))
+            .await
     }
 
     pub(crate) async fn save_app_permissions(&self, row: &AppPermissionRow) -> Result<()> {

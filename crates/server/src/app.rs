@@ -5,6 +5,7 @@ use crate::{
     images::{self, Describer},
     live::LiveRun,
     memories::{self, Exchange, Hit, Turn},
+    models::ModelChoices,
     permissions::{self, ApprovalPayload, Approved, Rules},
     protocol::{
         AppIntegration, Approval, ApprovalDecision, DeviceAnswer, DeviceQuery, ForegroundApp,
@@ -77,6 +78,8 @@ pub struct App {
     tools: RunTools,
     /// Describes images; without it only a model that sees them can.
     vision_model: Option<Model>,
+    /// What admins may run their own turns on.
+    pub models: ModelChoices,
     /// What a new `User` is built from.
     shared: Shared,
     /// Every user signed in since the server started, by id.
@@ -175,6 +178,7 @@ impl App {
         provider: Arc<dyn LlmProvider>,
         llm: AgentLlmConfig,
         tools: ServerTools,
+        models: ModelChoices,
     ) -> Arc<Self> {
         let ServerTools {
             search,
@@ -196,6 +200,7 @@ impl App {
             provider,
             llm,
             vision_model,
+            models,
             tools: RunTools {
                 search,
                 firecrawl_key,
@@ -515,13 +520,22 @@ impl App {
         (!ctx.is_empty()).then_some(ctx)
     }
 
-    /// The model that describes images: the configured vision model, or the
-    /// assistant's own when it sees images.
-    fn describer(&self, user: &User, sees_images: bool) -> Option<Describer> {
+    /// The model `user`'s turns run on.
+    pub(crate) async fn model_for(&self, user: &User) -> Model {
+        let picked = user.model().await.unwrap_or_else(|e| {
+            log::warn!("reading the picked model failed; user={}: {e:#}", user.id());
+            None
+        });
+        self.models.for_user(user.id(), picked.as_deref()).clone()
+    }
+
+    /// The model that describes images: the configured vision model, or
+    /// `own`, the assistant's, when it sees images.
+    fn describer(&self, user: &User, own: &Model, sees_images: bool) -> Option<Describer> {
         let model = self
             .vision_model
             .clone()
-            .or_else(|| sees_images.then(|| self.llm.model.clone()))?;
+            .or_else(|| sees_images.then(|| own.clone()))?;
         Some(Describer {
             provider: self.provider.clone(),
             model,
@@ -531,8 +545,9 @@ impl App {
 
     /// The model that reads screenshots for `read_screen`.
     pub(crate) async fn screen_reader(&self, user: &User) -> Option<Describer> {
-        let sees_images = self.provider.capabilities(&self.llm.model).await.images;
-        self.describer(user, sees_images)
+        let model = self.model_for(user).await;
+        let sees_images = self.provider.capabilities(&model).await.images;
+        self.describer(user, &model, sees_images)
     }
 
     async fn execute(
@@ -561,7 +576,8 @@ impl App {
         // It stays static so the provider can cache it.
         conversation.set_system(include_str!("../prompts/assistant.md"));
         transcript.set_system(include_str!("../prompts/assistant.md"));
-        let llm = self.llm.clone().with_user(user.id());
+        let model = self.model_for(user).await;
+        let llm = self.llm.with_model(model.clone()).with_user(user.id());
 
         let timezone = user.get_timezone().await.ok();
         let mut registry = tools::registry(self.clone(), run, user, timezone.as_deref());
@@ -675,10 +691,9 @@ impl App {
             .iter()
             .filter_map(|uri| images::parse_data_uri(uri))
             .collect();
-        let sees_images =
-            !attached.is_empty() && self.provider.capabilities(&self.llm.model).await.images;
+        let sees_images = !attached.is_empty() && self.provider.capabilities(&model).await.images;
         let mut describing = (!attached.is_empty())
-            .then(|| self.describer(user, sees_images))
+            .then(|| self.describer(user, &model, sees_images))
             .flatten()
             .map(|describer| {
                 let attached = attached.clone();
@@ -1000,7 +1015,7 @@ impl App {
         };
         user.finish(run, Some(turn), status).await?;
         log::info!(
-            "turn timing; run_id={} status={} {timer}",
+            "turn timing; run_id={} status={} model={model} {timer}",
             run.id,
             status.as_str()
         );
