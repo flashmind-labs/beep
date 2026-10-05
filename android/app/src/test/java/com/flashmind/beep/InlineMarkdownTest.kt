@@ -35,4 +35,19 @@ class InlineMarkdownTest {
         assertEquals("  • nested x", formattedMessage("  * nested *x*", colors).text)
         assertEquals(listOf("x"), italics("* item *x*"))
     }
+    private fun math(text: String) = formattedMessage(text, colors).let { s ->
+        s.getStringAnnotations("androidx.compose.foundation.text.inlineContent", 0, s.length).map { it.item } }
+    @Test fun inlineMath() {
+        assertEquals(listOf("x^2"), math("so \$x^2\$ grows"))
+        assertEquals(listOf("a_1 * b_2"), math("\$a_1 * b_2\$"))
+        assertEquals(listOf("\\frac{1}{2}"), math("half is \\(\\frac{1}{2}\\)."))
+        assertEquals(listOf("E=mc^2"), math("\$\$E=mc^2\$\$ inline"))
+        assertEquals("so \$x^2\$ grows", formattedMessage("so \$x^2\$ grows", colors).text)
+        assertTrue(math("run `\$x\$` now").isEmpty())
+    }
+    @Test fun dollarsStayText() {
+        assertTrue(math("costs \$5 and \$10").isEmpty())
+        assertTrue(math("from \$5-\$10 a month").isEmpty())
+        assertTrue(math("US\$5 or \$ 7\$").isEmpty())
+    }
 }
