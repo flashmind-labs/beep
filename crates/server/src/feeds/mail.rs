@@ -10,23 +10,28 @@
 //! it and skips the message ids it already processed, so mail that arrives
 //! late is not lost and a run that stops halfway resumes where it was.
 //! Email content is never logged.
+//!
+//! While the user has the evening digest on, each recent email they did not
+//! send also gets a second question: does it need their attention? Those
+//! are kept for the digest (see `crate::digest`).
 
 use crate::{
     app::App,
     apps::mcp::FASTMAIL,
     decision::{Criteria, DecisionTool},
     memories::{Reading, ReadingKind},
-    store::Feed,
+    store::{AttentionItem, Feed},
     user::User,
 };
 use anyhow::{Context, Result, bail};
-use chrono::{DateTime, Duration as Days, Utc};
+use chrono::{DateTime, Duration as Days, SecondsFormat, Utc};
 use flashmind::tools::composio::ComposioClient;
 use futures::{StreamExt, stream};
 use serde_json::{Value, json};
 use std::{
     collections::HashSet,
     fmt::{self, Write},
+    slice,
     sync::Arc,
 };
 
@@ -43,9 +48,36 @@ const MAX_PAGES: usize = 400;
 const JEV_EMAIL_CHARS: usize = 2500;
 /// What the learner reads of an email Jev passed.
 const LEARN_EMAIL_CHARS: usize = 4000;
+/// Line width for HTML bodies turned into text.
+const HTML_TEXT_WIDTH: usize = 200;
+/// The Outlook message fields a listing returns.
+const OUTLOOK_FIELDS: &[&str] = &[
+    "id",
+    "receivedDateTime",
+    "from",
+    "toRecipients",
+    "subject",
+    "body",
+    "bodyPreview",
+    "parentFolderId",
+    "isDraft",
+];
 /// Above this Jev score the learner reads the email.
 const MEMORY_THRESHOLD: f64 = 0.8;
 const EMAIL_QUESTION: &str = "Does this email from the user's mailbox show a fact about the user still worth remembering today?";
+/// Above this Jev score an email goes to the digest.
+const ATTENTION_THRESHOLD: f64 = 0.7;
+/// Only mail this recent is judged for the digest, so a backfill flags nothing old.
+const ATTENTION_DAYS: i64 = 1;
+/// What the digest shows of a flagged email.
+const DIGEST_EMAIL_CHARS: usize = 1500;
+const ATTENTION_QUESTION: &str = "Does this email need the user's own attention soon: a reply, a decision or an action from them?";
+const ATTENTION_CRITERIA: Criteria = Criteria {
+    yes: "A real person or organisation asking the user to reply, decide, pay, sign, confirm or \
+show up; a deadline, or a time-sensitive problem with their accounts, money, travel or health",
+    no: "Newsletters, marketing, social and automated notifications, receipts and confirmations \
+that need nothing, FYIs, and anything the user only needs to know",
+};
 const EMAIL_CRITERIA: Criteria = Criteria {
     yes: "A lasting fact about the user: their name, people in their life, where they live or work, \
 what they do, what they like, or a trip or appointment still ahead",
@@ -58,6 +90,7 @@ or facts only about other people",
 pub enum Mailbox {
     Gmail,
     Fastmail,
+    Outlook,
 }
 
 impl Mailbox {
@@ -66,6 +99,16 @@ impl Mailbox {
         match self {
             Mailbox::Gmail => "gmail",
             Mailbox::Fastmail => FASTMAIL,
+            Mailbox::Outlook => "outlook",
+        }
+    }
+
+    /// How the user knows the mailbox.
+    pub fn name(self) -> &'static str {
+        match self {
+            Mailbox::Gmail => "Gmail",
+            Mailbox::Fastmail => "Fastmail",
+            Mailbox::Outlook => "Outlook",
         }
     }
 }
@@ -120,29 +163,62 @@ struct Page {
     next: Option<String>,
 }
 
+/// Which emails a listing returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Listing {
+    All,
+    Unread,
+}
+
+impl Listing {
+    /// The Gmail-style search term Gmail and Fastmail take for it.
+    fn query_term(self) -> &'static str {
+        match self {
+            Listing::All => "",
+            Listing::Unread => "is:unread ",
+        }
+    }
+}
+
 /// Where a user's mail is read from.
 enum Source<'a> {
     Gmail(Arc<ComposioClient>),
     Fastmail(&'a User),
+    Outlook {
+        client: Arc<ComposioClient>,
+        /// The Sent Items folder, which marks mail the user sent.
+        sent_folder: Option<String>,
+    },
 }
 
 impl<'a> Source<'a> {
-    fn new(user: &'a User, mailbox: Mailbox) -> Result<Self> {
+    async fn new(user: &'a User, mailbox: Mailbox) -> Result<Self> {
+        let composio = || user.composio_client().context("Composio is not configured");
         Ok(match mailbox {
-            Mailbox::Gmail => Source::Gmail(
-                user.composio_client()
-                    .context("Composio is not configured")?,
-            ),
+            Mailbox::Gmail => Source::Gmail(composio()?),
             Mailbox::Fastmail => Source::Fastmail(user),
+            Mailbox::Outlook => {
+                let client = composio()?;
+                let sent_folder = outlook_sent_folder(&client).await;
+                Source::Outlook {
+                    client,
+                    sent_folder,
+                }
+            }
         })
     }
 
-    async fn page(&self, after: DateTime<Utc>, cursor: Option<&str>) -> Result<Page> {
+    async fn page(
+        &self,
+        after: DateTime<Utc>,
+        listing: Listing,
+        cursor: Option<&str>,
+    ) -> Result<Page> {
         match self {
             Source::Gmail(client) => {
                 // Gmail reads Unix seconds after `after:`.
                 let mut arguments = json!({
-                    "query": format!("after:{}", after.timestamp()),
+                    "query": format!("{}after:{}", listing.query_term(), after.timestamp()),
                     "max_results": PAGE_SIZE,
                     "include_payload": true,
                 });
@@ -157,13 +233,37 @@ impl<'a> Source<'a> {
             }
             Source::Fastmail(user) => {
                 // Fastmail only takes days; the overlap and seen ids cover the rest.
-                let query = format!("after:{}", after.format("%Y-%m-%d"));
+                let query = format!("{}after:{}", listing.query_term(), after.format("%Y-%m-%d"));
                 let mut arguments = json!({"query": query, "limit": PAGE_SIZE});
                 if let Some(cursor) = cursor {
                     arguments["cursor"] = json!(cursor);
                 }
                 let value = user.call_mcp(FASTMAIL, "search_email", arguments).await?;
                 parse_fastmail(&value)
+            }
+            Source::Outlook {
+                client,
+                sent_folder,
+            } => {
+                let mut arguments = json!({
+                    "folder": "allfolders",
+                    "received_date_time_ge": after.to_rfc3339_opts(SecondsFormat::Secs, true),
+                    "top": PAGE_SIZE,
+                    "select": OUTLOOK_FIELDS,
+                });
+                if listing == Listing::Unread {
+                    arguments["is_read"] = json!(false);
+                }
+                if let Some(cursor) = cursor {
+                    arguments["page_token"] = json!(cursor);
+                }
+                let response = client
+                    .execute_tool("OUTLOOK_LIST_MESSAGES", arguments)
+                    .await?;
+                if response.successful == Some(false) {
+                    bail!("Outlook listing failed");
+                }
+                parse_outlook(&response.data, sent_folder.as_deref())
             }
         }
     }
@@ -186,12 +286,12 @@ impl<'a> Source<'a> {
     }
 
     /// Every email received after `after`, oldest first.
-    async fn list(&self, after: DateTime<Utc>) -> Result<Vec<Email>> {
+    async fn list(&self, after: DateTime<Utc>, listing: Listing) -> Result<Vec<Email>> {
         let mut emails = Vec::new();
         let mut cursor: Option<String> = None;
         for page_number in 1..=MAX_PAGES {
             let page = self
-                .page(after, cursor.as_deref())
+                .page(after, listing, cursor.as_deref())
                 .await
                 .with_context(|| format!("page {page_number}"))?;
             log::debug!(
@@ -219,6 +319,7 @@ pub(crate) struct Outcome {
     scored: usize,
     passed: usize,
     learned: usize,
+    flagged: usize,
 }
 
 impl fmt::Display for Outcome {
@@ -228,10 +329,11 @@ impl fmt::Display for Outcome {
             scored,
             passed,
             learned,
+            flagged,
         } = self;
         write!(
             f,
-            "listed={listed} scored={scored} passed={passed} learned={learned}"
+            "listed={listed} scored={scored} passed={passed} learned={learned} flagged={flagged}"
         )
     }
 }
@@ -242,7 +344,7 @@ pub(crate) async fn sync(
     user: &User,
     mailbox: Mailbox,
 ) -> Result<Outcome> {
-    let source = Source::new(user, mailbox)?;
+    let source = Source::new(user, mailbox).await?;
     let feed = Feed::Mail(mailbox);
     let after = match user.feed_cursor(feed).await? {
         Some(cursor) => cursor - Days::days(OVERLAP_DAYS),
@@ -251,7 +353,8 @@ pub(crate) async fn sync(
     user.prune_feed_seen(feed, after - Days::days(OVERLAP_DAYS))
         .await?;
     let seen = user.feed_seen(feed).await?;
-    let listed = source.list(after).await?;
+    let digest = user.digest_enabled().await?;
+    let listed = source.list(after, Listing::All).await?;
     let mut outcome = Outcome {
         listed: listed.len(),
         ..Outcome::default()
@@ -267,36 +370,81 @@ pub(crate) async fn sync(
     // Bodies and scores run ahead in parallel; results come back in order.
     let today = Utc::now().format("%A %Y-%m-%d").to_string();
     let mut scored = stream::iter(fresh)
-        .map(|email| score(decision, &source, &today, email))
+        .map(|email| score(decision, &source, &today, email, digest))
         .buffered(CONCURRENCY);
     let generator = app.generator(user.id());
-    while let Some((email, score)) = scored.next().await {
+    while let Some((email, scores)) = scored.next().await {
         // Stop at the first unscored email so the cursor never passes it.
-        let probability = score.context("Jev failed")?;
-        log::debug!("mail: scored {probability:.2}; user={user} id={}", email.id);
+        let probability = scores.memory.context("Jev failed")?;
+        log::debug!(
+            "mail: scored {probability:.2} attention={:?}; user={user} id={}",
+            scores.attention,
+            email.id
+        );
         outcome.scored += 1;
         if probability >= MEMORY_THRESHOLD {
             outcome.passed += 1;
             outcome.learned += user.learn_reading(generator, &email.reading()).await.len();
+        }
+        if scores.attention.is_some_and(|p| p >= ATTENTION_THRESHOLD) {
+            outcome.flagged += 1;
+            user.flag_attention(&AttentionItem {
+                mailbox,
+                message_id: email.id.clone(),
+                received: email.received,
+                text: email.render(DIGEST_EMAIL_CHARS),
+            })
+            .await?;
         }
         user.mark_feed_seen(feed, &email.id, email.received).await?;
     }
     Ok(outcome)
 }
 
-/// Fetches the body and asks Jev how likely the email is to teach a lasting fact.
+/// What Jev made of one email.
+struct Scores {
+    /// How likely it teaches a lasting fact.
+    memory: Result<f64>,
+    /// How likely it needs the user's attention, when that was asked.
+    attention: Option<f64>,
+}
+
+/// Fetches the body and asks Jev how likely the email is to teach a lasting
+/// fact and, for the digest, whether it needs the user's attention.
 async fn score(
     decision: &DecisionTool,
     source: &Source<'_>,
     today: &str,
     mut email: Email,
-) -> (Email, Result<f64>) {
+    digest: bool,
+) -> (Email, Scores) {
     source.fill_body(&mut email).await;
     let state = format!("Today: {today}\n{}", email.render(JEV_EMAIL_CHARS));
-    let score = decision
-        .probability_with(&state, EMAIL_QUESTION, &EMAIL_CRITERIA)
-        .await;
-    (email, score)
+    let memory = decision.probability_with(&state, EMAIL_QUESTION, &EMAIL_CRITERIA);
+    let recent = Utc::now() - Days::days(ATTENTION_DAYS);
+    let attention = async {
+        if !digest || email.sent || email.received < recent {
+            return None;
+        }
+        decision
+            .probability_with(&state, ATTENTION_QUESTION, &ATTENTION_CRITERIA)
+            .await
+            .inspect_err(|error| log::debug!("mail: attention not scored: {error:#}"))
+            .ok()
+    };
+    let (memory, attention) = futures::join!(memory, attention);
+    (email, Scores { memory, attention })
+}
+
+/// Ids of the unread emails of `mailbox` received after `after`.
+pub(crate) async fn unread_since(
+    user: &User,
+    mailbox: Mailbox,
+    after: DateTime<Utc>,
+) -> Result<HashSet<String>> {
+    let source = Source::new(user, mailbox).await?;
+    let unread = source.list(after, Listing::Unread).await?;
+    Ok(unread.into_iter().map(|email| email.id).collect())
 }
 
 /// Drops emails already processed and duplicates within the listing.
@@ -375,6 +523,99 @@ fn parse_fastmail(value: &Value) -> Result<Page> {
         .filter(|_| more)
         .map(str::to_owned);
     Ok(Page { emails, next })
+}
+
+/// The id of the Sent Items folder, read from the newest sent message. Without
+/// it Outlook mail is still read, only not marked as sent by the user.
+async fn outlook_sent_folder(client: &ComposioClient) -> Option<String> {
+    let arguments = json!({"folder": "sentitems", "top": 1, "select": ["parentFolderId"]});
+    match client
+        .execute_tool("OUTLOOK_LIST_MESSAGES", arguments)
+        .await
+    {
+        Ok(response) if response.successful != Some(false) => {
+            response.data["value"][0]["parentFolderId"]
+                .as_str()
+                .map(str::to_owned)
+        }
+        Ok(_) => {
+            log::debug!("mail: unable to find the Outlook Sent Items folder");
+            None
+        }
+        Err(error) => {
+            log::debug!("mail: unable to find the Outlook Sent Items folder: {error:#}");
+            None
+        }
+    }
+}
+
+fn parse_outlook(data: &Value, sent_folder: Option<&str>) -> Result<Page> {
+    let messages = data["value"]
+        .as_array()
+        .context("Outlook returned no value list")?;
+    let mut emails = Vec::new();
+    for message in messages {
+        let Some(id) = message["id"].as_str() else {
+            continue;
+        };
+        if message["isDraft"].as_bool() == Some(true) {
+            continue;
+        }
+        let Some(received) = message["receivedDateTime"].as_str().and_then(timestamp) else {
+            log::debug!("mail: Outlook message without a usable date; id={id}");
+            continue;
+        };
+        let sent = sent_folder.is_some_and(|folder| message["parentFolderId"] == folder);
+        emails.push(Email {
+            id: id.to_owned(),
+            received,
+            from: recipients(&message["from"]),
+            to: recipients(&message["toRecipients"]),
+            subject: text(&message["subject"]),
+            sent,
+            body: outlook_body(message),
+        });
+    }
+    let next = data["next_page_token"].as_str().map(str::to_owned);
+    Ok(Page { emails, next })
+}
+
+/// The body as plain text, or the preview when there is no body.
+fn outlook_body(message: &Value) -> String {
+    let body = &message["body"];
+    let content = body["content"].as_str().unwrap_or_default();
+    if content.trim().is_empty() {
+        return text(&message["bodyPreview"]);
+    }
+    if !body["contentType"]
+        .as_str()
+        .is_some_and(|kind| kind.eq_ignore_ascii_case("html"))
+    {
+        return content.to_owned();
+    }
+    html2text::config::plain_no_decorate()
+        .raw_mode(true)
+        .string_from_read(content.as_bytes(), HTML_TEXT_WIDTH)
+        .unwrap_or_else(|_| text(&message["bodyPreview"]))
+}
+
+/// `Name <address>` for one Microsoft Graph recipient or a list of them.
+fn recipients(value: &Value) -> String {
+    let list = match value.as_array() {
+        Some(list) => list.as_slice(),
+        None => slice::from_ref(value),
+    };
+    list.iter()
+        .filter_map(|recipient| {
+            let address = &recipient["emailAddress"];
+            let email = address["address"].as_str()?;
+            Some(match address["name"].as_str() {
+                Some(name) if !name.is_empty() && name != email => format!("{name} <{email}>"),
+                _ => email.to_owned(),
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Reads RFC 3339 dates and the Unix seconds or milliseconds some APIs use.
@@ -475,6 +716,46 @@ mod tests {
         assert_eq!(email.to, "me@example.com");
         assert!(email.sent);
         assert!(page.next.is_none());
+    }
+
+    #[test]
+    fn parses_outlook_page() {
+        let data = json!({
+            "value": [
+                {
+                    "id": "o1",
+                    "receivedDateTime": "2026-03-01T10:00:00Z",
+                    "from": {"emailAddress": {"name": "Sam", "address": "sam@example.com"}},
+                    "toRecipients": [
+                        {"emailAddress": {"name": "me@example.com", "address": "me@example.com"}},
+                        {"emailAddress": {"name": "Alex", "address": "alex@example.com"}}
+                    ],
+                    "subject": "Dinner",
+                    "body": {"contentType": "html", "content": "<html><body><p>See you <b>Friday</b></p></body></html>"},
+                    "parentFolderId": "inbox-id",
+                    "isDraft": false
+                },
+                {
+                    "id": "o2",
+                    "receivedDateTime": "2026-03-02T10:00:00Z",
+                    "subject": "Re: trip",
+                    "body": {"contentType": "text", "content": "Booked"},
+                    "parentFolderId": "sent-id"
+                },
+                {"id": "o3", "receivedDateTime": "2026-03-03T10:00:00Z", "isDraft": true},
+                {"id": "o4"}
+            ],
+            "next_page_token": "next"
+        });
+        let page = parse_outlook(&data, Some("sent-id")).unwrap();
+        assert_eq!(page.emails.len(), 2);
+        let (first, second) = (&page.emails[0], &page.emails[1]);
+        assert_eq!(first.from, "Sam <sam@example.com>");
+        assert_eq!(first.to, "me@example.com, Alex <alex@example.com>");
+        assert_eq!(first.body.trim(), "See you Friday");
+        assert!(!first.sent && second.sent);
+        assert_eq!(second.body, "Booked");
+        assert_eq!(page.next.as_deref(), Some("next"));
     }
 
     #[test]

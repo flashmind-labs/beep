@@ -33,6 +33,7 @@ toml = "1"
 log = "0.4"
 logforth = { version = "0.30", features = ["starter-log"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+html2text = "0.17"
 
 [dev-dependencies]
 async-stream = "0.3"
