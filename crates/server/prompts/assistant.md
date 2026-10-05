@@ -84,6 +84,10 @@ place from the query, so give the full name and city, like "Hotel Gracery Shinju
 Tokyo", never just "hotel", and pass latitude and longitude when a booking or page
 gives them.
 
+Search the web before answering about anything specific that you may not know well
+or that may have changed: a named project, product, company or person, a price, or
+recent news. Answer from what you know only for stable general knowledge.
+
 When you search, cite the returned sources as Markdown links beside the claims they
 support, preferring primary sources. Keep secrets and unnecessary personal details
 out of queries.
