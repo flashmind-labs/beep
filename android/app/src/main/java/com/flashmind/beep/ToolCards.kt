@@ -371,26 +371,21 @@ private fun launchIntent(context: Context, pkg: String) = context.packageManager
 private fun lyftLink(point: LatLon) =
     "lyft://ridetype?id=lyft&destination[latitude]=${point.latitude}&destination[longitude]=${point.longitude}"
 
-/** Opens [app] on its home, or on the drop-off for Lyft, or its Play Store page when it is not installed. */
-private fun openRideApp(context: Context, app: RideApp, point: LatLon) {
-    val launch = launchIntent(context, app.pkg)
+/** Opens the installed [app] on its home, or on the drop-off for Lyft. */
+private fun openRideApp(context: Context, app: RideApp, launch: Intent, point: LatLon) {
     val dropoff = if (app.name == "Lyft") Intent(Intent.ACTION_VIEW, Uri.parse(lyftLink(point))).setPackage(app.pkg) else null
-    if (launch != null && dropoff != null && runCatching { context.startActivity(dropoff.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
-    if (launch != null) context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    else AppLauncher.launch(context, "", "market://details?id=${app.pkg}", "https://play.google.com/store/apps/details?id=${app.pkg}")
+    if (dropoff != null && runCatching { context.startActivity(dropoff.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
+    context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
 /** Opens the Grab app, or Uber's home without it, since Uber books Grab rides there. */
-private fun openGrab(context: Context, grab: RideApp) {
-    val launch = launchIntent(context, grab.pkg) ?: launchIntent(context, "com.ubercab")
-    if (launch != null) context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    else AppLauncher.launch(context, "", "market://details?id=${grab.pkg}", "https://play.google.com/store/apps/details?id=${grab.pkg}")
-}
+private fun openGrab(context: Context, launch: Intent) = context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
 private class RideChoice(val name: String, val note: String, val open: () -> Unit)
 
 /**
- * The ride options for [point]'s country, or empty when only Uber runs there. Where Grab runs,
+ * The ride options for [point]'s country, or empty when no local app there is installed. Apps
+ * that are not installed are left out, since there is nothing to open. Where Grab runs,
  * Uber's own rides are gone, so Grab comes first; elsewhere Uber stays first.
  */
 private fun rideChoices(context: Context, name: String, point: LatLon): List<RideChoice> {
@@ -399,23 +394,20 @@ private fun rideChoices(context: Context, name: String, point: LatLon): List<Rid
     val uber = RideChoice("Uber", "Drop-off set to $name") { openUber(context, name, point) }
     val grab = local.firstOrNull { it.name == "Grab" }
     if (grab != null) {
-        val installed = launchIntent(context, grab.pkg) != null
+        val grabApp = launchIntent(context, grab.pkg)
+        val launch = grabApp ?: launchIntent(context, "com.ubercab") ?: return emptyList()
         return listOf(
-            RideChoice("Grab", if (installed) "In the Grab app" else "Through Uber: tap Grab there") { openGrab(context, grab) },
+            RideChoice("Grab", if (grabApp != null) "In the Grab app" else "Through Uber: tap Grab there") { openGrab(context, launch) },
             RideChoice("Uber", "Uber's own rides") { openUber(context, name, point) },
         )
     }
-    val others = local.map { it to (launchIntent(context, it.pkg) != null) }
-        .sortedByDescending { it.second }
+    val others = local.mapNotNull { app -> launchIntent(context, app.pkg)?.let { app to it } }
         .take(LOCAL_RIDES_SHOWN)
-        .map { (app, installed) ->
-            val note = when {
-                !installed -> "Not installed: opens Play Store"
-                app.name == "Lyft" -> "Drop-off set to $name"
-                else -> "Set the drop-off there"
-            }
-            RideChoice(app.name, note) { openRideApp(context, app, point) }
+        .map { (app, launch) ->
+            val note = if (app.name == "Lyft") "Drop-off set to $name" else "Set the drop-off there"
+            RideChoice(app.name, note) { openRideApp(context, app, launch, point) }
         }
+    if (others.isEmpty()) return emptyList()
     return listOf(uber) + others
 }
 
