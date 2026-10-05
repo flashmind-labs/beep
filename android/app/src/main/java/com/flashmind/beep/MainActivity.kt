@@ -978,7 +978,13 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                                 Spacer(Modifier.width(6.dp)); Text("Quote", fontSize = 11.sp, color = TextMuted)
                             }
                             modelChoices?.takeIf { it.choices.isNotEmpty() }?.let { models ->
-                                RerunButton(models) { model ->
+                                // The server names the model for turns it recorded. A reply from this
+                                // session ran on its prompt's model, or the user's own when it had none.
+                                val used = message.model.ifEmpty {
+                                    val prompt = chat.messages.take(index).lastOrNull { it.role == "user" }
+                                    prompt?.model?.ifEmpty { models.selected.takeUnless { message.id.startsWith("history-") } }
+                                }
+                                RerunButton(models, used) { model ->
                                     followLatest = true
                                     scope.launch { runCatching { repository.rerun(message, model) }.onFailure { showError(context, it) } }
                                 }
@@ -1292,7 +1298,7 @@ private fun ReplySkeleton(modifier: Modifier = Modifier) {
 
 /** Admin only: runs the prompt behind a reply again on a model picked from the menu. */
 @Composable
-private fun RerunButton(models: Models, onPick: (String) -> Unit) {
+private fun RerunButton(models: Models, used: String?, onPick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         TextButton(onClick = { open = true }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 48.dp)) {
@@ -1302,17 +1308,22 @@ private fun RerunButton(models: Models, onPick: (String) -> Unit) {
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Surface, shape = RoundedCornerShape(Beep.shapes.smallRadius)) {
             models.choices.forEach { choice ->
+                val isUsed = choice.id == used
                 val note = when {
+                    isUsed -> "Used for this reply"
                     choice.id == models.selected -> "Your model"
                     choice.default -> "Default"
                     else -> choice.id
                 }
                 DropdownMenuItem(text = {
                     Column {
-                        Text(choice.name, fontSize = 14.sp)
-                        Text(note, fontSize = 11.sp, color = TextMuted)
+                        Text(choice.name, fontSize = 14.sp, color = if (isUsed) Moss else TextPrimary,
+                            fontWeight = if (isUsed) FontWeight.SemiBold else null)
+                        Text(note, fontSize = 11.sp, color = if (isUsed) Moss else TextMuted)
                     }
-                }, onClick = { open = false; onPick(choice.id) })
+                }, trailingIcon = if (isUsed) { { Icon(Icons.Outlined.Check, null, Modifier.size(16.dp), tint = Moss) } } else null,
+                    modifier = if (isUsed) Modifier.background(Moss.copy(alpha = 0.12f)) else Modifier,
+                    onClick = { open = false; onPick(choice.id) })
             }
         }
     }

@@ -73,6 +73,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "digest",
         include_str!("../../migrations/0008_digest.sql"),
     ),
+    (
+        9,
+        "turn_models",
+        include_str!("../../migrations/0009_turn_models.sql"),
+    ),
 ];
 
 fn migrator() -> Migrator {
@@ -631,7 +636,13 @@ impl Store {
     /// Deletes sessions with their runs and returns how many existed.
     pub(crate) async fn delete_sessions(&self, user: &UserKey, ids: Vec<String>) -> Result<u64> {
         let mut tx = self.pool.begin().await?;
-        for table in ["runs", "tool_failures", "memory_scores", "session_titles"] {
+        for table in [
+            "runs",
+            "tool_failures",
+            "memory_scores",
+            "turn_models",
+            "session_titles",
+        ] {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE user_id=$1 AND session_id = ANY($2)"
             ))
@@ -706,12 +717,16 @@ impl Store {
         .bind(session_id)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("DELETE FROM memory_scores WHERE user_id=$1 AND session_id=$2 AND turn_at=$3")
+        for table in ["memory_scores", "turn_models"] {
+            sqlx::query(&format!(
+                "DELETE FROM {table} WHERE user_id=$1 AND session_id=$2 AND turn_at=$3"
+            ))
             .bind(user.as_str())
             .bind(session_id)
             .bind(timestamp)
             .execute(&mut *tx)
             .await?;
+        }
         tx.commit().await?;
         Ok(DeletedTurn::Deleted)
     }
@@ -923,6 +938,47 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Records the model that answered the turn whose user message was sent
+    /// at `turn_at`, in milliseconds since the epoch.
+    pub(crate) async fn record_turn_model(
+        &self,
+        user: &UserKey,
+        session: &str,
+        turn_at: i64,
+        model: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO turn_models (user_id, session_id, turn_at, model)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id, session_id, turn_at) DO UPDATE SET model=excluded.model",
+        )
+        .bind(user.as_str())
+        .bind(session)
+        .bind(turn_at)
+        .bind(model)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The session's models by the time of each turn's user message.
+    pub(crate) async fn turn_models(
+        &self,
+        user: &UserKey,
+        session: &str,
+    ) -> Result<HashMap<i64, String>> {
+        let rows = sqlx::query(
+            "SELECT turn_at, model FROM turn_models WHERE user_id=$1 AND session_id=$2",
+        )
+        .bind(user.as_str())
+        .bind(session)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|r| Ok((r.try_get(0)?, r.try_get(1)?)))
+            .collect()
     }
 
     /// The session's memory scores by the time of each turn's user message.
@@ -1636,19 +1692,34 @@ impl TurnSpan {
 }
 
 /// Removes the user message sent at `timestamp` and every entry up to the
-/// next user message: the reply, its tool calls and their results.
+/// next turn: the reply, its tool calls and their results, and the context
+/// entries placed just before the message.
 fn remove_turn(conversation: &mut Conversation, timestamp: i64) -> Option<TurnSpan> {
     let is_user = |kind: &EntryKind| matches!(kind, EntryKind::User { .. });
+    // Each turn opens with developer context (time, place, apps). A
+    // compaction summary is not part of any turn and stays.
+    let is_context = |kind: &EntryKind| matches!(kind, EntryKind::Developer { tag, .. } if tag.as_deref() != Some("summary"));
     let entries = conversation.entries_mut();
-    let start = entries
+    let asked = entries
         .iter()
         .position(|e| is_user(&e.kind) && e.timestamp.timestamp_millis() == timestamp)?;
-    let end = entries[start + 1..]
+    let context_before = |at: usize| {
+        entries[..at]
+            .iter()
+            .rev()
+            .take_while(|e| is_context(&e.kind))
+            .count()
+    };
+    let start = asked - context_before(asked);
+    let next = entries[asked + 1..]
         .iter()
         .position(|e| is_user(&e.kind))
-        .map_or(entries.len(), |i| start + 1 + i);
+        .map(|i| asked + 1 + i);
+    let end = next.map_or(entries.len(), |next| {
+        next - context_before(next).min(next - asked - 1)
+    });
     let span = TurnSpan {
-        start: timestamp,
+        start: entries[start].timestamp.timestamp_millis(),
         end: entries.get(end).map(|e| e.timestamp.timestamp_millis()),
     };
     entries.drain(start..end);
@@ -1663,6 +1734,7 @@ mod tests {
     fn turn(conversation: &mut Conversation, at: i64, prompt: &str) {
         let time = |ms| DateTime::from_timestamp_millis(ms).unwrap();
         let mut entries = vec![
+            ConversationEntry::system_message("context"),
             ConversationEntry::user(prompt),
             ConversationEntry::assistant_with_tool_calls("", vec![], None),
             ConversationEntry::tool("call", "done"),
@@ -1681,19 +1753,22 @@ mod tests {
         turn(&mut chat, 2000, "two");
         turn(&mut chat, 3000, "three");
 
-        let span = remove_turn(&mut chat, 2000).unwrap();
+        let span = remove_turn(&mut chat, 2001).unwrap();
         assert_eq!((span.start, span.end), (2000, Some(3000)));
         let times: Vec<_> = chat
             .entries()
             .iter()
             .map(|e| e.timestamp.timestamp_millis())
             .collect();
-        assert_eq!(times, [1000, 1001, 1002, 1003, 3000, 3001, 3002, 3003]);
+        assert_eq!(
+            times,
+            [1000, 1001, 1002, 1003, 1004, 3000, 3001, 3002, 3003, 3004]
+        );
 
-        let span = remove_turn(&mut chat, 3000).unwrap();
+        let span = remove_turn(&mut chat, 3001).unwrap();
         assert_eq!((span.start, span.end), (3000, None));
-        assert_eq!(chat.entries().len(), 4);
-        assert!(remove_turn(&mut chat, 1001).is_none());
+        assert_eq!(chat.entries().len(), 5);
+        assert!(remove_turn(&mut chat, 1002).is_none());
     }
 
     #[test]

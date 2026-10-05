@@ -62,6 +62,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONObject
+import org.json.JSONTokener
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 /** What a tool is doing, in words. Unknown tools fall back to their name: "GMAIL_SEND_EMAIL" becomes "Gmail: send email". */
 fun toolLabel(name: String): String = toolLabels[name] ?: humanize(name)
@@ -147,6 +150,41 @@ private fun memoryOf(name: String, result: String): String {
     return runCatching { JSONObject(result).optString("content") }.getOrNull().orEmpty()
 }
 
+/** Memories a recall chip lists before Show all. */
+private const val RECALL_SHOWN = 10
+
+private data class Recalled(val content: String, val category: String, val days: String)
+
+private val DAY = DateTimeFormatter.ofPattern("MMM d")
+
+/** `2026-10-09` as "Oct 9", or as given when it is not a date. */
+private fun day(date: String) = runCatching { LocalDate.parse(date).format(DAY) }.getOrDefault(date)
+
+/**
+ * The memories `memory_recall` returned, from its JSON array. History cuts long
+ * outputs short, so this keeps every memory read before the cut.
+ */
+private fun recalledOf(name: String, result: String): List<Recalled>? {
+    if (name != "memory_recall" || !result.trimStart().startsWith("[")) return null
+    val reader = JSONTokener(result)
+    reader.nextClean()
+    val found = mutableListOf<Recalled>()
+    while (true) {
+        val item = runCatching { reader.nextValue() as? JSONObject }.getOrNull() ?: break
+        val from = item.optString("valid_from")
+        val until = item.optString("valid_until")
+        val days = when {
+            from.isNotEmpty() && until.isNotEmpty() -> "${day(from)} to ${day(until)}"
+            until.isNotEmpty() -> "until ${day(until)}"
+            from.isNotEmpty() -> "from ${day(from)}"
+            else -> ""
+        }
+        found += Recalled(item.optString("content"), item.optString("category"), days)
+        if (reader.nextClean() != ',') break
+    }
+    return found
+}
+
 /**
  * The line that stands in for folded tool calls: one bubble per app, the newest
  * on top, then "+5 tools" while the reply runs or "8 tools, 1 failed" once it is
@@ -193,7 +231,8 @@ fun FoldedTools(calls: List<ToolCall>, finished: Boolean, open: Boolean, onToggl
 /**
  * One tool call as a tinted pill. The icon wiggles while the tool runs and a
  * check gets stamped on when it finishes. A finished search says how many pages
- * it read, and tapping it lists them. Tapping a memory chip shows the memory.
+ * it read, and tapping it lists them. Tapping a memory chip shows the memory, or
+ * for a recall the memories it found.
  */
 @Composable
 fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen: (String) -> Unit = {}) {
@@ -207,13 +246,16 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
     val described = toolLabel(call.name).ifBlank { call.description }.ifBlank { "Using a tool" }
     val sources = remember(call.result) { if (running) emptyList() else sourcesOf(call.result) }
     val memory = remember(call.result) { if (running) "" else memoryOf(call.name, call.result) }
-    val expandable = sources.isNotEmpty() || memory.isNotEmpty()
+    val recalled = remember(call.result) { if (running || !call.success) null else recalledOf(call.name, call.result) }
+    val expandable = sources.isNotEmpty() || memory.isNotEmpty() || !recalled.isNullOrEmpty()
     val label = when {
         running -> described
         sources.isNotEmpty() -> doneLabel(described) + " \u00b7 " + (if (sources.size == 1) "1 source" else "${sources.size} sources")
+        recalled != null -> doneLabel(described) + " \u00b7 " + (if (recalled.isEmpty()) "None found" else "${recalled.size} found")
         else -> doneLabel(described)
     }
     var open by remember(call.callId) { mutableStateOf(false) }
+    var showAll by remember(call.callId) { mutableStateOf(false) }
     // Remembered once, so chips that were already done when the chat opened stay still.
     val sawRunning = remember(call.callId) { running }
 
@@ -261,7 +303,7 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
             }
             if (expandable) {
                 val turn by animateFloatAsState(if (open) 180f else 0f, label = "sources-chevron")
-                val what = if (sources.isNotEmpty()) "sources" else "memory"
+                val what = when { sources.isNotEmpty() -> "sources"; recalled != null -> "memories"; else -> "memory" }
                 Icon(Icons.Outlined.KeyboardArrowDown, if (open) "Hide $what" else "Show $what",
                     Modifier.padding(start = 4.dp).size(18.dp).graphicsLayer { rotationZ = turn }, tint = t.colors.muted)
             }
@@ -274,6 +316,20 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
                 if (memory.isNotEmpty())
                     Text(memory, fontSize = 13.sp, color = t.colors.ink, lineHeight = 18.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
+                recalled.orEmpty().let { if (showAll) it else it.take(RECALL_SHOWN) }.forEachIndexed { i, found ->
+                    if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(t.colors.softLine))
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp)) {
+                        Text(found.content, fontSize = 13.sp, color = t.colors.ink, lineHeight = 18.sp)
+                        val note = listOf(found.category, found.days).filter { it.isNotEmpty() }.joinToString(", ")
+                        if (note.isNotEmpty()) Text(note, fontSize = 11.sp, color = t.colors.muted)
+                    }
+                }
+                val hidden = recalled.orEmpty().size - RECALL_SHOWN
+                if (!showAll && hidden > 0) {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(t.colors.softLine))
+                    Text("Show all ($hidden more)", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = t.colors.brand,
+                        modifier = Modifier.fillMaxWidth().clickable { showAll = true }.padding(horizontal = 12.dp, vertical = 11.dp))
+                }
                 sources.forEachIndexed { i, source ->
                     if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(t.colors.softLine))
                     Row(Modifier.fillMaxWidth().clickable { onOpen(source.url) }.padding(horizontal = 12.dp, vertical = 9.dp),

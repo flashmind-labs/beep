@@ -100,6 +100,11 @@ data class ChatState(val conversations: List<Conversation> = listOf(Conversation
 }
 
 private val identityLock = Any()
+/**
+ * Raised when cached chats need a reload from the server. 2: prompts sent from the
+ * phone lacked the server time that deleting a turn needs.
+ */
+private const val CACHE_FORMAT = 2
 /** Shared by every `LocalStorage`, so the keystore is read once per process. */
 @Volatile private var cachedIdentity: ByteArray? = null
 
@@ -147,6 +152,8 @@ class LocalStorage(internal val context: Context) {
     fun loadState(): ChatState = runCatching {
         val json = JSONObject(file.openRead().bufferedReader().use { it.readText() })
         val list = json.getJSONArray("conversations")
+        // An older cache keeps its chats but forgets their version, so each reloads on open.
+        val stale = json.optInt("cache") < CACHE_FORMAT
         val conversations = (0 until list.length()).map { index ->
             val c = list.getJSONObject(index)
             val messages = c.getJSONArray("messages")
@@ -183,7 +190,7 @@ class LocalStorage(internal val context: Context) {
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"),
                 status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
-                version = c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()))
+                version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()))
         }
         check(conversations.isNotEmpty())
         ChatState(conversations, json.optString("selected"))
@@ -314,7 +321,7 @@ class LocalStorage(internal val context: Context) {
         }
         val out = file.startWrite()
         try {
-            out.write(JSONObject().put("selected", state.selected).put("conversations", list).toString().toByteArray())
+            out.write(JSONObject().put("cache", CACHE_FORMAT).put("selected", state.selected).put("conversations", list).toString().toByteArray())
             file.finishWrite(out)
         } catch (error: Exception) { file.failWrite(out); throw error }
     }

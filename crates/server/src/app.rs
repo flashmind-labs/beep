@@ -1055,6 +1055,26 @@ impl App {
                 .filter(|entry| entry.timestamp >= turn_started && !entry.is_summary())
                 .cloned(),
         );
+        // Kept before the turn is saved, so the history the phone reloads on
+        // the change notice already names the model.
+        let asked = transcript
+            .entries()
+            .iter()
+            .find(|entry| entry.timestamp >= turn_started && entry.is_user());
+        if let Some(asked) = asked
+            && let Err(error) = user
+                .record_turn_model(
+                    &run.session_id,
+                    asked.timestamp.timestamp_millis(),
+                    &model.to_string(),
+                )
+                .await
+        {
+            log::warn!(
+                "unable to record the turn's model: {error}; run_id={}",
+                run.id
+            );
+        }
         let turn = FinishedTurn {
             transcript: &transcript,
             context: &conversation,

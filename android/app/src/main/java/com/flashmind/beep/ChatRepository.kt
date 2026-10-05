@@ -207,7 +207,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     if (entry.content.isBlank()) { pending = tools; pendingReasoning = reasoning; null }
                     else {
                         pending = emptyList(); pendingReasoning = ""
-                        ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools, memoryScore = entry.memoryScore, reasoning = reasoning)
+                        ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools, memoryScore = entry.memoryScore, reasoning = reasoning, model = entry.model)
                     }
                 }
             }
@@ -374,16 +374,32 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun deleteTurn(prompt: ChatMessage, chatId: String = state.value.current.id) {
         val chat = state.value.conversations.find { it.id == chatId } ?: return
         check(!chat.busy) { "Wait for the reply to finish." }
-        if (prompt.sentAt != 0L) {
-            try { withContext(Dispatchers.IO) { api().deleteTurn(chatId, prompt.sentAt) } }
-            catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
-        }
+        try {
+            val sentAt = withContext(Dispatchers.IO) { serverTime(prompt, chat) }
+            if (sentAt != 0L) withContext(Dispatchers.IO) { api().deleteTurn(chatId, sentAt) }
+        } catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
         updateChat(chatId) { c ->
             val start = c.messages.indexOfFirst { it.id == prompt.id }
             if (start < 0) return@updateChat c
             val end = c.messages.drop(start + 1).indexOfFirst { it.role in TURN_STARTS }.let { if (it < 0) c.messages.size else start + 1 + it }
             c.copy(messages = c.messages.take(start) + c.messages.drop(end))
         }
+    }
+    /**
+     * The server's time for [prompt], 0 when the server never saved it. A prompt sent from
+     * this phone has none until the chat reloads, so it is the server turn with the same
+     * text at the same count: the second "hi" on the phone is the second "hi" there.
+     */
+    private suspend fun serverTime(prompt: ChatMessage, chat: Conversation): Long {
+        if (prompt.sentAt != 0L) return prompt.sentAt
+        val nth = chat.messages.takeWhile { it.id != prompt.id }.count { it.role == prompt.role && it.text == prompt.text }
+        return api().getSession(chat.id).mapNotNull { entry ->
+            when (entry) {
+                is HistoryEntry.User -> entry.timestamp.takeIf { prompt.role == "user" && entry.content == prompt.text }
+                is HistoryEntry.Scheduled -> entry.timestamp.takeIf { prompt.role == "scheduled" && entry.label == prompt.text }
+                is HistoryEntry.Assistant -> null
+            }
+        }.getOrElse(nth) { 0L }
     }
     fun retry() { launchRun(state.value.current.id) }
     /**
