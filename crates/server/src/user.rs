@@ -16,7 +16,7 @@ use crate::{
         },
         mcp_app,
     },
-    feeds::{self, SYNC_SWEEP},
+    feeds::{self, SYNC_SWEEP, mail::Mailbox},
     memories::{
         CURATE_EVERY, CURATE_SWEEP, CURATE_SYSTEM, CURATE_TIMEOUT, Change, DUPLICATE, Exchange,
         Hit, LEARN_RULES, LEARN_SYSTEM, LEARN_TIMEOUT, LearnKind, LearnOp, Learned, MAX_CURATED,
@@ -30,8 +30,8 @@ use crate::{
     },
     starters::{Cached, FALLBACK_FRESH, FRESH, Generator, StarterContext, TIMEOUT, fallback},
     store::{
-        AppPermissionRow, CreateRun, Fact, Feed, FinishedTurn, Location, MEMORY_CATEGORIES,
-        McpServerRow, MemoryRow, Origin, RunStatus, Store, StoredContext,
+        AppPermissionRow, AttentionItem, CreateRun, Fact, Feed, FinishedTurn, Location,
+        MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin, RunStatus, Store, StoredContext,
     },
 };
 use anyhow::{Result, bail};
@@ -440,6 +440,31 @@ impl User {
     /// Forgets processed ids older than `before`, which no run reads again.
     pub async fn prune_feed_seen(&self, feed: Feed, before: DateTime<Utc>) -> Result<usize> {
         self.store.prune_feed_seen(&self.key, feed, before).await
+    }
+
+    /// Makes the digest routine `job` unless one was made before.
+    pub async fn offer_digest(&self, job: &CronJob) -> Result<bool> {
+        self.store.offer_digest(&self.key, job).await
+    }
+
+    /// Whether the user has a digest routine switched on.
+    pub async fn digest_enabled(&self) -> Result<bool> {
+        self.store.digest_enabled(&self.key).await
+    }
+
+    /// Keeps an email for the evening digest.
+    pub async fn flag_attention(&self, item: &AttentionItem) -> Result<()> {
+        self.store.flag_attention(&self.key, item).await
+    }
+
+    /// Emails waiting for the digest, oldest first; older than `keep` are dropped.
+    pub async fn attention_items(&self, keep: Duration) -> Result<Vec<AttentionItem>> {
+        self.store.attention_items(&self.key, keep).await
+    }
+
+    /// Forgets flagged emails of `mailbox` the digest dealt with.
+    pub async fn clear_attention(&self, mailbox: Mailbox, ids: &[String]) -> Result<()> {
+        self.store.clear_attention(&self.key, mailbox, ids).await
     }
 
     /// Saves a server's config. Credentials are untouched: they change only

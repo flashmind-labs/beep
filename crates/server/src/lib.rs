@@ -5,6 +5,7 @@ pub mod compaction;
 pub mod config;
 pub mod cron;
 pub mod decision;
+pub mod digest;
 pub mod feeds;
 pub mod images;
 pub mod live;

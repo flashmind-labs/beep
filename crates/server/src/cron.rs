@@ -12,6 +12,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::app::{App, Message};
+use crate::digest;
 use crate::protocol::Run;
 use crate::store::{CreateRun, Store};
 use crate::user::User;
@@ -83,6 +84,19 @@ pub fn scheduled_label(content: &str) -> Option<&str> {
 /// The scheduler calls it when the job is due, and the API when the user
 /// runs it early.
 pub async fn run_job(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Result<Option<Run>> {
+    if job.metadata.get("kind").and_then(|v| v.as_str()) == Some(digest::DIGEST_KIND) {
+        return digest::run(app, user, job).await;
+    }
+    submit(app, user, job, &job.task).await
+}
+
+/// Wakes the agent with `task` as `job`'s run.
+pub(crate) async fn submit(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    job: &CronJob,
+    task: &str,
+) -> Result<Option<Run>> {
     let label = job
         .metadata
         .get("label")
@@ -96,7 +110,7 @@ pub async fn run_job(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Result<
         .get("session_id")
         .and_then(|v| v.as_str())
         .and_then(|v| v.parse::<Uuid>().ok());
-    let message = scheduled_prompt(label, &job.task);
+    let message = scheduled_prompt(label, task);
     let msg = |session_id| Message {
         session_id,
         request_id: Uuid::new_v4(),

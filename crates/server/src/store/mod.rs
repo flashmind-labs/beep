@@ -29,11 +29,13 @@ use tokio::sync::Notify;
 use uuid::Uuid;
 
 mod cron_jobs;
+mod digest;
 mod memories;
 mod test_db;
 
 #[cfg(test)]
 pub(crate) use cron_jobs::decode_schedule;
+pub use digest::AttentionItem;
 pub use memories::{Fact, Scored, WordEmbedder};
 pub use test_db::TestDb;
 
@@ -66,6 +68,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         7,
         "user_model",
         include_str!("../../migrations/0007_user_model.sql"),
+    ),
+    (
+        8,
+        "digest",
+        include_str!("../../migrations/0008_digest.sql"),
     ),
 ];
 
@@ -162,9 +169,10 @@ pub enum Feed {
 }
 
 impl Feed {
-    pub const ALL: [Feed; 3] = [
+    pub const ALL: [Feed; 4] = [
         Feed::Mail(Mailbox::Gmail),
         Feed::Mail(Mailbox::Fastmail),
+        Feed::Mail(Mailbox::Outlook),
         Feed::Slack,
     ];
 
