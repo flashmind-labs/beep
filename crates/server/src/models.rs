@@ -8,7 +8,7 @@ use rust_decimal::{Decimal, prelude::ToPrimitive};
 use std::{collections::HashSet, iter};
 
 /// The most a pickable model may cost, in USD per million output tokens.
-pub const MAX_OUTPUT_PRICE: f64 = 1.0;
+pub const MAX_OUTPUT_PRICE: f64 = 4.0;
 
 pub struct ModelChoices {
     admins: HashSet<String>,

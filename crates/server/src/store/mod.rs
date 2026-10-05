@@ -186,6 +186,8 @@ impl Feed {
 pub enum RunStatus {
     Completed,
     Cancelled,
+    /// Cut short by the server shutting down, as on a deploy.
+    Interrupted,
     TimedOut,
     Stalled,
     Looped,
@@ -200,6 +202,7 @@ impl RunStatus {
         match self {
             Self::Completed => "completed",
             Self::Cancelled => "cancelled",
+            Self::Interrupted => "interrupted",
             Self::TimedOut => "timed_out",
             Self::Stalled => "stalled",
             Self::Looped => "looped",

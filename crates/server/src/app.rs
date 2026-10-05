@@ -42,7 +42,10 @@ use serde::Deserialize;
 use std::{
     collections::HashMap,
     fmt::Write,
-    sync::{Arc, Mutex as StdMutex, PoisonError},
+    sync::{
+        Arc, Mutex as StdMutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::time::Instant;
@@ -88,6 +91,8 @@ pub struct App {
     runs: Mutex<HashMap<String, Arc<LiveRun>>>,
     /// Questions sent to a phone, keyed by query id, waiting for its answer.
     device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
+    /// Set once the server starts stopping.
+    shutting_down: AtomicBool,
 }
 
 /// Optional tools and integrations that need server credentials, as
@@ -211,6 +216,7 @@ impl App {
             users: StdMutex::new(HashMap::new()),
             runs: Mutex::new(HashMap::new()),
             device_queries: Mutex::new(HashMap::new()),
+            shutting_down: AtomicBool::new(false),
         })
     }
 
@@ -317,6 +323,8 @@ impl App {
     }
 
     pub async fn shutdown(&self) {
+        // Read by runs as they stop, so they end as interrupted, not cancelled.
+        self.shutting_down.store(true, Ordering::Relaxed);
         for live in self.runs.lock().await.values() {
             live.cancel.cancel();
         }
@@ -450,6 +458,7 @@ impl App {
             RunStatus::Completed if !reply.is_empty() => reply.as_str(),
             RunStatus::Completed => "Your request completed successfully.",
             RunStatus::Cancelled => "The run was cancelled.",
+            RunStatus::Interrupted => "The server restarted before the run finished.",
             RunStatus::TimedOut => "The run timed out.",
             RunStatus::Stalled => "The model stopped responding.",
             RunStatus::Looped => "The model got stuck repeating itself and was stopped.",
@@ -747,7 +756,11 @@ impl App {
             loop {
                 let event = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => break RunStatus::Cancelled,
+                    _ = cancel.cancelled() => break if self.shutting_down.load(Ordering::Relaxed) {
+                        RunStatus::Interrupted
+                    } else {
+                        RunStatus::Cancelled
+                    },
                     _ = &mut deadline, if tools_running == 0 => { cancel.cancel(); break RunStatus::TimedOut; },
                     _ = &mut hard_stop => { cancel.cancel(); break RunStatus::TimedOut; },
                     event = tokio::time::timeout(

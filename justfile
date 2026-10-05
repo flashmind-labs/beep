@@ -112,6 +112,10 @@ test-db:
 test: test-db
     BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:55432/beep cargo test -p beep-server
 
+# List the OpenRouter models Beep could use, newest first: just models [max-output-price] [filter]
+models *args:
+    cargo run -q --package beep-server --bin beep-models -- {{args}}
+
 # Tail server logs
 logs:
     tail -f .dev/server.log
