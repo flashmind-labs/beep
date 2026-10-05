@@ -344,42 +344,97 @@ private fun openUber(context: Context, name: String, point: LatLon) {
     AppLauncher.launch(context, "uber", link, link)
 }
 
-/** Where Grab took over Uber's rides, so Uber's own ride list there is empty. */
-private val GRAB_COUNTRIES = setOf("SG", "MY", "ID", "TH", "VN", "PH", "KH", "MM")
-private const val GRAB_PACKAGE = "com.grabtaxi.passenger"
+/** A local ride app and the ISO country codes it runs in. The list order is the menu order. */
+private class RideApp(val name: String, val pkg: String, val countries: Set<String>)
 
-private fun hasGrab(context: Context) = context.packageManager.getLaunchIntentForPackage(GRAB_PACKAGE) != null
+private val EUROPE_BOLT = setOf("EE", "LV", "LT", "FI", "SE", "NO", "PL", "CZ", "SK", "RO", "BG", "HR", "PT", "ES", "FR",
+    "DE", "AT", "NL", "BE", "IE", "GB", "MT", "CY", "GR", "UA", "GE")
 
-/** Opens the Grab app, or Uber's home without the Grab app, since Uber books Grab rides there. */
-private fun openGrab(context: Context) {
-    val launch = context.packageManager.getLaunchIntentForPackage(GRAB_PACKAGE)
-        ?: context.packageManager.getLaunchIntentForPackage("com.ubercab")
+private val RIDE_APPS = listOf(
+    RideApp("Grab", "com.grabtaxi.passenger", setOf("SG", "MY", "ID", "TH", "VN", "PH", "KH", "MM")),
+    RideApp("Gojek", "com.gojek.app", setOf("ID", "SG")),
+    RideApp("Cabify", "com.cabify.rider", setOf("ES", "AR", "CL", "CO", "PE", "UY")),
+    RideApp("Lyft", "me.lyft.android", setOf("US", "CA")),
+    RideApp("FreeNow", "taxi.android.client", setOf("DE", "AT", "IE", "GB", "ES", "FR", "IT", "PL", "PT", "GR")),
+    RideApp("Bolt", "ee.mtakso.client", EUROPE_BOLT + setOf("NG", "KE", "ZA", "GH")),
+    RideApp("DiDi", "com.didiglobal.passenger", setOf("MX", "CL", "CO", "PE", "AU", "NZ")),
+    RideApp("Careem", "com.careem.acma", setOf("AE", "SA", "JO", "PK")),
+    RideApp("Ola", "com.olacabs.customer", setOf("IN")),
+    RideApp("Yandex Go", "ru.yandex.taxi", setOf("RU")),
+)
+
+private const val LOCAL_RIDES_SHOWN = 3
+
+private fun launchIntent(context: Context, pkg: String) = context.packageManager.getLaunchIntentForPackage(pkg)
+
+/** Lyft's documented deep link, which sets the drop-off. */
+private fun lyftLink(point: LatLon) =
+    "lyft://ridetype?id=lyft&destination[latitude]=${point.latitude}&destination[longitude]=${point.longitude}"
+
+/** Opens [app] on its home, or on the drop-off for Lyft, or its Play Store page when it is not installed. */
+private fun openRideApp(context: Context, app: RideApp, point: LatLon) {
+    val launch = launchIntent(context, app.pkg)
+    val dropoff = if (app.name == "Lyft") Intent(Intent.ACTION_VIEW, Uri.parse(lyftLink(point))).setPackage(app.pkg) else null
+    if (launch != null && dropoff != null && runCatching { context.startActivity(dropoff.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
     if (launch != null) context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    else AppLauncher.launch(context, "uber", "", "")
+    else AppLauncher.launch(context, "", "market://details?id=${app.pkg}", "https://play.google.com/store/apps/details?id=${app.pkg}")
 }
 
-/** Grab first, then Uber, for a place where Grab runs the rides. */
+/** Opens the Grab app, or Uber's home without it, since Uber books Grab rides there. */
+private fun openGrab(context: Context, grab: RideApp) {
+    val launch = launchIntent(context, grab.pkg) ?: launchIntent(context, "com.ubercab")
+    if (launch != null) context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    else AppLauncher.launch(context, "", "market://details?id=${grab.pkg}", "https://play.google.com/store/apps/details?id=${grab.pkg}")
+}
+
+private class RideChoice(val name: String, val note: String, val open: () -> Unit)
+
+/**
+ * The ride options for [point]'s country, or empty when only Uber runs there. Where Grab runs,
+ * Uber's own rides are gone, so Grab comes first; elsewhere Uber stays first.
+ */
+private fun rideChoices(context: Context, name: String, point: LatLon): List<RideChoice> {
+    val local = RIDE_APPS.filter { point.country in it.countries }
+    if (local.isEmpty()) return emptyList()
+    val uber = RideChoice("Uber", "Drop-off set to $name") { openUber(context, name, point) }
+    val grab = local.firstOrNull { it.name == "Grab" }
+    if (grab != null) {
+        val installed = launchIntent(context, grab.pkg) != null
+        return listOf(
+            RideChoice("Grab", if (installed) "In the Grab app" else "Through Uber: tap Grab there") { openGrab(context, grab) },
+            RideChoice("Uber", "Uber's own rides") { openUber(context, name, point) },
+        )
+    }
+    val others = local.map { it to (launchIntent(context, it.pkg) != null) }
+        .sortedByDescending { it.second }
+        .take(LOCAL_RIDES_SHOWN)
+        .map { (app, installed) ->
+            val note = when {
+                !installed -> "Not installed: opens Play Store"
+                app.name == "Lyft" -> "Drop-off set to $name"
+                else -> "Set the drop-off there"
+            }
+            RideChoice(app.name, note) { openRideApp(context, app, point) }
+        }
+    return listOf(uber) + others
+}
+
 @Composable
-private fun RideMenu(context: Context, name: String, point: LatLon) {
+private fun RideMenu(choices: List<RideChoice>) {
     val t = LocalBeep.current
     var open by remember { mutableStateOf(false) }
-    val grabApp = remember { hasGrab(context) }
     Box {
         CardButton("Ride", Icons.Outlined.LocalTaxi, trailing = Icons.Outlined.ArrowDropDown) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = t.colors.surface,
             shape = RoundedCornerShape(t.shapes.smallRadius)) {
-            DropdownMenuItem(text = {
-                Column {
-                    Text("Grab", fontSize = 14.sp)
-                    Text(if (grabApp) "In the Grab app" else "Through Uber: tap Grab there", fontSize = 11.sp, color = t.colors.muted)
-                }
-            }, onClick = { open = false; openGrab(context) })
-            DropdownMenuItem(text = {
-                Column {
-                    Text("Uber", fontSize = 14.sp)
-                    Text("Uber's own rides", fontSize = 11.sp, color = t.colors.muted)
-                }
-            }, onClick = { open = false; openUber(context, name, point) })
+            choices.forEach { choice ->
+                DropdownMenuItem(text = {
+                    Column {
+                        Text(choice.name, fontSize = 14.sp)
+                        Text(choice.note, fontSize = 11.sp, color = t.colors.muted)
+                    }
+                }, onClick = { open = false; choice.open() })
+            }
         }
     }
 }
@@ -410,10 +465,10 @@ private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
                 CardButton("Directions", Icons.Outlined.Directions, primary = true) { openDirections(context, card) }
                 // A ride goes to one looked-up place from the phone, so not for searches or routes from elsewhere.
                 val ride = found?.takeIf { card.near == null && card.origin == null }
-                when {
-                    ride == null -> {}
-                    ride.country in GRAB_COUNTRIES -> RideMenu(context, card.name, ride)
-                    else -> CardButton("Uber", Icons.Outlined.LocalTaxi) { openUber(context, card.name, ride) }
+                if (ride != null) {
+                    val choices = remember(ride) { rideChoices(context, card.name, ride) }
+                    if (choices.isEmpty()) CardButton("Uber", Icons.Outlined.LocalTaxi) { openUber(context, card.name, ride) }
+                    else RideMenu(choices)
                 }
                 CardButton("Open in Maps", Icons.Outlined.Map) { openMaps(context, card.query, point, card.near) }
             }
