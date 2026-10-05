@@ -2,10 +2,13 @@
 //! admin who has not picked one, runs on the server default.
 
 use crate::protocol::{ModelChoice, Models};
-use flashmind::types::{LlmProvider, Model, ModelInfo};
+use flashmind::types::{LlmProvider, Model, ModelInfo, ProviderPreferences};
 use iroh::EndpointId;
 use rust_decimal::{Decimal, prelude::ToPrimitive};
-use std::{collections::HashSet, iter};
+use std::{
+    collections::{HashMap, HashSet},
+    iter,
+};
 
 /// The most a pickable model may cost, in USD per million output tokens.
 pub const MAX_OUTPUT_PRICE: f64 = 4.0;
@@ -14,6 +17,8 @@ pub struct ModelChoices {
     admins: HashSet<String>,
     /// The server default first, then the configured choices.
     choices: Vec<Choice>,
+    /// Provider routing for models that do not use the server's own.
+    routing: HashMap<Model, ProviderPreferences>,
 }
 
 struct Choice {
@@ -36,6 +41,7 @@ impl ModelChoices {
                 output_price: None,
                 sees_images: false,
             }],
+            routing: HashMap::new(),
         }
     }
 
@@ -89,7 +95,19 @@ impl ModelChoices {
         Self {
             admins: admins.iter().map(ToString::to_string).collect(),
             choices,
+            routing: HashMap::new(),
         }
+    }
+
+    /// Routes these models with their own provider preferences.
+    pub fn with_routing(mut self, routing: HashMap<Model, ProviderPreferences>) -> Self {
+        self.routing = routing;
+        self
+    }
+
+    /// The provider routing for `model`, when it has its own.
+    pub fn routing(&self, model: &Model) -> Option<&ProviderPreferences> {
+        self.routing.get(model)
     }
 
     pub fn is_admin(&self, user: &str) -> bool {

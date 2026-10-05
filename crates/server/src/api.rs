@@ -85,6 +85,15 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
     if req.images.iter().any(|image| image.len() > MAX_IMAGE_BYTES) {
         return Err(ApiError::bad_request("each image must be at most 2 MiB"));
     }
+    let model = match &req.model {
+        Some(id) => {
+            if !cx.app.models.is_admin(cx.user.id()) {
+                return Err(ApiError::Unauthorized {});
+            }
+            Some(cx.app.models.find(id).ok_or(ApiError::NotFound {})?.clone())
+        }
+        None => None,
+    };
     let message = Message {
         session_id: req.session_id,
         request_id: req.request_id,
@@ -93,6 +102,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         images: req.images,
         foreground: req.foreground,
         answer: None,
+        model,
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
@@ -399,6 +409,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
             call_id: query_id.clone(),
             decision,
         }),
+        model: None,
     };
     let session = session_id.to_string();
     let conversation = match cx.user.context(&session).await? {

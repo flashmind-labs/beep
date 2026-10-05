@@ -222,7 +222,8 @@ impl BeepClient {
 
     /// Starts a run and streams its events, starting with `RunStarted`.
     /// `session_id` and `request_id` are UUIDs. Resending the same
-    /// `request_id` follows the existing run.
+    /// `request_id` follows the existing run. `model` runs this one turn on
+    /// another model; only admins may set it.
     pub async fn chat(
         &self,
         session_id: String,
@@ -230,6 +231,7 @@ impl BeepClient {
         message: String,
         images: Vec<String>,
         foreground: Option<ForegroundApp>,
+        model: Option<String>,
     ) -> Result<Arc<EventStream>, BeepError> {
         let uuid = |s: &str| Uuid::parse_str(s).map_err(|_| bad_request("invalid UUID"));
         let chat = Chat {
@@ -238,6 +240,7 @@ impl BeepClient {
             message,
             images,
             foreground,
+            model,
         };
         let replies = self.stream(chat).await?;
         Ok(Arc::new(EventStream(AsyncMutex::new(replies))))

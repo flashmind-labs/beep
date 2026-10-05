@@ -119,6 +119,7 @@ pub(crate) async fn submit(
         images: Vec::new(),
         foreground: None,
         answer: None,
+        model: None,
     };
 
     let mut result = app
