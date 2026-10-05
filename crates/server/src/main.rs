@@ -51,7 +51,8 @@ async fn main() -> Result<()> {
         config.model_choices.clone(),
         &config.admins,
     )
-    .await;
+    .await
+    .with_routing(config.model_routing());
 
     let embedder = memories::embedder(&config)?;
     let store = Store::open(&config.database_url()?, embedder).await?;

@@ -9,12 +9,12 @@ use crate::{
     permissions,
     protocol::*,
     router::{Cx, Router, Sink},
-    store::{CreateRun, Feed, Location},
+    store::{CreateRun, Feed, Location, decode_schedule},
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use flashmind::{
     core::{ConversationEntry, EntryKind},
-    cron::CronSchedule,
+    cron::{CronSchedule, JobSchedule},
 };
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -86,6 +86,15 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
     if req.images.iter().any(|image| image.len() > MAX_IMAGE_BYTES) {
         return Err(ApiError::bad_request("each image must be at most 2 MiB"));
     }
+    let model = match &req.model {
+        Some(id) => {
+            if !cx.app.models.is_admin(cx.user.id()) {
+                return Err(ApiError::Unauthorized {});
+            }
+            Some(cx.app.models.find(id).ok_or(ApiError::NotFound {})?.clone())
+        }
+        None => None,
+    };
     let message = Message {
         session_id: req.session_id,
         request_id: req.request_id,
@@ -94,6 +103,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         images: req.images,
         foreground: req.foreground,
         answer: None,
+        model,
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
@@ -400,6 +410,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
             call_id: query_id.clone(),
             decision,
         }),
+        model: None,
     };
     let session = session_id.to_string();
     let conversation = match cx.user.context(&session).await? {
@@ -507,11 +518,19 @@ async fn list_crons(cx: Cx, _: ListCrons) -> Reply<Vec<Cron>> {
         .get_timezone()
         .await
         .unwrap_or_else(|_| "UTC".into());
-    let mut crons = cx.user.list_crons().await?;
-    for c in &mut crons {
-        c.next_run_at = next_run_at(&c.schedule, &tz);
-    }
-    Ok(crons)
+    // Recurring routines first, then one-off alerts, each soonest first. A
+    // routine with no next run (a bad expression) goes last in its group.
+    let mut crons: Vec<_> = (cx.user.list_crons().await?.into_iter())
+        .map(|c| (next_run_at(&c.schedule, &tz), c))
+        .collect();
+    crons.sort_by_key(|(next, c)| (c.run_once, next.is_none(), *next));
+    Ok(crons
+        .into_iter()
+        .map(|(next, mut c)| {
+            c.next_run_at = next.map(|t| t.to_rfc3339());
+            c
+        })
+        .collect())
 }
 
 async fn create_cron(cx: Cx, req: CreateCron) -> Reply<String> {
@@ -634,12 +653,17 @@ fn found(found: bool) -> Reply<()> {
     }
 }
 
-fn next_run_at(expression: &str, tz_name: &str) -> Option<String> {
-    let schedule = CronSchedule::parse(expression).ok()?;
+fn next_run_at(schedule: &str, tz_name: &str) -> Option<DateTime<Utc>> {
+    let expression = match decode_schedule(schedule.to_owned()) {
+        JobSchedule::Once(at) => return Some(at),
+        JobSchedule::Cron(expression) => expression,
+        JobSchedule::OnWake { .. } => return None,
+    };
     let tz: chrono_tz::Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
-    schedule
+    CronSchedule::parse(&expression)
+        .ok()?
         .next_after_in_tz(&Utc::now(), tz)
-        .map(|t| t.to_rfc3339())
+        .map(|t| t.with_timezone(&Utc))
 }
 
 #[cfg(test)]

@@ -295,6 +295,7 @@ class ChatRepository(private val storage: LocalStorage) {
             synchronized(lock) { changes = emptyList(); storage.saveChanges(changes) }
             serverVersions.clear()
             saveLists { ListCache(null, null, null, null) }
+            modelChoices.value = null
             update { ChatState() }
         }
         connected.value = true
@@ -340,7 +341,7 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
     private fun resumePending() { state.value.conversations.filter { it.busy }.forEach { launchRun(it.id) } }
-    fun send(text: String, images: List<String> = emptyList(), conversationId: String = state.value.current.id) {
+    fun send(text: String, images: List<String> = emptyList(), conversationId: String = state.value.current.id, model: String = "") {
         // A routine's chat may not be listed here yet.
         if (state.value.conversations.none { it.id == conversationId })
             update { it.copy(conversations = it.conversations + Conversation(id = conversationId, title = text.trim().take(44))) }
@@ -351,10 +352,16 @@ class ChatRepository(private val storage: LocalStorage) {
         val skipped = chat.messages.flatMap { m -> m.approvals.filter { it.waiting } }
         skipped.forEach { ApprovalNotifications.cancel(storage.context, it.queryId) }
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
-            messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images),
-            requestId = request, pendingText = text.trim(), pendingImages = images,
+            messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model),
+            requestId = request, pendingText = text.trim(), pendingImages = images, pendingModel = model,
             status = "Sending…", error = "", cancelRequested = false) }
         launchRun(chat.id)
+    }
+    /** Sends the prompt behind [reply] again as a new turn on another model. Admins only. */
+    fun rerun(reply: ChatMessage, model: String) {
+        val messages = state.value.current.messages
+        val prompt = messages.take(messages.indexOf(reply)).lastOrNull { it.role == "user" } ?: return
+        send(prompt.text, prompt.images, model = model)
     }
     fun retry() { launchRun(state.value.current.id) }
     /**
@@ -367,7 +374,7 @@ class ChatRepository(private val storage: LocalStorage) {
         val last = chat.messages.lastOrNull { it.role == "user" } ?: return
         if (!settings.value.configured) return
         updateChat(chat.id) { it.copy(requestId = UUID.randomUUID().toString(), pendingText = last.text,
-            pendingImages = last.images, status = "Sending…", error = "", cancelRequested = false) }
+            pendingImages = last.images, pendingModel = last.model, status = "Sending…", error = "", cancelRequested = false) }
         launchRun(chat.id)
     }
     fun cancel() {
@@ -393,7 +400,7 @@ class ChatRepository(private val storage: LocalStorage) {
 
                     if (chat.runId.isEmpty()) refreshLocation()
                     // A new message streams its run from the start; a run we lost is resumed from the cursor.
-                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImages, foregroundApp)
+                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImages, foregroundApp, chat.pendingModel.ifEmpty { null })
                         else api.events(chat.runId, chat.cursor)
                     var runId = chat.runId
                     var missed = false
@@ -404,7 +411,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             val started = received.event as? RunEvent.RunStarted
                             if (started != null) {
                                 runId = started.runId
-                                updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImages = emptyList(), cursor = 0) }
+                                updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", cursor = 0) }
                                 if (state.value.conversations.first { it.id == id }.cancelRequested) api.cancelRun(runId)
                             }
 
@@ -413,7 +420,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             first = false
                             if (missed && runId.isEmpty()) {
                                 // A resent message whose run already finished: we never learned its id.
-                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), status = "", tool = "", cancelRequested = false) }
+                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", status = "", tool = "", cancelRequested = false) }
                             } else {
                                 event(id, runId, received)
                             }
@@ -488,10 +495,14 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun appPermissions(slug: String): AppPermissions = api().getAppPermissions(slug)
     suspend fun setAppPermissions(slug: String, level: PermissionLevel, allowed: List<String>) =
         api().setAppPermissions(slug, level, allowed)
-    /** The models last fetched, null if never. */
-    fun cachedModels(): Models? = lists.models
-    suspend fun models(): Models = api().getModels().also { fresh -> saveLists { it.copy(models = fresh) } }
-    suspend fun setModel(id: String): Models = api().setModel(id).also { fresh -> saveLists { it.copy(models = fresh) } }
+    /** The last model list the server sent, cached between launches. Its choices are empty unless the user is an admin. */
+    val modelChoices = MutableStateFlow(lists.models)
+    suspend fun models(): Models = api().getModels().also(::keepModels)
+    suspend fun setModel(id: String): Models = api().setModel(id).also(::keepModels)
+    private fun keepModels(fresh: Models) {
+        modelChoices.value = fresh
+        saveLists { it.copy(models = fresh) }
+    }
     private fun saveLists(transform: (ListCache) -> ListCache) = synchronized(lock) {
         lists = transform(lists)
         storage.saveLists(lists)
@@ -642,7 +653,7 @@ class ChatRepository(private val storage: LocalStorage) {
         var cursor = 0L
         var finished = false
         while (!finished) {
-            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, emptyList(), null) else api.events(runId, cursor)
+            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, emptyList(), null, null) else api.events(runId, cursor)
             stream.use { events ->
                 var first = true
                 while (true) {

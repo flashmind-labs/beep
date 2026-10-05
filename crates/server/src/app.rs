@@ -158,6 +158,9 @@ pub struct Message {
     /// Set when the run resumes a session that stopped to ask the user.
     #[serde(skip)]
     pub answer: Option<Answer>,
+    /// An admin's one-off model for this run, instead of their picked one.
+    #[serde(skip)]
+    pub model: Option<Model>,
 }
 
 /// The user's answer to the tool call a session stopped on.
@@ -610,8 +613,14 @@ impl App {
         // It stays static so the provider can cache it.
         conversation.set_system(include_str!("../prompts/assistant.md"));
         transcript.set_system(include_str!("../prompts/assistant.md"));
-        let model = self.model_for(user).await;
-        let llm = self.llm.with_model(model.clone()).with_user(user.id());
+        let model = match message.model.clone() {
+            Some(model) => model,
+            None => self.model_for(user).await,
+        };
+        let mut llm = self.llm.with_model(model.clone()).with_user(user.id());
+        if let Some(routing) = self.models.routing(&model) {
+            llm.provider_preferences = Some(routing.clone());
+        }
 
         let timezone = user.get_timezone().await.ok();
         let mut registry = tools::registry(self.clone(), run, user, timezone.as_deref());

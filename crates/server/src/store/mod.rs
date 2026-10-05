@@ -33,7 +33,6 @@ mod digest;
 mod memories;
 mod test_db;
 
-#[cfg(test)]
 pub(crate) use cron_jobs::decode_schedule;
 pub use digest::AttentionItem;
 pub use memories::{Fact, Scored, WordEmbedder};

@@ -160,7 +160,7 @@ private fun BubblePicker(onBubbleSettings: () -> Unit) {
 private fun ModelPicker(repository: ChatRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var models by remember { mutableStateOf(repository.cachedModels()) }
+    var models by remember { mutableStateOf(repository.modelChoices.value) }
     LaunchedEffect(Unit) {
         runCatching { withContext(Dispatchers.IO) { repository.models() } }.onSuccess { models = it }
     }

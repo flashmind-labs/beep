@@ -138,8 +138,9 @@ requests! {
     /// Starts a run and streams its events, starting with `RunStarted`. Resending
     /// the same `request_id` follows the existing run instead of starting another.
     /// `images` are `data:image/...;base64,` URIs. `foreground` is the app the
-    /// user opened Beep's bubble over, if any.
-    2 Chat { session_id: Uuid, request_id: Uuid, message: String, images: Vec<String>, foreground: Option<ForegroundApp> } => Stream<Event>
+    /// user opened Beep's bubble over, if any. `model` is a `ModelChoice::id` to
+    /// run this one turn on instead of the picked model; only admins may set it.
+    2 Chat { session_id: Uuid, request_id: Uuid, message: String, images: Vec<String>, foreground: Option<ForegroundApp>, model: Option<String> } => Stream<Event>
     3 GetRun { id: String } => Call<Run>
     4 CancelRun { id: String } => Call<()>
     5 GetEvents { run_id: String, after: i64 } => Stream<Event>
@@ -692,6 +693,7 @@ mod tests {
                 name: "Maps".into(),
                 package: "com.example.maps".into(),
             }),
+            model: Some("openai/gpt-test".into()),
         };
         let buf = rmp_serde::to_vec(&chat).unwrap();
         assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);
