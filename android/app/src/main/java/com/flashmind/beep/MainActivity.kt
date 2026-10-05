@@ -115,6 +115,10 @@ import android.provider.Settings as SystemSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.draw.scale
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
@@ -1962,7 +1966,31 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBee
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
+    // Swiped away and waiting out the Undo bar; the delete is only sent once it closes.
+    var hidden by remember { mutableStateOf(setOf<String>()) }
+    val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    fun delete(cron: ChatRepository.Cron) {
+        hidden = hidden + cron.id
+        scope.launch {
+            snackbar.currentSnackbarData?.dismiss()
+            var undone = false
+            try {
+                undone = snackbar.showSnackbar("Routine deleted", "Undo", duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed
+            } finally {
+                // Leaving the screen cancels the bar; the delete still goes out.
+                val failed = if (undone) null else withContext(NonCancellable + Dispatchers.IO) {
+                    runCatching { repository.deleteCron(cron.id) }.exceptionOrNull()
+                }
+                if (failed != null) error = failed.message.orEmpty()
+                if (undone || failed != null) hidden = hidden - cron.id
+            }
+        }
+    }
+    fun run(cron: ChatRepository.Cron) { scope.launch {
+        try { onOpenChat(withContext(Dispatchers.IO) { repository.runCron(cron.id) }) }
+        catch (e: Exception) { error = e.message.orEmpty() }
+    } }
     fun refresh() { scope.launch {
         loading = true; error = ""
         try { crons = withContext(Dispatchers.IO) { repository.listCrons() } }
@@ -1978,7 +2006,9 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBee
             }
         })
     }
-    Scaffold(containerColor = Ink, topBar = {
+    Scaffold(containerColor = Ink, snackbarHost = {
+        SnackbarHost(snackbar) { Snackbar(it, actionColor = Beep.colors.ok, shape = RoundedCornerShape(12.dp)) }
+    }, topBar = {
         TopAppBar(title = { Text(displayText("Routines"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = { ChunkyButton(onClick = { showCreate = true }, modifier = Modifier.padding(end = 14.dp), color = Beep.colors.accent,
@@ -1990,42 +2020,75 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBee
             if (loading) Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
             else if (crons.isEmpty()) Text("No routines yet.\nSchedule tasks for Beep to run on a timer.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
             else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(crons, key = { it.id }) { cron ->
-                    BeepCard(Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-                            Column(Modifier.weight(1f)) {
-                                Text(cron.label.ifBlank { "Reminder" }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.height(3.dp))
-                                Text(cron.prompt, fontSize = 12.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
-                                Spacer(Modifier.height(4.dp))
-                                Text(describeSchedule(cron.schedule), fontSize = 11.sp, color = TextDim)
-                                if (cron.enabled && onceAt(cron.schedule) == null) cron.nextRunAt?.let(::describeNextRun)?.let {
-                                    Text(it, fontSize = 11.sp, color = TextDim)
-                                }
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Switch(checked = cron.enabled, onCheckedChange = { enabled ->
-                                    scope.launch {
-                                        try { withContext(Dispatchers.IO) { repository.toggleCron(cron.id, enabled) }; refresh() }
-                                        catch (e: Exception) { error = e.message.orEmpty() }
-                                    }
-                                }, modifier = Modifier.height(28.dp), colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok, uncheckedTrackColor = Border))
-                                IconButton(onClick = { scope.launch {
-                                    try { onOpenChat(withContext(Dispatchers.IO) { repository.runCron(cron.id) }) }
-                                    catch (e: Exception) { error = e.message.orEmpty() }
-                                } }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Outlined.PlayArrow, "Run now", Modifier.size(18.dp), tint = Beep.colors.accent)
-                                }
-                                IconButton(onClick = { scope.launch {
-                                    try { withContext(Dispatchers.IO) { repository.deleteCron(cron.id) }; refresh() }
-                                    catch (e: Exception) { error = e.message.orEmpty() }
-                                } }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Outlined.Delete, "Delete", Modifier.size(16.dp), tint = TextDim)
-                                }
-                            }
+                items(crons.filter { it.id !in hidden }, key = { it.id }) { cron ->
+                    RoutineCard(cron, Modifier.animateItem(), onRun = { run(cron) }, onDelete = { delete(cron) }, onToggle = { enabled ->
+                        scope.launch {
+                            try { withContext(Dispatchers.IO) { repository.toggleCron(cron.id, enabled) }; refresh() }
+                            catch (e: Exception) { error = e.message.orEmpty() }
                         }
+                    })
+                }
+                item(key = "hint") {
+                    Text("Swipe left to run now, right to delete", fontSize = 11.sp, color = TextDim, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).animateItem())
+                }
+            }
+        }
+    }
+}
+
+/** A routine that runs when swiped left and is deleted when swiped right. */
+@Composable
+private fun RoutineCard(cron: ChatRepository.Cron, modifier: Modifier, onRun: () -> Unit, onDelete: () -> Unit, onToggle: (Boolean) -> Unit) {
+    val state = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
+        when (value) {
+            // Running is not a dismissal: start it and let the card spring back.
+            SwipeToDismissBoxValue.EndToStart -> { onRun(); false }
+            SwipeToDismissBoxValue.StartToEnd, SwipeToDismissBoxValue.Settled -> true
+        }
+    }, positionalThreshold = { it * 0.35f })
+    // Wait for the slide-out to finish before the list closes the gap.
+    LaunchedEffect(state.currentValue) {
+        if (state.currentValue == SwipeToDismissBoxValue.StartToEnd) onDelete()
+    }
+    val armed = state.targetValue != SwipeToDismissBoxValue.Settled
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(armed) { if (armed) haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+    val shape = RoundedCornerShape(Beep.shapes.radius)
+    SwipeToDismissBox(state, modifier = modifier.clip(shape), backgroundContent = {
+        val toDelete = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+        val color by animateColorAsState(when {
+            !armed -> Border
+            toDelete -> MaterialTheme.colorScheme.error
+            else -> Beep.colors.accent
+        }, tween(150), label = "swipe-color")
+        val scale by animateFloatAsState(if (armed) 1.3f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "swipe-icon")
+        if (state.dismissDirection != SwipeToDismissBoxValue.Settled) {
+            Box(Modifier.fillMaxSize().background(color).padding(horizontal = 22.dp),
+                contentAlignment = if (toDelete) Alignment.CenterStart else Alignment.CenterEnd) {
+                val tint = Beep.colors.onAccent
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (toDelete) Icon(Icons.Outlined.Delete, null, Modifier.size(20.dp).scale(scale), tint = tint)
+                    Text(if (toDelete) "Delete" else "Run now", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = tint)
+                    if (!toDelete) Icon(Icons.Outlined.PlayArrow, null, Modifier.size(20.dp).scale(scale), tint = tint)
+                }
+            }
+        }
+    }) {
+        BeepCard(Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text(cron.label.ifBlank { "Reminder" }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(3.dp))
+                    Text(cron.prompt, fontSize = 12.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text(describeSchedule(cron.schedule), fontSize = 11.sp, color = TextDim)
+                    if (cron.enabled && onceAt(cron.schedule) == null) cron.nextRunAt?.let(::describeNextRun)?.let {
+                        Text(it, fontSize = 11.sp, color = TextDim)
                     }
                 }
+                Switch(checked = cron.enabled, onCheckedChange = onToggle, modifier = Modifier.height(28.dp),
+                    colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok, uncheckedTrackColor = Border))
             }
         }
     }
