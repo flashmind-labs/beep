@@ -61,6 +61,7 @@ dependencies {
     // Block Store pulls in an old Fragment that breaks registerForActivityResult.
     implementation("androidx.fragment:fragment-ktx:1.8.6")
     implementation("net.java.dev.jna:jna:5.17.0@aar")
+    implementation("ru.noties:jlatexmath-android:0.2.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250107")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

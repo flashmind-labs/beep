@@ -65,6 +65,7 @@ import kotlin.reflect.KProperty
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -1295,7 +1296,11 @@ private sealed class MsgBlock {
     data class Quote(val content: String) : MsgBlock()
     data object Rule : MsgBlock()
     data class Picture(val url: String, val alt: String) : MsgBlock()
+    /** Display math; [closed] is false while the closing delimiter has not streamed in yet. */
+    data class Math(val latex: String, val closed: Boolean) : MsgBlock()
 }
+
+private val mathClosers = mapOf("$$" to "$$", "\\[" to "\\]")
 
 private val imageToken = Regex("""!\[([^\]]*)]\((https://[^\s)]+|data:image/[^\s)]+)\)""")
 
@@ -1316,6 +1321,29 @@ private fun parseBlocks(text: String): List<MsgBlock> {
             if (i < lines.size) i++
             blocks.add(MsgBlock.Code(lang, code.toString()))
             continue
+        }
+        // $$ or \[ starting a line opens display math, up to the matching $$ or \].
+        val opener = mathClosers.keys.firstOrNull { line.trimStart().startsWith(it) }
+        if (opener != null) {
+            val closer = mathClosers.getValue(opener)
+            val first = line.trimStart().removePrefix(opener)
+            val latex = StringBuilder()
+            var rest: String? = null
+            var j = i
+            var body = first
+            while (true) {
+                val end = body.indexOf(closer)
+                if (end >= 0) { latex.append(body, 0, end); rest = body.substring(end + closer.length); break }
+                latex.append(body)
+                if (++j >= lines.size) break
+                latex.append('\n'); body = lines[j]
+            }
+            if (latex.isNotBlank()) {
+                flush()
+                blocks.add(MsgBlock.Math(latex.toString().trim(), rest != null))
+                if (!rest.isNullOrBlank()) pending.append(rest.trim())
+                i = j + 1; continue
+            }
         }
         if (line.matches(Regex("^\\s*[-*_]{3,}\\s*$")) && pending.isBlank()) { flush(); blocks.add(MsgBlock.Rule); i++; continue }
         if (line.trimStart().startsWith("|") && line.trimEnd().endsWith("|")) {
@@ -1575,8 +1603,9 @@ private fun MessageContent(text: String, role: String, compact: Boolean, padded:
     SelectionContainer { Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp)) {
         blocks.forEach { block ->
             when (block) {
-                is MsgBlock.Text -> Text(remember(block.content, inline) { formattedMessage(block.content, inline) }, color = color,
+                is MsgBlock.Text -> MathText(remember(block.content, inline) { formattedMessage(block.content, inline) }, color = color,
                     fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
+                is MsgBlock.Math -> MathBlockView(block.latex, block.closed, color, compact)
                 is MsgBlock.Code -> CodeBlockView(block.language, block.code, compact)
                 is MsgBlock.Table -> TableView(block.headers, block.rows, compact)
                 is MsgBlock.Quote -> BlockQuoteView(block.content, compact)
@@ -1647,18 +1676,20 @@ private fun BlockQuoteView(content: String, compact: Boolean) {
         drawRoundRect(bar, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
     }) {
-        Text(remember(content, inline) { formattedMessage(content, inline) },
+        MathText(remember(content, inline) { formattedMessage(content, inline) },
             modifier = Modifier.padding(start = 16.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
             fontSize = if (compact) 13.sp else 15.sp, lineHeight = if (compact) 19.sp else 23.sp,
             color = TextMuted)
     }
 }
 
-// Links, bare urls, ***bold italic***, **bold**, *italic*, _italic_, ~~strike~~, `code`. The leftmost match wins,
-// so asterisks inside code stay literal; italics need a non-space just inside and no word character just outside,
-// which keeps `2 * 3 * 4`, snake_case and __dunder__ plain.
+// Links, bare urls, ***bold italic***, **bold**, *italic*, _italic_, ~~strike~~, `code`, and math as $$x$$, $x$ or
+// \(x\). The leftmost match wins, so asterisks inside code or math stay literal; italics need a non-space just
+// inside and no word character just outside, which keeps `2 * 3 * 4`, snake_case and __dunder__ plain. A single $
+// needs a non-space just inside and no digit just after the closing one, so "$5 and $10" stays text.
 private val inlineTokens = Regex("""\[([^\]]+)\]\((https?://[^\s)]+)\)|(https?://[^\s<>]+)|\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*|\*\*(?!\s)(.+?)(?<!\s)\*\*""" +
-    """|(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])|(?<![\w_])_(?![\s_])(.+?)(?<![\s_])_(?![\w_])|~~(.+?)~~|`([^`\n]+)`""")
+    """|(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])|(?<![\w_])_(?![\s_])(.+?)(?<![\s_])_(?![\w_])|~~(.+?)~~|`([^`\n]+)`""" +
+    """|\$\$([^$\n]+?)\$\$|(?<![\\$\w])\$(?![\s$])([^$\n]+?)(?<![\s\\])\$(?![\d$\w])|\\\((.+?)\\\)""")
 
 // Inline markdown plus headings and bullets, line by line.
 internal fun formattedMessage(text: String, colors: InlineColors) = buildAnnotatedString {
@@ -1679,6 +1710,10 @@ internal fun formattedMessage(text: String, colors: InlineColors) = buildAnnotat
                 match.groups[5] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(match.groups[5]!!.value) }
                 match.groups[6] != null || match.groups[7] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append((match.groups[6] ?: match.groups[7])!!.value) }
                 match.groups[8] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = colors.muted)) { append(match.groups[8]!!.value) }
+                match.groups[10] != null || match.groups[11] != null || match.groups[12] != null -> {
+                    val latex = (match.groups[10] ?: match.groups[11] ?: match.groups[12])!!.value.trim()
+                    appendInlineContent(latex, "\$$latex\$")
+                }
                 match.groups[9] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = colors.code, color = colors.onCode, fontSize = 14.sp)) { append("\u200A${match.groups[9]!!.value}\u200A") }
                 else -> {
                     val url = (match.groups[2]?.value ?: match.groups[3]!!.value).trimEnd('.', ',', ';')
