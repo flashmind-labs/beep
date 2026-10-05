@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Launch
 import androidx.compose.material.icons.outlined.Alarm
+import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Directions
 import androidx.compose.material.icons.outlined.Email
@@ -45,6 +46,8 @@ import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Sms
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -172,7 +175,8 @@ private fun placeOf(json: JSONObject): ToolCard.Place? {
     return ToolCard.Place(name, query, directions)
 }
 
-data class LatLon(val latitude: Double, val longitude: Double, val address: String)
+/** [country] is the ISO 3166 code, upper case, or empty when the geocoder gave none. */
+data class LatLon(val latitude: Double, val longitude: Double, val address: String, val country: String = "")
 
 /** Finds places with the phone's own geocoder, so no map key is needed. */
 private object Places {
@@ -189,7 +193,7 @@ private object Places {
                     if (near == null) geocoder.getFromLocationName(query, 1)?.firstOrNull()
                     else geocoder.getFromLocationName(query, 1, near.latitude - SPAN, near.longitude - SPAN,
                         near.latitude + SPAN, near.longitude + SPAN)?.firstOrNull()
-                }.getOrNull()?.let { LatLon(it.latitude, it.longitude, it.getAddressLine(0).orEmpty()) }
+                }.getOrNull()?.let { LatLon(it.latitude, it.longitude, it.getAddressLine(0).orEmpty(), it.countryCode.orEmpty().uppercase()) }
             } else null
             (system ?: nominatim(query, near))?.also { found.put(key, it) }
         }
@@ -202,14 +206,15 @@ private object Places {
         val box = near?.let {
             "&bounded=1&viewbox=${it.longitude - SPAN},${it.latitude + SPAN},${it.longitude + SPAN},${it.latitude - SPAN}"
         }.orEmpty()
-        val url = URL("https://nominatim.openstreetmap.org/search?format=json&limit=1$box&q=" + URLEncoder.encode(query, "UTF-8"))
+        val url = URL("https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1$box&q=" + URLEncoder.encode(query, "UTF-8"))
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = 8000
         connection.readTimeout = 8000
         connection.setRequestProperty("User-Agent", "Beep for Android")
         val body = try { connection.inputStream.bufferedReader().use { it.readText() } } finally { connection.disconnect() }
         JSONArray(body).optJSONObject(0)?.let {
-            LatLon(it.getString("lat").toDouble(), it.getString("lon").toDouble(), it.optString("display_name"))
+            LatLon(it.getString("lat").toDouble(), it.getString("lon").toDouble(), it.optString("display_name"),
+                it.optJSONObject("address")?.optString("country_code").orEmpty().uppercase())
         }
     }.getOrNull()
 
@@ -339,6 +344,46 @@ private fun openUber(context: Context, name: String, point: LatLon) {
     AppLauncher.launch(context, "uber", link, link)
 }
 
+/** Where Grab took over Uber's rides, so Uber's own ride list there is empty. */
+private val GRAB_COUNTRIES = setOf("SG", "MY", "ID", "TH", "VN", "PH", "KH", "MM")
+private const val GRAB_PACKAGE = "com.grabtaxi.passenger"
+
+private fun hasGrab(context: Context) = context.packageManager.getLaunchIntentForPackage(GRAB_PACKAGE) != null
+
+/** Opens the Grab app, or Uber's home without the Grab app, since Uber books Grab rides there. */
+private fun openGrab(context: Context) {
+    val launch = context.packageManager.getLaunchIntentForPackage(GRAB_PACKAGE)
+        ?: context.packageManager.getLaunchIntentForPackage("com.ubercab")
+    if (launch != null) context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    else AppLauncher.launch(context, "uber", "", "")
+}
+
+/** Grab first, then Uber, for a place where Grab runs the rides. */
+@Composable
+private fun RideMenu(context: Context, name: String, point: LatLon) {
+    val t = LocalBeep.current
+    var open by remember { mutableStateOf(false) }
+    val grabApp = remember { hasGrab(context) }
+    Box {
+        CardButton("Ride", Icons.Outlined.LocalTaxi, trailing = Icons.Outlined.ArrowDropDown) { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = t.colors.surface,
+            shape = RoundedCornerShape(t.shapes.smallRadius)) {
+            DropdownMenuItem(text = {
+                Column {
+                    Text("Grab", fontSize = 14.sp)
+                    Text(if (grabApp) "In the Grab app" else "Through Uber: tap Grab there", fontSize = 11.sp, color = t.colors.muted)
+                }
+            }, onClick = { open = false; openGrab(context) })
+            DropdownMenuItem(text = {
+                Column {
+                    Text("Uber", fontSize = 14.sp)
+                    Text("Uber's own rides", fontSize = 11.sp, color = t.colors.muted)
+                }
+            }, onClick = { open = false; openUber(context, name, point) })
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
@@ -365,7 +410,11 @@ private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
                 CardButton("Directions", Icons.Outlined.Directions, primary = true) { openDirections(context, card) }
                 // A ride goes to one looked-up place from the phone, so not for searches or routes from elsewhere.
                 val ride = found?.takeIf { card.near == null && card.origin == null }
-                if (ride != null) CardButton("Uber", Icons.Outlined.LocalTaxi) { openUber(context, card.name, ride) }
+                when {
+                    ride == null -> {}
+                    ride.country in GRAB_COUNTRIES -> RideMenu(context, card.name, ride)
+                    else -> CardButton("Uber", Icons.Outlined.LocalTaxi) { openUber(context, card.name, ride) }
+                }
                 CardButton("Open in Maps", Icons.Outlined.Map) { openMaps(context, card.query, point, card.near) }
             }
         }
@@ -602,13 +651,15 @@ fun ToolCards(cards: List<ToolCard>, compact: Boolean, onBrowse: (String) -> Uni
 }
 
 @Composable
-private fun CardButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, primary: Boolean = false, onClick: () -> Unit) {
+private fun CardButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, primary: Boolean = false,
+    trailing: androidx.compose.ui.graphics.vector.ImageVector? = null, onClick: () -> Unit) {
     val t = LocalBeep.current
     ChunkyButton(onClick = onClick, color = if (primary) t.colors.accent else t.colors.surface,
         contentColor = if (primary) t.colors.onAccent else t.colors.ink, shape = RoundedCornerShape(t.shapes.smallRadius),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
         Icon(icon, null, Modifier.size(16.dp))
         Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        trailing?.let { Icon(it, null, Modifier.size(16.dp)) }
     }
 }
 

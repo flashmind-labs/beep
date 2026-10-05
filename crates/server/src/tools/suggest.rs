@@ -87,7 +87,7 @@ impl Tool for SuggestRepliesTool {
         "suggest_replies"
     }
     fn description(&self) -> &str {
-        "Show 2-4 short tappable replies under your message. Call it last, after your text, and only when there are obvious next steps or you need the user to pick between options. Each reply is what the user would send, in their language, at most 40 characters. Use kind \"choice\" when the user must pick one option, with an optional short question."
+        "Show 2-4 short tappable replies under your message. Call it last, after your text, whenever there are useful next steps, like a reminder for a meeting you just looked up, or when the user must pick between options. Each reply is what the user would send, in their language, at most 40 characters. Use kind \"choice\" when the user must pick one option, with an optional short question."
     }
     fn parameters(&self) -> Value {
         json!({
