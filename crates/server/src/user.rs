@@ -339,6 +339,19 @@ impl User {
             .await
     }
 
+    /// Records the model that answered the turn whose user message was sent
+    /// at `turn_at`, in milliseconds since the epoch.
+    pub async fn record_turn_model(&self, session: &str, turn_at: i64, model: &str) -> Result<()> {
+        self.store
+            .record_turn_model(&self.key, session, turn_at, model)
+            .await
+    }
+
+    /// The session's models by the time of each turn's user message.
+    pub async fn turn_models(&self, session: &str) -> Result<HashMap<i64, String>> {
+        self.store.turn_models(&self.key, session).await
+    }
+
     /// The session's memory scores by the time of each turn's user message.
     pub async fn memory_scores(&self, session: &str) -> Result<HashMap<i64, f64>> {
         self.store.memory_scores(&self.key, session).await

@@ -142,17 +142,20 @@ impl Tool for MemoryRecallTool {
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
             "query":{"type":"string"},
-            "category":{"type":"string","enum":CATEGORIES,"description":"Filter by category."}
+            "category":{"type":"string","enum":CATEGORIES,"description":"Filter by category. When nothing matches, the search runs again without it."}
         },"required":["query"],"additionalProperties":false})
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
         let query = arg(&ctx.args, "query")?;
         // An empty query is a request to see what Beep knows.
         let limit = if query.trim().is_empty() { 100 } else { 30 };
-        let hits = self
-            .0
-            .search_memories(query, opt_arg(&ctx.args, "category"), limit)
-            .await?;
+        let category = opt_arg(&ctx.args, "category");
+        let mut hits = self.0.search_memories(query, category, limit).await?;
+        // Models guess categories the memory was never filed under, such as
+        // "location" for a hotel stay kept as "general".
+        if hits.is_empty() && category.is_some() {
+            hits = self.0.search_memories(query, None, limit).await?;
+        }
         reply(&ctx, hits.iter().map(|h| h.to_json()).collect())
     }
 }

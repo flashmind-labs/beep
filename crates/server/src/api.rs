@@ -198,7 +198,8 @@ async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<History
         .ok_or(ApiError::NotFound {})?;
     let failures = cx.user.tool_failures(&id).await?;
     let scores = cx.user.memory_scores(&id).await?;
-    Ok(history(conv.entries(), &failures, &scores))
+    let models = cx.user.turn_models(&id).await?;
+    Ok(history(conv.entries(), &failures, &scores, &models))
 }
 
 /// Tool outputs in history are cut to this many bytes.
@@ -209,11 +210,13 @@ const MAX_HISTORY_REASONING: usize = 16 * 1024;
 /// User and assistant messages, with each turn's tool results attached to the
 /// assistant message that ends the turn. A turn with tools but no text gets an
 /// empty assistant message to carry them. `scores` holds Jev's memory scores
-/// by the millisecond timestamp of the user message that started the turn.
+/// by the millisecond timestamp of the user message that started the turn,
+/// and `models` the model that answered it, keyed the same way.
 fn history(
     entries: &[ConversationEntry],
     failures: &HashSet<String>,
     scores: &HashMap<i64, f64>,
+    models: &HashMap<i64, String>,
 ) -> Vec<HistoryEntry> {
     let mut history = Vec::new();
     let mut turn = Turn::default();
@@ -223,6 +226,7 @@ fn history(
             EntryKind::User { content, .. } => {
                 turn.finish(&mut history);
                 turn.score = scores.get(&timestamp).copied();
+                turn.model = models.get(&timestamp).cloned().unwrap_or_default();
                 history.push(match cron::scheduled_label(content) {
                     Some(label) => HistoryEntry::Scheduled {
                         label: label.to_owned(),
@@ -258,6 +262,7 @@ fn history(
                         tools: Vec::new(),
                         memory_score: None,
                         reasoning: String::new(),
+                        model: String::new(),
                     });
                 }
             }
@@ -285,6 +290,7 @@ struct Turn {
     last_reply: Option<usize>,
     last_tool: i64,
     score: Option<f64>,
+    model: String,
     /// Every step's reasoning, oldest first.
     reasoning: String,
 }
@@ -297,9 +303,11 @@ impl Turn {
                 tools,
                 memory_score,
                 reasoning,
+                model,
                 ..
             }) => {
                 *tools = turn.tools;
+                *model = turn.model;
                 *memory_score = turn.score;
                 *reasoning = cap_tail(&turn.reasoning, MAX_HISTORY_REASONING);
             }
@@ -310,6 +318,7 @@ impl Turn {
                 tools: turn.tools,
                 memory_score: turn.score,
                 reasoning: cap_tail(&turn.reasoning, MAX_HISTORY_REASONING),
+                model: turn.model,
             }),
         }
     }
@@ -721,6 +730,7 @@ mod tests {
             &entries,
             &HashSet::from(["b".to_owned()]),
             &HashMap::from([(asked, 0.8)]),
+            &HashMap::from([(asked, "z-ai/glm-5.3-flash".to_owned())]),
         );
         let [
             HistoryEntry::User { .. },
@@ -729,6 +739,7 @@ mod tests {
                 tools: first_tools,
                 memory_score: first_score,
                 reasoning: first_reasoning,
+                model: first_model,
                 ..
             },
             HistoryEntry::User { .. },
@@ -737,6 +748,7 @@ mod tests {
                 tools: second_tools,
                 memory_score: second_score,
                 reasoning: second_reasoning,
+                model: second_model,
                 ..
             },
         ] = history.as_slice()
@@ -746,6 +758,8 @@ mod tests {
         assert_eq!(first, "Here it is.");
         assert_eq!(*first_score, Some(0.8));
         assert_eq!(*second_score, None);
+        assert_eq!(first_model, "z-ai/glm-5.3-flash");
+        assert!(second_model.is_empty());
         assert_eq!(first_reasoning, "Look it up.\n\nFound one.");
         assert!(second_reasoning.is_empty());
         assert_eq!(first_tools[0].name, "open_maps");
@@ -762,7 +776,7 @@ mod tests {
             ConversationEntry::user("[Scheduled: Plants] Remind me to water the plants"),
             ConversationEntry::assistant("Time to water the plants."),
         ];
-        let history = history(&entries, &HashSet::new(), &HashMap::new());
+        let history = history(&entries, &HashSet::new(), &HashMap::new(), &HashMap::new());
         let [
             HistoryEntry::Scheduled { label, .. },
             HistoryEntry::Assistant { .. },

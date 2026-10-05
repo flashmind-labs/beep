@@ -472,14 +472,15 @@ wire_enum! {
     /// A session message. An `Assistant` entry's `tools` are the tool results
     /// of the turn it ends; its `content` is empty when the turn had no text.
     /// `memory_score` is Jev's score for the turn, on its last assistant entry,
-    /// and `reasoning` is the model's reasoning over the whole turn.
+    /// `reasoning` is the model's reasoning over the whole turn, and `model`
+    /// the model that answered it, empty when not recorded.
     /// `Scheduled` stands in for the prompt a routine woke the agent with;
     /// `label` is the routine's name, empty when it has none.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum HistoryEntry {
         0 User { content: String, timestamp: i64 }
-        1 Assistant { content: String, timestamp: i64, tools: Vec<HistoryTool>, memory_score: Option<f64>, reasoning: String }
+        1 Assistant { content: String, timestamp: i64, tools: Vec<HistoryTool>, memory_score: Option<f64>, reasoning: String, model: String }
         2 Scheduled { label: String, timestamp: i64 }
     }
 }
