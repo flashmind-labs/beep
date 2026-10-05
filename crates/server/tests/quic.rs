@@ -4,9 +4,9 @@ use beep_server::{
     client::{Client, Node, OnNotice, Replies},
     models::ModelChoices,
     protocol::{
-        ApiError, AppKind, CancelRun, Chat, ConnectApp, Event, GetEvents, GetRun, GetSession,
-        Health, HistoryEntry, ListApps, ListSessions, MemorySource, Notice, RunEvent, StartAppAuth,
-        SuggestPrompts,
+        ApiError, AppKind, CancelRun, Chat, ConnectApp, Event, ExistingSessions, GetEvents, GetRun,
+        GetSession, Health, HistoryEntry, ListApps, ListSessions, MemorySource, Notice, RunEvent,
+        StartAppAuth, SuggestPrompts,
     },
     push::Pusher,
     starters,
@@ -165,6 +165,7 @@ impl Harness {
                 session_id: String::new(),
                 app: None,
                 approval: None,
+                changed: false,
             },
         };
         self.app.notifications.send(notice).unwrap();
@@ -306,7 +307,15 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     // Another key is another user, made on its first connection.
     let stranger = h.client_as(SecretKey::generate()).await;
     assert!(stranger.call(&ListSessions {}).await.unwrap().is_empty());
-    assert_eq!(c.call(&ListSessions {}).await.unwrap().len(), 1);
+    let sessions = c.call(&ListSessions {}).await.unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert!(sessions[0].updated_at > 0);
+
+    // A phone asks which of its cached chats still exist.
+    let ids = vec![session.to_string(), Uuid::new_v4().to_string()];
+    let existing = ExistingSessions { ids };
+    assert_eq!(c.call(&existing).await.unwrap(), [session.to_string()]);
+    assert!(stranger.call(&existing).await.unwrap().is_empty());
     let alice_id = alice().public().to_string();
     assert!(h.app.user(&alice_id).is_some());
 

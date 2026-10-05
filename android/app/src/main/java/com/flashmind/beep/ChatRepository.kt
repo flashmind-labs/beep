@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
+import com.flashmind.beep.ffi.ListCache
 import com.flashmind.beep.ffi.identityName
 import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.ApprovalDecision
@@ -27,13 +28,17 @@ import com.flashmind.beep.proto.Event
 import com.flashmind.beep.proto.ForegroundApp
 import com.flashmind.beep.proto.HistoryEntry
 import com.flashmind.beep.proto.MemorySource
+import com.flashmind.beep.proto.Cron as ProtoCron
+import com.flashmind.beep.proto.Memory as ProtoMemory
 import com.flashmind.beep.proto.PromptSuggestion
 import com.flashmind.beep.proto.RunEvent
 import com.flashmind.beep.proto.ScrollDirection
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.channels.Channel
 
 class BeepApplication : Application() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -75,13 +80,23 @@ data class AlarmRequest(val hour: Int, val minute: Int, val label: String, val d
     }
 }
 
+/** How long a chat's turns stay on the phone after it was last opened. */
+private const val CACHE_FOR_MS = 72 * 60 * 60 * 1000L
+
 class ChatRepository(private val storage: LocalStorage) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private val jobs = mutableMapOf<String, Job>()
-    private val mutableState = MutableStateFlow(storage.loadState())
+    private val mutableState = MutableStateFlow(evictUnopened(storage.loadState()))
     val state = mutableState.asStateFlow()
     val settings = MutableStateFlow(storage.loadSettings())
+    /** The server's `updated_at` of each chat, as last listed. */
+    private val serverVersions = ConcurrentHashMap<String, Long>()
+    /** Asks for a sync of the chat list; several asks while one runs make one more. */
+    private val syncRequests = Channel<Unit>(Channel.CONFLATED).also { requests ->
+        scope.launch { for (request in requests) runCatching { syncHistory(settings.value) } }
+    }
+    private var lists = storage.loadLists()
     val connection = MutableStateFlow(if (settings.value.configured) "Checking connection…" else "Connect your assistant")
     val connected = MutableStateFlow(false)
     val pendingIntent = MutableStateFlow<AppIntent?>(null)
@@ -159,16 +174,21 @@ class ChatRepository(private val storage: LocalStorage) {
     fun select(id: String) {
         // A routine's chat may be new to the phone; it gets its title and turns from the server.
         val known = state.value.conversations.any { it.id == id }
+        val now = System.currentTimeMillis()
         update { s ->
-            if (s.conversations.any { it.id == id }) s.copy(selected = id)
+            if (s.conversations.any { it.id == id }) s.copy(selected = id, conversations = s.conversations.map { if (it.id == id) it.copy(openedAt = now) else it })
             else s.copy(conversations = listOf(Conversation(id = id)) + s.conversations, selected = id)
         }
         ChatNotifications.cancel(storage.context, id)
-        scope.launch { runCatching { if (known) loadHistory(id, settings.value) else syncHistory(settings.value) } }
+        if (known) scope.launch { runCatching { loadHistory(id, settings.value) } } else refreshHistory()
     }
+    /** Whether the phone holds the chat's turns as the server last listed them. */
+    private fun cached(chat: Conversation) = chat.messages.isNotEmpty() && chat.version != 0L && serverVersions[chat.id] == chat.version
     private suspend fun loadHistory(id: String, config: ConnectionSettings) {
         val before = state.value.conversations.find { it.id == id } ?: return
-        if (before.busy) return
+        if (before.busy || cached(before)) return
+        // Taken before the fetch: turns saved meanwhile only make the next sync fetch again.
+        val version = serverVersions[id] ?: 0L
         // A turn where the model only called tools has no text, and would show as an empty
         // reply, so its tools and reasoning move onto the next reply that has text.
         var pending = emptyList<ToolCall>()
@@ -197,12 +217,13 @@ class ChatRepository(private val storage: LocalStorage) {
         val ids = before.messages.groupBy({ it.role to it.text }, { it.id }).mapValues { ArrayDeque(it.value) }
         val scored = messages.map { m -> if (m.memoryScore != null) m else scores[m.text]?.let { m.copy(memoryScore = it) } ?: m }
             .map { m -> ids[m.role to m.text]?.removeFirstOrNull()?.let { m.copy(id = it) } ?: m }
-        updateChat(id) { current -> if (current == before) current.copy(messages = scored) else current }
+        updateChat(id) { current -> if (current == before) current.copy(messages = scored, version = version) else current }
     }
-    fun refreshHistory() { scope.launch { runCatching { syncHistory(settings.value) } } }
+    fun refreshHistory() { syncRequests.trySend(Unit) }
     private suspend fun syncHistory(config: ConnectionSettings) {
         val sessions = api(config).listSessions()
         if (settings.value != config) return
+        sessions.forEach { serverVersions[it.id] = it.updatedAt }
         update { state ->
             val known = state.conversations.map { it.id }.toSet()
             val server = sessions.associateBy { it.id }
@@ -212,10 +233,39 @@ class ChatRepository(private val storage: LocalStorage) {
             val updated = state.conversations.map { c ->
                 server[c.id]?.let { c.copy(title = it.title, pinned = it.pinned) } ?: c
             }
-            withChanges(state.copy(conversations = (updated + added).sortedByDescending { it.pinned }))
+            withChanges(evictUnopened(state.copy(conversations = (updated + added).sortedByDescending { it.pinned })))
         }
-        if (sessions.any { it.id == state.value.current.id })
-            loadHistory(state.value.current.id, config)
+        dropDeleted(config, sessions.map { it.id }.toSet())
+        // Chats opened in the last 72 hours stay cached, so they open at once and offline.
+        val listed = sessions.map { it.id }.toSet()
+        state.value.conversations
+            .filter { it.id in listed && (it.id == state.value.current.id || it.messages.isNotEmpty()) && !cached(it) }
+            .forEach { runCatching { loadHistory(it.id, config) } }
+    }
+    /**
+     * Drops the chats another phone deleted. The list stops at 200 chats, so
+     * the server says which of the others still exist.
+     */
+    private suspend fun dropDeleted(config: ConnectionSettings, listed: Set<String>) {
+        val unlisted = state.value.conversations
+            .filter { it.id !in listed && it.version != 0L && !it.busy && it.pendingText.isEmpty() }
+            .map { it.id }
+        if (unlisted.isEmpty()) return
+        val existing = unlisted.chunked(1000).flatMap { api(config).existingSessions(it) }.toSet()
+        if (settings.value != config) return
+        val gone = unlisted.filter { it !in existing }
+        if (gone.isNotEmpty()) update { applyChange(it, ChatChange.Delete(gone)) }
+    }
+    /**
+     * Forgets the turns of chats not opened for 72 hours. They stay listed
+     * and come back from the server when opened.
+     */
+    private fun evictUnopened(state: ChatState): ChatState {
+        val cutoff = System.currentTimeMillis() - CACHE_FOR_MS
+        return state.copy(conversations = state.conversations.map { c ->
+            val keep = c.openedAt >= cutoff || c.id == state.selected || c.version == 0L || c.busy || c.pendingText.isNotEmpty()
+            if (keep) c else c.copy(messages = emptyList(), version = 0)
+        })
     }
     fun newChat() = update { state ->
         val chat = Conversation(); state.copy(conversations = listOf(chat) + state.conversations, selected = chat.id)
@@ -243,6 +293,8 @@ class ChatRepository(private val storage: LocalStorage) {
         backUp()
         if (changedAccount) {
             synchronized(lock) { changes = emptyList(); storage.saveChanges(changes) }
+            serverVersions.clear()
+            saveLists { ListCache(null, null, null, null) }
             update { ChatState() }
         }
         connected.value = true
@@ -387,10 +439,14 @@ class ChatRepository(private val storage: LocalStorage) {
         val id: String, val content: String, val category: String, val source: MemorySource,
         val updated: String, val validFrom: String?, val validUntil: String?, val quote: String?,
     )
+    private fun memory(it: ProtoMemory) =
+        Memory(it.id, it.content, it.category, it.source, it.updated, it.validFrom, it.validUntil, it.quote)
+    /** The memories last fetched, null if never. */
+    fun cachedMemories(): List<Memory>? = lists.memories?.map(::memory)
     suspend fun listMemories(): List<Memory> {
-        return api().listMemories().map {
-            Memory(it.id, it.content, it.category, it.source, it.updated, it.validFrom, it.validUntil, it.quote)
-        }
+        val fresh = api().listMemories()
+        saveLists { it.copy(memories = fresh) }
+        return fresh.map(::memory)
     }
     suspend fun deleteMemory(id: String) {
         api().deleteMemory(id)
@@ -404,8 +460,13 @@ class ChatRepository(private val storage: LocalStorage) {
 
     /** `nextRunAt` is an RFC 3339 time the server works out in the user's timezone. */
     data class Cron(val id: String, val label: String, val prompt: String, val schedule: String, val enabled: Boolean, val nextRunAt: String?)
+    private fun cron(it: ProtoCron) = Cron(it.id, it.label, it.prompt, it.schedule, it.enabled, it.nextRunAt)
+    /** The routines last fetched, null if never. */
+    fun cachedCrons(): List<Cron>? = lists.crons?.map(::cron)
     suspend fun listCrons(): List<Cron> {
-        return api().listCrons().map { Cron(it.id, it.label, it.prompt, it.schedule, it.enabled, it.nextRunAt) }
+        val fresh = api().listCrons()
+        saveLists { it.copy(crons = fresh) }
+        return fresh.map(::cron)
     }
     suspend fun createCron(label: String, prompt: String, schedule: String) {
         api().createCron(label, prompt, schedule)
@@ -419,14 +480,22 @@ class ChatRepository(private val storage: LocalStorage) {
         api().updateCron(id, enabled, null, null)
     }
 
-    suspend fun listApps(): List<AppIntegration> = api().listApps()
+    /** The apps last fetched, null if never. */
+    fun cachedApps(): List<AppIntegration>? = lists.apps
+    suspend fun listApps(): List<AppIntegration> = api().listApps().also { fresh -> saveLists { it.copy(apps = fresh) } }
     suspend fun connectApp(slug: String): String = api().connectApp(slug).url
     suspend fun disconnectApp(slug: String) = api().disconnectApp(slug)
     suspend fun appPermissions(slug: String): AppPermissions = api().getAppPermissions(slug)
     suspend fun setAppPermissions(slug: String, level: PermissionLevel, allowed: List<String>) =
         api().setAppPermissions(slug, level, allowed)
-    suspend fun models(): Models = api().getModels()
-    suspend fun setModel(id: String): Models = api().setModel(id)
+    /** The models last fetched, null if never. */
+    fun cachedModels(): Models? = lists.models
+    suspend fun models(): Models = api().getModels().also { fresh -> saveLists { it.copy(models = fresh) } }
+    suspend fun setModel(id: String): Models = api().setModel(id).also { fresh -> saveLists { it.copy(models = fresh) } }
+    private fun saveLists(transform: (ListCache) -> ListCache) = synchronized(lock) {
+        lists = transform(lists)
+        storage.saveLists(lists)
+    }
 
     /** Set when a localhost OAuth flow ends, so the app list reloads. */
     val appAuthResults = MutableStateFlow<AppAuthResult?>(null)

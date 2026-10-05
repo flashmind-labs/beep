@@ -160,9 +160,9 @@ private fun BubblePicker(onBubbleSettings: () -> Unit) {
 private fun ModelPicker(repository: ChatRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var models by remember { mutableStateOf<Models?>(null) }
+    var models by remember { mutableStateOf(repository.cachedModels()) }
     LaunchedEffect(Unit) {
-        models = runCatching { withContext(Dispatchers.IO) { repository.models() } }.getOrNull()
+        runCatching { withContext(Dispatchers.IO) { repository.models() } }.onSuccess { models = it }
     }
     val current = models ?: return
     if (current.choices.isEmpty()) return

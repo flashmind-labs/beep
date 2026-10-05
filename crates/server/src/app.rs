@@ -126,6 +126,24 @@ pub struct UserNotice {
     pub notice: Notice,
 }
 
+impl UserNotice {
+    /// Tells the user's phones that `session_id` changed, or the chat list
+    /// when it is empty, so a second phone shows the same chats.
+    pub fn changed(user: &str, session_id: &str) -> Self {
+        Self {
+            user: user.to_owned(),
+            notice: Notice {
+                title: String::new(),
+                body: String::new(),
+                session_id: session_id.to_owned(),
+                app: None,
+                approval: None,
+                changed: true,
+            },
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct Message {
     pub session_id: Uuid,
@@ -289,7 +307,12 @@ impl App {
                             llm: &app.llm,
                             user: &session.user,
                         };
-                        titles::name_first(&app.store, generator, &session, &text).await;
+                        if titles::name_first(&app.store, generator, &session, &text).await {
+                            // Nobody listening just means no phone is online.
+                            let _ = app
+                                .notifications
+                                .send(UserNotice::changed(&session.user, ""));
+                        }
                     });
                 }
                 Ok(false) => {}
@@ -386,6 +409,7 @@ impl App {
                     query_id: call_id,
                     approval,
                 }),
+                changed: false,
             },
         });
     }
@@ -474,6 +498,7 @@ impl App {
                 session_id: run.session_id.clone(),
                 app: None,
                 approval: None,
+                changed: false,
             },
         };
         // Best-effort: ignore send errors (no active receivers).
@@ -1053,7 +1078,12 @@ impl App {
 
     /// Retitles sessions that changed and have gone quiet.
     pub async fn retitle_idle_sessions(&self) {
-        titles::retitle_idle(&self.store, self.provider.as_ref(), &self.llm).await;
+        let retitled = titles::retitle_idle(&self.store, self.provider.as_ref(), &self.llm).await;
+        for session in retitled {
+            let _ = self
+                .notifications
+                .send(UserNotice::changed(&session.user, ""));
+        }
     }
 
     /// Asks Jev how likely the exchange holds something worth remembering.

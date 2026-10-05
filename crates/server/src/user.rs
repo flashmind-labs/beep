@@ -228,24 +228,50 @@ impl User {
 
     /// Renames a session; `false` when the user has no such session.
     pub async fn rename_session(&self, session_id: &str, title: &str) -> Result<bool> {
-        self.store
+        let renamed = self
+            .store
             .rename_session(&self.key, session_id, title)
-            .await
+            .await?;
+        self.changed("");
+        Ok(renamed)
     }
 
     /// Deletes a session with its runs; `false` when the user has no such session.
     pub async fn delete_session(&self, session_id: &str) -> Result<bool> {
-        self.store.delete_session(&self.key, session_id).await
+        let deleted = self.store.delete_session(&self.key, session_id).await?;
+        self.changed("");
+        Ok(deleted)
     }
 
     /// Deletes sessions with their runs and returns how many existed.
     pub async fn delete_sessions(&self, ids: Vec<String>) -> Result<u64> {
-        self.store.delete_sessions(&self.key, ids).await
+        let deleted = self.store.delete_sessions(&self.key, ids).await?;
+        self.changed("");
+        Ok(deleted)
+    }
+
+    /// The ones of `ids` the user still has.
+    pub async fn existing_sessions(&self, ids: Vec<String>) -> Result<Vec<String>> {
+        self.store.existing_sessions(&self.key, ids).await
     }
 
     /// Pins or unpins a session; `false` when the user has no such session.
     pub async fn pin_session(&self, session_id: &str, pinned: bool) -> Result<bool> {
-        self.store.pin_session(&self.key, session_id, pinned).await
+        let pinned = self
+            .store
+            .pin_session(&self.key, session_id, pinned)
+            .await?;
+        self.changed("");
+        Ok(pinned)
+    }
+
+    /// Tells the user's phones that `session_id` changed, or the chat list
+    /// when it is empty.
+    pub fn changed(&self, session_id: &str) {
+        // Nobody listening just means no phone is online; it syncs on connect.
+        let _ = self
+            .notifications
+            .send(UserNotice::changed(self.id(), session_id));
     }
 
     /// The full transcript of a session, as the phone shows it.
@@ -266,7 +292,12 @@ impl User {
         turn: Option<FinishedTurn<'_>>,
         status: RunStatus,
     ) -> Result<()> {
-        self.store.finish(&self.key, run, turn, status).await
+        let saved = turn.is_some();
+        self.store.finish(&self.key, run, turn, status).await?;
+        if saved {
+            self.changed(&run.session_id);
+        }
+        Ok(())
     }
 
     /// Records tool calls that failed, since the conversation keeps only their output.
@@ -890,6 +921,7 @@ impl User {
                 session_id: String::new(),
                 app: Some(name.to_owned()),
                 approval: None,
+                changed: false,
             },
         };
         // Nobody listening just means the phone is offline; Apps still shows it.

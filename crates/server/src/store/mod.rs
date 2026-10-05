@@ -491,7 +491,7 @@ impl Store {
         let rows = sqlx::query(
             "SELECT s.id, COALESCE(t.title, (SELECT substr(message, 1, 80) FROM runs r
                  WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.seq LIMIT 1), 'Conversation'),
-                 s.pinned
+                 s.pinned, s.updated_at
              FROM sessions s LEFT JOIN session_titles t ON t.user_id=s.user_id AND t.session_id=s.id
              WHERE s.user_id=$1 ORDER BY s.pinned DESC, s.seq DESC LIMIT 200",
         )
@@ -504,6 +504,9 @@ impl Store {
                     id: r.try_get(0)?,
                     title: r.try_get(1)?,
                     pinned: r.try_get(2)?,
+                    updated_at: r
+                        .try_get::<Option<DateTime<Utc>>, _>(3)?
+                        .map_or(0, |at| at.timestamp_millis()),
                 })
             })
             .collect()
@@ -592,6 +595,21 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(session_ref).collect()
+    }
+
+    /// The ones of `ids` that are the user's sessions.
+    pub(crate) async fn existing_sessions(
+        &self,
+        user: &UserKey,
+        ids: Vec<String>,
+    ) -> Result<Vec<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT id FROM sessions WHERE user_id=$1 AND id = ANY($2)")
+                .bind(user.as_str())
+                .bind(&ids)
+                .fetch_all(&self.pool)
+                .await?,
+        )
     }
 
     pub(crate) async fn delete_session(&self, user: &UserKey, session_id: &str) -> Result<bool> {

@@ -1878,15 +1878,16 @@ private fun DrawerTile(label: String, icon: androidx.compose.ui.graphics.vector.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
-    var memories by remember { mutableStateOf<List<ChatRepository.Memory>>(emptyList()) }
+    val cached = remember { repository.cachedMemories() }
+    var memories by remember { mutableStateOf(cached.orEmpty()) }
     var query by rememberSaveable { mutableStateOf("") }
-    var loading by remember { mutableStateOf(true) }
+    var loading by remember { mutableStateOf(cached == null) }
     var error by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<ChatRepository.Memory?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun refresh() { scope.launch {
-        loading = true; error = ""
+        error = ""
         try { memories = withContext(Dispatchers.IO) { repository.listMemories() } }
         catch (e: Exception) { error = e.message.orEmpty() }
         finally { loading = false }
@@ -2006,8 +2007,9 @@ private const val SHOWN_TOOLS = 3
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBeep: () -> Unit, onOpenChat: (String) -> Unit) {
-    var crons by remember { mutableStateOf<List<ChatRepository.Cron>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    val cached = remember { repository.cachedCrons() }
+    var crons by remember { mutableStateOf(cached.orEmpty()) }
+    var loading by remember { mutableStateOf(cached == null) }
     var error by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
     // Swiped away and waiting out the Undo bar; the delete is only sent once it closes.
@@ -2036,7 +2038,7 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBee
         catch (e: Exception) { error = e.message.orEmpty() }
     } }
     fun refresh() { scope.launch {
-        loading = true; error = ""
+        error = ""
         try { crons = withContext(Dispatchers.IO) { repository.listCrons() } }
         catch (e: Exception) { error = e.message.orEmpty() }
         finally { loading = false }
