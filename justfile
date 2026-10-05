@@ -62,10 +62,10 @@ deploy-server:
     export BEEP_TAG=$(git rev-parse HEAD)
     export DOCKER_HOST={{remote_docker}}
     echo "Waiting for {{server_image}}:$BEEP_TAG"
-    until docker image inspect "{{server_image}}:$BEEP_TAG" > /dev/null 2>&1; do
-        (( SECONDS < 1800 )) || { echo "No image for $BEEP_TAG after 30 minutes"; exit 1; }
-        sleep 5
-    done
+    # Poll on the host over one ssh session rather than one per check.
+    ssh {{trim_start_match(remote_docker, "ssh://")}} \
+        "timeout 1800 sh -c 'until docker image inspect {{server_image}}:$BEEP_TAG > /dev/null 2>&1; do sleep 5; done'" \
+        || { echo "No image for $BEEP_TAG after 30 minutes"; exit 1; }
     just stop-server
     just push-server-config
     docker compose up -d --force-recreate

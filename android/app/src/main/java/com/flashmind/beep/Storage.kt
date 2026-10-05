@@ -6,6 +6,8 @@ import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
 import com.flashmind.beep.ffi.newIdentity
+import com.flashmind.beep.proto.Approval
+import com.flashmind.beep.proto.ApprovalField
 import com.flashmind.beep.proto.PromptSuggestion
 import org.json.JSONArray
 import org.json.JSONObject
@@ -49,7 +51,14 @@ data class ToolCall(
 
 data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: String, val text: String, val cards: List<Card> = emptyList(), val taskSteps: List<TaskStep>? = null, val images: List<String> = emptyList(), val toolCalls: List<ToolCall> = emptyList(), val memoryScore: Double? = null,
     /** The model's reasoning before this reply, folded under a "Thoughts" row. */
-    val reasoning: String = "")
+    val reasoning: String = "",
+    /** Tool calls waiting on, or answered by, the user. */
+    val approvals: List<ApprovalPrompt> = emptyList())
+
+/** A tool call the server holds until the user allows it. `answer` is empty while it waits. */
+data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "") {
+    val waiting get() = answer.isEmpty()
+}
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = NEW_CHAT_TITLE,
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
@@ -146,8 +155,18 @@ class LocalStorage(internal val context: Context) {
                     ToolCall(tc.optString("callId"), tc.optString("name"), tc.optString("description"),
                         tc.optBoolean("isDone"), tc.optBoolean("success", true), tc.optString("result"))
                 } else emptyList()
+                val apArr = m.optJSONArray("approvals")
+                val approvals = if (apArr != null) (0 until apArr.length()).map { ai ->
+                    val a = apArr.getJSONObject(ai)
+                    val fArr = a.getJSONArray("fields")
+                    val fields = (0 until fArr.length()).map { fi ->
+                        val f = fArr.getJSONObject(fi)
+                        ApprovalField(f.getString("label"), f.getString("value"))
+                    }
+                    ApprovalPrompt(a.getString("queryId"), Approval(a.getString("app"), a.getString("action"), fields), a.optString("answer"))
+                } else emptyList()
                 ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
-                    m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"))
+                    m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals)
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"),
                 status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"))
@@ -245,6 +264,16 @@ class LocalStorage(internal val context: Context) {
                     m.toolCalls.forEach { tc -> tcArr.put(JSONObject().put("callId", tc.callId).put("name", tc.name)
                         .put("description", tc.description).put("isDone", tc.isDone).put("success", tc.success).put("result", tc.result)) }
                     msg.put("toolCalls", tcArr)
+                }
+                if (m.approvals.isNotEmpty()) {
+                    val apArr = JSONArray()
+                    m.approvals.forEach { a ->
+                        val fields = JSONArray()
+                        a.approval.fields.forEach { f -> fields.put(JSONObject().put("label", f.label).put("value", f.value)) }
+                        apArr.put(JSONObject().put("queryId", a.queryId).put("answer", a.answer).put("app", a.approval.app)
+                            .put("action", a.approval.action).put("fields", fields))
+                    }
+                    msg.put("approvals", apArr)
                 }
                 messages.put(msg)
             }

@@ -12,7 +12,8 @@ object AppLauncher {
         "youtube" to "com.google.android.youtube",
         "maps" to "com.google.android.apps.maps",
         "whatsapp" to "com.whatsapp",
-        "gmail" to "com.google.android.gm"
+        "gmail" to "com.google.android.gm",
+        "uber" to "com.ubercab"
     )
 
     fun launch(context: Context, app: String, uri: String, fallbackUrl: String): Boolean {

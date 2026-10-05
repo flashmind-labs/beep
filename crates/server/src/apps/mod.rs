@@ -10,6 +10,7 @@ pub mod mcp;
 use crate::{
     AsyncMutex,
     feeds::slack::SLACK,
+    permissions::Acts,
     protocol::{ApiError, AppKind},
 };
 use anyhow::{Context, Result, bail};
@@ -41,14 +42,37 @@ pub(crate) struct CatalogApp {
     /// tool's schema goes out on each model request, and an app's full set
     /// runs to tens of thousands of tokens, so only the common ones are
     /// picked.
-    pub(crate) tools: &'static [&'static str],
+    pub(crate) tools: &'static [PickedTool],
+}
+
+/// A Composio tool the agent gets, and whether it acts.
+pub(crate) struct PickedTool {
+    pub(crate) slug: &'static str,
+    pub(crate) acts: Acts,
+}
+
+/// A tool that only reads.
+const fn read(slug: &'static str) -> PickedTool {
+    PickedTool {
+        slug,
+        acts: Acts::Never,
+    }
+}
+
+/// A tool that sends, changes or deletes, so it falls under the app's
+/// permission level.
+const fn act(slug: &'static str) -> PickedTool {
+    PickedTool {
+        slug,
+        acts: Acts::Always,
+    }
 }
 
 const fn composio(
     slug: &'static str,
     name: &'static str,
     description: &'static str,
-    tools: &'static [&'static str],
+    tools: &'static [PickedTool],
 ) -> CatalogApp {
     CatalogApp {
         slug,
@@ -66,13 +90,13 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Gmail",
         "Read, search and send email",
         &[
-            "GMAIL_FETCH_EMAILS",
-            "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
-            "GMAIL_SEND_EMAIL",
-            "GMAIL_REPLY_TO_THREAD",
-            "GMAIL_CREATE_EMAIL_DRAFT",
-            "GMAIL_MOVE_TO_TRASH",
-            "GMAIL_SEARCH_PEOPLE",
+            read("GMAIL_FETCH_EMAILS"),
+            read("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"),
+            act("GMAIL_SEND_EMAIL"),
+            act("GMAIL_REPLY_TO_THREAD"),
+            read("GMAIL_CREATE_EMAIL_DRAFT"),
+            act("GMAIL_MOVE_TO_TRASH"),
+            read("GMAIL_SEARCH_PEOPLE"),
         ],
     ),
     composio(
@@ -80,11 +104,11 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Google Calendar",
         "See and schedule events",
         &[
-            "GOOGLECALENDAR_EVENTS_LIST_ALL_CALENDARS",
-            "GOOGLECALENDAR_CREATE_EVENT",
-            "GOOGLECALENDAR_PATCH_EVENT",
-            "GOOGLECALENDAR_DELETE_EVENT",
-            "GOOGLECALENDAR_FREE_BUSY_QUERY",
+            read("GOOGLECALENDAR_EVENTS_LIST_ALL_CALENDARS"),
+            act("GOOGLECALENDAR_CREATE_EVENT"),
+            act("GOOGLECALENDAR_PATCH_EVENT"),
+            act("GOOGLECALENDAR_DELETE_EVENT"),
+            read("GOOGLECALENDAR_FREE_BUSY_QUERY"),
         ],
     ),
     composio(
@@ -92,13 +116,13 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Notion",
         "Search and update pages",
         &[
-            "NOTION_SEARCH_NOTION_PAGE",
-            "NOTION_GET_PAGE_MARKDOWN",
-            "NOTION_CREATE_NOTION_PAGE",
-            "NOTION_ADD_MULTIPLE_PAGE_CONTENT",
-            "NOTION_UPDATE_PAGE",
-            "NOTION_QUERY_DATABASE",
-            "NOTION_INSERT_ROW_FROM_NL",
+            read("NOTION_SEARCH_NOTION_PAGE"),
+            read("NOTION_GET_PAGE_MARKDOWN"),
+            act("NOTION_CREATE_NOTION_PAGE"),
+            act("NOTION_ADD_MULTIPLE_PAGE_CONTENT"),
+            act("NOTION_UPDATE_PAGE"),
+            read("NOTION_QUERY_DATABASE"),
+            act("NOTION_INSERT_ROW_FROM_NL"),
         ],
     ),
     composio(
@@ -106,10 +130,10 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Google Drive",
         "Find and read your files",
         &[
-            "GOOGLEDRIVE_LIST_FILES",
-            "GOOGLEDRIVE_GET_FILE_METADATA",
-            "GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE",
-            "GOOGLEDRIVE_DOWNLOAD_FILE",
+            read("GOOGLEDRIVE_LIST_FILES"),
+            read("GOOGLEDRIVE_GET_FILE_METADATA"),
+            read("GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE"),
+            read("GOOGLEDRIVE_DOWNLOAD_FILE"),
         ],
     ),
     composio(
@@ -117,14 +141,14 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Outlook",
         "Email, calendar and contacts",
         &[
-            "OUTLOOK_QUERY_EMAILS",
-            "OUTLOOK_SEND_EMAIL",
-            "OUTLOOK_REPLY_EMAIL",
-            "OUTLOOK_CREATE_DRAFT",
-            "OUTLOOK_MOVE_MESSAGE",
-            "OUTLOOK_GET_CALENDAR_VIEW",
-            "OUTLOOK_CALENDAR_CREATE_EVENT",
-            "OUTLOOK_DECLINE_EVENT",
+            read("OUTLOOK_QUERY_EMAILS"),
+            act("OUTLOOK_SEND_EMAIL"),
+            act("OUTLOOK_REPLY_EMAIL"),
+            read("OUTLOOK_CREATE_DRAFT"),
+            act("OUTLOOK_MOVE_MESSAGE"),
+            read("OUTLOOK_GET_CALENDAR_VIEW"),
+            act("OUTLOOK_CALENDAR_CREATE_EVENT"),
+            act("OUTLOOK_DECLINE_EVENT"),
         ],
     ),
     composio(
@@ -132,11 +156,11 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Microsoft Teams",
         "Read and send messages",
         &[
-            "MICROSOFT_TEAMS_SEARCH_MESSAGES",
-            "MICROSOFT_TEAMS_CHATS_GET_ALL_CHATS",
-            "MICROSOFT_TEAMS_GET_CHAT_MESSAGE",
-            "MICROSOFT_TEAMS_TEAMS_LIST_CHANNEL_MESSAGES",
-            "MICROSOFT_TEAMS_TEAMS_POST_CHAT_MESSAGE",
+            read("MICROSOFT_TEAMS_SEARCH_MESSAGES"),
+            read("MICROSOFT_TEAMS_CHATS_GET_ALL_CHATS"),
+            read("MICROSOFT_TEAMS_GET_CHAT_MESSAGE"),
+            read("MICROSOFT_TEAMS_TEAMS_LIST_CHANNEL_MESSAGES"),
+            act("MICROSOFT_TEAMS_TEAMS_POST_CHAT_MESSAGE"),
         ],
     ),
     composio(
@@ -144,11 +168,11 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "OneDrive",
         "Find and read your files",
         &[
-            "ONE_DRIVE_SEARCH_DRIVE_ITEMS",
-            "ONE_DRIVE_GET_RECENT_ITEMS",
-            "ONE_DRIVE_GET_SHARED_ITEMS",
-            "ONE_DRIVE_GET_ITEM",
-            "ONE_DRIVE_DOWNLOAD_FILE",
+            read("ONE_DRIVE_SEARCH_DRIVE_ITEMS"),
+            read("ONE_DRIVE_GET_RECENT_ITEMS"),
+            read("ONE_DRIVE_GET_SHARED_ITEMS"),
+            read("ONE_DRIVE_GET_ITEM"),
+            read("ONE_DRIVE_DOWNLOAD_FILE"),
         ],
     ),
     composio(
@@ -156,10 +180,10 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Excel",
         "Read and edit workbooks",
         &[
-            "EXCEL_SEARCH_FILES",
-            "EXCEL_GET_WORKSHEET_USED_RANGE",
-            "EXCEL_LIST_TABLE_COLUMNS",
-            "EXCEL_INSERT_RANGE",
+            read("EXCEL_SEARCH_FILES"),
+            read("EXCEL_GET_WORKSHEET_USED_RANGE"),
+            read("EXCEL_LIST_TABLE_COLUMNS"),
+            act("EXCEL_INSERT_RANGE"),
         ],
     ),
     composio(
@@ -167,12 +191,12 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "SharePoint",
         "Sites, lists and documents",
         &[
-            "SHARE_POINT_SEARCH_FILES",
-            "SHARE_POINT_LIST_SITES",
-            "SHARE_POINT_GET_SITE_PAGE_CONTENT",
-            "SHARE_POINT_GET_FILE_BY_SERVER_RELATIVE_URL",
-            "SHARE_POINT_CREATE_LIST_ITEM_BY_ID",
-            "SHARE_POINT_UPDATE_LIST_ITEM",
+            read("SHARE_POINT_SEARCH_FILES"),
+            read("SHARE_POINT_LIST_SITES"),
+            read("SHARE_POINT_GET_SITE_PAGE_CONTENT"),
+            read("SHARE_POINT_GET_FILE_BY_SERVER_RELATIVE_URL"),
+            act("SHARE_POINT_CREATE_LIST_ITEM_BY_ID"),
+            act("SHARE_POINT_UPDATE_LIST_ITEM"),
         ],
     ),
     composio(
@@ -180,12 +204,12 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Slack",
         "Read and send messages",
         &[
-            "SLACK_SEARCH_MESSAGES",
-            "SLACK_FETCH_CONVERSATION_HISTORY",
-            "SLACK_LIST_UNREAD_CHANNEL_MESSAGES",
-            "SLACK_FIND_CHANNELS",
-            "SLACK_FIND_USERS",
-            "SLACK_SEND_MESSAGE",
+            read("SLACK_SEARCH_MESSAGES"),
+            read("SLACK_FETCH_CONVERSATION_HISTORY"),
+            read("SLACK_LIST_UNREAD_CHANNEL_MESSAGES"),
+            read("SLACK_FIND_CHANNELS"),
+            read("SLACK_FIND_USERS"),
+            act("SLACK_SEND_MESSAGE"),
         ],
     ),
     composio(
@@ -193,15 +217,15 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "GitHub",
         "Issues, pull requests and repos",
         &[
-            "GITHUB_SEARCH_ISSUES",
-            "GITHUB_GET_AN_ISSUE",
-            "GITHUB_GET_ISSUE_COMMENTS",
-            "GITHUB_CREATE_AN_ISSUE",
-            "GITHUB_CREATE_AN_ISSUE_COMMENT",
-            "GITHUB_LIST_PULL_REQUESTS",
-            "GITHUB_GET_A_PULL_REQUEST",
-            "GITHUB_LIST_NOTIFICATIONS",
-            "GITHUB_GET_REPOSITORY_CONTENT",
+            read("GITHUB_SEARCH_ISSUES"),
+            read("GITHUB_GET_AN_ISSUE"),
+            read("GITHUB_GET_ISSUE_COMMENTS"),
+            act("GITHUB_CREATE_AN_ISSUE"),
+            act("GITHUB_CREATE_AN_ISSUE_COMMENT"),
+            read("GITHUB_LIST_PULL_REQUESTS"),
+            read("GITHUB_GET_A_PULL_REQUEST"),
+            read("GITHUB_LIST_NOTIFICATIONS"),
+            read("GITHUB_GET_REPOSITORY_CONTENT"),
         ],
     ),
     composio(
@@ -209,12 +233,12 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Linear",
         "Track and update issues",
         &[
-            "LINEAR_SEARCH_ISSUES",
-            "LINEAR_GET_LINEAR_ISSUE",
-            "LINEAR_CREATE_LINEAR_ISSUE",
-            "LINEAR_UPDATE_ISSUE",
-            "LINEAR_LIST_COMMENTS",
-            "LINEAR_CREATE_LINEAR_COMMENT",
+            read("LINEAR_SEARCH_ISSUES"),
+            read("LINEAR_GET_LINEAR_ISSUE"),
+            act("LINEAR_CREATE_LINEAR_ISSUE"),
+            act("LINEAR_UPDATE_ISSUE"),
+            read("LINEAR_LIST_COMMENTS"),
+            act("LINEAR_CREATE_LINEAR_COMMENT"),
         ],
     ),
     composio(
@@ -222,12 +246,12 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Todoist",
         "Manage tasks and projects",
         &[
-            "TODOIST_FILTER_TASKS",
-            "TODOIST_GET_ALL_TASKS",
-            "TODOIST_GET_ALL_PROJECTS",
-            "TODOIST_CREATE_TASK",
-            "TODOIST_UPDATE_TASK",
-            "TODOIST_CLOSE_TASK",
+            read("TODOIST_FILTER_TASKS"),
+            read("TODOIST_GET_ALL_TASKS"),
+            read("TODOIST_GET_ALL_PROJECTS"),
+            act("TODOIST_CREATE_TASK"),
+            act("TODOIST_UPDATE_TASK"),
+            act("TODOIST_CLOSE_TASK"),
         ],
     ),
     CatalogApp {
@@ -512,8 +536,9 @@ mod tests {
             let prefix = format!("{}_", app.slug.to_uppercase());
             for tool in app.tools {
                 assert!(
-                    tool.starts_with(&prefix),
-                    "{tool} is not a {} tool",
+                    tool.slug.starts_with(&prefix),
+                    "{} is not a {} tool",
+                    tool.slug,
                     app.slug
                 );
             }

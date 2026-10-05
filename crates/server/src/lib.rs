@@ -9,6 +9,7 @@ pub mod feeds;
 pub mod images;
 pub mod live;
 pub mod memories;
+pub mod permissions;
 pub mod push;
 pub mod repeat;
 pub mod router;

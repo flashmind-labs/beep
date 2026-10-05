@@ -40,6 +40,7 @@ import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Directions
 import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.LocalTaxi
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Place
@@ -324,6 +325,20 @@ private fun openMaps(context: Context, query: String, point: LatLon?, near: LatL
     AppLauncher.launch(context, "maps", uri, "https://www.google.com/maps/search/?api=1&query=${Uri.encode(query)}")
 }
 
+/** Opens Uber with pickup at the phone and the drop-off at [point]. */
+private fun openUber(context: Context, name: String, point: LatLon) {
+    val link = Uri.parse("https://m.uber.com/ul/").buildUpon()
+        .appendQueryParameter("action", "setPickup")
+        .appendQueryParameter("pickup", "my_location")
+        .appendQueryParameter("dropoff[nickname]", name)
+        .appendQueryParameter("dropoff[formatted_address]", point.address.ifBlank { name })
+        .appendQueryParameter("dropoff[latitude]", point.latitude.toString())
+        .appendQueryParameter("dropoff[longitude]", point.longitude.toString())
+        .build().toString()
+    AppLauncher.launch(context, "uber", link, link)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
     val t = LocalBeep.current
@@ -345,8 +360,11 @@ private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
                 Text("From $origin", fontSize = 13.sp, color = t.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 CardButton("Directions", Icons.Outlined.Directions, primary = true) { openDirections(context, card) }
+                // A ride goes to one looked-up place from the phone, so not for searches or routes from elsewhere.
+                val ride = found?.takeIf { card.near == null && card.origin == null }
+                if (ride != null) CardButton("Uber", Icons.Outlined.LocalTaxi) { openUber(context, card.name, ride) }
                 CardButton("Open in Maps", Icons.Outlined.Map) { openMaps(context, card.query, point, card.near) }
             }
         }
