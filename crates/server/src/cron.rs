@@ -12,7 +12,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::app::{App, Message};
+use crate::protocol::Run;
 use crate::store::{CreateRun, Store};
+use crate::user::User;
 
 /// Cron jobs kept in the `crons` table, all of them or one user's.
 pub struct BeepCronStore {
@@ -77,6 +79,54 @@ pub fn scheduled_label(content: &str) -> Option<&str> {
     Some(label)
 }
 
+/// Starts a run for `job` and returns it, or `None` when none was created.
+/// The scheduler calls it when the job is due, and the API when the user
+/// runs it early.
+pub async fn run_job(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Result<Option<Run>> {
+    let label = job
+        .metadata
+        .get("label")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Run in the chat the routine was set up from, so its reply lands
+    // there. Routines made outside a chat get a chat of their own.
+    let origin = job
+        .metadata
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<Uuid>().ok());
+    let message = scheduled_prompt(label, &job.task);
+    let msg = |session_id| Message {
+        session_id,
+        request_id: Uuid::new_v4(),
+        message: message.clone(),
+        cron_id: Some(job.id.to_string()),
+        images: Vec::new(),
+        foreground: None,
+    };
+
+    let mut result = app
+        .submit(user, msg(origin.unwrap_or_else(Uuid::new_v4)))
+        .await;
+    // The chat is busy with another run: go ahead in a new one rather than
+    // drop the reminder.
+    if origin.is_some() && matches!(result, Ok(CreateRun::Conflict)) {
+        result = app.submit(user, msg(Uuid::new_v4())).await;
+    }
+    match result {
+        Ok(CreateRun::Created(run)) => Ok(Some(run)),
+        Ok(_) => {
+            log::debug!("cron run not created (conflict); job_id={}", job.id);
+            Ok(None)
+        }
+        Err(e) => {
+            log::error!("failed to submit cron run: {e}; job_id={}", job.id);
+            Err(e)
+        }
+    }
+}
+
 struct BeepCronHandler {
     app: Arc<App>,
 }
@@ -89,53 +139,12 @@ impl CronHandler for BeepCronHandler {
             .get("user_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("job missing user_id in metadata"))?;
-        let label = job
-            .metadata
-            .get("label")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        // Run in the chat the routine was set up from, so its reply lands
-        // there. Routines made outside a chat get a chat of their own.
-        let origin = job
-            .metadata
-            .get("session_id")
-            .and_then(|v| v.as_str())
-            .and_then(|v| v.parse::<Uuid>().ok());
-        let message = scheduled_prompt(label, &job.task);
-        let msg = |session_id| Message {
-            session_id,
-            request_id: Uuid::new_v4(),
-            message: message.clone(),
-            cron_id: Some(job.id.to_string()),
-            images: Vec::new(),
-            foreground: None,
-        };
-
         let Some(user) = self.app.user(user_id) else {
             log::warn!("cron job for an unknown user; job_id={}", job.id);
             return Ok(None);
         };
-        let mut result = self
-            .app
-            .submit(&user, msg(origin.unwrap_or_else(Uuid::new_v4)))
-            .await;
-        // The chat is busy with another run: go ahead in a new one rather than
-        // drop the reminder.
-        if origin.is_some() && matches!(result, Ok(CreateRun::Conflict)) {
-            result = self.app.submit(&user, msg(Uuid::new_v4())).await;
-        }
-        match result {
-            Ok(CreateRun::Created(run)) => Ok(Some(run.id)),
-            Ok(_) => {
-                log::debug!("cron run not created (conflict); job_id={}", job.id);
-                Ok(None)
-            }
-            Err(e) => {
-                log::error!("failed to submit cron run: {e}; job_id={}", job.id);
-                Err(e)
-            }
-        }
+        let run = run_job(&self.app, &user, job).await?;
+        Ok(run.map(|run| run.id))
     }
 }
 

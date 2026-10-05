@@ -11,8 +11,8 @@ use beep_proto::{
     DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth,
     ForegroundApp, GetEvents, GetRun, GetSession, Health, HistoryEntry, Integration, ListApps,
     ListCrons, ListIntegrations, ListMemories, ListSessions, Memory, Notice, PhoneNotification,
-    PinSession, PromptSuggestions, RegisterDevice, RenameSession, Run, SaveNotifications, Session,
-    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCredentials,
+    PinSession, PromptSuggestions, RegisterDevice, RenameSession, Run, RunCron, SaveNotifications,
+    Session, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCredentials,
     UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
@@ -337,6 +337,11 @@ impl BeepClient {
 
     pub async fn delete_cron(&self, id: String) -> Result<(), BeepError> {
         self.call(DeleteCron { id }).await
+    }
+
+    /// Runs a cron now and returns the session the run went to.
+    pub async fn run_cron(&self, id: String) -> Result<String, BeepError> {
+        self.call(RunCron { id }).await
     }
 
     pub async fn update_cron(

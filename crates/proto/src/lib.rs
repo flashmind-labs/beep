@@ -194,6 +194,9 @@ requests! {
     35 ClearMemories {} => Call<u64>
     /// Returns how many of the sessions existed and were deleted.
     36 DeleteSessions { ids: Vec<String> } => Call<u64>
+    /// Runs a cron now, keeping its schedule; a one-off reminder is used up.
+    /// Returns the session the run went to.
+    37 RunCron { id: String } => Call<String>
 }
 
 wire_enum! {

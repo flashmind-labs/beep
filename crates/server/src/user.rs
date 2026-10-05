@@ -39,6 +39,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 use flashmind::{
     core::Conversation,
+    cron::CronJob,
     tools::{
         composio::{ComposioClient, make_composio_tool_wrappers},
         mcp::McpRegistry,
@@ -57,6 +58,7 @@ use tokio::{
     sync::{OnceCell, broadcast},
     time::{MissedTickBehavior, interval},
 };
+use uuid::Uuid;
 
 /// Proof that a store call is made for one user. Only `User` makes one.
 #[derive(Clone)]
@@ -371,6 +373,11 @@ impl User {
     /// Flips whether a job is enabled and returns the new state, or `None` when the user has no such job.
     pub async fn toggle_cron(&self, id: &str) -> Result<Option<bool>> {
         self.store.toggle_cron(&self.key, id).await
+    }
+
+    /// One of the user's jobs as the scheduler sees it.
+    pub async fn cron_job(&self, id: Uuid) -> Result<Option<CronJob>> {
+        self.store.cron_job(id, Some(self.key.as_str())).await
     }
 
     /// Deletes a job; `false` when the user has no such job.
