@@ -214,6 +214,9 @@ requests! {
     44 DeleteTurn { session_id: String, timestamp: i64 } => Call<()>
     /// Picks how long the model reasons on the caller's turns. Admins only.
     45 SetThinking { level: ReasoningLevel } => Call<Models>
+    /// Like `DeleteTurn`, and also removes every turn after it, so the chat
+    /// ends before that prompt. A rerun sends the prompt again after this.
+    46 DeleteTurnsFrom { session_id: String, timestamp: i64 } => Call<()>
 }
 
 wire_enum! {

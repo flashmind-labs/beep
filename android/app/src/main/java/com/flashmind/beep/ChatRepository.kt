@@ -362,27 +362,34 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     /**
      * Sends the prompt behind [reply] again on another model, as if the first try never
-     * happened: its turn leaves the chat and the model's context. Admins only.
+     * happened: its turn and every turn after it leave the chat and the model's context.
+     * Admins only.
      */
     suspend fun rerun(reply: ChatMessage, model: String) {
         val chat = state.value.current
         val prompt = chat.messages.take(chat.messages.indexOf(reply)).lastOrNull { it.role in TURN_STARTS } ?: return
         if (prompt.role != "user") return
-        deleteTurn(prompt, chat.id)
+        deleteTurn(prompt, chat.id, onward = true)
         send(prompt.text, prompt.images, chat.id, model)
     }
-    /** Removes [prompt] with the reply and tool calls that followed it, here and on the server. */
-    suspend fun deleteTurn(prompt: ChatMessage, chatId: String = state.value.current.id) {
+    /**
+     * Removes [prompt] with the reply and tool calls that followed it, here and on the server.
+     * With [onward], every later turn goes too.
+     */
+    suspend fun deleteTurn(prompt: ChatMessage, chatId: String = state.value.current.id, onward: Boolean = false) {
         val chat = state.value.conversations.find { it.id == chatId } ?: return
         check(!chat.busy) { "Wait for the reply to finish." }
         try {
             val sentAt = withContext(Dispatchers.IO) { serverTime(prompt, chat) }
-            if (sentAt != 0L) withContext(Dispatchers.IO) { api().deleteTurn(chatId, sentAt) }
+            if (sentAt != 0L) withContext(Dispatchers.IO) {
+                if (onward) api().deleteTurnsFrom(chatId, sentAt) else api().deleteTurn(chatId, sentAt)
+            }
         } catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
         updateChat(chatId) { c ->
             val start = c.messages.indexOfFirst { it.id == prompt.id }
             if (start < 0) return@updateChat c
-            val end = c.messages.drop(start + 1).indexOfFirst { it.role in TURN_STARTS }.let { if (it < 0) c.messages.size else start + 1 + it }
+            val next = c.messages.drop(start + 1).indexOfFirst { it.role in TURN_STARTS }
+            val end = if (onward || next < 0) c.messages.size else start + 1 + next
             c.copy(messages = c.messages.take(start) + c.messages.drop(end))
         }
     }
