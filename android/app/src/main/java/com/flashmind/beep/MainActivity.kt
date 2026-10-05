@@ -2,6 +2,11 @@ package com.flashmind.beep
 
 import com.flashmind.beep.ffi.identityName
 import com.flashmind.beep.proto.MemorySource
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import com.flashmind.beep.proto.Models
+import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.Refresh
 import kotlin.math.roundToInt
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.graphics.TransformOrigin
@@ -745,6 +750,11 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
     // Follow the reply until the user drags away from the bottom; reaching the bottom again resumes it.
     // Only a drag counts: our own scrolling while a reply streams in must not stop following.
     var followLatest by remember(chat.id) { mutableStateOf(true) }
+    // Admins get a rerun menu under each reply; the list is empty for everyone else.
+    val modelChoices by repository.modelChoices.collectAsState()
+    LaunchedEffect(Unit) {
+        if (modelChoices == null && !compact) runCatching { withContext(Dispatchers.IO) { repository.models() } }
+    }
     val dragged by list.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(list, chat.id) {
         snapshotFlow { dragged to list.canScrollForward }.collect { (dragging, canForward) ->
@@ -935,6 +945,10 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         }
                         MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote)
                         } }
+                        if (isUser && message.model.isNotEmpty()) {
+                            val name = modelChoices?.choices?.find { it.id == message.model }?.name ?: message.model
+                            Text("Rerun on $name", fontSize = 11.sp, color = TextMuted, modifier = Modifier.padding(top = 4.dp, end = 4.dp))
+                        }
                         if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact) { repository.openBrowser(it) }
                         if (!isUser && !isStreaming && message.text.isNotBlank()) {
                             val shownLinks = toolCards.mapNotNull { (it.second as? ToolCard.Link)?.url }.toSet()
@@ -958,6 +972,9 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             TextButton(onClick = quote, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 48.dp)) {
                                 Icon(Icons.Outlined.FormatQuote, null, Modifier.size(14.dp), tint = TextMuted)
                                 Spacer(Modifier.width(6.dp)); Text("Quote", fontSize = 11.sp, color = TextMuted)
+                            }
+                            modelChoices?.takeIf { it.choices.isNotEmpty() }?.let { models ->
+                                RerunButton(models) { followLatest = true; repository.rerun(message, it) }
                             }
                             // Jev's estimate that this turn held something worth remembering.
                             message.memoryScore?.let { score ->
@@ -1262,6 +1279,34 @@ private fun ReplySkeleton(modifier: Modifier = Modifier) {
                 drawRect(Brush.linearGradient(listOf(base, sheen, base), start = Offset(x - size.width * 0.4f, 0f),
                     end = Offset(x + size.width * 0.4f, 0f)))
             })
+        }
+    }
+}
+
+/** Admin only: runs the prompt behind a reply again on a model picked from the menu. */
+@Composable
+private fun RerunButton(models: Models, onPick: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { open = true }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 48.dp)) {
+            Icon(Icons.Outlined.Refresh, null, Modifier.size(14.dp), tint = TextMuted)
+            Spacer(Modifier.width(6.dp)); Text("Rerun", fontSize = 11.sp, color = TextMuted)
+            Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(14.dp), tint = TextMuted)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Surface, shape = RoundedCornerShape(Beep.shapes.smallRadius)) {
+            models.choices.forEach { choice ->
+                val note = when {
+                    choice.id == models.selected -> "Your model"
+                    choice.default -> "Default"
+                    else -> choice.id
+                }
+                DropdownMenuItem(text = {
+                    Column {
+                        Text(choice.name, fontSize = 14.sp)
+                        Text(note, fontSize = 11.sp, color = TextMuted)
+                    }
+                }, onClick = { open = false; onPick(choice.id) })
+            }
         }
     }
 }

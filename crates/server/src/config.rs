@@ -1,4 +1,4 @@
-use std::{env, io, path::Path, path::PathBuf};
+use std::{collections::HashMap, env, io, path::Path, path::PathBuf};
 
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
@@ -29,6 +29,11 @@ pub struct Config {
     /// OpenRouter provider routing. Replaces the default entirely when set.
     #[serde(default = "default_routing")]
     pub routing: ProviderPreferences,
+    /// Endpoints OpenRouter tries first for a model, ahead of the sort in
+    /// `routing`, such as `["openai/flex"]`. The rest of `routing` still
+    /// applies, and other endpoints remain as fallbacks.
+    #[serde(default)]
+    pub provider_order: HashMap<Model, Vec<String>>,
     pub provider_key: Option<String>,
     pub firecrawl_key: Option<String>,
     /// OpenAI key for memory embeddings. Without it they go through OpenRouter.
@@ -45,6 +50,20 @@ pub struct Config {
 }
 
 impl Config {
+    /// `routing` with the configured order, for each model that has one.
+    pub fn model_routing(&self) -> HashMap<Model, ProviderPreferences> {
+        self.provider_order
+            .iter()
+            .map(|(model, order)| {
+                let routing = ProviderPreferences {
+                    order: order.clone(),
+                    ..self.routing.clone()
+                };
+                (model.clone(), routing)
+            })
+            .collect()
+    }
+
     pub fn log_dir(&self) -> PathBuf {
         self.log_dir
             .clone()
@@ -124,5 +143,23 @@ mod tests {
         .expect("the config is valid");
         assert_eq!(config.admins, [admin]);
         assert_eq!(config.model_choices[0].name(), "openai/gpt-6-luna");
+    }
+
+    #[test]
+    fn provider_order_keeps_the_rest_of_the_routing() {
+        let config: Config = toml::from_str(
+            r#"
+            model = "openrouter:z-ai/glm-5.3-flash"
+            [provider_order]
+            "openrouter:openai/gpt-6-luna" = ["openai/flex"]
+            "#,
+        )
+        .expect("the config is valid");
+        let luna: Model = "openrouter:openai/gpt-6-luna"
+            .parse()
+            .expect("a valid model");
+        let routing = &config.model_routing()[&luna];
+        assert_eq!(routing.order, ["openai/flex"]);
+        assert_eq!(routing.data_collection.as_deref(), Some("deny"));
     }
 }
