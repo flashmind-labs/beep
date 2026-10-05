@@ -5,6 +5,7 @@ use beep_server::{
     config::{self, Config},
     decision::DecisionTool,
     memories,
+    metering::Metered,
     models::ModelChoices,
     push::Pusher,
     sandbox::Sandbox,
@@ -44,7 +45,16 @@ async fn main() -> Result<()> {
         .provider_key
         .as_deref()
         .context("provider_key is required for OpenRouter")?;
-    let provider = Arc::new(OpenRouterProvider::new(key.to_owned()));
+    let embedder = memories::embedder(&config)?;
+    let store = Store::open(&config.database_url()?, embedder).await?;
+    store.recover().await?;
+    let provider = Arc::new(
+        Metered::new(
+            Arc::new(OpenRouterProvider::new(key.to_owned())),
+            store.clone(),
+        )
+        .await,
+    );
     let models = ModelChoices::resolve(
         provider.as_ref(),
         llm.model.clone(),
@@ -53,10 +63,6 @@ async fn main() -> Result<()> {
     )
     .await
     .with_routing(config.model_routing());
-
-    let embedder = memories::embedder(&config)?;
-    let store = Store::open(&config.database_url()?, embedder).await?;
-    store.recover().await?;
 
     let search = config
         .firecrawl_key
