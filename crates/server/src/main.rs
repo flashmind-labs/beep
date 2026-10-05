@@ -135,7 +135,8 @@ async fn main() -> Result<()> {
 const LOG_FILES_KEPT: usize = 14;
 
 /// Logs to stderr and to a file under `log_dir` that rolls over daily.
-/// Debug by default; `RUST_LOG` overrides it.
+/// Debug by default, except html5ever, which logs every token of each HTML
+/// email html2text reads. `RUST_LOG` overrides it.
 fn start_logging(config: &Config) -> Result<()> {
     let dir = config.log_dir();
     let file = FileBuilder::new(&dir, "beep")
@@ -144,7 +145,7 @@ fn start_logging(config: &Config) -> Result<()> {
         .max_log_files(NonZeroUsize::new(LOG_FILES_KEPT).expect("the count is not zero"))
         .build()
         .with_context(|| format!("opening the log directory {}", dir.display()))?;
-    let filter = || RustLogFilterBuilder::from_default_env_or("debug").build();
+    let filter = || RustLogFilterBuilder::from_default_env_or("debug,html5ever=info").build();
     logforth::starter_log::builder()
         .dispatch(|d| d.filter(filter()).append(Stderr::default()))
         .dispatch(|d| d.filter(filter()).append(file))
