@@ -4,7 +4,7 @@
 
 use crate::{
     app::App,
-    permissions,
+    metering, permissions,
     store::{SessionRef, Store},
 };
 use anyhow::Result;
@@ -85,9 +85,15 @@ async fn compact(store: &Store, summarizer: &Summarizer<'_>, session: &SessionRe
         return Ok(false);
     }
     let mut context = before.conversation.clone();
-    let summary = context
-        .compact_with_llm_keeping_tokens(summarizer.provider, summarizer.model, KEEP_RECENT_TOKENS)
-        .await?;
+    let summary = metering::billed_to(
+        &session.user,
+        context.compact_with_llm_keeping_tokens(
+            summarizer.provider,
+            summarizer.model,
+            KEEP_RECENT_TOKENS,
+        ),
+    )
+    .await?;
     if summary.is_none() {
         // Nothing old enough to summarize. Saving still resets the token count,
         // so the session is not picked again until a new turn measures it.

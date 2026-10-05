@@ -11,6 +11,7 @@ pub(crate) mod followups;
 pub mod images;
 pub mod live;
 pub mod memories;
+pub mod metering;
 pub mod models;
 pub mod permissions;
 pub mod push;
