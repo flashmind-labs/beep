@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use beep_server::{
     app::{App, ServerTools, UserNotice},
     client::{Client, Node, OnNotice, Replies},
+    models::ModelChoices,
     protocol::{
         ApiError, AppKind, CancelRun, Chat, ConnectApp, Event, GetEvents, GetRun, GetSession,
         Health, HistoryEntry, ListApps, ListSessions, MemorySource, Notice, RunEvent, StartAppAuth,
@@ -112,6 +113,7 @@ impl Harness {
             provider.clone(),
             AgentLlmConfig::new("openai:test".parse().unwrap()),
             ServerTools::default(),
+            ModelChoices::only("openai:test".parse().unwrap()),
         );
         let endpoint = iroh::Endpoint::builder(presets::N0)
             .secret_key(SecretKey::generate())

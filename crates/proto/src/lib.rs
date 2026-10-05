@@ -201,6 +201,10 @@ requests! {
     /// resumes the session in a new run. Resending the same answer returns
     /// the same run.
     40 AnswerApproval { session_id: Uuid, query_id: String, decision: ApprovalDecision } => Call<Run>
+    /// The models an admin can pick for their own turns. Empty for everyone else.
+    41 GetModels {} => Call<Models>
+    /// Picks the model for the caller's turns. Admins only.
+    42 SetModel { id: String } => Call<Models>
 }
 
 wire_enum! {
@@ -360,6 +364,31 @@ impl PermissionLevel {
             _ => None,
         }
     }
+}
+
+/// The models an admin can pick from and the one their turns use.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Models {
+    /// Empty when the caller is not an admin.
+    pub choices: Vec<ModelChoice>,
+    /// The `id` of the model the caller's turns use.
+    pub selected: String,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelChoice {
+    /// The model as the server names it, for example `openrouter:openai/gpt-6-luna`.
+    pub id: String,
+    pub name: String,
+    /// USD per million input tokens, when the provider lists it.
+    pub input_price: Option<f64>,
+    /// USD per million output tokens, when the provider lists it.
+    pub output_price: Option<f64>,
+    pub sees_images: bool,
+    /// The server's default model.
+    pub default: bool,
 }
 
 /// One app's permissions.

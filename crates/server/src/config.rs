@@ -1,8 +1,8 @@
 use std::{env, io, path::Path, path::PathBuf};
 
 use anyhow::{Context, Result};
-use flashmind::types::{ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
-use iroh::SecretKey;
+use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
+use iroh::{EndpointId, SecretKey};
 use secrecy::SecretString;
 use serde::Deserialize;
 
@@ -13,6 +13,13 @@ pub struct Config {
     /// Postgres connection string. Falls back to `DATABASE_URL`.
     pub database_url: Option<SecretString>,
     pub model: String,
+    /// Models admins can pick for their own turns, besides `model`. Each must
+    /// cost at most `models::MAX_OUTPUT_PRICE`.
+    #[serde(default)]
+    pub model_choices: Vec<Model>,
+    /// Endpoint ids of the users who get admin features.
+    #[serde(default)]
+    pub admins: Vec<EndpointId>,
     /// Describes images for models without vision, and for the saved
     /// conversation. Defaults to `model` when that one sees images.
     pub vision_model: Option<String>,
@@ -97,5 +104,25 @@ pub fn load_secret_key(path: Option<&Path>) -> Result<SecretKey> {
             Ok(key)
         }
         Err(err) => Err(err).context("reading secret key"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_admins_and_model_choices() {
+        let admin = SecretKey::generate().public();
+        let config: Config = toml::from_str(&format!(
+            r#"
+            model = "openrouter:z-ai/glm-5.3-flash"
+            model_choices = ["openrouter:openai/gpt-6-luna"]
+            admins = ["{admin}"]
+            "#
+        ))
+        .expect("the config is valid");
+        assert_eq!(config.admins, [admin]);
+        assert_eq!(config.model_choices[0].name(), "openai/gpt-6-luna");
     }
 }

@@ -9,11 +9,12 @@ use beep_proto::{
     AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
     Chat, ClearMemories, ConnectApp, ConnectLink, CreateCron, Cron, DeleteCron, DeleteMemory,
     DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth,
-    ForegroundApp, GetAppPermissions, GetEvents, GetRun, GetSession, Health, HistoryEntry,
-    ListApps, ListCrons, ListMemories, ListSessions, Memory, Notice, PermissionLevel,
-    PhoneNotification, PinSession, PromptSuggestions, RegisterDevice, RenameSession, Run, RunCron,
-    SaveNotifications, Session, SetAppPermissions, StartAppAuth, Stream, SuggestPrompts,
-    ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
+    ForegroundApp, GetAppPermissions, GetEvents, GetModels, GetRun, GetSession, Health,
+    HistoryEntry, ListApps, ListCrons, ListMemories, ListSessions, Memory, Models, Notice,
+    PermissionLevel, PhoneNotification, PinSession, PromptSuggestions, RegisterDevice,
+    RenameSession, Run, RunCron, SaveNotifications, Session, SetAppPermissions, SetModel,
+    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation,
+    UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
 };
@@ -418,6 +419,17 @@ impl BeepClient {
     /// What Beep may do in `slug`, and which of its actions act.
     pub async fn get_app_permissions(&self, slug: String) -> Result<AppPermissions, BeepError> {
         self.call(GetAppPermissions { slug }).await
+    }
+
+    /// The models this user can pick for their turns. Empty unless they are
+    /// an admin.
+    pub async fn get_models(&self) -> Result<Models, BeepError> {
+        self.call(GetModels {}).await
+    }
+
+    /// Picks the model for this user's turns, by `ModelChoice::id`.
+    pub async fn set_model(&self, id: String) -> Result<Models, BeepError> {
+        self.call(SetModel { id }).await
     }
 
     /// `allowed` names, by tool, the actions that run without asking.

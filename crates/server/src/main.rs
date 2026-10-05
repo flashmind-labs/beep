@@ -5,6 +5,7 @@ use beep_server::{
     config::{self, Config},
     decision::DecisionTool,
     memories,
+    models::ModelChoices,
     push::Pusher,
     sandbox::Sandbox,
     search::SearchTool,
@@ -44,6 +45,13 @@ async fn main() -> Result<()> {
         .as_deref()
         .context("provider_key is required for OpenRouter")?;
     let provider = Arc::new(OpenRouterProvider::new(key.to_owned()));
+    let models = ModelChoices::resolve(
+        provider.as_ref(),
+        llm.model.clone(),
+        config.model_choices.clone(),
+        &config.admins,
+    )
+    .await;
 
     let embedder = memories::embedder(&config)?;
     let store = Store::open(&config.database_url()?, embedder).await?;
@@ -84,6 +92,7 @@ async fn main() -> Result<()> {
             vision_model,
             sandbox,
         },
+        models,
     );
     // Subscribed before users start, so notices from their first crons wait
     // for the pusher instead of being dropped.

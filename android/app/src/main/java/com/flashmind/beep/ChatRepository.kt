@@ -20,6 +20,7 @@ import com.flashmind.beep.proto.ApprovalDecision
 import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.DeviceAnswer
 import com.flashmind.beep.proto.AppPermissions
+import com.flashmind.beep.proto.Models
 import com.flashmind.beep.proto.DeviceQuery
 import com.flashmind.beep.proto.PermissionLevel
 import com.flashmind.beep.proto.Event
@@ -411,6 +412,8 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun appPermissions(slug: String): AppPermissions = api().getAppPermissions(slug)
     suspend fun setAppPermissions(slug: String, level: PermissionLevel, allowed: List<String>) =
         api().setAppPermissions(slug, level, allowed)
+    suspend fun models(): Models = api().getModels()
+    suspend fun setModel(id: String): Models = api().setModel(id)
 
     /** Set when a localhost OAuth flow ends, so the app list reloads. */
     val appAuthResults = MutableStateFlow<AppAuthResult?>(null)
