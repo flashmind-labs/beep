@@ -85,7 +85,7 @@ fn default_reasoning() -> ReasoningLevel {
     ReasoningLevel::Low
 }
 
-/// Fastest provider that keeps no data and serves at least fp8.
+/// Quickest provider to start answering that keeps no data and serves at least fp8.
 fn default_routing() -> ProviderPreferences {
     ProviderPreferences {
         data_collection: Some("deny".into()),
@@ -96,7 +96,7 @@ fn default_routing() -> ProviderPreferences {
             Quantization::Fp32,
             Quantization::Other("unknown".into()),
         ],
-        sort: Some(ProviderSort::Throughput),
+        sort: Some(ProviderSort::Latency),
         ..Default::default()
     }
 }
