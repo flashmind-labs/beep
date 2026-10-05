@@ -1,7 +1,8 @@
 //! Personalized conversation starters for the empty chat screen.
 //!
 //! The model gets the user's memories, recent session titles, local time,
-//! place and connected apps, and answers with four starters as JSON. A starter
+//! place and connected apps, and answers with four starters as a Markdown
+//! list. A starter
 //! tied to an event says until when it holds, and the set goes stale then. Anything else, a
 //! provider error or a slow answer falls back to fixed starters. Memories are
 //! never logged.
@@ -18,7 +19,6 @@ use flashmind::types::{
     StreamEvent,
 };
 use futures::StreamExt;
-use serde::Deserialize;
 use std::{
     fmt::Write,
     time::{Duration, Instant},
@@ -41,12 +41,16 @@ const MOVED_KM: f64 = 50.0;
 /// starters regenerate on every visit.
 const MIN_STALE: TimeDelta = TimeDelta::minutes(30);
 
+/// Fewer usable starters than this falls back.
+const MIN_COUNT: usize = 2;
+
 const SYSTEM: &str = "You write conversation starters for Beep, a personal assistant app on the user's phone. \
-Reply with only a JSON array of exactly 4 objects, each {\"title\": string, \"prompt\": string, \"until\": string or null}, and nothing else. \
+Answer with a Markdown list of 4 starters and nothing else, one per line as \"- title | prompt\", \
+or \"- title | prompt | until YYYY-MM-DDTHH:MM\" for one tied to an event. \
 title: at most 28 characters, shown on a small chip. \
 prompt: the full message the user would send, in first person, one or two sentences. \
-until: when the starter stops being useful, as local time YYYY-MM-DDTHH:MM, for one tied to an event, \
-like a few hours after a flight lands or the end of a meeting; null when it stays useful. \
+until: the local time when the starter stops being useful, like a few hours after a flight lands \
+or the end of a meeting; leave it out when it stays useful. \
 Leave out starters about events that are already over, judging by the local time and place. \
 Make them varied, specific to the context and useful at this time of day. \
 Only use facts given in the context, and never include secrets. \
@@ -169,49 +173,51 @@ fn clip(text: &str, max: usize) -> String {
         .collect()
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawSuggestion {
-    title: String,
-    prompt: String,
-    #[serde(default)]
-    until: Option<String>,
+/// One starter line of the model's answer.
+struct Line<'a> {
+    suggestion: PromptSuggestion,
+    until: Option<&'a str>,
 }
 
-/// Parses the model's answer: a JSON array of exactly four valid starters,
-/// optionally inside a Markdown code fence. An `until` that does not parse
-/// is ignored, and one in the past counts as soon.
+/// One `title | prompt | until` line, or `None` when it does not fit a chip.
+fn starter(item: &str) -> Option<Line<'_>> {
+    let mut parts = item.split('|').map(str::trim);
+    let title = parts.next()?.trim_matches(['"', '*']).trim();
+    let prompt = parts.next()?.trim_matches('"').trim();
+    let until = parts
+        .next()
+        .map(|until| until.strip_prefix("until").unwrap_or(until).trim());
+    let fits = |text: &str, max| !text.is_empty() && text.chars().count() <= max;
+    (fits(title, MAX_TITLE_CHARS) && fits(prompt, MAX_PROMPT_CHARS)).then(|| {
+        let suggestion = PromptSuggestion {
+            title: title.to_owned(),
+            prompt: prompt.to_owned(),
+        };
+        Line { suggestion, until }
+    })
+}
+
+/// Parses the model's answer: a Markdown list of starters. Lines that do not
+/// fit are skipped, and too few left is an error. An `until` that does not
+/// parse is ignored, and one in the past counts as soon.
 fn parse(answer: &str, now: &LocalTime) -> Result<Starters> {
-    // serde_json errors name a position, never the input.
-    let raw: Vec<RawSuggestion> = serde_json::from_str(unfence(answer))?;
-    ensure!(raw.len() == COUNT, "expected {COUNT} suggestions");
+    let parsed: Vec<_> = list_items(answer)
+        .into_iter()
+        .filter_map(starter)
+        .take(COUNT)
+        .collect();
+    ensure!(
+        parsed.len() >= MIN_COUNT,
+        "fewer than {MIN_COUNT} usable starters"
+    );
     let soonest = now.time + MIN_STALE;
-    let stale_at = raw
+    let stale_at = parsed
         .iter()
-        .filter_map(|s| now.read(s.until.as_deref()?))
+        .filter_map(|line| now.read(line.until?))
         .map(|at| at.max(soonest))
         .min();
-    let suggestions = raw
-        .into_iter()
-        .map(|s| {
-            let title = s.title.trim();
-            let prompt = s.prompt.trim();
-            ensure!(
-                !title.is_empty() && title.chars().count() <= MAX_TITLE_CHARS,
-                "bad title length"
-            );
-            ensure!(
-                !prompt.is_empty() && prompt.chars().count() <= MAX_PROMPT_CHARS,
-                "bad prompt length"
-            );
-            Ok(PromptSuggestion {
-                title: title.to_owned(),
-                prompt: prompt.to_owned(),
-            })
-        })
-        .collect::<Result<_>>()?;
     Ok(Starters {
-        suggestions,
+        suggestions: parsed.into_iter().map(|line| line.suggestion).collect(),
         stale_at,
     })
 }
@@ -275,6 +281,37 @@ pub(crate) fn unfence(answer: &str) -> &str {
     }
 }
 
+/// The items of a Markdown list answer: its lines with a leading `-`, `*`,
+/// `•`, `1.` or `1)` removed. When some lines have one, the others, like an
+/// intro sentence, are left out.
+pub(crate) fn list_items(answer: &str) -> Vec<&str> {
+    let lines: Vec<_> = unfence(answer)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| (strip_marker(line), line))
+        .collect();
+    let marked = lines.iter().any(|(item, line)| item.len() < line.len());
+    lines
+        .into_iter()
+        .filter(|(item, line)| !marked || item.len() < line.len())
+        .map(|(item, _)| item)
+        .filter(|item| !item.is_empty())
+        .collect()
+}
+
+/// `line` without a leading list marker.
+fn strip_marker(line: &str) -> &str {
+    if let Some(rest) = line.strip_prefix(['-', '*', '•']) {
+        return rest.trim_start();
+    }
+    let digits = line.len() - line.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    match line[digits..].strip_prefix(['.', ')']) {
+        Some(rest) if digits > 0 => rest.trim_start(),
+        _ => line,
+    }
+}
+
 pub(crate) struct Cached {
     pub(crate) expires: Instant,
     pub(crate) suggestions: PromptSuggestions,
@@ -310,28 +347,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_strictly() {
-        let good = r#"```json
-[{"title":"Plan the weekend","prompt":"Help me plan a relaxed weekend."},
- {"title":"Gym check-in","prompt":"Log today's workout."},
- {"title":"Dinner idea","prompt":"Suggest a quick dinner."},
- {"title":"Inbox","prompt":"Summarize my unread email."}]
-```"#;
+    fn parses_the_list() {
+        let good = "Here you go:\n\
+- Plan the weekend | Help me plan a relaxed weekend.\n\
+- **Gym check-in** | Log today's workout.\n\n\
+* Dinner idea | Suggest a quick dinner.\n\
+1. Inbox | Summarize my unread email.\n\
+- Extra | One more than needed.";
         let now = singapore("2026-10-04T22:00:00+08:00");
         let parsed = parse(good, &now).unwrap();
-        assert_eq!(parsed.suggestions.len(), 4);
-        assert_eq!(parsed.suggestions[3].title, "Inbox");
+        let titles: Vec<_> = parsed
+            .suggestions
+            .iter()
+            .map(|s| s.title.as_str())
+            .collect();
+        assert_eq!(
+            titles,
+            ["Plan the weekend", "Gym check-in", "Dinner idea", "Inbox"]
+        );
         assert_eq!(parsed.stale_at, None);
 
-        assert!(parse("Sure! Here are some ideas", &now).is_err());
-        assert!(parse(r#"[{"title":"a","prompt":"b"}]"#, &now).is_err());
-        let long = format!(
-            r#"[{{"title":"{}","prompt":"p"}},{{"title":"a","prompt":"b"}},{{"title":"a","prompt":"b"}},{{"title":"a","prompt":"b"}}]"#,
-            "x".repeat(29)
-        );
+        let long = format!("- {} | p\n- a | b\n- No prompt", "x".repeat(29));
         assert!(parse(&long, &now).is_err());
-        let extra = r#"[{"title":"a","prompt":"b","x":1},{"title":"a","prompt":"b"},{"title":"a","prompt":"b"},{"title":"a","prompt":"b"}]"#;
-        assert!(parse(extra, &now).is_err());
+        assert!(parse("Sure! Here are some ideas", &now).is_err());
     }
 
     fn singapore(time: &str) -> LocalTime {
@@ -342,12 +380,22 @@ mod tests {
     }
 
     #[test]
+    fn list_items_skip_an_intro() {
+        assert_eq!(
+            list_items("Sure:\n\n- Why?\n1) How?\n- 3 ideas"),
+            ["Why?", "How?", "3 ideas"]
+        );
+        assert_eq!(list_items("Why?\nHow?"), ["Why?", "How?"]);
+        assert_eq!(list_items("```\n- Why?\n```"), ["Why?"]);
+    }
+
+    #[test]
     fn starters_go_stale_at_the_first_until() {
         let now = singapore("2026-10-04T22:00:00+08:00");
-        let answer = r#"[{"title":"a","prompt":"b","until":"2026-10-05T14:00"},
- {"title":"a","prompt":"b","until":"2026-10-05T09:30"},
- {"title":"a","prompt":"b","until":null},
- {"title":"a","prompt":"b","until":"soon"}]"#;
+        let answer = "- a | b | until 2026-10-05T14:00\n\
+- a | b | 2026-10-05T09:30\n\
+- a | b\n\
+- a | b | until soon";
         let stale_at = parse(answer, &now).unwrap().stale_at;
         assert_eq!(stale_at, Some("2026-10-05T01:30:00Z".parse().unwrap()));
 
