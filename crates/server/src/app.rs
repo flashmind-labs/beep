@@ -995,16 +995,13 @@ impl App {
                     reply,
                 },
             };
-            // Written alongside learning, when the model offered no replies itself.
-            let follow_up = self
-                .decision()
-                .filter(|_| !followups::offered(&conversation, turn_started))
-                .map(|decision| {
-                    (
-                        decision,
-                        followups::render(&exchange.earlier, &exchange.latest),
-                    )
-                });
+            // Written alongside learning.
+            let follow_up = self.decision().map(|decision| {
+                (
+                    decision,
+                    followups::render(&exchange.earlier, &exchange.latest),
+                )
+            });
             let follow_up = async {
                 let (decision, state) = follow_up?;
                 followups::write(decision, generator, state).await
