@@ -381,15 +381,13 @@ class ChatRepository(private val storage: LocalStorage) {
         check(!chat.busy) { "Wait for the reply to finish." }
         try {
             val sentAt = withContext(Dispatchers.IO) { serverTime(prompt, chat) }
-            if (sentAt != 0L) withContext(Dispatchers.IO) {
-                if (onward) api().deleteTurnsFrom(chatId, sentAt) else api().deleteTurn(chatId, sentAt)
-            }
+            if (sentAt != 0L) withContext(Dispatchers.IO) { api().deleteTurn(chatId, sentAt, onward) }
         } catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
         updateChat(chatId) { c ->
             val start = c.messages.indexOfFirst { it.id == prompt.id }
             if (start < 0) return@updateChat c
-            val next = c.messages.drop(start + 1).indexOfFirst { it.role in TURN_STARTS }
-            val end = if (onward || next < 0) c.messages.size else start + 1 + next
+            val end = if (onward) c.messages.size
+                else c.messages.drop(start + 1).indexOfFirst { it.role in TURN_STARTS }.let { if (it < 0) c.messages.size else start + 1 + it }
             c.copy(messages = c.messages.take(start) + c.messages.drop(end))
         }
     }

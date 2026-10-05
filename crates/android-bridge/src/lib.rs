@@ -311,26 +311,27 @@ impl BeepClient {
     }
 
     /// Removes the turn whose user message has `timestamp`, with its reply
-    /// and tool calls. Fails while the chat has a run.
-    pub async fn delete_turn(&self, session_id: String, timestamp: i64) -> Result<(), BeepError> {
-        self.call(DeleteTurn {
-            session_id,
-            timestamp,
-        })
-        .await
-    }
-
-    /// Removes that turn and every turn after it. Fails while the chat has a run.
-    pub async fn delete_turns_from(
+    /// and tool calls, and with `onward` every turn after it. Fails while
+    /// the chat has a run.
+    pub async fn delete_turn(
         &self,
         session_id: String,
         timestamp: i64,
+        onward: bool,
     ) -> Result<(), BeepError> {
-        self.call(DeleteTurnsFrom {
-            session_id,
-            timestamp,
-        })
-        .await
+        if onward {
+            self.call(DeleteTurnsFrom {
+                session_id,
+                timestamp,
+            })
+            .await
+        } else {
+            self.call(DeleteTurn {
+                session_id,
+                timestamp,
+            })
+            .await
+        }
     }
 
     pub async fn get_session(&self, id: String) -> Result<Vec<HistoryEntry>, BeepError> {
