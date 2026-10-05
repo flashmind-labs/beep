@@ -15,6 +15,7 @@ use crate::{
     search::SearchTool,
     starters::{Generator, LocalTime, MemoryNote, StarterContext},
     store::{CreateRun, FinishedTurn, Location, RunStatus, SessionRef, Store},
+    timing::{Output, TurnTimer},
     titles, tools,
     user::{Shared, User},
 };
@@ -543,6 +544,7 @@ impl App {
     ) -> Result<()> {
         let cancel = &live.cancel;
         let is_cron = message.cron_id.is_some();
+        let mut timer = TurnTimer::start();
 
         // The model runs on the context, which may be compacted; the transcript
         // keeps every message for the phone and gets this turn's entries appended.
@@ -653,9 +655,11 @@ impl App {
             }
         }
 
+        let building = Instant::now();
         let context = self
             .build_context(user, message.foreground.as_ref(), &apps.unwrap_or_default())
             .await;
+        timer.context_built(building.elapsed());
 
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
@@ -711,6 +715,7 @@ impl App {
         let mut status = if parked.is_some() {
             RunStatus::Waiting
         } else {
+            timer.prepared();
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
 
@@ -746,6 +751,7 @@ impl App {
                             cancel.cancel();
                             break RunStatus::Looped;
                         }
+                        timer.output(Output::Text);
                         reply.push_str(&delta);
                         RunEvent::TextDelta { delta }
                     }
@@ -754,6 +760,7 @@ impl App {
                             cancel.cancel();
                             break RunStatus::Looped;
                         }
+                        timer.output(Output::Reasoning);
                         RunEvent::ReasoningDelta { delta }
                     }
                     Some(AgentEvent::ToolStart {
@@ -761,6 +768,7 @@ impl App {
                         id,
                         humanized,
                     }) => {
+                        timer.output(Output::Tool);
                         tools_running += 1;
                         RunEvent::ToolStarted {
                             name,
@@ -776,6 +784,9 @@ impl App {
                         ..
                     }) => {
                         tools_running = tools_running.saturating_sub(1);
+                        if tools_running == 0 {
+                            timer.tools_done();
+                        }
                         if success {
                             deadline.as_mut().reset(Instant::now() + PROGRESS_TIMEOUT);
                         } else {
@@ -789,6 +800,7 @@ impl App {
                         }
                     }
                     Some(AgentEvent::Usage(u)) => {
+                        timer.usage(&u);
                         prompt_tokens = u.prompt_tokens;
                         RunEvent::Usage {
                             usage: Usage {
@@ -839,6 +851,7 @@ impl App {
             }
         };
 
+        timer.streamed();
         if parked.is_some() && status == RunStatus::Completed {
             status = RunStatus::Waiting;
         }
@@ -986,6 +999,11 @@ impl App {
             prompt_tokens,
         };
         user.finish(run, Some(turn), status).await?;
+        log::info!(
+            "turn timing; run_id={} status={} {timer}",
+            run.id,
+            status.as_str()
+        );
         // Asked only once the turn is saved, so the answer finds the open call.
         if let Some(parked) = parked {
             self.park(user, run, live, parked);
