@@ -133,6 +133,15 @@ pub struct McpServerRow {
     pub credentials: Option<Value>,
 }
 
+/// Which turns `Store::delete_turn` removes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnsToDelete {
+    /// Only the turn at the given time.
+    One,
+    /// That turn and every turn after it.
+    Onward,
+}
+
 /// What `Store::delete_turn` did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeletedTurn {
@@ -688,12 +697,14 @@ impl Store {
     }
 
     /// Removes the turn that starts at the user message sent at `timestamp`,
-    /// in milliseconds since the epoch, from the transcript and the context.
+    /// in milliseconds since the epoch, from the transcript and the context,
+    /// and with `TurnsToDelete::Onward` every turn after it too.
     pub(crate) async fn delete_turn(
         &self,
         user: &UserKey,
         session_id: &str,
         timestamp: i64,
+        which: TurnsToDelete,
     ) -> Result<DeletedTurn> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
@@ -717,7 +728,7 @@ impl Store {
             return Ok(DeletedTurn::Busy);
         }
         let mut transcript: Conversation = serde_json::from_str(row.try_get("conversation")?)?;
-        let Some(turn) = remove_turn(&mut transcript, timestamp) else {
+        let Some(turn) = remove_turn(&mut transcript, timestamp, which) else {
             return Ok(DeletedTurn::NotFound);
         };
         // A context that was never compacted is the transcript itself.
@@ -743,9 +754,13 @@ impl Store {
         .bind(session_id)
         .execute(&mut *tx)
         .await?;
+        let at = match which {
+            TurnsToDelete::One => "=",
+            TurnsToDelete::Onward => ">=",
+        };
         for table in ["memory_scores", "turn_models"] {
             sqlx::query(&format!(
-                "DELETE FROM {table} WHERE user_id=$1 AND session_id=$2 AND turn_at=$3"
+                "DELETE FROM {table} WHERE user_id=$1 AND session_id=$2 AND turn_at{at}$3"
             ))
             .bind(user.as_str())
             .bind(session_id)
@@ -1640,8 +1655,13 @@ impl TurnSpan {
 
 /// Removes the user message sent at `timestamp` and every entry up to the
 /// next turn: the reply, its tool calls and their results, and the context
-/// entries placed just before the message.
-fn remove_turn(conversation: &mut Conversation, timestamp: i64) -> Option<TurnSpan> {
+/// entries placed just before the message. With `TurnsToDelete::Onward` it
+/// removes everything from there to the end.
+fn remove_turn(
+    conversation: &mut Conversation,
+    timestamp: i64,
+    which: TurnsToDelete,
+) -> Option<TurnSpan> {
     let is_user = |kind: &EntryKind| matches!(kind, EntryKind::User { .. });
     // Each turn opens with developer context (time, place, apps). A
     // compaction summary is not part of any turn and stays.
@@ -1658,10 +1678,13 @@ fn remove_turn(conversation: &mut Conversation, timestamp: i64) -> Option<TurnSp
             .count()
     };
     let start = asked - context_before(asked);
-    let next = entries[asked + 1..]
-        .iter()
-        .position(|e| is_user(&e.kind))
-        .map(|i| asked + 1 + i);
+    let next = match which {
+        TurnsToDelete::One => entries[asked + 1..]
+            .iter()
+            .position(|e| is_user(&e.kind))
+            .map(|i| asked + 1 + i),
+        TurnsToDelete::Onward => None,
+    };
     let end = next.map_or(entries.len(), |next| {
         next - context_before(next).min(next - asked - 1)
     });
@@ -1700,7 +1723,7 @@ mod tests {
         turn(&mut chat, 2000, "two");
         turn(&mut chat, 3000, "three");
 
-        let span = remove_turn(&mut chat, 2001).unwrap();
+        let span = remove_turn(&mut chat, 2001, TurnsToDelete::One).unwrap();
         assert_eq!((span.start, span.end), (2000, Some(3000)));
         let times: Vec<_> = chat
             .entries()
@@ -1712,10 +1735,22 @@ mod tests {
             [1000, 1001, 1002, 1003, 1004, 3000, 3001, 3002, 3003, 3004]
         );
 
-        let span = remove_turn(&mut chat, 3001).unwrap();
+        let span = remove_turn(&mut chat, 3001, TurnsToDelete::One).unwrap();
         assert_eq!((span.start, span.end), (3000, None));
         assert_eq!(chat.entries().len(), 5);
-        assert!(remove_turn(&mut chat, 1002).is_none());
+        assert!(remove_turn(&mut chat, 1002, TurnsToDelete::One).is_none());
+    }
+
+    #[test]
+    fn remove_turn_onward_takes_every_later_turn() {
+        let mut chat = Conversation::new();
+        turn(&mut chat, 1000, "one");
+        turn(&mut chat, 2000, "two");
+        turn(&mut chat, 3000, "three");
+
+        let span = remove_turn(&mut chat, 1001, TurnsToDelete::Onward).unwrap();
+        assert_eq!((span.start, span.end), (1000, None));
+        assert!(chat.entries().is_empty());
     }
 
     #[test]

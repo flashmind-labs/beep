@@ -9,7 +9,7 @@ use crate::{
     permissions,
     protocol::*,
     router::{Cx, Router, Sink},
-    store::{CreateRun, DeletedTurn, Feed, Location, decode_schedule},
+    store::{CreateRun, DeletedTurn, Feed, Location, TurnsToDelete, decode_schedule},
 };
 use chrono::{DateTime, Utc};
 use flashmind::{
@@ -69,6 +69,7 @@ pub fn router() -> Router {
         .call(set_thinking)
         .call(existing_sessions)
         .call(delete_turn)
+        .call(delete_turns_from)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -526,7 +527,29 @@ async fn delete_turn(
         timestamp,
     }: DeleteTurn,
 ) -> Reply<()> {
-    match cx.user.delete_turn(&session_id, timestamp).await? {
+    deleted_turn(
+        cx.user
+            .delete_turn(&session_id, timestamp, TurnsToDelete::One)
+            .await?,
+    )
+}
+
+async fn delete_turns_from(
+    cx: Cx,
+    DeleteTurnsFrom {
+        session_id,
+        timestamp,
+    }: DeleteTurnsFrom,
+) -> Reply<()> {
+    deleted_turn(
+        cx.user
+            .delete_turn(&session_id, timestamp, TurnsToDelete::Onward)
+            .await?,
+    )
+}
+
+fn deleted_turn(deleted: DeletedTurn) -> Reply<()> {
+    match deleted {
         DeletedTurn::Deleted => Ok(()),
         DeletedTurn::NotFound => Err(ApiError::NotFound {}),
         DeletedTurn::Busy => Err(ApiError::Conflict {

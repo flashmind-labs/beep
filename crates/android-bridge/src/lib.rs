@@ -8,13 +8,13 @@
 use beep_proto::{
     AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
     Chat, ClearMemories, ConnectApp, ConnectLink, CreateCron, Cron, DeleteCron, DeleteMemory,
-    DeleteSession, DeleteSessions, DeleteTurn, DeviceAnswer, DeviceResult, DisconnectApp, Event,
-    ExistingSessions, FinishAppAuth, ForegroundApp, GetAppPermissions, GetEvents, GetModels,
-    GetRun, GetSession, Health, HistoryEntry, ListApps, ListCrons, ListMemories, ListSessions,
-    Memory, Models, Notice, PermissionLevel, PinSession, PromptSuggestions, ReasoningLevel,
-    RegisterDevice, RenameSession, Run, RunCron, Session, SetAppPermissions, SetModel, SetThinking,
-    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation,
-    UpdateMemory,
+    DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult,
+    DisconnectApp, Event, ExistingSessions, FinishAppAuth, ForegroundApp, GetAppPermissions,
+    GetEvents, GetModels, GetRun, GetSession, Health, HistoryEntry, ListApps, ListCrons,
+    ListMemories, ListSessions, Memory, Models, Notice, PermissionLevel, PinSession,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RenameSession, Run, RunCron, Session,
+    SetAppPermissions, SetModel, SetThinking, StartAppAuth, Stream, SuggestPrompts, ToggleCron,
+    UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
 };
@@ -314,6 +314,19 @@ impl BeepClient {
     /// and tool calls. Fails while the chat has a run.
     pub async fn delete_turn(&self, session_id: String, timestamp: i64) -> Result<(), BeepError> {
         self.call(DeleteTurn {
+            session_id,
+            timestamp,
+        })
+        .await
+    }
+
+    /// Removes that turn and every turn after it. Fails while the chat has a run.
+    pub async fn delete_turns_from(
+        &self,
+        session_id: String,
+        timestamp: i64,
+    ) -> Result<(), BeepError> {
+        self.call(DeleteTurnsFrom {
             session_id,
             timestamp,
         })

@@ -32,7 +32,7 @@ use crate::{
     store::{
         AppPermissionRow, AttentionItem, CreateRun, DeletedTurn, Fact, Feed, FinishedTurn,
         Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin, RunStatus, Store,
-        StoredContext,
+        StoredContext, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -252,11 +252,17 @@ impl User {
     }
 
     /// Removes one turn of a session, starting at the user message sent at
-    /// `timestamp` in milliseconds since the epoch.
-    pub async fn delete_turn(&self, session_id: &str, timestamp: i64) -> Result<DeletedTurn> {
+    /// `timestamp` in milliseconds since the epoch, or that turn and the
+    /// ones after it.
+    pub async fn delete_turn(
+        &self,
+        session_id: &str,
+        timestamp: i64,
+        which: TurnsToDelete,
+    ) -> Result<DeletedTurn> {
         let deleted = self
             .store
-            .delete_turn(&self.key, session_id, timestamp)
+            .delete_turn(&self.key, session_id, timestamp, which)
             .await?;
         if deleted == DeletedTurn::Deleted {
             self.changed(session_id);
