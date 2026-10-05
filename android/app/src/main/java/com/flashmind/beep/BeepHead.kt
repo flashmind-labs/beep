@@ -145,11 +145,15 @@ fun BeepHead(face: BeepFace, look: State<Offset>, modifier: Modifier = Modifier,
     }) {
         Canvas(Modifier.fillMaxSize()) {
             val scale = size.minDimension / spot.span
+            // The vector painter rasterizes at the size it is given, so the body is drawn at its
+            // real pixel size rather than at 108 and scaled up, which blurs it.
+            translate((spot.span / 2 - spot.center.x) * scale, (spot.span / 2 - spot.center.y) * scale) {
+                with(body) { draw(Size(108f * scale, 108f * scale)) }
+            }
             withTransform({
                 scale(scale, scale, pivot = Offset.Zero)
                 translate(spot.span / 2 - spot.center.x, spot.span / 2 - spot.center.y)
             }) {
-                with(body) { draw(Size(108f, 108f)) }
                 val u = spot.unit
                 val shift = Offset((target.lookX + glanceX.value + look.value.x * 2.5f) * u, (target.lookY + glanceY.value + look.value.y * 2f) * u)
                 eye(spot.leftEye + shift, open * leftLid.value, happyEyes, u)

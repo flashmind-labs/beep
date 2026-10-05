@@ -20,10 +20,31 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
 import android.view.animation.DecelerateInterpolator
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.shadow
@@ -61,6 +82,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
+import kotlin.math.abs
 import kotlin.math.hypot
 
 /** The two floating chats: Beep's own overlay with a live face, or Android's built-in bubble. */
@@ -98,6 +120,12 @@ object Bubble {
     private var panel: WeakReference<Activity>? = null
     /** Where the bubble sat before it moved aside for the open panel. */
     private var rest: Point? = null
+    /** The start of a finished reply, shown beside the bubble. */
+    private val note = mutableStateOf<Callout?>(null)
+    private val noteLeaving = mutableStateOf(false)
+    private var calloutView: ComposeView? = null
+    private var calloutParams: LayoutParams? = null
+    private val calloutExpired = Runnable { dismissCallout() }
 
     fun allowed(context: Context) = Settings.canDrawOverlays(context)
     fun settings(context: Context) {
@@ -185,6 +213,7 @@ object Bubble {
         prefs(app).edit().putBoolean("shown", false).apply()
         panel?.get()?.finish()
         motion?.cancel()
+        removeCallout()
         val windows = app.getSystemService(WindowManager::class.java)
         bubbleView?.let { windows.removeView(it) }
         target?.let { windows.removeView(it) }
@@ -197,6 +226,7 @@ object Bubble {
     /** Called by the full app as it comes and goes: the bubble steps aside while the app is on screen. */
     fun appShown(shown: Boolean) {
         appInFront = shown
+        if (shown) removeCallout()
         bubbleView?.visibility = if (shown) View.GONE else View.VISIBLE
     }
 
@@ -208,12 +238,13 @@ object Bubble {
         view.context.getSystemService(WindowManager::class.java).updateViewLayout(view, p)
     }
 
-    /** The panel's top edge, just under the bubble once it has moved to the corner. */
-    fun panelTop(context: Context) = screen(context).top + 2 * px(context, MARGIN_DP) + px(context, SIZE_DP)
+    /** The panel's top edge, right under the bubble once it has moved to the corner; the disc's own padding is the gap. */
+    fun panelTop(context: Context) = screen(context).top + px(context, MARGIN_DP) + px(context, SIZE_DP)
 
     /** Called by the panel when it opens: the bubble moves to the top corner, out of its way. */
     fun panelShown(activity: Activity) {
         panel = WeakReference(activity)
+        removeCallout()
         val p = params ?: return
         if (rest == null) rest = Point(p.x, p.y)
         val bounds = screen(activity)
@@ -242,7 +273,142 @@ object Bubble {
             target?.let { context.getSystemService(WindowManager::class.java).updateViewLayout(it, t) }
         }
         rest = null
+        removeCallout()
         snapToEdge(context, p.x + p.width / 2 < bounds.centerX())
+    }
+
+    /**
+     * Shows the start of [chat]'s reply beside the bubble, for a run that ended while
+     * neither the app nor the panel was in front. The system bubble has no such thing.
+     */
+    fun callout(context: Context, chat: Conversation) {
+        val bubble = bubbleView ?: return
+        val next = Callout.of(chat) ?: return
+        // Runs end on the repository's thread; windows belong to the main one.
+        bubble.post {
+            if (appInFront || panel?.get() != null || leaving.value || bubbleView == null) return@post
+            showCallout(context.applicationContext, next)
+        }
+    }
+
+    private fun showCallout(context: Context, next: Callout) {
+        val bubble = bubbleView ?: return
+        val p = params ?: return
+        val windows = context.getSystemService(WindowManager::class.java)
+        val bounds = screen(context)
+        removeCallout()
+        note.value = next
+        noteLeaving.value = false
+        // Beside the bubble on the open side. END gravity measures x from the right edge, so neither side needs the callout's width.
+        val left = p.x + p.width / 2 < bounds.centerX()
+        val gap = px(context, 4)
+        val calloutParams = overlay(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, touchable = true).apply {
+            gravity = Gravity.TOP or if (left) Gravity.START else Gravity.END
+            x = if (left) p.x + p.width + gap else windows.currentWindowMetrics.bounds.width() - p.x + gap
+            y = (p.y - px(context, 2)).coerceIn(bounds.top, bounds.bottom - px(context, CALLOUT_HEIGHT_DP))
+        }
+        val maxWidth = (bounds.width() - p.width - 2 * gap) * 0.78f / context.resources.displayMetrics.density
+        val view = ComposeView(context).apply {
+            owner?.attach(this)
+            setContent { BeepTheme { CalloutCard(left, maxWidth.dp) } }
+            contentDescription = "Open the reply in ${next.title}"
+            setOnTouchListener(Flick(context, left))
+        }
+        windows.addView(view, calloutParams)
+        calloutView = view; this.calloutParams = calloutParams
+        bubble.removeCallbacks(calloutExpired)
+        bubble.postDelayed(calloutExpired, CALLOUT_MS)
+    }
+
+    /** Fades the callout out, then takes its window away. */
+    private fun dismissCallout() {
+        val view = calloutView ?: return
+        bubbleView?.removeCallbacks(calloutExpired)
+        noteLeaving.value = true
+        view.postDelayed({ if (calloutView === view) removeCallout() }, CALLOUT_LEAVE_MS)
+    }
+
+    private fun removeCallout() {
+        bubbleView?.removeCallbacks(calloutExpired)
+        val view = calloutView ?: return
+        view.context.getSystemService(WindowManager::class.java).removeView(view)
+        calloutView = null; calloutParams = null; note.value = null
+    }
+
+    private fun openCallout(context: Context) {
+        val chat = note.value?.conversationId ?: return
+        removeCallout()
+        context.startActivity(Intent(context, PanelActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("conversation_id", chat))
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun CalloutCard(left: Boolean, maxWidth: Dp) {
+        val shown = note.value ?: return
+        val t = LocalBeep.current
+        val life = remember(shown) { Animatable(1f) }
+        LaunchedEffect(shown) { life.animateTo(0f, tween(CALLOUT_MS.toInt(), easing = LinearEasing)) }
+        val gone by animateFloatAsState(if (noteLeaving.value) 0f else 1f, tween(CALLOUT_LEAVE_MS.toInt()), label = "gone")
+        // Room around the card for its ledge, which the window would otherwise cut off.
+        BeepCard(Modifier.padding(start = 2.dp, top = 2.dp, end = 6.dp, bottom = 6.dp).widthIn(max = maxWidth)
+            .popIn(shown, origin = TransformOrigin(if (left) 0f else 1f, 0.3f))
+            .graphicsLayer { alpha = gone; scaleX = 0.9f + 0.1f * gone; scaleY = 0.9f + 0.1f * gone }) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).background(if (shown.failed) t.colors.error else t.colors.ok, CircleShape))
+                    Spacer(Modifier.width(6.dp))
+                    Text(shown.title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = t.colors.muted,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.height(3.dp))
+                Text(shown.text, fontSize = 13.sp, lineHeight = 18.sp, color = t.colors.ink, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.fillMaxWidth().height(2.dp).clip(CircleShape).background(t.colors.softLine)) {
+                    Box(Modifier.fillMaxWidth(life.value).fillMaxHeight().background(t.colors.brand))
+                }
+            }
+        }
+    }
+
+    /** Tap the callout to open its chat; swipe it toward the screen edge to put it away. */
+    private class Flick(private val context: Context, private val left: Boolean) : View.OnTouchListener {
+        private val slop = ViewConfiguration.get(context).scaledTouchSlop
+        private val windows = context.getSystemService(WindowManager::class.java)
+        private var downX = 0f
+        private var startX = 0
+        private var dragging = false
+
+        override fun onTouch(view: View, event: MotionEvent): Boolean {
+            val p = calloutParams ?: return false
+            // Toward the edge is left for a callout on the left, and x grows toward the edge with either gravity.
+            val toEdge = if (left) downX - event.rawX else event.rawX - downX
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX; startX = p.x; dragging = false
+                    bubbleView?.removeCallbacks(calloutExpired)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!dragging && abs(event.rawX - downX) > slop) dragging = true
+                    if (!dragging) return true
+                    // Moves freely toward the edge and only a little the other way.
+                    p.x = startX - (if (toEdge > 0) toEdge else toEdge / 4).toInt()
+                    view.alpha = if (toEdge > 0) (1 - toEdge / px(context, 160)).coerceIn(0.2f, 1f) else 1f
+                    windows.updateViewLayout(view, p)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    when {
+                        !dragging && event.actionMasked == MotionEvent.ACTION_UP -> { view.performClick(); openCallout(context) }
+                        dragging && toEdge > px(context, 50) -> dismissCallout()
+                        else -> {
+                            p.x = startX; view.alpha = 1f
+                            if (view.isAttachedToWindow) windows.updateViewLayout(view, p)
+                            bubbleView?.postDelayed(calloutExpired, CALLOUT_MS)
+                        }
+                    }
+                }
+            }
+            return true
+        }
     }
 
     private fun snapToEdge(context: Context, left: Boolean) {
@@ -296,6 +462,7 @@ object Bubble {
                         // A drag puts the bubble down wherever it is dropped, so it does not go back after the panel.
                         rest = null
                         panel?.get()?.finish()
+                        removeCallout()
                         targetShown.value = true
                         view.performHapticFeedback(HapticFeedbackConstants.GESTURE_START)
                     }
@@ -395,6 +562,36 @@ private class OverlayOwner : SavedStateRegistryOwner, ViewModelStoreOwner {
     }
     fun resume() { registry.currentState = Lifecycle.State.RESUMED }
     fun destroy() { registry.currentState = Lifecycle.State.DESTROYED; viewModelStore.clear() }
+}
+
+private const val CALLOUT_MS = 6000L
+private const val CALLOUT_LEAVE_MS = 200L
+private const val CALLOUT_CHARS = 120
+/** About the callout's tallest, to keep it above the bottom of the screen. */
+private const val CALLOUT_HEIGHT_DP = 110
+
+/** What the callout beside the bubble says about a finished run. */
+private data class Callout(val conversationId: String, val title: String, val text: String, val failed: Boolean) {
+    companion object {
+        /** Null for a run the user stopped, one waiting on an approval card, or one with nothing to say. */
+        fun of(chat: Conversation): Callout? {
+            if (chat.error == "Stopped") return null
+            val reply = chat.messages.lastOrNull { it.role == "assistant" }
+            if (reply?.approvals?.any { it.waiting } == true) return null
+            val failed = chat.error.isNotEmpty()
+            val text = if (failed) chat.error else preview(reply?.text.orEmpty())
+            if (text.isBlank()) return null
+            return Callout(chat.id, chat.title, text, failed)
+        }
+
+        /** The reply's first sentences as plain text, cut at a word. */
+        private fun preview(text: String): String {
+            val plain = text.replace(Regex("[*_`#>]+"), "").replace(Regex("\\s+"), " ").trim()
+            if (plain.length <= CALLOUT_CHARS) return plain
+            val cut = plain.lastIndexOf(' ', CALLOUT_CHARS).takeIf { it > CALLOUT_CHARS / 2 } ?: CALLOUT_CHARS
+            return plain.take(cut).trimEnd(',', ';', ':', ' ') + "…"
+        }
+    }
 }
 
 private const val REACTION_MS = 4000L

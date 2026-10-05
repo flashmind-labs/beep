@@ -71,6 +71,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.charset.Charset
 import java.net.URLEncoder
 import kotlin.math.PI
 import kotlin.math.cos
@@ -481,6 +482,8 @@ private object LinkInfos {
     private val found = LruCache<String, LinkInfo>(64)
     private val meta = Regex("""<meta[^>]+(?:property|name)=["'](og:title|og:description|description)["'][^>]*content=["']([^"']*)["']""", RegexOption.IGNORE_CASE)
     private val titleTag = Regex("<title[^>]*>([^<]*)</title>", RegexOption.IGNORE_CASE)
+    private val charsetParam = Regex("""charset=["']?([\w.:-]+)""", RegexOption.IGNORE_CASE)
+    private val numericEntity = Regex("&#(x?)([0-9a-f]+);", RegexOption.IGNORE_CASE)
 
     suspend fun of(url: String): LinkInfo? = found.get(url) ?: withContext(Dispatchers.IO) {
         runCatching {
@@ -490,8 +493,9 @@ private object LinkInfos {
             connection.instanceFollowRedirects = true
             connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) Beep")
             val head = try {
-                if (connection.contentType?.contains("html") != true) return@runCatching null
-                connection.inputStream.use { stream -> String(stream.readNBytes(64 * 1024)) }
+                val type = connection.contentType
+                if (type?.contains("html") != true) return@runCatching null
+                decode(connection.inputStream.use { it.readNBytes(64 * 1024) }, type)
             } finally { connection.disconnect() }
             val tags = meta.findAll(head).associate { it.groupValues[1].lowercase() to unescape(it.groupValues[2]) }
             val title = tags["og:title"] ?: titleTag.find(head)?.groupValues?.get(1)?.let(::unescape)?.trim().orEmpty()
@@ -499,7 +503,18 @@ private object LinkInfos {
         }.getOrNull()?.also { found.put(url, it) }
     }
 
-    private fun unescape(s: String) = s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")
+    /** In the charset the header names, else the one the page declares, else UTF-8. Plenty of news sites still send Latin-1. */
+    private fun decode(bytes: ByteArray, contentType: String): String {
+        val declared = charsetParam.find(contentType)?.groupValues?.get(1)
+            ?: charsetParam.find(String(bytes, 0, minOf(bytes.size, 2048), Charsets.ISO_8859_1))?.groupValues?.get(1)
+        val charset = declared?.let { runCatching { Charset.forName(it) }.getOrNull() } ?: Charsets.UTF_8
+        return String(bytes, charset)
+    }
+
+    private fun unescape(s: String) = numericEntity.replace(s) { m ->
+        m.groupValues[2].toIntOrNull(if (m.groupValues[1].isEmpty()) 10 else 16)
+            ?.takeIf { Character.isValidCodePoint(it) }?.let { String(Character.toChars(it)) } ?: m.value
+    }.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")
         .replace("&lt;", "<").replace("&gt;", ">").replace("&#x27;", "'")
 }
 
