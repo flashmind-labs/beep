@@ -32,7 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.RadioButton
@@ -92,7 +91,7 @@ import java.net.URL
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppsScreen(repository: ChatRepository, onBack: () -> Unit, onCustom: () -> Unit) {
+fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var apps by remember { mutableStateOf<List<AppIntegration>>(emptyList()) }
@@ -183,13 +182,6 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit, onCustom: () -> U
                 item { SectionLabel(if (connected.isEmpty()) "Available" else "More apps") }
                 items(available, key = { "a-" + it.slug }) { app ->
                     AppRow(app, busy == app.slug, onConnect = { connect(app) }, onOpen = { open = app })
-                }
-            }
-            item {
-                TextButton(onClick = onCustom, modifier = Modifier.padding(top = 4.dp)) {
-                    Icon(Icons.Outlined.Tune, null, Modifier.size(16.dp), tint = t.muted)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Custom connections", color = t.muted, fontSize = 13.sp)
                 }
             }
         }

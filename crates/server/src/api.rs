@@ -56,10 +56,6 @@ pub fn router() -> Router {
         .call(update_location)
         .call(save_notifications)
         .stream(stream_notifications)
-        .call(list_integrations)
-        .call(create_integration)
-        .call(delete_integration)
-        .call(update_credentials)
         .call(list_apps)
         .call(connect_app)
         .call(disconnect_app)
@@ -589,29 +585,6 @@ async fn stream_notifications(cx: Cx, _: StreamNotifications, sink: Sink<Notice>
             }
         }
     }
-}
-
-async fn list_integrations(cx: Cx, _: ListIntegrations) -> Reply<Vec<Integration>> {
-    Ok(cx.user.list_mcp_connections().await?)
-}
-
-async fn create_integration(cx: Cx, req: CreateIntegration) -> Reply<String> {
-    cx.user
-        .create_mcp_connection(&req.provider, &req.label, &req.config)
-        .await
-        .map_err(|e| ApiError::bad_request(e.to_string()))
-}
-
-async fn delete_integration(cx: Cx, DeleteIntegration { id }: DeleteIntegration) -> Reply<()> {
-    found(cx.user.delete_mcp_connection(&id).await?)
-}
-
-async fn update_credentials(cx: Cx, req: UpdateCredentials) -> Reply<()> {
-    let updated = cx
-        .user
-        .update_mcp_credentials(&req.id, &req.credentials, &req.status)
-        .await?;
-    found(updated)
 }
 
 /// The run, if it belongs to the caller.

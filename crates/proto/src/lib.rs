@@ -168,11 +168,6 @@ requests! {
     /// Returns how many notifications were stored.
     22 SaveNotifications { notifications: Vec<PhoneNotification> } => Call<u64>
     23 StreamNotifications {} => Stream<Notice>
-    24 ListIntegrations {} => Call<Vec<Integration>>
-    /// Returns the new integration's id.
-    25 CreateIntegration { provider: String, label: String, config: String } => Call<String>
-    26 DeleteIntegration { id: String } => Call<()>
-    27 UpdateCredentials { id: String, credentials: String, status: String } => Call<()>
     /// The curated apps the assistant can use, with this user's connection state.
     28 ListApps {} => Call<Vec<AppIntegration>>
     /// Starts OAuth for an app; open the returned URL in a browser.
@@ -610,19 +605,7 @@ pub struct Cron {
     pub created_at: String,
     pub run_once: bool,
     pub last_run_at: Option<String>,
-    pub last_status: Option<String>,
-    pub last_error: Option<String>,
     pub next_run_at: Option<String>,
-}
-
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Integration {
-    pub id: String,
-    pub provider: String,
-    pub label: String,
-    pub status: String,
-    pub created_at: String,
 }
 
 /// A notification captured on the phone and uploaded for the assistant.

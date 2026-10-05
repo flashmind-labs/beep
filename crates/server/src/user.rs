@@ -25,8 +25,8 @@ use crate::{
     },
     permissions::Rules,
     protocol::{
-        ApiError, AppIntegration, AppKind, ConnectLink, Cron, Integration, Memory, MemorySource,
-        Notice, PhoneNotification, PromptSuggestions, Run, Session,
+        ApiError, AppIntegration, AppKind, ConnectLink, Cron, Memory, MemorySource, Notice,
+        PhoneNotification, PromptSuggestions, Run, Session,
     },
     starters::{Cached, FALLBACK_FRESH, FRESH, Generator, StarterContext, TIMEOUT, fallback},
     store::{
@@ -353,19 +353,6 @@ impl User {
             .await
     }
 
-    /// Schedules a job, once when `run_once`, and returns its id.
-    pub async fn create_cron_ex(
-        &self,
-        label: &str,
-        schedule: &str,
-        prompt: &str,
-        run_once: bool,
-    ) -> Result<String> {
-        self.store
-            .create_cron_ex(&self.key, label, schedule, prompt, run_once)
-            .await
-    }
-
     /// Changes a job; `false` when the user has no such job.
     pub async fn update_cron(
         &self,
@@ -406,58 +393,9 @@ impl User {
         self.store.unregister_device(&self.key, device_id).await
     }
 
-    /// Records that a job started `run_id`.
-    pub async fn log_cron_start(&self, cron_id: &str, run_id: &str) -> Result<()> {
-        self.store.log_cron_start(&self.key, cron_id, run_id).await
-    }
-
-    /// When a job last started, if it ever did.
-    pub async fn cron_last_run(&self, cron_id: &str) -> Result<Option<String>> {
-        self.store.cron_last_run(&self.key, cron_id).await
-    }
-
     /// Push tokens of the user's phones.
     pub async fn device_tokens(&self) -> Result<Vec<String>> {
         self.store.device_tokens(&self.key).await
-    }
-
-    /// The user's MCP connections as integrations.
-    pub async fn list_mcp_connections(&self) -> Result<Vec<Integration>> {
-        self.store.list_mcp_connections(&self.key).await
-    }
-
-    /// One MCP connection's config, if it is the user's.
-    pub async fn get_mcp_connection(&self, id: &str) -> Result<Option<Value>> {
-        self.store.get_mcp_connection(&self.key, id).await
-    }
-
-    /// Saves a new MCP connection and returns its id.
-    pub async fn create_mcp_connection(
-        &self,
-        provider: &str,
-        label: &str,
-        config: &str,
-    ) -> Result<String> {
-        self.store
-            .create_mcp_connection(&self.key, provider, label, config)
-            .await
-    }
-
-    /// Replaces an MCP connection's credentials and status; `false` when the user has no such connection.
-    pub async fn update_mcp_credentials(
-        &self,
-        id: &str,
-        credentials: &str,
-        status: &str,
-    ) -> Result<bool> {
-        self.store
-            .update_mcp_credentials(&self.key, id, credentials, status)
-            .await
-    }
-
-    /// Deletes an MCP connection; `false` when the user has no such connection.
-    pub async fn delete_mcp_connection(&self, id: &str) -> Result<bool> {
-        self.store.delete_mcp_connection(&self.key, id).await
     }
 
     /// The user's server-managed MCP servers.
@@ -594,18 +532,6 @@ impl User {
     /// Stops tracking a habit; `false` when the user has no such habit.
     pub async fn archive_habit(&self, habit_name: &str) -> Result<bool> {
         self.store.archive_habit(&self.key, habit_name).await
-    }
-
-    /// Create default cron jobs for a user if they have none yet.
-    pub async fn ensure_default_crons(&self) -> Result<()> {
-        self.store.ensure_default_crons(&self.key).await
-    }
-
-    /// Count notifications for a user received in the last `minutes` minutes.
-    pub async fn notification_count_since(&self, minutes: i64) -> Result<i64> {
-        self.store
-            .notification_count_since(&self.key, minutes)
-            .await
     }
 
     /// Whether the memories changed since they were last curated, at most
