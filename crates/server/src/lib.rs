@@ -17,6 +17,7 @@ pub mod sandbox;
 pub mod search;
 pub mod starters;
 pub mod store;
+pub mod timing;
 pub mod titles;
 pub mod tools;
 pub mod transport;
