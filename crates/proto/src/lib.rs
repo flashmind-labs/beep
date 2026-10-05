@@ -209,6 +209,10 @@ requests! {
     /// The ones of `ids` the server still has, so a phone can drop the
     /// chats another phone deleted.
     43 ExistingSessions { ids: Vec<String> } => Call<Vec<String>>
+    /// Removes the turn whose user message has `timestamp`, as `HistoryEntry`
+    /// gives it, with the reply and tool calls that followed it, from both
+    /// the history and what the model sees. Fails while the chat has a run.
+    44 DeleteTurn { session_id: String, timestamp: i64 } => Call<()>
 }
 
 wire_enum! {

@@ -8,7 +8,7 @@
 use beep_proto::{
     AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
     Chat, ClearMemories, ConnectApp, ConnectLink, CreateCron, Cron, DeleteCron, DeleteMemory,
-    DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult, DisconnectApp, Event,
+    DeleteSession, DeleteSessions, DeleteTurn, DeviceAnswer, DeviceResult, DisconnectApp, Event,
     ExistingSessions, FinishAppAuth, ForegroundApp, GetAppPermissions, GetEvents, GetModels,
     GetRun, GetSession, Health, HistoryEntry, ListApps, ListCrons, ListMemories, ListSessions,
     Memory, Models, Notice, PermissionLevel, PhoneNotification, PinSession, PromptSuggestions,
@@ -307,6 +307,16 @@ impl BeepClient {
     /// The ones of `ids` the server still has.
     pub async fn existing_sessions(&self, ids: Vec<String>) -> Result<Vec<String>, BeepError> {
         self.call(ExistingSessions { ids }).await
+    }
+
+    /// Removes the turn whose user message has `timestamp`, with its reply
+    /// and tool calls. Fails while the chat has a run.
+    pub async fn delete_turn(&self, session_id: String, timestamp: i64) -> Result<(), BeepError> {
+        self.call(DeleteTurn {
+            session_id,
+            timestamp,
+        })
+        .await
     }
 
     pub async fn get_session(&self, id: String) -> Result<Vec<HistoryEntry>, BeepError> {

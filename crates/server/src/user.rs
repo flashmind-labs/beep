@@ -30,8 +30,9 @@ use crate::{
     },
     starters::{Cached, FALLBACK_FRESH, FRESH, Generator, StarterContext, TIMEOUT, fallback},
     store::{
-        AppPermissionRow, AttentionItem, CreateRun, Fact, Feed, FinishedTurn, Location,
-        MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin, RunStatus, Store, StoredContext,
+        AppPermissionRow, AttentionItem, CreateRun, DeletedTurn, Fact, Feed, FinishedTurn,
+        Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin, RunStatus, Store,
+        StoredContext,
     },
 };
 use anyhow::{Result, bail};
@@ -247,6 +248,19 @@ impl User {
     pub async fn delete_sessions(&self, ids: Vec<String>) -> Result<u64> {
         let deleted = self.store.delete_sessions(&self.key, ids).await?;
         self.changed("");
+        Ok(deleted)
+    }
+
+    /// Removes one turn of a session, starting at the user message sent at
+    /// `timestamp` in milliseconds since the epoch.
+    pub async fn delete_turn(&self, session_id: &str, timestamp: i64) -> Result<DeletedTurn> {
+        let deleted = self
+            .store
+            .delete_turn(&self.key, session_id, timestamp)
+            .await?;
+        if deleted == DeletedTurn::Deleted {
+            self.changed(session_id);
+        }
         Ok(deleted)
     }
 

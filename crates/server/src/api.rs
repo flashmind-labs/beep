@@ -9,7 +9,7 @@ use crate::{
     permissions,
     protocol::*,
     router::{Cx, Router, Sink},
-    store::{CreateRun, Feed, Location, decode_schedule},
+    store::{CreateRun, DeletedTurn, Feed, Location, decode_schedule},
 };
 use chrono::{DateTime, Utc};
 use flashmind::{
@@ -68,6 +68,7 @@ pub fn router() -> Router {
         .call(get_models)
         .call(set_model)
         .call(existing_sessions)
+        .call(delete_turn)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -485,6 +486,22 @@ async fn existing_sessions(
         return Err(ApiError::bad_request("at most 1000 sessions at once"));
     }
     Ok(cx.user.existing_sessions(ids).await?)
+}
+
+async fn delete_turn(
+    cx: Cx,
+    DeleteTurn {
+        session_id,
+        timestamp,
+    }: DeleteTurn,
+) -> Reply<()> {
+    match cx.user.delete_turn(&session_id, timestamp).await? {
+        DeletedTurn::Deleted => Ok(()),
+        DeletedTurn::NotFound => Err(ApiError::NotFound {}),
+        DeletedTurn::Busy => Err(ApiError::Conflict {
+            message: "the chat has a run in progress".into(),
+        }),
+    }
 }
 
 async fn pin_session(cx: Cx, PinSession { id, pinned }: PinSession) -> Reply<()> {

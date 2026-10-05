@@ -82,6 +82,8 @@ data class AlarmRequest(val hour: Int, val minute: Int, val label: String, val d
 
 /** How long a chat's turns stay on the phone after it was last opened. */
 private const val CACHE_FOR_MS = 72 * 60 * 60 * 1000L
+/** Roles of the messages that start a turn. */
+private val TURN_STARTS = setOf("user", "scheduled")
 
 class ChatRepository(private val storage: LocalStorage) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -195,8 +197,8 @@ class ChatRepository(private val storage: LocalStorage) {
         var pendingReasoning = ""
         val messages = api(config).getSession(id).mapIndexedNotNull { i, entry ->
             when (entry) {
-                is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "user", entry.content) }
-                is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label) }
+                is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp) }
+                is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
                         ToolCall(it.callId, it.name, toolLabel(it.name), isDone = true, success = it.success, result = it.output)
@@ -357,11 +359,31 @@ class ChatRepository(private val storage: LocalStorage) {
             status = "Sending…", error = "", cancelRequested = false) }
         launchRun(chat.id)
     }
-    /** Sends the prompt behind [reply] again as a new turn on another model. Admins only. */
-    fun rerun(reply: ChatMessage, model: String) {
-        val messages = state.value.current.messages
-        val prompt = messages.take(messages.indexOf(reply)).lastOrNull { it.role == "user" } ?: return
-        send(prompt.text, prompt.images, model = model)
+    /**
+     * Sends the prompt behind [reply] again on another model, as if the first try never
+     * happened: its turn leaves the chat and the model's context. Admins only.
+     */
+    suspend fun rerun(reply: ChatMessage, model: String) {
+        val chat = state.value.current
+        val prompt = chat.messages.take(chat.messages.indexOf(reply)).lastOrNull { it.role in TURN_STARTS } ?: return
+        if (prompt.role != "user") return
+        deleteTurn(prompt, chat.id)
+        send(prompt.text, prompt.images, chat.id, model)
+    }
+    /** Removes [prompt] with the reply and tool calls that followed it, here and on the server. */
+    suspend fun deleteTurn(prompt: ChatMessage, chatId: String = state.value.current.id) {
+        val chat = state.value.conversations.find { it.id == chatId } ?: return
+        check(!chat.busy) { "Wait for the reply to finish." }
+        if (prompt.sentAt != 0L) {
+            try { withContext(Dispatchers.IO) { api().deleteTurn(chatId, prompt.sentAt) } }
+            catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
+        }
+        updateChat(chatId) { c ->
+            val start = c.messages.indexOfFirst { it.id == prompt.id }
+            if (start < 0) return@updateChat c
+            val end = c.messages.drop(start + 1).indexOfFirst { it.role in TURN_STARTS }.let { if (it < 0) c.messages.size else start + 1 + it }
+            c.copy(messages = c.messages.take(start) + c.messages.drop(end))
+        }
     }
     fun retry() { launchRun(state.value.current.id) }
     /**
