@@ -2029,7 +2029,7 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBee
                     })
                 }
                 item(key = "hint") {
-                    Text("Swipe left to run now, right to delete", fontSize = 11.sp, color = TextDim, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    Text("Swipe right to run now, left to delete", fontSize = 11.sp, color = TextDim, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).animateItem())
                 }
             }
@@ -2037,26 +2037,26 @@ private fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBee
     }
 }
 
-/** A routine that runs when swiped left and is deleted when swiped right. */
+/** A routine that runs when swiped right and is deleted when swiped left. */
 @Composable
 private fun RoutineCard(cron: ChatRepository.Cron, modifier: Modifier, onRun: () -> Unit, onDelete: () -> Unit, onToggle: (Boolean) -> Unit) {
     val state = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
         when (value) {
             // Running is not a dismissal: start it and let the card spring back.
-            SwipeToDismissBoxValue.EndToStart -> { onRun(); false }
-            SwipeToDismissBoxValue.StartToEnd, SwipeToDismissBoxValue.Settled -> true
+            SwipeToDismissBoxValue.StartToEnd -> { onRun(); false }
+            SwipeToDismissBoxValue.EndToStart, SwipeToDismissBoxValue.Settled -> true
         }
     }, positionalThreshold = { it * 0.35f })
     // Wait for the slide-out to finish before the list closes the gap.
     LaunchedEffect(state.currentValue) {
-        if (state.currentValue == SwipeToDismissBoxValue.StartToEnd) onDelete()
+        if (state.currentValue == SwipeToDismissBoxValue.EndToStart) onDelete()
     }
     val armed = state.targetValue != SwipeToDismissBoxValue.Settled
     val haptics = LocalHapticFeedback.current
     LaunchedEffect(armed) { if (armed) haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
     val shape = RoundedCornerShape(Beep.shapes.radius)
     SwipeToDismissBox(state, modifier = modifier.clip(shape), backgroundContent = {
-        val toDelete = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+        val toDelete = state.dismissDirection == SwipeToDismissBoxValue.EndToStart
         val color by animateColorAsState(when {
             !armed -> Border
             toDelete -> MaterialTheme.colorScheme.error
@@ -2065,12 +2065,12 @@ private fun RoutineCard(cron: ChatRepository.Cron, modifier: Modifier, onRun: ()
         val scale by animateFloatAsState(if (armed) 1.3f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "swipe-icon")
         if (state.dismissDirection != SwipeToDismissBoxValue.Settled) {
             Box(Modifier.fillMaxSize().background(color).padding(horizontal = 22.dp),
-                contentAlignment = if (toDelete) Alignment.CenterStart else Alignment.CenterEnd) {
+                contentAlignment = if (toDelete) Alignment.CenterEnd else Alignment.CenterStart) {
                 val tint = Beep.colors.onAccent
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (toDelete) Icon(Icons.Outlined.Delete, null, Modifier.size(20.dp).scale(scale), tint = tint)
-                    Text(if (toDelete) "Delete" else "Run now", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = tint)
                     if (!toDelete) Icon(Icons.Outlined.PlayArrow, null, Modifier.size(20.dp).scale(scale), tint = tint)
+                    Text(if (toDelete) "Delete" else "Run now", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = tint)
+                    if (toDelete) Icon(Icons.Outlined.Delete, null, Modifier.size(20.dp).scale(scale), tint = tint)
                 }
             }
         }
