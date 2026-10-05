@@ -101,6 +101,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         request_id: req.request_id,
         message: req.message,
         cron_id: None,
+        scheduled: None,
         images: req.images,
         foreground: req.foreground,
         answer: None,
@@ -220,6 +221,8 @@ fn history(
 ) -> Vec<HistoryEntry> {
     let mut history = Vec::new();
     let mut turn = Turn::default();
+    // A routine's label, from the context saved just before its message.
+    let mut scheduled = None;
     for entry in entries {
         let timestamp = entry.timestamp.timestamp_millis();
         match &entry.kind {
@@ -227,7 +230,10 @@ fn history(
                 turn.finish(&mut history);
                 turn.score = scores.get(&timestamp).copied();
                 turn.model = models.get(&timestamp).cloned().unwrap_or_default();
-                history.push(match cron::scheduled_label(content) {
+                let label = scheduled
+                    .take()
+                    .or_else(|| cron::legacy_scheduled_label(content));
+                history.push(match label {
                     Some(label) => HistoryEntry::Scheduled {
                         label: label.to_owned(),
                         timestamp,
@@ -274,6 +280,9 @@ fn history(
                     output: cap(output, MAX_HISTORY_TOOL_OUTPUT),
                     success: !failures.contains(call_id),
                 });
+            }
+            EntryKind::Developer { content, .. } => {
+                scheduled = cron::scheduled_label(content);
             }
             _ => {}
         }
@@ -414,6 +423,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         request_id: Uuid::nil(),
         message: decision.as_str().to_owned(),
         cron_id: None,
+        scheduled: None,
         images: Vec::new(),
         foreground: None,
         answer: Some(Answer {
@@ -771,19 +781,27 @@ mod tests {
     }
 
     #[test]
-    fn history_marks_a_routine_prompt_as_scheduled() {
+    fn history_marks_a_routine_turn_as_scheduled() {
         let entries = [
-            ConversationEntry::user("[Scheduled: Plants] Remind me to water the plants"),
+            ConversationEntry::system_message(cron::scheduled_context("Plants")),
+            ConversationEntry::user("Remind the user to water the plants"),
             ConversationEntry::assistant("Time to water the plants."),
+            ConversationEntry::system_message("Time: Monday 2026-10-05 09:00 +04"),
+            ConversationEntry::user("Thanks"),
+            ConversationEntry::user("[Scheduled: Old] Remind me to stretch"),
         ];
         let history = history(&entries, &HashSet::new(), &HashMap::new(), &HashMap::new());
         let [
             HistoryEntry::Scheduled { label, .. },
             HistoryEntry::Assistant { .. },
+            HistoryEntry::User { content, .. },
+            HistoryEntry::Scheduled { label: old, .. },
         ] = history.as_slice()
         else {
             panic!("unexpected history: {history:?}");
         };
         assert_eq!(label, "Plants");
+        assert_eq!(content, "Thanks");
+        assert_eq!(old, "Old");
     }
 }

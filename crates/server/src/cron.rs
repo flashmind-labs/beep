@@ -59,19 +59,43 @@ impl CronStore for BeepCronStore {
     }
 }
 
-/// The user message a routine wakes the agent with. History reads it back
-/// with [`scheduled_label`] so clients can show it as a routine, not a prompt.
-fn scheduled_prompt(label: &str, task: &str) -> String {
+/// Starts the context line that marks a routine's turn.
+const SCHEDULED_TASK: &str = "Scheduled task";
+
+/// How the model answers a routine, sent only on routine turns.
+const SCHEDULED_RULE: &str = "The message is the note you wrote yourself when you set up \
+this task, not something the user said. Your reply is sent to the phone as the \
+notification, so write the reminder itself to the user in one or two short, specific \
+sentences of plain text, without Markdown. Do not mention that a task ran or that this \
+is a reminder.";
+
+/// The context lines for a routine's turn. History reads the label back with
+/// [`scheduled_label`] so clients show the turn as a routine, not a prompt.
+pub(crate) fn scheduled_context(label: &str) -> String {
+    let label = label.replace('\n', " ");
+    let label = label.trim();
     if label.is_empty() {
-        format!("[Scheduled] {task}")
+        format!("{SCHEDULED_TASK}\n{SCHEDULED_RULE}")
     } else {
-        format!("[Scheduled: {label}] {task}")
+        format!("{SCHEDULED_TASK}: {label}\n{SCHEDULED_RULE}")
     }
 }
 
-/// The routine's label when `content` is a [`scheduled_prompt`], empty for an
-/// unlabelled routine, and `None` for anything the user wrote.
-pub fn scheduled_label(content: &str) -> Option<&str> {
+/// The routine's label when `context` is a turn's context from
+/// [`scheduled_context`], empty for an unlabelled routine, and `None` for a
+/// turn the user started.
+pub fn scheduled_label(context: &str) -> Option<&str> {
+    context
+        .lines()
+        .find_map(|line| match line.strip_prefix(SCHEDULED_TASK)? {
+            "" => Some(""),
+            rest => rest.strip_prefix(": "),
+        })
+}
+
+/// The label of a routine run before the context carried it, when its task
+/// was sent as `[Scheduled: label] task`.
+pub fn legacy_scheduled_label(content: &str) -> Option<&str> {
     if content.starts_with("[Scheduled] ") {
         return Some("");
     }
@@ -110,12 +134,12 @@ pub(crate) async fn submit(
         .get("session_id")
         .and_then(|v| v.as_str())
         .and_then(|v| v.parse::<Uuid>().ok());
-    let message = scheduled_prompt(label, task);
     let msg = |session_id| Message {
         session_id,
         request_id: Uuid::new_v4(),
-        message: message.clone(),
+        message: task.to_owned(),
         cron_id: Some(job.id.to_string()),
+        scheduled: Some(label.to_owned()),
         images: Vec::new(),
         foreground: None,
         answer: None,
@@ -246,17 +270,32 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn scheduled_prompts_read_back_their_label() {
+    fn scheduled_context_reads_back_its_label() {
+        let context = |label| {
+            format!(
+                "Time: Monday 2026-10-05 09:00 +04\n{}",
+                scheduled_context(label)
+            )
+        };
+        assert_eq!(scheduled_label(&context("")), Some(""));
+        assert_eq!(scheduled_label(&context("Plants")), Some("Plants"));
+        assert_eq!(scheduled_label(&context("Two\nlines")), Some("Two lines"));
+        assert_eq!(scheduled_label("Time: Monday 2026-10-05 09:00 +04"), None);
+        assert_eq!(scheduled_label("Scheduled tasks are off"), None);
+    }
+
+    #[test]
+    fn legacy_prompts_read_back_their_label() {
         assert_eq!(
-            scheduled_label(&scheduled_prompt("", "Water the plants")),
+            legacy_scheduled_label("[Scheduled] Water the plants"),
             Some("")
         );
         assert_eq!(
-            scheduled_label(&scheduled_prompt("Plants", "Water them")),
+            legacy_scheduled_label("[Scheduled: Plants] Water them"),
             Some("Plants")
         );
-        assert_eq!(scheduled_label("Water the plants"), None);
-        assert_eq!(scheduled_label("[Scheduled]"), None);
+        assert_eq!(legacy_scheduled_label("Water the plants"), None);
+        assert_eq!(legacy_scheduled_label("[Scheduled]"), None);
     }
 
     #[test]
