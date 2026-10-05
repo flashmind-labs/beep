@@ -70,7 +70,6 @@ const MAX_REFUSALS: usize = 3;
 const LIVE_TOOLS: &[&str] = &[
     "browser",
     "read_screen",
-    "get_notifications",
     "get_location",
     "get_time",
     "task_progress",

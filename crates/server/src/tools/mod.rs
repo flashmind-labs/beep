@@ -6,7 +6,6 @@ mod image;
 mod location;
 mod maps;
 mod memory;
-mod notifications;
 mod open_app;
 mod progress;
 mod screen;
@@ -44,9 +43,6 @@ pub fn registry(
     registry.register(Arc::new(browser::OpenBrowserTool));
     registry.register(Arc::new(image::SendImageTool));
     registry.register(Arc::new(maps::OpenMapsTool { user: user.clone() }));
-    registry.register(Arc::new(notifications::GetNotificationsTool {
-        user: user.clone(),
-    }));
     for variant in ["habit_create", "habit_log", "habit_status", "habit_delete"] {
         registry.register(Arc::new(habits::HabitTool {
             user: user.clone(),

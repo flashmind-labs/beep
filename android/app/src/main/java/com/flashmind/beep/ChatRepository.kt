@@ -22,6 +22,7 @@ import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.DeviceAnswer
 import com.flashmind.beep.proto.AppPermissions
 import com.flashmind.beep.proto.Models
+import com.flashmind.beep.proto.ReasoningLevel
 import com.flashmind.beep.proto.DeviceQuery
 import com.flashmind.beep.proto.PermissionLevel
 import com.flashmind.beep.proto.Event
@@ -537,6 +538,7 @@ class ChatRepository(private val storage: LocalStorage) {
     val modelChoices = MutableStateFlow(lists.models)
     suspend fun models(): Models = api().getModels().also(::keepModels)
     suspend fun setModel(id: String): Models = api().setModel(id).also(::keepModels)
+    suspend fun setThinking(level: ReasoningLevel): Models = api().setThinking(level).also(::keepModels)
     private fun keepModels(fresh: Models) {
         modelChoices.value = fresh
         saveLists { it.copy(models = fresh) }

@@ -2,7 +2,7 @@
 //! admin who has not picked one, runs on the server default.
 
 use crate::protocol::{ModelChoice, Models};
-use flashmind::types::{LlmProvider, Model, ModelInfo, ProviderPreferences};
+use flashmind::types::{LlmProvider, Model, ModelInfo, ProviderPreferences, ReasoningLevel};
 use iroh::EndpointId;
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use std::{
@@ -136,8 +136,8 @@ impl ModelChoices {
             .unwrap_or_else(|| self.default_model())
     }
 
-    /// What `user` sees in the picker, with `selected` marked.
-    pub fn for_picker(&self, user: &str, selected: &Model) -> Models {
+    /// What `user` sees in the picker, with `selected` and `thinking` marked.
+    pub fn for_picker(&self, user: &str, selected: &Model, thinking: ReasoningLevel) -> Models {
         let choices = if self.is_admin(user) {
             self.choices
                 .iter()
@@ -157,6 +157,7 @@ impl ModelChoices {
         Models {
             choices,
             selected: selected.to_string(),
+            thinking,
         }
     }
 }
@@ -219,8 +220,19 @@ mod tests {
     fn only_admins_see_choices() {
         let models = choices();
         let default = models.default_model().clone();
-        assert_eq!(models.for_picker(ADMIN, &default).choices.len(), 2);
-        assert!(models.for_picker("someone", &default).choices.is_empty());
+        assert_eq!(
+            models
+                .for_picker(ADMIN, &default, ReasoningLevel::Low)
+                .choices
+                .len(),
+            2
+        );
+        assert!(
+            models
+                .for_picker("someone", &default, ReasoningLevel::Low)
+                .choices
+                .is_empty()
+        );
     }
 
     #[test]

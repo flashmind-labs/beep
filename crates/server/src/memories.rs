@@ -147,8 +147,7 @@ pub struct Remembered {
     pub replaced: bool,
 }
 
-/// Deletes memories of every user whose days ended a while ago, and phone
-/// notifications older than a week, once an hour.
+/// Deletes memories of every user whose days ended a while ago, once an hour.
 pub fn start_purge(app: Arc<App>) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(CURATE_SWEEP);
@@ -158,11 +157,6 @@ pub fn start_purge(app: Arc<App>) {
                 Ok(0) => {}
                 Ok(purged) => log::info!("purged {purged} ended memories"),
                 Err(error) => log::warn!("unable to purge ended memories: {error}"),
-            }
-            match app.store.purge_old_notifications().await {
-                Ok(0) => {}
-                Ok(purged) => log::info!("purged {purged} old notifications"),
-                Err(error) => log::warn!("unable to purge old notifications: {error}"),
             }
         }
     });
