@@ -286,7 +286,7 @@ mod tests {
             .expect("schedule_once registered");
 
         let cancel = CancellationToken::new();
-        let args = json!({"datetime": "2026-10-05T11:30:00", "task": "ping"});
+        let args = json!({"datetime": "2099-10-05T11:30:00", "task": "ping"});
         let result = tool
             .execute(ToolContext::new("call", args, None, &cancel))
             .await
@@ -294,7 +294,7 @@ mod tests {
 
         assert!(result.is_success(), "{}", result.output());
         assert!(
-            result.output().contains("2026-10-05 03:30 UTC"),
+            result.output().contains("2099-10-05 03:30 UTC"),
             "{}",
             result.output()
         );
