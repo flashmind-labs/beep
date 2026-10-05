@@ -16,9 +16,12 @@ import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
 import com.flashmind.beep.ffi.identityName
 import com.flashmind.beep.proto.AppIntegration
+import com.flashmind.beep.proto.ApprovalDecision
 import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.DeviceAnswer
+import com.flashmind.beep.proto.AppPermissions
 import com.flashmind.beep.proto.DeviceQuery
+import com.flashmind.beep.proto.PermissionLevel
 import com.flashmind.beep.proto.Event
 import com.flashmind.beep.proto.ForegroundApp
 import com.flashmind.beep.proto.HistoryEntry
@@ -100,7 +103,7 @@ class ChatRepository(private val storage: LocalStorage) {
     /** Chat screens currently started: the app, the bubble or the panel. */
     private val chatScreens = AtomicInteger(0)
     fun chatScreenShown(shown: Boolean) { if (shown) chatScreens.incrementAndGet() else chatScreens.decrementAndGet() }
-    private fun onScreen(id: String) = chatScreens.get() > 0 && state.value.current.id == id
+    fun onScreen(id: String) = chatScreens.get() > 0 && state.value.current.id == id
     private val cloud = CloudBackup(storage.context)
     /** The readable name of this phone's identity, such as mega-fox-trot. */
     val accountName = MutableStateFlow("")
@@ -286,8 +289,11 @@ class ChatRepository(private val storage: LocalStorage) {
         val chat = state.value.conversations.first { it.id == conversationId }
         if (text.isBlank() || chat.busy || !settings.value.configured) return
         val request = UUID.randomUUID().toString()
+        // A new message instead of an answer skips the call that waits on it.
+        val skipped = chat.messages.flatMap { m -> m.approvals.filter { it.waiting } }
+        skipped.forEach { ApprovalNotifications.cancel(storage.context, it.queryId) }
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
-            messages = it.messages + ChatMessage(role = "user", text = text.trim(), images = images),
+            messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images),
             requestId = request, pendingText = text.trim(), pendingImages = images,
             status = "Sending…", error = "", cancelRequested = false) }
         launchRun(chat.id)
@@ -411,6 +417,9 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun listApps(): List<AppIntegration> = api().listApps()
     suspend fun connectApp(slug: String): String = api().connectApp(slug).url
     suspend fun disconnectApp(slug: String) = api().disconnectApp(slug)
+    suspend fun appPermissions(slug: String): AppPermissions = api().getAppPermissions(slug)
+    suspend fun setAppPermissions(slug: String, level: PermissionLevel, allowed: List<String>) =
+        api().setAppPermissions(slug, level, allowed)
 
     /** Set when a localhost OAuth flow ends, so the app list reloads. */
     val appAuthResults = MutableStateFlow<AppAuthResult?>(null)
@@ -635,6 +644,57 @@ class ChatRepository(private val storage: LocalStorage) {
         is DeviceQuery.Contacts -> queryContacts(query.name)
         is DeviceQuery.Browser -> browser(query.command)
         is DeviceQuery.ReadScreen -> ScreenCapture.capture(storage.context)
+        // Never runs on its own: the user answers it through [answerApproval].
+        is DeviceQuery.Approve -> JSONObject().put("decision", "deny")
+    }
+
+    /**
+     * Answers a tool approval with "allow", "always" or "deny", from the card or the
+     * notification. The card locks on the answer; the server acks with the run that
+     * carries the chat on from that call, and the reply streams into the same message.
+     */
+    fun answerApproval(conversationId: String, queryId: String, decision: String) {
+        var answered = false
+        updateChat(conversationId) { chat ->
+            chat.copy(messages = chat.messages.map { message ->
+                message.copy(approvals = message.approvals.map {
+                    if (it.queryId != queryId) it
+                    else { answered = !it.waiting; if (it.waiting) it.copy(answer = decision) else it }
+                })
+            })
+        }
+        ApprovalNotifications.cancel(storage.context, queryId)
+        if (answered) return
+        val wire = when (decision) {
+            "always" -> ApprovalDecision.ALWAYS
+            "allow" -> ApprovalDecision.ALLOW
+            else -> ApprovalDecision.DENY
+        }
+        scope.launch {
+            try {
+                val run = api().answerApproval(conversationId, queryId, wire)
+                updateChat(conversationId) { chat ->
+                    val holder = chat.messages.lastOrNull { m -> m.approvals.any { it.queryId == queryId } }
+                    chat.copy(messages = chat.messages.map { if (it === holder) it.copy(id = "assistant-${run.id}") else it },
+                        runId = run.id, cursor = 0, status = "Beep is thinking…", error = "", cancelRequested = false)
+                }
+                launchRun(conversationId)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                // A conflict means the server already has an answer for this call.
+                if (error is BeepException.Conflict) return@launch
+                updateChat(conversationId) { chat ->
+                    chat.copy(error = userMessage(error), messages = chat.messages.map { message ->
+                        message.copy(approvals = message.approvals.map { if (it.queryId == queryId) it.copy(answer = "") else it })
+                    })
+                }
+            }
+        }
+    }
+
+    private fun skipApprovals(messages: List<ChatMessage>) = messages.map { message ->
+        if (message.approvals.none { it.waiting }) message
+        else message.copy(approvals = message.approvals.map { if (it.waiting) it.copy(answer = "skipped") else it })
     }
 
     private suspend fun browser(command: BrowserCommand): JSONObject {
@@ -796,7 +856,10 @@ class ChatRepository(private val storage: LocalStorage) {
                     val messageId = "assistant-${chat.runId}"
                     val existing = next.messages.find { it.id == messageId }
                     val tc = ToolCall(callId = event.callId, name = event.name, description = description)
-                    val msg = if (existing != null) existing.copy(toolCalls = existing.toolCalls + tc, reasoning = joinReasoning(existing.reasoning, chat.thinking))
+                    // An answered approval starts the call it already shows.
+                    val known = existing != null && event.callId.isNotEmpty() && existing.toolCalls.any { it.callId == event.callId }
+                    val msg = if (existing != null) existing.copy(toolCalls = if (known) existing.toolCalls else existing.toolCalls + tc,
+                            reasoning = joinReasoning(existing.reasoning, chat.thinking))
                         else ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc), reasoning = chat.thinking.trim())
                     next = next.copy(
                         messages = if (existing == null) next.messages + msg else next.messages.map { if (it.id == messageId) msg else it },
@@ -862,9 +925,17 @@ class ChatRepository(private val storage: LocalStorage) {
                     }
                 }
                 is RunEvent.DeviceQuery -> {
-                    scope.launch {
+                    val query = event.query
+                    if (query is DeviceQuery.Approve) {
+                        // An approval waits for the user's tap on the card or the notification.
+                        val messageId = "assistant-${chat.runId}"
+                        val prompt = ApprovalPrompt(event.queryId, query.approval)
+                        next = if (next.messages.any { it.id == messageId })
+                            next.copy(messages = next.messages.map { if (it.id == messageId) it.copy(approvals = it.approvals + prompt) else it })
+                        else next.copy(messages = next.messages + ChatMessage(messageId, "assistant", "", approvals = listOf(prompt)))
+                    } else scope.launch {
                         runCatching {
-                            val result = runCatching { executeDeviceQuery(event.query) }.getOrElse {
+                            val result = runCatching { executeDeviceQuery(query) }.getOrElse {
                                 JSONObject().put("error", "device_error").put("message", it.message ?: "The phone could not do that.")
                             }
                             sendDeviceResult(chat.runId, event.queryId, result)
@@ -882,7 +953,8 @@ class ChatRepository(private val storage: LocalStorage) {
                             if (it.id == messageId) extractCardsFromText(it).copy(reasoning = joinReasoning(it.reasoning, chat.thinking)) else it
                         },
                         runId = "", status = "", tool = "", thinking = "", cancelRequested = false, error = when (status) {
-                        "completed" -> ""
+                        // Stopped on an approval card; the answer starts the next run.
+                        "completed", "waiting" -> ""
                         "cancelled" -> "Stopped"
                         "interrupted" -> "The server restarted. Send a new message to continue."
                         "timed_out" -> "That took too long, so Beep stopped. Try again."

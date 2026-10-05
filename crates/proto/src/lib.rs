@@ -197,6 +197,15 @@ requests! {
     /// Runs a cron now, keeping its schedule; a one-off reminder is used up.
     /// Returns the session the run went to.
     37 RunCron { id: String } => Call<String>
+    /// What Beep may do in a connected app, and which of its actions act.
+    38 GetAppPermissions { slug: String } => Call<AppPermissions>
+    /// `allowed` names the actions, by tool, that run without asking under
+    /// `Ask`.
+    39 SetAppPermissions { slug: String, level: PermissionLevel, allowed: Vec<String> } => Call<()>
+    /// Answers a tool call the session stopped on to ask the user, and
+    /// resumes the session in a new run. Resending the same answer returns
+    /// the same run.
+    40 AnswerApproval { session_id: Uuid, query_id: String, decision: ApprovalDecision } => Call<Run>
 }
 
 wire_enum! {
@@ -262,14 +271,119 @@ wire_enum! {
 wire_enum! {
     /// Work the server asks the phone to do during a run. `ReadScreen` asks for
     /// a screenshot of the app behind Beep's bubble, answered as JSON
-    /// `{"image": "data:image/jpeg;base64,..."}`.
+    /// `{"image": "data:image/jpeg;base64,..."}`. `Approve` asks the user to
+    /// allow a tool call, answered as `{"decision": "allow"}`, where the
+    /// decision is `allow`, `always` or `deny`.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum DeviceQuery {
         0 Contacts { name: String }
         1 Browser { command: BrowserCommand }
         2 ReadScreen {}
+        3 Approve { approval: Approval }
     }
+}
+
+/// A tool call that waits for the user's OK, as the phone shows it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Approval {
+    /// The app's name, such as "Fastmail".
+    pub app: String,
+    /// What the tool does, such as "send email".
+    pub action: String,
+    /// The call's arguments, labelled for reading.
+    pub fields: Vec<ApprovalField>,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalField {
+    pub label: String,
+    pub value: String,
+}
+
+/// An approval a run is waiting on, carried by a `Notice` so the phone can
+/// answer it from the notification.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PendingApproval {
+    pub run_id: String,
+    pub query_id: String,
+    pub approval: Approval,
+}
+
+wire_enum! {
+    /// The user's answer to an `Approval`. `Always` also stops asking for
+    /// that action.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ApprovalDecision {
+        0 Deny {}
+        1 Allow {}
+        2 Always {}
+    }
+}
+
+wire_enum! {
+    /// How freely Beep acts in an app. Reading is always allowed; the level
+    /// covers tools that send, change or delete.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum PermissionLevel {
+        0 Ask {}
+        1 Allow {}
+        2 ReadOnly {}
+    }
+}
+
+impl ApprovalDecision {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Deny {} => "deny",
+            Self::Allow {} => "allow",
+            Self::Always {} => "always",
+        }
+    }
+}
+
+impl PermissionLevel {
+    /// The name stored on the server.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ask {} => "ask",
+            Self::Allow {} => "allow",
+            Self::ReadOnly {} => "read",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "ask" => Some(Self::Ask {}),
+            "allow" => Some(Self::Allow {}),
+            "read" => Some(Self::ReadOnly {}),
+            _ => None,
+        }
+    }
+}
+
+/// One app's permissions.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppPermissions {
+    pub level: PermissionLevel,
+    /// The app's tools that act, in the order Beep lists them.
+    pub actions: Vec<AppAction>,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppAction {
+    pub tool: String,
+    /// Such as "Send email".
+    pub label: String,
+    /// Runs without asking under `Ask`.
+    pub allowed: bool,
 }
 
 /// The app the user was in when they opened Beep's bubble.
@@ -531,6 +645,8 @@ pub struct Notice {
     pub session_id: String,
     /// Slug of an app that lost its login; tapping the notice opens Apps.
     pub app: Option<String>,
+    /// A tool call waiting for the user's OK, answered from the notice.
+    pub approval: Option<PendingApproval>,
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@
 //! reconnects every few hours so access tokens refresh and rotated refresh
 //! tokens are saved before they lapse.
 
-use crate::user::User;
+use crate::{permissions::Acts, user::User};
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use flashmind::{
@@ -16,9 +16,9 @@ use flashmind::{
 use reqwest::Url;
 use serde_json::{Value, json};
 use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, PoisonError, Weak},
-    time::{Duration, Instant},
+    collections::HashSet,
+    sync::{Arc, Weak},
+    time::Duration,
 };
 
 pub const FASTMAIL: &str = "fastmail";
@@ -130,98 +130,27 @@ pub(crate) fn lost_login(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| cause.is::<McpAuthRequired>())
 }
 
-/// When a tool call needs the user's OK first.
-#[derive(Clone, Copy)]
-enum Confirm {
-    Never,
-    Always,
-    /// Only when it moves mail to another folder, which can bin it.
-    WhenMoving,
-}
-
-impl Confirm {
-    fn needed(self, args: &Value) -> bool {
-        match self {
-            Confirm::Never => false,
-            Confirm::Always => true,
-            Confirm::WhenMoving => args.get("folder").is_some_and(|folder| !folder.is_null()),
-        }
-    }
-
-    /// Added to the tool's description.
-    fn note(self) -> &'static str {
-        match self {
-            Confirm::Never => "",
-            Confirm::Always => {
-                " Needs the user's OK: the first call does nothing and asks you to check \
-                 with them. Repeat the exact same call only after they agree."
-            }
-            Confirm::WhenMoving => {
-                " Moving to another folder needs the user's OK: the first such call does \
-                 nothing and asks you to check with them. Repeat the exact same call only \
-                 after they agree."
-            }
-        }
-    }
-}
-
 /// The Fastmail tools the agent gets, each as its own tool with a flat schema.
 /// Weaker models leave out the nested `params` a generic `mcp` tool needs. The
 /// rest are left out: the event and note deletes and `compose_event` only stage
 /// a widget in Fastmail's own UI, and the prompt stays smaller.
-const FASTMAIL_TOOLS: &[(&str, Confirm)] = &[
-    ("search_email", Confirm::Never),
-    ("read_email", Confirm::Never),
-    ("read_thread", Confirm::Never),
-    ("draft_email", Confirm::Never),
-    ("update_email", Confirm::WhenMoving),
-    ("archive_email", Confirm::Always),
-    ("delete_email", Confirm::Always),
-    ("search_events", Confirm::Never),
-    ("create_event", Confirm::Never),
-    ("update_event", Confirm::Never),
-    ("rsvp_event", Confirm::Never),
-    ("search_contacts", Confirm::Never),
-    ("delete_contact", Confirm::Always),
+/// Whether each acts decides if it falls under the app's permission level;
+/// events act because Fastmail mails the invites.
+pub(crate) const FASTMAIL_TOOLS: &[(&str, Acts)] = &[
+    ("search_email", Acts::Never),
+    ("read_email", Acts::Never),
+    ("read_thread", Acts::Never),
+    ("draft_email", Acts::Never),
+    ("update_email", Acts::WhenMoving),
+    ("archive_email", Acts::Always),
+    ("delete_email", Acts::Always),
+    ("search_events", Acts::Never),
+    ("create_event", Acts::Always),
+    ("update_event", Acts::Always),
+    ("rsvp_event", Acts::Always),
+    ("search_contacts", Acts::Never),
+    ("delete_contact", Acts::Always),
 ];
-
-/// How long a request for the user's OK stays open.
-const CONFIRM_FOR: Duration = Duration::from_secs(15 * 60);
-
-/// Calls waiting for the user's OK, by session, tool and arguments.
-#[derive(Default)]
-pub(crate) struct Confirmations(Mutex<HashMap<String, Asked>>);
-
-struct Asked {
-    run_id: String,
-    at: Instant,
-}
-
-impl Confirmations {
-    /// True when the same call was asked about in an earlier run of the
-    /// session, so the user has had a turn to answer. Otherwise records the
-    /// ask and returns false.
-    fn granted(&self, key: String, run_id: &str) -> bool {
-        let mut asked = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        asked.retain(|_, ask| ask.at.elapsed() < CONFIRM_FOR);
-        if asked.get(&key).is_some_and(|ask| ask.run_id != run_id) {
-            asked.remove(&key);
-            return true;
-        }
-        asked.entry(key).or_insert_with(|| Asked {
-            run_id: run_id.to_owned(),
-            at: Instant::now(),
-        });
-        false
-    }
-}
-
-/// The run a tool is called from, for the confirmations.
-pub(crate) struct RunScope {
-    pub(crate) run_id: String,
-    pub(crate) session_id: String,
-    pub(crate) confirmations: Arc<Confirmations>,
-}
 
 /// One remote tool, named like Composio's (`FASTMAIL_READ_EMAIL`) so the
 /// phone labels it "Fastmail: read email".
@@ -232,16 +161,10 @@ pub(crate) struct AppTool {
     name: String,
     description: String,
     schema: Value,
-    confirm: Confirm,
-    scope: Arc<RunScope>,
 }
 
 /// The agent tools for the servers in `connected`.
-pub(crate) fn app_tools(
-    registry: &McpRegistry,
-    connected: &HashSet<String>,
-    scope: &Arc<RunScope>,
-) -> Vec<Arc<dyn Tool>> {
+pub(crate) fn app_tools(registry: &McpRegistry, connected: &HashSet<String>) -> Vec<Arc<dyn Tool>> {
     let defs = registry.current_mcp_tools();
     let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
     for server in connected {
@@ -252,20 +175,17 @@ pub(crate) fn app_tools(
         let Some(defs) = defs.get(server) else {
             continue;
         };
-        for &(name, confirm) in exposed {
+        for &(name, _) in exposed {
             let Some(def) = defs.iter().find(|def| def.name == name) else {
                 continue;
             };
-            let description = def.description.clone().unwrap_or_default() + confirm.note();
             tools.push(Arc::new(AppTool {
                 registry: registry.clone(),
                 server,
                 tool: name,
                 name: format!("{server}_{name}").to_uppercase(),
-                description,
+                description: def.description.clone().unwrap_or_default(),
                 schema: def.input_schema.clone(),
-                confirm,
-                scope: scope.clone(),
             }));
         }
     }
@@ -288,17 +208,6 @@ impl Tool for AppTool {
 
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let args = drop_empty(ctx.args);
-        if self.confirm.needed(&args) {
-            let key = format!("{}\0{}\0{args}", self.scope.session_id, self.name);
-            if !self.scope.confirmations.granted(key, &self.scope.run_id) {
-                return Ok(ToolResult::success(
-                    ctx.tool_call_id,
-                    "Not done yet: this needs the user's OK. Tell them exactly what will \
-                     change (which emails or contact) and ask. If they agree, make this \
-                     same call again with the same arguments. If not, leave it.",
-                ));
-            }
-        }
         match self.registry.call_tool(self.server, self.tool, args).await {
             Ok(result) => {
                 let text = result
@@ -362,17 +271,6 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn a_confirmed_call_runs_only_in_a_later_run() {
-        let confirmations = Confirmations::default();
-        assert!(!confirmations.granted("s\0del\0{}".into(), "run1"));
-        assert!(!confirmations.granted("s\0del\0{}".into(), "run1"));
-        assert!(confirmations.granted("s\0del\0{}".into(), "run2"));
-        // Granted once: the next call asks again.
-        assert!(!confirmations.granted("s\0del\0{}".into(), "run3"));
-        assert!(!confirmations.granted("s\0del\0{\"id\":1}".into(), "run4"));
-    }
-
-    #[test]
     fn empty_arguments_are_left_out() {
         assert_eq!(
             drop_empty(json!({"query": "hotel", "cursor": null, "limit": 10})),
@@ -383,13 +281,6 @@ mod tests {
             json!({"query": "hotel"})
         );
         assert_eq!(drop_empty(Value::Null), json!({}));
-    }
-
-    #[test]
-    fn moving_mail_needs_confirming() {
-        let update = Confirm::WhenMoving;
-        assert!(!update.needed(&json!({"ids": ["M1"], "isRead": true})));
-        assert!(update.needed(&json!({"ids": ["M1"], "folder": "Trash"})));
     }
 
     #[test]

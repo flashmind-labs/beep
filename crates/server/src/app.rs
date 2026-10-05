@@ -5,9 +5,10 @@ use crate::{
     images::{self, Describer},
     live::LiveRun,
     memories::{self, Exchange, Hit, Turn},
+    permissions::{self, ApprovalPayload, Approved, Rules},
     protocol::{
-        AppIntegration, DeviceAnswer, DeviceQuery, ForegroundApp, Notice, PromptSuggestions, Run,
-        RunEvent, Usage,
+        AppIntegration, Approval, ApprovalDecision, DeviceAnswer, DeviceQuery, ForegroundApp,
+        Notice, PendingApproval, PromptSuggestions, Run, RunEvent, Usage,
     },
     repeat::{self, RepeatGuard},
     sandbox::{self, Sandbox},
@@ -29,7 +30,7 @@ use flashmind::{
     },
     types::{
         AgentEvent, AgentInput, AgentLlmConfig, ContentPart, LlmProvider, Model, ToolCall,
-        ToolRegistry,
+        ToolRegistry, tool::ToolResult,
     },
 };
 use futures::StreamExt;
@@ -127,6 +128,44 @@ pub struct Message {
     pub images: Vec<String>,
     #[serde(default)]
     pub foreground: Option<ForegroundApp>,
+    /// Set when the run resumes a session that stopped to ask the user.
+    #[serde(skip)]
+    pub answer: Option<Answer>,
+}
+
+/// The user's answer to the tool call a session stopped on.
+#[derive(Debug, Clone)]
+pub struct Answer {
+    pub call_id: String,
+    pub decision: ApprovalDecision,
+}
+
+impl Message {
+    /// The run's request id. Answers are keyed by the call, so answering
+    /// twice returns the same run.
+    pub(crate) fn request(&self) -> String {
+        match &self.answer {
+            Some(answer) => format!("approval:{}", answer.call_id),
+            None => self.request_id.to_string(),
+        }
+    }
+}
+
+/// A guarded call the run stopped on.
+struct Parked {
+    call_id: String,
+    approval: Approval,
+}
+
+impl Parked {
+    fn from(call_id: &str, result: &ToolResult) -> Option<Self> {
+        let payload = result.payload()?;
+        let payload = payload.as_any().downcast_ref::<ApprovalPayload>()?;
+        Some(Self {
+            call_id: call_id.to_owned(),
+            approval: payload.approval.clone(),
+        })
+    }
 }
 
 impl App {
@@ -212,7 +251,7 @@ impl App {
         let result = user
             .create_run(
                 &message.session_id.to_string(),
-                &message.request_id.to_string(),
+                &message.request(),
                 &message.message,
             )
             .await?;
@@ -300,7 +339,49 @@ impl App {
         let Some(live) = self.live(run_id).await else {
             anyhow::bail!("run {run_id} is not running");
         };
+        let (query_id, rx) = self.ask_device(&live, query).await;
+        self.wait_device(query_id, rx, timeout_secs).await
+    }
 
+    /// Asks the user about the call the run stopped on: the chat shows a
+    /// card and the phone a notification. Nothing waits; the answer starts a
+    /// new run that resumes the session.
+    fn park(&self, user: &User, run: &Run, live: &LiveRun, parked: Parked) {
+        let Parked { call_id, approval } = parked;
+        live.push(RunEvent::DeviceQuery {
+            query_id: call_id.clone(),
+            query: DeviceQuery::Approve {
+                approval: approval.clone(),
+            },
+        });
+        let body = approval
+            .fields
+            .iter()
+            .map(|field| format!("{}: {}", field.label, field.value))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let _ = self.notifications.send(UserNotice {
+            user: user.id().to_owned(),
+            notice: Notice {
+                title: format!("Allow {}: {}?", approval.app, approval.action),
+                body,
+                session_id: run.session_id.clone(),
+                app: None,
+                approval: Some(PendingApproval {
+                    run_id: run.id.clone(),
+                    query_id: call_id,
+                    approval,
+                }),
+            },
+        });
+    }
+
+    /// Puts `query` on the run's event stream for the phone to answer.
+    async fn ask_device(
+        &self,
+        live: &LiveRun,
+        query: DeviceQuery,
+    ) -> (String, oneshot::Receiver<DeviceAnswer>) {
         let query_id = Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.device_queries
@@ -311,7 +392,15 @@ impl App {
             query_id: query_id.clone(),
             query,
         });
+        (query_id, rx)
+    }
 
+    async fn wait_device(
+        &self,
+        query_id: String,
+        rx: oneshot::Receiver<DeviceAnswer>,
+        timeout_secs: u64,
+    ) -> Result<DeviceAnswer> {
         let result = tokio::time::timeout(Duration::from_secs(timeout_secs), rx).await;
         // Clean up on timeout or channel close.
         self.device_queries.lock().await.remove(&query_id);
@@ -359,6 +448,7 @@ impl App {
             RunStatus::Stalled => "The model stopped responding.",
             RunStatus::Looped => "The model got stuck repeating itself and was stopped.",
             RunStatus::Failed => "The run failed.",
+            RunStatus::Waiting => "Waiting for your OK.",
         }
         .to_owned();
         let notice = UserNotice {
@@ -368,6 +458,7 @@ impl App {
                 body,
                 session_id: run.session_id.clone(),
                 app: None,
+                approval: None,
             },
         };
         // Best-effort: ignore send errors (no active receivers).
@@ -485,12 +576,83 @@ impl App {
             sandbox::register(&mut registry, sandbox, user);
         }
 
-        let (composio, mcp, apps) =
-            tokio::join!(user.app_tools(), user.mcp_tools(run), user.apps());
-        for tool in composio.into_iter().chain(mcp) {
+        // Calls of the last model turn still without a result: the session
+        // stopped on the first one to ask the user.
+        let open = permissions::open_calls(&conversation);
+        let answer = message.answer.as_ref();
+        if let Some(answer) = answer
+            && answer.decision == (ApprovalDecision::Always {})
+            && let Some(call) = open.iter().find(|call| call.id == answer.call_id)
+            && let Err(error) = permissions::allow_always(user, &call.name).await
+        {
+            log::warn!(
+                "permissions: unable to save; run_id={} error={error:#}",
+                run.id
+            );
+        }
+        let approved = Approved(
+            answer
+                .filter(|answer| answer.decision != (ApprovalDecision::Deny {}))
+                .map(|answer| answer.call_id.clone()),
+        );
+
+        let (composio, mcp, apps) = tokio::join!(user.app_tools(), user.mcp_tools(), user.apps());
+        let rules = user.app_rules().await.unwrap_or_else(|error| {
+            log::warn!("permissions: unable to load, asking for everything: {error:#}");
+            Rules::default()
+        });
+        for tool in permissions::guard(composio.into_iter().chain(mcp).collect(), rules, approved) {
             registry.register(tool);
         }
         let refusals = repeat::guard_tool_calls(&mut registry);
+
+        // Entries from here on belong to this turn. Matching by time rather than
+        // index survives the agent compacting mid-run.
+        let turn_started = Utc::now();
+        // Conversation entries do not record whether a tool failed; history needs it.
+        let mut failed_tools = Vec::new();
+        // The guarded call the run stops on to ask the user, if any.
+        let mut parked = None;
+
+        // Close the open calls before the model goes on. An answer runs them
+        // in order, as if they had just been made; a new message leaves them
+        // undone.
+        for call in open {
+            let result = match answer {
+                None => ToolResult::success(&call.id, permissions::SKIPPED),
+                Some(answer)
+                    if answer.call_id == call.id
+                        && answer.decision == (ApprovalDecision::Deny {}) =>
+                {
+                    ToolResult::success(&call.id, permissions::DENIED)
+                }
+                Some(_) => {
+                    live.push(RunEvent::ToolStarted {
+                        name: call.name.clone(),
+                        call_id: call.id.clone(),
+                        description: registry.humanize(&call),
+                    });
+                    registry.execute(&call, None, cancel).await
+                }
+            };
+            if let Some(stop) = Parked::from(&call.id, &result) {
+                parked = Some(stop);
+                break;
+            }
+            conversation.add(ConversationEntry::tool(&call.id, result.output()));
+            if answer.is_some() {
+                if !result.is_success() {
+                    failed_tools.push(call.id.clone());
+                }
+                live.push(RunEvent::ToolResult {
+                    name: call.name,
+                    call_id: call.id,
+                    output: result.output(),
+                    success: result.is_success(),
+                });
+            }
+        }
+
         let context = self
             .build_context(user, message.foreground.as_ref(), &apps.unwrap_or_default())
             .await;
@@ -532,22 +694,23 @@ impl App {
 
         // Flashmind saves `context` as a developer message before the user message. It
         // stays in history, which keeps the cached prefix intact and timestamps each turn.
-        let input = AgentInput::User {
-            content: message.message.clone(),
-            context,
-            parts: (!parts.is_empty()).then_some(parts),
+        // An answer adds no message: the model carries on from the call results.
+        let input = match answer {
+            Some(_) => AgentInput::Resume,
+            None => AgentInput::User {
+                content: message.message.clone(),
+                context,
+                parts: (!parts.is_empty()).then_some(parts),
+            },
         };
 
-        // Conversation entries do not record whether a tool failed; history needs it.
-        let mut failed_tools = Vec::new();
         // The reply the memory extractor reads once the run completes.
         let mut reply = String::new();
         // Prompt size of the last model call, which decides later compaction.
         let mut prompt_tokens = 0;
-        // Entries from here on belong to this turn. Matching by time rather than
-        // index survives the agent compacting mid-run.
-        let turn_started = Utc::now();
-        let status = {
+        let mut status = if parked.is_some() {
+            RunStatus::Waiting
+        } else {
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
 
@@ -637,6 +800,21 @@ impl App {
                             },
                         }
                     }
+                    Some(AgentEvent::Interrupted {
+                        tool_call_id,
+                        payload,
+                        ..
+                    }) => {
+                        tools_running = tools_running.saturating_sub(1);
+                        parked = payload
+                            .as_ref()
+                            .and_then(|payload| payload.as_any().downcast_ref::<ApprovalPayload>())
+                            .map(|payload| Parked {
+                                call_id: tool_call_id,
+                                approval: payload.approval.clone(),
+                            });
+                        continue;
+                    }
                     Some(AgentEvent::Done(_)) => break RunStatus::Completed,
                     Some(AgentEvent::Error(_)) => {
                         // Provider errors can contain upstream response details. Keep them off the wire.
@@ -661,9 +839,16 @@ impl App {
             }
         };
 
-        if is_cron {
+        if parked.is_some() && status == RunStatus::Completed {
+            status = RunStatus::Waiting;
+        }
+
+        // A run that stops to ask notifies with the question instead.
+        if is_cron && status != RunStatus::Waiting {
             // Notify registered devices for cron-triggered runs only.
             self.notify_run_complete(user, run, status, &reply).await;
+        }
+        if is_cron {
             // Log cron completion.
             let _ = self.store.log_cron_finish(&run.id, status, "").await;
         }
@@ -672,6 +857,15 @@ impl App {
         // as memory tool chips under the reply. Scheduled prompts are written by
         // the user once, not said in conversation.
         if status == RunStatus::Completed && !is_cron {
+            // A resumed turn learns from the message that started it.
+            let asked = answer.and_then(|_| {
+                conversation
+                    .entries()
+                    .iter()
+                    .rev()
+                    .find(|entry| entry.timestamp < turn_started && entry.is_user())
+            });
+            let turn_from = asked.map_or(turn_started, |entry| entry.timestamp);
             let generator = Generator {
                 provider: self.provider.as_ref(),
                 llm: &self.llm,
@@ -680,9 +874,12 @@ impl App {
             let exchange = Exchange {
                 session_id: run.session_id.clone(),
                 today: user.today().await,
-                earlier: earlier_turns(&conversation, turn_started),
+                earlier: earlier_turns(&conversation, turn_from),
                 latest: Turn {
-                    message: message.message.clone(),
+                    message: asked.map_or_else(
+                        || message.message.clone(),
+                        |entry| entry.content().to_owned(),
+                    ),
                     reply,
                 },
             };
@@ -704,7 +901,7 @@ impl App {
                 let asked = conversation
                     .entries()
                     .iter()
-                    .find(|entry| entry.timestamp >= turn_started && entry.is_user());
+                    .find(|entry| entry.timestamp >= turn_from && entry.is_user());
                 if let Some(asked) = asked
                     && let Err(error) = user
                         .record_memory_score(
@@ -793,6 +990,10 @@ impl App {
             prompt_tokens,
         };
         user.finish(run, Some(turn), status).await?;
+        // Asked only once the turn is saved, so the answer finds the open call.
+        if let Some(parked) = parked {
+            self.park(user, run, live, parked);
+        }
         live.push(RunEvent::RunFinished {
             status: status.as_str().to_owned(),
         });

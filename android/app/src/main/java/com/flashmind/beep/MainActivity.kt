@@ -886,6 +886,12 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                                 }
                             }
                         }
+                        message.approvals.forEach { prompt ->
+                            key(prompt.queryId) {
+                                ApprovalCard(prompt, onAnswer = { repository.answerApproval(chat.id, prompt.queryId, it) },
+                                    Modifier.padding(bottom = 8.dp))
+                            }
+                        }
                         val isStreaming = isLastAssistant && chat.busy
                         val textLen = message.text.length
                         val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")

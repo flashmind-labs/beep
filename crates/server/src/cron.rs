@@ -104,6 +104,7 @@ pub async fn run_job(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Result<
         cron_id: Some(job.id.to_string()),
         images: Vec::new(),
         foreground: None,
+        answer: None,
     };
 
     let mut result = app

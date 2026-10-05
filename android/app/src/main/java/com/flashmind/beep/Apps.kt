@@ -23,16 +23,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +62,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,7 +76,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.flashmind.beep.proto.AppIntegration
+import com.flashmind.beep.proto.AppAction
 import com.flashmind.beep.proto.AppKind
+import com.flashmind.beep.proto.AppPermissions
+import com.flashmind.beep.proto.PermissionLevel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -87,6 +99,7 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit, onCustom: () -> U
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf<String?>(null) }
+    var open by remember { mutableStateOf<AppIntegration?>(null) }
 
     fun refresh() { scope.launch {
         try { apps = withContext(Dispatchers.IO) { repository.listApps() }; error = "" }
@@ -131,6 +144,13 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit, onCustom: () -> U
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    open?.let { app ->
+        BackHandler { open = null }
+        AppPermissionsScreen(repository, app, onBack = { open = null },
+            onDisconnect = { open = null; disconnect(app) })
+        return
+    }
+
     val t = Beep.colors
     Scaffold(containerColor = t.page, topBar = {
         TopAppBar(title = { Text(displayText("Apps"), style = displayStyle(24.sp)) },
@@ -156,13 +176,13 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit, onCustom: () -> U
             if (connected.isNotEmpty()) {
                 item { SectionLabel("Connected") }
                 items(connected, key = { "c-" + it.slug }) { app ->
-                    AppRow(app, busy == app.slug, onConnect = { connect(app) }, onDisconnect = { disconnect(app) })
+                    AppRow(app, busy == app.slug, onConnect = { connect(app) }, onOpen = { open = app })
                 }
             }
             if (available.isNotEmpty()) {
                 item { SectionLabel(if (connected.isEmpty()) "Available" else "More apps") }
                 items(available, key = { "a-" + it.slug }) { app ->
-                    AppRow(app, busy == app.slug, onConnect = { connect(app) }, onDisconnect = { disconnect(app) })
+                    AppRow(app, busy == app.slug, onConnect = { connect(app) }, onOpen = { open = app })
                 }
             }
             item {
@@ -183,9 +203,9 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, onDisconnect: () -> Unit) {
+private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, onOpen: () -> Unit) {
     val t = Beep.colors
-    BeepCard(Modifier.fillMaxWidth()) {
+    BeepCard(Modifier.fillMaxWidth().then(if (app.connected) Modifier.clickable(onClick = onOpen) else Modifier)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             AppLogo(app)
             Spacer(Modifier.width(14.dp))
@@ -197,7 +217,7 @@ private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, on
             Spacer(Modifier.width(10.dp))
             when {
                 busy -> CircularProgressIndicator(Modifier.padding(horizontal = 18.dp).size(20.dp), strokeWidth = 2.dp, color = t.ok)
-                app.connected -> ConnectedChip(canDisconnect = true, onDisconnect = onDisconnect)
+                app.connected -> ConnectedChip()
                 !app.configured -> Text("Unavailable",
                     fontSize = 12.sp, color = t.dim, modifier = Modifier.width(76.dp))
                 else -> ChunkyButton(onClick = onConnect, color = t.accent, contentColor = t.onAccent,
@@ -209,21 +229,128 @@ private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, on
     }
 }
 
+/** A connected app's state; tapping the row opens its permissions. */
 @Composable
-private fun ConnectedChip(canDisconnect: Boolean, onDisconnect: () -> Unit) {
+private fun ConnectedChip() {
     val t = Beep.colors
-    var open by remember { mutableStateOf(false) }
-    Box {
-        Row(Modifier.clip(CircleShape).background(t.tints[1])
-            .then(if (canDisconnect) Modifier.clickableNoRipple { open = true } else Modifier)
-            .padding(start = 10.dp, end = if (canDisconnect) 6.dp else 12.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Icon(Icons.Outlined.Check, null, Modifier.size(14.dp), tint = t.ok)
-            Text("Connected", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = t.ink)
-            if (canDisconnect) Icon(Icons.Outlined.ExpandMore, "Options", Modifier.size(16.dp), tint = t.muted)
+    Row(Modifier.clip(CircleShape).background(t.tints[1]).padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(Icons.Outlined.Check, null, Modifier.size(14.dp), tint = t.ok)
+        Text("Connected", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = t.ink)
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(16.dp), tint = t.muted)
+    }
+}
+
+private val levels = listOf(
+    Triple(PermissionLevel.ASK, "Ask first", "Beep shows what it is about to do and waits for you."),
+    Triple(PermissionLevel.ALLOW, "Always allow", "Beep sends, changes and deletes without asking."),
+    Triple(PermissionLevel.READ_ONLY, "Read only", "Beep can search and read, never change anything."),
+)
+
+/** How much Beep may do in one connected app: a level, and under Ask first, actions that never ask. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppPermissionsScreen(repository: ChatRepository, app: AppIntegration, onBack: () -> Unit, onDisconnect: () -> Unit) {
+    val t = Beep.colors
+    val scope = rememberCoroutineScope()
+    var permissions by remember { mutableStateOf<AppPermissions?>(null) }
+    var error by remember { mutableStateOf("") }
+    LaunchedEffect(app.slug) {
+        try { permissions = withContext(Dispatchers.IO) { repository.appPermissions(app.slug) } }
+        catch (e: Exception) { error = e.message.orEmpty() }
+    }
+    fun save(next: AppPermissions) {
+        val before = permissions
+        permissions = next
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    repository.setAppPermissions(app.slug, next.level, next.actions.filter { it.allowed }.map { it.tool })
+                }
+                error = ""
+            } catch (e: Exception) { permissions = before; error = e.message.orEmpty() }
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("Disconnect", color = t.error) }, onClick = { open = false; onDisconnect() })
+    }
+
+    Scaffold(containerColor = t.page, topBar = {
+        TopAppBar(title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AppLogo(app.slug, app.name, app.logoUrl, size = 32.dp)
+                Spacer(Modifier.width(12.dp))
+                Text(app.name, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = t.page))
+    }) { padding ->
+        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (error.isNotEmpty()) item { Text(error, color = t.error, fontSize = 13.sp) }
+            val current = permissions
+            if (current == null) {
+                if (error.isEmpty()) item {
+                    Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = t.ok)
+                    }
+                }
+            } else {
+                item { SectionLabel("When Beep acts in ${app.name}") }
+                items(levels, key = { it.first.name }) { (level, title, detail) ->
+                    val selected = current.level == level
+                    BeepCard(Modifier.fillMaxWidth().selectable(selected, role = Role.RadioButton) {
+                        if (!selected) save(current.copy(level = level))
+                    }) {
+                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = t.ok))
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = t.ink)
+                                Text(detail, fontSize = 12.sp, color = t.muted, lineHeight = 17.sp)
+                            }
+                        }
+                    }
+                }
+                if (current.actions.isNotEmpty()) {
+                    item { SectionLabel("Actions") }
+                    item {
+                        BeepCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
+                                current.actions.forEachIndexed { i, action ->
+                                    if (i > 0) HorizontalDivider(color = t.softLine)
+                                    ActionRow(action, current.level) { allowed ->
+                                        save(current.copy(actions = current.actions.map { if (it.tool == action.tool) it.copy(allowed = allowed) else it }))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                item { Text("Searching and reading is always allowed.", fontSize = 12.sp, color = t.muted, modifier = Modifier.padding(horizontal = 4.dp)) }
+            }
+            item {
+                Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
+                    TextButton(onClick = onDisconnect) { Text("Disconnect ${app.name}", color = t.error, fontSize = 14.sp) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionRow(action: AppAction, level: PermissionLevel, onAllowed: (Boolean) -> Unit) {
+    val t = Beep.colors
+    val (tag, tint) = when {
+        level == PermissionLevel.READ_ONLY -> "Off" to t.raised
+        level == PermissionLevel.ALLOW || action.allowed -> "Allowed" to t.tints[1]
+        else -> "Asks" to t.tints[2]
+    }
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(action.label, fontSize = 14.sp, color = t.ink, modifier = Modifier.weight(1f))
+        Text(tag, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = t.ink,
+            modifier = Modifier.clip(CircleShape).background(tint).padding(horizontal = 8.dp, vertical = 3.dp))
+        if (level == PermissionLevel.ASK) {
+            Spacer(Modifier.width(10.dp))
+            Switch(checked = action.allowed, onCheckedChange = onAllowed, modifier = Modifier.semantics { contentDescription = "Always allow ${action.label}" },
+                colors = SwitchDefaults.colors(checkedTrackColor = t.ok))
         }
     }
 }

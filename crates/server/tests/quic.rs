@@ -162,6 +162,7 @@ impl Harness {
                 body: String::new(),
                 session_id: String::new(),
                 app: None,
+                approval: None,
             },
         };
         self.app.notifications.send(notice).unwrap();

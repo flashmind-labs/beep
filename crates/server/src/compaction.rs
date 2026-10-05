@@ -4,6 +4,7 @@
 
 use crate::{
     app::App,
+    permissions,
     store::{SessionRef, Store},
 };
 use anyhow::Result;
@@ -79,6 +80,10 @@ async fn compact(store: &Store, summarizer: &Summarizer<'_>, session: &SessionRe
     let Some(before) = store.session_context(session).await? else {
         return Ok(false);
     };
+    // Waiting on the user: the open call must stay as it is until answered.
+    if !permissions::open_calls(&before.conversation).is_empty() {
+        return Ok(false);
+    }
     let mut context = before.conversation.clone();
     let summary = context
         .compact_with_llm_keeping_tokens(summarizer.provider, summarizer.model, KEEP_RECENT_TOKENS)

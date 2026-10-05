@@ -6,14 +6,15 @@
 //! the server dials the endpoint to deliver notices.
 
 use beep_proto::{
-    ApiError, AppIntegration, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink,
-    CreateCron, CreateIntegration, Cron, DeleteCron, DeleteIntegration, DeleteMemory,
-    DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth,
-    ForegroundApp, GetEvents, GetRun, GetSession, Health, HistoryEntry, Integration, ListApps,
-    ListCrons, ListIntegrations, ListMemories, ListSessions, Memory, Notice, PhoneNotification,
-    PinSession, PromptSuggestions, RegisterDevice, RenameSession, Run, RunCron, SaveNotifications,
-    Session, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCredentials,
-    UpdateCron, UpdateLocation, UpdateMemory,
+    AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
+    Chat, ClearMemories, ConnectApp, ConnectLink, CreateCron, CreateIntegration, Cron, DeleteCron,
+    DeleteIntegration, DeleteMemory, DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult,
+    DisconnectApp, Event, FinishAppAuth, ForegroundApp, GetAppPermissions, GetEvents, GetRun,
+    GetSession, Health, HistoryEntry, Integration, ListApps, ListCrons, ListIntegrations,
+    ListMemories, ListSessions, Memory, Notice, PermissionLevel, PhoneNotification, PinSession,
+    PromptSuggestions, RegisterDevice, RenameSession, Run, RunCron, SaveNotifications, Session,
+    SetAppPermissions, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice,
+    UpdateCredentials, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
 };
@@ -449,6 +450,43 @@ impl BeepClient {
 
     pub async fn disconnect_app(&self, slug: String) -> Result<(), BeepError> {
         self.call(DisconnectApp { slug }).await
+    }
+
+    /// What Beep may do in `slug`, and which of its actions act.
+    pub async fn get_app_permissions(&self, slug: String) -> Result<AppPermissions, BeepError> {
+        self.call(GetAppPermissions { slug }).await
+    }
+
+    /// `allowed` names, by tool, the actions that run without asking.
+    pub async fn set_app_permissions(
+        &self,
+        slug: String,
+        level: PermissionLevel,
+        allowed: Vec<String>,
+    ) -> Result<(), BeepError> {
+        self.call(SetAppPermissions {
+            slug,
+            level,
+            allowed,
+        })
+        .await
+    }
+
+    /// Answers a tool call the session stopped on, and returns the run that
+    /// resumes it. Answering again returns the same run.
+    pub async fn answer_approval(
+        &self,
+        session_id: String,
+        query_id: String,
+        decision: ApprovalDecision,
+    ) -> Result<Run, BeepError> {
+        let session_id = Uuid::parse_str(&session_id).map_err(|_| bad_request("invalid UUID"))?;
+        self.call(AnswerApproval {
+            session_id,
+            query_id,
+            decision,
+        })
+        .await
     }
 
     /// Starts OAuth for an app whose provider redirects only to localhost.

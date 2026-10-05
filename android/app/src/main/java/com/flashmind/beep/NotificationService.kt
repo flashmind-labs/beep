@@ -183,6 +183,13 @@ class NotificationService : Service() {
         val pending = PendingIntent.getActivity(this, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
+        notice.approval?.let { approval ->
+            // On screen, the card in the chat asks instead.
+            val repository = (applicationContext as BeepApplication).repository
+            if (!repository.onScreen(conversationId)) ApprovalNotifications.show(this, approval, conversationId, title, body, pending)
+            return
+        }
+
         val builder = Notification.Builder(this, ChatNotifications.CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(title)

@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import com.flashmind.beep.proto.PendingApproval
 
 /** A notification per chat with Beep's reply, answerable from the shade. */
 object ChatNotifications {
@@ -101,5 +102,48 @@ class ReplyReceiver : BroadcastReceiver() {
         repository.send(text, conversationId = id)
         // Reposting stops the reply spinner and shows the message that was sent.
         repository.state.value.conversations.find { it.id == id }?.let { ChatNotifications.show(context, it) }
+    }
+}
+
+/** A tool call waiting for the user, with Allow and Deny right in the notification. */
+object ApprovalNotifications {
+    fun show(context: Context, pending: PendingApproval, conversationId: String, title: String, body: String, open: PendingIntent) {
+        ChatNotifications.ensureChannel(context)
+        fun action(label: String, decision: String): Notification.Action {
+            val intent = Intent(context, ApprovalReceiver::class.java)
+                .putExtra("conversation_id", conversationId).putExtra("query_id", pending.queryId).putExtra("decision", decision)
+            val request = (pending.queryId + decision).hashCode()
+            val broadcast = PendingIntent.getBroadcast(context, request, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            return Notification.Action.Builder(null as Icon?, label, broadcast).build()
+        }
+        val notification = Notification.Builder(context, ChatNotifications.CHANNEL)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setContentIntent(open)
+            .addAction(action("Deny", "deny"))
+            .addAction(action("Allow", "allow"))
+            .setCategory(Notification.CATEGORY_REMINDER)
+            .setColor(0xFF3B9B7A.toInt())
+            .setAutoCancel(true)
+            .build()
+        context.getSystemService(NotificationManager::class.java).notify(pending.queryId.hashCode(), notification)
+    }
+
+    fun cancel(context: Context, queryId: String) =
+        context.getSystemService(NotificationManager::class.java).cancel(queryId.hashCode())
+}
+
+/** Sends the user's Allow or Deny from an approval notification. */
+class ApprovalReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val queryId = intent.getStringExtra("query_id") ?: return
+        val decision = intent.getStringExtra("decision") ?: return
+        val repository = (context.applicationContext as BeepApplication).repository
+        NotificationService.start(context)
+        val conversationId = intent.getStringExtra("conversation_id") ?: return
+        repository.answerApproval(conversationId, queryId, decision)
     }
 }

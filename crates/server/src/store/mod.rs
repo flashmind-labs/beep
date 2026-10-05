@@ -1,6 +1,9 @@
 use crate::{
     feeds::{mail::Mailbox, slack::SLACK},
-    protocol::{Cron, Integration, MemorySource, PhoneNotification, Run, Session, names::username},
+    protocol::{
+        Cron, Integration, MemorySource, PermissionLevel, PhoneNotification, Run, Session,
+        names::username,
+    },
     user::UserKey,
 };
 use anyhow::{Result, bail};
@@ -50,6 +53,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "cron_sessions",
         include_str!("../../migrations/0004_cron_sessions.sql"),
     ),
+    (
+        5,
+        "app_permissions",
+        include_str!("../../migrations/0005_app_permissions.sql"),
+    ),
 ];
 
 fn migrator() -> Migrator {
@@ -81,6 +89,13 @@ pub struct Store {
     memories: MemoryStore,
     /// Woken after any write to `crons`, so the scheduler picks the change up.
     crons_changed: Arc<Notify>,
+}
+
+/// One row of `app_permissions`.
+pub(crate) struct AppPermissionRow {
+    pub(crate) app: String,
+    pub(crate) level: PermissionLevel,
+    pub(crate) allowed: Vec<String>,
 }
 
 /// One row of `mcp_servers`.
@@ -166,6 +181,8 @@ pub enum RunStatus {
     Stalled,
     Looped,
     Failed,
+    /// Ended on a tool call that waits for the user's OK.
+    Waiting,
 }
 
 impl RunStatus {
@@ -178,6 +195,7 @@ impl RunStatus {
             Self::Stalled => "stalled",
             Self::Looped => "looped",
             Self::Failed => "failed",
+            Self::Waiting => "waiting",
         }
     }
 }
@@ -384,7 +402,7 @@ impl Store {
 
     /// The run already made for `request`: the same one again, or a
     /// conflict when the request id was used for something else.
-    async fn run_for_request(
+    pub(crate) async fn run_for_request(
         &self,
         user: &str,
         session: &str,
@@ -1298,6 +1316,42 @@ impl Store {
         .bind(user.as_str())
         .bind(name)
         .bind(credentials)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Every app the user set permissions for. A level this build does not
+    /// know reads as `Ask`.
+    pub(crate) async fn app_permissions(&self, user: &UserKey) -> Result<Vec<AppPermissionRow>> {
+        let rows = sqlx::query("SELECT app, level, allowed FROM app_permissions WHERE user_id=$1")
+            .bind(user.as_str())
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter()
+            .map(|r| {
+                Ok(AppPermissionRow {
+                    app: r.try_get(0)?,
+                    level: PermissionLevel::parse(r.try_get(1)?).unwrap_or(PermissionLevel::Ask {}),
+                    allowed: r.try_get(2)?,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) async fn save_app_permissions(
+        &self,
+        user: &UserKey,
+        row: &AppPermissionRow,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO app_permissions (user_id, app, level, allowed) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id, app) DO UPDATE SET level=excluded.level, allowed=excluded.allowed",
+        )
+        .bind(user.as_str())
+        .bind(&row.app)
+        .bind(row.level.as_str())
+        .bind(&row.allowed)
         .execute(&self.pool)
         .await?;
         Ok(())

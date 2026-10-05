@@ -1,10 +1,12 @@
 //! Request handlers, one function per request type.
 
 use crate::{
-    app::Message,
+    app::{Answer, Message},
+    apps::catalog_app,
     cron, feeds,
     images::{MAX_IMAGE_BYTES, MAX_IMAGES},
     live::Subscription,
+    permissions,
     protocol::*,
     router::{Cx, Router, Sink},
     store::{CreateRun, Feed, Location},
@@ -20,6 +22,7 @@ use std::{
     time::Duration,
 };
 use tokio::{sync::broadcast::error::RecvError, time::timeout};
+use uuid::Uuid;
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const EVENTS_WINDOW: Duration = Duration::from_secs(30);
@@ -63,6 +66,9 @@ pub fn router() -> Router {
         .call(start_app_auth)
         .call(finish_app_auth)
         .call(suggest_prompts)
+        .call(get_app_permissions)
+        .call(set_app_permissions)
+        .call(answer_approval)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -88,6 +94,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         cron_id: None,
         images: req.images,
         foreground: req.foreground,
+        answer: None,
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
@@ -337,6 +344,69 @@ async fn connect_app(cx: Cx, ConnectApp { slug }: ConnectApp) -> Reply<ConnectLi
 
 async fn disconnect_app(cx: Cx, DisconnectApp { slug }: DisconnectApp) -> Reply<()> {
     cx.user.disconnect_app(&slug).await
+}
+
+async fn get_app_permissions(
+    cx: Cx,
+    GetAppPermissions { slug }: GetAppPermissions,
+) -> Reply<AppPermissions> {
+    let app = catalog_app(&slug).ok_or(ApiError::NotFound {})?;
+    let rules = cx.user.app_rules().await?;
+    Ok(permissions::app_permissions(app, &rules))
+}
+
+async fn set_app_permissions(cx: Cx, req: SetAppPermissions) -> Reply<()> {
+    let app = catalog_app(&req.slug).ok_or(ApiError::NotFound {})?;
+    let row = permissions::row(app, req.level, req.allowed);
+    Ok(cx.user.save_app_permissions(&row).await?)
+}
+
+/// Resumes a session that stopped on a tool call to ask the user. Only the
+/// first open call can be answered; answering it again returns the run the
+/// first answer started.
+async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
+    let AnswerApproval {
+        session_id,
+        query_id,
+        decision,
+    } = req;
+    let message = Message {
+        session_id,
+        request_id: Uuid::nil(),
+        message: decision.as_str().to_owned(),
+        cron_id: None,
+        images: Vec::new(),
+        foreground: None,
+        answer: Some(Answer {
+            call_id: query_id.clone(),
+            decision,
+        }),
+    };
+    let session = session_id.to_string();
+    let conversation = match cx.user.context(&session).await? {
+        Some(context) => Some(context.conversation),
+        None => cx.user.conversation(&session).await?,
+    };
+    let open = conversation.as_ref().map(permissions::open_calls);
+    let waiting = open
+        .and_then(|open| open.into_iter().next())
+        .is_some_and(|call| call.id == query_id);
+    let created = if waiting {
+        cx.app.submit(&cx.user, message).await?
+    } else {
+        cx.user
+            .existing_run(&session, &message.request(), &message.message)
+            .await?
+            .ok_or_else(|| ApiError::Conflict {
+                message: "nothing is waiting for this answer".into(),
+            })?
+    };
+    match created {
+        CreateRun::Created(run) | CreateRun::Existing(run) => Ok(run),
+        CreateRun::Conflict => Err(ApiError::Conflict {
+            message: "session busy".into(),
+        }),
+    }
 }
 
 async fn start_app_auth(

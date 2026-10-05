@@ -12,8 +12,7 @@ use crate::{
     apps::{
         CATALOG, Composio, TOOLS_TIMEOUT, catalog_app, connect_url, connected_slugs, internal,
         mcp::{
-            Confirmations, KEEP_ALIVE, RunScope, StoreProvider, app_tools, check_redirect,
-            display_name, lost_login, preset,
+            KEEP_ALIVE, StoreProvider, app_tools, check_redirect, display_name, lost_login, preset,
         },
         mcp_app,
     },
@@ -24,14 +23,15 @@ use crate::{
         READING_LEARN_TIMEOUT, RECALLABLE, Reading, Remembered, Step, clip, curate_prompt, hit,
         learn_prompt, parse_curate_ops, parse_learn_ops, plan_curation, reading_prompt, settle,
     },
+    permissions::Rules,
     protocol::{
         ApiError, AppIntegration, AppKind, ConnectLink, Cron, Integration, Memory, MemorySource,
         Notice, PhoneNotification, PromptSuggestions, Run, Session,
     },
     starters::{Cached, FALLBACK_FRESH, FRESH, Generator, StarterContext, TIMEOUT, fallback},
     store::{
-        CreateRun, Fact, Feed, FinishedTurn, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow,
-        Origin, RunStatus, Store, StoredContext,
+        AppPermissionRow, CreateRun, Fact, Feed, FinishedTurn, Location, MEMORY_CATEGORIES,
+        McpServerRow, MemoryRow, Origin, RunStatus, Store, StoredContext,
     },
 };
 use anyhow::{Result, bail};
@@ -86,8 +86,6 @@ pub struct User {
     pub(crate) composio: Option<Arc<Composio>>,
     /// MCP servers the user connected, such as Fastmail, made on first use.
     pub(crate) mcp: OnceCell<McpRegistry>,
-    /// Remote tool calls waiting for the user's OK.
-    confirmations: Arc<Confirmations>,
     pub(crate) notifications: broadcast::Sender<UserNotice>,
     /// Suggested prompts, kept for 12 hours.
     pub(crate) starters: AsyncMutex<Option<Cached>>,
@@ -113,7 +111,6 @@ impl User {
             me: me.clone(),
             composio: shared.composio.clone(),
             mcp: OnceCell::new(),
-            confirmations: Arc::default(),
             notifications: shared.notifications.clone(),
             starters: AsyncMutex::new(None),
             syncing: Mutex::new(HashSet::new()),
@@ -204,6 +201,18 @@ impl User {
     ) -> Result<CreateRun> {
         self.store
             .create_run(&self.key, session, request, message)
+            .await
+    }
+
+    /// The run already started for `request`, without starting one.
+    pub async fn existing_run(
+        &self,
+        session: &str,
+        request: &str,
+        message: &str,
+    ) -> Result<Option<CreateRun>> {
+        self.store
+            .run_for_request(self.key.as_str(), session, request, message)
             .await
     }
 
@@ -507,6 +516,17 @@ impl User {
         self.store
             .save_mcp_credentials(&self.key, name, credentials)
             .await
+    }
+
+    /// What Beep may do in each app.
+    pub(crate) async fn app_rules(&self) -> Result<Rules> {
+        Ok(Rules::from_rows(
+            self.store.app_permissions(&self.key).await?,
+        ))
+    }
+
+    pub(crate) async fn save_app_permissions(&self, row: &AppPermissionRow) -> Result<()> {
+        self.store.save_app_permissions(&self.key, row).await
     }
 
     /// Deletes a saved MCP server; `false` when the user had none by that name.
@@ -907,6 +927,7 @@ impl User {
                 body: format!("Beep lost access to {app}. Tap to connect it again."),
                 session_id: String::new(),
                 app: Some(name.to_owned()),
+                approval: None,
             },
         };
         // Nobody listening just means the phone is offline; Apps still shows it.
@@ -938,8 +959,8 @@ impl User {
     }
 
     /// Agent tools for the servers the user has connected, one per remote
-    /// tool Beep exposes, for `run`.
-    pub async fn mcp_tools(&self, run: &Run) -> Vec<Arc<dyn Tool>> {
+    /// tool Beep exposes.
+    pub async fn mcp_tools(&self) -> Vec<Arc<dyn Tool>> {
         let connected = match self.mcp_connected().await {
             Ok(connected) if !connected.is_empty() => connected,
             Ok(_) => return Vec::new(),
@@ -952,12 +973,7 @@ impl User {
         // The tools are made from `current_mcp_tools` on every run, so the
         // queued register and unregister ops are not needed.
         registry.drain_pending_ops();
-        let scope = Arc::new(RunScope {
-            run_id: run.id.clone(),
-            session_id: run.session_id.clone(),
-            confirmations: self.confirmations.clone(),
-        });
-        app_tools(registry, &connected, &scope)
+        app_tools(registry, &connected)
     }
 
     /// Calls one tool on a connected server outside of any run and returns its
@@ -1075,7 +1091,7 @@ impl User {
             let slugs: Vec<&str> = connected
                 .iter()
                 .filter_map(|slug| catalog_app(slug))
-                .flat_map(|app| app.tools.iter().copied())
+                .flat_map(|app| app.tools.iter().map(|tool| tool.slug))
                 .collect();
             composio.tools(&slugs).await
         };
