@@ -8,7 +8,7 @@ use crate::{
 use anyhow::{Result, bail};
 use chrono::{DateTime, Days, NaiveDate, SecondsFormat, Utc};
 use flashmind::{
-    core::Conversation,
+    core::{Conversation, EntryKind},
     memory::{EmbeddingProvider, MemoryStore},
 };
 use iroh::EndpointId;
@@ -118,6 +118,16 @@ pub struct McpServerRow {
     pub name: String,
     pub config: Value,
     pub credentials: Option<Value>,
+}
+
+/// What `Store::delete_turn` did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeletedTurn {
+    Deleted,
+    /// No session, or no user message at that time.
+    NotFound,
+    /// A run is in progress and would save over the change.
+    Busy,
 }
 
 pub enum CreateRun {
@@ -638,6 +648,72 @@ impl Store {
             .rows_affected();
         tx.commit().await?;
         Ok(deleted)
+    }
+
+    /// Removes the turn that starts at the user message sent at `timestamp`,
+    /// in milliseconds since the epoch, from the transcript and the context.
+    pub(crate) async fn delete_turn(
+        &self,
+        user: &UserKey,
+        session_id: &str,
+        timestamp: i64,
+    ) -> Result<DeletedTurn> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT conversation, context FROM sessions WHERE user_id=$1 AND id=$2 FOR UPDATE",
+        )
+        .bind(user.as_str())
+        .bind(session_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(row) = row else {
+            return Ok(DeletedTurn::NotFound);
+        };
+        let busy: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM runs WHERE user_id=$1 AND session_id=$2 AND status='running')",
+        )
+        .bind(user.as_str())
+        .bind(session_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if busy {
+            return Ok(DeletedTurn::Busy);
+        }
+        let mut transcript: Conversation = serde_json::from_str(row.try_get("conversation")?)?;
+        let Some(turn) = remove_turn(&mut transcript, timestamp) else {
+            return Ok(DeletedTurn::NotFound);
+        };
+        // A context that was never compacted is the transcript itself.
+        let context: Option<String> = row.try_get("context")?;
+        let context = match context {
+            Some(raw) => {
+                let mut context: Conversation = serde_json::from_str(&raw)?;
+                // A summary may hold part of the turn; it stays.
+                context.entries_mut().retain(|entry| {
+                    entry.is_summary() || !turn.contains(entry.timestamp.timestamp_millis())
+                });
+                Some(serde_json::to_string(&context)?)
+            }
+            None => None,
+        };
+        sqlx::query(
+            "UPDATE sessions SET conversation=$1, context=$2, updated_at=now()
+             WHERE user_id=$3 AND id=$4",
+        )
+        .bind(serde_json::to_string(&transcript)?)
+        .bind(context)
+        .bind(user.as_str())
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM memory_scores WHERE user_id=$1 AND session_id=$2 AND turn_at=$3")
+            .bind(user.as_str())
+            .bind(session_id)
+            .bind(timestamp)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(DeletedTurn::Deleted)
     }
 
     pub(crate) async fn pin_session(
@@ -1546,9 +1622,79 @@ fn streak(days: &[NaiveDate], today: NaiveDate) -> i64 {
     streak
 }
 
+/// The times a removed turn spanned, in milliseconds since the epoch. `end`
+/// is the next turn's user message, if there is one.
+struct TurnSpan {
+    start: i64,
+    end: Option<i64>,
+}
+
+impl TurnSpan {
+    fn contains(&self, millis: i64) -> bool {
+        millis >= self.start && self.end.is_none_or(|end| millis < end)
+    }
+}
+
+/// Removes the user message sent at `timestamp` and every entry up to the
+/// next user message: the reply, its tool calls and their results.
+fn remove_turn(conversation: &mut Conversation, timestamp: i64) -> Option<TurnSpan> {
+    let is_user = |kind: &EntryKind| matches!(kind, EntryKind::User { .. });
+    let entries = conversation.entries_mut();
+    let start = entries
+        .iter()
+        .position(|e| is_user(&e.kind) && e.timestamp.timestamp_millis() == timestamp)?;
+    let end = entries[start + 1..]
+        .iter()
+        .position(|e| is_user(&e.kind))
+        .map_or(entries.len(), |i| start + 1 + i);
+    let span = TurnSpan {
+        start: timestamp,
+        end: entries.get(end).map(|e| e.timestamp.timestamp_millis()),
+    };
+    entries.drain(start..end);
+    Some(span)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flashmind::core::ConversationEntry;
+
+    fn turn(conversation: &mut Conversation, at: i64, prompt: &str) {
+        let time = |ms| DateTime::from_timestamp_millis(ms).unwrap();
+        let mut entries = vec![
+            ConversationEntry::user(prompt),
+            ConversationEntry::assistant_with_tool_calls("", vec![], None),
+            ConversationEntry::tool("call", "done"),
+            ConversationEntry::assistant(format!("re: {prompt}")),
+        ];
+        for (i, entry) in entries.iter_mut().enumerate() {
+            entry.timestamp = time(at + i as i64);
+        }
+        conversation.entries_mut().extend(entries);
+    }
+
+    #[test]
+    fn remove_turn_takes_the_reply_and_tools_with_the_prompt() {
+        let mut chat = Conversation::new();
+        turn(&mut chat, 1000, "one");
+        turn(&mut chat, 2000, "two");
+        turn(&mut chat, 3000, "three");
+
+        let span = remove_turn(&mut chat, 2000).unwrap();
+        assert_eq!((span.start, span.end), (2000, Some(3000)));
+        let times: Vec<_> = chat
+            .entries()
+            .iter()
+            .map(|e| e.timestamp.timestamp_millis())
+            .collect();
+        assert_eq!(times, [1000, 1001, 1002, 1003, 3000, 3001, 3002, 3003]);
+
+        let span = remove_turn(&mut chat, 3000).unwrap();
+        assert_eq!((span.start, span.end), (3000, None));
+        assert_eq!(chat.entries().len(), 4);
+        assert!(remove_turn(&mut chat, 1001).is_none());
+    }
 
     #[test]
     fn streak_counts_back_from_today_or_yesterday() {

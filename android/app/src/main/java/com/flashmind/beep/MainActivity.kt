@@ -731,6 +731,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
     var attachedImages by DraftField({ repository.draft(chat.id).images }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(images = it)) }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val imageContext = androidx.compose.ui.platform.LocalContext.current
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_IMAGES)) { uris ->
         if (uris.isNotEmpty()) {
@@ -943,7 +944,10 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                             if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
                                 padded = isUser || Beep.shapes.botBubble)
                         }
-                        MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote)
+                        MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote,
+                            onDelete = if (message.role in setOf("user", "scheduled") && !chat.busy) {
+                                { scope.launch { runCatching { repository.deleteTurn(message, chat.id) }.onFailure { showError(context, it) } } }
+                            } else null)
                         } }
                         if (isUser && message.model.isNotEmpty()) {
                             val name = modelChoices?.choices?.find { it.id == message.model }?.name ?: message.model
@@ -974,7 +978,10 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                                 Spacer(Modifier.width(6.dp)); Text("Quote", fontSize = 11.sp, color = TextMuted)
                             }
                             modelChoices?.takeIf { it.choices.isNotEmpty() }?.let { models ->
-                                RerunButton(models) { followLatest = true; repository.rerun(message, it) }
+                                RerunButton(models) { model ->
+                                    followLatest = true
+                                    scope.launch { runCatching { repository.rerun(message, model) }.onFailure { showError(context, it) } }
+                                }
                             }
                             // Jev's estimate that this turn held something worth remembering.
                             message.memoryScore?.let { score ->
@@ -1313,7 +1320,7 @@ private fun RerunButton(models: Models, onPick: (String) -> Unit) {
 
 /** Tap actions on a message. */
 @Composable
-private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQuote: () -> Unit) {
+private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQuote: () -> Unit, onDelete: (() -> Unit)? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
     DropdownMenu(expanded = open, onDismissRequest = onDismiss, containerColor = Surface, shape = RoundedCornerShape(Beep.shapes.smallRadius)) {
         DropdownMenuItem(text = { Text("Copy") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)) }, onClick = {
@@ -1328,8 +1335,15 @@ private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQu
             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), null))
             onDismiss()
         })
+        // Takes the reply and its tool calls with it.
+        if (onDelete != null) DropdownMenuItem(text = { Text("Delete", color = Coral) },
+            leadingIcon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp), tint = Coral) },
+            onClick = { onDismiss(); onDelete() })
     }
 }
+
+private fun showError(context: android.content.Context, error: Throwable) =
+    android.widget.Toast.makeText(context, error.message ?: "Something went wrong", android.widget.Toast.LENGTH_SHORT).show()
 
 // ── Rich message rendering ──────────────────────────────────────────────────
 
