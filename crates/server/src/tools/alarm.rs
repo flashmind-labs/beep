@@ -9,6 +9,11 @@ impl Tool for SetAlarmTool {
     fn name(&self) -> &str {
         "set_alarm"
     }
+
+    // Acts on the phone, which handles one request at a time.
+    fn concurrent(&self) -> bool {
+        false
+    }
     fn description(&self) -> &str {
         "Set an alarm in the phone's Clock app at a time of day in the user's local time. An alarm without days rings at the next time that clock time comes round, so 8:00 asked for at night rings tomorrow morning. Use this for alarms and wake-ups, not open_app or a reminder. The phone never reports back, so say you are setting it, never that it is set."
     }

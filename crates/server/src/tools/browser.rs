@@ -14,6 +14,11 @@ impl Tool for OpenBrowserTool {
     fn name(&self) -> &str {
         "open_browser"
     }
+
+    // Acts on the phone, which handles one request at a time.
+    fn concurrent(&self) -> bool {
+        false
+    }
     fn description(&self) -> &str {
         "Show a URL to the user in the in-app browser on their phone. To read or act on the page yourself, use the browser tool."
     }
@@ -46,6 +51,11 @@ pub(crate) struct BrowserTool {
 impl Tool for BrowserTool {
     fn name(&self) -> &str {
         "browser"
+    }
+
+    // Acts on the phone, which handles one request at a time.
+    fn concurrent(&self) -> bool {
+        false
     }
     fn description(&self) -> &str {
         "Use the in-app browser on the user's phone, which they watch while you work. \
