@@ -17,6 +17,11 @@ impl Tool for OpenAppTool {
     fn name(&self) -> &str {
         "open_app"
     }
+
+    // Acts on the phone, which handles one request at a time.
+    fn concurrent(&self) -> bool {
+        false
+    }
     fn description(&self) -> &str {
         "Ask the user's Android phone to open an app. The phone gets the request but never reports back whether the app opened, so say you are opening it, never that it opened. To set an alarm use set_alarm; clock only opens the alarm list. For a ride, use uber with destination: it opens Uber with the trip filled in from the user's location, and the user still picks the ride and confirms it, so never say a ride is booked."
     }
@@ -34,7 +39,7 @@ impl Tool for OpenAppTool {
                 },
                 "uri": {
                     "type": "string",
-                    "description": "Optional deep link, only one you know is valid for the app. Never guess a path. For Maps: geo:0,0?q=Dubai+Mall for a place, https://maps.google.com/location-sharing for people sharing their location. Not for uber; use destination."
+                    "description": "Optional deep link, only one you know is valid for the app. Never guess a path. For Maps: geo:0,0?q=Dubai+Mall for a place, https://maps.google.com/location-sharing for \"where is <person>\", which shows people who share their location with the user. Not for uber; use destination."
                 },
                 "destination": {
                     "type": "string",

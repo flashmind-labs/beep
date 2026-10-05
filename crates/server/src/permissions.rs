@@ -375,6 +375,10 @@ impl Tool for Guarded {
     fn humanize(&self, args: &Value) -> String {
         self.tool.humanize(args)
     }
+
+    fn concurrent(&self) -> bool {
+        self.tool.concurrent()
+    }
 }
 
 #[cfg(test)]

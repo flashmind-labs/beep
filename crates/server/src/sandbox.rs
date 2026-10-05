@@ -292,6 +292,11 @@ impl Tool for ExecuteCodeTool {
     fn name(&self) -> &str {
         "execute_code"
     }
+
+    // Runs share the user's sandbox folder.
+    fn concurrent(&self) -> bool {
+        false
+    }
     fn description(&self) -> &str {
         "Run Python or bash in a sandbox for calculations, data analysis, reading PDFs and converting files. The working directory is the user's file folder, where download_file saves files; files there are deleted after 24 hours. There is no network access. Python has numpy, pandas, scipy, matplotlib (save charts to files), openpyxl, pypdf and pdfplumber; pdftotext and pdfinfo are installed. Runs stop after 60 seconds. Print what you need to see; long output is cut."
     }
@@ -348,6 +353,11 @@ struct DownloadFileTool {
 impl Tool for DownloadFileTool {
     fn name(&self) -> &str {
         "download_file"
+    }
+
+    // Runs share the user's sandbox folder.
+    fn concurrent(&self) -> bool {
+        false
     }
     fn description(&self) -> &str {
         "Download a file such as a PDF or spreadsheet from a public http(s) URL into the user's file folder, so execute_code can read it. Files up to 20 MiB; they are deleted after 24 hours. Saving under an existing name replaces that file."

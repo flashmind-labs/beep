@@ -723,6 +723,7 @@ impl App {
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
             .tools(registry)
+            .allow_parallel_tool_calls(true)
             .build()
             .await;
 
@@ -880,6 +881,11 @@ impl App {
                         ..
                     }) => {
                         tools_running = tools_running.saturating_sub(1);
+                        // A parallel batch can stop on several calls; ask
+                        // about the first; resuming reaches the others.
+                        if parked.is_some() {
+                            continue;
+                        }
                         parked = payload
                             .as_ref()
                             .and_then(|payload| payload.as_any().downcast_ref::<ApprovalPayload>())

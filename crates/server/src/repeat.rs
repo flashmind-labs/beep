@@ -166,6 +166,10 @@ impl Tool for CallGuard {
     fn humanize(&self, args: &Value) -> String {
         self.tool.humanize(args)
     }
+
+    fn concurrent(&self) -> bool {
+        self.tool.concurrent()
+    }
 }
 
 #[cfg(test)]

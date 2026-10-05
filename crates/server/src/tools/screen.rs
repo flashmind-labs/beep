@@ -30,6 +30,11 @@ impl Tool for ReadScreenTool {
     fn name(&self) -> &str {
         "read_screen"
     }
+
+    // Acts on the phone, which handles one request at a time.
+    fn concurrent(&self) -> bool {
+        false
+    }
     fn description(&self) -> &str {
         "Read what is on the user's phone screen, from the app open behind Beep's bubble. \
          Use it when the user refers to what they are looking at. The phone takes a \
