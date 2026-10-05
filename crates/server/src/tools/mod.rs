@@ -26,7 +26,14 @@ pub fn registry(
     let mut registry = ToolRegistry::new();
     memory::register(&mut registry, user, &run.session_id);
     registry.register(Arc::new(TimeTool));
-    crate::cron::register_tools(&mut registry, app.store.clone(), user.id(), timezone, None);
+    crate::cron::register_tools(
+        &mut registry,
+        app.store.clone(),
+        user.id(),
+        &run.session_id,
+        timezone,
+        None,
+    );
     registry.register(Arc::new(open_app::OpenAppTool));
     registry.register(Arc::new(alarm::SetAlarmTool));
     registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));

@@ -95,13 +95,18 @@ impl CronHandler for BeepCronHandler {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let session_id = Uuid::new_v4();
-        let request_id = Uuid::new_v4();
+        // Run in the chat the routine was set up from, so its reply lands
+        // there. Routines made outside a chat get a chat of their own.
+        let origin = job
+            .metadata
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .and_then(|v| v.parse::<Uuid>().ok());
         let message = scheduled_prompt(label, &job.task);
-        let msg = Message {
+        let msg = |session_id| Message {
             session_id,
-            request_id,
-            message,
+            request_id: Uuid::new_v4(),
+            message: message.clone(),
             cron_id: Some(job.id.to_string()),
             images: Vec::new(),
             foreground: None,
@@ -111,7 +116,16 @@ impl CronHandler for BeepCronHandler {
             log::warn!("cron job for an unknown user; job_id={}", job.id);
             return Ok(None);
         };
-        match self.app.submit(&user, msg).await {
+        let mut result = self
+            .app
+            .submit(&user, msg(origin.unwrap_or_else(Uuid::new_v4)))
+            .await;
+        // The chat is busy with another run: go ahead in a new one rather than
+        // drop the reminder.
+        if origin.is_some() && matches!(result, Ok(CreateRun::Conflict)) {
+            result = self.app.submit(&user, msg(Uuid::new_v4())).await;
+        }
+        match result {
             Ok(CreateRun::Created(run)) => Ok(Some(run.id)),
             Ok(_) => {
                 log::debug!("cron run not created (conflict); job_id={}", job.id);
@@ -171,12 +185,13 @@ pub fn register_tools(
     registry: &mut flashmind::types::ToolRegistry,
     store: Store,
     user: &str,
+    session_id: &str,
     timezone: Option<&str>,
     cron_log: Option<Arc<CronLog>>,
 ) {
     let cron_store = Arc::new(BeepCronStore::for_user(store, user));
     let cron_registry = Arc::new(CronRegistry::new(cron_store));
-    let user_meta = json!({"user_id": user});
+    let user_meta = json!({"user_id": user, "session_id": session_id});
 
     registry.register(Arc::new(CronCreateTool::with_metadata(
         cron_registry.clone(),
@@ -189,7 +204,7 @@ pub fn register_tools(
     // model writes local times like "2026-10-05T11:30:00".
     registry.register(Arc::new(ScheduleOnceTool::with_metadata(
         cron_registry,
-        json!({"user_id": user, "timezone": timezone}),
+        json!({"user_id": user, "session_id": session_id, "timezone": timezone}),
     )));
 
     if let Some(log) = cron_log {
@@ -258,7 +273,14 @@ mod tests {
         let db = TestDb::new().await.expect("test database");
         let store = db.store().await.expect("store opens");
         let mut registry = flashmind::types::ToolRegistry::new();
-        register_tools(&mut registry, store, "user", Some("Asia/Singapore"), None);
+        register_tools(
+            &mut registry,
+            store,
+            "user",
+            "session",
+            Some("Asia/Singapore"),
+            None,
+        );
         let tool = registry
             .get("schedule_once")
             .expect("schedule_once registered");
@@ -276,5 +298,26 @@ mod tests {
             "{}",
             result.output()
         );
+    }
+
+    #[tokio::test]
+    async fn a_reminder_remembers_the_chat_it_was_set_in() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store opens");
+        let mut registry = flashmind::types::ToolRegistry::new();
+        register_tools(&mut registry, store.clone(), "user", "chat-1", None, None);
+        let tool = registry
+            .get("schedule_once")
+            .expect("schedule_once registered");
+
+        let cancel = CancellationToken::new();
+        let args = json!({"datetime": "2099-01-01T08:00:00Z", "task": "ping"});
+        tool.execute(ToolContext::new("call", args, None, &cancel))
+            .await
+            .expect("tool runs");
+
+        let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].metadata["session_id"], "chat-1");
     }
 }

@@ -10,19 +10,20 @@ use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
 
 const COLUMNS: &str =
-    "id, user_id, label, prompt, schedule, enabled, run_once, created_at, last_run_at";
+    "id, user_id, label, prompt, schedule, enabled, run_once, created_at, last_run_at, session_id";
 
 fn job_from(row: &PgRow) -> Result<CronJob> {
     let id: String = row.try_get("id")?;
     let user_id: String = row.try_get("user_id")?;
     let label: String = row.try_get("label")?;
+    let session_id: Option<String> = row.try_get("session_id")?;
     Ok(CronJob {
         id: id.parse().unwrap_or_else(|_| Uuid::new_v4()),
         schedule: decode_schedule(row.try_get("schedule")?),
         task: row.try_get("prompt")?,
         enabled: row.try_get("enabled")?,
         once: row.try_get("run_once")?,
-        metadata: json!({"user_id": user_id, "label": label}),
+        metadata: json!({"user_id": user_id, "label": label, "session_id": session_id}),
         created_at: row.try_get("created_at")?,
         last_run: row.try_get("last_run_at")?,
     })
@@ -72,10 +73,11 @@ impl Store {
         };
         sqlx::query(
             "INSERT INTO crons (user_id, id, label, prompt, schedule, enabled, run_once,
-                 created_at, last_run_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 created_at, last_run_at, session_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              ON CONFLICT (user_id, id) DO UPDATE SET label=$3, prompt=$4, schedule=$5,
-                 enabled=$6, run_once=$7, last_run_at=$9",
+                 enabled=$6, run_once=$7, last_run_at=$9,
+                 session_id=COALESCE($10, crons.session_id)",
         )
         .bind(meta(job, "user_id").unwrap_or("unknown"))
         .bind(job.id.to_string())
@@ -86,6 +88,7 @@ impl Store {
         .bind(job.once)
         .bind(job.created_at)
         .bind(job.last_run)
+        .bind(meta(job, "session_id"))
         .execute(&self.pool)
         .await?;
         Ok(())

@@ -45,6 +45,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "accounts",
         include_str!("../../migrations/0003_accounts.sql"),
     ),
+    (
+        4,
+        "cron_sessions",
+        include_str!("../../migrations/0004_cron_sessions.sql"),
+    ),
 ];
 
 fn migrator() -> Migrator {
