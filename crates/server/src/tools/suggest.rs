@@ -3,7 +3,8 @@
 //! `suggest_replies` tool result so older chats and phones read them the same.
 use serde::Serialize;
 
-const MAX_REPLY_CHARS: usize = 40;
+/// Longer replies are dropped rather than cut, so no chip reads half-written.
+const MAX_REPLY_CHARS: usize = 60;
 const MIN_REPLIES: usize = 2;
 const MAX_REPLIES: usize = 4;
 pub(crate) const NAME: &str = "suggest_replies";
@@ -20,25 +21,21 @@ struct Suggestions {
     replies: Vec<String>,
 }
 
-/// Cuts `text` to `max` characters, at a word boundary when one is close.
-fn shorten(text: &str, max: usize) -> String {
+/// `text` with its whitespace collapsed, or `None` when it is empty or
+/// longer than `max` characters.
+fn fit(text: &str, max: usize) -> Option<String> {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if text.chars().count() <= max {
-        return text;
-    }
-    let cut: String = text.chars().take(max).collect();
-    match cut.rfind(' ') {
-        Some(space) if space >= max / 2 => cut[..space].to_owned(),
-        _ => cut,
-    }
+    (!text.is_empty() && text.chars().count() <= max).then_some(text)
 }
 
-/// `replies` shortened, without empty ones or duplicates, at most four.
+/// `replies` that fit, without duplicates, at most four.
 fn suggestions(replies: Vec<String>) -> Option<Suggestions> {
     let mut kept: Vec<String> = Vec::new();
     for reply in &replies {
-        let reply = shorten(reply, MAX_REPLY_CHARS);
-        if !reply.is_empty() && !kept.iter().any(|r| r.eq_ignore_ascii_case(&reply)) {
+        let Some(reply) = fit(reply, MAX_REPLY_CHARS) else {
+            continue;
+        };
+        if !kept.iter().any(|r| r.eq_ignore_ascii_case(&reply)) {
             kept.push(reply);
         }
     }
@@ -80,11 +77,12 @@ mod tests {
     }
 
     #[test]
-    fn long_replies_are_cut_and_too_few_rejected() {
-        let long = "Book a table for two at the Italian place tonight at eight";
-        let out = suggestions(vec![long.into(), "Not now".into()]).unwrap();
-        assert!(out.replies[0].chars().count() <= MAX_REPLY_CHARS);
-        assert!(long.starts_with(&out.replies[0]));
+    fn long_replies_are_dropped_and_too_few_rejected() {
+        let long = "Book a table for two at the Italian place tonight at eight, by the window";
+        assert!(
+            output(&[long, "Not now", "Later"]).unwrap()["replies"] == json!(["Not now", "Later"])
+        );
+        assert!(output(&[long, "Not now"]).is_none());
         assert!(output(&["Only one"]).is_none());
     }
 }
