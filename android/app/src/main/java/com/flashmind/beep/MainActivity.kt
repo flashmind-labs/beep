@@ -377,7 +377,8 @@ class PanelActivity : MainActivity() {
         val gap = (8 * density).toInt()
         val shortest = (200 * density).toInt()
         window.setLayout(width, fullHeight)
-        window.attributes = window.attributes.apply { gravity = Gravity.TOP; y = Bubble.panelTop(this@PanelActivity) }
+        // Measured from the top of the screen, like the bubble, not from below the status bar.
+        window.attributes = window.attributes.apply { gravity = Gravity.TOP; fitInsetsTypes = 0; y = Bubble.panelTop(this@PanelActivity) }
         // A floating window is not resized for the keyboard, so shrink it to end just above the keyboard.
         // The inset is how far the keyboard overlaps the window, which is zero once it has shrunk.
         window.decorView.setOnApplyWindowInsetsListener { view, insets ->
@@ -896,14 +897,17 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                         val displayedLen by animateIntAsState(textLen, tween(if (isStreaming) 150 else 0), label = "stream-text")
                         val shownText = if (isStreaming && displayedLen < textLen) message.text.substring(0, displayedLen) else message.text
                         var menuOpen by remember(message.id) { mutableStateOf(false) }
-                        val quote: () -> Unit = {
-                            draft = message.text.trim().lines().take(4).joinToString("\n") { "> $it" } + "\n\n"
+                        // The quote goes above whatever is already typed.
+                        val quoteText: (String) -> Unit = { text ->
+                            draft = text.trim().lines().joinToString("\n") { "> $it" } + "\n\n" + draft.trimStart()
                             inputFocusRequester.requestFocus()
                         }
-                        if (shownText.isNotBlank() || message.images.isNotEmpty()) Box {
-                        // Long press belongs to text selection, so a tap opens the menu (copy, quote, share).
-                        Column(bubbleModifier.clickable(enabled = !isStreaming, onClickLabel = "Message actions",
-                            indication = null, interactionSource = remember { MutableInteractionSource() }) { menuOpen = true }) {
+                        val quote: () -> Unit = { quoteText(message.text.trim().lines().take(4).joinToString("\n")) }
+                        if (shownText.isNotBlank() || message.images.isNotEmpty()) SelectableMessage(quoteText) { picker -> Box {
+                        // Long press and double tap belong to text selection, so a tap opens the menu (copy, quote, share).
+                        Column(bubbleModifier.then(picker.tracking).combinedClickable(enabled = !isStreaming, onClickLabel = "Message actions",
+                            indication = null, interactionSource = remember { MutableInteractionSource() },
+                            onDoubleClick = picker::selectWord) { if (!picker.picking) menuOpen = true }) {
                             // One attached image fills the bubble; several sit in a row of thumbnails.
                             if (message.images.size == 1) {
                                 val msgBitmap = remember(message.images[0]) { decodeImageBase64(message.images[0]) }
@@ -929,7 +933,7 @@ private fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier:
                                 padded = isUser || Beep.shapes.botBubble)
                         }
                         MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote)
-                        }
+                        } }
                         if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact) { repository.openBrowser(it) }
                         if (!isUser && !isStreaming && message.text.isNotBlank()) {
                             val shownLinks = toolCards.mapNotNull { (it.second as? ToolCard.Link)?.url }.toSet()

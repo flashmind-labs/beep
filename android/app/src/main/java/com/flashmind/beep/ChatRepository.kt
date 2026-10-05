@@ -102,7 +102,12 @@ class ChatRepository(private val storage: LocalStorage) {
     private var locationJob: Job? = null
     /** Chat screens currently started: the app, the bubble or the panel. */
     private val chatScreens = AtomicInteger(0)
-    fun chatScreenShown(shown: Boolean) { if (shown) chatScreens.incrementAndGet() else chatScreens.decrementAndGet() }
+    fun chatScreenShown(shown: Boolean) {
+        if (!shown) { chatScreens.decrementAndGet(); return }
+        chatScreens.incrementAndGet()
+        // The chat on screen has been read, so its notification goes.
+        ChatNotifications.cancel(storage.context, state.value.current.id)
+    }
     fun onScreen(id: String) = chatScreens.get() > 0 && state.value.current.id == id
     private val cloud = CloudBackup(storage.context)
     /** The readable name of this phone's identity, such as mega-fox-trot. */
@@ -958,6 +963,9 @@ class ChatRepository(private val storage: LocalStorage) {
             next
         }
         if (finished && !onScreen(id))
-            state.value.conversations.find { it.id == id }?.let { ChatNotifications.show(storage.context, it) }
+            state.value.conversations.find { it.id == id }?.let {
+                ChatNotifications.show(storage.context, it)
+                Bubble.callout(storage.context, it)
+            }
     }
 }
