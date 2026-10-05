@@ -300,6 +300,8 @@ dependencies = [
  "anyhow",
  "beep-proto",
  "iroh",
+ "rmp-serde",
+ "serde",
  "thiserror 2.0.21",
  "tokio",
  "uniffi",

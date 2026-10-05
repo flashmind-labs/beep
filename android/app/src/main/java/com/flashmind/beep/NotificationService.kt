@@ -170,6 +170,8 @@ class NotificationService : Service() {
     }
 
     private fun handleNotice(notice: Notice) {
+        // A chat changed on the server, maybe from another phone.
+        if (notice.changed) { (applicationContext as BeepApplication).repository.refreshHistory(); return }
         val title = notice.title.ifEmpty { return }
         val body = notice.body
         val conversationId = notice.sessionId

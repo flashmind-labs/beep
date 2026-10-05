@@ -5,6 +5,9 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
+import com.flashmind.beep.ffi.ListCache
+import com.flashmind.beep.ffi.decodeListCache
+import com.flashmind.beep.ffi.encodeListCache
 import com.flashmind.beep.ffi.newIdentity
 import com.flashmind.beep.proto.Approval
 import com.flashmind.beep.proto.ApprovalField
@@ -66,7 +69,11 @@ data class Conversation(
     val status: String = "", val error: String = "",
     val tool: String = "", val cancelRequested: Boolean = false, val pinned: Boolean = false,
     /** The model's reasoning for the current step, shown live and moved onto the reply once it moves on. Not saved. */
-    val thinking: String = ""
+    val thinking: String = "",
+    /** The server's `updated_at` of the turns in [messages], 0 when they did not come from the server. */
+    val version: Long = 0,
+    /** When the user last opened the chat, in epoch milliseconds. */
+    val openedAt: Long = System.currentTimeMillis()
 ) { val busy get() = requestId.isNotEmpty() || runId.isNotEmpty() }
 const val NEW_CHAT_TITLE = "New conversation"
 
@@ -95,6 +102,7 @@ class LocalStorage(internal val context: Context) {
     private val prefs = context.getSharedPreferences("connection", Context.MODE_PRIVATE)
     private val file = AtomicFile(File(context.filesDir, "conversations.json"))
     private val changesFile = AtomicFile(File(context.filesDir, "pending-changes.json"))
+    private val listsFile = AtomicFile(File(context.filesDir, "lists.bin"))
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey("beep-identity", null) as? SecretKey)?.let { return it }
@@ -169,7 +177,8 @@ class LocalStorage(internal val context: Context) {
                     m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals)
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"),
-                status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"))
+                status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
+                version = c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()))
         }
         check(conversations.isNotEmpty())
         ChatState(conversations, json.optString("selected"))
@@ -210,6 +219,18 @@ class LocalStorage(internal val context: Context) {
         val id = UUID.randomUUID().toString()
         prefs.edit().putString("device_id", id).apply()
         return id
+    }
+
+    /** The settings lists last fetched from the server. */
+    fun loadLists(): ListCache =
+        runCatching { decodeListCache(listsFile.readFully()) }.getOrElse { ListCache(null, null, null, null) }
+
+    fun saveLists(lists: ListCache) {
+        val out = listsFile.startWrite()
+        try {
+            out.write(encodeListCache(lists))
+            listsFile.finishWrite(out)
+        } catch (error: Exception) { listsFile.failWrite(out); throw error }
     }
 
     fun loadChanges(): List<ChatChange> = runCatching {
@@ -281,7 +302,7 @@ class LocalStorage(internal val context: Context) {
                 .put("runId", c.runId).put("cursor", c.cursor).put("requestId", c.requestId)
                 .put("pendingText", c.pendingText).apply { if (c.pendingImages.isNotEmpty()) put("pendingImages", JSONArray(c.pendingImages)) }
                 .put("status", c.status).put("cancelRequested", c.cancelRequested)
-                .put("pinned", c.pinned))
+                .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt))
         }
         val out = file.startWrite()
         try {

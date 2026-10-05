@@ -67,6 +67,7 @@ pub fn router() -> Router {
         .call(answer_approval)
         .call(get_models)
         .call(set_model)
+        .call(existing_sessions)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -463,6 +464,16 @@ async fn delete_sessions(cx: Cx, DeleteSessions { ids }: DeleteSessions) -> Repl
         return Err(ApiError::bad_request("at most 200 sessions at once"));
     }
     Ok(cx.user.delete_sessions(ids).await?)
+}
+
+async fn existing_sessions(
+    cx: Cx,
+    ExistingSessions { ids }: ExistingSessions,
+) -> Reply<Vec<String>> {
+    if ids.len() > 1000 {
+        return Err(ApiError::bad_request("at most 1000 sessions at once"));
+    }
+    Ok(cx.user.existing_sessions(ids).await?)
 }
 
 async fn pin_session(cx: Cx, PinSession { id, pinned }: PinSession) -> Reply<()> {

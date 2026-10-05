@@ -205,6 +205,9 @@ requests! {
     41 GetModels {} => Call<Models>
     /// Picks the model for the caller's turns. Admins only.
     42 SetModel { id: String } => Call<Models>
+    /// The ones of `ids` the server still has, so a phone can drop the
+    /// chats another phone deleted.
+    43 ExistingSessions { ids: Vec<String> } => Call<Vec<String>>
 }
 
 wire_enum! {
@@ -570,6 +573,9 @@ pub struct Session {
     pub id: String,
     pub title: String,
     pub pinned: bool,
+    /// When its turns last changed, in milliseconds since the Unix epoch. A
+    /// phone holding a copy from then has nothing to fetch.
+    pub updated_at: i64,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -659,6 +665,9 @@ pub struct Notice {
     pub app: Option<String>,
     /// A tool call waiting for the user's OK, answered from the notice.
     pub approval: Option<PendingApproval>,
+    /// Nothing to show: `session_id` changed on the server, or the chat list
+    /// did when it is empty, so the phone refreshes its copy.
+    pub changed: bool,
 }
 
 #[cfg(test)]

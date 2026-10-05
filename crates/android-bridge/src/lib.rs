@@ -8,17 +8,18 @@
 use beep_proto::{
     AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
     Chat, ClearMemories, ConnectApp, ConnectLink, CreateCron, Cron, DeleteCron, DeleteMemory,
-    DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult, DisconnectApp, Event, FinishAppAuth,
-    ForegroundApp, GetAppPermissions, GetEvents, GetModels, GetRun, GetSession, Health,
-    HistoryEntry, ListApps, ListCrons, ListMemories, ListSessions, Memory, Models, Notice,
-    PermissionLevel, PhoneNotification, PinSession, PromptSuggestions, RegisterDevice,
-    RenameSession, Run, RunCron, SaveNotifications, Session, SetAppPermissions, SetModel,
-    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation,
-    UpdateMemory,
+    DeleteSession, DeleteSessions, DeviceAnswer, DeviceResult, DisconnectApp, Event,
+    ExistingSessions, FinishAppAuth, ForegroundApp, GetAppPermissions, GetEvents, GetModels,
+    GetRun, GetSession, Health, HistoryEntry, ListApps, ListCrons, ListMemories, ListSessions,
+    Memory, Models, Notice, PermissionLevel, PhoneNotification, PinSession, PromptSuggestions,
+    RegisterDevice, RenameSession, Run, RunCron, SaveNotifications, Session, SetAppPermissions,
+    SetModel, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron,
+    UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
 };
 use iroh::{EndpointId, SecretKey};
+use serde::{Deserialize, Serialize};
 use std::{
     future::Future,
     sync::{Arc, Mutex, PoisonError},
@@ -105,6 +106,30 @@ fn secret_key(bytes: &[u8]) -> Result<SecretKey, BeepError> {
 #[uniffi::export]
 pub fn new_identity() -> Vec<u8> {
     SecretKey::generate().to_bytes().to_vec()
+}
+
+/// The settings lists the phone last fetched, kept to show at once while it
+/// fetches them again. A list is `None` until the phone first fetched it.
+#[derive(uniffi::Record, Serialize, Deserialize, Default)]
+pub struct ListCache {
+    pub memories: Option<Vec<Memory>>,
+    pub crons: Option<Vec<Cron>>,
+    pub apps: Option<Vec<AppIntegration>>,
+    pub models: Option<Models>,
+}
+
+/// `cache` as bytes for the phone to save.
+#[uniffi::export]
+pub fn encode_list_cache(cache: ListCache) -> Vec<u8> {
+    // Plain records and lists, which msgpack always encodes.
+    rmp_serde::to_vec(&cache).unwrap_or_default()
+}
+
+/// The cache `encode_list_cache` saved, or an empty one when it was saved
+/// by a build whose records differ.
+#[uniffi::export]
+pub fn decode_list_cache(bytes: Vec<u8>) -> ListCache {
+    rmp_serde::from_slice(&bytes).unwrap_or_default()
 }
 
 /// The readable name of `identity`, such as `mega-fox-trot`.
@@ -274,6 +299,11 @@ impl BeepClient {
 
     pub async fn list_sessions(&self) -> Result<Vec<Session>, BeepError> {
         self.call(ListSessions {}).await
+    }
+
+    /// The ones of `ids` the server still has.
+    pub async fn existing_sessions(&self, ids: Vec<String>) -> Result<Vec<String>, BeepError> {
+        self.call(ExistingSessions { ids }).await
     }
 
     pub async fn get_session(&self, id: String) -> Result<Vec<HistoryEntry>, BeepError> {
@@ -506,5 +536,28 @@ impl EventStream {
     /// Next event, `null` once the stream ends.
     pub async fn next(&self) -> Result<Option<Event>, BeepError> {
         Ok(self.0.lock().await.next().await?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_cache_round_trips_and_forgets_what_it_cannot_read() {
+        let cache = ListCache {
+            models: Some(Models {
+                choices: Vec::new(),
+                selected: "model-a".into(),
+            }),
+            ..ListCache::default()
+        };
+        let decoded = decode_list_cache(encode_list_cache(cache));
+        assert_eq!(
+            decoded.models.map(|m| m.selected).as_deref(),
+            Some("model-a")
+        );
+        assert!(decoded.memories.is_none());
+        assert!(decode_list_cache(vec![0xc1]).models.is_none());
     }
 }

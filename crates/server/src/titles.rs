@@ -37,56 +37,70 @@ pub fn start(app: Arc<App>) {
     });
 }
 
-/// Titles a session from its first message.
+/// Titles a session from its first message. Returns whether it got one.
 pub async fn name_first(
     store: &Store,
     generator: Generator<'_>,
     session: &SessionRef,
     message: &str,
-) {
+) -> bool {
     let prompt = format!("First message:\n{}", clip(message, MAX_MESSAGE_CHARS));
     match ask(&generator, prompt).await {
-        Ok(title) => {
-            if let Err(error) = store.set_generated_title(session, &title).await {
+        Ok(title) => match store.set_generated_title(session, &title).await {
+            Ok(titled) => titled,
+            Err(error) => {
                 log::warn!("unable to save title: {error}; session={}", session.id);
+                false
             }
+        },
+        Err(error) => {
+            log::warn!("first title failed: {error}; session={}", session.id);
+            false
         }
-        Err(error) => log::warn!("first title failed: {error}; session={}", session.id),
     }
 }
 
-/// Retitles every session that changed and then went quiet.
-pub async fn retitle_idle(store: &Store, provider: &dyn LlmProvider, llm: &AgentLlmConfig) {
+/// Retitles every session that changed and then went quiet, and returns
+/// the ones that got a new title.
+pub async fn retitle_idle(
+    store: &Store,
+    provider: &dyn LlmProvider,
+    llm: &AgentLlmConfig,
+) -> Vec<SessionRef> {
     let sessions = match store.sessions_to_title(IDLE_BEFORE_RETITLE).await {
         Ok(sessions) => sessions,
         Err(error) => {
             log::warn!("unable to list sessions to title: {error}");
-            return;
+            return Vec::new();
         }
     };
+    let mut retitled = Vec::new();
     for session in sessions {
         let generator = Generator {
             provider,
             llm,
             user: &session.user,
         };
-        if let Err(error) = retitle(store, generator, &session).await {
-            log::warn!("retitle failed: {error}; session={}", session.id);
+        match retitle(store, generator, &session).await {
+            Ok(true) => retitled.push(session),
+            Ok(false) => {}
+            Err(error) => log::warn!("retitle failed: {error}; session={}", session.id),
         }
     }
+    retitled
 }
 
-async fn retitle(store: &Store, generator: Generator<'_>, session: &SessionRef) -> Result<()> {
+/// Returns whether the session got the new title.
+async fn retitle(store: &Store, generator: Generator<'_>, session: &SessionRef) -> Result<bool> {
     let Some(chat) = store.session_conversation(session).await? else {
-        return Ok(());
+        return Ok(false);
     };
     let text = render(&chat);
     if text.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
     let title = ask(&generator, format!("Chat:\n{text}")).await?;
-    store.set_generated_title(session, &title).await?;
-    Ok(())
+    store.set_generated_title(session, &title).await
 }
 
 async fn ask(generator: &Generator<'_>, prompt: String) -> Result<String> {

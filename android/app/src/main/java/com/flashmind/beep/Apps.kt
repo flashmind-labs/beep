@@ -94,8 +94,9 @@ import java.net.URL
 fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var apps by remember { mutableStateOf<List<AppIntegration>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    val cached = remember { repository.cachedApps() }
+    var apps by remember { mutableStateOf(cached.orEmpty()) }
+    var loading by remember { mutableStateOf(cached == null) }
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf<String?>(null) }
     var open by remember { mutableStateOf<AppIntegration?>(null) }
