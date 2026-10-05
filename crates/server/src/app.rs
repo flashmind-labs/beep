@@ -1,6 +1,7 @@
 use crate::{
     apps::{Composio, ComposioSettings},
     compaction::{self, Summarizer},
+    cron,
     decision::DecisionTool,
     images::{self, Describer},
     live::LiveRun,
@@ -151,6 +152,9 @@ pub struct Message {
     pub message: String,
     #[serde(default)]
     pub cron_id: Option<String>,
+    /// A routine's label, empty when it has none. Set for routine runs only.
+    #[serde(skip)]
+    pub scheduled: Option<String>,
     #[serde(default)]
     pub images: Vec<String>,
     #[serde(default)]
@@ -518,14 +522,15 @@ impl App {
         }
     }
 
-    /// Time, location, the app behind the bubble and which apps are connected
-    /// for this turn, sent as a developer message. Memories are not included:
+    /// Time, location, the app behind the bubble, which apps are connected and,
+    /// for a routine, how to answer it, sent as a developer message. Memories are not included:
     /// the model looks them up with `memory_recall`.
     async fn build_context(
         &self,
         user: &User,
         foreground: Option<&ForegroundApp>,
         apps: &[AppIntegration],
+        scheduled: Option<&str>,
     ) -> Option<String> {
         let mut ctx = String::new();
 
@@ -534,10 +539,10 @@ impl App {
             let now = if let Ok(tz) = tz_name.parse::<Tz>() {
                 Utc::now()
                     .with_timezone(&tz)
-                    .format("%Y-%m-%d %H:%M %Z")
+                    .format("%A %Y-%m-%d %H:%M %Z")
                     .to_string()
             } else {
-                Utc::now().format("%Y-%m-%d %H:%M UTC").to_string()
+                Utc::now().format("%A %Y-%m-%d %H:%M UTC").to_string()
             };
             let _ = writeln!(ctx, "Time: {now}");
         }
@@ -552,6 +557,10 @@ impl App {
 
         if let Some(line) = apps_line(apps) {
             let _ = writeln!(ctx, "{line}");
+        }
+
+        if let Some(label) = scheduled {
+            let _ = writeln!(ctx, "{}", cron::scheduled_context(label));
         }
 
         (!ctx.is_empty()).then_some(ctx)
@@ -716,7 +725,12 @@ impl App {
 
         let building = Instant::now();
         let context = self
-            .build_context(user, message.foreground.as_ref(), &apps.unwrap_or_default())
+            .build_context(
+                user,
+                message.foreground.as_ref(),
+                &apps.unwrap_or_default(),
+                message.scheduled.as_deref(),
+            )
             .await;
         timer.context_built(building.elapsed());
 
