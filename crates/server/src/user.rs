@@ -32,7 +32,7 @@ use crate::{
     store::{
         AppPermissionRow, AttentionItem, CreateRun, DeletedTurn, Fact, Feed, FinishedTurn,
         FoundSession, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin, RunStatus,
-        Store, StoredContext, TurnsToDelete,
+        Store, StoredContext, TurnModel, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -353,14 +353,19 @@ impl User {
 
     /// Records the model that answered the turn whose user message was sent
     /// at `turn_at`, in milliseconds since the epoch.
-    pub async fn record_turn_model(&self, session: &str, turn_at: i64, model: &str) -> Result<()> {
+    pub async fn record_turn_model(
+        &self,
+        session: &str,
+        turn_at: i64,
+        model: &TurnModel,
+    ) -> Result<()> {
         self.store
             .record_turn_model(&self.key, session, turn_at, model)
             .await
     }
 
     /// The session's models by the time of each turn's user message.
-    pub async fn turn_models(&self, session: &str) -> Result<HashMap<i64, String>> {
+    pub async fn turn_models(&self, session: &str) -> Result<HashMap<i64, TurnModel>> {
         self.store.turn_models(&self.key, session).await
     }
 
@@ -579,6 +584,15 @@ impl User {
         self.store
             .set_user_thinking(&self.key, &level.to_string())
             .await
+    }
+
+    /// Whether Jev picks the model and thinking per prompt.
+    pub(crate) async fn auto_model(&self) -> Result<bool> {
+        self.store.user_auto_model(&self.key).await
+    }
+
+    pub(crate) async fn set_auto_model(&self, enabled: bool) -> Result<()> {
+        self.store.set_user_auto_model(&self.key, enabled).await
     }
 
     pub(crate) async fn save_app_permissions(&self, row: &AppPermissionRow) -> Result<()> {

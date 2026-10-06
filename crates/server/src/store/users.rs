@@ -55,6 +55,24 @@ impl Store {
         Ok(())
     }
 
+    /// Whether Jev picks the user's model and thinking per prompt.
+    pub(crate) async fn user_auto_model(&self, user: &UserKey) -> Result<bool> {
+        let auto = sqlx::query_scalar("SELECT auto_model FROM users WHERE id=$1")
+            .bind(user.as_str())
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(auto.unwrap_or(false))
+    }
+
+    pub(crate) async fn set_user_auto_model(&self, user: &UserKey, enabled: bool) -> Result<()> {
+        sqlx::query("UPDATE users SET auto_model=$2 WHERE id=$1")
+            .bind(user.as_str())
+            .bind(enabled)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Every account.
     pub async fn user_ids(&self) -> Result<Vec<String>> {
         let users = sqlx::query_scalar("SELECT id FROM users")

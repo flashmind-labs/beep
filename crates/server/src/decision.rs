@@ -1,9 +1,10 @@
 //! Server-only Jev decisions through OpenRouter. The key and upstream error bodies never reach clients.
+use crate::models::AutoModel;
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use flashmind::llm::{JEV_LATEST_MODEL, JevQuestion, JevRequest, OpenRouterProvider};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
-use flashmind::types::{LlmError, LlmErrorKind};
+use flashmind::types::{LlmError, LlmErrorKind, ReasoningLevel};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -18,6 +19,31 @@ pub struct Criteria {
     pub yes: &'static str,
     pub no: &'static str,
 }
+
+/// The model and thinking Jev picked for a prompt.
+pub struct Routed<'a> {
+    pub model: &'a AutoModel,
+    pub thinking: ReasoningLevel,
+}
+
+const PICK_MODEL: &str = "Which model should answer the user's latest message? Pick the one whose description fits the task best; prefer the faster model when both would do it well.";
+const PICK_THINKING: &str =
+    "How long should the model think before answering the user's latest message?";
+/// The thinking levels Jev picks from, with what each suits.
+const THINKING: [(ReasoningLevel, &str); 3] = [
+    (
+        ReasoningLevel::Low,
+        "Quick lookups and small talk: a fact, a price, opening hours, the news, a short reply.",
+    ),
+    (
+        ReasoningLevel::Medium,
+        "A few steps or tools: comparing options, reading one email thread, a short plan.",
+    ),
+    (
+        ReasoningLevel::High,
+        "Demanding work: planning a week's schedule, organizing events, reading or writing email across threads, multi-step tasks.",
+    ),
+];
 
 /// Holds the key only inside the provider, which has no `Debug` and never logs it.
 pub struct DecisionTool {
@@ -66,6 +92,62 @@ impl DecisionTool {
             ("false".to_owned(), criteria.no.to_owned()),
         ]);
         self.judge(state, instructions, Some(criteria)).await
+    }
+
+    /// Jev's pick of one of `models` and a thinking level for the prompt in
+    /// `state`. With a single model only the thinking is asked.
+    pub async fn route<'a>(&self, state: &str, models: &'a [AutoModel]) -> Result<Routed<'a>> {
+        let mut questions = BTreeMap::from([(
+            "thinking".to_owned(),
+            JevQuestion::Choice {
+                instructions: PICK_THINKING.into(),
+                criteria: THINKING
+                    .iter()
+                    .map(|(level, when)| (level.to_string(), (*when).to_owned()))
+                    .collect(),
+            },
+        )]);
+        if models.len() > 1 {
+            let criteria = models
+                .iter()
+                .map(|auto| (auto.model.name().to_owned(), auto.when.clone()))
+                .collect();
+            questions.insert(
+                "model".to_owned(),
+                JevQuestion::Choice {
+                    instructions: PICK_MODEL.into(),
+                    criteria,
+                },
+            );
+        }
+        let request = JevRequest {
+            model: JEV_LATEST_MODEL.into(),
+            state: state[..state.floor_char_boundary(MAX_STATE_BYTES)].into(),
+            questions,
+        };
+        let response = self.provider.decide(request).await?;
+        let choice = |key: &str| {
+            response
+                .answers
+                .get(key)
+                .and_then(|answer| answer["choice"].as_str())
+                .map(str::to_owned)
+        };
+        let thinking = choice("thinking")
+            .and_then(|level| level.parse().ok())
+            .ok_or_else(|| anyhow::anyhow!("Jev picked no thinking level"))?;
+        let model = match models {
+            [only] => only,
+            _ => {
+                let picked =
+                    choice("model").ok_or_else(|| anyhow::anyhow!("Jev picked no model"))?;
+                models
+                    .iter()
+                    .find(|auto| auto.model.name() == picked)
+                    .ok_or_else(|| anyhow::anyhow!("Jev picked an unknown model: {picked}"))?
+            }
+        };
+        Ok(Routed { model, thinking })
     }
 
     async fn judge(
@@ -276,6 +358,30 @@ mod tests {
         let request = requests.recv().await.unwrap();
         assert!(request.contains("\"type\":\"noul\""));
         assert!(request.contains("I moved to Porto"));
+    }
+
+    #[tokio::test]
+    async fn routes_to_a_model_and_thinking() {
+        let body = r#"{"model":"jev-1.13","answers":{"model":{"choice":"openai/gpt-6-luna"},"thinking":{"choice":"high"}}}"#;
+        let (tool, mut requests) = mock("200 OK", body).await;
+        let models = [
+            AutoModel {
+                model: "openrouter:z-ai/glm-5.3-flash".parse().unwrap(),
+                name: "GLM 5.3 Flash".into(),
+                when: "Quick lookups".into(),
+            },
+            AutoModel {
+                model: "openrouter:openai/gpt-6-luna".parse().unwrap(),
+                name: "GPT-6 Luna".into(),
+                when: "Demanding work".into(),
+            },
+        ];
+        let routed = tool.route("User: plan my week", &models).await.unwrap();
+        assert_eq!(routed.model.name, "GPT-6 Luna");
+        assert_eq!(routed.thinking, ReasoningLevel::High);
+        let request = requests.recv().await.unwrap();
+        assert!(request.contains("\"Demanding work\""));
+        assert!(request.contains("\"medium\""));
     }
 
     #[tokio::test]

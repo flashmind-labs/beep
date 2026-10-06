@@ -199,7 +199,8 @@ class ChatRepository(private val storage: LocalStorage) {
         var pendingReasoning = ""
         val messages = api(config).getSession(id).mapIndexedNotNull { i, entry ->
             when (entry) {
-                is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp) }
+                is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp,
+                    autoModel = entry.auto?.model.orEmpty(), autoThinking = entry.auto?.thinking?.name?.lowercase().orEmpty()) }
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
@@ -554,6 +555,7 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun models(): Models = api().getModels().also(::keepModels)
     suspend fun setModel(id: String): Models = api().setModel(id).also(::keepModels)
     suspend fun setThinking(level: ReasoningLevel): Models = api().setThinking(level).also(::keepModels)
+    suspend fun setAutoModel(enabled: Boolean): Models = api().setAutoModel(enabled).also(::keepModels)
     private fun keepModels(fresh: Models) {
         modelChoices.value = fresh
         saveLists { it.copy(models = fresh) }
@@ -1112,6 +1114,11 @@ class ChatRepository(private val storage: LocalStorage) {
                 is RunEvent.MemoryScore -> {
                     val messageId = "assistant-${chat.runId}"
                     next = next.copy(messages = next.messages.map { if (it.id == messageId) it.copy(memoryScore = event.probability) else it })
+                }
+                is RunEvent.AutoPicked -> {
+                    val prompt = next.messages.lastOrNull { it.role == "user" }
+                    val picked = prompt?.copy(autoModel = event.pick.model, autoThinking = event.pick.thinking.name.lowercase())
+                    if (picked != null) next = next.copy(messages = next.messages.map { if (it.id == prompt.id) picked else it })
                 }
                 is RunEvent.Usage, is RunEvent.RunStarted -> {}
             }

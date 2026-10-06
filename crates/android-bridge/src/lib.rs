@@ -13,8 +13,8 @@ use beep_proto::{
     GetEvents, GetModels, GetRun, GetSession, Health, HistoryEntry, ListApps, ListCrons,
     ListMemories, ListSessions, Memory, Models, Notice, PermissionLevel, PinSession,
     PromptSuggestions, ReasoningLevel, RegisterDevice, RenameSession, Run, RunCron, SearchSessions,
-    Session, SessionMatch, SetAppPermissions, SetModel, SetThinking, StartAppAuth, Stream,
-    SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
+    Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel, SetThinking, StartAppAuth,
+    Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
 };
@@ -493,6 +493,12 @@ impl BeepClient {
         self.call(SetThinking { level }).await
     }
 
+    /// Turns Auto on or off: Jev picks the model and thinking per prompt.
+    /// Admins only.
+    pub async fn set_auto_model(&self, enabled: bool) -> Result<Models, BeepError> {
+        self.call(SetAutoModel { enabled }).await
+    }
+
     /// `allowed` names, by tool, the actions that run without asking.
     pub async fn set_app_permissions(
         &self,
@@ -581,6 +587,8 @@ mod tests {
                 choices: Vec::new(),
                 selected: "model-a".into(),
                 thinking: ReasoningLevel::Medium,
+                auto: false,
+                auto_available: false,
             }),
             ..ListCache::default()
         };

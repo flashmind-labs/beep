@@ -6,10 +6,14 @@ use crate::{
     cron, feeds,
     images::{MAX_IMAGE_BYTES, MAX_IMAGES},
     live::Subscription,
+    models::Picked,
     permissions,
     protocol::*,
     router::{Cx, Router, Sink},
-    store::{CreateRun, DeletedTurn, Feed, FoundSession, Location, TurnsToDelete, decode_schedule},
+    store::{
+        CreateRun, DeletedTurn, Feed, FoundSession, Location, TurnModel, TurnsToDelete,
+        decode_schedule,
+    },
 };
 use chrono::{DateTime, Utc};
 use flashmind::{
@@ -72,6 +76,7 @@ pub fn router() -> Router {
         .call(delete_turn)
         .call(delete_turns_from)
         .call(search_sessions)
+        .call(set_auto_model)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -315,7 +320,7 @@ fn history(
     entries: &[ConversationEntry],
     failures: &HashSet<String>,
     scores: &HashMap<i64, f64>,
-    models: &HashMap<i64, String>,
+    models: &HashMap<i64, TurnModel>,
 ) -> Vec<HistoryEntry> {
     let mut history = Vec::new();
     let mut turn = Turn::default();
@@ -327,7 +332,14 @@ fn history(
             EntryKind::User { content, .. } => {
                 turn.finish(&mut history);
                 turn.score = scores.get(&timestamp).copied();
-                turn.model = models.get(&timestamp).cloned().unwrap_or_default();
+                let recorded = models.get(&timestamp);
+                turn.model = recorded.map(|m| m.model.clone()).unwrap_or_default();
+                let auto = recorded.and_then(|m| {
+                    m.auto_thinking.map(|thinking| AutoPick {
+                        model: m.model.clone(),
+                        thinking,
+                    })
+                });
                 let label = scheduled
                     .take()
                     .or_else(|| cron::legacy_scheduled_label(content));
@@ -339,6 +351,7 @@ fn history(
                     None => HistoryEntry::User {
                         content: content.clone(),
                         timestamp,
+                        auto,
                     },
                 });
             }
@@ -473,9 +486,20 @@ async fn disconnect_app(cx: Cx, DisconnectApp { slug }: DisconnectApp) -> Reply<
 }
 
 async fn get_models(cx: Cx, _: GetModels) -> Reply<Models> {
-    let selected = cx.app.model_for(&cx.user).await;
+    picker(&cx).await
+}
+
+/// The caller's picker with their current settings.
+async fn picker(cx: &Cx) -> Reply<Models> {
+    let model = cx.app.model_for(&cx.user).await;
     let thinking = cx.app.thinking_for(&cx.user).await;
-    Ok(cx.app.models.for_picker(cx.user.id(), &selected, thinking))
+    let auto = cx.user.auto_model().await?;
+    let picked = Picked {
+        model: &model,
+        thinking,
+        auto,
+    };
+    Ok(cx.app.models.for_picker(cx.user.id(), &picked))
 }
 
 async fn set_model(cx: Cx, SetModel { id }: SetModel) -> Reply<Models> {
@@ -490,8 +514,7 @@ async fn set_model(cx: Cx, SetModel { id }: SetModel) -> Reply<Models> {
         .clone();
     cx.user.set_model(&model).await?;
     log::info!("model picked; user={} model={model}", cx.user.id());
-    let thinking = cx.app.thinking_for(&cx.user).await;
-    Ok(cx.app.models.for_picker(cx.user.id(), &model, thinking))
+    picker(&cx).await
 }
 
 async fn set_thinking(cx: Cx, SetThinking { level }: SetThinking) -> Reply<Models> {
@@ -500,8 +523,16 @@ async fn set_thinking(cx: Cx, SetThinking { level }: SetThinking) -> Reply<Model
     }
     cx.user.set_thinking(level).await?;
     log::info!("thinking picked; user={} level={level}", cx.user.id());
-    let selected = cx.app.model_for(&cx.user).await;
-    Ok(cx.app.models.for_picker(cx.user.id(), &selected, level))
+    picker(&cx).await
+}
+
+async fn set_auto_model(cx: Cx, SetAutoModel { enabled }: SetAutoModel) -> Reply<Models> {
+    if !cx.app.models.is_admin(cx.user.id()) {
+        return Err(ApiError::Unauthorized {});
+    }
+    cx.user.set_auto_model(enabled).await?;
+    log::info!("auto model set; user={} enabled={enabled}", cx.user.id());
+    picker(&cx).await
 }
 
 async fn get_app_permissions(
@@ -904,10 +935,18 @@ mod tests {
             &entries,
             &HashSet::from(["b".to_owned()]),
             &HashMap::from([(asked, 0.8)]),
-            &HashMap::from([(asked, "z-ai/glm-5.3-flash".to_owned())]),
+            &HashMap::from([(
+                asked,
+                TurnModel {
+                    model: "z-ai/glm-5.3-flash".to_owned(),
+                    auto_thinking: Some(ReasoningLevel::High),
+                },
+            )]),
         );
         let [
-            HistoryEntry::User { .. },
+            HistoryEntry::User {
+                auto: first_auto, ..
+            },
             HistoryEntry::Assistant {
                 content: first,
                 tools: first_tools,
@@ -916,7 +955,9 @@ mod tests {
                 model: first_model,
                 ..
             },
-            HistoryEntry::User { .. },
+            HistoryEntry::User {
+                auto: second_auto, ..
+            },
             HistoryEntry::Assistant {
                 content: second,
                 tools: second_tools,
@@ -934,6 +975,11 @@ mod tests {
         assert_eq!(*second_score, None);
         assert_eq!(first_model, "z-ai/glm-5.3-flash");
         assert!(second_model.is_empty());
+        assert_eq!(
+            first_auto.as_ref().map(|pick| pick.thinking),
+            Some(ReasoningLevel::High)
+        );
+        assert!(second_auto.is_none());
         assert_eq!(first_reasoning, "Look it up.\n\nFound one.");
         assert!(second_reasoning.is_empty());
         assert_eq!(first_tools[0].name, "open_maps");

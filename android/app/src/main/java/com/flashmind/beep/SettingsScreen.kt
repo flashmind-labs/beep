@@ -28,6 +28,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -186,9 +188,29 @@ private fun ModelPicker(repository: ChatRepository) {
                 .onFailure { models = current; Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
         }
     }
+    fun auto(enabled: Boolean) {
+        models = current.copy(auto = enabled)
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { repository.setAutoModel(enabled) } }
+                .onSuccess { models = it }
+                .onFailure { models = current; Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
+        }
+    }
     Column {
         Text("Model (admin)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
         Spacer(Modifier.height(8.dp))
+        if (current.autoAvailable) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Auto", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
+                    Text("Jev picks the model and thinking for each prompt", fontSize = 12.sp, color = Beep.colors.muted)
+                }
+                Switch(checked = current.auto, onCheckedChange = ::auto,
+                    colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok))
+            }
+            if (current.auto) Text("Used when Jev cannot pick:", fontSize = 12.sp, color = Beep.colors.muted,
+                modifier = Modifier.padding(bottom = 6.dp))
+        }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             current.choices.forEach { choice ->
                 val selected = choice.id == current.selected

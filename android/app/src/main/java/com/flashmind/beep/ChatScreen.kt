@@ -335,6 +335,13 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             val name = modelChoices?.choices?.find { it.id == message.model }?.name ?: message.model
                             Text("Rerun on $name", fontSize = 11.sp, color = TextMuted, modifier = Modifier.padding(top = 4.dp, end = 4.dp))
                         }
+                        // The model and thinking Jev picked for this prompt under Auto.
+                        if (isUser && message.autoModel.isNotEmpty()) {
+                            val name = modelChoices?.choices?.find { it.id == message.autoModel }?.name
+                                ?: message.autoModel.substringAfterLast('/')
+                            Text("$name · ${message.autoThinking}", fontSize = 11.sp, color = TextDim,
+                                modifier = Modifier.padding(top = 4.dp, end = 4.dp))
+                        }
                         if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact) { repository.openBrowser(it) }
                         if (!isUser && !isStreaming && message.text.isNotBlank()) {
                             val shownLinks = toolCards.mapNotNull { (it.second as? ToolCard.Link)?.url }.toSet()
