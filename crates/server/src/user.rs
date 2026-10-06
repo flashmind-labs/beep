@@ -23,7 +23,7 @@ use crate::{
         READING_LEARN_TIMEOUT, RECALLABLE, Reading, Remembered, Step, clip, curate_prompt, hit,
         learn_prompt, parse_curate_ops, parse_learn_ops, plan_curation, reading_prompt, settle,
     },
-    permissions::Rules,
+    permissions::{self, Rules, ToolSlug},
     protocol::{
         ApiError, AppIntegration, AppKind, ConnectLink, Cron, Memory, MemorySource, Notice,
         PromptSuggestions, Run, Session,
@@ -1083,6 +1083,14 @@ impl User {
     }
 }
 
+/// The Composio tools of a user's connected apps.
+#[derive(Default)]
+pub struct AppTools {
+    pub tools: Vec<Arc<dyn Tool>>,
+    /// Slugs whose Composio tags say they create or destroy something.
+    pub(crate) hinted: HashSet<ToolSlug>,
+}
+
 /// The app catalog as one user sees it: their Composio accounts and their
 /// MCP servers.
 impl User {
@@ -1098,12 +1106,12 @@ impl User {
     /// connected toolkits are listed: the unfiltered catalog is thousands of
     /// tools across many pages. A slow or failing Composio gives no tools
     /// rather than holding up the run.
-    pub async fn app_tools(&self) -> Vec<Arc<dyn Tool>> {
+    pub async fn app_tools(&self) -> AppTools {
         let Some(client) = self.composio_client() else {
-            return Vec::new();
+            return AppTools::default();
         };
         let Some(composio) = &self.composio else {
-            return Vec::new();
+            return AppTools::default();
         };
         let fetch = async {
             let connected = connected_slugs(&client, self.id()).await?;
@@ -1115,14 +1123,21 @@ impl User {
             composio.tools(&slugs).await
         };
         match tokio::time::timeout(TOOLS_TIMEOUT, fetch).await {
-            Ok(Ok(defs)) => make_composio_tool_wrappers(&client, &defs),
+            Ok(Ok(defs)) => AppTools {
+                hinted: defs
+                    .iter()
+                    .filter(|def| permissions::hinted_to_act(&def.tags))
+                    .map(|def| ToolSlug::new(&def.slug))
+                    .collect(),
+                tools: make_composio_tool_wrappers(&client, &defs),
+            },
             Ok(Err(error)) => {
                 log::warn!("apps: unable to list Composio tools: {error:#}");
-                Vec::new()
+                AppTools::default()
             }
             Err(_) => {
                 log::warn!("apps: listing Composio tools timed out");
-                Vec::new()
+                AppTools::default()
             }
         }
     }
