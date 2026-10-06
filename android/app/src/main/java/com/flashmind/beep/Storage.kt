@@ -83,8 +83,11 @@ data class Conversation(
     /** When the user last opened the chat, in epoch milliseconds. */
     val openedAt: Long = System.currentTimeMillis(),
     /** The server's `updated_at` as last listed, kept even when [messages] are evicted. 0 until listed. */
-    val updatedAt: Long = 0
+    val updatedAt: Long = 0,
+    /** A message typed while a reply ran, sent once it finishes. */
+    val queuedText: String = "", val queuedImages: List<String> = emptyList(),
 ) {
+    val hasQueued get() = queuedText.isNotBlank() || queuedImages.isNotEmpty()
     val busy get() = requestId.isNotEmpty() || runId.isNotEmpty()
     /** When the chat last changed, as far as the phone knows, in epoch milliseconds. */
     val lastActive get() = maxOf(updatedAt, messages.maxOfOrNull { it.sentAt } ?: 0).takeIf { it > 0 } ?: openedAt
@@ -196,7 +199,8 @@ class LocalStorage(internal val context: Context) {
                 pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"),
                 status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
                 version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()),
-                updatedAt = c.optLong("updatedAt"))
+                updatedAt = c.optLong("updatedAt"), queuedText = c.optString("queuedText"),
+                queuedImages = readImages(c, "queuedImages", "queuedImage"))
         }
         check(conversations.isNotEmpty())
         ChatState(conversations, json.optString("selected"))
@@ -324,7 +328,9 @@ class LocalStorage(internal val context: Context) {
                 .put("pendingText", c.pendingText).apply { if (c.pendingImages.isNotEmpty()) put("pendingImages", JSONArray(c.pendingImages)) }
                 .apply { if (c.pendingModel.isNotEmpty()) put("pendingModel", c.pendingModel) }
                 .put("status", c.status).put("cancelRequested", c.cancelRequested)
-                .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt).put("updatedAt", c.updatedAt))
+                .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt).put("updatedAt", c.updatedAt)
+                .apply { if (c.queuedText.isNotEmpty()) put("queuedText", c.queuedText) }
+                .apply { if (c.queuedImages.isNotEmpty()) put("queuedImages", JSONArray(c.queuedImages)) })
         }
         val out = file.startWrite()
         try {

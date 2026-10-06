@@ -338,6 +338,11 @@ class ChatRepository(private val storage: LocalStorage) {
             update { it.copy(conversations = it.conversations + Conversation(id = conversationId, title = text.trim().take(44))) }
         val chat = state.value.conversations.first { it.id == conversationId }
         if (text.isBlank() || chat.busy || !settings.value.configured) return
+        startTurn(chat, text, images, model)
+        launchRun(chat.id)
+    }
+    /** Shows [text] as the user's next prompt and marks the chat as sending it. */
+    private fun startTurn(chat: Conversation, text: String, images: List<String>, model: String) {
         val request = UUID.randomUUID().toString()
         // A new message instead of an answer skips the call that waits on it.
         val skipped = chat.messages.flatMap { m -> m.approvals.filter { it.waiting } }
@@ -346,7 +351,35 @@ class ChatRepository(private val storage: LocalStorage) {
             messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model),
             requestId = request, pendingText = text.trim(), pendingImages = images, pendingModel = model,
             status = "Sending…", error = "", cancelRequested = false) }
-        launchRun(chat.id)
+    }
+    /** Holds a message typed while [chatId]'s reply runs, added to any already held, to send when it finishes. */
+    fun queue(text: String, images: List<String>, chatId: String = state.value.current.id) {
+        updateChat(chatId) { it.copy(queuedText = listOf(it.queuedText, text.trim()).filter { t -> t.isNotBlank() }.joinToString("\n\n"),
+            queuedImages = (it.queuedImages + images).take(MAX_IMAGES)) }
+    }
+    /** Drops [chatId]'s queued message and returns it, so it can go back into the composer. */
+    fun unqueue(chatId: String = state.value.current.id): Pair<String, List<String>> {
+        val chat = state.value.conversations.find { it.id == chatId } ?: return "" to emptyList()
+        updateChat(chatId) { it.copy(queuedText = "", queuedImages = emptyList()) }
+        return chat.queuedText to chat.queuedImages
+    }
+    /** Sends [chatId]'s queued message now, after a run that ended without finishing. */
+    fun sendQueued(chatId: String = state.value.current.id) {
+        val chat = state.value.conversations.find { it.id == chatId } ?: return
+        if (chat.busy || !chat.hasQueued) return
+        val (text, images) = unqueue(chatId)
+        send(text.ifBlank { if (images.size > 1) "What are these?" else "What is this?" }, images, chatId)
+    }
+    /**
+     * Starts [chat]'s queued message once its reply finished cleanly. A run that stopped,
+     * failed or waits on an approval keeps it, so nothing goes out on its own.
+     */
+    private fun startQueued(chat: Conversation): Boolean {
+        if (!chat.hasQueued || chat.error.isNotEmpty() || !settings.value.configured) return false
+        if (chat.messages.any { m -> m.approvals.any { it.waiting } }) return false
+        val (text, images) = unqueue(chat.id)
+        startTurn(chat, text.ifBlank { if (images.size > 1) "What are these?" else "What is this?" }, images, "")
+        return true
     }
     /**
      * Sends the prompt behind [reply] again on another model, as if the first try never
@@ -424,7 +457,8 @@ class ChatRepository(private val storage: LocalStorage) {
             var failures = 0
             while (isActive) {
                 val chat = state.value.conversations.find { it.id == id } ?: break
-                if (!chat.busy) break
+                if (!chat.busy && !startQueued(chat)) break
+                if (!chat.busy) continue
                 try {
                     val api = api()
                     updateChat(id) { it.copy(error = "", status = if (it.runId.isEmpty()) "Sending…" else "Beep is thinking…") }
