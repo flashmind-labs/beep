@@ -34,7 +34,7 @@ use futures::StreamExt;
 use secrecy::ExposeSecret;
 use std::{
     sync::{Arc, atomic::Ordering},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tokio::{sync::RwLock, time::Instant};
 
@@ -564,7 +564,7 @@ impl App {
             context: &conversation,
             prompt_tokens,
         };
-        user.finish(run, Some(turn), status).await?;
+        let updated_at = user.finish(run, Some(turn), status).await?;
         log::info!(
             "turn timing; run_id={} status={} model={model} {timer}",
             run.id,
@@ -576,6 +576,7 @@ impl App {
         }
         live.push(RunEvent::RunFinished {
             status: status.as_str().to_owned(),
+            updated_at: updated_at.map(SystemTime::from),
         });
         Ok(())
     }

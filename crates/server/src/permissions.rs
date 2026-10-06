@@ -5,7 +5,7 @@
 
 use crate::{
     apps::{CATALOG, CatalogApp, catalog_app, mcp::FASTMAIL_TOOLS},
-    protocol::{AppAction, AppPermissions, Approval, ApprovalField, PermissionLevel},
+    protocol::{AppAction, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel},
     store::AppPermissionRow,
     user::User,
 };
@@ -312,6 +312,21 @@ pub(crate) fn open_calls(conversation: &Conversation) -> Vec<ToolCall> {
         .collect()
 }
 
+/// The card for the call the session stopped on to ask, when it has one:
+/// its first open call, the one an answer resumes.
+pub(crate) fn waiting_approval(conversation: &Conversation) -> Option<HistoryEntry> {
+    let call = open_calls(conversation).into_iter().next()?;
+    let (app, _) = lookup(&call.name)?;
+    Some(HistoryEntry::Approval {
+        approval: Approval {
+            app: app.name.to_owned(),
+            action: action_name(app, ToolSlug::new(&call.name).as_str()),
+            fields: fields(&call.arguments),
+        },
+        query_id: call.id,
+    })
+}
+
 /// Stops asking for `tool` in its app.
 pub(crate) async fn allow_always(user: &User, tool: &str) -> Result<()> {
     let Some((app, _)) = lookup(tool) else {
@@ -568,6 +583,33 @@ mod tests {
         conversation.add(ConversationEntry::tool("b", "sent"));
         conversation.add(ConversationEntry::tool("c", "sent"));
         assert!(open_calls(&conversation).is_empty());
+    }
+
+    #[test]
+    fn a_session_stopped_on_a_call_shows_its_card() {
+        let mut conversation = Conversation::new();
+        conversation.add(ConversationEntry::user("Draft the email"));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![ToolCall {
+                id: "draft".into(),
+                name: "gmail_create_email_draft".into(),
+                arguments: json!({"recipient_email": "a@example.com", "subject": "Stay"}),
+            }],
+            None,
+        ));
+        let Some(HistoryEntry::Approval { query_id, approval }) = waiting_approval(&conversation)
+        else {
+            panic!("expected the open call's card");
+        };
+        assert_eq!(query_id, "draft");
+        assert_eq!(
+            (approval.app.as_str(), approval.action.as_str()),
+            ("Gmail", "create email draft")
+        );
+        assert_eq!(approval.fields.len(), 2);
+        conversation.add(ConversationEntry::tool("draft", DENIED));
+        assert!(waiting_approval(&conversation).is_none());
     }
 
     #[test]

@@ -3,6 +3,7 @@
 use super::Store;
 use crate::{protocol::Run, user::UserKey};
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use flashmind::core::Conversation;
 use sqlx::Row;
 use uuid::Uuid;
@@ -171,29 +172,34 @@ impl Store {
         .transpose()
     }
 
+    /// Ends `run` with `status`, saving `turn` when there is one. Returns the
+    /// session's new `updated_at`, `None` when no turn was saved.
     pub(crate) async fn finish(
         &self,
         user: &UserKey,
         run: &Run,
         turn: Option<FinishedTurn<'_>>,
         status: RunStatus,
-    ) -> Result<()> {
+    ) -> Result<Option<DateTime<Utc>>> {
         let mut tx = self.pool.begin().await?;
+        let mut updated_at = None;
         if let Some(turn) = turn {
-            sqlx::query(
+            let saved: DateTime<Utc> = sqlx::query_scalar(
                 "INSERT INTO sessions (user_id, id, conversation, context, context_tokens, updated_at)
                  VALUES ($1, $2, $3, $4, $5, now())
                  ON CONFLICT (user_id, id) DO UPDATE SET conversation=excluded.conversation,
                      context=excluded.context, context_tokens=excluded.context_tokens,
-                     updated_at=excluded.updated_at",
+                     updated_at=excluded.updated_at
+                 RETURNING updated_at",
             )
             .bind(user.as_str())
             .bind(&run.session_id)
             .bind(serde_json::to_string(turn.transcript)?)
             .bind(serde_json::to_string(turn.context)?)
             .bind(i64::from(turn.prompt_tokens))
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await?;
+            updated_at = Some(saved);
         }
         sqlx::query("UPDATE runs SET status=$1 WHERE id=$2 AND user_id=$3")
             .bind(status.as_str())
@@ -202,6 +208,6 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(updated_at)
     }
 }
