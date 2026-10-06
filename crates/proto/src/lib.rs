@@ -17,7 +17,7 @@ uniffi::setup_scaffolding!();
 
 pub use flashmind_types::ReasoningLevel;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::fmt;
+use std::{fmt, time::SystemTime};
 use uuid::Uuid;
 
 macro_rules! one {
@@ -265,7 +265,9 @@ impl From<anyhow::Error> for ApiError {
 }
 
 wire_enum! {
-    /// One entry of a run's event stream.
+    /// One entry of a run's event stream. `RunFinished` carries the session's
+    /// `updated_at` once the run saved its turn, `None` when it saved none:
+    /// the phone that streamed the run already holds that version.
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum RunEvent {
@@ -275,7 +277,7 @@ wire_enum! {
         3 Usage { usage: Usage }
         4 Error { message: String }
         5 DeviceQuery { query_id: String, query: DeviceQuery }
-        6 RunFinished { status: String }
+        6 RunFinished { status: String, updated_at: Option<SystemTime> }
         7 RunStarted { run_id: String, session_id: String }
         8 ReasoningDelta { delta: String }
         9 MemoryScore { probability: f64 }
@@ -495,12 +497,15 @@ wire_enum! {
     /// the model that answered it, empty when not recorded.
     /// `Scheduled` stands in for the prompt a routine woke the agent with;
     /// `label` is the routine's name, empty when it has none.
+    /// `Approval` ends a session that stopped to ask before a tool call, so
+    /// the phone can show the card again; `query_id` is the call to answer.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum HistoryEntry {
         0 User { content: String, timestamp: i64 }
         1 Assistant { content: String, timestamp: i64, tools: Vec<HistoryTool>, memory_score: Option<f64>, reasoning: String, model: String }
         2 Scheduled { label: String, timestamp: i64 }
+        3 Approval { query_id: String, approval: Approval }
     }
 }
 

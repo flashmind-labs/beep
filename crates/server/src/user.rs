@@ -310,19 +310,20 @@ impl User {
         self.store.context(&self.key, session).await
     }
 
-    /// Ends a run with `status`, saving its turn when there is one.
+    /// Ends a run with `status`, saving its turn when there is one. Returns
+    /// the session's new `updated_at`, `None` when no turn was saved.
     pub async fn finish(
         &self,
         run: &Run,
         turn: Option<FinishedTurn<'_>>,
         status: RunStatus,
-    ) -> Result<()> {
+    ) -> Result<Option<DateTime<Utc>>> {
         let saved = turn.is_some();
-        self.store.finish(&self.key, run, turn, status).await?;
+        let updated_at = self.store.finish(&self.key, run, turn, status).await?;
         if saved {
             self.changed(&run.session_id);
         }
-        Ok(())
+        Ok(updated_at)
     }
 
     /// Records tool calls that failed, since the conversation keeps only their output.

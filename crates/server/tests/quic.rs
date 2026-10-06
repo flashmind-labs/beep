@@ -275,12 +275,12 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     let mut again = c.stream(&chat).await.unwrap();
     assert!(matches!(
         drain(&mut again).await.as_slice(),
-        [RunEvent::RunFinished { status }] if status == "completed"
+        [RunEvent::RunFinished { status, .. }] if status == "completed"
     ));
     let mut resumed = c.stream(&GetEvents { run_id, after: 3 }).await.unwrap();
     assert!(matches!(
         drain(&mut resumed).await.as_slice(),
-        [RunEvent::RunFinished { status }] if status == "completed"
+        [RunEvent::RunFinished { status, .. }] if status == "completed"
     ));
 
     let entries = c
@@ -408,7 +408,7 @@ async fn cancellation_busy_session_and_invalid_input() {
     let evts = drain(&mut slow_events).await;
     assert!(
         evts.iter()
-            .any(|e| matches!(e, RunEvent::RunFinished { status } if status == "cancelled"))
+            .any(|e| matches!(e, RunEvent::RunFinished { status, .. } if status == "cancelled"))
     );
 
     h.app.shutdown().await;
