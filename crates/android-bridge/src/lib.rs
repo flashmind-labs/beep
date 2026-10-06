@@ -17,6 +17,7 @@ use beep_proto::{
     Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
+    seal,
 };
 use iroh::{EndpointId, SecretKey};
 use serde::{Deserialize, Serialize};
@@ -133,6 +134,12 @@ pub fn decode_list_cache(bytes: Vec<u8>) -> ListCache {
     rmp_serde::from_slice(&bytes).unwrap_or_default()
 }
 
+/// The notice the server sealed to this phone and sent through Firebase.
+#[uniffi::export]
+pub fn open_notice(identity: Vec<u8>, sealed: String) -> Result<Notice, BeepError> {
+    Ok(seal::open(&secret_key(&identity)?, &sealed)?)
+}
+
 /// The readable name of `identity`, such as `mega-fox-trot`.
 #[uniffi::export]
 pub fn identity_name(identity: Vec<u8>) -> Result<String, BeepError> {
@@ -218,13 +225,11 @@ impl BeepClient {
         }))
     }
 
-    /// Binds the endpoint, if not yet bound, and sends notices to `listener`
-    /// from now on. The server can then reach this phone with no connection
-    /// open.
-    pub async fn listen(&self, listener: Arc<dyn NoticeListener>) -> Result<(), BeepError> {
+    /// Sends notices to `listener` from now on. Set it before the first
+    /// call, so notices the server flushes when the phone connects are not
+    /// left queued.
+    pub fn set_listener(&self, listener: Arc<dyn NoticeListener>) {
         *self.listener.lock().unwrap_or_else(PoisonError::into_inner) = Some(listener);
-        self.node().await?;
-        Ok(())
     }
 
     /// Call when the phone's network changes. Android gives iroh no way to

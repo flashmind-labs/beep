@@ -101,8 +101,6 @@ class ReplyReceiver : BroadcastReceiver() {
         val id = intent.getStringExtra("conversation_id") ?: return
         val text = ChatNotifications.replyText(intent) ?: return
         val repository = (context.applicationContext as BeepApplication).repository
-        // Keeps the process alive while the run streams; allowed since the user acted on a notification.
-        NotificationService.start(context)
         repository.send(text, conversationId = id)
         // Reposting stops the reply spinner and shows the message that was sent.
         repository.state.value.conversations.find { it.id == id }?.let { ChatNotifications.show(context, it) }
@@ -160,7 +158,6 @@ class ApprovalReceiver : BroadcastReceiver() {
         val queryId = intent.getStringExtra("query_id") ?: return
         val decision = intent.getStringExtra("decision") ?: return
         val repository = (context.applicationContext as BeepApplication).repository
-        NotificationService.start(context)
         val conversationId = intent.getStringExtra("conversation_id") ?: return
         repository.answerApproval(conversationId, queryId, decision)
     }

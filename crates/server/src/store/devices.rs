@@ -42,4 +42,14 @@ impl Store {
                 .await?,
         )
     }
+
+    /// Drops `fcm_token` from whichever of the user's phones had it.
+    pub(crate) async fn forget_device_token(&self, user: &UserKey, fcm_token: &str) -> Result<()> {
+        sqlx::query("DELETE FROM devices WHERE user_id=$1 AND fcm_token=$2")
+            .bind(user.as_str())
+            .bind(fcm_token)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

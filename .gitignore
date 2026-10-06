@@ -13,3 +13,4 @@ config.toml
 /android/**/build/
 /android/app/src/main/jniLibs/
 android/app/src/main/assets/testing-profile.json
+android/app/google-services.json

@@ -10,6 +10,7 @@
 
 pub mod client;
 pub mod names;
+pub mod seal;
 pub mod wire;
 
 #[cfg(feature = "uniffi")]
@@ -174,7 +175,7 @@ requests! {
     29 ConnectApp { slug: String } => Call<ConnectLink>
     30 DisconnectApp { slug: String } => Call<()>
     /// Personalized conversation starters, cached per user for 12 hours.
-    /// `refresh` skips the cache, after the user used one.
+    /// `refresh` skips the cache, at most 3 times in 10 minutes.
     31 SuggestPrompts { refresh: bool } => Call<PromptSuggestions>
     /// Starts OAuth for an MCP app such as Fastmail, whose provider only
     /// redirects to localhost. The phone listens on `redirect_uri`, an

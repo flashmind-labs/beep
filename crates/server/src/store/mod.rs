@@ -8,6 +8,7 @@ use sqlx_core::migrate::{Migration, MigrationType, Migrator};
 use std::{borrow::Cow, sync::Arc, time::Duration};
 use tokio::sync::Notify;
 
+mod actions;
 mod apps;
 mod cron_jobs;
 mod crons;
@@ -24,6 +25,7 @@ mod turns;
 mod usage;
 mod users;
 
+pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::McpServerRow;
 pub(crate) use cron_jobs::decode_schedule;
@@ -95,6 +97,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         13,
         "auto_model",
         include_str!("../../migrations/0013_auto_model.sql"),
+    ),
+    (
+        14,
+        "actions",
+        include_str!("../../migrations/0014_actions.sql"),
     ),
 ];
 

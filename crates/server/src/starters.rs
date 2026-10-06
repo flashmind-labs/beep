@@ -29,12 +29,18 @@ pub const TIMEOUT: Duration = Duration::from_secs(25);
 pub(crate) const FRESH: Duration = Duration::from_secs(12 * 60 * 60);
 /// A fallback is retried sooner than a real answer.
 pub(crate) const FALLBACK_FRESH: Duration = Duration::from_secs(5 * 60);
+/// New starters a user may ask for within `STARTER_REFRESH_WINDOW`.
+pub(crate) const STARTER_REFRESHES: usize = 3;
+pub(crate) const STARTER_REFRESH_WINDOW: Duration = Duration::from_secs(10 * 60);
 const COUNT: usize = 4;
 const MAX_TITLE_CHARS: usize = 28;
 const MAX_PROMPT_CHARS: usize = 400;
 const MAX_MEMORIES: usize = 40;
 const MAX_MEMORY_CHARS: usize = 200;
 const MAX_TITLES: usize = 8;
+/// How many recent actions the model sees.
+pub(crate) const MAX_DONE: usize = 15;
+const MAX_DONE_CHARS: usize = 240;
 /// Moving farther than this, like flying to another city, makes new starters.
 const MOVED_KM: f64 = 50.0;
 /// The earliest a set goes stale, so a time already past does not make the
@@ -52,6 +58,8 @@ prompt: the full message the user would send, in first person, one or two senten
 until: the local time when the starter stops being useful, like a few hours after a flight lands \
 or the end of a meeting; leave it out when it stays useful. \
 Leave out starters about events that are already over, judging by the local time and place. \
+Never suggest something listed under \"Done recently\": it is done, even if a memory still mentions it as a plan. \
+Recent conversations are things the user already asked; do not suggest asking them again. \
 Make them varied, specific to the context and useful at this time of day. \
 Only use facts given in the context, and never include secrets. \
 Write in the language the context suggests the user speaks, else English.";
@@ -92,6 +100,14 @@ pub struct StarterContext {
     /// Where the phone last was, like "Marina Bay, Singapore".
     pub place: Option<String>,
     pub connected_apps: Vec<String>,
+    /// What Beep recently did in the user's apps, newest first.
+    pub done: Vec<Done>,
+}
+
+/// Something Beep did in the user's apps.
+pub struct Done {
+    pub at: DateTime<Utc>,
+    pub description: String,
 }
 
 /// Starters from the model and when the first of them stops being useful.
@@ -151,6 +167,17 @@ impl StarterContext {
             let _ = writeln!(text, "\nRecent conversations:");
             for title in self.recent_titles.iter().take(MAX_TITLES) {
                 let _ = writeln!(text, "- {}", clip(title, 80));
+            }
+        }
+        if !self.done.is_empty() {
+            let _ = writeln!(text, "\nDone recently:");
+            for done in self.done.iter().take(MAX_DONE) {
+                let at = LocalTime {
+                    time: done.at,
+                    timezone: self.now.timezone,
+                };
+                let description = clip(&done.description, MAX_DONE_CHARS);
+                let _ = writeln!(text, "- {}: {description}", at.describe());
             }
         }
         if !self.memories.is_empty() {

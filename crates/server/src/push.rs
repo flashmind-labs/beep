@@ -2,10 +2,13 @@
 //! a notice goes over the user's open connection if there is one, or else
 //! the server dials the phone, which waits on its home relay with no
 //! connection open. A notice that can't be delivered is retried from time
-//! to time, and sent at once when the phone next connects.
+//! to time, and sent at once when the phone next connects. With a fallback,
+//! a notice iroh could not deliver goes through Firebase instead, and one
+//! Firebase could not take wakes the phone to come for it.
 
 use crate::{
     app::UserNotice,
+    fcm::Fallback,
     protocol::{
         Notice,
         wire::{PUSH_ALPN, framed},
@@ -42,6 +45,8 @@ const RETRY_WAITS: [Duration; 5] = [
     Duration::from_secs(30 * 60),
 ];
 const RETRY_FOR: Duration = Duration::from_secs(24 * 60 * 60);
+/// A phone woken this recently is not woken again: it is on its way.
+const WAKE_GAP: Duration = Duration::from_secs(20);
 
 /// A user's undelivered notices, oldest first.
 #[derive(Default)]
@@ -57,20 +62,29 @@ pub struct Pusher {
     live: Mutex<HashMap<EndpointId, Connection>>,
     queued: Mutex<HashMap<EndpointId, Pending>>,
     retry_waits: Vec<Duration>,
+    fallback: Option<Arc<dyn Fallback>>,
+    /// When each phone was last woken.
+    woken: Mutex<HashMap<EndpointId, Instant>>,
 }
 
 impl Pusher {
-    pub fn new(endpoint: Endpoint) -> Arc<Self> {
-        Self::with_retry_waits(endpoint, RETRY_WAITS.to_vec())
+    pub fn new(endpoint: Endpoint, fallback: Option<Arc<dyn Fallback>>) -> Arc<Self> {
+        Self::with_retry_waits(endpoint, fallback, RETRY_WAITS.to_vec())
     }
 
     /// Like `new` with other waits between retries; tests shorten them.
-    pub fn with_retry_waits(endpoint: Endpoint, retry_waits: Vec<Duration>) -> Arc<Self> {
+    pub fn with_retry_waits(
+        endpoint: Endpoint,
+        fallback: Option<Arc<dyn Fallback>>,
+        retry_waits: Vec<Duration>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             endpoint,
             live: Mutex::default(),
             queued: Mutex::default(),
             retry_waits,
+            fallback,
+            woken: Mutex::default(),
         })
     }
 
@@ -126,12 +140,50 @@ impl Pusher {
         self.deliver_all(id, VecDeque::from([notice])).await;
     }
 
-    /// Sends `notices` in order and queues what could not be sent.
+    /// Sends `notices` in order, and queues what could not be sent and
+    /// wakes the phone to come for it.
     async fn deliver_all(self: Arc<Self>, id: EndpointId, notices: VecDeque<Notice>) {
         let unsent = self.send_all(id, notices).await;
-        if !unsent.is_empty() && self.put_back(id, unsent) {
+        let unsent = self.push_all(id, unsent).await;
+        if unsent.is_empty() {
+            return;
+        }
+        let start_retry = self.put_back(id, unsent);
+        self.wake(id).await;
+        if start_retry {
             tokio::spawn(self.retry(id));
         }
+    }
+
+    /// Sends `notices` through the fallback and returns those it did not take.
+    async fn push_all(&self, id: EndpointId, notices: VecDeque<Notice>) -> VecDeque<Notice> {
+        let Some(fallback) = &self.fallback else {
+            return notices;
+        };
+        let mut unsent = VecDeque::new();
+        for notice in notices {
+            if !fallback.push(id, &notice).await {
+                unsent.push_back(notice);
+            }
+        }
+        unsent
+    }
+
+    /// Wakes the phone through the fallback, unless it was woken just now.
+    async fn wake(&self, id: EndpointId) {
+        let Some(fallback) = &self.fallback else {
+            return;
+        };
+        {
+            let mut woken = self.woken.lock().unwrap_or_else(PoisonError::into_inner);
+            let now = Instant::now();
+            woken.retain(|_, at| now.duration_since(*at) < WAKE_GAP);
+            if woken.contains_key(&id) {
+                return;
+            }
+            woken.insert(id, now);
+        }
+        fallback.wake(id).await;
     }
 
     /// Tries the queued notices again from time to time until they are sent,
@@ -157,7 +209,12 @@ impl Pusher {
                 mem::take(&mut pending.notices)
             };
             let unsent = self.send_all(id, notices).await;
+            let unsent = self.push_all(id, unsent).await;
+            let missed = !unsent.is_empty();
             self.put_back(id, unsent);
+            if missed {
+                self.wake(id).await;
+            }
         }
     }
 
@@ -258,11 +315,63 @@ mod tests {
     /// A pusher on an endpoint with no relay or address lookup, so nothing
     /// here reaches the network.
     async fn pusher(retry_waits: Vec<Duration>) -> Arc<Pusher> {
+        falling_back_pusher(retry_waits, None).await
+    }
+
+    async fn falling_back_pusher(
+        retry_waits: Vec<Duration>,
+        fallback: Option<Arc<dyn Fallback>>,
+    ) -> Arc<Pusher> {
         let endpoint = Endpoint::builder(presets::Minimal)
             .bind()
             .await
             .expect("a local endpoint binds");
-        Pusher::with_retry_waits(endpoint, retry_waits)
+        Pusher::with_retry_waits(endpoint, fallback, retry_waits)
+    }
+
+    /// Records pushes and wakes instead of sending them. Takes only the
+    /// notices whose title starts with "push".
+    #[derive(Default)]
+    struct Recorder {
+        pushed: Mutex<Vec<String>>,
+        woken: Mutex<Vec<EndpointId>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Fallback for Recorder {
+        async fn push(&self, _phone: EndpointId, notice: &Notice) -> bool {
+            let taken = notice.title.starts_with("push");
+            if taken {
+                self.pushed
+                    .lock()
+                    .expect("no test thread panics holding it")
+                    .push(notice.title.clone());
+            }
+            taken
+        }
+
+        async fn wake(&self, phone: EndpointId) {
+            self.woken
+                .lock()
+                .expect("no test thread panics holding it")
+                .push(phone);
+        }
+    }
+
+    impl Recorder {
+        fn pushed(&self) -> Vec<String> {
+            self.pushed
+                .lock()
+                .expect("no test thread panics holding it")
+                .clone()
+        }
+
+        fn woken(&self) -> Vec<EndpointId> {
+            self.woken
+                .lock()
+                .expect("no test thread panics holding it")
+                .clone()
+        }
     }
 
     fn phone(n: u8) -> EndpointId {
@@ -336,5 +445,29 @@ mod tests {
         );
         // With the queue gone, the next failure starts a retry again.
         assert!(pusher.put_back(phone(1), notices(&["b"])));
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_phone_is_woken_once_and_its_notices_wait() {
+        let recorder = Arc::new(Recorder::default());
+        let pusher = falling_back_pusher(RETRY_WAITS.to_vec(), Some(recorder.clone())).await;
+        // Nothing can reach this phone, so the dial fails.
+        pusher.clone().deliver(phone(1), notice("a")).await;
+        pusher.clone().deliver(phone(1), notice("b")).await;
+        assert_eq!(recorder.woken(), [phone(1)]);
+        let queued = pusher.take(phone(1));
+        let mut waiting = titles(&queued);
+        waiting.sort();
+        assert_eq!(waiting, ["a", "b"]);
+    }
+
+    #[tokio::test]
+    async fn a_pushed_notice_is_not_queued_and_wakes_nobody() {
+        let recorder = Arc::new(Recorder::default());
+        let pusher = falling_back_pusher(RETRY_WAITS.to_vec(), Some(recorder.clone())).await;
+        pusher.clone().deliver(phone(1), notice("push a")).await;
+        assert_eq!(recorder.pushed(), ["push a"]);
+        assert!(recorder.woken().is_empty());
+        assert!(pusher.take(phone(1)).is_empty());
     }
 }

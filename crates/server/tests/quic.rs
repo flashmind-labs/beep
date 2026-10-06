@@ -120,7 +120,8 @@ impl Harness {
             .bind()
             .await
             .unwrap();
-        let pusher = Pusher::with_retry_waits(endpoint.clone(), vec![Duration::from_millis(200)]);
+        let pusher =
+            Pusher::with_retry_waits(endpoint.clone(), None, vec![Duration::from_millis(200)]);
         pusher.start(app.notifications.subscribe());
         let router = Router::builder(endpoint)
             .accept(

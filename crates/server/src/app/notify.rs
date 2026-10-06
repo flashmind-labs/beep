@@ -52,16 +52,6 @@ impl App {
         };
         // Best-effort: ignore send errors (no active receivers).
         let _ = self.notifications.send(notice);
-        if let Ok(tokens) = user.device_tokens().await
-            && !tokens.is_empty()
-        {
-            log::info!(
-                "would send push; user={user} run_id={} status={} devices={}",
-                run.id,
-                status.as_str(),
-                tokens.len()
-            );
-        }
     }
 }
 

@@ -11,6 +11,7 @@ use crate::{
 };
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use flashmind::{
     core::{Conversation, EntryKind},
     types::{
@@ -588,6 +589,88 @@ impl Tool for Guarded {
     }
 }
 
+/// Longest field value an action's description keeps.
+const MAX_ACTION_VALUE_CHARS: usize = 80;
+/// Fields an action's description keeps.
+const MAX_ACTION_FIELDS: usize = 4;
+
+/// What the turn did in the user's apps from `since` on, each as one line
+/// such as "Gmail: send email (Recipient email: jo@example.com; Subject:
+/// Lunch)". Only calls that act and went through: denied, skipped and
+/// failed calls are left out.
+pub(crate) fn actions_since(conversation: &Conversation, since: DateTime<Utc>) -> Vec<String> {
+    let entries = conversation.entries();
+    let calls: HashMap<&str, &ToolCall> = entries
+        .iter()
+        .filter_map(|entry| match &entry.kind {
+            EntryKind::Assistant {
+                tool_calls: Some(calls),
+                ..
+            } => Some(calls),
+            _ => None,
+        })
+        .flatten()
+        .map(|call| (call.id.as_str(), call))
+        .collect();
+    entries
+        .iter()
+        .filter(|entry| entry.timestamp >= since)
+        .filter_map(|entry| match &entry.kind {
+            EntryKind::Tool { call_id, output } => Some((calls.get(call_id.as_str())?, output)),
+            _ => None,
+        })
+        .filter(|(_, output)| went_through(output))
+        .filter_map(|(call, _)| {
+            let (app, acts) = lookup(&call.name)?;
+            acts.on(&call.arguments)
+                .then(|| describe_action(app, call, conversation))
+        })
+        .collect()
+}
+
+/// Whether a tool result says the call did what it was asked.
+fn went_through(output: &str) -> bool {
+    if output == DENIED || output == SKIPPED {
+        return false;
+    }
+    let failed = parse_output(output).is_some_and(|result| {
+        result.get("successful") == Some(&Value::Bool(false))
+            || result.get("error").is_some_and(|error| !error.is_null())
+    });
+    !failed
+}
+
+fn describe_action(app: &CatalogApp, call: &ToolCall, conversation: &Conversation) -> String {
+    let action = action_name(app, ToolSlug::new(&call.name).as_str());
+    let mut fields = records(&call.arguments, conversation);
+    fields.extend(fields_of(&call.arguments));
+    let details: Vec<String> = fields
+        .into_iter()
+        .take(MAX_ACTION_FIELDS)
+        .map(|field| {
+            let value: String = field.value.split_whitespace().collect::<Vec<_>>().join(" ");
+            let mut value: String = value.chars().take(MAX_ACTION_VALUE_CHARS).collect();
+            if value.chars().count() == MAX_ACTION_VALUE_CHARS {
+                value.push_str("...");
+            }
+            format!("{}: {value}", field.label)
+        })
+        .collect();
+    if details.is_empty() {
+        format!("{}: {action}", app.name)
+    } else {
+        format!("{}: {action} ({})", app.name, details.join("; "))
+    }
+}
+
+/// The argument fields that say most about an action: who and what, before
+/// long text such as a body.
+fn fields_of(args: &Value) -> Vec<ApprovalField> {
+    let mut fields = fields(args);
+    fields.sort_by_key(|field| field.value.chars().count() > MAX_ACTION_VALUE_CHARS);
+    fields
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -823,5 +906,40 @@ mod tests {
         let to = json!([{"name": "Jo", "email": "jo@example.com"}, {"email": "sam@example.com"}]);
         let shown = fields(&json!({ "to": to }));
         assert_eq!(shown[0].value, "Jo <jo@example.com>, sam@example.com");
+    }
+
+    #[test]
+    fn actions_are_the_calls_that_acted_and_went_through() {
+        let call = |id: &str, name: &str, arguments| ToolCall {
+            id: id.into(),
+            name: name.into(),
+            arguments,
+        };
+        let mut conversation = Conversation::new();
+        conversation.add(ConversationEntry::user("Email Jo about lunch"));
+        let since = conversation.entries()[0].timestamp;
+        let email = json!({"recipient_email": "jo@example.com", "subject": "Lunch", "body": "See you at noon."});
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![
+                call("read", "GMAIL_FETCH_EMAILS", json!({})),
+                call("sent", "GMAIL_SEND_EMAIL", email.clone()),
+                call("denied", "GMAIL_SEND_EMAIL", email.clone()),
+                call("failed", "GMAIL_SEND_EMAIL", email),
+            ],
+            None,
+        ));
+        conversation.add(ConversationEntry::tool("read", "[]"));
+        conversation.add(ConversationEntry::tool("sent", r#"{"successful": true}"#));
+        conversation.add(ConversationEntry::tool("denied", DENIED));
+        conversation.add(ConversationEntry::tool(
+            "failed",
+            r#"{"successful": false, "error": "quota"}"#,
+        ));
+        let actions = actions_since(&conversation, since);
+        assert_eq!(actions.len(), 1, "{actions:?}");
+        assert!(actions[0].starts_with("Gmail: "), "{}", actions[0]);
+        assert!(actions[0].contains("jo@example.com"), "{}", actions[0]);
+        assert!(actions[0].contains("Lunch"), "{}", actions[0]);
     }
 }
