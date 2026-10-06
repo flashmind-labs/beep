@@ -5,7 +5,7 @@
 
 use crate::{
     apps::{CATALOG, CatalogApp, catalog_app, mcp::FASTMAIL_TOOLS},
-    protocol::{AppAction, AppPermissions, Approval, ApprovalField, PermissionLevel},
+    protocol::{AppAction, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel},
     store::AppPermissionRow,
     user::User,
 };
@@ -33,6 +33,9 @@ const MAX_VALUE_CHARS: usize = 600;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Acts {
     Never,
+    /// Saves a draft for the user to send, so it never asks, whatever the
+    /// tool's Composio tags say.
+    Drafts,
     Always,
     /// Only when it moves mail to another folder, which can bin it.
     WhenMoving,
@@ -41,10 +44,15 @@ pub(crate) enum Acts {
 impl Acts {
     fn on(self, args: &Value) -> bool {
         match self {
-            Acts::Never => false,
+            Acts::Never | Acts::Drafts => false,
             Acts::Always => true,
             Acts::WhenMoving => args.get("folder").is_some_and(|folder| !folder.is_null()),
         }
+    }
+
+    /// Whether some call of the tool can act, and so falls under the rules.
+    fn can_act(self) -> bool {
+        !matches!(self, Acts::Never | Acts::Drafts)
     }
 }
 
@@ -93,13 +101,13 @@ fn action_tools(app: &CatalogApp) -> Vec<String> {
     if app.slug == "fastmail" {
         return FASTMAIL_TOOLS
             .iter()
-            .filter(|(_, acts)| *acts != Acts::Never)
+            .filter(|(_, acts)| acts.can_act())
             .map(|(name, _)| format!("FASTMAIL_{}", name.to_uppercase()))
             .collect();
     }
     app.tools
         .iter()
-        .filter(|picked| picked.acts != Acts::Never)
+        .filter(|picked| picked.acts.can_act())
         .map(|picked| picked.slug.to_owned())
         .collect()
 }
@@ -211,7 +219,7 @@ struct Shared {
 /// asking: a catalog action whose tags say update still asks.
 fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(&'static CatalogApp, Acts)> {
     let (app, acts) = lookup(tool)?;
-    if hinted.contains(&ToolSlug::new(tool)) {
+    if acts != Acts::Drafts && hinted.contains(&ToolSlug::new(tool)) {
         return Some((app, Acts::Always));
     }
     Some((app, acts))
@@ -231,7 +239,7 @@ pub(crate) fn guard(
         .into_iter()
         .filter_map(|tool| {
             let Some((app, acts)) =
-                classify(tool.name(), hinted).filter(|(_, acts)| *acts != Acts::Never)
+                classify(tool.name(), hinted).filter(|(_, acts)| acts.can_act())
             else {
                 return Some(tool);
             };
@@ -312,6 +320,21 @@ pub(crate) fn open_calls(conversation: &Conversation) -> Vec<ToolCall> {
         .collect()
 }
 
+/// The card for the call the session stopped on to ask, when it has one:
+/// its first open call, the one an answer resumes.
+pub(crate) fn waiting_approval(conversation: &Conversation) -> Option<HistoryEntry> {
+    let call = open_calls(conversation).into_iter().next()?;
+    let (app, _) = lookup(&call.name)?;
+    Some(HistoryEntry::Approval {
+        approval: Approval {
+            app: app.name.to_owned(),
+            action: action_name(app, ToolSlug::new(&call.name).as_str()),
+            fields: fields(&call.arguments),
+        },
+        query_id: call.id,
+    })
+}
+
 /// Stops asking for `tool` in its app.
 pub(crate) async fn allow_always(user: &User, tool: &str) -> Result<()> {
     let Some((app, _)) = lookup(tool) else {
@@ -335,6 +358,11 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
             let value = match value {
                 Value::Null => return None,
                 Value::String(text) => text.trim().to_owned(),
+                Value::Array(items) if items.iter().all(|item| address(item).is_some()) => items
+                    .iter()
+                    .filter_map(address)
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 other => other.to_string(),
             };
             if value.is_empty() || value == "[]" || value == "{}" {
@@ -353,11 +381,22 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
         .collect()
 }
 
-/// An argument that only names a record, such as `message_id`, whose value
-/// means nothing to the user.
+/// A recipient written as `{"name": "Jo", "email": "jo@example.com"}`, as
+/// Fastmail takes them, read as "Jo <jo@example.com>".
+fn address(item: &Value) -> Option<String> {
+    let email = item.get("email")?.as_str()?;
+    Some(match item.get("name").and_then(Value::as_str) {
+        Some(name) if !name.trim().is_empty() => format!("{} <{email}>", name.trim()),
+        _ => email.to_owned(),
+    })
+}
+
+/// An argument that only names a record, such as `message_id` or `emailId`,
+/// whose value means nothing to the user.
 fn is_id(key: &str) -> bool {
+    let camel = key.ends_with("Id") || key.ends_with("Ids");
     let key = key.to_ascii_lowercase();
-    ["id", "ids"].contains(&key.as_str()) || key.ends_with("_id") || key.ends_with("_ids")
+    camel || ["id", "ids"].contains(&key.as_str()) || key.ends_with("_id") || key.ends_with("_ids")
 }
 
 #[async_trait]
@@ -474,6 +513,12 @@ mod tests {
             classify("gmail_fetch_emails", &hinted).unwrap().1,
             Acts::Always
         );
+        // Drafts only save a message, so a create tag does not make them ask.
+        let hinted: HashSet<ToolSlug> = [ToolSlug::new("GMAIL_CREATE_EMAIL_DRAFT")].into();
+        assert_eq!(
+            classify("gmail_create_email_draft", &hinted).unwrap().1,
+            Acts::Drafts
+        );
         // An update-only catalog action keeps asking without a hint.
         assert_eq!(
             classify("gmail_move_to_trash", &HashSet::new()).unwrap().1,
@@ -510,7 +555,6 @@ mod tests {
             [
                 ("Send email", false),
                 ("Reply to thread", true),
-                ("Create email draft", false),
                 ("Move to trash", false)
             ]
         );
@@ -571,6 +615,33 @@ mod tests {
     }
 
     #[test]
+    fn a_session_stopped_on_a_call_shows_its_card() {
+        let mut conversation = Conversation::new();
+        conversation.add(ConversationEntry::user("Draft the email"));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![ToolCall {
+                id: "draft".into(),
+                name: "gmail_create_email_draft".into(),
+                arguments: json!({"recipient_email": "a@example.com", "subject": "Stay"}),
+            }],
+            None,
+        ));
+        let Some(HistoryEntry::Approval { query_id, approval }) = waiting_approval(&conversation)
+        else {
+            panic!("expected the open call's card");
+        };
+        assert_eq!(query_id, "draft");
+        assert_eq!(
+            (approval.app.as_str(), approval.action.as_str()),
+            ("Gmail", "create email draft")
+        );
+        assert_eq!(approval.fields.len(), 2);
+        conversation.add(ConversationEntry::tool("draft", DENIED));
+        assert!(waiting_approval(&conversation).is_none());
+    }
+
+    #[test]
     fn fields_skip_empty_values() {
         let shown = fields(&json!({"recipient_email": "a@example.com", "cc": [], "body": null}));
         assert_eq!(shown.len(), 1);
@@ -579,8 +650,16 @@ mod tests {
 
     #[test]
     fn fields_skip_ids() {
-        let shown = fields(&json!({"message_id": "AAMk", "ids": ["M1"], "comment": "Hi"}));
+        let shown =
+            fields(&json!({"message_id": "AAMk", "ids": ["M1"], "emailId": "M2", "comment": "Hi"}));
         let labels: Vec<&str> = shown.iter().map(|field| field.label.as_str()).collect();
         assert_eq!(labels, ["Comment"]);
+    }
+
+    #[test]
+    fn fields_read_recipients() {
+        let to = json!([{"name": "Jo", "email": "jo@example.com"}, {"email": "sam@example.com"}]);
+        let shown = fields(&json!({ "to": to }));
+        assert_eq!(shown[0].value, "Jo <jo@example.com>, sam@example.com");
     }
 }

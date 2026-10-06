@@ -145,7 +145,10 @@ async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>) -> Reply<
     let Some(live) = cx.app.live(&run.id).await else {
         let finished = Event {
             seq: after + 1,
-            event: RunEvent::RunFinished { status: run.status },
+            event: RunEvent::RunFinished {
+                status: run.status,
+                updated_at: None,
+            },
         };
         sink.send(&finished).await?;
         return Ok(());
@@ -203,7 +206,9 @@ async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<History
     let failures = cx.user.tool_failures(&id).await?;
     let scores = cx.user.memory_scores(&id).await?;
     let models = cx.user.turn_models(&id).await?;
-    Ok(history(conv.entries(), &failures, &scores, &models))
+    let mut entries = history(conv.entries(), &failures, &scores, &models);
+    entries.extend(permissions::waiting_approval(&conv));
+    Ok(entries)
 }
 
 /// Sessions the database may hand over for a search. Matches only in tool
@@ -248,7 +253,7 @@ fn session_match(found: FoundSession, query: &str) -> Option<SessionMatch> {
         let (text, from_user) = match entry {
             HistoryEntry::User { content, .. } => (content, true),
             HistoryEntry::Assistant { content, .. } => (content, false),
-            HistoryEntry::Scheduled { .. } => return None,
+            HistoryEntry::Scheduled { .. } | HistoryEntry::Approval { .. } => return None,
         };
         let at = find_ignoring_case(text, query)?;
         Some(SessionMatch {

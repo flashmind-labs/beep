@@ -287,6 +287,7 @@ impl App {
                     }
                     live.push(RunEvent::RunFinished {
                         status: RunStatus::Failed.as_str().to_owned(),
+                        updated_at: None,
                     });
                 }
                 app.runs.lock().await.remove(&run.id);

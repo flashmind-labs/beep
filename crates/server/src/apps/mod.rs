@@ -68,6 +68,14 @@ const fn act(slug: &'static str) -> PickedTool {
     }
 }
 
+/// A tool that saves a draft for the user to send. It never asks.
+const fn draft(slug: &'static str) -> PickedTool {
+    PickedTool {
+        slug,
+        acts: Acts::Drafts,
+    }
+}
+
 const fn composio(
     slug: &'static str,
     name: &'static str,
@@ -94,7 +102,7 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
             read("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"),
             act("GMAIL_SEND_EMAIL"),
             act("GMAIL_REPLY_TO_THREAD"),
-            act("GMAIL_CREATE_EMAIL_DRAFT"),
+            draft("GMAIL_CREATE_EMAIL_DRAFT"),
             act("GMAIL_MOVE_TO_TRASH"),
             read("GMAIL_SEARCH_PEOPLE"),
         ],
@@ -144,7 +152,7 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
             read("OUTLOOK_QUERY_EMAILS"),
             act("OUTLOOK_SEND_EMAIL"),
             act("OUTLOOK_REPLY_EMAIL"),
-            act("OUTLOOK_CREATE_DRAFT"),
+            draft("OUTLOOK_CREATE_DRAFT"),
             act("OUTLOOK_MOVE_MESSAGE"),
             read("OUTLOOK_GET_CALENDAR_VIEW"),
             act("OUTLOOK_CALENDAR_CREATE_EVENT"),

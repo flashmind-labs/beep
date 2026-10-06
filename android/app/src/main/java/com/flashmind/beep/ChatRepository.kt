@@ -212,6 +212,13 @@ class ChatRepository(private val storage: LocalStorage) {
                         ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools, memoryScore = entry.memoryScore, reasoning = reasoning, model = entry.model)
                     }
                 }
+                // The session stopped to ask before a call: the card takes the tools held back for it.
+                is HistoryEntry.Approval -> {
+                    val message = ChatMessage("history-$id-$i", "assistant", "", toolCalls = pending, reasoning = pendingReasoning,
+                        approvals = listOf(ApprovalPrompt(entry.queryId, entry.approval)))
+                    pending = emptyList(); pendingReasoning = ""
+                    message
+                }
             }
         }
         if (settings.value != config) return
@@ -404,7 +411,7 @@ class ChatRepository(private val storage: LocalStorage) {
             when (entry) {
                 is HistoryEntry.User -> entry.timestamp.takeIf { prompt.role == "user" && entry.content == prompt.text }
                 is HistoryEntry.Scheduled -> entry.timestamp.takeIf { prompt.role == "scheduled" && entry.label == prompt.text }
-                is HistoryEntry.Assistant -> null
+                is HistoryEntry.Assistant, is HistoryEntry.Approval -> null
             }
         }.getOrElse(nth) { 0L }
     }
@@ -1080,6 +1087,11 @@ class ChatRepository(private val storage: LocalStorage) {
                 is RunEvent.RunFinished -> {
                     val status = event.status
                     refreshTitles()
+                    // The phone streamed the turn the run saved, so it already holds that version.
+                    event.updatedAt?.toEpochMilli()?.let { saved ->
+                        serverVersions.merge(id, saved, ::maxOf)
+                        next = next.copy(version = saved)
+                    }
                     // Extract any card JSON embedded in assistant text
                     val messageId = "assistant-${chat.runId}"
                     next = next.copy(
