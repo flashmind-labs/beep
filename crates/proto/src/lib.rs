@@ -280,9 +280,7 @@ wire_enum! {
 }
 
 wire_enum! {
-    /// Work the server asks the phone to do during a run. `ReadScreen` asks for
-    /// a screenshot of the app behind Beep's bubble, answered as JSON
-    /// `{"image": "data:image/jpeg;base64,..."}`. `Approve` asks the user to
+    /// Work the server asks the phone to do during a run. `Approve` asks the user to
     /// allow a tool call, answered as `{"decision": "allow"}`, where the
     /// decision is `allow`, `always` or `deny`.
     #[derive(Debug, Clone, PartialEq)]
@@ -290,7 +288,6 @@ wire_enum! {
     pub enum DeviceQuery {
         0 Contacts { name: String }
         1 Browser { command: BrowserCommand }
-        2 ReadScreen {}
         3 Approve { approval: Approval }
     }
 }

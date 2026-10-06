@@ -362,13 +362,6 @@ impl App {
         })
     }
 
-    /// The model that reads screenshots for `read_screen`.
-    pub(crate) async fn screen_reader(&self, user: &User) -> Option<Describer> {
-        let model = self.model_for(user).await;
-        let sees_images = self.provider.capabilities(&model).await.images;
-        self.describer(user, &model, sees_images)
-    }
-
     /// Summarizes sessions that are long and have gone quiet.
     pub async fn compact_idle_sessions(&self) {
         let summarizer = Summarizer {

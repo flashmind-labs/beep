@@ -8,7 +8,6 @@ mod maps;
 mod memory;
 mod open_app;
 mod progress;
-mod screen;
 mod suggest;
 
 pub(crate) use suggest::{
@@ -53,11 +52,6 @@ pub fn registry(
     registry.register(Arc::new(browser::BrowserTool {
         app: app.clone(),
         run_id: run_id.to_owned(),
-    }));
-    registry.register(Arc::new(screen::ReadScreenTool {
-        app: app.clone(),
-        run_id: run_id.to_owned(),
-        user: user.clone(),
     }));
     registry.register(Arc::new(contacts::ContactsTool {
         app,

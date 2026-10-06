@@ -230,14 +230,6 @@ object Bubble {
         bubbleView?.visibility = if (shown) View.GONE else View.VISIBLE
     }
 
-    /** Makes the bubble invisible while Beep takes a screenshot, without moving or closing it. */
-    fun screenshotting(hidden: Boolean) {
-        val view = bubbleView ?: return
-        val p = params ?: return
-        p.alpha = if (hidden) 0f else 1f
-        view.context.getSystemService(WindowManager::class.java).updateViewLayout(view, p)
-    }
-
     /** The panel's top edge, right under the bubble once it has moved to the corner; the disc's own padding is the gap. */
     fun panelTop(context: Context) = screen(context).top + px(context, MARGIN_DP) + px(context, SIZE_DP)
 

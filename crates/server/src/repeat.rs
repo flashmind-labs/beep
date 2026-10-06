@@ -67,13 +67,7 @@ const MAX_REFUSALS: usize = 3;
 
 /// Tools that read state that changes between calls, so calling them again
 /// with the same arguments is not a loop.
-const LIVE_TOOLS: &[&str] = &[
-    "browser",
-    "read_screen",
-    "get_location",
-    "get_time",
-    "task_progress",
-];
+const LIVE_TOOLS: &[&str] = &["browser", "get_location", "get_time", "task_progress"];
 
 /// Wraps every tool in `registry` so a run that calls one with the same
 /// arguments more than [`SAME_CALLS`] times gets an error back instead of
