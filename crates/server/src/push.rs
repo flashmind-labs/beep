@@ -249,3 +249,92 @@ async fn send(connection: &Connection, notice: &Notice) -> Result<()> {
         .await
         .context("notice timed out")?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iroh::{SecretKey, endpoint::presets};
+
+    /// A pusher on an endpoint with no relay or address lookup, so nothing
+    /// here reaches the network.
+    async fn pusher(retry_waits: Vec<Duration>) -> Arc<Pusher> {
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .bind()
+            .await
+            .expect("a local endpoint binds");
+        Pusher::with_retry_waits(endpoint, retry_waits)
+    }
+
+    fn phone(n: u8) -> EndpointId {
+        SecretKey::from_bytes(&[n; 32]).public()
+    }
+
+    fn notice(title: &str) -> Notice {
+        Notice {
+            title: title.into(),
+            body: String::new(),
+            session_id: String::new(),
+            app: None,
+            approval: None,
+            changed: false,
+        }
+    }
+
+    fn notices(titles: &[&str]) -> VecDeque<Notice> {
+        titles.iter().map(|title| notice(title)).collect()
+    }
+
+    fn titles(notices: &VecDeque<Notice>) -> Vec<&str> {
+        notices.iter().map(|notice| notice.title.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn put_back_starts_one_retry_per_queue() {
+        let pusher = pusher(RETRY_WAITS.to_vec()).await;
+        assert!(!pusher.put_back(phone(1), VecDeque::new()));
+        assert!(pusher.put_back(phone(1), notices(&["a"])));
+        assert!(!pusher.put_back(phone(1), notices(&["b"])));
+        assert!(pusher.put_back(phone(2), notices(&["c"])));
+    }
+
+    #[tokio::test]
+    async fn put_back_keeps_unsent_notices_ahead_of_newer_ones() {
+        let pusher = pusher(RETRY_WAITS.to_vec()).await;
+        pusher.put_back(phone(1), notices(&["c"]));
+        pusher.put_back(phone(1), notices(&["a", "b"]));
+        assert_eq!(titles(&pusher.take(phone(1))), ["a", "b", "c"]);
+        assert!(pusher.take(phone(1)).is_empty());
+        assert!(pusher.take(phone(2)).is_empty());
+    }
+
+    #[tokio::test]
+    async fn put_back_drops_the_oldest_past_the_limit() {
+        let pusher = pusher(RETRY_WAITS.to_vec()).await;
+        let names: Vec<String> = (0..MAX_QUEUED + 5).map(|i| i.to_string()).collect();
+        let all: Vec<&str> = names.iter().map(String::as_str).collect();
+        pusher.put_back(phone(1), notices(&all[5..]));
+        pusher.put_back(phone(1), notices(&all[..5]));
+        let queued = pusher.take(phone(1));
+        assert_eq!(queued.len(), MAX_QUEUED);
+        assert_eq!(titles(&queued), all[5..]);
+    }
+
+    #[tokio::test]
+    async fn retry_ends_once_the_phone_took_the_queue() {
+        let pusher = pusher(vec![Duration::from_millis(10)]).await;
+        assert!(pusher.put_back(phone(1), notices(&["a"])));
+        assert_eq!(titles(&pusher.take(phone(1))), ["a"]);
+        timeout(Duration::from_secs(5), pusher.clone().retry(phone(1)))
+            .await
+            .expect("retry stops when nothing is queued");
+        assert!(
+            !pusher
+                .queued
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains_key(&phone(1))
+        );
+        // With the queue gone, the next failure starts a retry again.
+        assert!(pusher.put_back(phone(1), notices(&["b"])));
+    }
+}
