@@ -104,6 +104,23 @@ impl Store {
         Ok(())
     }
 
+    /// The chat `id`'s runs reply in: the one it already has, or `session`,
+    /// which it keeps from then on. `None` when the job is gone.
+    pub(crate) async fn claim_cron_session(
+        &self,
+        id: Uuid,
+        session: Uuid,
+    ) -> Result<Option<String>> {
+        let row = sqlx::query(
+            "UPDATE crons SET session_id=COALESCE(session_id, $2) WHERE id=$1 RETURNING session_id",
+        )
+        .bind(id.to_string())
+        .bind(session.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.try_get("session_id")).transpose()?)
+    }
+
     pub(crate) async fn delete_cron_job(&self, id: Uuid, user: Option<&str>) -> Result<bool> {
         let deleted =
             sqlx::query("DELETE FROM crons WHERE id=$1 AND ($2::text IS NULL OR user_id=$2)")
