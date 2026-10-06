@@ -679,11 +679,11 @@ fun SuggestedReplies(card: ToolCard.Replies, onPick: (String) -> Unit) {
         }
     } else {
         FlowRow(Modifier.fillMaxWidth().padding(end = 6.dp, bottom = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             card.replies.forEach { reply ->
                 ChunkyButton(onClick = { onPick(reply) }, modifier = Modifier.popIn("reply-$reply"),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
-                    Text(reply, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    contentPadding = PaddingValues(horizontal = 11.dp, vertical = 5.dp)) {
+                    Text(reply, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
