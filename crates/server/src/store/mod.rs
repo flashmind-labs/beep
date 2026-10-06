@@ -32,7 +32,7 @@ pub use feeds::Feed;
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
 pub use runs::{CreateRun, FinishedTurn, RunStatus};
-pub use sessions::{DeletedTurn, SessionRef, StoredContext, TurnsToDelete};
+pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
 pub use test_db::TestDb;
 
 /// The schema, oldest first. Embedded by hand because `sqlx::migrate!`

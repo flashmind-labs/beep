@@ -12,9 +12,9 @@ use beep_proto::{
     DisconnectApp, Event, ExistingSessions, FinishAppAuth, ForegroundApp, GetAppPermissions,
     GetEvents, GetModels, GetRun, GetSession, Health, HistoryEntry, ListApps, ListCrons,
     ListMemories, ListSessions, Memory, Models, Notice, PermissionLevel, PinSession,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RenameSession, Run, RunCron, Session,
-    SetAppPermissions, SetModel, SetThinking, StartAppAuth, Stream, SuggestPrompts, ToggleCron,
-    UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RenameSession, Run, RunCron, SearchSessions,
+    Session, SessionMatch, SetAppPermissions, SetModel, SetThinking, StartAppAuth, Stream,
+    SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     names::username,
 };
@@ -303,6 +303,11 @@ impl BeepClient {
 
     pub async fn list_sessions(&self) -> Result<Vec<Session>, BeepError> {
         self.call(ListSessions {}).await
+    }
+
+    /// The chats where the user or Beep wrote `query`, newest first.
+    pub async fn search_sessions(&self, query: String) -> Result<Vec<SessionMatch>, BeepError> {
+        self.call(SearchSessions { query }).await
     }
 
     /// The ones of `ids` the server still has.

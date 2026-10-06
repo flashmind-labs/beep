@@ -34,6 +34,7 @@ import com.flashmind.beep.proto.Memory as ProtoMemory
 import com.flashmind.beep.proto.PromptSuggestion
 import com.flashmind.beep.proto.RunEvent
 import com.flashmind.beep.proto.ScrollDirection
+import com.flashmind.beep.proto.SessionMatch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -492,6 +493,8 @@ class ChatRepository(private val storage: LocalStorage) {
     )
     private fun memory(it: ProtoMemory) =
         Memory(it.id, it.content, it.category, it.source, it.updated, it.validFrom, it.validUntil, it.quote)
+    /** Chats whose messages hold `query`, searched on the server since the phone keeps few. */
+    suspend fun searchChats(query: String): List<SessionMatch> = api().searchSessions(query)
     /** The memories last fetched, null if never. */
     fun cachedMemories(): List<Memory>? = lists.memories?.map(::memory)
     suspend fun listMemories(): List<Memory> {
