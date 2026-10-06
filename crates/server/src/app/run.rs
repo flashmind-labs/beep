@@ -130,7 +130,8 @@ impl App {
             log::warn!("permissions: unable to load, asking for everything: {error:#}");
             Rules::default()
         });
-        for tool in permissions::guard(composio.into_iter().chain(mcp).collect(), rules, approved) {
+        let tools = composio.tools.into_iter().chain(mcp).collect();
+        for tool in permissions::guard(tools, rules, approved, &composio.hinted) {
             registry.register(tool);
         }
         let refusals = repeat::guard_tool_calls(&mut registry);

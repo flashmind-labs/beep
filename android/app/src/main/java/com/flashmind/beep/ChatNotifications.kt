@@ -9,7 +9,11 @@ import android.app.RemoteInput
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Typeface
 import android.graphics.drawable.Icon
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
 import com.flashmind.beep.proto.PendingApproval
 
 /** A notification per chat with Beep's reply, answerable from the shade. */
@@ -117,11 +121,12 @@ object ApprovalNotifications {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             return Notification.Action.Builder(null as Icon?, label, broadcast).build()
         }
+        val text = arguments(pending).ifEmpty { body }
         val notification = Notification.Builder(context, ChatNotifications.CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
             .setContentIntent(open)
             .addAction(action("Deny", "deny"))
             .addAction(action("Allow", "allow"))
@@ -130,6 +135,19 @@ object ApprovalNotifications {
             .setAutoCancel(true)
             .build()
         context.getSystemService(NotificationManager::class.java).notify(pending.queryId.hashCode(), notification)
+    }
+
+    /** Each argument on its own line, the label in bold. */
+    private fun arguments(pending: PendingApproval): CharSequence {
+        val text = SpannableStringBuilder()
+        pending.approval.fields.forEach { field ->
+            if (text.isNotEmpty()) text.append('\n')
+            val start = text.length
+            text.append(field.label).append(':')
+            text.setSpan(StyleSpan(Typeface.BOLD), start, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            text.append(' ').append(field.value)
+        }
+        return text
     }
 
     fun cancel(context: Context, queryId: String) =

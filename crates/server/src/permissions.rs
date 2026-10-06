@@ -48,9 +48,36 @@ impl Acts {
     }
 }
 
+/// Composio tags of tools that create or destroy something. Such a tool
+/// asks first even if the catalog lists it as a read.
+const ACTING_HINTS: &[&str] = &["createHint", "destructiveHint"];
+
+/// Whether a Composio tool's tags say it creates or destroys something.
+pub(crate) fn hinted_to_act(tags: &[String]) -> bool {
+    tags.iter().any(|tag| ACTING_HINTS.contains(&tag.as_str()))
+}
+
+/// A tool's name as rules keep it. Composio's tool wrappers lowercase the
+/// slug, so `outlook_reply_email` is `OUTLOOK_REPLY_EMAIL`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ToolSlug(String);
+
+impl ToolSlug {
+    pub(crate) fn new(tool: &str) -> Self {
+        Self(tool.to_ascii_uppercase())
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// The app a tool belongs to and whether it acts, for Composio slugs such
-/// as `GMAIL_SEND_EMAIL` and MCP tools such as `FASTMAIL_DELETE_EMAIL`.
+/// as `GMAIL_SEND_EMAIL` and MCP tools such as `FASTMAIL_DELETE_EMAIL`, in
+/// either case.
 fn lookup(tool: &str) -> Option<(&'static CatalogApp, Acts)> {
+    let tool = ToolSlug::new(tool);
+    let tool = tool.as_str();
     for app in CATALOG {
         if let Some(picked) = app.tools.iter().find(|picked| picked.slug == tool) {
             return Some((app, picked.acts));
@@ -179,6 +206,17 @@ struct Shared {
     approved: Approved,
 }
 
+/// The app of `tool` and whether it acts, by the catalog or by its Composio
+/// tags in `hinted`, the slugs `hinted_to_act` picked out. Tags only add
+/// asking: a catalog action whose tags say update still asks.
+fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(&'static CatalogApp, Acts)> {
+    let (app, acts) = lookup(tool)?;
+    if hinted.contains(&ToolSlug::new(tool)) {
+        return Some((app, Acts::Always));
+    }
+    Some((app, acts))
+}
+
 /// Puts the app tools under the user's rules: under read only the tools that
 /// always act are left out, and the rest that can act are wrapped so they
 /// ask first or refuse.
@@ -186,12 +224,14 @@ pub(crate) fn guard(
     tools: Vec<Arc<dyn Tool>>,
     rules: Rules,
     approved: Approved,
+    hinted: &HashSet<ToolSlug>,
 ) -> Vec<Arc<dyn Tool>> {
     let shared = Arc::new(Shared { rules, approved });
     tools
         .into_iter()
         .filter_map(|tool| {
-            let Some((app, acts)) = lookup(tool.name()).filter(|(_, acts)| *acts != Acts::Never)
+            let Some((app, acts)) =
+                classify(tool.name(), hinted).filter(|(_, acts)| *acts != Acts::Never)
             else {
                 return Some(tool);
             };
@@ -200,6 +240,7 @@ pub(crate) fn guard(
                 return None;
             }
             Some(Arc::new(Guarded {
+                slug: ToolSlug::new(tool.name()),
                 tool,
                 app,
                 acts,
@@ -211,6 +252,7 @@ pub(crate) fn guard(
 
 struct Guarded {
     tool: Arc<dyn Tool>,
+    slug: ToolSlug,
     app: &'static CatalogApp,
     acts: Acts,
     shared: Arc<Shared>,
@@ -277,7 +319,7 @@ pub(crate) async fn allow_always(user: &User, tool: &str) -> Result<()> {
     };
     let rules = user.app_rules().await?;
     let mut rule = rules.get(app.slug);
-    rule.allowed.insert(tool.to_owned());
+    rule.allowed.insert(ToolSlug::new(tool).0);
     user.save_app_permissions(&row(app, rule.level, rule.allowed.into_iter().collect()))
         .await
 }
@@ -288,6 +330,7 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
         return Vec::new();
     };
     args.iter()
+        .filter(|(key, _)| !is_id(key))
         .filter_map(|(key, value)| {
             let value = match value {
                 Value::Null => return None,
@@ -310,6 +353,13 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
         .collect()
 }
 
+/// An argument that only names a record, such as `message_id`, whose value
+/// means nothing to the user.
+fn is_id(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    ["id", "ids"].contains(&key.as_str()) || key.ends_with("_id") || key.ends_with("_ids")
+}
+
 #[async_trait]
 impl Tool for Guarded {
     fn name(&self) -> &str {
@@ -328,7 +378,7 @@ impl Tool for Guarded {
         if !self.acts.on(&ctx.args) {
             return self.tool.execute(ctx).await;
         }
-        let name = self.tool.name();
+        let name = self.slug.as_str();
         let rule = self.shared.rules.get(self.app.slug);
         let app = self.app.name;
         match rule.level {
@@ -398,6 +448,40 @@ mod tests {
     }
 
     #[test]
+    fn lowercase_composio_names_are_classified() {
+        let none = HashSet::new();
+        let (app, acts) = classify("outlook_reply_email", &none).unwrap();
+        assert_eq!((app.slug, acts), ("outlook", Acts::Always));
+        assert_eq!(
+            classify("outlook_query_emails", &none).unwrap().1,
+            Acts::Never
+        );
+    }
+
+    #[test]
+    fn hints_add_asking() {
+        assert!(hinted_to_act(&[
+            "openWorldHint".into(),
+            "createHint".into()
+        ]));
+        assert!(hinted_to_act(&["destructiveHint".into()]));
+        assert!(!hinted_to_act(&[
+            "updateHint".into(),
+            "openWorldHint".into()
+        ]));
+        let hinted: HashSet<ToolSlug> = [ToolSlug::new("GMAIL_FETCH_EMAILS")].into();
+        assert_eq!(
+            classify("gmail_fetch_emails", &hinted).unwrap().1,
+            Acts::Always
+        );
+        // An update-only catalog action keeps asking without a hint.
+        assert_eq!(
+            classify("gmail_move_to_trash", &HashSet::new()).unwrap().1,
+            Acts::Always
+        );
+    }
+
+    #[test]
     fn moving_mail_acts() {
         let update = Acts::WhenMoving;
         assert!(!update.on(&json!({"ids": ["M1"], "isRead": true})));
@@ -426,6 +510,7 @@ mod tests {
             [
                 ("Send email", false),
                 ("Reply to thread", true),
+                ("Create email draft", false),
                 ("Move to trash", false)
             ]
         );
@@ -490,5 +575,12 @@ mod tests {
         let shown = fields(&json!({"recipient_email": "a@example.com", "cc": [], "body": null}));
         assert_eq!(shown.len(), 1);
         assert_eq!(shown[0].label, "Recipient email");
+    }
+
+    #[test]
+    fn fields_skip_ids() {
+        let shown = fields(&json!({"message_id": "AAMk", "ids": ["M1"], "comment": "Hi"}));
+        let labels: Vec<&str> = shown.iter().map(|field| field.label.as_str()).collect();
+        assert_eq!(labels, ["Comment"]);
     }
 }
