@@ -1,5 +1,6 @@
-# Builds the server image on every push to main and puts it in the private
-# registry, tagged with the commit and `latest`. `just deploy-server` runs it.
+# Checks every push and pull request, then builds the server image on pushes
+# to main and puts it in the private registry, tagged with the commit and
+# `latest`. `just deploy-server` runs it.
 #
 # The registry host and account are repository variables and the token a
 # repository secret, so nothing about the box is written down here. `runs-on:
@@ -10,10 +11,40 @@ name: build
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 jobs:
+  check:
+    runs-on: host
+    env:
+      PG: beep-ci-pg-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # A throwaway database on a free loopback port, so runs don't collide.
+      - name: Start Postgres
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name "$PG" -p 127.0.0.1::5432 \
+            -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep \
+            pgvector/pgvector:pg17
+          timeout 60 sh -c "until docker exec $PG pg_isready -U beep > /dev/null 2>&1; do sleep 1; done"
+
+      - name: Format, lint and test
+        run: |
+          set -euo pipefail
+          port=$(docker port "$PG" 5432/tcp | head -1 | sed 's/.*://')
+          docker build --network host --target check \
+            --build-arg "BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:${port}/beep" .
+
+      - name: Stop Postgres
+        if: always()
+        run: docker rm -f "$PG" > /dev/null 2>&1 || true
+
   image:
+    needs: check
+    if: github.event_name != 'pull_request'
     runs-on: host
     steps:
       - uses: actions/checkout@v4

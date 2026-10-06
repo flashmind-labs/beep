@@ -1,7 +1,21 @@
 # syntax=docker/dockerfile:1
-FROM rust:1-slim-trixie AS build
+FROM rust:1-slim-trixie AS source
 WORKDIR /src
 COPY . .
+
+# CI runs this stage before building the image. The tests need the Postgres
+# named by BEEP_TEST_DATABASE_URL, so build it with `--network host`.
+FROM source AS check
+RUN rustup component add rustfmt clippy
+ARG BEEP_TEST_DATABASE_URL
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/target \
+    cargo fmt --all --check \
+    && cargo clippy -p beep-server -p beep-proto --all-targets -- -D warnings \
+    && BEEP_TEST_DATABASE_URL="$BEEP_TEST_DATABASE_URL" cargo test -p beep-server -p beep-proto
+
+FROM source AS build
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
