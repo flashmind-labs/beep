@@ -27,6 +27,12 @@ pub enum DeletedTurn {
     Busy,
 }
 
+/// A session `Store::search_sessions` found, with its transcript.
+pub struct FoundSession {
+    pub session: Session,
+    pub conversation: Conversation,
+}
+
 /// One user's session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRef {
@@ -104,6 +110,35 @@ fn remove_turn(
     Some(span)
 }
 
+/// A session from the columns id, title, pinned and updated_at.
+fn session(r: &PgRow) -> Result<Session> {
+    Ok(Session {
+        id: r.try_get(0)?,
+        title: r.try_get(1)?,
+        pinned: r.try_get(2)?,
+        updated_at: r
+            .try_get::<Option<DateTime<Utc>>, _>(3)?
+            .map_or(0, |at| at.timestamp_millis()),
+    })
+}
+
+/// `query` as it appears inside the stored JSON, with LIKE's wildcards
+/// escaped, so a quote or a percent sign matches itself.
+fn like_pattern(query: &str) -> String {
+    let json = serde_json::to_string(query).unwrap_or_default();
+    let inner = json
+        .get(1..json.len().saturating_sub(1))
+        .unwrap_or_default();
+    let mut pattern = String::with_capacity(inner.len());
+    for c in inner.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern
+}
+
 impl Store {
     pub(crate) async fn sessions(&self, user: &UserKey) -> Result<Vec<Session>> {
         let rows = sqlx::query(
@@ -116,15 +151,36 @@ impl Store {
         .bind(user.as_str())
         .fetch_all(&self.pool)
         .await?;
-        rows.into_iter()
+        rows.iter().map(session).collect()
+    }
+
+    /// Up to `limit` sessions whose transcript holds `query` anywhere,
+    /// ignoring case, most recently changed first. Tool calls and prompts
+    /// count too, so the caller checks the messages.
+    pub(crate) async fn search_sessions(
+        &self,
+        user: &UserKey,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<FoundSession>> {
+        let rows = sqlx::query(
+            "SELECT s.id, COALESCE(t.title, (SELECT substr(message, 1, 80) FROM runs r
+                 WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.seq LIMIT 1), 'Conversation'),
+                 s.pinned, s.updated_at, s.conversation
+             FROM sessions s LEFT JOIN session_titles t ON t.user_id=s.user_id AND t.session_id=s.id
+             WHERE s.user_id=$1 AND s.conversation ILIKE $2 ESCAPE '\\'
+             ORDER BY s.updated_at DESC NULLS LAST LIMIT $3",
+        )
+        .bind(user.as_str())
+        .bind(format!("%{}%", like_pattern(query)))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
             .map(|r| {
-                Ok(Session {
-                    id: r.try_get(0)?,
-                    title: r.try_get(1)?,
-                    pinned: r.try_get(2)?,
-                    updated_at: r
-                        .try_get::<Option<DateTime<Utc>>, _>(3)?
-                        .map_or(0, |at| at.timestamp_millis()),
+                Ok(FoundSession {
+                    session: session(r)?,
+                    conversation: serde_json::from_str(&r.try_get::<String, _>(4)?)?,
                 })
             })
             .collect()
@@ -511,5 +567,44 @@ mod tests {
         let span = remove_turn(&mut chat, 1001, TurnsToDelete::Onward).unwrap();
         assert_eq!((span.start, span.end), (1000, None));
         assert!(chat.entries().is_empty());
+    }
+
+    #[tokio::test]
+    async fn search_finds_words_inside_the_stored_json() {
+        use crate::store::{CreateRun, FinishedTurn, RunStatus, TestDb};
+        use crate::user::User;
+
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = User::for_test(store.clone(), "alice");
+        let CreateRun::Created(run) = alice.create_run("s1", "req-1", "hi").await.unwrap() else {
+            panic!("run was not created");
+        };
+        let mut chat = Conversation::new();
+        chat.add(ConversationEntry::user("Book the \"Kimpton\" for 100%"));
+        let turn = FinishedTurn {
+            transcript: &chat,
+            context: &chat,
+            prompt_tokens: 10,
+        };
+        alice
+            .finish(&run, Some(turn), RunStatus::Completed)
+            .await
+            .unwrap();
+
+        let ids = |found: Vec<FoundSession>| -> Vec<String> {
+            found.into_iter().map(|f| f.session.id).collect()
+        };
+        assert_eq!(
+            ids(alice.search_sessions("\"kimpton\"", 10).await.unwrap()),
+            ["s1"]
+        );
+        assert_eq!(
+            ids(alice.search_sessions("100%", 10).await.unwrap()),
+            ["s1"]
+        );
+        assert!(alice.search_sessions("10_%", 10).await.unwrap().is_empty());
+        let bob = User::for_test(store.clone(), "bob");
+        assert!(bob.search_sessions("kimpton", 10).await.unwrap().is_empty());
     }
 }

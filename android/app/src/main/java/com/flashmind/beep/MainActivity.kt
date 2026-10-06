@@ -41,7 +41,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import com.flashmind.beep.proto.SessionMatch
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -398,6 +403,19 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             LaunchedEffect(drawerOpen) { if (!drawerOpen) picked = null }
             BackHandler(enabled = picked != null) { picked = null }
             val visibleChats = state.conversations.filter { !it.isUnused && it.title.contains(historyQuery, ignoreCase = true) }
+            // Titles match at once; what was written comes from the server after a pause in typing.
+            var contentHits by remember { mutableStateOf<List<SessionMatch>>(emptyList()) }
+            LaunchedEffect(historyQuery) {
+                contentHits = emptyList()
+                val query = historyQuery.trim()
+                if (query.length < 2) return@LaunchedEffect
+                delay(350)
+                contentHits = runCatching { withContext(Dispatchers.IO) { repository.searchChats(query) } }.getOrDefault(emptyList())
+            }
+            val known = state.conversations.associateBy { it.id }
+            val titled = visibleChats.map { it.id }.toSet()
+            val messageHits = if (picked != null) emptyList()
+                else contentHits.filter { it.session.id !in titled && it.session.id in known }
             picked?.let { ids ->
                 Row(Modifier.padding(start = 20.dp, end = 8.dp, bottom = 4.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("${ids.size} selected", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
@@ -412,6 +430,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 }
             }
             LazyColumn(Modifier.weight(1f)) {
+                if (messageHits.isNotEmpty() && visibleChats.isNotEmpty()) item(key = "titles-label") { DrawerLabel("Titles") }
                 items(visibleChats, key = { it.id }) { chat ->
                     Box(Modifier.padding(horizontal = 12.dp, vertical = 2.dp)) {
                         val selecting = picked
@@ -447,6 +466,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                                 onClick = { contextMenuChat = null; showDeleteDialog = chat })
                         }
                     }
+                }
+                if (messageHits.isNotEmpty()) item(key = "messages-label") { DrawerLabel("In messages") }
+                items(messageHits, key = { "hit-" + it.session.id }) { hit ->
+                    val chat = known.getValue(hit.session.id)
+                    MessageHitRow(chat.title, hit, historyQuery.trim()) { openChat(chat.id); drawerOpen = false }
                 }
             }
             // Rename dialog
@@ -572,5 +596,33 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         BrowserScreen(onClose = { repository.closeBrowser() }) { modifier ->
             ChatScreen(state.current, repository, modifier, compact = true)
         }
+    }
+}
+
+@Composable
+private fun DrawerLabel(text: String) =
+    Text(text, Modifier.padding(start = 28.dp, end = 20.dp, top = 10.dp, bottom = 4.dp),
+        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
+
+/** A chat found by what was written in it, with the matching words highlighted. */
+@Composable
+private fun MessageHitRow(title: String, hit: SessionMatch, query: String, onClick: () -> Unit) {
+    val highlight = Beep.colors.brand.copy(alpha = 0.25f)
+    val snippet = buildAnnotatedString {
+        if (hit.fromUser) append("You: ")
+        var from = 0
+        while (query.isNotEmpty()) {
+            val at = hit.snippet.indexOf(query, from, ignoreCase = true)
+            if (at < 0) break
+            append(hit.snippet.substring(from, at))
+            withStyle(SpanStyle(background = highlight, color = Beep.colors.ink)) { append(hit.snippet.substring(at, at + query.length)) }
+            from = at + query.length
+        }
+        append(hit.snippet.substring(from))
+    }
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 2.dp).fillMaxWidth().clip(RoundedCornerShape(Beep.shapes.smallRadius))
+        .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, maxLines = 1, fontSize = 14.sp, overflow = TextOverflow.Ellipsis)
+        Text(snippet, maxLines = 2, fontSize = 12.sp, lineHeight = 16.sp, overflow = TextOverflow.Ellipsis, color = TextMuted)
     }
 }

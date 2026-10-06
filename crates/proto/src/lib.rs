@@ -217,6 +217,9 @@ requests! {
     /// Like `DeleteTurn`, and also removes every turn after it, so the chat
     /// ends before that prompt. A rerun sends the prompt again after this.
     46 DeleteTurnsFrom { session_id: String, timestamp: i64 } => Call<()>
+    /// The sessions where the user or Beep wrote `query`, ignoring case,
+    /// most recently changed first.
+    47 SearchSessions { query: String } => Call<Vec<SessionMatch>>
 }
 
 wire_enum! {
@@ -598,6 +601,17 @@ pub struct Session {
     /// When its turns last changed, in milliseconds since the Unix epoch. A
     /// phone holding a copy from then has nothing to fetch.
     pub updated_at: i64,
+}
+
+/// A session whose messages hold the searched words.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionMatch {
+    pub session: Session,
+    /// The words around the latest match, cut short with `...`.
+    pub snippet: String,
+    /// Whether the user wrote the matching message, rather than Beep.
+    pub from_user: bool,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]

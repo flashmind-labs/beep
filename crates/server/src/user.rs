@@ -31,8 +31,8 @@ use crate::{
     starters::{Cached, FALLBACK_FRESH, FRESH, Generator, StarterContext, TIMEOUT, fallback},
     store::{
         AppPermissionRow, AttentionItem, CreateRun, DeletedTurn, Fact, Feed, FinishedTurn,
-        Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin, RunStatus, Store,
-        StoredContext, TurnsToDelete,
+        FoundSession, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin, RunStatus,
+        Store, StoredContext, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -225,6 +225,11 @@ impl User {
     /// The user's sessions, pinned first, then newest first.
     pub async fn sessions(&self) -> Result<Vec<Session>> {
         self.store.sessions(&self.key).await
+    }
+
+    /// Up to `limit` sessions whose transcript holds `query`, ignoring case.
+    pub async fn search_sessions(&self, query: &str, limit: i64) -> Result<Vec<FoundSession>> {
+        self.store.search_sessions(&self.key, query, limit).await
     }
 
     /// Renames a session; `false` when the user has no such session.

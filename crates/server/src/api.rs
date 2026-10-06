@@ -9,7 +9,7 @@ use crate::{
     permissions,
     protocol::*,
     router::{Cx, Router, Sink},
-    store::{CreateRun, DeletedTurn, Feed, Location, TurnsToDelete, decode_schedule},
+    store::{CreateRun, DeletedTurn, Feed, FoundSession, Location, TurnsToDelete, decode_schedule},
 };
 use chrono::{DateTime, Utc};
 use flashmind::{
@@ -19,6 +19,7 @@ use flashmind::{
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     mem,
+    ops::Range,
     time::Duration,
 };
 use tokio::{sync::broadcast::error::RecvError, time::timeout};
@@ -70,6 +71,7 @@ pub fn router() -> Router {
         .call(existing_sessions)
         .call(delete_turn)
         .call(delete_turns_from)
+        .call(search_sessions)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -202,6 +204,96 @@ async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<History
     let scores = cx.user.memory_scores(&id).await?;
     let models = cx.user.turn_models(&id).await?;
     Ok(history(conv.entries(), &failures, &scores, &models))
+}
+
+/// Sessions the database may hand over for a search. Matches only in tool
+/// calls or prompts are dropped after, so a search can show fewer.
+const SEARCH_CANDIDATES: i64 = 100;
+/// Sessions a search returns.
+const SEARCH_RESULTS: usize = 30;
+/// Characters a snippet keeps before the match.
+const SNIPPET_BEFORE: usize = 40;
+/// Characters a snippet keeps from the start of the match.
+const SNIPPET_AFTER: usize = 100;
+
+async fn search_sessions(
+    cx: Cx,
+    SearchSessions { query }: SearchSessions,
+) -> Reply<Vec<SessionMatch>> {
+    let query = query.trim();
+    if query.chars().count() < 2 {
+        return Ok(Vec::new());
+    }
+    if query.len() > 200 {
+        return Err(ApiError::bad_request("search is at most 200 bytes"));
+    }
+    let found = cx.user.search_sessions(query, SEARCH_CANDIDATES).await?;
+    Ok(found
+        .into_iter()
+        .filter_map(|found| session_match(found, query))
+        .take(SEARCH_RESULTS)
+        .collect())
+}
+
+/// The latest message the user or Beep wrote in `found` that holds `query`,
+/// as the phone shows it: a routine's prompt counts by its label only.
+fn session_match(found: FoundSession, query: &str) -> Option<SessionMatch> {
+    let entries = history(
+        found.conversation.entries(),
+        &HashSet::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    entries.iter().rev().find_map(|entry| {
+        let (text, from_user) = match entry {
+            HistoryEntry::User { content, .. } => (content, true),
+            HistoryEntry::Assistant { content, .. } => (content, false),
+            HistoryEntry::Scheduled { .. } => return None,
+        };
+        let at = find_ignoring_case(text, query)?;
+        Some(SessionMatch {
+            session: found.session.clone(),
+            snippet: snippet(text, at),
+            from_user,
+        })
+    })
+}
+
+/// Where `query` first appears in `text`, ignoring case.
+fn find_ignoring_case(text: &str, query: &str) -> Option<Range<usize>> {
+    text.char_indices().find_map(|(start, _)| {
+        let mut rest = text[start..].char_indices();
+        for wanted in query.chars() {
+            let (_, got) = rest.next()?;
+            if !got.to_lowercase().eq(wanted.to_lowercase()) {
+                return None;
+            }
+        }
+        let end = rest.next().map_or(text.len(), |(at, _)| start + at);
+        Some(start..end)
+    })
+}
+
+/// The words around `at` on one line, without Markdown marks, cut short
+/// with `...` on either side.
+fn snippet(text: &str, at: Range<usize>) -> String {
+    let before: Vec<char> = text[..at.start].chars().collect();
+    let from = before.len().saturating_sub(SNIPPET_BEFORE);
+    let after: String = text[at.start..].chars().take(SNIPPET_AFTER).collect();
+    let cut_after = text[at.start..].chars().count() > SNIPPET_AFTER;
+    let mut snippet = String::new();
+    if from > 0 {
+        snippet.push_str("...");
+    }
+    let kept: String = before[from..].iter().collect();
+    snippet.push_str(if from > 0 { kept.trim_start() } else { &kept });
+    snippet.push_str(&after);
+    let words: Vec<&str> = snippet.split_whitespace().collect();
+    let mut snippet = words.join(" ").replace(['*', '`', '#'], "");
+    if cut_after {
+        snippet.push_str("...");
+    }
+    snippet
 }
 
 /// Tool outputs in history are cut to this many bytes.
@@ -735,12 +827,49 @@ fn next_run_at(schedule: &str, tz_name: &str) -> Option<DateTime<Utc>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flashmind::types::ToolCall;
+    use flashmind::{core::Conversation, types::ToolCall};
     use serde_json::json;
 
     #[test]
     fn every_op_is_routed_once() {
         super::router().check().unwrap();
+    }
+
+    #[test]
+    fn search_matches_messages_ignoring_case() {
+        let found = || {
+            let mut conversation = Conversation::new();
+            conversation.add(ConversationEntry::user("Any news from the hotel?"));
+            conversation.add(ConversationEntry::assistant(
+                "The **Kimpton** offers a free transfer.",
+            ));
+            FoundSession {
+                session: Session {
+                    id: "s".into(),
+                    title: "Emails".into(),
+                    pinned: false,
+                    updated_at: 0,
+                },
+                conversation,
+            }
+        };
+        let hit = session_match(found(), "kimpton").unwrap();
+        assert_eq!(hit.snippet, "The Kimpton offers a free transfer.");
+        assert!(!hit.from_user);
+        assert!(session_match(found(), "HOTEL").unwrap().from_user);
+        assert!(session_match(found(), "boiler").is_none());
+    }
+
+    #[test]
+    fn snippets_are_cut_around_the_match() {
+        let text = format!("{} Kimpton {}", "a ".repeat(50), "b ".repeat(80));
+        let at = find_ignoring_case(&text, "kimpton").unwrap();
+        assert_eq!(&text[at.clone()], "Kimpton");
+        let snippet = snippet(&text, at);
+        assert!(snippet.starts_with("...a a"));
+        assert!(snippet.ends_with("b b..."));
+        assert!(snippet.contains("Kimpton"));
+        assert_eq!(find_ignoring_case("ÉCOLE", "école"), Some(0..6));
     }
 
     #[test]
