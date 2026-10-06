@@ -33,6 +33,9 @@ const MAX_VALUE_CHARS: usize = 600;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Acts {
     Never,
+    /// Saves a draft for the user to send, so it never asks, whatever the
+    /// tool's Composio tags say.
+    Drafts,
     Always,
     /// Only when it moves mail to another folder, which can bin it.
     WhenMoving,
@@ -41,10 +44,15 @@ pub(crate) enum Acts {
 impl Acts {
     fn on(self, args: &Value) -> bool {
         match self {
-            Acts::Never => false,
+            Acts::Never | Acts::Drafts => false,
             Acts::Always => true,
             Acts::WhenMoving => args.get("folder").is_some_and(|folder| !folder.is_null()),
         }
+    }
+
+    /// Whether some call of the tool can act, and so falls under the rules.
+    fn can_act(self) -> bool {
+        !matches!(self, Acts::Never | Acts::Drafts)
     }
 }
 
@@ -93,13 +101,13 @@ fn action_tools(app: &CatalogApp) -> Vec<String> {
     if app.slug == "fastmail" {
         return FASTMAIL_TOOLS
             .iter()
-            .filter(|(_, acts)| *acts != Acts::Never)
+            .filter(|(_, acts)| acts.can_act())
             .map(|(name, _)| format!("FASTMAIL_{}", name.to_uppercase()))
             .collect();
     }
     app.tools
         .iter()
-        .filter(|picked| picked.acts != Acts::Never)
+        .filter(|picked| picked.acts.can_act())
         .map(|picked| picked.slug.to_owned())
         .collect()
 }
@@ -211,7 +219,7 @@ struct Shared {
 /// asking: a catalog action whose tags say update still asks.
 fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(&'static CatalogApp, Acts)> {
     let (app, acts) = lookup(tool)?;
-    if hinted.contains(&ToolSlug::new(tool)) {
+    if acts != Acts::Drafts && hinted.contains(&ToolSlug::new(tool)) {
         return Some((app, Acts::Always));
     }
     Some((app, acts))
@@ -231,7 +239,7 @@ pub(crate) fn guard(
         .into_iter()
         .filter_map(|tool| {
             let Some((app, acts)) =
-                classify(tool.name(), hinted).filter(|(_, acts)| *acts != Acts::Never)
+                classify(tool.name(), hinted).filter(|(_, acts)| acts.can_act())
             else {
                 return Some(tool);
             };
@@ -350,6 +358,11 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
             let value = match value {
                 Value::Null => return None,
                 Value::String(text) => text.trim().to_owned(),
+                Value::Array(items) if items.iter().all(|item| address(item).is_some()) => items
+                    .iter()
+                    .filter_map(address)
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 other => other.to_string(),
             };
             if value.is_empty() || value == "[]" || value == "{}" {
@@ -368,11 +381,22 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
         .collect()
 }
 
-/// An argument that only names a record, such as `message_id`, whose value
-/// means nothing to the user.
+/// A recipient written as `{"name": "Jo", "email": "jo@example.com"}`, as
+/// Fastmail takes them, read as "Jo <jo@example.com>".
+fn address(item: &Value) -> Option<String> {
+    let email = item.get("email")?.as_str()?;
+    Some(match item.get("name").and_then(Value::as_str) {
+        Some(name) if !name.trim().is_empty() => format!("{} <{email}>", name.trim()),
+        _ => email.to_owned(),
+    })
+}
+
+/// An argument that only names a record, such as `message_id` or `emailId`,
+/// whose value means nothing to the user.
 fn is_id(key: &str) -> bool {
+    let camel = key.ends_with("Id") || key.ends_with("Ids");
     let key = key.to_ascii_lowercase();
-    ["id", "ids"].contains(&key.as_str()) || key.ends_with("_id") || key.ends_with("_ids")
+    camel || ["id", "ids"].contains(&key.as_str()) || key.ends_with("_id") || key.ends_with("_ids")
 }
 
 #[async_trait]
@@ -489,6 +513,12 @@ mod tests {
             classify("gmail_fetch_emails", &hinted).unwrap().1,
             Acts::Always
         );
+        // Drafts only save a message, so a create tag does not make them ask.
+        let hinted: HashSet<ToolSlug> = [ToolSlug::new("GMAIL_CREATE_EMAIL_DRAFT")].into();
+        assert_eq!(
+            classify("gmail_create_email_draft", &hinted).unwrap().1,
+            Acts::Drafts
+        );
         // An update-only catalog action keeps asking without a hint.
         assert_eq!(
             classify("gmail_move_to_trash", &HashSet::new()).unwrap().1,
@@ -525,7 +555,6 @@ mod tests {
             [
                 ("Send email", false),
                 ("Reply to thread", true),
-                ("Create email draft", false),
                 ("Move to trash", false)
             ]
         );
@@ -621,8 +650,16 @@ mod tests {
 
     #[test]
     fn fields_skip_ids() {
-        let shown = fields(&json!({"message_id": "AAMk", "ids": ["M1"], "comment": "Hi"}));
+        let shown =
+            fields(&json!({"message_id": "AAMk", "ids": ["M1"], "emailId": "M2", "comment": "Hi"}));
         let labels: Vec<&str> = shown.iter().map(|field| field.label.as_str()).collect();
         assert_eq!(labels, ["Comment"]);
+    }
+
+    #[test]
+    fn fields_read_recipients() {
+        let to = json!([{"name": "Jo", "email": "jo@example.com"}, {"email": "sam@example.com"}]);
+        let shown = fields(&json!({ "to": to }));
+        assert_eq!(shown[0].value, "Jo <jo@example.com>, sam@example.com");
     }
 }
