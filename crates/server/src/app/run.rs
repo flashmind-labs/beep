@@ -600,7 +600,13 @@ impl App {
             status.as_str()
         );
         // Asked only once the turn is saved, so the answer finds the open call.
-        if let Some(parked) = parked {
+        if let Some(mut parked) = parked {
+            // A call that only names its records, such as a message ID, says
+            // what they are from earlier results, so the user knows what it acts on.
+            parked
+                .approval
+                .fields
+                .extend(permissions::describe_records(&parked.call_id, &transcript));
             self.park(user, run, live, parked);
         }
         live.push(RunEvent::RunFinished {
