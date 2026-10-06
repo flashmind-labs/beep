@@ -287,7 +287,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val pendingAppIntent by repository.pendingIntent.collectAsStateWithLifecycle()
     val pendingAlarm by repository.pendingAlarm.collectAsStateWithLifecycle()
     val browserOpen by repository.browserOpen.collectAsStateWithLifecycle()
-    var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var drawerOpen by remember { mutableStateOf(false) }
     var bubbleMenu by remember { mutableStateOf(false) }
     var historyQuery by rememberSaveable { mutableStateOf("") }
@@ -339,18 +338,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             repository.pendingAlarm.value = null
         }
     }
-    if (settingsOpen || !config.configured) {
-        val accountName by repository.accountName.collectAsState()
-        ConnectionScreen(config, accountName, canGoBack = config.configured, onBack = { settingsOpen = false }, onConnect = { settings, identity ->
-            withContext(Dispatchers.IO) { repository.connect(settings, identity) }; settingsOpen = false
-        })
-        return
-    }
     // Show onboarding permissions screen once after first connection
     val prefs = remember { context.getSharedPreferences("connection", android.content.Context.MODE_PRIVATE) }
     var onboardingDone by rememberSaveable { mutableStateOf(prefs.getBoolean("onboarding_done", false)) }
     if (!onboardingDone && !bubble) {
-        OnboardingScreen(locationPermission = locationPermission, onDone = {
+        OnboardingScreen(repository, locationPermission = locationPermission, onDone = {
             prefs.edit().putBoolean("onboarding_done", true).apply()
             onboardingDone = true
         })
@@ -367,8 +359,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat },
                 onOpenChat = { id -> repository.select(id); screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat })
-            Screen.Settings -> SettingsScreen(status, repository, onBack = { screen = Screen.Chat },
-                onBubbleSettings = onBubbleSettings, onConnection = { settingsOpen = true })
+            Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Chat },
+                onBubbleSettings = onBubbleSettings)
             Screen.Chat -> {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val focusManager = LocalFocusManager.current
@@ -528,9 +520,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 Spacer(Modifier.height(8.dp))
             }
             Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { if (bubble) settingsOpen = true else screen = Screen.Settings; drawerOpen = false }) {
+                if (!bubble) TextButton(onClick = { screen = Screen.Settings; drawerOpen = false }) {
                     Icon(Icons.Outlined.Settings, null, Modifier.size(18.dp), tint = TextMuted); Spacer(Modifier.width(8.dp))
-                    Text(if (bubble) "Connection" else "Settings", color = TextMuted)
+                    Text("Settings", color = TextMuted)
                 }
                 Spacer(Modifier.weight(1f))
                 ConnectionDot(connected, status); Spacer(Modifier.width(6.dp))
@@ -552,7 +544,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                         DropdownMenu(expanded = bubbleMenu, onDismissRequest = { bubbleMenu = false }) {
                             DropdownMenuItem(text = { Text("New conversation") }, onClick = { startNewChat(); bubbleMenu = false })
                             DropdownMenuItem(text = { Text("Conversations") }, onClick = { drawerOpen = true; bubbleMenu = false })
-                            DropdownMenuItem(text = { Text("Connection settings") }, onClick = { settingsOpen = true; bubbleMenu = false })
                         }
                     }
                 }

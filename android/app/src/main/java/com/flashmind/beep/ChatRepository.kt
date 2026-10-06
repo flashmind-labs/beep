@@ -101,7 +101,7 @@ class ChatRepository(private val storage: LocalStorage) {
         scope.launch { for (request in requests) runCatching { syncHistory(settings.value) } }
     }
     private var lists = storage.loadLists()
-    val connection = MutableStateFlow(if (settings.value.configured) "Checking connection…" else "Connect your assistant")
+    val connection = MutableStateFlow(if (settings.value.configured) "Checking connection…" else "No server in this build")
     val connected = MutableStateFlow(false)
     val pendingIntent = MutableStateFlow<AppIntent?>(null)
     val pendingAlarm = MutableStateFlow<AlarmRequest?>(null)
@@ -145,16 +145,11 @@ class ChatRepository(private val storage: LocalStorage) {
     private fun api(config: ConnectionSettings = settings.value, identity: ByteArray = storage.identity()): BeepClient =
         BeepClients.client(config, identity)
 
-    /** On a new phone, takes the identity and server back from the Google account backup. */
+    /** On a new phone, takes the identity back from the Google account backup. */
     private suspend fun restoreIdentity() {
         if (storage.storedIdentity() != null) return
         val backup = cloud.load() ?: return
         storage.saveIdentity(backup.identity)
-        if (!storage.hasSavedSettings() && backup.nodeId.isNotBlank()) {
-            val restored = ConnectionSettings(backup.nodeId)
-            storage.saveSettings(restored)
-            settings.value = restored
-        }
     }
 
     private fun backUp() {
@@ -287,38 +282,22 @@ class ChatRepository(private val storage: LocalStorage) {
         newChat()
         setDraft(state.value.current.id, Draft(text))
     }
-    /** Connects to `config`'s server, as `identity` when one was imported, else as this phone. */
-    suspend fun connect(config: ConnectionSettings, identity: ByteArray? = null) {
-        require(config.configured) { "Enter your server's node ID." }
-        connection.value = "Connecting…"
-        val current = storage.identity()
-        try { api(config, identity ?: current).health() } catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
-        val effective = config
-        val changedAccount = settings.value.nodeId != effective.nodeId || (identity != null && !identity.contentEquals(current))
+    /** Signs this phone in as the account in an imported key file, in place of its own key. */
+    suspend fun importIdentity(identity: ByteArray) {
+        if (identity.contentEquals(storage.identity())) return
+        try { api(identity = identity).health() } catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
+        reconnectJob?.cancel()
         synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
-        storage.saveSettings(effective)
-        settings.value = effective
-        if (identity != null) {
-            storage.saveIdentity(identity)
-            accountName.value = identityName(identity)
-        }
-        backUp()
-        if (changedAccount) {
-            synchronized(lock) { changes = emptyList(); storage.saveChanges(changes) }
-            serverVersions.clear()
-            saveLists { ListCache(null, null, null, null) }
-            modelChoices.value = null
-            update { ChatState() }
-        }
-        connected.value = true
-        scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
-        NotificationService.start(storage.context)
-        connection.value = "Connected"
-        if (changedAccount) starters.value = emptyList()
+        storage.saveIdentity(identity)
+        accountName.value = identityName(identity)
+        synchronized(lock) { changes = emptyList(); storage.saveChanges(changes) }
+        serverVersions.clear()
+        saveLists { ListCache(null, null, null, null) }
+        modelChoices.value = null
+        update { ChatState() }
+        starters.value = emptyList()
         loadStarters()
-        resumePending()
-        pushChanges()
-        runCatching { syncHistory(effective) }
+        reconnect()
     }
     fun reconnect() {
         reconnectJob?.cancel()

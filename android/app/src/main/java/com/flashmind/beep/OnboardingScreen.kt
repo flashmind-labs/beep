@@ -21,7 +21,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // Short names for the current theme's colors.
 private val Ink: Color @Composable @ReadOnlyComposable get() = Beep.colors.page
@@ -29,6 +32,7 @@ private val TextMuted: Color @Composable @ReadOnlyComposable get() = Beep.colors
 
 @Composable
 internal fun OnboardingScreen(
+    repository: ChatRepository,
     locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>?,
     onDone: () -> Unit
 ) {
@@ -104,6 +108,7 @@ internal fun OnboardingScreen(
                 Spacer(Modifier.height(12.dp))
             }
 
+            KeyCard(repository)
             Spacer(Modifier.height(20.dp))
             ChunkyButton(
                 onClick = {
@@ -127,6 +132,73 @@ internal fun OnboardingScreen(
             }
         }
     }
+}
+
+/** Restores an account from the key file saved on another phone. The only place a key can be imported. */
+@Composable
+private fun KeyCard(repository: ChatRepository) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val accountName by repository.accountName.collectAsState()
+    var imported by rememberSaveable { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            busy = true; error = ""
+            try {
+                val identity = withContext(Dispatchers.IO) {
+                    val raw = context.contentResolver.openInputStream(uri)?.use { it.readProfileBytes() } ?: error("Cannot open the file")
+                    require(raw.size <= 65536) { "The file is too large" }
+                    Profile.fromJson(raw.toString(Charsets.UTF_8)).identity ?: error("This file has no key")
+                }
+                withContext(Dispatchers.IO) { repository.importIdentity(identity) }
+                imported = true
+            } catch (e: Exception) { error = e.message.orEmpty() }
+            busy = false
+        }
+    }
+    BeepCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Key, null, tint = if (imported) Beep.colors.ok else TextMuted, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(if (imported) "Signed in as $accountName" else "Moving from another phone?", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (imported) "From the key file. This replaces the new account on this phone."
+                        else "You are $accountName. Import the key file you saved on your old phone to keep that account.",
+                        fontSize = 12.sp, color = TextMuted, lineHeight = 17.sp
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            ChunkyButton(
+                onClick = { if (!busy) picker.launch(arrayOf("application/json", "text/*", "application/octet-stream")) },
+                color = Beep.colors.user, contentColor = Beep.colors.onUser,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text(if (busy) "Importing" else "Import key", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+            if (error.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(error, fontSize = 12.sp, color = Beep.colors.error)
+            }
+        }
+    }
+}
+
+/** Reads at most one byte past the size limit, so an oversized file is caught without loading all of it. */
+private fun java.io.InputStream.readProfileBytes(): ByteArray {
+    val buffer = ByteArray(65537)
+    var count = 0
+    while (count < buffer.size) {
+        val read = read(buffer, count, buffer.size - count)
+        if (read < 0) break
+        count += read
+    }
+    return buffer.copyOf(count)
 }
 
 @Composable

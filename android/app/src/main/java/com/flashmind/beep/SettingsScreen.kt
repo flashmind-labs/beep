@@ -21,7 +21,6 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.BubbleChart
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Apps
-import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -65,7 +64,7 @@ import kotlinx.coroutines.withContext
 /** Everything that is not a conversation or one of the drawer tiles. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(status: String, repository: ChatRepository, onBack: () -> Unit, onBubbleSettings: () -> Unit, onConnection: () -> Unit) {
+fun SettingsScreen(repository: ChatRepository, onBack: () -> Unit, onBubbleSettings: () -> Unit) {
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(title = { Text(displayText("Settings"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
@@ -83,8 +82,6 @@ fun SettingsScreen(status: String, repository: ChatRepository, onBack: () -> Uni
                 HorizontalDivider(color = Beep.colors.softLine)
                 AccountRow(repository)
                 HorizontalDivider(color = Beep.colors.softLine)
-                SettingsRow(Icons.Outlined.Link, "Connection", status, onConnection)
-                HorizontalDivider(color = Beep.colors.softLine)
             }
         }
     }
@@ -93,7 +90,7 @@ fun SettingsScreen(status: String, repository: ChatRepository, onBack: () -> Uni
 /**
  * This phone's account name and whether its key is safe. Without the Google
  * backup the user can save the key as a profile file, and import that file
- * on the connection screen of a new phone.
+ * on the first screen of a new phone.
  */
 @Composable
 private fun AccountRow(repository: ChatRepository) {
