@@ -232,10 +232,10 @@ class ChatRepository(private val storage: LocalStorage) {
             val known = state.conversations.map { it.id }.toSet()
             val server = sessions.associateBy { it.id }
             val added = sessions.filter { it.id !in known }
-                .map { Conversation(id = it.id, title = it.title, pinned = it.pinned) }
+                .map { Conversation(id = it.id, title = it.title, pinned = it.pinned, updatedAt = it.updatedAt) }
             // The server owns titles and pins of chats it knows.
             val updated = state.conversations.map { c ->
-                server[c.id]?.let { c.copy(title = it.title, pinned = it.pinned) } ?: c
+                server[c.id]?.let { c.copy(title = it.title, pinned = it.pinned, updatedAt = it.updatedAt) } ?: c
             }
             withChanges(evictUnopened(state.copy(conversations = (updated + added).sortedByDescending { it.pinned })))
         }
