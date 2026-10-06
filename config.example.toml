@@ -15,3 +15,6 @@ provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # composio_key = "YOUR-COMPOSIO-KEY"
 # Sends the browser back to the phone app once an app connects.
 # composio_callback_url = "beep://apps/connected"
+# Optional: a Firebase service account key file. With it the server wakes
+# phones it cannot reach over iroh, sealed so Google cannot read them.
+# fcm_credentials = ".dev/fcm-service-account.json"

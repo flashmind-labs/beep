@@ -14,6 +14,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -211,13 +212,14 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         Suggestion(title, prompt, starterIcon(title + " " + prompt), Beep.colors.tints[index % Beep.colors.tints.size]) {
                             if (complete) {
                                 followLatest = true; repository.send(it)
-                                // A used starter is replaced in the background, ready for the next empty chat.
-                                if (starters.isNotEmpty()) repository.loadStarters(refresh = true)
+                                // The server drops a used starter's set, so the next empty chat gets new ones.
+                                repository.dropStarter(it)
                             } else draft = it
                         }
                     }
                     if (index < items.lastIndex) Spacer(Modifier.height(12.dp))
                 }
+                if (starters.isNotEmpty()) NewIdeas(repository)
             }
         } else {
             // Only messages that arrive while the chat is open pop in; history is drawn at rest.
@@ -867,5 +869,33 @@ private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.
         Spacer(Modifier.width(12.dp))
         Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary, modifier = Modifier.weight(1f))
         Icon(Icons.Outlined.NorthEast, null, tint = TextMuted, modifier = Modifier.size(16.dp))
+    }
+}
+
+/** Asks the server for a new set of starters, at most 3 times in 10 minutes. */
+@Composable
+private fun NewIdeas(repository: ChatRepository) {
+    val refreshes by repository.starterRefreshes.collectAsState()
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    val wait = repository.starterRefreshWait(refreshes, now)
+    // Ticks only while it is greyed out, to count the minutes down.
+    LaunchedEffect(wait > 0) {
+        while (repository.starterRefreshWait(refreshes, now) > 0) {
+            delay(5_000)
+            now = SystemClock.elapsedRealtime()
+        }
+    }
+    val minutes = ((wait + 59_999) / 60_000).coerceAtLeast(1)
+    Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+        TextButton(
+            onClick = { now = SystemClock.elapsedRealtime(); repository.newStarters() },
+            enabled = wait == 0L,
+            contentPadding = PaddingValues(horizontal = 8.dp),
+            modifier = Modifier.heightIn(min = 48.dp).alpha(if (wait == 0L) 1f else 0.6f),
+        ) {
+            Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp), tint = TextMuted)
+            Spacer(Modifier.width(6.dp))
+            Text(if (wait == 0L) "New ideas" else "New ideas in $minutes min", color = TextMuted, fontSize = 13.sp)
+        }
     }
 }

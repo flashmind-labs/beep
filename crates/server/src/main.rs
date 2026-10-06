@@ -4,6 +4,7 @@ use beep_server::{
     apps::ComposioSettings,
     config::{self, Config},
     decision::DecisionTool,
+    fcm::{Fallback, Firebase},
     memories,
     metering::Metered,
     models::ModelChoices,
@@ -124,7 +125,14 @@ async fn main() -> Result<()> {
 
     log::info!("iroh endpoint bound; node_id={}", endpoint.id());
 
-    let pusher = Pusher::new(endpoint.clone());
+    let fallback = match &config.fcm_credentials {
+        Some(path) => Some(Arc::new(Firebase::new(app.clone(), path)?) as Arc<dyn Fallback>),
+        None => {
+            log::info!("fcm_credentials not set: notices do not go through Firebase");
+            None
+        }
+    };
+    let pusher = Pusher::new(endpoint.clone(), fallback);
     pusher.start(notices);
     let handler = transport::BeepHandler::new(app.clone(), pusher);
     let router = Router::builder(endpoint)

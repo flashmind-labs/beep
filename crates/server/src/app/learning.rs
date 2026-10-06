@@ -112,6 +112,7 @@ pub(super) fn earlier_turns(conversation: &Conversation, turn_started: DateTime<
             turns.push(Turn {
                 message: entry.content().to_owned(),
                 reply: String::new(),
+                actions: Vec::new(),
             });
         } else if entry.is_assistant()
             && !entry.content().is_empty()

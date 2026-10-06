@@ -6,6 +6,7 @@ pub mod config;
 pub mod cron;
 pub mod decision;
 pub mod digest;
+pub mod fcm;
 pub mod feeds;
 pub(crate) mod followups;
 pub mod images;

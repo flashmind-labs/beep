@@ -3,7 +3,7 @@
 use super::App;
 use crate::{
     protocol::PromptSuggestions,
-    starters::{LocalTime, MemoryNote, StarterContext},
+    starters::{Done, LocalTime, MAX_DONE, MemoryNote, StarterContext},
     store::Location,
     user::User,
 };
@@ -12,10 +12,12 @@ use chrono_tz::Tz;
 
 impl App {
     /// Conversation starters for the empty chat, personalized and cached
-    /// until they go stale, unless `refresh`. Never fails: falls back to fixed
-    /// starters.
+    /// until they go stale, unless `refresh` and the user has refreshes left.
+    /// Never fails: falls back to fixed starters.
     pub async fn suggest_prompts(&self, user: &User, refresh: bool) -> PromptSuggestions {
         let here = user.get_location().await.ok().flatten();
+        // Past the limit a refresh gets the cached set.
+        let refresh = refresh && user.may_refresh_starters();
         if !refresh && let Some(cached) = user.cached_starters(here.as_ref()).await {
             return cached;
         }
@@ -26,8 +28,20 @@ impl App {
 
     async fn starter_context(&self, user: &User, location: Option<Location>) -> StarterContext {
         let today = user.today().await;
-        let (memories, sessions, apps) =
-            tokio::join!(user.memory_rows(), user.sessions(), user.apps());
+        let (memories, sessions, apps, actions) = tokio::join!(
+            user.memory_rows(),
+            user.sessions(),
+            user.apps(),
+            user.recent_actions(MAX_DONE as i64)
+        );
+        let done = actions
+            .unwrap_or_default()
+            .into_iter()
+            .map(|action| Done {
+                at: action.done_at,
+                description: action.description,
+            })
+            .collect();
         let memories = memories
             .unwrap_or_default()
             .into_iter()
@@ -61,6 +75,7 @@ impl App {
             },
             place,
             connected_apps,
+            done,
         }
     }
 }

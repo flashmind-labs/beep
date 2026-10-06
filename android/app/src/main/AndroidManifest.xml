@@ -108,8 +108,13 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
-        <service android:name=".NotificationService" android:exported="false"
+        <service android:name=".RunService" android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service android:name=".PushService" android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
         <receiver android:name=".ReplyReceiver" android:exported="false" />
         <receiver android:name=".ApprovalReceiver" android:exported="false" />
         <service android:name=".BeepTileService"

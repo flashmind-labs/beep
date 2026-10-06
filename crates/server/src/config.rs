@@ -51,6 +51,9 @@ pub struct Config {
     /// Holds a folder per user for downloads and code the agent runs under
     /// Drop. The `execute_code` and `download_file` tools exist only when set.
     pub sandbox_dir: Option<PathBuf>,
+    /// Firebase service account key file. With it, notices for phones the
+    /// server cannot reach over iroh go through Firebase Cloud Messaging.
+    pub fcm_credentials: Option<PathBuf>,
 }
 
 impl Config {

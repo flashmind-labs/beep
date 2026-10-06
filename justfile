@@ -83,9 +83,11 @@ push-server-config:
             -c "umask 077 && cat > /data/$1"
     }
     sed -e 's|^secret_key = .*|secret_key = "/data/iroh-key"|' \
-        -e 's|^log_dir = .*|log_dir = "/data/logs"|' -e '/^sandbox_dir = /d' {{server_config}} \
+        -e 's|^log_dir = .*|log_dir = "/data/logs"|' -e '/^sandbox_dir = /d' \
+        -e 's|^fcm_credentials = .*|fcm_credentials = "/data/fcm-service-account.json"|' {{server_config}} \
         | { cat; echo 'sandbox_dir = "/data/sandboxes"'; } | write config.toml
     write iroh-key < .dev/iroh-key
+    if [ -f .dev/fcm-service-account.json ]; then write fcm-service-account.json < .dev/fcm-service-account.json; fi
 
 # Load the AppArmor profile that lets the server's sandbox use user namespaces
 install-apparmor:

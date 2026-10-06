@@ -13,7 +13,10 @@ object BeepClients {
         cached?.let { if (it.config == config && it.identity.contentEquals(identity)) return it.client }
         // The old client's endpoint would otherwise keep pinging its relay until collected.
         cached?.client?.destroy()
-        return BeepClient(config.nodeId, identity).also { cached = Cached(config, identity, it) }
+        return BeepClient(config.nodeId, identity).also {
+            it.setListener(Notices)
+            cached = Cached(config, identity, it)
+        }
     }
 
     /** The client in use, without making one. */

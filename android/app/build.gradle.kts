@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+// google-services.json is not in git. Without it the app builds and is never woken by Firebase.
+if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
 android {
     namespace = "com.flashmind.beep"
     compileSdk = 36
@@ -58,6 +60,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("com.google.android.gms:play-services-auth-blockstore:16.4.0")
+    implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
+    implementation("com.google.firebase:firebase-messaging")
     // Block Store pulls in an old Fragment that breaks registerForActivityResult.
     implementation("androidx.fragment:fragment-ktx:1.8.6")
     implementation("net.java.dev.jna:jna:5.17.0@aar")

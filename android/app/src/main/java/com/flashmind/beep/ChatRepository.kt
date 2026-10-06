@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
 import android.location.Location
+import android.os.SystemClock
 import android.provider.ContactsContract
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.core.content.ContextCompat
@@ -44,12 +45,18 @@ import kotlinx.coroutines.channels.Channel
 
 class BeepApplication : Application() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val repository by lazy { ChatRepository(LocalStorage(this)).also { followFace(it, scope) } }
+    val repository by lazy {
+        ChatRepository(LocalStorage(this)).also {
+            followFace(it, scope)
+            RunService.follow(this, it, scope)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         Avatars.apply(this)
+        NetworkWatch.start(this, scope)
         // The bubble stays up across process restarts until the user drops it on the X.
         if (Bubble.wanted(this)) Bubble.show(this)
     }
@@ -84,6 +91,9 @@ data class AlarmRequest(val hour: Int, val minute: Int, val label: String, val d
 
 /** How long a chat's turns stay on the phone after it was last opened. */
 private const val CACHE_FOR_MS = 72 * 60 * 60 * 1000L
+/** New starters the user may ask for within the window, as the server allows. */
+private const val STARTER_REFRESHES = 3
+private const val STARTER_REFRESH_WINDOW_MS = 10 * 60 * 1000L
 /** Roles of the messages that start a turn. */
 private val TURN_STARTS = setOf("user", "scheduled")
 
@@ -103,6 +113,8 @@ class ChatRepository(private val storage: LocalStorage) {
     private var lists = storage.loadLists()
     val connection = MutableStateFlow(if (settings.value.configured) "Checking connection…" else "No server in this build")
     val connected = MutableStateFlow(false)
+    /** Whether this phone has no Firebase, as on phones without Google Play services; null until a connection tells. */
+    val pushMissing = MutableStateFlow<Boolean?>(null)
     val pendingIntent = MutableStateFlow<AppIntent?>(null)
     val pendingAlarm = MutableStateFlow<AlarmRequest?>(null)
     val browserOpen = MutableStateFlow(false)
@@ -308,8 +320,12 @@ class ChatRepository(private val storage: LocalStorage) {
                     connection.value = if (attempt > 0) "Reconnecting… (attempt ${attempt + 1})" else "Checking connection…"
                     api().health()
                     connected.value = true
-                    scope.launch { runCatching { registerDevice(storage.deviceId(), "pending-fcm-setup") } }
-                    NotificationService.start(storage.context)
+                    scope.launch {
+                        // Online now, so no token means no Firebase on this phone.
+                        val token = PushService.token()
+                        pushMissing.value = token == null
+                        token?.let { registerPushToken(it) }
+                    }
                     connection.value = "Connected"
                     backUp()
                     resumePending()
@@ -626,6 +642,32 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
 
+    /** When the user asked for new starters, oldest first, as elapsed-realtime millis. */
+    val starterRefreshes = MutableStateFlow<List<Long>>(emptyList())
+
+    /** Millis until another New ideas may run, 0 now; the server keeps the same limit. */
+    fun starterRefreshWait(refreshes: List<Long>, now: Long): Long {
+        val recent = refreshes.filter { now - it < STARTER_REFRESH_WINDOW_MS }
+        if (recent.size < STARTER_REFRESHES) return 0
+        return (recent.first() + STARTER_REFRESH_WINDOW_MS - now).coerceAtLeast(1)
+    }
+
+    /** New starters on request, within the refresh limit. */
+    fun newStarters() {
+        val now = SystemClock.elapsedRealtime()
+        if (starterRefreshWait(starterRefreshes.value, now) > 0) return
+        starterRefreshes.value = starterRefreshes.value.filter { now - it < STARTER_REFRESH_WINDOW_MS } + now
+        loadStarters(refresh = true)
+    }
+
+    /** Takes a used starter off the saved set until the next one loads. */
+    fun dropStarter(prompt: String) {
+        val left = starters.value.filter { it.prompt != prompt }
+        if (left.size == starters.value.size) return
+        starters.value = left
+        storage.saveStarters(left, System.currentTimeMillis())
+    }
+
     fun renameSession(id: String, title: String) = queue(ChatChange.Rename(id, title))
     fun deleteSession(id: String) = queue(ChatChange.Delete(listOf(id)))
     fun deleteSessions(ids: Set<String>) { if (ids.isNotEmpty()) queue(ChatChange.Delete(ids.toList())) }
@@ -705,8 +747,10 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
 
-    suspend fun registerDevice(deviceId: String, fcmToken: String) {
-        api().registerDevice(deviceId, fcmToken)
+    /** Lets the server reach this phone through Firebase when it cannot over iroh. */
+    fun registerPushToken(token: String) {
+        if (!settings.value.configured) return
+        scope.launch { runCatching { api().registerDevice(storage.deviceId(), token) } }
     }
 
     /** One-shot translation: creates a temporary session, sends the prompt, streams the response, and returns the full text. */

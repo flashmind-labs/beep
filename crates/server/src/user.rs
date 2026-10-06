@@ -28,11 +28,14 @@ use crate::{
         ApiError, AppIntegration, AppKind, ConnectLink, Cron, Memory, MemorySource, Notice,
         PromptSuggestions, Run, Session,
     },
-    starters::{Cached, FALLBACK_FRESH, FRESH, Generator, StarterContext, TIMEOUT, fallback},
+    starters::{
+        Cached, FALLBACK_FRESH, FRESH, Generator, STARTER_REFRESH_WINDOW, STARTER_REFRESHES,
+        StarterContext, TIMEOUT, fallback,
+    },
     store::{
-        AppPermissionRow, AttentionItem, CreateRun, DeletedTurn, Fact, Feed, FinishedTurn,
-        FoundSession, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin, RunStatus,
-        Store, StoredContext, TurnModel, TurnsToDelete,
+        ActionRow, AppPermissionRow, AttentionItem, CreateRun, DeletedTurn, Fact, Feed,
+        FinishedTurn, FoundSession, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin,
+        RunStatus, Store, StoredContext, TurnModel, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -50,7 +53,7 @@ use flashmind::{
 use secrecy::ExposeSecret;
 use serde_json::Value;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fmt,
     sync::{Arc, Mutex, PoisonError, Weak},
     time::{Duration, Instant},
@@ -90,6 +93,8 @@ pub struct User {
     pub(crate) notifications: broadcast::Sender<UserNotice>,
     /// Suggested prompts, kept for 12 hours.
     pub(crate) starters: AsyncMutex<Option<Cached>>,
+    /// When the user last asked for new starters, oldest first.
+    starter_refreshes: Mutex<VecDeque<Instant>>,
     /// Feeds being synced, so the hourly sweep and a new connection never
     /// read the same feed at once.
     syncing: Mutex<HashSet<Feed>>,
@@ -114,6 +119,7 @@ impl User {
             mcp: OnceCell::new(),
             notifications: shared.notifications.clone(),
             starters: AsyncMutex::new(None),
+            starter_refreshes: Mutex::default(),
             syncing: Mutex::new(HashSet::new()),
         })
     }
@@ -468,9 +474,24 @@ impl User {
         self.store.unregister_device(&self.key, device_id).await
     }
 
+    /// Keeps what a turn did in the user's apps.
+    pub async fn record_actions(&self, descriptions: &[String]) -> Result<()> {
+        self.store.record_actions(&self.key, descriptions).await
+    }
+
+    /// The latest things Beep did in the user's apps, newest first.
+    pub async fn recent_actions(&self, limit: i64) -> Result<Vec<ActionRow>> {
+        self.store.recent_actions(&self.key, limit).await
+    }
+
     /// Push tokens of the user's phones.
     pub async fn device_tokens(&self) -> Result<Vec<String>> {
         self.store.device_tokens(&self.key).await
+    }
+
+    /// Drops a push token Firebase no longer knows.
+    pub async fn forget_device_token(&self, fcm_token: &str) -> Result<()> {
+        self.store.forget_device_token(&self.key, fcm_token).await
     }
 
     /// The user's server-managed MCP servers.
@@ -1322,6 +1343,48 @@ impl User {
 /// A user's starters are kept for 12 hours, until one of them is about an
 /// event that is over, or until the phone moves to another city.
 impl User {
+    /// Drops the cached starters, so the next ones see what just changed.
+    pub async fn forget_starters(&self) {
+        *self.starters.lock().await = None;
+    }
+
+    /// Drops the cached starters when `message` is one of them, so the next
+    /// empty chat gets a new set instead of the starter just used.
+    pub async fn forget_used_starter(&self, message: &str) {
+        let mut cache = self.starters.lock().await;
+        let used = cache.as_ref().is_some_and(|cached| {
+            cached
+                .suggestions
+                .suggestions
+                .iter()
+                .any(|starter| starter.prompt.trim() == message.trim())
+        });
+        if used {
+            *cache = None;
+        }
+    }
+
+    /// Counts a request for new starters. False when the user already made
+    /// `STARTER_REFRESHES` within `STARTER_REFRESH_WINDOW`.
+    pub fn may_refresh_starters(&self) -> bool {
+        let mut refreshes = self
+            .starter_refreshes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let now = Instant::now();
+        while refreshes
+            .front()
+            .is_some_and(|at| now.duration_since(*at) >= STARTER_REFRESH_WINDOW)
+        {
+            refreshes.pop_front();
+        }
+        if refreshes.len() >= STARTER_REFRESHES {
+            return false;
+        }
+        refreshes.push_back(now);
+        true
+    }
+
     /// The cached starters, if they still fit a phone at `here`.
     pub async fn cached_starters(&self, here: Option<&Location>) -> Option<PromptSuggestions> {
         let cache = self.starters.lock().await;
@@ -1412,6 +1475,36 @@ mod tests {
         assert!(user.claim_feed(Feed::Slack).is_none());
         drop(claim);
         assert!(user.claim_feed(Feed::Slack).is_some());
+    }
+
+    #[tokio::test]
+    async fn starters_refresh_at_most_three_times_in_ten_minutes() {
+        let db = TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+        for _ in 0..STARTER_REFRESHES {
+            assert!(user.may_refresh_starters());
+        }
+        assert!(!user.may_refresh_starters());
+    }
+
+    #[tokio::test]
+    async fn actions_are_kept_newest_first_per_user() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = User::for_test(store.clone(), "alice");
+        let bob = User::for_test(store, "bob");
+        alice
+            .record_actions(&["Gmail: send email".into()])
+            .await
+            .unwrap();
+        alice
+            .record_actions(&["Calendar: create event".into()])
+            .await
+            .unwrap();
+        let done = alice.recent_actions(10).await.unwrap();
+        let done: Vec<&str> = done.iter().map(|row| row.description.as_str()).collect();
+        assert_eq!(done, ["Calendar: create event", "Gmail: send email"]);
+        assert!(bob.recent_actions(10).await.unwrap().is_empty());
     }
 
     fn fact(content: &str) -> Fact<'_> {

@@ -62,6 +62,9 @@ impl App {
         let cancel = &live.cancel;
         let is_cron = message.cron_id.is_some();
         let mut timer = TurnTimer::start();
+        if !is_cron && message.answer.is_none() {
+            user.forget_used_starter(&message.message).await;
+        }
 
         // The model runs on the context, which may be compacted; the transcript
         // keeps every message for the phone and gets this turn's entries appended.
@@ -430,19 +433,28 @@ impl App {
             self.notify_run_complete(user, run, status, &reply).await;
         }
 
+        // A resumed turn counts from the message that started it.
+        let asked = answer.and_then(|_| {
+            conversation
+                .entries()
+                .iter()
+                .rev()
+                .find(|entry| entry.timestamp < turn_started && entry.is_user())
+        });
+        let turn_from = asked.map_or(turn_started, |entry| entry.timestamp);
+        // What the turn did in the user's apps, so starters stop suggesting it.
+        let actions = permissions::actions_since(&conversation, turn_from);
+        if !actions.is_empty() {
+            if let Err(error) = user.record_actions(&actions).await {
+                log::warn!("unable to record actions: {error}; run_id={}", run.id);
+            }
+            user.forget_starters().await;
+        }
+
         // Learn from the turn while the run is still open, so what was saved shows
         // as memory tool chips under the reply. Scheduled prompts are written by
         // the user once, not said in conversation.
         if status == RunStatus::Completed && !is_cron {
-            // A resumed turn learns from the message that started it.
-            let asked = answer.and_then(|_| {
-                conversation
-                    .entries()
-                    .iter()
-                    .rev()
-                    .find(|entry| entry.timestamp < turn_started && entry.is_user())
-            });
-            let turn_from = asked.map_or(turn_started, |entry| entry.timestamp);
             let generator = Generator {
                 provider: self.provider.as_ref(),
                 llm: &self.llm,
@@ -458,6 +470,7 @@ impl App {
                         |entry| entry.content().to_owned(),
                     ),
                     reply,
+                    actions,
                 },
             };
             // Written alongside learning.
@@ -503,9 +516,11 @@ impl App {
                         log::warn!("unable to record memory score: {error}; run_id={}", run.id);
                     }
                 }
-                // Without a score (Jev not configured or failing) every turn is read.
+                // Without a score (Jev not configured or failing) every turn is read,
+                // and so is one that acted, since it may finish what a memory plans.
+                let acted = !exchange.latest.actions.is_empty();
                 let learned = match score {
-                    Some(probability) if probability < MEMORY_THRESHOLD => Vec::new(),
+                    Some(probability) if probability < MEMORY_THRESHOLD && !acted => Vec::new(),
                     _ => user.learn(generator, exchange, &known).await,
                 };
                 if let Some(probability) = score {

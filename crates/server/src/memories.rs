@@ -115,6 +115,8 @@ impl Hit {
 pub struct Turn {
     pub message: String,
     pub reply: String,
+    /// What Beep did in the user's apps during the turn, such as sending an email.
+    pub actions: Vec<String>,
 }
 
 /// The turn as Jev reads it, each side clipped to `MAX_TURN_CHARS`.
@@ -125,8 +127,21 @@ impl fmt::Display for Turn {
             "User: {}\n\nAssistant: {}",
             clip(&self.message, MAX_TURN_CHARS),
             clip(&self.reply, MAX_TURN_CHARS)
-        )
+        )?;
+        write_actions(f, &self.actions)
     }
+}
+
+/// The actions of a turn as a list under "Beep did:".
+fn write_actions(out: &mut impl fmt::Write, actions: &[String]) -> fmt::Result {
+    if actions.is_empty() {
+        return Ok(());
+    }
+    write!(out, "\n\nBeep did:")?;
+    for action in actions {
+        write!(out, "\n- {action}")?;
+    }
+    Ok(())
 }
 
 /// What the extractor reads after a chat.
@@ -272,6 +287,9 @@ one-off request, or secrets such as passwords, codes, tokens, card or account nu
 Known memories are listed with their ids. If a fact is already known, do nothing. If the exchange corrects or \
 extends one, update it by id with the full new text. If the user says something is no longer true or asks \
 Beep to forget it, forget it by id. Otherwise add it.
+\"Beep did\" lists what Beep did in the user's apps during the latest exchange, such as sending an email or \
+creating an event. When that finishes a task, plan or follow-up a known memory still describes as ahead, forget \
+that memory by id, or update it to the lasting fact if one remains. An action alone is not a new fact to add.
 A fact that only holds for a while (a trip, a visit, a stay, an appointment, a temporary job) gets valid_from \
 and/or valid_until as YYYY-MM-DD, worked out from today's date. Lasting facts leave both out.
 Write each memory as one short self-contained sentence about the user in third person that names its subject, \
@@ -320,7 +338,9 @@ pub(crate) fn learn_prompt(known: &[Hit], exchange: &Exchange) -> String {
         "\nLatest exchange:\nUser: {}",
         clip(&latest.message, MAX_TURN_CHARS)
     );
-    let _ = writeln!(text, "Beep: {}", clip(&latest.reply, MAX_TURN_CHARS));
+    let _ = write!(text, "Beep: {}", clip(&latest.reply, MAX_TURN_CHARS));
+    let _ = write_actions(&mut text, &latest.actions);
+    text.push('\n');
     text
 }
 
