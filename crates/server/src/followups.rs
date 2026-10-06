@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// How likely a follow-up has to be useful before one is written.
-const THRESHOLD: f64 = 0.5;
+const THRESHOLD: f64 = 0.8;
 
 const QUESTION: &str = "Would the user likely want tappable follow-ups under this reply: a question to dig deeper into the topic, or something the assistant could do next with what it just said?";
 
@@ -19,15 +19,13 @@ const CRITERIA: Criteria = Criteria {
 };
 
 const SYSTEM: &str = "You write follow-ups, shown as tappable chips under an assistant's \
-reply. Answer with a Markdown list of 4 items, one per line starting with \"- \", and nothing \
-else. Each item is a message the user would send next, in the user's language, at most 40 \
-characters, no quotes. Make them differ:
-- one digs deeper into the main point
-- one asks about a side the reply did not cover
-- one asks the assistant to do something: search the web, set a reminder, add a calendar event, \
-show a place on the map or check mail
-- one asks for something practical: an example, a comparison or what to do next
-Do not ask about what the reply already says.";
+reply. Answer with a Markdown list of 2 or 3 items, one per line starting with \"- \", and \
+nothing else. Write 3 only when each one is clearly worth tapping. Each item is a message the \
+user would send next, in the user's language, at most 32 characters, no quotes. Make them \
+differ: dig deeper into the main point, ask the assistant to do something with it (search the \
+web, set a reminder, add a calendar event, show a place on the map, check mail), or ask what to \
+do next. Do not ask about what the reply already says, and do not drift to other topics from \
+earlier in the chat.";
 
 /// The `suggest_replies` result to add under the reply, or `None` when the
 /// turn does not call for one or writing it failed.

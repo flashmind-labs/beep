@@ -4,9 +4,9 @@
 use serde::Serialize;
 
 /// Longer replies are dropped rather than cut, so no chip reads half-written.
-const MAX_REPLY_CHARS: usize = 60;
+const MAX_REPLY_CHARS: usize = 48;
 const MIN_REPLIES: usize = 2;
-const MAX_REPLIES: usize = 4;
+const MAX_REPLIES: usize = 3;
 pub(crate) const NAME: &str = "suggest_replies";
 pub(crate) const SUGGESTING: &str = "Suggesting replies";
 
@@ -28,7 +28,7 @@ fn fit(text: &str, max: usize) -> Option<String> {
     (!text.is_empty() && text.chars().count() <= max).then_some(text)
 }
 
-/// `replies` that fit, without duplicates, at most four.
+/// `replies` that fit, without duplicates, at most three.
 fn suggestions(replies: Vec<String>) -> Option<Suggestions> {
     let mut kept: Vec<String> = Vec::new();
     for reply in &replies {
@@ -71,8 +71,8 @@ mod tests {
             )
         );
         assert_eq!(
-            output(&["a", "b", "c", "d", "e"]).unwrap()["replies"],
-            json!(["a", "b", "c", "d"])
+            output(&["a", "b", "c", "d"]).unwrap()["replies"],
+            json!(["a", "b", "c"])
         );
     }
 
