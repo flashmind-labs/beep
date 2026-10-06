@@ -60,7 +60,10 @@ data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: 
     /** The model an admin reran this prompt on, as a `ModelChoice` id. Empty for the usual model. */
     val model: String = "",
     /** When the server saved this prompt, in epoch milliseconds; 0 until the chat syncs. Names the turn to delete. */
-    val sentAt: Long = 0)
+    val sentAt: Long = 0,
+    /** The model Jev picked for this prompt under Auto, as a `ModelChoice` id, and its thinking level. Empty without Auto. */
+    val autoModel: String = "",
+    val autoThinking: String = "")
 
 /** A tool call the server holds until the user allows it. `answer` is empty while it waits. */
 data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "") {
@@ -192,7 +195,8 @@ class LocalStorage(internal val context: Context) {
                     ApprovalPrompt(a.getString("queryId"), Approval(a.getString("app"), a.getString("action"), fields), a.optString("answer"))
                 } else emptyList()
                 ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
-                    m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals, m.optString("model"), m.optLong("sentAt"))
+                    m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals, m.optString("model"), m.optLong("sentAt"),
+                    m.optString("autoModel"), m.optString("autoThinking"))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"),
                 status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
@@ -291,6 +295,7 @@ class LocalStorage(internal val context: Context) {
                     .apply { if (m.reasoning.isNotEmpty()) put("reasoning", m.reasoning) }
                     .apply { if (m.model.isNotEmpty()) put("model", m.model) }
                     .apply { if (m.sentAt != 0L) put("sentAt", m.sentAt) }
+                    .apply { if (m.autoModel.isNotEmpty()) put("autoModel", m.autoModel).put("autoThinking", m.autoThinking) }
                 if (m.cards.isNotEmpty()) {
                     val cardsArr = JSONArray()
                     m.cards.forEach { card -> cardsArr.put(JSONObject().put("type", card.type).put("data", card.data)) }

@@ -62,7 +62,8 @@ async fn main() -> Result<()> {
         &config.admins,
     )
     .await
-    .with_routing(config.model_routing());
+    .with_routing(config.model_routing())
+    .with_auto(config.auto_models.clone());
 
     let search = config
         .firecrawl_key

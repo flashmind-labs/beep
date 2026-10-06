@@ -220,6 +220,9 @@ requests! {
     /// The sessions where the user or Beep wrote `query`, ignoring case,
     /// most recently changed first.
     47 SearchSessions { query: String } => Call<Vec<SessionMatch>>
+    /// Turns Auto on or off for the caller: Jev then picks the model and
+    /// thinking of each prompt from the server's Auto models. Admins only.
+    48 SetAutoModel { enabled: bool } => Call<Models>
 }
 
 wire_enum! {
@@ -281,6 +284,7 @@ wire_enum! {
         7 RunStarted { run_id: String, session_id: String }
         8 ReasoningDelta { delta: String }
         9 MemoryScore { probability: f64 }
+        10 AutoPicked { pick: AutoPick }
     }
 }
 
@@ -403,6 +407,21 @@ pub struct Models {
     /// phone's cached `Models` from before this field still decodes.
     #[serde(default)]
     pub thinking: ReasoningLevel,
+    /// Jev picks the model and thinking of each of the caller's prompts.
+    #[serde(default)]
+    pub auto: bool,
+    /// The server has models for Auto to pick from.
+    #[serde(default)]
+    pub auto_available: bool,
+}
+
+/// The model and thinking Jev picked for a prompt.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutoPick {
+    /// A `ModelChoice::id`.
+    pub model: String,
+    pub thinking: ReasoningLevel,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -495,6 +514,7 @@ wire_enum! {
     /// `memory_score` is Jev's score for the turn, on its last assistant entry,
     /// `reasoning` is the model's reasoning over the whole turn, and `model`
     /// the model that answered it, empty when not recorded.
+    /// A `User` entry's `auto` is what Jev picked for it, when it did.
     /// `Scheduled` stands in for the prompt a routine woke the agent with;
     /// `label` is the routine's name, empty when it has none.
     /// `Approval` ends a session that stopped to ask before a tool call, so
@@ -502,7 +522,7 @@ wire_enum! {
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum HistoryEntry {
-        0 User { content: String, timestamp: i64 }
+        0 User { content: String, timestamp: i64, auto: Option<AutoPick> }
         1 Assistant { content: String, timestamp: i64, tools: Vec<HistoryTool>, memory_score: Option<f64>, reasoning: String, model: String }
         2 Scheduled { label: String, timestamp: i64 }
         3 Approval { query_id: String, approval: Approval }

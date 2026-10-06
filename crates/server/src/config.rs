@@ -17,6 +17,10 @@ pub struct Config {
     /// cost at most `models::MAX_OUTPUT_PRICE`.
     #[serde(default)]
     pub model_choices: Vec<Model>,
+    /// Models Jev may pick per prompt for an admin with Auto on, each with
+    /// what it is good for. Only offered models take part.
+    #[serde(default)]
+    pub auto_models: HashMap<Model, String>,
     /// Endpoint ids of the users who get admin features.
     #[serde(default)]
     pub admins: Vec<EndpointId>,
@@ -143,6 +147,24 @@ mod tests {
         .expect("the config is valid");
         assert_eq!(config.admins, [admin]);
         assert_eq!(config.model_choices[0].name(), "openai/gpt-6-luna");
+    }
+
+    #[test]
+    fn reads_auto_models() {
+        let config: Config = toml::from_str(
+            r#"
+            model = "openrouter:z-ai/glm-5.3-flash"
+            [auto_models]
+            "openrouter:openai/gpt-6-luna" = "Demanding work"
+            "openrouter:z-ai/glm-5.3-flash" = "Quick lookups"
+            "#,
+        )
+        .expect("the config is valid");
+        let luna: Model = "openrouter:openai/gpt-6-luna"
+            .parse()
+            .expect("a valid model");
+        assert_eq!(config.auto_models[&luna], "Demanding work");
+        assert_eq!(config.auto_models.len(), 2);
     }
 
     #[test]

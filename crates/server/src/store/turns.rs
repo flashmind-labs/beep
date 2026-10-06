@@ -4,8 +4,17 @@
 use super::Store;
 use crate::user::UserKey;
 use anyhow::Result;
+use flashmind::types::ReasoningLevel;
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
+
+/// The model that answered a turn, and the thinking Jev picked for it when
+/// Auto picked the model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnModel {
+    pub model: String,
+    pub auto_thinking: Option<ReasoningLevel>,
+}
 
 impl Store {
     /// Records tool calls that failed, since the conversation keeps only their output.
@@ -76,17 +85,19 @@ impl Store {
         user: &UserKey,
         session: &str,
         turn_at: i64,
-        model: &str,
+        model: &TurnModel,
     ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO turn_models (user_id, session_id, turn_at, model)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (user_id, session_id, turn_at) DO UPDATE SET model=excluded.model",
+            "INSERT INTO turn_models (user_id, session_id, turn_at, model, thinking)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (user_id, session_id, turn_at)
+             DO UPDATE SET model=excluded.model, thinking=excluded.thinking",
         )
         .bind(user.as_str())
         .bind(session)
         .bind(turn_at)
-        .bind(model)
+        .bind(&model.model)
+        .bind(model.auto_thinking.map(|level| level.to_string()))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -97,16 +108,23 @@ impl Store {
         &self,
         user: &UserKey,
         session: &str,
-    ) -> Result<HashMap<i64, String>> {
+    ) -> Result<HashMap<i64, TurnModel>> {
         let rows = sqlx::query(
-            "SELECT turn_at, model FROM turn_models WHERE user_id=$1 AND session_id=$2",
+            "SELECT turn_at, model, thinking FROM turn_models WHERE user_id=$1 AND session_id=$2",
         )
         .bind(user.as_str())
         .bind(session)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
-            .map(|r| Ok((r.try_get(0)?, r.try_get(1)?)))
+            .map(|r| {
+                let thinking: Option<String> = r.try_get(2)?;
+                let model = TurnModel {
+                    model: r.try_get(1)?,
+                    auto_thinking: thinking.and_then(|level| level.parse().ok()),
+                };
+                Ok((r.try_get(0)?, model))
+            })
             .collect()
     }
 

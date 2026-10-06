@@ -2,6 +2,7 @@
 
 use super::{
     App, Message,
+    auto::Prompt,
     device::Parked,
     learning::{MEMORY_THRESHOLD, ServerCall, add_server_calls, earlier_turns, memory_state},
 };
@@ -10,11 +11,11 @@ use crate::{
     live::LiveRun,
     memories::{Exchange, Turn},
     permissions::{self, ApprovalPayload, Approved, Rules},
-    protocol::{ApprovalDecision, Run, RunEvent, Usage},
+    protocol::{ApprovalDecision, AutoPick, Run, RunEvent, Usage},
     repeat::{self, RepeatGuard},
     sandbox,
     starters::Generator,
-    store::{FinishedTurn, RunStatus},
+    store::{FinishedTurn, RunStatus, TurnModel},
     timing::{Output, TurnTimer},
     tools,
     user::User,
@@ -77,15 +78,39 @@ impl App {
         // It stays static so the provider can cache it.
         conversation.set_system(include_str!("../../prompts/assistant.md"));
         transcript.set_system(include_str!("../../prompts/assistant.md"));
-        let model = match message.model.clone() {
-            Some(model) => model,
-            None => self.model_for(user).await,
+        let answer = message.answer.as_ref();
+        // An admin's one-off model wins over Auto; a resumed turn keeps the
+        // pick it started with.
+        let auto = match (&message.model, answer) {
+            (Some(_), _) => None,
+            (None, Some(_)) => self.resumed_pick(user, &run.session_id, &transcript).await,
+            (None, None) => {
+                let prompt = Prompt {
+                    message: &message.message,
+                    images: message.images.len(),
+                    conversation: &transcript,
+                };
+                self.auto_pick(user, &prompt).await
+            }
         };
+        let (model, thinking) = match (message.model.clone(), &auto) {
+            (Some(model), _) => (model, self.thinking_for(user).await),
+            (None, Some(auto)) => (auto.model.clone(), auto.thinking),
+            (None, None) => (self.model_for(user).await, self.thinking_for(user).await),
+        };
+        if let Some(auto) = &auto {
+            live.push(RunEvent::AutoPicked {
+                pick: AutoPick {
+                    model: auto.model.to_string(),
+                    thinking: auto.thinking,
+                },
+            });
+        }
         let mut llm = self
             .llm
             .with_model(model.clone())
             .with_user(user.id())
-            .with_reasoning(self.thinking_for(user).await);
+            .with_reasoning(thinking);
         if let Some(routing) = self.models.routing(&model) {
             llm.provider_preferences = Some(routing.clone());
         }
@@ -108,7 +133,6 @@ impl App {
         // Calls of the last model turn still without a result: the session
         // stopped on the first one to ask the user.
         let open = permissions::open_calls(&conversation);
-        let answer = message.answer.as_ref();
         if let Some(answer) = answer
             && answer.decision == (ApprovalDecision::Always {})
             && let Some(call) = open.iter().find(|call| call.id == answer.call_id)
@@ -550,7 +574,10 @@ impl App {
                 .record_turn_model(
                     &run.session_id,
                     asked.timestamp.timestamp_millis(),
-                    &model.to_string(),
+                    &TurnModel {
+                        model: model.to_string(),
+                        auto_thinking: auto.as_ref().map(|auto| auto.thinking),
+                    },
                 )
                 .await
         {

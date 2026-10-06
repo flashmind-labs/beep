@@ -19,6 +19,15 @@ pub struct ModelChoices {
     choices: Vec<Choice>,
     /// Provider routing for models that do not use the server's own.
     routing: HashMap<Model, ProviderPreferences>,
+    /// The offered models Jev may pick per prompt, in choice order.
+    auto: Vec<AutoModel>,
+}
+
+/// A model Jev may pick, with what it is good for.
+pub struct AutoModel {
+    pub model: Model,
+    pub name: String,
+    pub when: String,
 }
 
 struct Choice {
@@ -42,6 +51,7 @@ impl ModelChoices {
                 sees_images: false,
             }],
             routing: HashMap::new(),
+            auto: Vec::new(),
         }
     }
 
@@ -96,6 +106,7 @@ impl ModelChoices {
             admins: admins.iter().map(ToString::to_string).collect(),
             choices,
             routing: HashMap::new(),
+            auto: Vec::new(),
         }
     }
 
@@ -103,6 +114,39 @@ impl ModelChoices {
     pub fn with_routing(mut self, routing: HashMap<Model, ProviderPreferences>) -> Self {
         self.routing = routing;
         self
+    }
+
+    /// Lets Jev pick among these models, each with what it is good for. A
+    /// model that is not offered is left out with a warning.
+    pub fn with_auto(mut self, mut described: HashMap<Model, String>) -> Self {
+        self.auto = self
+            .choices
+            .iter()
+            .filter_map(|choice| {
+                described.remove(&choice.model).map(|when| AutoModel {
+                    model: choice.model.clone(),
+                    name: choice.name.clone(),
+                    when,
+                })
+            })
+            .collect();
+        for model in described.keys() {
+            log::warn!("auto model is not a model choice; model={model}");
+        }
+        self
+    }
+
+    /// The models Jev may pick, empty when Auto is unavailable.
+    pub fn auto(&self) -> &[AutoModel] {
+        &self.auto
+    }
+
+    /// The display name of an offered model.
+    pub fn name_of(&self, model: &Model) -> Option<&str> {
+        self.choices
+            .iter()
+            .find(|choice| &choice.model == model)
+            .map(|choice| choice.name.as_str())
     }
 
     /// The provider routing for `model`, when it has its own.
@@ -136,9 +180,10 @@ impl ModelChoices {
             .unwrap_or_else(|| self.default_model())
     }
 
-    /// What `user` sees in the picker, with `selected` and `thinking` marked.
-    pub fn for_picker(&self, user: &str, selected: &Model, thinking: ReasoningLevel) -> Models {
-        let choices = if self.is_admin(user) {
+    /// What `user` sees in the picker, with their settings marked.
+    pub fn for_picker(&self, user: &str, picked: &Picked) -> Models {
+        let admin = self.is_admin(user);
+        let choices = if admin {
             self.choices
                 .iter()
                 .enumerate()
@@ -154,12 +199,22 @@ impl ModelChoices {
         } else {
             Vec::new()
         };
+        let auto_available = admin && !self.auto.is_empty();
         Models {
             choices,
-            selected: selected.to_string(),
-            thinking,
+            selected: picked.model.to_string(),
+            thinking: picked.thinking,
+            auto: auto_available && picked.auto,
+            auto_available,
         }
     }
+}
+
+/// A user's own model settings.
+pub struct Picked<'a> {
+    pub model: &'a Model,
+    pub thinking: ReasoningLevel,
+    pub auto: bool,
 }
 
 impl Choice {
@@ -216,23 +271,43 @@ mod tests {
         assert_eq!(models.for_user(ADMIN, gone).name(), "z-ai/glm-5.3-flash");
     }
 
+    fn picked(model: &Model, auto: bool) -> Picked<'_> {
+        Picked {
+            model,
+            thinking: ReasoningLevel::Low,
+            auto,
+        }
+    }
+
     #[test]
     fn only_admins_see_choices() {
         let models = choices();
         let default = models.default_model().clone();
-        assert_eq!(
-            models
-                .for_picker(ADMIN, &default, ReasoningLevel::Low)
-                .choices
-                .len(),
-            2
-        );
-        assert!(
-            models
-                .for_picker("someone", &default, ReasoningLevel::Low)
-                .choices
-                .is_empty()
-        );
+        let picked = picked(&default, false);
+        assert_eq!(models.for_picker(ADMIN, &picked).choices.len(), 2);
+        assert!(models.for_picker("someone", &picked).choices.is_empty());
+    }
+
+    #[test]
+    fn auto_takes_only_offered_models_in_choice_order() {
+        let luna: Model = "openrouter:openai/gpt-6-luna".parse().unwrap();
+        let flash: Model = "openrouter:z-ai/glm-5.3-flash".parse().unwrap();
+        let gone: Model = "openrouter:retired/model".parse().unwrap();
+        let models = choices().with_auto(HashMap::from([
+            (luna.clone(), "Demanding work".to_owned()),
+            (flash.clone(), "Quick lookups".to_owned()),
+            (gone, "Anything".to_owned()),
+        ]));
+        let auto: Vec<_> = models.auto().iter().map(|a| &a.model).collect();
+        assert_eq!(auto, [&flash, &luna]);
+        assert_eq!(models.auto()[1].name, "GPT-6 Luna");
+
+        let on = picked(&flash, true);
+        let admin = models.for_picker(ADMIN, &on);
+        assert!(admin.auto && admin.auto_available);
+        let someone = models.for_picker("someone", &on);
+        assert!(!someone.auto && !someone.auto_available);
+        assert!(!choices().for_picker(ADMIN, &on).auto);
     }
 
     #[test]

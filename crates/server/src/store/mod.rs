@@ -34,6 +34,7 @@ pub use memories::{Fact, Scored, WordEmbedder};
 pub use runs::{CreateRun, FinishedTurn, RunStatus};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
 pub use test_db::TestDb;
+pub use turns::TurnModel;
 
 /// The schema, oldest first. Embedded by hand because `sqlx::migrate!`
 /// needs sqlx's `migrate` feature, which clashes with rusqlite.
@@ -89,6 +90,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         12,
         "token_usage",
         include_str!("../../migrations/0012_token_usage.sql"),
+    ),
+    (
+        13,
+        "auto_model",
+        include_str!("../../migrations/0013_auto_model.sql"),
     ),
 ];
 
