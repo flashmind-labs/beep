@@ -112,6 +112,12 @@ test-db:
 test: test-db
     BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:55432/beep cargo test -p beep-server
 
+# Run the prompt evals against the real model in the dev config. They cost
+# money. `just eval search` runs the cases whose name contains "search".
+eval filter="": test-db
+    BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:55432/beep BEEP_EVAL="{{filter}}" \
+        cargo test -p beep-server --test evals -- --ignored --nocapture
+
 # List the OpenRouter models Beep could use, newest first: just models [max-output-price] [filter]
 models *args:
     cargo run -q --package beep-server --bin beep-models -- {{args}}
