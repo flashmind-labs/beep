@@ -80,10 +80,12 @@ impl App {
         transcript.set_system(include_str!("../../prompts/assistant.md"));
         let answer = message.answer.as_ref();
         // An admin's one-off model wins over Auto; a resumed turn keeps the
-        // pick it started with.
+        // pick it started with. Auto picks for chats only: a routine runs on
+        // the admin's selected model.
         let auto = match (&message.model, answer) {
             (Some(_), _) => None,
             (None, Some(_)) => self.resumed_pick(user, &run.session_id, &transcript).await,
+            (None, None) if is_cron => None,
             (None, None) => {
                 let prompt = Prompt {
                     message: &message.message,
