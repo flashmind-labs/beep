@@ -322,14 +322,132 @@ pub(crate) fn open_calls(conversation: &Conversation) -> Vec<ToolCall> {
 pub(crate) fn waiting_approval(conversation: &Conversation) -> Option<HistoryEntry> {
     let call = open_calls(conversation).into_iter().next()?;
     let (app, _) = lookup(&call.name)?;
+    let mut fields = fields(&call.arguments);
+    fields.extend(records(&call.arguments, conversation));
     Some(HistoryEntry::Approval {
         approval: Approval {
             app: app.name.to_owned(),
             action: action_name(app, ToolSlug::new(&call.name).as_str()),
-            fields: fields(&call.arguments),
+            fields: fields.into_iter().take(MAX_FIELDS).collect(),
         },
         query_id: call.id,
     })
+}
+
+/// What the records `call_id` names are, such as the subject and sender of
+/// the email behind a message ID, read from earlier tool results in
+/// `conversation`. Empty when the call names none or nothing said more.
+pub(crate) fn describe_records(call_id: &str, conversation: &Conversation) -> Vec<ApprovalField> {
+    let call = conversation
+        .entries()
+        .iter()
+        .rev()
+        .find_map(|entry| match &entry.kind {
+            EntryKind::Assistant {
+                tool_calls: Some(calls),
+                ..
+            } => calls.iter().find(|call| call.id == call_id),
+            _ => None,
+        });
+    call.map(|call| records(&call.arguments, conversation))
+        .unwrap_or_default()
+}
+
+/// The fields of a record that tell the user which one it is.
+const RECORD_KEYS: &[(&str, &str)] = &[
+    ("subject", "Subject"),
+    ("title", "Title"),
+    ("name", "Name"),
+    ("from", "From"),
+    ("sender", "From"),
+];
+
+fn records(args: &Value, conversation: &Conversation) -> Vec<ApprovalField> {
+    let Value::Object(args) = args else {
+        return Vec::new();
+    };
+    let ids: Vec<&str> = args
+        .iter()
+        .filter(|(key, _)| is_id(key))
+        .flat_map(|(_, value)| match value {
+            Value::String(id) => vec![id.as_str()],
+            Value::Array(items) => items.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        })
+        .filter(|id| !id.trim().is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Vec::new();
+    }
+    let results: Vec<Value> = conversation
+        .entries()
+        .iter()
+        .rev()
+        .filter_map(|entry| match &entry.kind {
+            EntryKind::Tool { output, .. } => parse_output(output),
+            _ => None,
+        })
+        .collect();
+    let mut shown = Vec::new();
+    for id in ids {
+        let Some(record) = results.iter().find_map(|result| find_record(result, id)) else {
+            continue;
+        };
+        let mut labels = HashSet::new();
+        for (key, label) in RECORD_KEYS {
+            let Some(value) = record_value(record, key) else {
+                continue;
+            };
+            if labels.insert(*label) {
+                shown.push(ApprovalField {
+                    label: (*label).to_owned(),
+                    value: value.chars().take(MAX_VALUE_CHARS).collect(),
+                });
+            }
+        }
+    }
+    shown.into_iter().take(MAX_FIELDS).collect()
+}
+
+/// A tool result as JSON, skipping any text before it.
+fn parse_output(output: &str) -> Option<Value> {
+    let start = output.find(['{', '['])?;
+    serde_json::from_str(&output[start..]).ok()
+}
+
+/// The object in `value` that has `id` as one of its own values.
+fn find_record<'a>(value: &'a Value, id: &str) -> Option<&'a Value> {
+    match value {
+        Value::Object(map) => {
+            if map.values().any(|v| v.as_str() == Some(id)) {
+                return Some(value);
+            }
+            map.values().find_map(|v| find_record(v, id))
+        }
+        Value::Array(items) => items.iter().find_map(|v| find_record(v, id)),
+        _ => None,
+    }
+}
+
+/// `key` of `record` as text: a plain string, an address, or a list of
+/// addresses, as Gmail, Outlook and Fastmail write a sender.
+fn record_value(record: &Value, key: &str) -> Option<String> {
+    let value = record
+        .as_object()?
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))?
+        .1;
+    let text = match value {
+        Value::String(text) => text.trim().to_owned(),
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| address(item).or_else(|| address(item.get("emailAddress")?)))
+            .collect::<Vec<_>>()
+            .join(", "),
+        Value::Object(_) => address(value).or_else(|| address(value.get("emailAddress")?))?,
+        _ => return None,
+    };
+    (!text.is_empty()).then_some(text)
 }
 
 /// Stops asking for `tool` in its app.
@@ -381,7 +499,10 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
 /// A recipient written as `{"name": "Jo", "email": "jo@example.com"}`, as
 /// Fastmail takes them, read as "Jo <jo@example.com>".
 fn address(item: &Value) -> Option<String> {
-    let email = item.get("email")?.as_str()?;
+    let email = item
+        .get("email")
+        .or_else(|| item.get("address"))?
+        .as_str()?;
     Some(match item.get("name").and_then(Value::as_str) {
         Some(name) if !name.trim().is_empty() => format!("{} <{email}>", name.trim()),
         _ => email.to_owned(),
@@ -630,6 +751,56 @@ mod tests {
         assert_eq!(approval.fields.len(), 2);
         conversation.add(ConversationEntry::tool("send", DENIED));
         assert!(waiting_approval(&conversation).is_none());
+    }
+
+    #[test]
+    fn a_card_says_which_email_an_id_names() {
+        let mut conversation = Conversation::new();
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![ToolCall {
+                id: "find".into(),
+                name: "gmail_fetch_emails".into(),
+                arguments: json!({"query": "in:inbox"}),
+            }],
+            None,
+        ));
+        let found = json!({"data": {"messages": [
+            {"messageId": "m1", "subject": "Renew example.com", "sender": "Registrar <billing@example.com>"},
+            {"messageId": "m2", "subject": "New listings", "sender": "alerts@example.com"},
+        ]}});
+        conversation.add(ConversationEntry::tool("find", found.to_string()));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![ToolCall {
+                id: "trash".into(),
+                name: "gmail_move_to_trash".into(),
+                arguments: json!({"message_id": "m2"}),
+            }],
+            None,
+        ));
+        let Some(HistoryEntry::Approval { approval, .. }) = waiting_approval(&conversation) else {
+            panic!("expected the open call's card");
+        };
+        let shown: Vec<_> = approval
+            .fields
+            .iter()
+            .map(|f| (f.label.as_str(), f.value.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [("Subject", "New listings"), ("From", "alerts@example.com")]
+        );
+        assert_eq!(describe_records("trash", &conversation).len(), 2);
+    }
+
+    #[test]
+    fn records_read_outlook_senders() {
+        let record = json!({"from": {"emailAddress": {"name": "Jo", "address": "jo@example.com"}}});
+        assert_eq!(
+            record_value(&record, "from").as_deref(),
+            Some("Jo <jo@example.com>")
+        );
     }
 
     #[test]
