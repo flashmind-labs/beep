@@ -438,7 +438,16 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                 .clip(RoundedCornerShape(Beep.shapes.smallRadius)).background(Beep.colors.error.copy(alpha = 0.10f))
                 .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(chat.error, fontSize = 13.sp, color = Beep.colors.error, modifier = Modifier.weight(1f).padding(vertical = 8.dp), maxLines = 4)
-                if (chat.busy || chat.messages.any { it.role == "user" }) TextButton(onClick = repository::retryLast) { Text("Retry", color = Beep.colors.error, fontWeight = FontWeight.SemiBold) }
+                // A stopped turn may have no reply to carry the rerun menu, so it sits here too.
+                val prompt = chat.messages.lastOrNull { it.role == "user" }
+                val models = modelChoices?.takeIf { it.choices.isNotEmpty() }
+                if (!chat.busy && !compact && prompt != null && models != null) {
+                    RerunButton(models, prompt.model.ifEmpty { null }, Beep.colors.error, prominent = true) { model ->
+                        followLatest = true
+                        scope.launch { runCatching { repository.rerunPrompt(prompt, model) }.onFailure { showError(context, it) } }
+                    }
+                }
+                if (chat.busy || prompt != null) TextButton(onClick = repository::retryLast) { Text("Retry", color = Beep.colors.error, fontWeight = FontWeight.SemiBold) }
             }
         }
         // Voice input state
@@ -726,13 +735,17 @@ private fun ReplySkeleton(modifier: Modifier = Modifier) {
 
 /** Admin only: runs the prompt behind a reply again on a model picked from the menu. */
 @Composable
-private fun RerunButton(models: Models, used: String?, onPick: (String) -> Unit) {
+private fun RerunButton(models: Models, used: String?, color: Color = TextMuted, prominent: Boolean = false, onPick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         TextButton(onClick = { open = true }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 48.dp)) {
-            Icon(Icons.Outlined.Refresh, null, Modifier.size(14.dp), tint = TextMuted)
-            Spacer(Modifier.width(6.dp)); Text("Rerun", fontSize = 11.sp, color = TextMuted)
-            Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(14.dp), tint = TextMuted)
+            if (prominent) {
+                Text("Rerun", color = color, fontWeight = FontWeight.SemiBold)
+            } else {
+                Icon(Icons.Outlined.Refresh, null, Modifier.size(14.dp), tint = color)
+                Spacer(Modifier.width(6.dp)); Text("Rerun", fontSize = 11.sp, color = color)
+            }
+            Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(if (prominent) 18.dp else 14.dp), tint = color)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Surface, shape = RoundedCornerShape(Beep.shapes.smallRadius)) {
             models.choices.forEach { choice ->
