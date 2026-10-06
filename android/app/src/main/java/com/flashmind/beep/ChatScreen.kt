@@ -62,6 +62,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -75,6 +76,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
 // Short names for the current theme's colors.
 private val Surface: Color @Composable @ReadOnlyComposable get() = Beep.colors.surface
@@ -221,6 +223,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             // Only messages that arrive while the chat is open pop in; history is drawn at rest.
             val settled = remember(chat.id) { chat.messages.map { it.id }.toHashSet() }
             val radius = Beep.shapes.radius
+            val dayBreaks = remember(chat.messages) { dayBreaks(chat.messages) }
             // The "Latest reply" button floats over the list, so showing it does not resize the list.
             Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp)) {
@@ -228,13 +231,18 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     val isUser = message.role == "user"
                     val fresh = message.id !in settled
                     SideEffect { settled.add(message.id) }
+                    val newDay = dayBreaks[message.id]
                     if (message.role == "scheduled") {
-                        ScheduledMarker(message.text, Modifier.animateItem(fadeOutSpec = null))
+                        Column(Modifier.animateItem(fadeOutSpec = null)) {
+                            newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
+                            ScheduledMarker(message.text)
+                        }
                         return@itemsIndexed
                     }
                     Column(Modifier.fillMaxWidth().animateItem(fadeOutSpec = null)
                         .popIn(message.id, play = fresh, origin = TransformOrigin(if (isUser) 1f else 0f, 1f)),
                         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+                        newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
                         val isLastAssistant = !isUser && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
                         val bubbleShape = if (isUser) RoundedCornerShape(radius, radius, 6.dp, radius)
                             else RoundedCornerShape(6.dp, radius, radius, radius)
@@ -729,6 +737,13 @@ private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQu
 
 private fun showError(context: android.content.Context, error: Throwable) =
     android.widget.Toast.makeText(context, error.message ?: "Something went wrong", android.widget.Toast.LENGTH_SHORT).show()
+
+/** Where a new day starts in the chat. */
+@Composable
+private fun DayMarker(day: LocalDate, modifier: Modifier = Modifier) {
+    Text(dayLabel(day), modifier.fillMaxWidth(), fontSize = 11.sp,
+        color = TextDim, textAlign = TextAlign.Center)
+}
 
 /** Where a routine woke Beep: its prompt is the routine's, not something the user said. */
 @Composable

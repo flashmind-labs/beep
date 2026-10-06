@@ -403,6 +403,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             LaunchedEffect(drawerOpen) { if (!drawerOpen) picked = null }
             BackHandler(enabled = picked != null) { picked = null }
             val visibleChats = state.conversations.filter { !it.isUnused && it.title.contains(historyQuery, ignoreCase = true) }
+                .sortedWith(compareByDescending<Conversation> { it.pinned }.thenByDescending { it.lastActive })
             // Titles match at once; what was written comes from the server after a pause in typing.
             var contentHits by remember { mutableStateOf<List<SessionMatch>>(emptyList()) }
             LaunchedEffect(historyQuery) {
@@ -446,8 +447,12 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (selecting != null) Icon(if (chat.id in selecting) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                                 null, Modifier.size(18.dp), tint = if (chat.id in selecting) Coral else TextMuted)
-                            Text(chat.title, maxLines = 2, fontSize = 14.sp, overflow = TextOverflow.Ellipsis,
-                                color = if (highlighted) Beep.colors.onUser else Color.Unspecified, modifier = Modifier.weight(1f))
+                            Column(Modifier.weight(1f)) {
+                                Text(chat.title, maxLines = 2, fontSize = 14.sp, overflow = TextOverflow.Ellipsis,
+                                    color = if (highlighted) Beep.colors.onUser else Color.Unspecified)
+                                Text(chatTime(chat.lastActive), fontSize = 12.sp, maxLines = 1,
+                                    color = if (highlighted) Beep.colors.onUser.copy(alpha = 0.7f) else TextMuted)
+                            }
                             if (chat.pinned && selecting == null) Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(16.dp), tint = Moss)
                         }
                         DropdownMenu(expanded = contextMenuChat == chat.id, onDismissRequest = { contextMenuChat = null },

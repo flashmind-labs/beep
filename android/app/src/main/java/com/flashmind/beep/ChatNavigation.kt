@@ -25,6 +25,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 // Short names for the current theme's colors.
 private val TextPrimary: Color @Composable @ReadOnlyComposable get() = Beep.colors.ink
@@ -104,4 +109,39 @@ internal fun DrawerTile(label: String, icon: androidx.compose.ui.graphics.vector
                 overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+/** A day as the chat shows it: "Today", "Yesterday", "3 Oct", or "3 Oct 2025" in another year. */
+internal fun dayLabel(day: LocalDate, today: LocalDate = LocalDate.now()): String = when {
+    day == today -> "Today"
+    day == today.minusDays(1) -> "Yesterday"
+    day.year == today.year -> day.format(DateTimeFormatter.ofPattern("d MMM"))
+    else -> day.format(DateTimeFormatter.ofPattern("d MMM yyyy"))
+}
+
+/** When a chat last changed, for the chat list: "Today, 14:32", "Yesterday, 09:10", "3 Oct, 18:05". */
+internal fun chatTime(millis: Long, now: ZonedDateTime = ZonedDateTime.now()): String {
+    val at = Instant.ofEpochMilli(millis).atZone(now.zone)
+    val time = at.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
+    return "${dayLabel(at.toLocalDate(), now.toLocalDate())}, $time"
+}
+
+/**
+ * The messages that start a new day, with that day, so the chat can mark it.
+ * Only prompts carry a time; a reply belongs to the day of its prompt, and a
+ * prompt the server has not saved yet to [now]'s day.
+ */
+internal fun dayBreaks(messages: List<ChatMessage>, now: ZonedDateTime = ZonedDateTime.now()): Map<String, LocalDate> {
+    val breaks = mutableMapOf<String, LocalDate>()
+    var current: LocalDate? = null
+    for (m in messages) {
+        val day = when {
+            m.sentAt > 0 -> Instant.ofEpochMilli(m.sentAt).atZone(now.zone).toLocalDate()
+            m.role == "assistant" -> current
+            else -> now.toLocalDate()
+        } ?: continue
+        if (day != current) breaks[m.id] = day
+        current = day
+    }
+    return breaks
 }

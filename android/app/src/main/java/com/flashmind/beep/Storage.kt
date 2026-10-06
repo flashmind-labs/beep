@@ -78,8 +78,14 @@ data class Conversation(
     /** The server's `updated_at` of the turns in [messages], 0 when they did not come from the server. */
     val version: Long = 0,
     /** When the user last opened the chat, in epoch milliseconds. */
-    val openedAt: Long = System.currentTimeMillis()
-) { val busy get() = requestId.isNotEmpty() || runId.isNotEmpty() }
+    val openedAt: Long = System.currentTimeMillis(),
+    /** The server's `updated_at` as last listed, kept even when [messages] are evicted. 0 until listed. */
+    val updatedAt: Long = 0
+) {
+    val busy get() = requestId.isNotEmpty() || runId.isNotEmpty()
+    /** When the chat last changed, as far as the phone knows, in epoch milliseconds. */
+    val lastActive get() = maxOf(updatedAt, messages.maxOfOrNull { it.sentAt } ?: 0).takeIf { it > 0 } ?: openedAt
+}
 const val NEW_CHAT_TITLE = "New conversation"
 
 /** A chat opened but never used. It is not kept once the user moves on, nor listed. */
@@ -190,7 +196,8 @@ class LocalStorage(internal val context: Context) {
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"),
                 status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
-                version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()))
+                version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()),
+                updatedAt = c.optLong("updatedAt"))
         }
         check(conversations.isNotEmpty())
         ChatState(conversations, json.optString("selected"))
@@ -317,7 +324,7 @@ class LocalStorage(internal val context: Context) {
                 .put("pendingText", c.pendingText).apply { if (c.pendingImages.isNotEmpty()) put("pendingImages", JSONArray(c.pendingImages)) }
                 .apply { if (c.pendingModel.isNotEmpty()) put("pendingModel", c.pendingModel) }
                 .put("status", c.status).put("cancelRequested", c.cancelRequested)
-                .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt))
+                .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt).put("updatedAt", c.updatedAt))
         }
         val out = file.startWrite()
         try {
