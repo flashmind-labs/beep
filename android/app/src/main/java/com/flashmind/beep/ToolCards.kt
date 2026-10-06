@@ -350,8 +350,10 @@ private class RideApp(val name: String, val pkg: String, val countries: Set<Stri
 private val EUROPE_BOLT = setOf("EE", "LV", "LT", "FI", "SE", "NO", "PL", "CZ", "SK", "RO", "BG", "HR", "PT", "ES", "FR",
     "DE", "AT", "NL", "BE", "IE", "GB", "MT", "CY", "GR", "UA", "GE")
 
+private const val GRAB_PACKAGE = "com.grabtaxi.passenger"
+
 private val RIDE_APPS = listOf(
-    RideApp("Grab", "com.grabtaxi.passenger", setOf("SG", "MY", "ID", "TH", "VN", "PH", "KH", "MM")),
+    RideApp("Grab", GRAB_PACKAGE, setOf("SG", "MY", "ID", "TH", "VN", "PH", "KH", "MM")),
     RideApp("Gojek", "com.gojek.app", setOf("ID", "SG")),
     RideApp("Cabify", "com.cabify.rider", setOf("ES", "AR", "CL", "CO", "PE", "UY")),
     RideApp("Lyft", "me.lyft.android", setOf("US", "CA")),
@@ -378,8 +380,25 @@ private fun openRideApp(context: Context, app: RideApp, launch: Intent, point: L
     context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
-/** Opens the Grab app, or Uber's home without it, since Uber books Grab rides there. */
-private fun openGrab(context: Context, launch: Intent) = context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+/** Grab's booking link, which sets the drop-off. Not publicly documented, so [openGrab] falls back to the home. */
+private fun grabLink(name: String, point: LatLon) = Uri.parse("grab://open").buildUpon()
+    .appendQueryParameter("screenType", "BOOKING")
+    .appendQueryParameter("dropOffLatitude", point.latitude.toString())
+    .appendQueryParameter("dropOffLongitude", point.longitude.toString())
+    .appendQueryParameter("dropOffAddress", point.address.ifBlank { name })
+    .appendQueryParameter("dropOffKeywords", name)
+    .build()
+
+/**
+ * Opens Grab on a booking to [point], or its home if the link fails, or Uber's home without the
+ * Grab app, since Uber books Grab rides there.
+ */
+private fun openGrab(context: Context, launch: Intent, name: String, point: LatLon) {
+    val booking = Intent(Intent.ACTION_VIEW, grabLink(name, point)).setPackage(GRAB_PACKAGE)
+    if (launch.`package` == GRAB_PACKAGE &&
+        runCatching { context.startActivity(booking.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
+    context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+}
 
 private class RideChoice(val name: String, val note: String, val open: () -> Unit)
 
@@ -397,7 +416,7 @@ private fun rideChoices(context: Context, name: String, point: LatLon): List<Rid
         val grabApp = launchIntent(context, grab.pkg)
         val launch = grabApp ?: launchIntent(context, "com.ubercab") ?: return emptyList()
         return listOf(
-            RideChoice("Grab", if (grabApp != null) "In the Grab app" else "Through Uber: tap Grab there") { openGrab(context, launch) },
+            RideChoice("Grab", if (grabApp != null) "In the Grab app" else "Through Uber: tap Grab there") { openGrab(context, launch, name, point) },
             RideChoice("Uber", "Uber's own rides") { openUber(context, name, point) },
         )
     }
