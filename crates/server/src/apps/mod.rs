@@ -146,7 +146,10 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
             act("OUTLOOK_MOVE_MESSAGE"),
             read("OUTLOOK_GET_CALENDAR_VIEW"),
             act("OUTLOOK_CALENDAR_CREATE_EVENT"),
+            act("OUTLOOK_ACCEPT_EVENT"),
             act("OUTLOOK_DECLINE_EVENT"),
+            act("OUTLOOK_UPDATE_CALENDAR_EVENT"),
+            act("OUTLOOK_DELETE_CALENDAR_EVENT"),
         ],
     ),
     composio(

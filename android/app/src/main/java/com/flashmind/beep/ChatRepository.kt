@@ -405,7 +405,12 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun rerun(reply: ChatMessage, model: String) {
         val chat = state.value.current
         val prompt = chat.messages.take(chat.messages.indexOf(reply)).lastOrNull { it.role in TURN_STARTS } ?: return
+        rerunPrompt(prompt, model)
+    }
+    /** Deletes the turn [prompt] started and everything after it, then sends it again on [model]. */
+    suspend fun rerunPrompt(prompt: ChatMessage, model: String) {
         if (prompt.role != "user") return
+        val chat = state.value.current
         deleteTurn(prompt, chat.id, onward = true)
         send(prompt.text, prompt.images, chat.id, model)
     }
