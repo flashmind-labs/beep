@@ -128,12 +128,23 @@ pub(crate) async fn submit(
         .unwrap_or("");
 
     // Run in the chat the routine was set up from, so its reply lands
-    // there. Routines made outside a chat get a chat of their own.
-    let origin = job
+    // there. A routine made outside a chat gets a chat on its first run and
+    // keeps replying in it.
+    let origin = match job
         .metadata
         .get("session_id")
         .and_then(|v| v.as_str())
-        .and_then(|v| v.parse::<Uuid>().ok());
+        .and_then(|v| v.parse::<Uuid>().ok())
+    {
+        Some(id) => Some(id),
+        None => {
+            let claimed = app.store.claim_cron_session(job.id, Uuid::new_v4()).await?;
+            if claimed.is_some() {
+                app.store.notify_crons_changed();
+            }
+            claimed.and_then(|v| v.parse().ok())
+        }
+    };
     let msg = |session_id| Message {
         session_id,
         request_id: Uuid::new_v4(),
@@ -383,5 +394,33 @@ mod tests {
         let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].metadata["session_id"], "chat-1");
+    }
+    #[tokio::test]
+    async fn a_routine_made_outside_a_chat_keeps_its_first_chat() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store opens");
+        let tools = CronRegistry::new(Arc::new(BeepCronStore::for_user(store.clone(), "user")));
+        let job = tools
+            .create_with_metadata(
+                JobSchedule::Cron("0 20 * * *".to_owned()),
+                "evening digest".to_owned(),
+                false,
+                json!({"user_id": "user"}),
+            )
+            .await
+            .expect("routine saved");
+
+        let first = store
+            .claim_cron_session(job.id, Uuid::new_v4())
+            .await
+            .expect("claim runs")
+            .expect("routine exists");
+        let second = store
+            .claim_cron_session(job.id, Uuid::new_v4())
+            .await
+            .expect("claim runs");
+        assert_eq!(second.as_deref(), Some(first.as_str()));
+        let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
+        assert_eq!(jobs[0].metadata["session_id"], first.as_str());
     }
 }
