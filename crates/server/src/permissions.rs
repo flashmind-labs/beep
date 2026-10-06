@@ -33,9 +33,6 @@ const MAX_VALUE_CHARS: usize = 600;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Acts {
     Never,
-    /// Saves a draft for the user to send, so it never asks, whatever the
-    /// tool's Composio tags say.
-    Drafts,
     Always,
     /// Only when it moves mail to another folder, which can bin it.
     WhenMoving,
@@ -44,7 +41,7 @@ pub(crate) enum Acts {
 impl Acts {
     fn on(self, args: &Value) -> bool {
         match self {
-            Acts::Never | Acts::Drafts => false,
+            Acts::Never => false,
             Acts::Always => true,
             Acts::WhenMoving => args.get("folder").is_some_and(|folder| !folder.is_null()),
         }
@@ -52,7 +49,7 @@ impl Acts {
 
     /// Whether some call of the tool can act, and so falls under the rules.
     fn can_act(self) -> bool {
-        !matches!(self, Acts::Never | Acts::Drafts)
+        self != Acts::Never
     }
 }
 
@@ -219,7 +216,7 @@ struct Shared {
 /// asking: a catalog action whose tags say update still asks.
 fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(&'static CatalogApp, Acts)> {
     let (app, acts) = lookup(tool)?;
-    if acts != Acts::Drafts && hinted.contains(&ToolSlug::new(tool)) {
+    if hinted.contains(&ToolSlug::new(tool)) {
         return Some((app, Acts::Always));
     }
     Some((app, acts))
@@ -513,12 +510,6 @@ mod tests {
             classify("gmail_fetch_emails", &hinted).unwrap().1,
             Acts::Always
         );
-        // Drafts only save a message, so a create tag does not make them ask.
-        let hinted: HashSet<ToolSlug> = [ToolSlug::new("GMAIL_CREATE_EMAIL_DRAFT")].into();
-        assert_eq!(
-            classify("gmail_create_email_draft", &hinted).unwrap().1,
-            Acts::Drafts
-        );
         // An update-only catalog action keeps asking without a hint.
         assert_eq!(
             classify("gmail_move_to_trash", &HashSet::new()).unwrap().1,
@@ -617,12 +608,12 @@ mod tests {
     #[test]
     fn a_session_stopped_on_a_call_shows_its_card() {
         let mut conversation = Conversation::new();
-        conversation.add(ConversationEntry::user("Draft the email"));
+        conversation.add(ConversationEntry::user("Send the email"));
         conversation.add(ConversationEntry::assistant_with_tool_calls(
             "",
             vec![ToolCall {
-                id: "draft".into(),
-                name: "gmail_create_email_draft".into(),
+                id: "send".into(),
+                name: "gmail_send_email".into(),
                 arguments: json!({"recipient_email": "a@example.com", "subject": "Stay"}),
             }],
             None,
@@ -631,13 +622,13 @@ mod tests {
         else {
             panic!("expected the open call's card");
         };
-        assert_eq!(query_id, "draft");
+        assert_eq!(query_id, "send");
         assert_eq!(
             (approval.app.as_str(), approval.action.as_str()),
-            ("Gmail", "create email draft")
+            ("Gmail", "send email")
         );
         assert_eq!(approval.fields.len(), 2);
-        conversation.add(ConversationEntry::tool("draft", DENIED));
+        conversation.add(ConversationEntry::tool("send", DENIED));
         assert!(waiting_approval(&conversation).is_none());
     }
 
