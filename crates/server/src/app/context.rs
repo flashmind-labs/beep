@@ -112,8 +112,7 @@ fn apps_line(apps: &[AppIntegration]) -> Option<String> {
 
 fn foreground_line(app: &ForegroundApp) -> String {
     format!(
-        "Open app: {} ({}). The user is chatting from the bubble over this app; \
-         read_screen shows what is on it.",
+        "Open app: {} ({}). The user is chatting from the bubble over this app.",
         app.name, app.package
     )
 }

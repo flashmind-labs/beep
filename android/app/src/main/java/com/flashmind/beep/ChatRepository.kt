@@ -775,7 +775,6 @@ class ChatRepository(private val storage: LocalStorage) {
     private suspend fun executeDeviceQuery(query: DeviceQuery): JSONObject = when (query) {
         is DeviceQuery.Contacts -> queryContacts(query.name)
         is DeviceQuery.Browser -> browser(query.command)
-        is DeviceQuery.ReadScreen -> ScreenCapture.capture(storage.context)
         // Never runs on its own: the user answers it through [answerApproval].
         is DeviceQuery.Approve -> JSONObject().put("decision", "deny")
     }

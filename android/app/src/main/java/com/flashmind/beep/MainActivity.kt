@@ -163,7 +163,6 @@ open class MainActivity : ComponentActivity() {
     }
     override fun onDestroy() {
         super.onDestroy()
-        ScreenCapture.chatGone(this)
         networkCallback?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -205,7 +204,7 @@ open class MainActivity : ComponentActivity() {
     }
     override fun onStart() {
         super.onStart()
-        if (!bubble) Bubble.appShown(true) else ScreenCapture.chatShown(this)
+        if (!bubble) Bubble.appShown(true)
         (application as BeepApplication).repository.chatScreenShown(true)
     }
     override fun onStop() {
