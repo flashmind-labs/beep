@@ -130,13 +130,8 @@ class LocalStorage(internal val context: Context) {
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    /** The server picked in Connection settings, else the one built into the app. */
-    fun loadSettings(): ConnectionSettings =
-        ConnectionSettings(prefs.getString("nodeId", null) ?: BuildConfig.SERVER_NODE_ID)
-    fun hasSavedSettings(): Boolean = prefs.contains("nodeId")
-    fun saveSettings(settings: ConnectionSettings) {
-        check(prefs.edit().putString("nodeId", settings.nodeId).remove("token").commit()) { "Could not save connection" }
-    }
+    /** The server built into the app. */
+    fun loadSettings(): ConnectionSettings = ConnectionSettings(BuildConfig.SERVER_NODE_ID)
     /** The saved iroh identity, or null if this phone has none yet. */
     fun storedIdentity(): ByteArray? = synchronized(identityLock) {
         cachedIdentity?.let { return it }

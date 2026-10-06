@@ -21,10 +21,8 @@ class ChatFlowTest {
         val device = UiDevice.getInstance(instrumentation)
         device.wakeUp()
         device.executeShellCommand("wm dismiss-keyguard")
-        // Test-only profile is pushed by the developer; it is never embedded in either APK.
-        val raw = device.executeShellCommand("cat /sdcard/Download/beep-test.json")
-        val config = ConnectionSettings.fromJson(raw)
-        LocalStorage(context).apply { saveSettings(config); saveState(ChatState()) }
+        // The server comes from the node ID this test APK was built with.
+        LocalStorage(context).saveState(ChatState())
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         assertTrue(device.wait(Until.hasObject(By.text("A little help.\nRight here.")), 15000))
         val editor = device.findObject(By.clazz("android.widget.EditText"))
