@@ -7,12 +7,10 @@ class ConnectionSettingsTest {
     @Test fun nodeIdIsEnoughToConfigure() {
         val config = ConnectionSettings.fromJson("""{"node_id":"example-node-id"}""")
         assertTrue(config.configured)
-        assertEquals("", config.token)
         assertFalse(ConnectionSettings(nodeId = " ").configured)
     }
-    @Test fun tokenLoads() {
+    @Test fun oldProfilesWithATokenStillLoad() {
         val config = ConnectionSettings.fromJson("""{"node_id":"example-node-id","token":"app-token"}""")
-        assertTrue(config.configured)
-        assertEquals("app-token", config.token)
+        assertEquals("example-node-id", config.nodeId)
     }
 }
