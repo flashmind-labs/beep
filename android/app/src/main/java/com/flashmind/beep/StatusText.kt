@@ -155,8 +155,7 @@ fun ThinkingPreview(thinking: String, modifier: Modifier = Modifier) {
                     drawRect(Brush.verticalGradient(0f to Color.Transparent, 0.2f to Color.Black), blendMode = BlendMode.DstIn)
                 },
                 contentAlignment = Alignment.BottomStart) {
-                Text(shown.takeLast(1500), color = muted, fontSize = 13.sp, lineHeight = 19.sp,
-                    modifier = Modifier.wrapContentHeight(Alignment.Bottom, unbounded = true))
+                ThoughtsText(shown.takeLast(1500), Modifier.wrapContentHeight(Alignment.Bottom, unbounded = true))
             }
         }
     }
@@ -179,12 +178,19 @@ fun ReasoningRow(reasoning: String, modifier: Modifier = Modifier) {
         }
         AnimatedVisibility(open, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             SelectionContainer {
-                Text(reasoning, color = muted, fontSize = 13.sp, lineHeight = 19.sp,
-                    modifier = Modifier.padding(bottom = 6.dp).fillMaxWidth()
-                        .clip(RoundedCornerShape(Beep.shapes.smallRadius))
-                        .background(Beep.colors.surface)
-                        .padding(horizontal = 12.dp, vertical = 10.dp))
+                ThoughtsText(reasoning, Modifier.padding(bottom = 6.dp).fillMaxWidth()
+                    .clip(RoundedCornerShape(Beep.shapes.smallRadius))
+                    .background(Beep.colors.surface)
+                    .padding(horizontal = 12.dp, vertical = 10.dp))
             }
         }
     }
+}
+
+/** Reasoning text with the same markdown as replies, kept small and muted. */
+@Composable
+private fun ThoughtsText(text: String, modifier: Modifier = Modifier) {
+    val inline = inlineColors()
+    MathText(remember(text, inline) { formattedMessage(text, inline, headingSize = 14.sp, codeSize = 12.sp) },
+        color = Beep.colors.muted, fontSize = 13.sp, lineHeight = 19.sp, modifier = modifier)
 }

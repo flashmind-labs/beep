@@ -31,6 +31,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.clip
@@ -145,7 +146,7 @@ internal data class InlineColors(val link: Color, val muted: Color, val code: Co
 
 @Composable
 @ReadOnlyComposable
-private fun inlineColors() = Beep.colors.let { InlineColors(it.brand, it.muted, it.code, it.onCode) }
+internal fun inlineColors() = Beep.colors.let { InlineColors(it.brand, it.muted, it.code, it.onCode) }
 
 @Composable
 internal fun MessageContent(text: String, role: String, compact: Boolean, padded: Boolean = role == "user") {
@@ -247,7 +248,7 @@ private val inlineTokens = Regex("""\[([^\]]+)\]\((https?://[^\s)]+)\)|(https?:/
     """|\$\$([^$\n]+?)\$\$|(?<![\\$\w])\$(?![\s$])([^$\n]+?)(?<![\s\\])\$(?![\d$\w])|\\\((.+?)\\\)""")
 
 // Inline markdown plus headings and bullets, line by line.
-internal fun formattedMessage(text: String, colors: InlineColors) = buildAnnotatedString {
+internal fun formattedMessage(text: String, colors: InlineColors, headingSize: TextUnit = 17.sp, codeSize: TextUnit = 14.sp) = buildAnnotatedString {
     val lines = text.split('\n')
     var firstLine = true
     for (line in lines) {
@@ -256,7 +257,7 @@ internal fun formattedMessage(text: String, colors: InlineColors) = buildAnnotat
         val heading = Regex("^#{1,4} +").find(line)
         val content = line.removePrefix(heading?.value.orEmpty())
             .replace(Regex("^( *)[-*+] +"), "$1\u2022 ")
-        pushStyle(if (heading != null) SpanStyle(fontWeight = FontWeight.Bold, fontSize = 17.sp, letterSpacing = (-0.3).sp) else SpanStyle())
+        pushStyle(if (heading != null) SpanStyle(fontWeight = FontWeight.Bold, fontSize = headingSize, letterSpacing = (-0.3).sp) else SpanStyle())
         var offset = 0
         for (match in inlineTokens.findAll(content)) {
             append(content.substring(offset, match.range.first))
@@ -269,7 +270,7 @@ internal fun formattedMessage(text: String, colors: InlineColors) = buildAnnotat
                     val latex = (match.groups[10] ?: match.groups[11] ?: match.groups[12])!!.value.trim()
                     appendInlineContent(latex, "\$$latex\$")
                 }
-                match.groups[9] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = colors.code, color = colors.onCode, fontSize = 14.sp)) { append("\u200A${match.groups[9]!!.value}\u200A") }
+                match.groups[9] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = colors.code, color = colors.onCode, fontSize = codeSize)) { append("\u200A${match.groups[9]!!.value}\u200A") }
                 else -> {
                     val url = (match.groups[2]?.value ?: match.groups[3]!!.value).trimEnd('.', ',', ';')
                     withLink(LinkAnnotation.Url(url, TextLinkStyles(style = SpanStyle(color = colors.link, textDecoration = TextDecoration.Underline)))) {
