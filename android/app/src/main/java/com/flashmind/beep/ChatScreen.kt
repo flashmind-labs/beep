@@ -505,6 +505,32 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
         }
 
+        // A message queued while the reply runs; it sends on its own when the reply finishes.
+        AnimatedVisibility(visible = chat.hasQueued,
+            enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Row(Modifier.padding(horizontal = if (compact) 10.dp else 14.dp).padding(top = 6.dp).fillMaxWidth()
+                .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())
+                .padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.Schedule, null, Modifier.size(16.dp), tint = TextMuted)
+                Column(Modifier.weight(1f)) {
+                    Text(if (chat.busy) "Sends when Beep finishes" else "Not sent", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
+                    Text(chat.queuedText.ifBlank { "${chat.queuedImages.size} image" + if (chat.queuedImages.size > 1) "s" else "" },
+                        fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (!chat.busy) IconButton(onClick = { followLatest = true; repository.sendQueued(chat.id) }, Modifier.size(36.dp)) {
+                    Icon(Icons.AutoMirrored.Outlined.Send, "Send queued message", Modifier.size(18.dp), tint = Beep.colors.accent)
+                }
+                IconButton(onClick = {
+                    val (text, images) = repository.unqueue(chat.id)
+                    draft = listOf(text, draft).filter { it.isNotBlank() }.joinToString("\n\n")
+                    attachedImages = (images + attachedImages).take(MAX_IMAGES)
+                }, Modifier.size(36.dp)) {
+                    Icon(Icons.Outlined.Close, "Edit queued message", Modifier.size(16.dp), tint = TextMuted)
+                }
+            }
+        }
+
         val buttonSize = if (compact) 44.dp else 50.dp
         val buttonShape = RoundedCornerShape(Beep.shapes.radius)
         Row(Modifier.padding(start = if (compact) 8.dp else 14.dp, end = if (compact) 10.dp else 16.dp,
@@ -530,9 +556,20 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
             val buttonModifier = Modifier.size(buttonSize)
             when {
-                chat.busy -> ChunkyButton(onClick = repository::cancel, modifier = buttonModifier, shape = buttonShape,
-                    color = Beep.colors.ink, contentColor = Beep.colors.page, contentPadding = PaddingValues(0.dp)) {
-                    Icon(Icons.Outlined.Stop, "Stop reply", Modifier.size(22.dp))
+                chat.busy -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (draft.isNotBlank() || attachedImages.isNotEmpty()) {
+                        ChunkyButton(onClick = {
+                            repository.queue(draft, attachedImages, chat.id)
+                            draft = ""; attachedImages = emptyList()
+                        }, modifier = buttonModifier, shape = buttonShape,
+                            color = Surface, contentColor = TextPrimary, contentPadding = PaddingValues(0.dp)) {
+                            Icon(Icons.Outlined.Schedule, "Queue message", Modifier.size(22.dp))
+                        }
+                    }
+                    ChunkyButton(onClick = repository::cancel, modifier = buttonModifier, shape = buttonShape,
+                        color = Beep.colors.ink, contentColor = Beep.colors.page, contentPadding = PaddingValues(0.dp)) {
+                        Icon(Icons.Outlined.Stop, "Stop reply", Modifier.size(22.dp))
+                    }
                 }
                 draft.isNotBlank() || attachedImages.isNotEmpty() -> {
                     // A quick squish on tap so sending feels physical.
