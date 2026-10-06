@@ -140,7 +140,6 @@ pub(crate) const FASTMAIL_TOOLS: &[(&str, Acts)] = &[
     ("search_email", Acts::Never),
     ("read_email", Acts::Never),
     ("read_thread", Acts::Never),
-    ("draft_email", Acts::Drafts),
     ("send_email", Acts::Always),
     ("list_identities", Acts::Never),
     ("update_email", Acts::WhenMoving),
