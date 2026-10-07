@@ -10,7 +10,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -357,6 +357,7 @@ fun ChunkyButton(
     shape: Shape = CircleShape,
     enabled: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+    onLongClick: (() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
     val t = LocalBeep.current
@@ -376,7 +377,7 @@ fun ChunkyButton(
             .then(if (t.shapes.outline > 0.dp) Modifier.border(t.shapes.outline, t.colors.line, shape) else Modifier)
             .clip(shape)
             .background(color)
-            .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
+            .combinedClickable(interactionSource = interaction, indication = null, enabled = enabled, onLongClick = onLongClick, onClick = onClick)
             .padding(contentPadding),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
