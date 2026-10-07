@@ -155,6 +155,7 @@ pub(crate) async fn submit(
         foreground: None,
         answer: None,
         model: None,
+        thinking: None,
         origin: DeviceKind::Phone {},
     };
 

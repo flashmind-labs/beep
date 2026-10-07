@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.withLock
 import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
 import com.flashmind.beep.ffi.ListCache
+import com.flashmind.beep.ffi.Rerun
 import com.flashmind.beep.ffi.identityName
 import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.ApprovalDecision
@@ -240,6 +241,20 @@ class ChatRepository(private val storage: LocalStorage) {
         updateChat(id) { current -> if (current == before) current.copy(messages = scored, version = version) else current }
     }
     fun refreshHistory() { syncRequests.trySend(Unit) }
+    /** Fetches the chat a notification is about, so tapping it opens the chat at once. */
+    fun prefetch(id: String) {
+        if (id.isEmpty() || !settings.value.configured) return
+        scope.launch {
+            runCatching {
+                val config = settings.value
+                // Lists the chat if it is new, and learns that it changed if not.
+                syncHistory(config)
+                // Counts as opened, or the next sync forgets its turns before the tap.
+                updateChat(id) { it.copy(openedAt = System.currentTimeMillis()) }
+                loadHistory(id, config)
+            }
+        }
+    }
     private suspend fun syncHistory(config: ConnectionSettings) {
         val sessions = api(config).listSessions()
         if (settings.value != config) return
@@ -349,24 +364,24 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
     private fun resumePending() { state.value.conversations.filter { it.busy }.forEach { launchRun(it.id) } }
-    fun send(text: String, images: List<String> = emptyList(), conversationId: String = state.value.current.id, model: String = "") {
+    fun send(text: String, images: List<String> = emptyList(), conversationId: String = state.value.current.id, model: String = "", thinking: String = "") {
         // A routine's chat may not be listed here yet.
         if (state.value.conversations.none { it.id == conversationId })
             update { it.copy(conversations = it.conversations + Conversation(id = conversationId, title = text.trim().take(44))) }
         val chat = state.value.conversations.first { it.id == conversationId }
         if (text.isBlank() || chat.busy || !settings.value.configured) return
-        startTurn(chat, text, images, model)
+        startTurn(chat, text, images, model, thinking)
         launchRun(chat.id)
     }
     /** Shows [text] as the user's next prompt and marks the chat as sending it. */
-    private fun startTurn(chat: Conversation, text: String, images: List<String>, model: String) {
+    private fun startTurn(chat: Conversation, text: String, images: List<String>, model: String, thinking: String = "") {
         val request = UUID.randomUUID().toString()
         // A new message instead of an answer skips the call that waits on it.
         val skipped = chat.messages.flatMap { m -> m.approvals.filter { it.waiting } }
         skipped.forEach { ApprovalNotifications.cancel(storage.context, it.queryId) }
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
-            messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model),
-            requestId = request, pendingText = text.trim(), pendingImages = images, pendingModel = model,
+            messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model, modelThinking = thinking),
+            requestId = request, pendingText = text.trim(), pendingImages = images, pendingModel = model, pendingThinking = thinking,
             status = "Sending…", error = "", cancelRequested = false) }
     }
     /** Holds a message typed while [chatId]'s reply runs, added to any already held, to send when it finishes. */
@@ -403,17 +418,20 @@ class ChatRepository(private val storage: LocalStorage) {
      * happened: its turn and every turn after it leave the chat and the model's context.
      * Admins only.
      */
-    suspend fun rerun(reply: ChatMessage, model: String) {
+    suspend fun rerun(reply: ChatMessage, model: String, thinking: String = "") {
         val chat = state.value.current
         val prompt = chat.messages.take(chat.messages.indexOf(reply)).lastOrNull { it.role in TURN_STARTS } ?: return
-        rerunPrompt(prompt, model)
+        rerunPrompt(prompt, model, thinking)
     }
-    /** Deletes the turn [prompt] started and everything after it, then sends it again on [model]. */
-    suspend fun rerunPrompt(prompt: ChatMessage, model: String) {
+    /**
+     * Deletes the turn [prompt] started and everything after it, then sends it again on [model],
+     * thinking at [thinking] ("off" to "high") or, when empty, the admin's usual level.
+     */
+    suspend fun rerunPrompt(prompt: ChatMessage, model: String, thinking: String = "") {
         if (prompt.role != "user") return
         val chat = state.value.current
         deleteTurn(prompt, chat.id, onward = true)
-        send(prompt.text, prompt.images, chat.id, model)
+        send(prompt.text, prompt.images, chat.id, model, thinking)
     }
     /**
      * Removes [prompt] with the reply and tool calls that followed it, here and on the server.
@@ -461,7 +479,7 @@ class ChatRepository(private val storage: LocalStorage) {
         val last = chat.messages.lastOrNull { it.role == "user" } ?: return
         if (!settings.value.configured) return
         updateChat(chat.id) { it.copy(requestId = UUID.randomUUID().toString(), pendingText = last.text,
-            pendingImages = last.images, pendingModel = last.model, status = "Sending…", error = "", cancelRequested = false) }
+            pendingImages = last.images, pendingModel = last.model, pendingThinking = last.modelThinking, status = "Sending…", error = "", cancelRequested = false) }
         launchRun(chat.id)
     }
     fun cancel() {
@@ -499,7 +517,8 @@ class ChatRepository(private val storage: LocalStorage) {
 
                     if (chat.runId.isEmpty()) refreshLocation()
                     // A new message streams its run from the start; a run we lost is resumed from the cursor.
-                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImages, foregroundApp, chat.pendingModel.ifEmpty { null })
+                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImages, foregroundApp,
+                        chat.pendingModel.takeIf { it.isNotEmpty() }?.let { Rerun(it, ReasoningLevel.entries.find { level -> level.name.equals(chat.pendingThinking, true) }) })
                         else api.events(chat.runId, chat.cursor)
                     var runId = chat.runId
                     var missed = false
@@ -510,7 +529,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             val started = received.event as? RunEvent.RunStarted
                             if (started != null) {
                                 runId = started.runId
-                                updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", cursor = 0) }
+                                updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "", cursor = 0) }
                                 if (state.value.conversations.first { it.id == id }.cancelRequested) api.cancelRun(runId)
                             }
 
@@ -520,7 +539,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             if (missed && runId.isEmpty()) {
                                 // A resent message whose run already finished: we never learned its id.
                                 val status = (received.event as RunEvent.RunFinished).status
-                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", status = "", tool = "", cancelRequested = false,
+                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "", status = "", tool = "", cancelRequested = false,
                                     error = runEndError(status, it.error)) }
                             } else {
                                 event(id, runId, received)
