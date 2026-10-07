@@ -310,6 +310,7 @@ impl Beep {
                 images: Vec::new(),
                 foreground: None,
                 model: None,
+                thinking: None,
             })
             .await?;
         self.follow(replies, channel).await;

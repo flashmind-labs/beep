@@ -3,6 +3,7 @@ package com.flashmind.beep
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.flashmind.beep.proto.Models
+import com.flashmind.beep.proto.ReasoningLevel
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Refresh
 import kotlin.math.roundToInt
@@ -26,6 +27,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.core.*
@@ -336,7 +339,8 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         } }
                         if (isUser && message.model.isNotEmpty()) {
                             val name = modelChoices?.choices?.find { it.id == message.model }?.name ?: message.model
-                            Text("Rerun on $name", fontSize = 11.sp, color = TextMuted, modifier = Modifier.padding(top = 4.dp, end = 4.dp))
+                            val level = message.modelThinking.takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty()
+                            Text("Rerun on $name$level", fontSize = 11.sp, color = TextMuted, modifier = Modifier.padding(top = 4.dp, end = 4.dp))
                         }
                         // The model and thinking Jev picked for this prompt under Auto.
                         if (isUser && message.autoModel.isNotEmpty()) {
@@ -376,9 +380,9 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                     val prompt = chat.messages.take(index).lastOrNull { it.role == "user" }
                                     prompt?.model?.ifEmpty { models.selected.takeUnless { message.id.startsWith("history-") } }
                                 }
-                                RerunButton(models, used) { model ->
+                                RerunButton(models, used) { model, thinking ->
                                     followLatest = true
-                                    scope.launch { runCatching { repository.rerun(message, model) }.onFailure { showError(context, it) } }
+                                    scope.launch { runCatching { repository.rerun(message, model, thinking) }.onFailure { showError(context, it) } }
                                 }
                             }
                             // Jev's estimate that this turn held something worth remembering.
@@ -443,9 +447,9 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                 val prompt = chat.messages.lastOrNull { it.role == "user" }
                 val models = modelChoices?.takeIf { it.choices.isNotEmpty() }
                 if (!chat.busy && !compact && prompt != null && models != null) {
-                    RerunButton(models, prompt.model.ifEmpty { null }, Beep.colors.error, prominent = true) { model ->
+                    RerunButton(models, prompt.model.ifEmpty { null }, Beep.colors.error, prominent = true) { model, thinking ->
                         followLatest = true
-                        scope.launch { runCatching { repository.rerunPrompt(prompt, model) }.onFailure { showError(context, it) } }
+                        scope.launch { runCatching { repository.rerunPrompt(prompt, model, thinking) }.onFailure { showError(context, it) } }
                     }
                 }
                 if (chat.busy || prompt != null) TextButton(onClick = repository::retryLast) { Text("Retry", color = Beep.colors.error, fontWeight = FontWeight.SemiBold) }
@@ -739,12 +743,17 @@ private fun ReplySkeleton(modifier: Modifier = Modifier) {
     }
 }
 
-/** Admin only: runs the prompt behind a reply again on a model picked from the menu. */
+/**
+ * Admin only: runs the prompt behind a reply again on a model picked from the menu. Holding a
+ * model offers a thinking level for that one rerun; [onPick] gets it lowercase, or "" for a tap.
+ */
 @Composable
-private fun RerunButton(models: Models, used: String?, color: Color = TextMuted, prominent: Boolean = false, onPick: (String) -> Unit) {
+private fun RerunButton(models: Models, used: String?, color: Color = TextMuted, prominent: Boolean = false, onPick: (String, String) -> Unit) {
     var open by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf<String?>(null) }
+    val haptics = LocalHapticFeedback.current
     Box {
-        TextButton(onClick = { open = true }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 48.dp)) {
+        TextButton(onClick = { held = null; open = true }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.heightIn(min = 48.dp)) {
             if (prominent) {
                 Text("Rerun", color = color, fontWeight = FontWeight.SemiBold)
             } else {
@@ -762,15 +771,31 @@ private fun RerunButton(models: Models, used: String?, color: Color = TextMuted,
                     choice.default -> "Default"
                     else -> choice.id
                 }
-                DropdownMenuItem(text = {
-                    Column {
+                // DropdownMenuItem has no long press, so the row is built by hand to the same size.
+                Row(Modifier.widthIn(min = 210.dp)
+                    .then(if (isUsed) Modifier.background(Moss.copy(alpha = 0.12f)) else Modifier)
+                    .combinedClickable(onClickLabel = "Rerun on ${choice.name}", onLongClickLabel = "Pick thinking",
+                        onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); held = choice.id.takeIf { it != held } },
+                        onClick = { open = false; onPick(choice.id, "") })
+                    .heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
                         Text(choice.name, fontSize = 14.sp, color = if (isUsed) Moss else TextPrimary,
                             fontWeight = if (isUsed) FontWeight.SemiBold else null)
                         Text(note, fontSize = 11.sp, color = if (isUsed) Moss else TextMuted)
                     }
-                }, trailingIcon = if (isUsed) { { Icon(Icons.Outlined.Check, null, Modifier.size(16.dp), tint = Moss) } } else null,
-                    modifier = if (isUsed) Modifier.background(Moss.copy(alpha = 0.12f)) else Modifier,
-                    onClick = { open = false; onPick(choice.id) })
+                    if (isUsed) Icon(Icons.Outlined.Check, null, Modifier.padding(start = 8.dp).size(16.dp), tint = Moss)
+                }
+                if (held == choice.id) Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
+                    Text("Thinking for this rerun", fontSize = 11.sp, color = TextMuted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ReasoningLevel.entries.forEach { level ->
+                            val name = level.name.lowercase()
+                            FilterChip(selected = false, onClick = { open = false; onPick(choice.id, name) },
+                                label = { Text(name.replaceFirstChar { it.uppercase() }, fontSize = 12.sp) })
+                        }
+                    }
+                }
             }
         }
     }

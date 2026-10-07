@@ -236,6 +236,7 @@ impl Server {
             images: Vec::new(),
             foreground: None,
             model: None,
+            thinking: None,
         };
         let mut replies = client.stream(&chat).await.expect("the chat starts");
         let mut events = Vec::new();

@@ -79,14 +79,15 @@ impl App {
         conversation.set_system(include_str!("../../prompts/assistant.md"));
         transcript.set_system(include_str!("../../prompts/assistant.md"));
         let answer = message.answer.as_ref();
-        // An admin's one-off model wins over Auto; a resumed turn keeps the
-        // pick it started with. Auto picks for chats only: a routine runs on
-        // the admin's selected model.
-        let auto = match (&message.model, answer) {
-            (Some(_), _) => None,
-            (None, Some(_)) => self.resumed_pick(user, &run.session_id, &transcript).await,
-            (None, None) if is_cron => None,
-            (None, None) => {
+        // An admin's one-off model or thinking wins over Auto; a resumed turn
+        // keeps the pick it started with. Auto picks for chats only: a routine
+        // runs on the admin's selected model.
+        let one_off = message.model.is_some() || message.thinking.is_some();
+        let auto = match (one_off, answer) {
+            (true, _) => None,
+            (false, Some(_)) => self.resumed_pick(user, &run.session_id, &transcript).await,
+            (false, None) if is_cron => None,
+            (false, None) => {
                 let prompt = Prompt {
                     message: &message.message,
                     images: message.images.len(),
@@ -96,10 +97,18 @@ impl App {
                 self.auto_pick(user, &prompt).await
             }
         };
-        let (model, thinking) = match (message.model.clone(), &auto) {
-            (Some(model), _) => (model, self.thinking_for(user).await),
-            (None, Some(auto)) => (auto.model.clone(), auto.thinking),
-            (None, None) => (self.model_for(user).await, self.thinking_for(user).await),
+        let (model, thinking) = match &auto {
+            Some(auto) => (auto.model.clone(), auto.thinking),
+            None => (
+                match message.model.clone() {
+                    Some(model) => model,
+                    None => self.model_for(user).await,
+                },
+                match message.thinking {
+                    Some(thinking) => thinking,
+                    None => self.thinking_for(user).await,
+                },
+            ),
         };
         if let Some(auto) = &auto {
             live.push(RunEvent::AutoPicked {

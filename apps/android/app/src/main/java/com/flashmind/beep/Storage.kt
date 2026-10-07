@@ -63,7 +63,9 @@ data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: 
     val sentAt: Long = 0,
     /** The model Jev picked for this prompt under Auto, as a `ModelChoice` id, and its thinking level. Empty without Auto. */
     val autoModel: String = "",
-    val autoThinking: String = "")
+    val autoThinking: String = "",
+    /** The thinking level an admin picked for that rerun, lowercase like "high". Empty keeps their usual one. */
+    val modelThinking: String = "")
 
 /** A tool call the server holds until the user allows it. `answer` is empty while it waits. */
 data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "") {
@@ -74,6 +76,7 @@ data class Conversation(
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
     val requestId: String = "", val pendingText: String = "", val pendingImages: List<String> = emptyList(),
     val pendingModel: String = "",
+    val pendingThinking: String = "",
     val status: String = "", val error: String = "",
     val tool: String = "", val cancelRequested: Boolean = false, val pinned: Boolean = false,
     /** The model's reasoning for the current step, shown live and moved onto the reply once it moves on. Not saved. */
@@ -194,9 +197,9 @@ class LocalStorage(internal val context: Context) {
                 } else emptyList()
                 ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
                     m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals, m.optString("model"), m.optLong("sentAt"),
-                    m.optString("autoModel"), m.optString("autoThinking"))
+                    m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
-                pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"),
+                pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"),
                 status = c.optString("status"), error = c.optString("error"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
                 version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()),
                 updatedAt = c.optLong("updatedAt"), queuedText = c.optString("queuedText"),
@@ -293,6 +296,7 @@ class LocalStorage(internal val context: Context) {
                     .apply { if (m.memoryScore != null) put("memoryScore", m.memoryScore) }
                     .apply { if (m.reasoning.isNotEmpty()) put("reasoning", m.reasoning) }
                     .apply { if (m.model.isNotEmpty()) put("model", m.model) }
+                    .apply { if (m.modelThinking.isNotEmpty()) put("modelThinking", m.modelThinking) }
                     .apply { if (m.sentAt != 0L) put("sentAt", m.sentAt) }
                     .apply { if (m.autoModel.isNotEmpty()) put("autoModel", m.autoModel).put("autoThinking", m.autoThinking) }
                 if (m.cards.isNotEmpty()) {
@@ -327,6 +331,7 @@ class LocalStorage(internal val context: Context) {
                 .put("runId", c.runId).put("cursor", c.cursor).put("requestId", c.requestId)
                 .put("pendingText", c.pendingText).apply { if (c.pendingImages.isNotEmpty()) put("pendingImages", JSONArray(c.pendingImages)) }
                 .apply { if (c.pendingModel.isNotEmpty()) put("pendingModel", c.pendingModel) }
+                .apply { if (c.pendingThinking.isNotEmpty()) put("pendingThinking", c.pendingThinking) }
                 .put("status", c.status).apply { if (c.error.isNotEmpty()) put("error", c.error) }.put("cancelRequested", c.cancelRequested)
                 .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt).put("updatedAt", c.updatedAt)
                 .apply { if (c.queuedText.isNotEmpty()) put("queuedText", c.queuedText) }

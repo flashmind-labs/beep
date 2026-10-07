@@ -145,6 +145,9 @@ pub struct Message {
     /// An admin's one-off model for this run, instead of their picked one.
     #[serde(skip)]
     pub model: Option<Model>,
+    /// An admin's one-off thinking for this run, instead of their picked one.
+    #[serde(skip)]
+    pub thinking: Option<ReasoningLevel>,
     /// The device the message came from. A computer has no phone to act on.
     #[serde(skip)]
     pub origin: DeviceKind,

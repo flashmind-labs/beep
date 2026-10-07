@@ -25,6 +25,7 @@ object Notices : NoticeListener {
         val title = notice.title.ifEmpty { return }
         val body = notice.body
         val conversationId = notice.sessionId
+        if (notice.app == null) app.repository.prefetch(conversationId)
         ChatNotifications.ensureChannel(app)
 
         val intent = Intent(app, MainActivity::class.java).apply {

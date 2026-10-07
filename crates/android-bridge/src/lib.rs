@@ -142,6 +142,15 @@ pub fn open_notice(identity: Vec<u8>, sealed: String) -> Result<Notice, BeepErro
     Ok(seal::open(&secret_key(&identity)?, &sealed)?)
 }
 
+/// An admin's one-off pick for a single turn, as Rerun sends it.
+#[derive(uniffi::Record)]
+pub struct Rerun {
+    /// A `ModelChoice::id`.
+    pub model: String,
+    /// None keeps the admin's picked thinking.
+    pub thinking: Option<ReasoningLevel>,
+}
+
 /// What a scanned link code asks for, shown before the phone links it.
 #[derive(uniffi::Record)]
 pub struct LinkPreview {
@@ -273,8 +282,8 @@ impl BeepClient {
 
     /// Starts a run and streams its events, starting with `RunStarted`.
     /// `session_id` and `request_id` are UUIDs. Resending the same
-    /// `request_id` follows the existing run. `model` runs this one turn on
-    /// another model; only admins may set it.
+    /// `request_id` follows the existing run. `rerun` runs this one turn on
+    /// another model and thinking; only admins may set it.
     pub async fn chat(
         &self,
         session_id: String,
@@ -282,7 +291,7 @@ impl BeepClient {
         message: String,
         images: Vec<String>,
         foreground: Option<ForegroundApp>,
-        model: Option<String>,
+        rerun: Option<Rerun>,
     ) -> Result<Arc<EventStream>, BeepError> {
         let uuid = |s: &str| Uuid::parse_str(s).map_err(|_| bad_request("invalid UUID"));
         let chat = Chat {
@@ -291,7 +300,8 @@ impl BeepClient {
             message,
             images,
             foreground,
-            model,
+            model: rerun.as_ref().map(|rerun| rerun.model.clone()),
+            thinking: rerun.and_then(|rerun| rerun.thinking),
         };
         let replies = self.stream(chat).await?;
         Ok(Arc::new(EventStream(AsyncMutex::new(replies))))
