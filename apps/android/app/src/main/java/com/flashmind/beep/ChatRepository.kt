@@ -652,17 +652,25 @@ class ChatRepository(private val storage: LocalStorage) {
     fun loadStarters(refresh: Boolean = false) {
         if (!refresh && startersJob?.isActive == true) return
         startersJob = scope.launch {
-            runCatching { api().suggestPrompts(refresh) }.onSuccess { result ->
-                if (result.personal) {
-                    storage.saveStarters(result.suggestions, System.currentTimeMillis())
-                    starters.value = result.suggestions
-                } else if (starters.value.isEmpty()) {
-                    // The fixed fallback is shown but not kept, so the next visit asks again.
-                    starters.value = result.suggestions
+            if (refresh) startersRefreshing.value = true
+            try {
+                runCatching { api().suggestPrompts(refresh) }.onSuccess { result ->
+                    if (result.personal) {
+                        storage.saveStarters(result.suggestions, System.currentTimeMillis())
+                        starters.value = result.suggestions
+                    } else if (starters.value.isEmpty()) {
+                        // The fixed fallback is shown but not kept, so the next visit asks again.
+                        starters.value = result.suggestions
+                    }
                 }
+            } finally {
+                if (refresh) startersRefreshing.value = false
             }
         }
     }
+
+    /** True while a set the user asked for with New ideas is loading. */
+    val startersRefreshing = MutableStateFlow(false)
 
     /** When the user asked for new starters, oldest first, as elapsed-realtime millis. */
     val starterRefreshes = MutableStateFlow<List<Long>>(emptyList())
@@ -677,7 +685,7 @@ class ChatRepository(private val storage: LocalStorage) {
     /** New starters on request, within the refresh limit. */
     fun newStarters() {
         val now = SystemClock.elapsedRealtime()
-        if (starterRefreshWait(starterRefreshes.value, now) > 0) return
+        if (startersRefreshing.value || starterRefreshWait(starterRefreshes.value, now) > 0) return
         starterRefreshes.value = starterRefreshes.value.filter { now - it < STARTER_REFRESH_WINDOW_MS } + now
         loadStarters(refresh = true)
     }

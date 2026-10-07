@@ -21,13 +21,24 @@ impl App {
         if !refresh && let Some(cached) = user.cached_starters(here.as_ref()).await {
             return cached;
         }
-        let context = self.starter_context(user, here.clone());
+        let context = self.starter_context(user, here.clone(), refresh);
         user.generate_starters(self.generator(user.id()), context, here)
             .await
     }
 
-    async fn starter_context(&self, user: &User, location: Option<Location>) -> StarterContext {
+    /// What the model is told; a `refresh` also gets the set it replaces.
+    async fn starter_context(
+        &self,
+        user: &User,
+        location: Option<Location>,
+        refresh: bool,
+    ) -> StarterContext {
         let today = user.today().await;
+        let shown = if refresh {
+            user.shown_starters().await
+        } else {
+            Vec::new()
+        };
         let (memories, sessions, apps, actions) = tokio::join!(
             user.memory_rows(),
             user.sessions(),
@@ -76,6 +87,7 @@ impl App {
             place,
             connected_apps,
             done,
+            shown,
         }
     }
 }
