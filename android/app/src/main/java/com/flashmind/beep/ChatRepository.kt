@@ -472,6 +472,17 @@ class ChatRepository(private val storage: LocalStorage) {
             catch (error: Exception) { updateChat(chat.id) { it.copy(error = userMessage(error)) } }
         }
     }
+    /** What the chat shows under a run that ended with [status], given the error it already has. */
+    private fun runEndError(status: String, current: String) = when (status) {
+        // Stopped on an approval card; the answer starts the next run.
+        "completed", "waiting" -> ""
+        "cancelled" -> "Stopped"
+        "interrupted" -> "The server restarted before Beep finished."
+        "timed_out" -> "That took too long, so Beep stopped. Try again."
+        "stalled" -> "The model stopped responding. Try again."
+        "looped" -> "Beep got stuck repeating itself and was stopped. Try again."
+        else -> current.ifEmpty { "Run ended: $status. You can send another message." }
+    }
     private fun launchRun(id: String) = synchronized(lock) {
         if (jobs[id]?.isActive == true) return@synchronized
         jobs[id] = scope.launch {
@@ -507,7 +518,9 @@ class ChatRepository(private val storage: LocalStorage) {
                             first = false
                             if (missed && runId.isEmpty()) {
                                 // A resent message whose run already finished: we never learned its id.
-                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", status = "", tool = "", cancelRequested = false) }
+                                val status = (received.event as RunEvent.RunFinished).status
+                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", status = "", tool = "", cancelRequested = false,
+                                    error = runEndError(status, it.error)) }
                             } else {
                                 event(id, runId, received)
                             }
@@ -1162,16 +1175,7 @@ class ChatRepository(private val storage: LocalStorage) {
                         messages = next.messages.map {
                             if (it.id == messageId) extractCardsFromText(it).copy(reasoning = joinReasoning(it.reasoning, chat.thinking)) else it
                         },
-                        runId = "", status = "", tool = "", thinking = "", cancelRequested = false, error = when (status) {
-                        // Stopped on an approval card; the answer starts the next run.
-                        "completed", "waiting" -> ""
-                        "cancelled" -> "Stopped"
-                        "interrupted" -> "The server restarted before Beep finished."
-                        "timed_out" -> "That took too long, so Beep stopped. Try again."
-                        "stalled" -> "The model stopped responding. Try again."
-                        "looped" -> "Beep got stuck repeating itself and was stopped. Try again."
-                        else -> chat.error.ifEmpty { "Run ended: $status. You can send another message." }
-                    })
+                        runId = "", status = "", tool = "", thinking = "", cancelRequested = false, error = runEndError(status, chat.error))
                 }
                 is RunEvent.MemoryScore -> {
                     val messageId = "assistant-${chat.runId}"
