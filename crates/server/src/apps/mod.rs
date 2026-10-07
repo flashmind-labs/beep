@@ -5,6 +5,7 @@
 //! uses when it calls Composio tools. Errors reaching the client never carry
 //! provider bodies or keys: they become `ApiError::Internal`, logged here.
 
+pub(crate) mod markdown;
 pub mod mcp;
 
 use crate::{
