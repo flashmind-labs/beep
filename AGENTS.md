@@ -6,8 +6,8 @@ Install the release APK on the physical phone over wireless ADB, and the debug
 APK on an emulator (`./gradlew assembleDebug`). The phone's ADB port changes, so
 take it from `adb devices`.
 
-    cd android && ./gradlew assembleRelease
-    adb -s sm-f966b.box.ray:<port> install -r android/app/build/outputs/apk/release/app-release.apk
+    cd apps/android && ./gradlew assembleRelease
+    adb -s sm-f966b.box.ray:<port> install -r apps/android/app/build/outputs/apk/release/app-release.apk
 
 If the phone is not on ADB, send the same APK with
 `ray send sm-f966b.box.ray <apk>`, which queues it while the phone is offline.

@@ -1,7 +1,7 @@
 set dotenv-load
 
 server_config := ".dev/android-server.toml"
-apk := "android/app/build/outputs/apk/debug/app-debug.apk"
+apk := "apps/android/app/build/outputs/apk/debug/app-debug.apk"
 # The Docker host the server deploys to, as ssh://host. Set it in .env.
 remote_docker := env("BEEP_DOCKER_HOST", "")
 # The image Forgejo CI publishes, as registry/user/beep-server. Set it in .env.
@@ -16,7 +16,7 @@ build-server:
 
 # Build the Android debug APK
 build-android:
-    cd android && ./gradlew assembleDebug
+    cd apps/android && ./gradlew assembleDebug
 
 # Restart the server (kill old, start new)
 restart-server:
