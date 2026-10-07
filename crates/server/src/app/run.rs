@@ -7,6 +7,7 @@ use super::{
     learning::{MEMORY_THRESHOLD, ServerCall, add_server_calls, earlier_turns, memory_state},
 };
 use crate::{
+    apps::markdown,
     followups, images,
     live::LiveRun,
     memories::{Exchange, Turn},
@@ -167,7 +168,7 @@ impl App {
             log::warn!("permissions: unable to load, asking for everything: {error:#}");
             Rules::default()
         });
-        let tools = composio.tools.into_iter().chain(mcp).collect();
+        let tools = markdown::wrap(composio.tools.into_iter().chain(mcp).collect());
         for tool in permissions::guard(tools, rules, approved, &composio.hinted) {
             registry.register(tool);
         }
