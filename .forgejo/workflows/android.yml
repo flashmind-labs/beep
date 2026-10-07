@@ -1,5 +1,4 @@
-# Builds the release APK on pushes to main that touch the app or the crates it
-# links, and keeps it as a run artifact.
+# Builds the release APK on every push to main and keeps it as a run artifact.
 #
 # The server's node id is the repository variable BEEP_NODE_ID. Signing comes
 # from four secrets, ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
@@ -11,13 +10,6 @@ name: android
 on:
   push:
     branches: [main]
-    paths:
-      - apps/android/**
-      - crates/proto/**
-      - crates/android-bridge/**
-      - scripts/build-android-native.sh
-      - Cargo.lock
-      - .forgejo/workflows/android.yml
   workflow_dispatch:
 
 concurrency:
