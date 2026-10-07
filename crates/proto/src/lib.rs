@@ -234,6 +234,31 @@ requests! {
     50 ListDevices {} => Call<Vec<LinkedDevice>>
     /// Unlinks a device. The phone may unlink any; a device only itself.
     51 RemoveDevice { id: String } => Call<()>
+    /// Freezes a copy of the session that anyone with the link can open,
+    /// replacing the copy an earlier share made and keeping its link. The
+    /// copy holds the messages only: no tool results, reasoning or context.
+    52 ShareSession { id: String } => Call<SharedLink>
+    /// Deletes the session's shared copy, so its link stops working.
+    53 UnshareSession { id: String } => Call<()>
+    /// The shared copy behind a link's `token`, made by any account.
+    54 GetShare { token: String } => Call<SharedSession>
+    /// Copies a shared session into the caller's chats as `session_id`, so
+    /// they can carry it on. Returns the new session.
+    55 CopyShare { token: String, session_id: Uuid } => Call<Session>
+}
+
+/// The link prefix a shared session's token follows.
+pub const SHARE_URL_PREFIX: &str = "beep://share/";
+
+/// The link to the shared session `token`.
+pub fn share_url(token: &str) -> String {
+    format!("{SHARE_URL_PREFIX}{token}")
+}
+
+/// The token in a shared session's link, if `url` is one.
+pub fn share_token(url: &str) -> Option<&str> {
+    let token = url.trim().strip_prefix(SHARE_URL_PREFIX)?;
+    (!token.is_empty() && token.bytes().all(|b| b.is_ascii_alphanumeric())).then_some(token)
 }
 
 wire_enum! {
@@ -639,6 +664,27 @@ pub struct Session {
     pub updated_at: i64,
 }
 
+/// A shared copy of a session.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SharedLink {
+    pub token: String,
+    pub url: String,
+    pub title: String,
+    /// When the copy was made, in milliseconds since the Unix epoch.
+    pub shared_at: i64,
+}
+
+/// What a shared link shows: the session's messages as they were shared.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SharedSession {
+    pub title: String,
+    /// In milliseconds since the Unix epoch.
+    pub shared_at: i64,
+    pub entries: Vec<HistoryEntry>,
+}
+
 /// A session whose messages hold the searched words.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -831,6 +877,15 @@ mod tests {
         };
         let buf = rmp_serde::to_vec(&query).unwrap();
         assert_eq!(rmp_serde::from_slice::<DeviceQuery>(&buf).unwrap(), query);
+    }
+
+    #[test]
+    fn share_token_reads_only_share_links() {
+        assert_eq!(share_token(&share_url("ab12")), Some("ab12"));
+        assert_eq!(share_token(" beep://share/ab12\n"), Some("ab12"));
+        assert_eq!(share_token("beep://share/"), None);
+        assert_eq!(share_token("beep://share/../x"), None);
+        assert_eq!(share_token("beep://apps"), None);
     }
 
     #[test]

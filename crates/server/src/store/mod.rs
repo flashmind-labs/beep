@@ -20,6 +20,7 @@ mod location;
 mod memories;
 mod runs;
 mod sessions;
+mod shares;
 mod test_db;
 mod turns;
 mod usage;
@@ -37,6 +38,7 @@ pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
 pub use runs::{CreateRun, FinishedTurn, RunStatus};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
+pub use shares::{CopiedShare, Share};
 pub use test_db::TestDb;
 pub use turns::TurnModel;
 pub use user_keys::{Account, AccountKey, LinkKey, NewKey, SignIn};
@@ -115,6 +117,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         16,
         "user_keys",
         include_str!("../../migrations/0016_user_keys.sql"),
+    ),
+    (
+        17,
+        "shares",
+        include_str!("../../migrations/0017_shares.sql"),
     ),
 ];
 
