@@ -10,12 +10,14 @@ use beep_proto::{
     Chat, ClearMemories, ConnectApp, ConnectLink, CreateCron, Cron, DeleteCron, DeleteMemory,
     DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult,
     DisconnectApp, Event, ExistingSessions, FinishAppAuth, ForegroundApp, GetAppPermissions,
-    GetEvents, GetModels, GetRun, GetSession, Health, HistoryEntry, ListApps, ListCrons,
-    ListMemories, ListSessions, Memory, Models, Notice, PermissionLevel, PinSession,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RenameSession, Run, RunCron, SearchSessions,
-    Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel, SetThinking, StartAppAuth,
-    Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
+    GetEvents, GetModels, GetRun, GetSession, Health, HistoryEntry, LinkDevice, LinkedDevice,
+    ListApps, ListCrons, ListDevices, ListMemories, ListSessions, Memory, Models, Notice,
+    PermissionLevel, PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice,
+    RenameSession, Run, RunCron, SearchSessions, Session, SessionMatch, SetAppPermissions,
+    SetAutoModel, SetModel, SetThinking, StartAppAuth, Stream, SuggestPrompts, ToggleCron,
+    UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
+    link::LinkOffer,
     names::username,
     seal,
 };
@@ -138,6 +140,24 @@ pub fn decode_list_cache(bytes: Vec<u8>) -> ListCache {
 #[uniffi::export]
 pub fn open_notice(identity: Vec<u8>, sealed: String) -> Result<Notice, BeepError> {
     Ok(seal::open(&secret_key(&identity)?, &sealed)?)
+}
+
+/// What a scanned link code asks for, shown before the phone links it.
+#[derive(uniffi::Record)]
+pub struct LinkPreview {
+    pub name: String,
+    /// The code the computer's window shows too, such as `7K4 PQ2`.
+    pub code: String,
+}
+
+/// Reads a scanned or pasted link code without sending it anywhere.
+#[uniffi::export]
+pub fn link_preview(offer_uri: String) -> Result<LinkPreview, BeepError> {
+    let offer = LinkOffer::parse(&offer_uri).map_err(|e| bad_request(e.to_string()))?;
+    Ok(LinkPreview {
+        code: offer.code(),
+        name: offer.name,
+    })
 }
 
 /// The readable name of `identity`, such as `mega-fox-trot`.
@@ -443,6 +463,21 @@ impl BeepClient {
 
     pub async fn unregister_device(&self, device_id: String) -> Result<(), BeepError> {
         self.call(UnregisterDevice { device_id }).await
+    }
+
+    /// Links the computer whose code the phone scanned or pasted.
+    pub async fn link_device(&self, offer_uri: String) -> Result<LinkedDevice, BeepError> {
+        let offer = LinkOffer::parse(&offer_uri).map_err(|e| bad_request(e.to_string()))?;
+        self.call(LinkDevice { offer }).await
+    }
+
+    /// The account's own key, then the computers linked to it.
+    pub async fn list_devices(&self) -> Result<Vec<LinkedDevice>, BeepError> {
+        self.call(ListDevices {}).await
+    }
+
+    pub async fn remove_device(&self, id: String) -> Result<(), BeepError> {
+        self.call(RemoveDevice { id }).await
     }
 
     pub async fn update_location(
