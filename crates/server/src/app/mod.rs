@@ -178,6 +178,7 @@ impl App {
             store: store.clone(),
             notifications: notifications.clone(),
             composio: composio.map(|settings| Arc::new(Composio::new(settings))),
+            decision: decision.clone(),
         };
         Arc::new(Self {
             store,

@@ -3,7 +3,8 @@
 //! here filters on it, so one user's memories never reach another's.
 
 use super::{
-    MEMORY_CATEGORIES, MemoryRow, Origin, Store, Validity, format_date, parse_date, seconds,
+    MEMORY_CATEGORIES, MemoryRow, Origin, Store, UNFILED, Validity, format_date, parse_date,
+    seconds,
 };
 use crate::{
     protocol::{Memory, MemorySource},
@@ -26,6 +27,8 @@ const SOURCE: &str = "source";
 const VALID_FROM: &str = "valid_from";
 const VALID_UNTIL: &str = "valid_until";
 const ORIGIN: &str = "origin";
+/// Set to `1` on a memory in the profile.
+const CORE: &str = "core";
 const QUOTE: &str = "quote";
 /// Longest quote kept with a memory, in characters.
 const MAX_QUOTE_CHARS: usize = 200;
@@ -36,7 +39,7 @@ const UPDATED: &str = "updated";
 #[derive(Clone)]
 pub struct Fact<'a> {
     pub content: &'a str,
-    /// `None` keeps the current category, or `general` for a new memory.
+    /// `None` keeps the current category, or leaves a new memory unfiled.
     pub category: Option<&'a str>,
     pub source: MemorySource,
     /// `None` keeps the current days on an update, or leaves a new memory open.
@@ -59,8 +62,8 @@ fn check_memory(content: &str) -> Result<()> {
 }
 
 pub(crate) fn validate_category(category: Option<&str>) -> Result<String> {
-    let cat = category.unwrap_or("general");
-    if MEMORY_CATEGORIES.contains(&cat) {
+    let cat = category.unwrap_or(UNFILED);
+    if cat == UNFILED || MEMORY_CATEGORIES.contains(&cat) {
         Ok(cat.to_owned())
     } else {
         bail!(
@@ -92,6 +95,7 @@ struct Meta<'a> {
     source: MemorySource,
     valid: Validity,
     origin: Option<&'a Origin>,
+    core: bool,
     updated: &'a str,
 }
 
@@ -108,6 +112,9 @@ impl Meta<'_> {
         }
         if let Some(until) = format_date(self.valid.until) {
             pairs.push((VALID_UNTIL, until));
+        }
+        if self.core {
+            pairs.push((CORE, "1".to_owned()));
         }
         if let Some(origin) = self.origin {
             pairs.push((ORIGIN, origin.reference.clone()));
@@ -130,7 +137,7 @@ fn row_from(id: String, content: String, meta: &[(String, String)]) -> MemoryRow
     MemoryRow {
         id,
         content,
-        category: meta.get(CATEGORY).unwrap_or(&"general").to_string(),
+        category: meta.get(CATEGORY).unwrap_or(&UNFILED).to_string(),
         source: MemorySource::parse(meta.get(SOURCE).unwrap_or(&"user")),
         updated_at: meta.get(UPDATED).unwrap_or(&"").to_string(),
         valid: Validity {
@@ -141,6 +148,7 @@ fn row_from(id: String, content: String, meta: &[(String, String)]) -> MemoryRow
             reference: reference.to_string(),
             quote: meta.get(QUOTE).map(|quote| quote.to_string()),
         }),
+        core: meta.get(CORE) == Some(&"1"),
     }
 }
 
@@ -217,6 +225,7 @@ impl Store {
             source: fact.source,
             valid,
             origin: fact.origin.as_ref(),
+            core: false,
             updated: &updated,
         };
         let mut builder = self
@@ -259,6 +268,7 @@ impl Store {
             source: row.source,
             valid: row.valid,
             origin: row.origin.as_ref(),
+            core: row.core,
             updated: &updated,
         };
         let pairs = meta.pairs();
@@ -303,16 +313,23 @@ impl Store {
         .await
     }
 
-    /// Replaces only a memory's text, as the user does from the Memories
-    /// screen; it then counts as stated by the user.
+    /// Replaces a memory's text, and its category when given, as the user
+    /// does from the Memories screen; it then counts as stated by the user.
     pub(crate) async fn edit_memory(
         &self,
         user: &UserKey,
         id: &str,
         content: &str,
+        category: Option<&str>,
     ) -> Result<bool> {
-        self.rewrite(user, id, content, |row| row.source = MemorySource::User {})
-            .await
+        let category = category.map(|c| validate_category(Some(c))).transpose()?;
+        self.rewrite(user, id, content, |row| {
+            row.source = MemorySource::User {};
+            if let Some(category) = category {
+                row.category = category;
+            }
+        })
+        .await
     }
 
     /// Every memory of a user, most recently changed first.
@@ -367,6 +384,58 @@ impl Store {
             .next()
             .and_then(from_result)
             .map(|s| s.row))
+    }
+
+    /// Puts a memory in the profile or takes it out, keeping its last change
+    /// date. Returns whether it changed.
+    pub(crate) async fn set_core(&self, user: &UserKey, id: &str, core: bool) -> Result<bool> {
+        self.retag(user, id, |row| row.core = core).await
+    }
+
+    /// Files a memory under another category, keeping its last change date.
+    /// Returns whether it changed.
+    pub(crate) async fn set_category(
+        &self,
+        user: &UserKey,
+        id: &str,
+        category: &str,
+    ) -> Result<bool> {
+        let category = validate_category(Some(category))?;
+        self.retag(user, id, |row| row.category = category).await
+    }
+
+    /// Changes a memory's metadata but not its text or last change date.
+    /// Returns whether anything changed.
+    async fn retag(
+        &self,
+        user: &UserKey,
+        id: &str,
+        change: impl FnOnce(&mut MemoryRow),
+    ) -> Result<bool> {
+        let Some(record) = self.owned_memory(user, id).await? else {
+            return Ok(false);
+        };
+        let mut row = from_record(record);
+        let (core, category) = (row.core, row.category.clone());
+        change(&mut row);
+        if row.core == core && row.category == category {
+            return Ok(false);
+        }
+        let meta = Meta {
+            user: user.as_str(),
+            category: &row.category,
+            source: row.source,
+            valid: row.valid,
+            origin: row.origin.as_ref(),
+            core: row.core,
+            updated: &row.updated_at,
+        };
+        let pairs = meta.pairs();
+        let pairs: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        self.memories
+            .update(&row.id, None, Some(&pairs), None)
+            .await?;
+        Ok(true)
     }
 
     pub(crate) async fn forget(&self, user: &UserKey, id: &str) -> Result<bool> {
@@ -474,11 +543,12 @@ mod tests {
         let mut row = MemoryRow {
             id: "t1".into(),
             content: "Is in Lisbon.".into(),
-            category: "location".into(),
+            category: "plan".into(),
             source: MemorySource::Learned {},
             updated_at: "2026-09-01 08:00:00".into(),
             valid: Validity::default(),
             origin: None,
+            core: false,
         };
         let at = |text| NaiveDateTime::parse_from_str(text, UPDATED_FORMAT).unwrap();
         let now = at("2026-10-01 12:00:00");

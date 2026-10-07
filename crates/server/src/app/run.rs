@@ -216,6 +216,7 @@ impl App {
         let context = self
             .build_context(
                 user,
+                &conversation,
                 message.foreground.as_ref(),
                 &apps.unwrap_or_default(),
                 message.scheduled.as_deref(),

@@ -5,9 +5,13 @@
 //! a flashmind memory store. Memories are told apart by meaning: one that
 //! says the same as an existing memory replaces it. Recall ranks by meaning
 //! and shared words, and leaves out facts whose days are over.
-//! Nothing is put in front of the model unasked: it searches with
-//! `memory_recall`. After each chat a cheap model call reads the latest
-//! exchange, with the turns before it for context, and adds, corrects or
+//! Curation also picks the few memories that matter in nearly every chat.
+//! Those and the temporary facts holding today make the profile, which a
+//! chat's context carries once and again only when it changes. Everything
+//! else the model searches with `memory_recall`. Jev files every memory
+//! under one of `MEMORY_CATEGORIES` when it is written; the models that write
+//! memories never pick one. After each chat a cheap model call reads the
+//! latest exchange, with the turns before it for context, and adds, corrects or
 //! forgets facts. Once a day a curation pass merges duplicates, settles
 //! contradictions and drops what went stale. Memory text is never logged.
 
@@ -16,7 +20,7 @@ use crate::{
     config::Config,
     protocol::MemorySource,
     starters::unfence,
-    store::{MEMORY_CATEGORIES, MemoryRow, Origin, Validity},
+    store::{MemoryRow, Origin, Validity},
 };
 use anyhow::{Context, Result, ensure};
 use chrono::{NaiveDate, Utc};
@@ -74,6 +78,51 @@ pub(crate) const CURATE_SWEEP: Duration = Duration::from_secs(60 * 60);
 /// Newest memories one curation pass reads.
 pub(crate) const MAX_CURATED: usize = 200;
 const MAX_CURATE_OPS: usize = 40;
+/// Most memories curation may put in the profile.
+const MAX_CORE: usize = 15;
+
+/// Most old or unfiled memories one hourly sweep files, and how many it
+/// asks Jev about at once.
+pub(crate) const MAX_FILED: usize = 200;
+pub(crate) const FILE_CONCURRENCY: usize = 8;
+pub(crate) const FILE_QUESTION: &str = "Which category does this memory about the user belong in? Pick the one a search for it would look in.";
+/// What each of `MEMORY_CATEGORIES` holds, as Jev reads it.
+pub(crate) const FILING: [(&str, &str); 7] = [
+    (
+        "identity",
+        "Who the user is: name, age, birthday, languages, nationality, home city, health, and pets.",
+    ),
+    (
+        "people",
+        "Another person in the user's life and how they relate: family, partner, friends, colleagues, their names, birthdays and details.",
+    ),
+    (
+        "preference",
+        "Likes, dislikes, tastes, diet, brands, and how the user wants Beep to answer or act.",
+    ),
+    (
+        "work",
+        "Job, employer, role, team, clients, ongoing projects, studies and career goals.",
+    ),
+    (
+        "place",
+        "Places the user uses or goes to: home and office addresses, usual shops, restaurants, gyms, doctors.",
+    ),
+    (
+        "plan",
+        "Anything tied to dates: trips, stays, visits, appointments, events, deadlines, and past trips.",
+    ),
+    (
+        "routine",
+        "Recurring habits and schedules: workouts, commutes, weekly meetings, sleep, regular errands.",
+    ),
+];
+/// Longest profile, in characters. A long one gives the model topics to bring
+/// up unasked.
+const MAX_PROFILE_CHARS: usize = 1500;
+/// The line a profile starts with, also how a chat finds the one it last got.
+pub(crate) const PROFILE_HEADER: &str =
+    "What Beep remembers about the user (background, not a topic; memory_recall finds more):";
 /// A memory matched against a query.
 #[derive(Debug, Clone)]
 pub struct Hit {
@@ -296,9 +345,8 @@ Write each memory as one short self-contained sentence about the user in third p
 like \"Has a dog named Rex.\" or \"Is in Singapore at the Mandarin Oriental.\", in the language of the user's \
 latest message. Never translate a known memory.
 Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"id\": string, \"content\": string, \
-\"category\": \"personal\" | \"preference\" | \"work\" | \"location\" | \"routine\" | \"general\", \
 \"valid_from\": string, \"valid_until\": string, \"quote\": string}]}. \
-id only for update and forget; content and category only for add and update. quote, for add and update, is the \
+id only for update and forget; content only for add and update. quote, for add and update, is the \
 few words of the text that show the fact, copied exactly, at most 20 words. At most 5 ops.";
 
 /// The memories shown to a learner, with ids it can update or forget.
@@ -411,9 +459,8 @@ Write each memory as one short self-contained sentence about the user in third p
 like \"Has a dog named Rex.\" or \"Works at Acme as a designer.\", in the language most known memories are in, \
 English when there are none. Never translate a known memory.
 Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"id\": string, \"content\": string, \
-\"category\": \"personal\" | \"preference\" | \"work\" | \"location\" | \"routine\" | \"general\", \
 \"valid_from\": string, \"valid_until\": string, \"quote\": string}]}. \
-id only for update and forget; content and category only for add and update. quote, for add and update, is the \
+id only for update and forget; content only for add and update. quote, for add and update, is the \
 few words of the text that show the fact, copied exactly, at most 20 words. At most 5 ops.";
 
 pub(crate) fn reading_prompt(known: &[Hit], reading: &Reading) -> String {
@@ -441,13 +488,18 @@ like \"Went to Lisbon in October 2026.\", with no days. Forget it when nothing a
 appointment or a deadline.
 - Fix a memory that is unclear without context so it names its subject.
 Leave everything else alone; most memories need nothing. Each id may appear in at most one op.
+Then pick the profile: the ids of at most 15 memories that matter in nearly every chat, such as the user's \
+name, how they want Beep to answer, their closest people, where they live and work, and their job, mostly from \
+identity, people, preference and work. Not projects, \
+passing interests or anything with days. Memories marked core are in it now; keep it stable and change it only \
+for a better pick. A merged memory is named by any of its ids.
 Write memories as one short self-contained sentence in third person. Never translate: keep a memory in the \
 language it is already in, and write a merge in the language most of its memories are in, English when unsure.
-Reply with only JSON: {\"ops\": [{\"op\": \"merge\", \"ids\": [string], \"content\": string, \"category\": string, \
+Reply with only JSON: {\"ops\": [{\"op\": \"merge\", \"ids\": [string], \"content\": string, \
 \"valid_from\": string, \"valid_until\": string} | {\"op\": \"update\", \"id\": string, \"content\": string, \
-\"category\": string, \"valid_from\": string, \"valid_until\": string} | {\"op\": \"forget\", \"id\": string}]}. \
-Categories: personal, preference, work, location, routine, general. Leave out days for lasting facts. \
-At most 40 ops; {\"ops\": []} when nothing needs doing.";
+\"valid_from\": string, \"valid_until\": string} | {\"op\": \"forget\", \"id\": string}]}. \
+Leave out days for lasting facts. \
+At most 40 ops, [] when nothing needs doing. Add \"core\": [string], the profile's ids, next to \"ops\".";
 
 pub(crate) fn curate_prompt(rows: &[MemoryRow], today: NaiveDate) -> String {
     let mut text = String::new();
@@ -456,9 +508,10 @@ pub(crate) fn curate_prompt(rows: &[MemoryRow], today: NaiveDate) -> String {
     rows.sort_by(|a, b| a.category.cmp(&b.category));
     for row in rows {
         let ended = if row.valid.ended(today) { ", over" } else { "" };
+        let core = if row.core { ", core" } else { "" };
         let _ = writeln!(
             text,
-            "- {} [{}, {}, {}]{}{ended}: {}",
+            "- {} [{}, {}, {}]{}{ended}{core}: {}",
             row.id,
             row.category,
             row.source.as_str(),
@@ -498,8 +551,6 @@ pub(crate) struct LearnOp {
     pub(crate) id: Option<String>,
     #[serde(default)]
     pub(crate) content: Option<String>,
-    #[serde(default)]
-    pub(crate) category: Option<String>,
     #[serde(default)]
     pub(crate) valid_from: Option<String>,
     #[serde(default)]
@@ -562,24 +613,90 @@ pub(crate) enum CurateOp {
 pub(crate) struct CuratedText {
     content: String,
     #[serde(default)]
-    category: Option<String>,
-    #[serde(default)]
     valid_from: Option<String>,
     #[serde(default)]
     valid_until: Option<String>,
 }
 
-pub(crate) fn parse_curate_ops(answer: &str) -> Result<Vec<CurateOp>> {
-    let Ops { ops } = serde_json::from_str::<Ops<CurateOp>>(unfence(answer))?;
-    ensure!(ops.len() <= MAX_CURATE_OPS * 2, "too many curation ops");
-    Ok(ops.into_iter().take(MAX_CURATE_OPS).collect())
+/// What one curation pass answered.
+#[derive(Debug, Deserialize)]
+pub(crate) struct Curation {
+    pub(crate) ops: Vec<CurateOp>,
+    /// The profile's ids, `None` when the answer left it out, which keeps it.
+    #[serde(default)]
+    pub(crate) core: Option<Vec<String>>,
+}
+
+pub(crate) fn parse_curation(answer: &str) -> Result<Curation> {
+    let mut curation = serde_json::from_str::<Curation>(unfence(answer))?;
+    ensure!(
+        curation.ops.len() <= MAX_CURATE_OPS * 2,
+        "too many curation ops"
+    );
+    curation.ops.truncate(MAX_CURATE_OPS);
+    Ok(curation)
+}
+
+/// The profile's ids once `steps` are done: a merged-away id stands for the
+/// memory it went into, and forgotten or unknown ids are dropped.
+pub(crate) fn core_ids(
+    core: Vec<String>,
+    steps: &[Step],
+    rows: &HashMap<&str, &MemoryRow>,
+) -> HashSet<String> {
+    let mut merged = HashMap::new();
+    let mut forgotten = HashSet::new();
+    for step in steps {
+        match step {
+            Step::Forget(id) => {
+                forgotten.insert(id.as_str());
+            }
+            Step::Rewrite { keep, drop, .. } => {
+                for id in drop {
+                    merged.insert(id.as_str(), keep.as_str());
+                }
+            }
+        }
+    }
+    let mut ids = HashSet::new();
+    for id in &core {
+        let id = merged.get(id.as_str()).copied().unwrap_or(id);
+        if rows.contains_key(id) && !forgotten.contains(id) && ids.len() < MAX_CORE {
+            ids.insert(id.to_owned());
+        }
+    }
+    ids
+}
+
+/// Whether a fact with days holds on `today`: it has an end and has started.
+fn current(valid: &Validity, today: NaiveDate) -> bool {
+    valid.until.is_some_and(|until| until >= today) && valid.from.is_none_or(|from| from <= today)
+}
+
+/// The profile a chat's context carries: what holds right now, then the core
+/// memories, cut to `MAX_PROFILE_CHARS`. `None` when there is nothing to say.
+pub(crate) fn profile(rows: &[MemoryRow], today: NaiveDate) -> Option<String> {
+    let now = rows.iter().filter(|row| current(&row.valid, today));
+    let core = rows
+        .iter()
+        .filter(|row| row.core && !row.valid.ended(today) && !current(&row.valid, today));
+    let mut text = String::from(PROFILE_HEADER);
+    let mut any = false;
+    for row in now.chain(core) {
+        let line = format!("\n- {}{}", row.content, days(&row.valid));
+        if text.chars().count() + line.chars().count() > MAX_PROFILE_CHARS {
+            break;
+        }
+        text.push_str(&line);
+        any = true;
+    }
+    any.then_some(text)
 }
 
 /// A memory's new text from curation.
 #[derive(Debug, PartialEq)]
 pub(crate) struct NewText {
     pub(crate) content: String,
-    pub(crate) category: Option<String>,
     pub(crate) source: MemorySource,
     pub(crate) valid: Option<Validity>,
 }
@@ -623,9 +740,6 @@ pub(crate) fn plan_curation(
         let content = text.content.trim().to_owned();
         (!content.is_empty()).then(|| NewText {
             valid: validity(text.valid_from.as_deref(), text.valid_until.as_deref()),
-            category: text
-                .category
-                .filter(|c| MEMORY_CATEGORIES.contains(&c.as_str())),
             content,
             source,
         })
@@ -694,16 +808,18 @@ pub(crate) fn plan_curation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::MEMORY_CATEGORIES;
 
     fn row(id: &str, content: &str) -> MemoryRow {
         MemoryRow {
             id: id.into(),
             content: content.into(),
-            category: "personal".into(),
+            category: "identity".into(),
             source: MemorySource::Learned {},
             updated_at: "2026-01-01 10:00:00".into(),
             valid: Validity::default(),
             origin: None,
+            core: false,
         }
     }
 
@@ -712,10 +828,16 @@ mod tests {
     }
 
     #[test]
+    fn jev_files_under_every_category() {
+        let names: Vec<&str> = FILING.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names, MEMORY_CATEGORIES);
+    }
+
+    #[test]
     fn parses_learn_ops_with_days() {
         let ops = parse_learn_ops(
             r#"```json
-{"ops":[{"op":"add","content":"Is in Singapore.","category":"location","valid_from":"2026-10-04","valid_until":"2026-10-09"},
+{"ops":[{"op":"add","content":"Is in Singapore.","valid_from":"2026-10-04","valid_until":"2026-10-09"},
 {"op":"forget","id":"abc123"}]}
 ```"#,
         )
@@ -757,7 +879,7 @@ mod tests {
             .into_iter()
             .map(|r| (r.id.as_str(), r))
             .collect();
-        let ops = parse_curate_ops(
+        let ops = parse_curation(
             r#"{"ops":[
             {"op":"forget","id":"u1"},
             {"op":"merge","ids":["l1","u1"],"content":"Prefers tea."},
@@ -766,7 +888,8 @@ mod tests {
             {"op":"forget","id":"l2"},
             {"op":"forget","id":"u2"}]}"#,
         )
-        .unwrap();
+        .unwrap()
+        .ops;
         let steps = plan_curation(ops, &rows, day("2026-10-03"));
         assert_eq!(
             steps,
@@ -775,7 +898,6 @@ mod tests {
                     keep: "u1".into(),
                     fact: NewText {
                         content: "Prefers tea.".into(),
-                        category: None,
                         source: MemorySource::User {},
                         valid: Some(Validity::default()),
                     },
@@ -800,12 +922,13 @@ mod tests {
             .into_iter()
             .map(|r| (r.id.as_str(), r))
             .collect();
-        let ops = parse_curate_ops(
+        let ops = parse_curation(
             r#"{"ops":[
             {"op":"update","id":"t1","content":"Went to Lisbon in September 2026."},
             {"op":"update","id":"t2","content":"Is staying with Ana, a friend."}]}"#,
         )
-        .unwrap();
+        .unwrap()
+        .ops;
         let steps = plan_curation(ops, &rows, day("2026-10-03"));
         let valid: Vec<Option<Validity>> = steps
             .into_iter()
@@ -832,5 +955,45 @@ mod tests {
             }
         );
         assert_eq!(ops[1].origin("session-1").quote, None);
+    }
+
+    #[test]
+    fn core_ids_follow_merges_and_drop_forgotten() {
+        let rows = [row("a", "A."), row("b", "B."), row("c", "C.")];
+        let by_id: HashMap<&str, &MemoryRow> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
+        let curation = parse_curation(
+            r#"{"ops":[
+            {"op":"merge","ids":["a","b"],"content":"A and B."},
+            {"op":"forget","id":"c"}],
+            "core":["b","c","missing"]}"#,
+        )
+        .unwrap();
+        let steps = plan_curation(curation.ops, &by_id, day("2026-10-03"));
+        let core = core_ids(curation.core.unwrap(), &steps, &by_id);
+        assert_eq!(core, HashSet::from(["a".to_owned()]));
+        assert!(parse_curation(r#"{"ops":[]}"#).unwrap().core.is_none());
+    }
+
+    #[test]
+    fn profile_puts_what_holds_today_first() {
+        let mut name = row("n", "Is called Sam.");
+        name.core = true;
+        let mut trip = row("t", "Is in Singapore.");
+        trip.valid = Validity {
+            from: Some(day("2026-10-04")),
+            until: Some(day("2026-10-10")),
+        };
+        let mut later = row("l", "Visits Rome.");
+        later.valid.from = Some(day("2026-11-01"));
+        later.valid.until = Some(day("2026-11-05"));
+        let other = row("o", "Likes jazz.");
+        let rows = [name, trip, later, other];
+        assert_eq!(
+            profile(&rows, day("2026-10-07")).unwrap(),
+            format!(
+                "{PROFILE_HEADER}\n- Is in Singapore. (2026-10-04 to 2026-10-10)\n- Is called Sam."
+            )
+        );
+        assert_eq!(profile(&rows[3..], day("2026-10-07")), None);
     }
 }

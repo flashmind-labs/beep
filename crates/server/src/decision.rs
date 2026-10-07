@@ -94,6 +94,39 @@ impl DecisionTool {
         self.judge(state, instructions, Some(criteria)).await
     }
 
+    /// Jev's pick of one of `options`, each named with what it fits, for
+    /// `instructions` about `state`.
+    pub async fn choose(
+        &self,
+        state: &str,
+        instructions: &str,
+        options: &[(&'static str, &str)],
+    ) -> Result<&'static str> {
+        let question = JevQuestion::Choice {
+            instructions: instructions.into(),
+            criteria: options
+                .iter()
+                .map(|(key, fits)| ((*key).to_owned(), (*fits).to_owned()))
+                .collect(),
+        };
+        let request = JevRequest {
+            model: JEV_LATEST_MODEL.into(),
+            state: state[..state.floor_char_boundary(MAX_STATE_BYTES)].into(),
+            questions: BTreeMap::from([("choice".to_owned(), question)]),
+        };
+        let response = self.provider.decide(request).await?;
+        let picked = response
+            .answers
+            .get("choice")
+            .and_then(|answer| answer["choice"].as_str())
+            .ok_or_else(|| anyhow::anyhow!("Jev made no choice"))?;
+        options
+            .iter()
+            .map(|(key, _)| *key)
+            .find(|key| *key == picked)
+            .ok_or_else(|| anyhow::anyhow!("Jev chose an unknown option: {picked}"))
+    }
+
     /// Jev's pick of one of `models` and a thinking level for the prompt in
     /// `state`. With a single model only the thinking is asked.
     pub async fn route<'a>(&self, state: &str, models: &'a [AutoModel]) -> Result<Routed<'a>> {
@@ -358,6 +391,23 @@ mod tests {
         let request = requests.recv().await.unwrap();
         assert!(request.contains("\"type\":\"noul\""));
         assert!(request.contains("I moved to Porto"));
+    }
+
+    #[tokio::test]
+    async fn chooses_only_a_known_option() {
+        let options = [("plan", "Trips"), ("work", "Jobs")];
+        let body = r#"{"model":"jev-1.13","answers":{"choice":{"choice":"plan"}}}"#;
+        let (tool, mut requests) = mock("200 OK", body).await;
+        let picked = tool.choose("Is in Lisbon until Friday.", "Which?", &options);
+        assert_eq!(picked.await.unwrap(), "plan");
+        assert!(requests.recv().await.unwrap().contains("\"Trips\""));
+        let body = r#"{"model":"jev-1.13","answers":{"choice":{"choice":"travel"}}}"#;
+        let (tool, _) = mock("200 OK", body).await;
+        assert!(
+            tool.choose("Is in Lisbon.", "Which?", &options)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
