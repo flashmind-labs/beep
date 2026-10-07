@@ -3,7 +3,7 @@
 use crate::{
     api,
     app::App,
-    push::Pusher,
+    push::{CLOSE_REVOKED, Pusher},
     router::{Cx, Router},
 };
 use iroh::{
@@ -45,8 +45,12 @@ impl BeepHandler {
 impl ProtocolHandler for BeepHandler {
     async fn accept(&self, connection: Connection) -> std::result::Result<(), AcceptError> {
         // The key the client connected with is who it is.
-        let user = match self.app.sign_in(&connection.remote_id()).await {
-            Ok(user) => user,
+        let signed_in = match self.app.sign_in(&connection.remote_id()).await {
+            Ok(Some(signed_in)) => signed_in,
+            Ok(None) => {
+                connection.close(VarInt::from_u32(CLOSE_REVOKED), b"removed");
+                return Ok(());
+            }
             Err(e) => {
                 log::warn!("sign in failed: {e:#}");
                 connection.close(VarInt::from_u32(CLOSE_UNAVAILABLE), b"unavailable");
@@ -56,8 +60,10 @@ impl ProtocolHandler for BeepHandler {
         self.pusher.connected(connection.clone());
         let cx = Cx {
             app: self.app.clone(),
-            user,
+            user: signed_in.user,
+            device: signed_in.device,
             connection: connection.clone(),
+            pusher: self.pusher.clone(),
         };
         let streams = Arc::new(Semaphore::new(MAX_STREAMS));
         while let Ok((send, recv)) = connection.accept_bi().await {

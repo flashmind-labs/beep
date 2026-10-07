@@ -1,5 +1,6 @@
-//! Delivers notices to phones. A user's id is their phone's endpoint id, so
-//! a notice goes over the user's open connection if there is one, or else
+//! Delivers notices to phones and linked computers. A notice goes to every
+//! key that signs into the account (see `Directory`): over that key's open
+//! connection if there is one, or else
 //! the server dials the phone, which waits on its home relay with no
 //! connection open. A notice that can't be delivered is retried from time
 //! to time, and sent at once when the phone next connects. With a fallback,
@@ -13,6 +14,7 @@ use crate::{
         Notice,
         wire::{PUSH_ALPN, framed},
     },
+    store::Store,
 };
 use anyhow::{Context, Result};
 use iroh::{
@@ -30,6 +32,8 @@ use tokio::{
     time::{sleep, timeout},
 };
 
+/// The close code a removed key's connection gets.
+pub const CLOSE_REVOKED: u32 = 403;
 const DIAL_TIMEOUT: Duration = Duration::from_secs(15);
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// Notices kept per user while their phone is unreachable; older ones go first.
@@ -48,6 +52,30 @@ const RETRY_FOR: Duration = Duration::from_secs(24 * 60 * 60);
 /// A phone woken this recently is not woken again: it is on its way.
 const WAKE_GAP: Duration = Duration::from_secs(20);
 
+/// The keys a notice for an account goes to.
+#[async_trait::async_trait]
+pub trait Directory: Send + Sync {
+    async fn keys(&self, user: &str) -> Result<Vec<EndpointId>>;
+}
+
+#[async_trait::async_trait]
+impl Directory for Store {
+    async fn keys(&self, user: &str) -> Result<Vec<EndpointId>> {
+        let keys = self.live_keys(user).await?;
+        Ok(keys.iter().filter_map(|key| key.parse().ok()).collect())
+    }
+}
+
+/// Sends each account's notices to its own key only, for tests.
+pub struct OwnKey;
+
+#[async_trait::async_trait]
+impl Directory for OwnKey {
+    async fn keys(&self, user: &str) -> Result<Vec<EndpointId>> {
+        Ok(user.parse().into_iter().collect())
+    }
+}
+
 /// A user's undelivered notices, oldest first.
 #[derive(Default)]
 struct Pending {
@@ -58,6 +86,7 @@ struct Pending {
 
 pub struct Pusher {
     endpoint: Endpoint,
+    directory: Arc<dyn Directory>,
     /// The latest connection each user opened, while it lasts.
     live: Mutex<HashMap<EndpointId, Connection>>,
     queued: Mutex<HashMap<EndpointId, Pending>>,
@@ -68,18 +97,24 @@ pub struct Pusher {
 }
 
 impl Pusher {
-    pub fn new(endpoint: Endpoint, fallback: Option<Arc<dyn Fallback>>) -> Arc<Self> {
-        Self::with_retry_waits(endpoint, fallback, RETRY_WAITS.to_vec())
+    pub fn new(
+        endpoint: Endpoint,
+        directory: Arc<dyn Directory>,
+        fallback: Option<Arc<dyn Fallback>>,
+    ) -> Arc<Self> {
+        Self::with_retry_waits(endpoint, directory, fallback, RETRY_WAITS.to_vec())
     }
 
     /// Like `new` with other waits between retries; tests shorten them.
     pub fn with_retry_waits(
         endpoint: Endpoint,
+        directory: Arc<dyn Directory>,
         fallback: Option<Arc<dyn Fallback>>,
         retry_waits: Vec<Duration>,
     ) -> Arc<Self> {
         Arc::new(Self {
             endpoint,
+            directory,
             live: Mutex::default(),
             queued: Mutex::default(),
             retry_waits,
@@ -95,12 +130,8 @@ impl Pusher {
             loop {
                 match notices.recv().await {
                     Ok(UserNotice { user, notice }) => {
-                        let Ok(id) = user.parse::<EndpointId>() else {
-                            log::warn!("push: user id is not an endpoint id; user={user}");
-                            continue;
-                        };
                         let pusher = pusher.clone();
-                        tokio::spawn(async move { pusher.deliver(id, notice).await });
+                        tokio::spawn(async move { pusher.fan_out(user, notice).await });
                     }
                     Err(RecvError::Lagged(missed)) => log::warn!("push: missed {missed} notices"),
                     Err(RecvError::Closed) => return,
@@ -134,6 +165,45 @@ impl Pusher {
         }
         let pusher = self.clone();
         tokio::spawn(async move { pusher.deliver_all(id, notices).await });
+    }
+
+    /// The server's own key, which link offers are signed for.
+    pub fn server_id(&self) -> EndpointId {
+        self.endpoint.id()
+    }
+
+    /// Drops a removed key's connection and the notices queued for it.
+    pub fn forget(&self, id: EndpointId) {
+        let live = self
+            .live
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&id);
+        if let Some(connection) = live {
+            connection.close(VarInt::from_u32(CLOSE_REVOKED), b"removed");
+        }
+        self.queued
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&id);
+        self.woken
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&id);
+    }
+
+    async fn fan_out(self: Arc<Self>, user: String, notice: Notice) {
+        let keys = match self.directory.keys(&user).await {
+            Ok(keys) => keys,
+            Err(e) => {
+                log::warn!("push: keys lookup failed; user={user} error={e:#}");
+                user.parse().into_iter().collect()
+            }
+        };
+        let sends = keys
+            .into_iter()
+            .map(|id| self.clone().deliver(id, notice.clone()));
+        futures::future::join_all(sends).await;
     }
 
     async fn deliver(self: Arc<Self>, id: EndpointId, notice: Notice) {
@@ -326,7 +396,7 @@ mod tests {
             .bind()
             .await
             .expect("a local endpoint binds");
-        Pusher::with_retry_waits(endpoint, fallback, retry_waits)
+        Pusher::with_retry_waits(endpoint, Arc::new(OwnKey), fallback, retry_waits)
     }
 
     /// Records pushes and wakes instead of sending them. Takes only the

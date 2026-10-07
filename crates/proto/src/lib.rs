@@ -9,6 +9,7 @@
 //! bindings.
 
 pub mod client;
+pub mod link;
 pub mod names;
 pub mod seal;
 pub mod wire;
@@ -17,6 +18,7 @@ pub mod wire;
 uniffi::setup_scaffolding!();
 
 pub use flashmind_types::ReasoningLevel;
+use link::LinkOffer;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{fmt, time::SystemTime};
 use uuid::Uuid;
@@ -224,6 +226,13 @@ requests! {
     /// Turns Auto on or off for the caller: Jev then picks the model and
     /// thinking of each prompt from the server's Auto models. Admins only.
     48 SetAutoModel { enabled: bool } => Call<Models>
+    /// Lets the device that made `offer` sign into the caller's account.
+    /// Only the account's phone may link, and only a key with no account.
+    49 LinkDevice { offer: LinkOffer } => Call<LinkedDevice>
+    /// The account's keys: the phone first, then linked devices.
+    50 ListDevices {} => Call<Vec<LinkedDevice>>
+    /// Unlinks a device. The phone may unlink any; a device only itself.
+    51 RemoveDevice { id: String } => Call<()>
 }
 
 wire_enum! {
@@ -703,6 +712,55 @@ pub struct Cron {
     pub run_once: bool,
     pub last_run_at: Option<String>,
     pub next_run_at: Option<String>,
+}
+
+wire_enum! {
+    /// What kind of client a key belongs to. An account's own key is its
+    /// phone; linked keys are computers.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum DeviceKind {
+        0 Phone {}
+        1 Desktop {}
+    }
+}
+
+impl Default for DeviceKind {
+    fn default() -> Self {
+        Self::Phone {}
+    }
+}
+
+impl DeviceKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Phone {} => "phone",
+            Self::Desktop {} => "desktop",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "phone" => Some(Self::Phone {}),
+            "desktop" => Some(Self::Desktop {}),
+            _ => None,
+        }
+    }
+}
+
+/// A key that signs into the account.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LinkedDevice {
+    /// The device's endpoint id.
+    pub id: String,
+    pub name: String,
+    pub kind: DeviceKind,
+    /// The account's own key, which cannot be unlinked.
+    pub primary: bool,
+    /// The key of the caller.
+    pub this_device: bool,
+    pub linked_at: SystemTime,
 }
 
 /// A message the server pushes to the user's open notification streams.

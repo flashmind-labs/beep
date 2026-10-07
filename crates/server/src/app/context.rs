@@ -1,10 +1,10 @@
 //! The developer message each turn starts with.
 
-use super::App;
+use super::{App, Message};
 use crate::{
     cron,
     memories::PROFILE_HEADER,
-    protocol::{AppIntegration, ForegroundApp},
+    protocol::{AppIntegration, DeviceKind, ForegroundApp},
     store::Location,
     user::User,
 };
@@ -22,9 +22,8 @@ impl App {
         &self,
         user: &User,
         chat: &Conversation,
-        foreground: Option<&ForegroundApp>,
+        message: &Message,
         apps: &[AppIntegration],
-        scheduled: Option<&str>,
     ) -> Option<String> {
         let mut ctx = String::new();
 
@@ -45,15 +44,23 @@ impl App {
             let _ = writeln!(ctx, "{}", location_line(&loc, Utc::now()));
         }
 
-        if let Some(app) = foreground {
+        if let Some(app) = &message.foreground {
             let _ = writeln!(ctx, "{}", foreground_line(app));
+        }
+
+        if message.origin == (DeviceKind::Desktop {}) {
+            let _ = writeln!(
+                ctx,
+                "The user is writing from their computer: phone actions such as alarms, \
+                 maps, contacts and opening apps are not available in this turn."
+            );
         }
 
         if let Some(line) = apps_line(apps) {
             let _ = writeln!(ctx, "{line}");
         }
 
-        if let Some(label) = scheduled {
+        if let Some(label) = message.scheduled.as_deref() {
             let _ = writeln!(ctx, "{}", cron::scheduled_context(label));
         }
 

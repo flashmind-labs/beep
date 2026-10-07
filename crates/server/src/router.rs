@@ -4,9 +4,10 @@ use crate::{
     AsyncMutex,
     app::App,
     protocol::{
-        ApiError, Call, Op, Stream,
+        ApiError, Call, DeviceKind, Op, Stream,
         wire::{Frame, Tx, framed},
     },
+    push::Pusher,
     transport::READ_TIMEOUT,
     user::User,
 };
@@ -22,7 +23,10 @@ use tokio::time::timeout;
 pub struct Cx {
     pub app: Arc<App>,
     pub user: Arc<User>,
+    /// What kind of device the caller's key belongs to.
+    pub device: DeviceKind,
     pub connection: Connection,
+    pub pusher: Arc<Pusher>,
 }
 
 type Handler = Box<dyn Fn(Cx, Frame, Tx) -> BoxFuture<'static, Result<()>> + Send + Sync>;

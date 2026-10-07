@@ -8,6 +8,7 @@ use sqlx_core::migrate::{Migration, MigrationType, Migrator};
 use std::{borrow::Cow, sync::Arc, time::Duration};
 use tokio::sync::Notify;
 
+mod account_keys;
 mod actions;
 mod apps;
 mod cron_jobs;
@@ -25,6 +26,7 @@ mod turns;
 mod usage;
 mod users;
 
+pub use account_keys::{AccountKey, LinkKey, NewKey, SignIn};
 pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::McpServerRow;
@@ -102,6 +104,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         14,
         "actions",
         include_str!("../../migrations/0014_actions.sql"),
+    ),
+    (
+        15,
+        "account_keys",
+        include_str!("../../migrations/0015_account_keys.sql"),
     ),
 ];
 

@@ -1,23 +1,10 @@
 //! Accounts and the model settings each user picks.
 
 use super::Store;
-use crate::{protocol::names::username, user::UserKey};
+use crate::user::UserKey;
 use anyhow::Result;
-use iroh::EndpointId;
 
 impl Store {
-    /// The user `endpoint` signs in as: its own id, made on its first
-    /// connection.
-    pub async fn sign_in(&self, endpoint: &EndpointId) -> Result<String> {
-        let id = endpoint.to_string();
-        sqlx::query("INSERT INTO users (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING")
-            .bind(&id)
-            .bind(username(endpoint))
-            .execute(&self.pool)
-            .await?;
-        Ok(id)
-    }
-
     /// The model the user picked, if any.
     pub(crate) async fn user_model(&self, user: &UserKey) -> Result<Option<String>> {
         let model = sqlx::query_scalar("SELECT model FROM users WHERE id=$1")
