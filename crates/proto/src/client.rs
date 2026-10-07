@@ -5,7 +5,7 @@ use crate::{
 use anyhow::{Context, Result};
 use iroh::{
     Endpoint, EndpointAddr, EndpointId, SecretKey,
-    endpoint::{Connection, NetReportConfig, PortmapperConfig, VarInt, presets},
+    endpoint::{Connection, ConnectionError, NetReportConfig, PortmapperConfig, VarInt, presets},
 };
 use serde::de::DeserializeOwned;
 use std::{
@@ -27,6 +27,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Close code for a connection closed for being idle.
 pub const IDLE_CLOSE: u32 = 0x1d1e;
+/// Close code the server gives a key the account removed.
+pub const CLOSE_REVOKED: u32 = 403;
 
 /// Called with each notice the server sends. Returns false if the notice
 /// was not handled, so the server keeps it and sends it again later.
@@ -139,6 +141,16 @@ impl Client {
     /// True once the connection is gone and a new one is needed.
     pub fn is_closed(&self) -> bool {
         self.connection.close_reason().is_some()
+    }
+
+    /// True once the server closed the connection because the account
+    /// removed this key.
+    pub fn is_revoked(&self) -> bool {
+        matches!(
+            self.connection.close_reason(),
+            Some(ConnectionError::ApplicationClosed(close))
+                if close.error_code == VarInt::from_u32(CLOSE_REVOKED)
+        )
     }
 
     /// Sends a request and returns its reply.

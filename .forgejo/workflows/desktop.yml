@@ -1,0 +1,63 @@
+# Builds the macOS DMG on pushes to main that touch the desktop app or the
+# protocol it speaks, and keeps it as a run artifact.
+#
+# Runs on a Mac registered with the `macos` label, with Rust and tauri-cli
+# installed for the runner's user. The server's node id is the repository
+# variable BEEP_NODE_ID. The app is not signed, so the first launch needs a
+# right click and Open.
+name: desktop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/desktop/**
+      - crates/proto/**
+      - .forgejo/workflows/desktop.yml
+  workflow_dispatch:
+
+concurrency:
+  group: desktop
+  cancel-in-progress: true
+
+jobs:
+  dmg:
+    runs-on: macos
+    env:
+      BEEP_NODE_ID: ${{ vars.BEEP_NODE_ID }}
+      # Skips the Finder styling in bundle_dmg.sh, which needs a GUI session.
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the toolchain
+        run: |
+          set -euo pipefail
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          # Kept between runs, so a build only recompiles what changed.
+          echo "CARGO_TARGET_DIR=$HOME/Library/Caches/beep-desktop-target" >> "$GITHUB_ENV"
+
+      - name: Check
+        working-directory: apps/desktop/src-tauri
+        run: |
+          set -euo pipefail
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+      - name: Build the DMG
+        working-directory: apps/desktop/src-tauri
+        run: cargo tauri build --bundles dmg
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          cp "$CARGO_TARGET_DIR"/release/bundle/dmg/Beep_*.dmg beep-macos.dmg
+          shasum -a 256 beep-macos.dmg > beep-macos.dmg.sha256
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: beep-macos
+          path: |
+            beep-macos.dmg
+            beep-macos.dmg.sha256

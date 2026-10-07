@@ -10,7 +10,11 @@ fn main() {
     let node_id = env::var("BEEP_NODE_ID")
         .ok()
         .filter(|id| !id.is_empty())
-        .or_else(|| fs::read_to_string(profile).ok().and_then(|text| node_id(&text)))
+        .or_else(|| {
+            fs::read_to_string(profile)
+                .ok()
+                .and_then(|text| node_id(&text))
+        })
         .unwrap_or_default();
     println!("cargo:rustc-env=BEEP_SERVER_NODE_ID={node_id}");
     tauri_build::build();

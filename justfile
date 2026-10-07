@@ -18,6 +18,18 @@ build-server:
 build-android:
     cd apps/android && ./gradlew assembleDebug
 
+# Run the macOS desktop app from source
+desktop-dev:
+    cd apps/desktop/src-tauri && cargo tauri dev
+
+# Build the desktop DMG
+desktop-build:
+    cd apps/desktop/src-tauri && CI=true cargo tauri build --bundles dmg
+
+# Format, lint and test the desktop app
+desktop-check:
+    cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+
 # Restart the server (kill old, start new)
 restart-server:
     -pkill -f "beep-server {{server_config}}"
