@@ -19,7 +19,7 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         // The server this build talks to, so a new install needs no setup. `just bake-profile`
         // writes it from the server log; -PbeepNodeId overrides it.
-        val profile = rootProject.file("../.dev/android-assets/testing-profile.json")
+        val profile = rootProject.file("../../.dev/android-assets/testing-profile.json")
         val nodeId = providers.gradleProperty("beepNodeId").orNull
             ?: profile.takeIf { it.exists() }?.readText()
                 ?.let { Regex("\"node_id\"\\s*:\\s*\"([0-9a-f]{64})\"").find(it)?.groupValues?.get(1) }
@@ -73,12 +73,12 @@ dependencies {
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }
 val buildNative by tasks.registering(Exec::class) {
-    workingDir(rootProject.projectDir.parentFile)
+    workingDir(rootProject.projectDir.parentFile.parentFile)
     commandLine("sh", "scripts/build-android-native.sh")
     environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath)
-    inputs.files(fileTree("../../crates/proto") { exclude("target/**") })
-    inputs.files(fileTree("../../crates/android-bridge") { exclude("target/**") })
-    inputs.file("../../Cargo.lock")
+    inputs.files(fileTree("../../../crates/proto") { exclude("target/**") })
+    inputs.files(fileTree("../../../crates/android-bridge") { exclude("target/**") })
+    inputs.file("../../../Cargo.lock")
     outputs.file("src/main/jniLibs/arm64-v8a/libbeep_android.so")
     outputs.dir("build/generated/uniffi")
 }
