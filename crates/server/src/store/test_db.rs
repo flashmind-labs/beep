@@ -64,7 +64,7 @@ impl TestDb {
             .await?;
         let store = Store::with_pool(pool, Arc::new(WordEmbedder)).await?;
         sqlx::query(
-            "INSERT INTO users (id, name) SELECT id, id FROM unnest($1::text[]) id \
+            "INSERT INTO users (id, name, external_id) SELECT id, id, id FROM unnest($1::text[]) id \
              ON CONFLICT (id) DO NOTHING",
         )
         .bind(TEST_USERS)

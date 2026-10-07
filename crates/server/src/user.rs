@@ -35,9 +35,10 @@ use crate::{
         StarterContext, TIMEOUT, fallback,
     },
     store::{
-        AccountKey, ActionRow, AppPermissionRow, AttentionItem, CreateRun, DeletedTurn, Fact, Feed,
-        FinishedTurn, FoundSession, LinkKey, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow,
-        NewKey, Origin, RunStatus, Store, StoredContext, TurnModel, TurnsToDelete,
+        Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CreateRun, DeletedTurn,
+        Fact, Feed, FinishedTurn, FoundSession, LinkKey, Location, MEMORY_CATEGORIES, McpServerRow,
+        MemoryRow, NewKey, Origin, PushDevice, RunStatus, Store, StoredContext, TurnModel,
+        TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -86,6 +87,8 @@ impl UserKey {
 
 pub struct User {
     id: String,
+    /// The id Composio and the sandbox know the user by.
+    external_id: String,
     key: UserKey,
     store: Store,
     /// This user, for parts that must reach back without keeping it alive.
@@ -115,10 +118,11 @@ pub(crate) struct Shared {
 
 impl User {
     /// Builds the user `id` from the parts every user shares.
-    pub(crate) fn new(id: &str, shared: &Shared) -> Arc<Self> {
+    pub(crate) fn new(account: &Account, shared: &Shared) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
-            id: id.to_owned(),
-            key: UserKey(id.to_owned()),
+            id: account.id.clone(),
+            external_id: account.external_id.clone(),
+            key: UserKey(account.id.clone()),
             store: shared.store.clone(),
             me: me.clone(),
             composio: shared.composio.clone(),
@@ -136,7 +140,7 @@ impl User {
     pub fn for_test(store: Store, id: &str) -> Arc<Self> {
         let (notifications, _) = broadcast::channel(16);
         Self::new(
-            id,
+            &Account::new(id),
             &Shared {
                 store,
                 notifications,
@@ -149,6 +153,12 @@ impl User {
     /// The user's id, as configured in the server's auth.
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// The id outside services, such as Composio and the sandbox, know the
+    /// user by.
+    pub fn external_id(&self) -> &str {
+        &self.external_id
     }
 
     /// The user's date in their timezone, UTC when unknown.
@@ -532,10 +542,8 @@ impl User {
     }
 
     /// Saves a phone's push token, replacing the one it had.
-    pub async fn register_device(&self, device_id: &str, fcm_token: &str) -> Result<()> {
-        self.store
-            .register_device(&self.key, device_id, fcm_token)
-            .await
+    pub async fn register_device(&self, device: PushDevice<'_>) -> Result<()> {
+        self.store.register_device(&self.key, device).await
     }
 
     /// Removes a phone's push token; `false` when it was not registered.
@@ -548,7 +556,7 @@ impl User {
         self.store.link_key(&self.key, key).await
     }
 
-    /// The account's own key, then the keys linked to it.
+    /// The account's primary key, then the keys linked to it.
     pub async fn account_keys(&self) -> Result<Vec<AccountKey>> {
         self.store.account_keys(&self.key).await
     }
@@ -566,16 +574,6 @@ impl User {
     /// The latest things Beep did in the user's apps, newest first.
     pub async fn recent_actions(&self, limit: i64) -> Result<Vec<ActionRow>> {
         self.store.recent_actions(&self.key, limit).await
-    }
-
-    /// Push tokens of the user's phones.
-    pub async fn device_tokens(&self) -> Result<Vec<String>> {
-        self.store.device_tokens(&self.key).await
-    }
-
-    /// Drops a push token Firebase no longer knows.
-    pub async fn forget_device_token(&self, fcm_token: &str) -> Result<()> {
-        self.store.forget_device_token(&self.key, fcm_token).await
     }
 
     /// The user's server-managed MCP servers.
@@ -1229,7 +1227,8 @@ impl User {
     pub fn composio_client(&self) -> Option<Arc<ComposioClient>> {
         let key = self.composio.as_ref()?.settings.key.expose_secret();
         Some(Arc::new(
-            ComposioClient::new(key.to_owned(), None, None).with_entity_id(self.id().to_owned()),
+            ComposioClient::new(key.to_owned(), None, None)
+                .with_entity_id(self.external_id().to_owned()),
         ))
     }
 
@@ -1245,7 +1244,7 @@ impl User {
             return AppTools::default();
         };
         let fetch = async {
-            let connected = connected_slugs(&client, self.id()).await?;
+            let connected = connected_slugs(&client, self.external_id()).await?;
             let slugs: Vec<&str> = connected
                 .iter()
                 .filter_map(|slug| catalog_app(slug))
@@ -1278,7 +1277,7 @@ impl User {
     pub async fn feeds(&self) -> Vec<Feed> {
         let mut connected = HashSet::new();
         if let Some(client) = self.composio_client() {
-            match connected_slugs(&client, self.id()).await {
+            match connected_slugs(&client, self.external_id()).await {
                 Ok(slugs) => connected.extend(slugs),
                 Err(error) => log::warn!("apps: unable to list connected accounts: {error:#}"),
             }
@@ -1299,8 +1298,10 @@ impl User {
         // failing the list, so apps that do not use Composio still show.
         let (connected, logos) = match (&self.composio, self.composio_client()) {
             (Some(composio), Some(client)) => {
-                let (connected, logos) =
-                    tokio::join!(connected_slugs(&client, self.id()), composio.logos());
+                let (connected, logos) = tokio::join!(
+                    connected_slugs(&client, self.external_id()),
+                    composio.logos()
+                );
                 let connected = connected
                     .map_err(|error| {
                         log::warn!("apps: unable to list connected accounts: {error:#}")
@@ -1343,7 +1344,7 @@ impl User {
             .composio
             .as_ref()
             .and_then(|composio| composio.settings.callback_url.as_deref());
-        let url = connect_url(&client, self.id(), slug, callback)
+        let url = connect_url(&client, self.external_id(), slug, callback)
             .await
             .map_err(internal("start OAuth"))?;
         Ok(ConnectLink { url })
@@ -1392,7 +1393,7 @@ impl User {
                 Err(ApiError::NotFound {})
             };
         }
-        let user = self.id();
+        let user = self.external_id();
         let client = self.composio_app(slug)?;
         let accounts = client
             .list_connected_accounts_for_user(Some(slug), Some(user))

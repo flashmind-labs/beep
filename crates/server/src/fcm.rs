@@ -188,12 +188,11 @@ impl Firebase {
         })
     }
 
-    /// Sends a push to each of the user's phones. True when one took it.
+    /// Sends a push to each phone that registered with `phone`'s key. True
+    /// when one took it.
     async fn send_all(&self, phone: EndpointId, android: Value, data: Value) -> bool {
-        let Some(user) = self.app.user(&phone.to_string()) else {
-            return false;
-        };
-        let tokens = match user.device_tokens().await {
+        let store = &self.app.store;
+        let tokens = match store.push_tokens(&phone).await {
             Ok(tokens) => tokens,
             Err(e) => {
                 log::warn!("fcm: reading tokens failed; user={phone} error={e:#}");
@@ -210,7 +209,7 @@ impl Firebase {
             match self.send(&token, &android, &data).await {
                 Ok(Delivery::Sent) => sent = true,
                 Ok(Delivery::Gone) => {
-                    if let Err(e) = user.forget_device_token(&token).await {
+                    if let Err(e) = store.forget_push_token(&phone, &token).await {
                         log::warn!("fcm: forgetting a token failed; user={phone} error={e:#}");
                     }
                 }

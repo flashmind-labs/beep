@@ -25,6 +25,8 @@ pub struct Cx {
     pub user: Arc<User>,
     /// What kind of device the caller's key belongs to.
     pub device: DeviceKind,
+    /// Whether the caller's key made the account.
+    pub primary: bool,
     pub connection: Connection,
     pub pusher: Arc<Pusher>,
 }

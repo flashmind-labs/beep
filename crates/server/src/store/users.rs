@@ -59,12 +59,4 @@ impl Store {
             .await?;
         Ok(())
     }
-
-    /// Every account.
-    pub async fn user_ids(&self) -> Result<Vec<String>> {
-        let users = sqlx::query_scalar("SELECT id FROM users")
-            .fetch_all(&self.pool)
-            .await?;
-        Ok(users)
-    }
 }

@@ -12,7 +12,7 @@ use crate::{
     router::{Cx, Router, Sink},
     store::{
         AccountKey, CreateRun, DeletedTurn, Feed, FoundSession, LinkKey, Location, NewKey,
-        TurnModel, TurnsToDelete, decode_schedule,
+        PushDevice, TurnModel, TurnsToDelete, decode_schedule,
     },
 };
 use chrono::{DateTime, Utc};
@@ -778,9 +778,12 @@ async fn run_cron(cx: Cx, RunCron { id }: RunCron) -> Reply<String> {
 }
 
 async fn register_device(cx: Cx, req: RegisterDevice) -> Reply<()> {
-    cx.user
-        .register_device(&req.device_id, &req.fcm_token)
-        .await?;
+    let device = PushDevice {
+        endpoint: cx.connection.remote_id(),
+        device_id: &req.device_id,
+        fcm_token: &req.fcm_token,
+    };
+    cx.user.register_device(device).await?;
     Ok(())
 }
 
@@ -788,10 +791,10 @@ async fn unregister_device(cx: Cx, req: UnregisterDevice) -> Reply<()> {
     found(cx.user.unregister_device(&req.device_id).await?)
 }
 
-/// Links a computer whose offer the phone scanned. Only the account's own
-/// key may link others.
+/// Links a computer whose offer the phone scanned. Only the primary key
+/// may link others.
 async fn link_device(cx: Cx, LinkDevice { offer }: LinkDevice) -> Reply<LinkedDevice> {
-    if !is_primary(&cx) {
+    if !cx.primary {
         return Err(ApiError::Unauthorized {});
     }
     offer
@@ -822,10 +825,10 @@ async fn list_devices(cx: Cx, _: ListDevices) -> Reply<Vec<LinkedDevice>> {
         .collect())
 }
 
-/// The account's own key removes any linked one; a linked key only itself.
+/// The primary key removes any linked one; a linked key only itself.
 async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> Reply<()> {
     let caller = cx.connection.remote_id();
-    if !is_primary(&cx) && id != caller.to_string() {
+    if !cx.primary && id != caller.to_string() {
         return Err(ApiError::Unauthorized {});
     }
     let key: EndpointId = id
@@ -835,10 +838,6 @@ async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> Reply<()> {
     cx.user.changed("");
     cx.pusher.forget(key);
     Ok(())
-}
-
-fn is_primary(cx: &Cx) -> bool {
-    cx.connection.remote_id().to_string() == cx.user.id()
 }
 
 fn linked_device(cx: &Cx, key: AccountKey) -> LinkedDevice {
