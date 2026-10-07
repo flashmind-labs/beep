@@ -94,6 +94,7 @@ impl App {
                     message: &message.message,
                     images: message.images.len(),
                     conversation: &transcript,
+                    session: &run.session_id,
                 };
                 self.auto_pick(user, &prompt).await
             }
