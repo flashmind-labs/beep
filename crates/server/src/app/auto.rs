@@ -1,16 +1,20 @@
 //! Auto: Jev picks the model and thinking of each of an admin's prompts.
 
 use super::{App, learning::earlier_turns};
-use crate::{memories::clip, user::User};
+use crate::{memories::clip, models::AutoModel, user::User};
 use chrono::Utc;
 use flashmind::{
     core::Conversation,
     types::{Model, ReasoningLevel},
 };
+use std::{slice, time::Duration};
 use tokio::time::Instant;
 
 /// Characters of the prompt Jev reads.
 const MAX_PROMPT_CHARS: usize = 4_000;
+/// How long after a turn the next one keeps its model, so the provider's
+/// prompt cache is still warm.
+const CACHE_WINDOW: Duration = Duration::from_secs(5 * 60);
 
 /// What Jev picked for a turn.
 pub(super) struct AutoChoice {
@@ -23,6 +27,7 @@ pub(super) struct Prompt<'a> {
     pub message: &'a str,
     pub images: usize,
     pub conversation: &'a Conversation,
+    pub session: &'a str,
 }
 
 impl App {
@@ -48,13 +53,17 @@ impl App {
             return None;
         }
         let decision = self.decision()?;
+        // A recent turn keeps its model, so only the thinking is picked.
+        let kept = self.recent_model(user, prompt).await;
+        let models = kept.map_or(self.models.auto(), slice::from_ref);
         let started = Instant::now();
-        match decision.route(&state(prompt), self.models.auto()).await {
+        match decision.route(&state(prompt), models).await {
             Ok(routed) => {
                 log::info!(
-                    "auto picked; user={} model={} thinking={} ms={}",
+                    "auto picked; user={} model={} kept={} thinking={} ms={}",
                     user.id(),
                     routed.model.model,
+                    kept.is_some(),
                     routed.thinking,
                     started.elapsed().as_millis()
                 );
@@ -68,6 +77,27 @@ impl App {
                 None
             }
         }
+    }
+
+    /// The Auto model the turn before `prompt` ran on, when that turn ended
+    /// within `CACHE_WINDOW`.
+    async fn recent_model(&self, user: &User, prompt: &Prompt<'_>) -> Option<&AutoModel> {
+        let entries = prompt.conversation.entries();
+        let age = (Utc::now() - entries.last()?.timestamp).to_std().ok()?;
+        if age > CACHE_WINDOW {
+            return None;
+        }
+        let asked = entries.iter().rev().find(|e| e.is_user())?;
+        let models = user
+            .turn_models(prompt.session)
+            .await
+            .inspect_err(|error| log::warn!("reading turn models failed: {error:#}"))
+            .ok()?;
+        let turn = models.get(&asked.timestamp.timestamp_millis())?;
+        self.models
+            .auto()
+            .iter()
+            .find(|auto| auto.model.to_string() == turn.model)
     }
 
     /// What Jev picked for the turn a resumed session stopped in, found by
