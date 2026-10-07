@@ -7,15 +7,16 @@
 
 use beep_proto::{
     AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
-    Chat, ClearMemories, ConnectApp, ConnectLink, CreateCron, Cron, DeleteCron, DeleteMemory,
-    DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult,
-    DisconnectApp, Event, ExistingSessions, FinishAppAuth, ForegroundApp, GetAppPermissions,
-    GetEvents, GetModels, GetRun, GetSession, Health, HistoryEntry, LinkDevice, LinkedDevice,
-    ListApps, ListCrons, ListDevices, ListMemories, ListSessions, Memory, Models, Notice,
-    PermissionLevel, PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice,
-    RenameSession, Run, RunCron, SearchSessions, Session, SessionMatch, SetAppPermissions,
-    SetAutoModel, SetModel, SetThinking, StartAppAuth, Stream, SuggestPrompts, ToggleCron,
-    UnregisterDevice, UpdateCron, UpdateLocation, UpdateMemory,
+    Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare, CreateCron, Cron, DeleteCron,
+    DeleteMemory, DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
+    DeviceResult, DisconnectApp, Event, ExistingSessions, FinishAppAuth, ForegroundApp,
+    GetAppPermissions, GetEvents, GetModels, GetRun, GetSession, GetShare, Health, HistoryEntry,
+    LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices, ListMemories, ListSessions, Memory,
+    Models, Notice, PermissionLevel, PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveDevice, RenameSession, Run, RunCron, SearchSessions, Session, SessionMatch,
+    SetAppPermissions, SetAutoModel, SetModel, SetThinking, ShareSession, SharedLink,
+    SharedSession, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice,
+    UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -167,6 +168,12 @@ pub fn link_preview(offer_uri: String) -> Result<LinkPreview, BeepError> {
         code: offer.code(),
         name: offer.name,
     })
+}
+
+/// The token of a `beep://share/` link, or None for any other text.
+#[uniffi::export]
+pub fn share_token(url: String) -> Option<String> {
+    beep_proto::share_token(&url).map(str::to_owned)
 }
 
 /// The readable name of `identity`, such as `mega-fox-trot`.
@@ -393,6 +400,30 @@ impl BeepClient {
 
     pub async fn pin_session(&self, id: String, pinned: bool) -> Result<(), BeepError> {
         self.call(PinSession { id, pinned }).await
+    }
+
+    /// Shares a snapshot of the session, or updates the one already shared
+    /// under the same link.
+    pub async fn share_session(&self, id: String) -> Result<SharedLink, BeepError> {
+        self.call(ShareSession { id }).await
+    }
+
+    pub async fn unshare_session(&self, id: String) -> Result<(), BeepError> {
+        self.call(UnshareSession { id }).await
+    }
+
+    pub async fn get_share(&self, token: String) -> Result<SharedSession, BeepError> {
+        self.call(GetShare { token }).await
+    }
+
+    /// Copies a shared session into the user's chats as `session_id`, a UUID.
+    pub async fn copy_share(
+        &self,
+        token: String,
+        session_id: String,
+    ) -> Result<Session, BeepError> {
+        let session_id = Uuid::parse_str(&session_id).map_err(|_| bad_request("invalid UUID"))?;
+        self.call(CopyShare { token, session_id }).await
     }
 
     pub async fn list_memories(&self) -> Result<Vec<Memory>, BeepError> {

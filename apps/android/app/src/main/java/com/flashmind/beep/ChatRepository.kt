@@ -38,6 +38,8 @@ import com.flashmind.beep.proto.PromptSuggestion
 import com.flashmind.beep.proto.RunEvent
 import com.flashmind.beep.proto.ScrollDirection
 import com.flashmind.beep.proto.SessionMatch
+import com.flashmind.beep.proto.SharedLink
+import com.flashmind.beep.proto.SharedSession
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -570,6 +572,16 @@ class ChatRepository(private val storage: LocalStorage) {
         Memory(it.id, it.content, it.category, it.source, it.updated, it.validFrom, it.validUntil, it.quote)
     /** Chats whose messages hold `query`, searched on the server since the phone keeps few. */
     suspend fun searchChats(query: String): List<SessionMatch> = api().searchSessions(query)
+    /** Shares the chat as it is now, or updates its shared copy under the same link. */
+    suspend fun shareChat(id: String): SharedLink = api().shareSession(id)
+    suspend fun unshareChat(id: String) = api().unshareSession(id)
+    suspend fun sharedChat(token: String): SharedSession = api().getShare(token)
+    /** Copies a shared chat into the user's own chats and opens it. */
+    suspend fun continueShared(token: String) {
+        val id = UUID.randomUUID().toString()
+        api().copyShare(token, id)
+        select(id)
+    }
     /** The memories last fetched, null if never. */
     fun cachedMemories(): List<Memory>? = lists.memories?.map(::memory)
     suspend fun listMemories(): List<Memory> {

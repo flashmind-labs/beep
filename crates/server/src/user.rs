@@ -35,10 +35,10 @@ use crate::{
         StarterContext, TIMEOUT, fallback,
     },
     store::{
-        Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CreateRun, DeletedTurn,
-        Fact, Feed, FinishedTurn, FoundSession, LinkKey, Location, MEMORY_CATEGORIES, McpServerRow,
-        MemoryRow, NewKey, Origin, PushDevice, RunStatus, Store, StoredContext, TurnModel,
-        TurnsToDelete,
+        Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
+        DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, LinkKey, Location, MEMORY_CATEGORIES,
+        McpServerRow, MemoryRow, NewKey, Origin, PushDevice, RunStatus, Share, Store,
+        StoredContext, TurnModel, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -317,6 +317,32 @@ impl User {
             .await?;
         self.changed("");
         Ok(pinned)
+    }
+
+    /// Shares `session_id` as `conversation`; `None` when the user has no
+    /// such session.
+    pub async fn share_session(
+        &self,
+        session_id: &str,
+        conversation: &Conversation,
+    ) -> Result<Option<Share>> {
+        self.store
+            .share_session(&self.key, session_id, conversation)
+            .await
+    }
+
+    /// Stops sharing `session_id`; `false` when it was not shared.
+    pub async fn unshare_session(&self, session_id: &str) -> Result<bool> {
+        self.store.unshare_session(&self.key, session_id).await
+    }
+
+    /// Copies the share with `token` into the user's chats as `session_id`.
+    pub async fn copy_share(&self, token: &str, session_id: &str) -> Result<CopiedShare> {
+        let copied = self.store.copy_share(&self.key, token, session_id).await?;
+        if copied == CopiedShare::Copied {
+            self.changed("");
+        }
+        Ok(copied)
     }
 
     /// Tells the user's phones that `session_id` changed, or the chat list

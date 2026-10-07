@@ -195,8 +195,10 @@ impl Store {
         if title.is_empty() || title.len() > 200 {
             bail!("session title must be 1-200 characters");
         }
+        // A session copied from a share has no runs yet.
         let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM runs WHERE user_id=$1 AND session_id=$2)",
+            "SELECT EXISTS(SELECT 1 FROM runs WHERE user_id=$1 AND session_id=$2)
+                 OR EXISTS(SELECT 1 FROM sessions WHERE user_id=$1 AND id=$2)",
         )
         .bind(user.as_str())
         .bind(session_id)
@@ -302,6 +304,7 @@ impl Store {
             "memory_scores",
             "turn_models",
             "session_titles",
+            "shares",
         ] {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE user_id=$1 AND session_id = ANY($2)"

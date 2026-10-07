@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
+import com.flashmind.beep.ffi.shareToken
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -84,6 +85,8 @@ open class MainActivity : ComponentActivity() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val pendingFocusInput = mutableStateOf(false)
     private val pendingOpenApps = mutableStateOf(false)
+    /** The token of a `beep://share/` link to open. */
+    private val pendingShareToken = mutableStateOf<String?>(null)
     private val clipboardContent = mutableStateOf<String?>(null)
     /** Set to true right before the app copies text, to suppress showing the banner for our own copies. */
     var suppressNextClipboard = false
@@ -136,6 +139,7 @@ open class MainActivity : ComponentActivity() {
         intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it) }
         if (intent.getBooleanExtra("focus_input", false)) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
+        intent.data?.let { shareToken(it.toString()) }?.let { pendingShareToken.value = it }
     }
     override fun onResume() {
         super.onResume()
@@ -193,9 +197,10 @@ open class MainActivity : ComponentActivity() {
         intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
         if (intent?.getBooleanExtra("focus_input", false) == true) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
+        intent?.data?.let { shareToken(it.toString()) }?.let { pendingShareToken.value = it }
         setContent {
             BeepTheme {
-                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, clipboardContent = clipboardContent, onFloat = {
+                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, shareToken = pendingShareToken, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
                 }, onExpand = {
@@ -270,7 +275,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-private enum class Screen { Chat, Memories, Crons, Integrations, Settings, Devices }
+private enum class Screen { Chat, Memories, Crons, Integrations, Settings, Devices, Shared }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -278,6 +283,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>? = null,
                     focusInput: MutableState<Boolean> = mutableStateOf(false),
                     openApps: MutableState<Boolean> = mutableStateOf(false),
+                    shareToken: MutableState<String?> = mutableStateOf(null),
                     clipboardContent: MutableState<String?> = mutableStateOf(null),
                     onFloat: () -> Unit, onExpand: () -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
@@ -296,6 +302,15 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         if (openApps.value) {
             openApps.value = false
             screen = Screen.Integrations
+        }
+    }
+    // A shared chat's link opens it read only until the user goes back or continues it.
+    var sharedToken by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(shareToken.value) {
+        shareToken.value?.let {
+            shareToken.value = null
+            sharedToken = it
+            screen = Screen.Shared
         }
     }
     // Chats left by starting a new one, newest last, so a swipe right can go back to them.
@@ -362,6 +377,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Chat },
                 onBubbleSettings = onBubbleSettings, onLinkedDevices = { screen = Screen.Devices })
             Screen.Devices -> LinkedDevicesScreen(repository, onBack = { screen = Screen.Settings })
+            Screen.Shared -> sharedToken?.let { token ->
+                SharedChatScreen(repository, token, onBack = { screen = Screen.Chat }, onContinued = { sharedToken = null; screen = Screen.Chat })
+            }
             Screen.Chat -> {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val focusManager = LocalFocusManager.current
@@ -390,6 +408,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             var contextMenuChat by remember { mutableStateOf<String?>(null) }
             var showRenameDialog by remember { mutableStateOf<Conversation?>(null) }
             var showDeleteDialog by remember { mutableStateOf<Conversation?>(null) }
+            var sharingChat by remember { mutableStateOf<Conversation?>(null) }
             // Chats picked for bulk delete; selection mode is on while it is not null.
             var picked by remember { mutableStateOf<Set<String>?>(null) }
             var confirmBulkDelete by remember { mutableStateOf(false) }
@@ -459,6 +478,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                             DropdownMenuItem(text = { Text(if (chat.pinned) "Unpin" else "Pin") },
                                 leadingIcon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
                                 onClick = { contextMenuChat = null; repository.pinSession(chat.id, !chat.pinned) })
+                            DropdownMenuItem(text = { Text("Share") },
+                                leadingIcon = { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)) },
+                                onClick = { contextMenuChat = null; sharingChat = chat })
                             DropdownMenuItem(text = { Text("Delete", color = Coral) },
                                 leadingIcon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp), tint = Coral) },
                                 onClick = { contextMenuChat = null; showDeleteDialog = chat })
@@ -471,6 +493,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     MessageHitRow(chat.title, hit, historyQuery.trim()) { openChat(chat.id); drawerOpen = false }
                 }
             }
+            sharingChat?.let { chat -> ShareSheet(repository, chat, onDismiss = { sharingChat = null }) }
             // Rename dialog
             showRenameDialog?.let { chat ->
                 var renameText by remember(chat.id) { mutableStateOf(chat.title) }

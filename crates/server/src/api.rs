@@ -11,13 +11,13 @@ use crate::{
     protocol::*,
     router::{Cx, Router, Sink},
     store::{
-        AccountKey, CreateRun, DeletedTurn, Feed, FoundSession, LinkKey, Location, NewKey,
-        PushDevice, TurnModel, TurnsToDelete, decode_schedule,
+        AccountKey, CopiedShare, CreateRun, DeletedTurn, Feed, FoundSession, LinkKey, Location,
+        NewKey, PushDevice, TurnModel, TurnsToDelete, decode_schedule,
     },
 };
 use chrono::{DateTime, Utc};
 use flashmind::{
-    core::{ConversationEntry, EntryKind},
+    core::{Conversation, ConversationEntry, EntryKind},
     cron::{CronSchedule, JobSchedule},
 };
 use iroh::EndpointId;
@@ -81,6 +81,10 @@ pub fn router() -> Router {
         .call(link_device)
         .call(list_devices)
         .call(remove_device)
+        .call(share_session)
+        .call(unshare_session)
+        .call(get_share)
+        .call(copy_share)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -218,6 +222,100 @@ async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<History
     let mut entries = history(conv.entries(), &failures, &scores, &models);
     entries.extend(permissions::waiting_approval(&conv));
     Ok(entries)
+}
+
+async fn share_session(cx: Cx, ShareSession { id }: ShareSession) -> Reply<SharedLink> {
+    let conv = cx
+        .user
+        .conversation(&id)
+        .await?
+        .ok_or(ApiError::NotFound {})?;
+    let entries = history(
+        conv.entries(),
+        &HashSet::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    let share = cx
+        .user
+        .share_session(&id, &shared_conversation(&entries))
+        .await?
+        .ok_or(ApiError::NotFound {})?;
+    Ok(SharedLink {
+        url: share_url(&share.token),
+        token: share.token,
+        title: share.title,
+        shared_at: share.shared_at.timestamp_millis(),
+    })
+}
+
+async fn unshare_session(cx: Cx, UnshareSession { id }: UnshareSession) -> Reply<()> {
+    cx.user.unshare_session(&id).await?;
+    Ok(())
+}
+
+async fn get_share(cx: Cx, GetShare { token }: GetShare) -> Reply<SharedSession> {
+    let share = cx
+        .app
+        .store
+        .share(&token)
+        .await?
+        .ok_or(ApiError::NotFound {})?;
+    Ok(SharedSession {
+        entries: history(
+            share.conversation.entries(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        ),
+        title: share.title,
+        shared_at: share.shared_at.timestamp_millis(),
+    })
+}
+
+async fn copy_share(cx: Cx, CopyShare { token, session_id }: CopyShare) -> Reply<Session> {
+    let id = session_id.to_string();
+    match cx.user.copy_share(&token, &id).await? {
+        CopiedShare::Copied => {}
+        CopiedShare::NotFound => return Err(ApiError::NotFound {}),
+        CopiedShare::Taken => {
+            return Err(ApiError::Conflict {
+                message: "session id is taken".into(),
+            });
+        }
+    }
+    cx.user
+        .sessions()
+        .await?
+        .into_iter()
+        .find(|session| session.id == id)
+        .ok_or(ApiError::Internal {})
+}
+
+/// The text of the user and assistant messages in `entries`, as a
+/// conversation a share can keep. Tool results, reasoning, routine prompts
+/// and the context around each turn stay private.
+fn shared_conversation(entries: &[HistoryEntry]) -> Conversation {
+    let at = |millis| DateTime::from_timestamp_millis(millis).unwrap_or_default();
+    let mut conversation = Conversation::new();
+    for entry in entries {
+        let mut shared = match entry {
+            HistoryEntry::User { content, .. } => ConversationEntry::user(content.clone()),
+            HistoryEntry::Assistant { content, .. } if !content.is_empty() => {
+                ConversationEntry::assistant(content.clone())
+            }
+            HistoryEntry::Assistant { .. }
+            | HistoryEntry::Scheduled { .. }
+            | HistoryEntry::Approval { .. } => continue,
+        };
+        if let HistoryEntry::User { timestamp, .. } | HistoryEntry::Assistant { timestamp, .. } =
+            entry
+        {
+            shared.timestamp = at(*timestamp);
+        }
+        conversation.add(shared);
+    }
+    conversation
 }
 
 /// Sessions the database may hand over for a search. Matches only in tool
@@ -932,12 +1030,46 @@ fn next_run_at(schedule: &str, tz_name: &str) -> Option<DateTime<Utc>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flashmind::{core::Conversation, types::ToolCall};
+    use flashmind::types::ToolCall;
     use serde_json::json;
 
     #[test]
     fn every_op_is_routed_once() {
         super::router().check().unwrap();
+    }
+
+    #[test]
+    fn a_share_keeps_only_the_message_text() {
+        let mut chat = Conversation::new();
+        chat.add(ConversationEntry::system_message("Location: home"));
+        chat.add(ConversationEntry::user("check my mail"));
+        chat.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![ToolCall {
+                id: "c1".into(),
+                name: "mail".into(),
+                arguments: json!({}),
+            }],
+            Some("thinking".into()),
+        ));
+        chat.add(ConversationEntry::tool("c1", "secret inbox"));
+        chat.add(ConversationEntry::assistant_with_reasoning(
+            "Two new emails.",
+            Some("more thinking".into()),
+        ));
+        let entries = history(
+            chat.entries(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let shared = shared_conversation(&entries);
+        let json = serde_json::to_string(&shared).unwrap();
+        for private in ["home", "secret", "thinking", "c1"] {
+            assert!(!json.contains(private), "{private} leaked into {json}");
+        }
+        let texts: Vec<_> = shared.entries().iter().map(|e| e.content()).collect();
+        assert_eq!(texts, ["check my mail", "Two new emails."]);
     }
 
     #[test]
