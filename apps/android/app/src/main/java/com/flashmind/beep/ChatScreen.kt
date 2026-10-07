@@ -872,16 +872,23 @@ private fun starterIcon(text: String): androidx.compose.ui.graphics.vector.Image
     }
 }
 
+/** Tap sends the starter; press and hold opens it to show the full prompt first. */
 @Composable
 private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: (String) -> Unit) {
-    ChunkyButton(onClick = { onClick(prompt) }, modifier = Modifier.fillMaxWidth().padding(end = 3.dp, bottom = 3.dp),
+    var open by remember(prompt) { mutableStateOf(false) }
+    ChunkyButton(onClick = { onClick(prompt) }, onLongClick = { open = !open },
+        modifier = Modifier.fillMaxWidth().padding(end = 3.dp, bottom = 3.dp)
+            .animateContentSize(spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium)),
         shape = RoundedCornerShape(Beep.shapes.radius), contentPadding = PaddingValues(12.dp)) {
-        Box(Modifier.size(34.dp).background(tint, RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
+        Box(Modifier.align(Alignment.Top).size(34.dp).background(tint, RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = TextPrimary, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.width(12.dp))
-        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary, modifier = Modifier.weight(1f))
-        Icon(Icons.Outlined.NorthEast, null, tint = TextMuted, modifier = Modifier.size(16.dp))
+        Column(Modifier.weight(1f).heightIn(min = 34.dp), verticalArrangement = Arrangement.Center) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+            if (open) Text(prompt, fontSize = 13.sp, lineHeight = 19.sp, color = TextMuted, modifier = Modifier.padding(top = 4.dp))
+        }
+        Icon(Icons.Outlined.NorthEast, null, tint = TextMuted, modifier = Modifier.align(Alignment.Top).padding(top = 9.dp).size(16.dp))
     }
 }
 
