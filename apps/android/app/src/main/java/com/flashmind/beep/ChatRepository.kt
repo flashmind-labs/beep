@@ -20,6 +20,7 @@ import com.flashmind.beep.ffi.identityName
 import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.ApprovalDecision
 import com.flashmind.beep.proto.BrowserCommand
+import com.flashmind.beep.proto.LinkedDevice
 import com.flashmind.beep.proto.DeviceAnswer
 import com.flashmind.beep.proto.AppPermissions
 import com.flashmind.beep.proto.Models
@@ -599,6 +600,9 @@ class ChatRepository(private val storage: LocalStorage) {
         api().setAppPermissions(slug, level, allowed)
     /** The last model list the server sent, cached between launches. Its choices are empty unless the user is an admin. */
     val modelChoices = MutableStateFlow(lists.models)
+    suspend fun listDevices(): List<LinkedDevice> = api().listDevices()
+    suspend fun linkDevice(offerUri: String): LinkedDevice = api().linkDevice(offerUri)
+    suspend fun removeDevice(id: String) = api().removeDevice(id)
     suspend fun models(): Models = api().getModels().also(::keepModels)
     suspend fun setModel(id: String): Models = api().setModel(id).also(::keepModels)
     suspend fun setThinking(level: ReasoningLevel): Models = api().setThinking(level).also(::keepModels)

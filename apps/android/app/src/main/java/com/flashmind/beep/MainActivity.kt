@@ -270,7 +270,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-private enum class Screen { Chat, Memories, Crons, Integrations, Settings }
+private enum class Screen { Chat, Memories, Crons, Integrations, Settings, Devices }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -350,7 +350,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }
     val activeScreen = if (bubble) Screen.Chat else screen
     BackHandler(enabled = activeScreen != Screen.Chat) {
-        screen = Screen.Chat
+        screen = if (activeScreen == Screen.Devices) Screen.Settings else Screen.Chat
     }
     Crossfade(targetState = activeScreen, animationSpec = tween(300), label = "screen-transition") { currentScreen ->
         when (currentScreen) {
@@ -360,7 +360,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 onOpenChat = { id -> repository.select(id); screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Chat },
-                onBubbleSettings = onBubbleSettings)
+                onBubbleSettings = onBubbleSettings, onLinkedDevices = { screen = Screen.Devices })
+            Screen.Devices -> LinkedDevicesScreen(repository, onBack = { screen = Screen.Settings })
             Screen.Chat -> {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val focusManager = LocalFocusManager.current

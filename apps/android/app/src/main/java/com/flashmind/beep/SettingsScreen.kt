@@ -51,6 +51,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Laptop
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.flashmind.beep.proto.ModelChoice
@@ -64,7 +65,12 @@ import kotlinx.coroutines.withContext
 /** Everything that is not a conversation or one of the drawer tiles. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(repository: ChatRepository, onBack: () -> Unit, onBubbleSettings: () -> Unit) {
+fun SettingsScreen(
+    repository: ChatRepository,
+    onBack: () -> Unit,
+    onBubbleSettings: () -> Unit,
+    onLinkedDevices: () -> Unit,
+) {
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(title = { Text(displayText("Settings"), style = displayStyle(24.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
@@ -81,6 +87,8 @@ fun SettingsScreen(repository: ChatRepository, onBack: () -> Unit, onBubbleSetti
             Column {
                 HorizontalDivider(color = Beep.colors.softLine)
                 AccountRow(repository)
+                HorizontalDivider(color = Beep.colors.softLine)
+                SettingsRow(Icons.Outlined.Laptop, "Linked devices", "Use Beep from your computer", onLinkedDevices)
                 HorizontalDivider(color = Beep.colors.softLine)
             }
         }

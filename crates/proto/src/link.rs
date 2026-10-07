@@ -17,6 +17,8 @@ pub const OFFER_TTL: Duration = Duration::from_secs(10 * 60);
 pub const MAX_NAME: usize = 64;
 
 const CONTEXT: &[u8] = b"beep-link/1";
+/// Crockford's base32, which leaves out letters that look like digits.
+const CODE_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const SCHEME: &str = "beep-link:";
 
 /// A device asking to join the account of whoever scans it.
@@ -80,6 +82,22 @@ impl LinkOffer {
             return Err(LinkError::Expired);
         }
         Ok(())
+    }
+
+    /// Six characters both screens show, such as `7K4 PQ2`, so the user can
+    /// check the phone scanned the right computer.
+    pub fn code(&self) -> String {
+        let hash = blake3::hash(&self.signature.to_bytes());
+        let chars: Vec<char> = hash.as_bytes()[..6]
+            .iter()
+            .map(|byte| char::from(CODE_ALPHABET[usize::from(byte % 32)]))
+            .collect();
+        let (first, second) = chars.split_at(3);
+        format!(
+            "{} {}",
+            first.iter().collect::<String>(),
+            second.iter().collect::<String>()
+        )
     }
 
     /// When the offer stops being accepted.
@@ -148,6 +166,9 @@ mod tests {
         assert_eq!(parsed, offer);
         assert_eq!(parsed.device, device.public());
         parsed.verify(server, now).unwrap();
+        let code = parsed.code();
+        assert_eq!(code.len(), 7);
+        assert_eq!(code, offer.code());
     }
 
     #[test]
