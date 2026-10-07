@@ -1,5 +1,4 @@
-# Builds the macOS DMG on pushes to main that touch the desktop app or the
-# protocol it speaks, and keeps it as a run artifact.
+# Builds the macOS DMG on every push to main and keeps it as a run artifact.
 #
 # Runs on a Mac registered with the `macos` label, with Rust and tauri-cli
 # installed for the runner's user. The server's node id is the repository
@@ -10,10 +9,6 @@ name: desktop
 on:
   push:
     branches: [main]
-    paths:
-      - apps/desktop/**
-      - crates/proto/**
-      - .forgejo/workflows/desktop.yml
   workflow_dispatch:
 
 concurrency:
