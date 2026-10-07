@@ -141,6 +141,8 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         "Outlook",
         "Email, calendar and contacts",
         &[
+            read("OUTLOOK_SEARCH_MESSAGES"),
+            read("OUTLOOK_GET_MESSAGE"),
             read("OUTLOOK_QUERY_EMAILS"),
             act("OUTLOOK_SEND_EMAIL"),
             act("OUTLOOK_REPLY_EMAIL"),
