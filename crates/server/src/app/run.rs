@@ -39,11 +39,8 @@ use std::{
 };
 use tokio::{sync::RwLock, time::Instant};
 
-/// How long a run may go without a tool call succeeding. Text, reasoning and
-/// failed calls are not progress; time spent waiting on a tool does not count.
-/// A run that keeps getting results keeps going, up to [`MAX_RUN`].
-const PROGRESS_TIMEOUT: Duration = Duration::from_secs(30);
-/// The longest any run may take, progress or not.
+/// The longest any run may take. A model stuck repeating itself is stopped
+/// sooner by the repeat guards.
 const MAX_RUN: Duration = Duration::from_secs(15 * 60);
 /// How long a run may go without a single event from the model or a tool.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
@@ -278,8 +275,6 @@ impl App {
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
 
-            let deadline = tokio::time::sleep(PROGRESS_TIMEOUT);
-            tokio::pin!(deadline);
             let hard_stop = tokio::time::sleep(MAX_RUN);
             tokio::pin!(hard_stop);
 
@@ -296,7 +291,6 @@ impl App {
                     } else {
                         RunStatus::Cancelled
                     },
-                    _ = &mut deadline, if tools_running == 0 => { cancel.cancel(); break RunStatus::TimedOut; },
                     _ = &mut hard_stop => { cancel.cancel(); break RunStatus::TimedOut; },
                     event = tokio::time::timeout(
                         if tools_running > 0 { TOOL_IDLE_TIMEOUT } else { IDLE_TIMEOUT },
@@ -350,9 +344,7 @@ impl App {
                         if tools_running == 0 {
                             timer.tools_done();
                         }
-                        if success {
-                            deadline.as_mut().reset(Instant::now() + PROGRESS_TIMEOUT);
-                        } else {
+                        if !success {
                             failed_tools.push(id.clone());
                         }
                         RunEvent::ToolResult {
