@@ -28,7 +28,7 @@ use crate::{
     permissions::{self, Rules, ToolSlug},
     protocol::{
         ApiError, AppIntegration, AppKind, ConnectLink, Cron, Memory, MemorySource, Notice,
-        PromptSuggestions, Run, Session,
+        PromptSuggestion, PromptSuggestions, Run, Session,
     },
     starters::{
         Cached, FALLBACK_FRESH, FRESH, Generator, STARTER_REFRESH_WINDOW, STARTER_REFRESHES,
@@ -1481,6 +1481,16 @@ impl User {
         let cache = self.starters.lock().await;
         let entry = cache.as_ref().filter(|c| c.fresh(here))?;
         Some(entry.suggestions.clone())
+    }
+
+    /// The personal starters last made, fresh or not.
+    pub async fn shown_starters(&self) -> Vec<PromptSuggestion> {
+        let cache = self.starters.lock().await;
+        cache
+            .as_ref()
+            .filter(|c| c.suggestions.personal)
+            .map(|c| c.suggestions.suggestions.clone())
+            .unwrap_or_default()
     }
 
     /// Asks the model, falling back on any failure, and caches the result.

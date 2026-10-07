@@ -877,14 +877,16 @@ private fun starterIcon(text: String): androidx.compose.ui.graphics.vector.Image
 private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: (String) -> Unit) {
     var open by remember(prompt) { mutableStateOf(false) }
     ChunkyButton(onClick = { onClick(prompt) }, onLongClick = { open = !open },
-        modifier = Modifier.fillMaxWidth().padding(end = 3.dp, bottom = 3.dp)
-            .animateContentSize(spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium)),
+        modifier = Modifier.fillMaxWidth().padding(end = 3.dp, bottom = 3.dp),
         shape = RoundedCornerShape(Beep.shapes.radius), contentPadding = PaddingValues(12.dp)) {
         Box(Modifier.align(Alignment.Top).size(34.dp).background(tint, RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = TextPrimary, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f).heightIn(min = 34.dp), verticalArrangement = Arrangement.Center) {
+        // Only the text grows, so the size animation's clip never cuts the card's border or ledge.
+        Column(Modifier.weight(1f).heightIn(min = 34.dp)
+            .animateContentSize(spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium)),
+            verticalArrangement = Arrangement.Center) {
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
             if (open) Text(prompt, fontSize = 13.sp, lineHeight = 19.sp, color = TextMuted, modifier = Modifier.padding(top = 4.dp))
         }
@@ -896,9 +898,9 @@ private fun Suggestion(title: String, prompt: String, icon: androidx.compose.ui.
 @Composable
 private fun NewIdeas(repository: ChatRepository) {
     val refreshes by repository.starterRefreshes.collectAsState()
+    val loading by repository.startersRefreshing.collectAsState()
     var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val wait = repository.starterRefreshWait(refreshes, now)
-    // Ticks only while it is greyed out, to count the minutes down.
     LaunchedEffect(wait > 0) {
         while (repository.starterRefreshWait(refreshes, now) > 0) {
             delay(5_000)
@@ -906,16 +908,26 @@ private fun NewIdeas(repository: ChatRepository) {
         }
     }
     val minutes = ((wait + 59_999) / 60_000).coerceAtLeast(1)
+    val ready = wait == 0L && !loading
+    val turn = if (loading) rememberInfiniteTransition(label = "new-ideas")
+        .animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "spin").value else 0f
     Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
         TextButton(
             onClick = { now = SystemClock.elapsedRealtime(); repository.newStarters() },
-            enabled = wait == 0L,
+            enabled = ready,
             contentPadding = PaddingValues(horizontal = 8.dp),
             modifier = Modifier.heightIn(min = 48.dp).alpha(if (wait == 0L) 1f else 0.6f),
         ) {
-            Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp), tint = TextMuted)
+            Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp).graphicsLayer { rotationZ = turn }, tint = TextMuted)
             Spacer(Modifier.width(6.dp))
-            Text(if (wait == 0L) "New ideas" else "New ideas in $minutes min", color = TextMuted, fontSize = 13.sp)
+            Text(
+                when {
+                    loading -> "Finding new ideas"
+                    wait == 0L -> "New ideas"
+                    else -> "New ideas in $minutes min"
+                },
+                color = TextMuted, fontSize = 13.sp,
+            )
         }
     }
 }

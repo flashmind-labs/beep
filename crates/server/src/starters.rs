@@ -53,14 +53,21 @@ const MIN_COUNT: usize = 2;
 const SYSTEM: &str = "You write conversation starters for Beep, a personal assistant app on the user's phone. \
 Answer with a Markdown list of 4 starters and nothing else, one per line as \"- title | prompt\", \
 or \"- title | prompt | until YYYY-MM-DDTHH:MM\" for one tied to an event. \
-title: at most 28 characters, shown on a small chip. \
-prompt: the full message the user would send, in first person, one or two sentences. \
+title: at most 28 characters, shown on a small chip. Name the outcome the user gets, \
+like \"Reply to Holger on Utexo\" or \"Dinner near Tanjong Pagar\", never a vague topic like \"Utexo email check\" or \"Singapore offbeat\". \
+prompt: the full message the user would send, in first person, one or two sentences, \
+asking Beep to do or decide something concrete. \
 until: the local time when the starter stops being useful, like a few hours after a flight lands \
 or the end of a meeting; leave it out when it stays useful. \
-Leave out starters about events that are already over, judging by the local time and place. \
+Pick the 4 things that would help most right now, judging by the local time, place and what is coming up soon. \
+Each starter covers a different need and a different kind of task: at most one about reading or answering email, \
+and never two about the same trip, event or person. \
+Skip chores the user does without help, like checking out of a hotel or packing, \
+unless the context gives a real problem to solve. \
+Leave out starters about events that are already over. \
 Never suggest something listed under \"Done recently\": it is done, even if a memory still mentions it as a plan. \
 Recent conversations are things the user already asked; do not suggest asking them again. \
-Make them varied, specific to the context and useful at this time of day. \
+Starters under \"Shown just before\" were not wanted: suggest different things, not rewordings of them. \
 Only use facts given in the context, and never include secrets. \
 Write in the language the context suggests the user speaks, else English.";
 
@@ -102,6 +109,8 @@ pub struct StarterContext {
     pub connected_apps: Vec<String>,
     /// What Beep recently did in the user's apps, newest first.
     pub done: Vec<Done>,
+    /// The set the user just asked to replace with New ideas.
+    pub shown: Vec<PromptSuggestion>,
 }
 
 /// Something Beep did in the user's apps.
@@ -178,6 +187,17 @@ impl StarterContext {
                 };
                 let description = clip(&done.description, MAX_DONE_CHARS);
                 let _ = writeln!(text, "- {}: {description}", at.describe());
+            }
+        }
+        if !self.shown.is_empty() {
+            let _ = writeln!(text, "\nShown just before:");
+            for starter in &self.shown {
+                let prompt = clip(&starter.prompt, MAX_PROMPT_CHARS);
+                let _ = writeln!(
+                    text,
+                    "- {}: {prompt}",
+                    clip(&starter.title, MAX_TITLE_CHARS)
+                );
             }
         }
         if !self.memories.is_empty() {
@@ -430,6 +450,26 @@ mod tests {
         let past = answer.replace("2026-10-05T09:30", "2026-10-04T08:00");
         let stale_at = parse(&past, &now).unwrap().stale_at;
         assert_eq!(stale_at, Some(now.time + MIN_STALE));
+    }
+
+    #[test]
+    fn a_refresh_lists_the_set_it_replaces() {
+        let context = StarterContext {
+            memories: Vec::new(),
+            recent_titles: Vec::new(),
+            now: singapore("2026-10-07T02:00:00Z"),
+            place: None,
+            connected_apps: Vec::new(),
+            done: Vec::new(),
+            shown: vec![PromptSuggestion {
+                title: "Lunch nearby".into(),
+                prompt: "Find a quiet lunch spot near me.".into(),
+            }],
+        };
+        let text = context.render();
+        assert!(
+            text.contains("Shown just before:\n- Lunch nearby: Find a quiet lunch spot near me.")
+        );
     }
 
     #[test]
