@@ -197,7 +197,7 @@ class LocalStorage(internal val context: Context) {
                     m.optString("autoModel"), m.optString("autoThinking"))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"),
-                status = c.optString("status"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
+                status = c.optString("status"), error = c.optString("error"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
                 version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()),
                 updatedAt = c.optLong("updatedAt"), queuedText = c.optString("queuedText"),
                 queuedImages = readImages(c, "queuedImages", "queuedImage"))
@@ -327,7 +327,7 @@ class LocalStorage(internal val context: Context) {
                 .put("runId", c.runId).put("cursor", c.cursor).put("requestId", c.requestId)
                 .put("pendingText", c.pendingText).apply { if (c.pendingImages.isNotEmpty()) put("pendingImages", JSONArray(c.pendingImages)) }
                 .apply { if (c.pendingModel.isNotEmpty()) put("pendingModel", c.pendingModel) }
-                .put("status", c.status).put("cancelRequested", c.cancelRequested)
+                .put("status", c.status).apply { if (c.error.isNotEmpty()) put("error", c.error) }.put("cancelRequested", c.cancelRequested)
                 .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt).put("updatedAt", c.updatedAt)
                 .apply { if (c.queuedText.isNotEmpty()) put("queuedText", c.queuedText) }
                 .apply { if (c.queuedImages.isNotEmpty()) put("queuedImages", JSONArray(c.queuedImages)) })
