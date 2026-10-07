@@ -103,7 +103,8 @@ private class DraftField<T>(private val read: () -> T, private val write: (T) ->
 @Composable
 internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier: Modifier, compact: Boolean,
                        focusInput: MutableState<Boolean> = mutableStateOf(false),
-                       clipboardContent: MutableState<String?> = mutableStateOf(null)) {
+                       clipboardContent: MutableState<String?> = mutableStateOf(null),
+                       onExpand: (() -> Unit)? = null) {
     var draft by DraftField({ repository.draft(chat.id).text }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(text = it)) }
     var attachedImages by DraftField({ repository.draft(chat.id).images }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(images = it)) }
     val list = rememberLazyListState()
@@ -544,9 +545,14 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
 
         val buttonSize = if (compact) 44.dp else 50.dp
         val buttonShape = RoundedCornerShape(Beep.shapes.radius)
-        Row(Modifier.padding(start = if (compact) 8.dp else 14.dp, end = if (compact) 10.dp else 16.dp,
+        Row(Modifier.padding(start = if (onExpand != null) 2.dp else if (compact) 8.dp else 14.dp, end = if (compact) 10.dp else 16.dp,
             top = if (compact) 4.dp else 8.dp, bottom = if (compact) 8.dp else 12.dp).fillMaxWidth(),
-            verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(if (onExpand != null) 2.dp else 8.dp)) {
+            if (onExpand != null) {
+                IconButton(onClick = onExpand, modifier = Modifier.size(buttonSize)) {
+                    Icon(Icons.Outlined.OpenInFull, "Open full app", Modifier.size(18.dp), tint = TextMuted)
+                }
+            }
             Row(Modifier.weight(1f).heightIn(min = buttonSize).beepFrame(buttonShape, Surface, pressableLook()),
                 verticalAlignment = Alignment.CenterVertically) {
                 if (!chat.busy && draft.isBlank() && attachedImages.size < MAX_IMAGES) {

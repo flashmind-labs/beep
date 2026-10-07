@@ -539,7 +539,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     Spacer(Modifier.width(8.dp))
                     ConnectionDot(connected, status)
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = onExpand) { Icon(Icons.Outlined.OpenInFull, "Open full app", Modifier.size(18.dp)) }
                     Box {
                         IconButton(onClick = { bubbleMenu = true }) { Icon(Icons.Outlined.MoreVert, "Chat options", Modifier.size(20.dp)) }
                         DropdownMenu(expanded = bubbleMenu, onDismissRequest = { bubbleMenu = false }) {
@@ -578,7 +577,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 onNew = { startNewChat() }, onBack = { goBack() }, modifier = Modifier.padding(padding).fillMaxSize()) {
                 // Each chat gets its own list, so rows of the chat being left never animate under the next one.
                 key(state.current.id) {
-                    ChatScreen(state.current, repository, Modifier.fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent)
+                    ChatScreen(state.current, repository, Modifier.fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent,
+                        onExpand = if (bubble) onExpand else null)
                 }
             }
         }
