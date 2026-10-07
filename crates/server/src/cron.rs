@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::app::{App, Message};
 use crate::digest;
-use crate::protocol::Run;
+use crate::protocol::{DeviceKind, Run};
 use crate::store::{CreateRun, Store};
 use crate::user::User;
 
@@ -155,6 +155,7 @@ pub(crate) async fn submit(
         foreground: None,
         answer: None,
         model: None,
+        origin: DeviceKind::Phone {},
     };
 
     let mut result = app

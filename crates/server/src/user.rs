@@ -35,9 +35,9 @@ use crate::{
         StarterContext, TIMEOUT, fallback,
     },
     store::{
-        ActionRow, AppPermissionRow, AttentionItem, CreateRun, DeletedTurn, Fact, Feed,
-        FinishedTurn, FoundSession, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Origin,
-        RunStatus, Store, StoredContext, TurnModel, TurnsToDelete,
+        AccountKey, ActionRow, AppPermissionRow, AttentionItem, CreateRun, DeletedTurn, Fact, Feed,
+        FinishedTurn, FoundSession, LinkKey, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow,
+        NewKey, Origin, RunStatus, Store, StoredContext, TurnModel, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -541,6 +541,21 @@ impl User {
     /// Removes a phone's push token; `false` when it was not registered.
     pub async fn unregister_device(&self, device_id: &str) -> Result<bool> {
         self.store.unregister_device(&self.key, device_id).await
+    }
+
+    /// Links another device's key to this account.
+    pub async fn link_key(&self, key: NewKey<'_>) -> Result<LinkKey> {
+        self.store.link_key(&self.key, key).await
+    }
+
+    /// The account's own key, then the keys linked to it.
+    pub async fn account_keys(&self) -> Result<Vec<AccountKey>> {
+        self.store.account_keys(&self.key).await
+    }
+
+    /// Stops a linked key signing in; `false` when the account has no such key.
+    pub async fn revoke_key(&self, endpoint_id: &str) -> Result<bool> {
+        self.store.revoke_key(&self.key, endpoint_id).await
     }
 
     /// Keeps what a turn did in the user's apps.

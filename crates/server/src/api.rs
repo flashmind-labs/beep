@@ -11,8 +11,8 @@ use crate::{
     protocol::*,
     router::{Cx, Router, Sink},
     store::{
-        CreateRun, DeletedTurn, Feed, FoundSession, Location, TurnModel, TurnsToDelete,
-        decode_schedule,
+        AccountKey, CreateRun, DeletedTurn, Feed, FoundSession, LinkKey, Location, NewKey,
+        TurnModel, TurnsToDelete, decode_schedule,
     },
 };
 use chrono::{DateTime, Utc};
@@ -20,11 +20,12 @@ use flashmind::{
     core::{ConversationEntry, EntryKind},
     cron::{CronSchedule, JobSchedule},
 };
+use iroh::EndpointId;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     mem,
     ops::Range,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tokio::{sync::broadcast::error::RecvError, time::timeout};
 use uuid::Uuid;
@@ -77,6 +78,9 @@ pub fn router() -> Router {
         .call(delete_turns_from)
         .call(search_sessions)
         .call(set_auto_model)
+        .call(link_device)
+        .call(list_devices)
+        .call(remove_device)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -114,6 +118,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         foreground: req.foreground,
         answer: None,
         model,
+        origin: cx.device,
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
@@ -572,6 +577,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
             decision,
         }),
         model: None,
+        origin: cx.device,
     };
     let session = session_id.to_string();
     let conversation = match cx.user.context(&session).await? {
@@ -780,6 +786,70 @@ async fn register_device(cx: Cx, req: RegisterDevice) -> Reply<()> {
 
 async fn unregister_device(cx: Cx, req: UnregisterDevice) -> Reply<()> {
     found(cx.user.unregister_device(&req.device_id).await?)
+}
+
+/// Links a computer whose offer the phone scanned. Only the account's own
+/// key may link others.
+async fn link_device(cx: Cx, LinkDevice { offer }: LinkDevice) -> Reply<LinkedDevice> {
+    if !is_primary(&cx) {
+        return Err(ApiError::Unauthorized {});
+    }
+    offer
+        .verify(cx.pusher.server_id(), SystemTime::now())
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let key = NewKey {
+        endpoint: offer.device,
+        name: offer.name.trim(),
+        kind: DeviceKind::Desktop {},
+    };
+    match cx.user.link_key(key).await? {
+        LinkKey::Linked(key) => {
+            // Also the new device's first notice, which tells it it is linked.
+            cx.user.changed("");
+            Ok(linked_device(&cx, key))
+        }
+        LinkKey::Taken => Err(ApiError::Conflict {
+            message: "that device is already linked to an account".into(),
+        }),
+    }
+}
+
+async fn list_devices(cx: Cx, _: ListDevices) -> Reply<Vec<LinkedDevice>> {
+    let keys = cx.user.account_keys().await?;
+    Ok(keys
+        .into_iter()
+        .map(|key| linked_device(&cx, key))
+        .collect())
+}
+
+/// The account's own key removes any linked one; a linked key only itself.
+async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> Reply<()> {
+    let caller = cx.connection.remote_id();
+    if !is_primary(&cx) && id != caller.to_string() {
+        return Err(ApiError::Unauthorized {});
+    }
+    let key: EndpointId = id
+        .parse()
+        .map_err(|_| ApiError::bad_request("not a device id"))?;
+    found(cx.user.revoke_key(&id).await?)?;
+    cx.user.changed("");
+    cx.pusher.forget(key);
+    Ok(())
+}
+
+fn is_primary(cx: &Cx) -> bool {
+    cx.connection.remote_id().to_string() == cx.user.id()
+}
+
+fn linked_device(cx: &Cx, key: AccountKey) -> LinkedDevice {
+    LinkedDevice {
+        this_device: key.endpoint_id == cx.connection.remote_id().to_string(),
+        id: key.endpoint_id,
+        name: key.name,
+        kind: key.kind,
+        primary: key.primary,
+        linked_at: key.linked_at.into(),
+    }
 }
 
 async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {

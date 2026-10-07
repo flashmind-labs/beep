@@ -4,13 +4,14 @@ use beep_server::{
     client::{Client, Node, OnNotice, Replies},
     models::ModelChoices,
     protocol::{
-        ApiError, AppKind, CancelRun, Chat, ConnectApp, Event, ExistingSessions, GetEvents, GetRun,
-        GetSession, Health, HistoryEntry, ListApps, ListSessions, MemorySource, Notice, RunEvent,
-        StartAppAuth, SuggestPrompts,
+        ApiError, AppKind, CancelRun, Chat, ConnectApp, DeviceKind, Event, ExistingSessions,
+        GetEvents, GetRun, GetSession, Health, HistoryEntry, LinkDevice, ListApps, ListDevices,
+        ListSessions, MemorySource, Notice, RemoveDevice, RunEvent, StartAppAuth, SuggestPrompts,
+        link::{LinkOffer, OFFER_TTL},
     },
     push::Pusher,
     starters,
-    store::{CreateRun, Fact, TestDb},
+    store::{CreateRun, Fact, SignIn, TestDb},
     transport,
     user::User,
 };
@@ -26,10 +27,10 @@ use serde_json::json;
 use std::{
     ops::Deref,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tokio::{sync::mpsc, time::timeout};
 use uuid::Uuid;
@@ -41,6 +42,8 @@ fn alice() -> SecretKey {
 
 struct ProviderStub {
     calls: AtomicUsize,
+    /// The tools the last chat turn offered the model.
+    tools: Mutex<Vec<String>>,
 }
 
 #[async_trait]
@@ -67,6 +70,7 @@ impl LlmProvider for ProviderStub {
             });
         }
         self.calls.fetch_add(1, Ordering::SeqCst);
+        *self.tools.lock().unwrap() = request.tools.iter().map(|t| t.name.clone()).collect();
         let is_tool_result = request
             .messages
             .last()
@@ -107,6 +111,7 @@ impl Harness {
         let store = db.store().await.unwrap();
         let provider = Arc::new(ProviderStub {
             calls: AtomicUsize::new(0),
+            tools: Mutex::default(),
         });
         let app = App::new(
             store,
@@ -120,8 +125,12 @@ impl Harness {
             .bind()
             .await
             .unwrap();
-        let pusher =
-            Pusher::with_retry_waits(endpoint.clone(), None, vec![Duration::from_millis(200)]);
+        let pusher = Pusher::with_retry_waits(
+            endpoint.clone(),
+            Arc::new(app.store.clone()),
+            None,
+            vec![Duration::from_millis(200)],
+        );
         pusher.start(app.notifications.subscribe());
         let router = Router::builder(endpoint)
             .accept(
@@ -554,13 +563,22 @@ async fn a_key_signs_in_as_the_same_user_every_time() {
     let db = TestDb::new().await.unwrap();
     let store = db.store().await.unwrap();
     let key = alice().public();
-    let first = store.sign_in(&key).await.unwrap();
+    let user = |signed: SignIn| match signed {
+        SignIn::Account { user, device } => {
+            assert_eq!(device, DeviceKind::Phone {});
+            user
+        }
+        SignIn::Revoked => panic!("a new key is never revoked"),
+    };
+    let first = user(store.sign_in(&key).await.unwrap());
     assert_eq!(first, key.to_string());
-    assert_eq!(store.sign_in(&key).await.unwrap(), first);
-    let other = store
-        .sign_in(&SecretKey::generate().public())
-        .await
-        .unwrap();
+    assert_eq!(user(store.sign_in(&key).await.unwrap()), first);
+    let other = user(
+        store
+            .sign_in(&SecretKey::generate().public())
+            .await
+            .unwrap(),
+    );
     assert_ne!(other, first);
     let users = store.user_ids().await.unwrap();
     assert!(users.contains(&first) && users.contains(&other));
@@ -609,4 +627,96 @@ async fn notices_reach_the_phone_open_idle_retried_or_after_being_away() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     refuse.store(false, Ordering::SeqCst);
     assert_eq!(next_title(&mut titles).await, "retried");
+}
+
+/// The computer Alice links to her account.
+fn macbook() -> SecretKey {
+    SecretKey::from_bytes(&[7; 32])
+}
+
+#[tokio::test]
+async fn a_linked_computer_shares_the_account_until_removed() {
+    let h = Harness::new().await;
+    let server = h.router.endpoint().id();
+    let (phone_notice, mut phone_titles, _) = inbox();
+    let phone_node = h.node(alice(), phone_notice).await;
+    let phone = phone_node.connect().await.unwrap();
+
+    let now = SystemTime::now();
+    let refused = |offer: LinkOffer| {
+        let phone = &phone;
+        async move { api_error(phone.call(&LinkDevice { offer }).await.unwrap_err()) }
+    };
+    let elsewhere = SecretKey::generate().public();
+    let wrong_server = LinkOffer::sign(&macbook(), elsewhere, "MacBook", now).unwrap();
+    assert!(matches!(
+        refused(wrong_server).await,
+        ApiError::BadRequest { .. }
+    ));
+    let old = now - OFFER_TTL - Duration::from_secs(120);
+    let expired = LinkOffer::sign(&macbook(), server, "MacBook", old).unwrap();
+    assert!(matches!(
+        refused(expired).await,
+        ApiError::BadRequest { .. }
+    ));
+    let own_key = LinkOffer::sign(&alice(), server, "Phone", now).unwrap();
+    assert!(matches!(refused(own_key).await, ApiError::Conflict { .. }));
+
+    let offer = LinkOffer::sign(&macbook(), server, "MacBook", now).unwrap();
+    let linked = phone
+        .call(&LinkDevice {
+            offer: offer.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(linked.kind, DeviceKind::Desktop {});
+    assert_eq!(linked.id, macbook().public().to_string());
+    assert!(!linked.primary && !linked.this_device);
+    assert!(matches!(refused(offer).await, ApiError::Conflict { .. }));
+
+    // The computer signs into Alice's account and takes her notices too.
+    let (desk_notice, mut desk_titles, _) = inbox();
+    let desk_node = h.node(macbook(), desk_notice).await;
+    h.introduce(&desk_node);
+    let desk = desk_node.connect().await.unwrap();
+    let devices = desk.call(&ListDevices {}).await.unwrap();
+    assert_eq!(devices.len(), 2);
+    assert!(devices[0].primary && devices[0].id == alice().public().to_string());
+    assert!(devices[1].this_device && !devices[1].primary);
+    h.notify("Both");
+    let mut phone_seen = next_title(&mut phone_titles).await;
+    while phone_seen != "Both" {
+        phone_seen = next_title(&mut phone_titles).await;
+    }
+    let mut desk_seen = next_title(&mut desk_titles).await;
+    while desk_seen != "Both" {
+        desk_seen = next_title(&mut desk_titles).await;
+    }
+
+    // Only the account's own key links others.
+    let other = LinkOffer::sign(&SecretKey::generate(), server, "Laptop", now).unwrap();
+    let error = desk.call(&LinkDevice { offer: other }).await.unwrap_err();
+    assert!(matches!(api_error(error), ApiError::Unauthorized {}));
+
+    // A chat from the computer gets no phone tools.
+    let chat = Chat {
+        session_id: Uuid::new_v4(),
+        request_id: Uuid::new_v4(),
+        message: "hello from the desk".into(),
+        images: Vec::new(),
+        foreground: None,
+        model: None,
+    };
+    let mut replies = desk.stream(&chat).await.unwrap();
+    drain(&mut replies).await;
+    let tools = h.provider.tools.lock().unwrap().clone();
+    assert!(tools.iter().any(|name| name == "memory_store"));
+    assert!(!tools.iter().any(|name| name == "set_alarm"));
+    let sessions = phone.call(&ListSessions {}).await.unwrap();
+    assert!(sessions.iter().any(|s| s.id == chat.session_id.to_string()));
+
+    phone.call(&RemoveDevice { id: linked.id }).await.unwrap();
+    assert_eq!(phone.call(&ListDevices {}).await.unwrap().len(), 1);
+    let again = desk_node.connect().await.unwrap();
+    assert!(again.call(&Health {}).await.is_err());
 }

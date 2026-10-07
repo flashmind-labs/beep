@@ -121,7 +121,8 @@ impl App {
         }
 
         let timezone = user.get_timezone().await.ok();
-        let mut registry = tools::registry(self.clone(), run, user, timezone.as_deref());
+        let mut registry =
+            tools::registry(self.clone(), run, user, timezone.as_deref(), message.origin);
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }
@@ -214,13 +215,7 @@ impl App {
 
         let building = Instant::now();
         let context = self
-            .build_context(
-                user,
-                &conversation,
-                message.foreground.as_ref(),
-                &apps.unwrap_or_default(),
-                message.scheduled.as_deref(),
-            )
+            .build_context(user, &conversation, message, &apps.unwrap_or_default())
             .await;
         timer.context_built(building.elapsed());
 

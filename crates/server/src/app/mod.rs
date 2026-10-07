@@ -13,11 +13,11 @@ use crate::{
     images::Describer,
     live::LiveRun,
     models::ModelChoices,
-    protocol::{ApprovalDecision, DeviceAnswer, ForegroundApp, Notice, RunEvent},
+    protocol::{ApprovalDecision, DeviceAnswer, DeviceKind, ForegroundApp, Notice, RunEvent},
     sandbox::Sandbox,
     search::SearchTool,
     starters::Generator,
-    store::{CreateRun, RunStatus, SessionRef, Store},
+    store::{CreateRun, RunStatus, SessionRef, SignIn, Store},
     titles,
     user::{Shared, User},
 };
@@ -92,6 +92,12 @@ struct RunTools {
     sandbox: Option<Arc<Sandbox>>,
 }
 
+/// Who a connection signed in as.
+pub struct SignedIn {
+    pub user: Arc<User>,
+    pub device: DeviceKind,
+}
+
 /// A `Notice` addressed to one user's open notification streams.
 #[derive(Debug, Clone)]
 pub struct UserNotice {
@@ -137,6 +143,9 @@ pub struct Message {
     /// An admin's one-off model for this run, instead of their picked one.
     #[serde(skip)]
     pub model: Option<Model>,
+    /// The device the message came from. A computer has no phone to act on.
+    #[serde(skip)]
+    pub origin: DeviceKind,
 }
 
 /// The user's answer to the tool call a session stopped on.
@@ -211,9 +220,15 @@ impl App {
     }
 
     /// The user `endpoint` is, made and started on its first connection.
-    pub async fn sign_in(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Arc<User>> {
-        let id = self.store.sign_in(endpoint).await?;
-        Ok(self.start_user(&id))
+    /// `None` for a key that was linked and then removed.
+    pub async fn sign_in(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Option<SignedIn>> {
+        Ok(match self.store.sign_in(endpoint).await? {
+            SignIn::Account { user, device } => Some(SignedIn {
+                user: self.start_user(&user),
+                device,
+            }),
+            SignIn::Revoked => None,
+        })
     }
 
     /// Starts every user that signed in before, so their crons and feeds

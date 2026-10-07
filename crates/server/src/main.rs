@@ -132,7 +132,7 @@ async fn main() -> Result<()> {
             None
         }
     };
-    let pusher = Pusher::new(endpoint.clone(), fallback);
+    let pusher = Pusher::new(endpoint.clone(), Arc::new(app.store.clone()), fallback);
     pusher.start(notices);
     let handler = transport::BeepHandler::new(app.clone(), pusher);
     let router = Router::builder(endpoint)

@@ -211,7 +211,7 @@ impl Server {
             .bind()
             .await
             .expect("the server endpoint binds");
-        let pusher = Pusher::new(endpoint.clone(), None);
+        let pusher = Pusher::new(endpoint.clone(), Arc::new(app.store.clone()), None);
         pusher.start(app.notifications.subscribe());
         let router = Router::builder(endpoint)
             .accept(transport::ALPN, transport::BeepHandler::new(app, pusher))
