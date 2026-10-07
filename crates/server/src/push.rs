@@ -32,8 +32,7 @@ use tokio::{
     time::{sleep, timeout},
 };
 
-/// The close code a removed key's connection gets.
-pub const CLOSE_REVOKED: u32 = 403;
+pub use beep_proto::client::CLOSE_REVOKED;
 const DIAL_TIMEOUT: Duration = Duration::from_secs(15);
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// Notices kept per user while their phone is unreachable; older ones go first.
