@@ -103,6 +103,8 @@ struct Harness {
     router: Router,
     app: Arc<App>,
     provider: Arc<ProviderStub>,
+    /// The account alice's key signs into.
+    alice_id: String,
 }
 
 impl Harness {
@@ -138,11 +140,20 @@ impl Harness {
                 transport::BeepHandler::new(app.clone(), pusher),
             )
             .spawn();
+        let alice_id = app
+            .sign_in(&alice().public())
+            .await
+            .unwrap()
+            .expect("a new key is never revoked")
+            .user
+            .id()
+            .to_owned();
         Self {
             db,
             router,
             app,
             provider,
+            alice_id,
         }
     }
 
@@ -168,7 +179,7 @@ impl Harness {
     /// Sends `notice` to Alice the way a finished run or cron does.
     fn notify(&self, title: &str) {
         let notice = UserNotice {
-            user: alice().public().to_string(),
+            user: self.alice_id.clone(),
             notice: Notice {
                 title: title.into(),
                 body: String::new(),
@@ -327,7 +338,8 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     let existing = ExistingSessions { ids };
     assert_eq!(c.call(&existing).await.unwrap(), [session.to_string()]);
     assert!(stranger.call(&existing).await.unwrap().is_empty());
-    let alice_id = alice().public().to_string();
+    let alice_id = h.alice_id.clone();
+    assert_ne!(alice_id, alice().public().to_string());
     assert!(h.app.user(&alice_id).is_some());
 
     let reopened = h.db.store().await.unwrap();
@@ -564,14 +576,19 @@ async fn a_key_signs_in_as_the_same_user_every_time() {
     let store = db.store().await.unwrap();
     let key = alice().public();
     let user = |signed: SignIn| match signed {
-        SignIn::Account { user, device } => {
+        SignIn::Account {
+            account,
+            device,
+            primary,
+        } => {
             assert_eq!(device, DeviceKind::Phone {});
-            user
+            assert!(primary);
+            account.id
         }
         SignIn::Revoked => panic!("a new key is never revoked"),
     };
     let first = user(store.sign_in(&key).await.unwrap());
-    assert_eq!(first, key.to_string());
+    assert_ne!(first, key.to_string(), "an account id is its own");
     assert_eq!(user(store.sign_in(&key).await.unwrap()), first);
     let other = user(
         store
@@ -580,7 +597,13 @@ async fn a_key_signs_in_as_the_same_user_every_time() {
             .unwrap(),
     );
     assert_ne!(other, first);
-    let users = store.user_ids().await.unwrap();
+    let users: Vec<String> = store
+        .accounts()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|account| account.id)
+        .collect();
     assert!(users.contains(&first) && users.contains(&other));
 }
 

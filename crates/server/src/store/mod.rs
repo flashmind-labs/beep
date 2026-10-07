@@ -8,7 +8,6 @@ use sqlx_core::migrate::{Migration, MigrationType, Migrator};
 use std::{borrow::Cow, sync::Arc, time::Duration};
 use tokio::sync::Notify;
 
-mod account_keys;
 mod actions;
 mod apps;
 mod cron_jobs;
@@ -24,13 +23,14 @@ mod sessions;
 mod test_db;
 mod turns;
 mod usage;
+mod user_keys;
 mod users;
 
-pub use account_keys::{AccountKey, LinkKey, NewKey, SignIn};
 pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::McpServerRow;
 pub(crate) use cron_jobs::decode_schedule;
+pub use devices::PushDevice;
 pub use digest::AttentionItem;
 pub use feeds::Feed;
 pub use location::Location;
@@ -39,6 +39,7 @@ pub use runs::{CreateRun, FinishedTurn, RunStatus};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
 pub use test_db::TestDb;
 pub use turns::TurnModel;
+pub use user_keys::{Account, AccountKey, LinkKey, NewKey, SignIn};
 
 /// The schema, oldest first. Embedded by hand because `sqlx::migrate!`
 /// needs sqlx's `migrate` feature, which clashes with rusqlite.
@@ -109,6 +110,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         15,
         "account_keys",
         include_str!("../../migrations/0015_account_keys.sql"),
+    ),
+    (
+        16,
+        "user_keys",
+        include_str!("../../migrations/0016_user_keys.sql"),
     ),
 ];
 

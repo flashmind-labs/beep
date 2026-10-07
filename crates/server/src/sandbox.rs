@@ -329,7 +329,7 @@ impl Tool for ExecuteCodeTool {
         };
         match self
             .sandbox
-            .run(self.user.id(), args.language, &args.code)
+            .run(self.user.external_id(), args.language, &args.code)
             .await
         {
             Ok(out) => Ok(ToolResult::success(
@@ -382,7 +382,11 @@ impl Tool for DownloadFileTool {
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let url = ctx.args.get("url").and_then(Value::as_str).unwrap_or("");
         let name = ctx.args.get("filename").and_then(Value::as_str);
-        match self.sandbox.download(self.user.id(), url, name).await {
+        match self
+            .sandbox
+            .download(self.user.external_id(), url, name)
+            .await
+        {
             Ok(saved) => Ok(ToolResult::success(
                 ctx.tool_call_id,
                 serde_json::to_string(&saved)?,

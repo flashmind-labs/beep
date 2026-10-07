@@ -8,13 +8,17 @@ use rust_decimal::{Decimal, prelude::ToPrimitive};
 use std::{
     collections::{HashMap, HashSet},
     iter,
+    sync::{PoisonError, RwLock},
 };
 
 /// The most a pickable model may cost, in USD per million output tokens.
 pub const MAX_OUTPUT_PRICE: f64 = 4.0;
 
 pub struct ModelChoices {
-    admins: HashSet<String>,
+    /// The keys the config names as admins.
+    admin_keys: HashSet<String>,
+    /// The accounts those keys sign into, filled in as they are seen.
+    admins: RwLock<HashSet<String>>,
     /// The server default first, then the configured choices.
     choices: Vec<Choice>,
     /// Provider routing for models that do not use the server's own.
@@ -42,7 +46,8 @@ impl ModelChoices {
     /// Only the default, with no admins.
     pub fn only(default: Model) -> Self {
         Self {
-            admins: HashSet::new(),
+            admin_keys: HashSet::new(),
+            admins: RwLock::default(),
             choices: vec![Choice {
                 name: default.name().to_owned(),
                 model: default,
@@ -103,7 +108,8 @@ impl ModelChoices {
             choices.push(choice);
         }
         Self {
-            admins: admins.iter().map(ToString::to_string).collect(),
+            admin_keys: admins.iter().map(ToString::to_string).collect(),
+            admins: RwLock::default(),
             choices,
             routing: HashMap::new(),
             auto: Vec::new(),
@@ -155,7 +161,21 @@ impl ModelChoices {
     }
 
     pub fn is_admin(&self, user: &str) -> bool {
-        self.admins.contains(user)
+        self.admins
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(user)
+    }
+
+    /// Makes account `user` an admin when `key`, one of its keys, is an
+    /// admin key in the config.
+    pub fn admit(&self, user: &str, key: &str) {
+        if self.admin_keys.contains(key) {
+            self.admins
+                .write()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(user.to_owned());
+        }
     }
 
     pub fn default_model(&self) -> &Model {
@@ -242,7 +262,8 @@ mod tests {
 
     fn choices() -> ModelChoices {
         let mut models = ModelChoices::only("openrouter:z-ai/glm-5.3-flash".parse().unwrap());
-        models.admins.insert(ADMIN.to_owned());
+        models.admin_keys.insert("admin-key".to_owned());
+        models.admit(ADMIN, "admin-key");
         models.choices.push(Choice {
             model: "openrouter:openai/gpt-6-luna".parse().unwrap(),
             name: "GPT-6 Luna".into(),

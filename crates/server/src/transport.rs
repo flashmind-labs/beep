@@ -62,6 +62,7 @@ impl ProtocolHandler for BeepHandler {
             app: self.app.clone(),
             user: signed_in.user,
             device: signed_in.device,
+            primary: signed_in.primary,
             connection: connection.clone(),
             pusher: self.pusher.clone(),
         };

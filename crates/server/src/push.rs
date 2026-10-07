@@ -197,7 +197,7 @@ impl Pusher {
             Ok(keys) => keys,
             Err(e) => {
                 log::warn!("push: keys lookup failed; user={user} error={e:#}");
-                user.parse().into_iter().collect()
+                return;
             }
         };
         let sends = keys

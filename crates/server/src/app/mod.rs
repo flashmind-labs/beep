@@ -17,7 +17,7 @@ use crate::{
     sandbox::Sandbox,
     search::SearchTool,
     starters::Generator,
-    store::{CreateRun, RunStatus, SessionRef, SignIn, Store},
+    store::{Account, CreateRun, RunStatus, SessionRef, SignIn, Store},
     titles,
     user::{Shared, User},
 };
@@ -96,6 +96,8 @@ struct RunTools {
 pub struct SignedIn {
     pub user: Arc<User>,
     pub device: DeviceKind,
+    /// The key that made the account, which may link and remove others.
+    pub primary: bool,
 }
 
 /// A `Notice` addressed to one user's open notification streams.
@@ -223,10 +225,18 @@ impl App {
     /// `None` for a key that was linked and then removed.
     pub async fn sign_in(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Option<SignedIn>> {
         Ok(match self.store.sign_in(endpoint).await? {
-            SignIn::Account { user, device } => Some(SignedIn {
-                user: self.start_user(&user),
+            SignIn::Account {
+                account,
                 device,
-            }),
+                primary,
+            } => {
+                self.models.admit(&account.id, &endpoint.to_string());
+                Some(SignedIn {
+                    user: self.start_user(&account),
+                    device,
+                    primary,
+                })
+            }
             SignIn::Revoked => None,
         })
     }
@@ -234,19 +244,23 @@ impl App {
     /// Starts every user that signed in before, so their crons and feeds
     /// run without a connection.
     pub async fn start_users(self: &Arc<Self>) -> Result<()> {
-        for id in self.store.user_ids().await? {
-            self.start_user(&id);
+        for account in self.store.accounts().await? {
+            for key in self.store.live_keys(&account.id).await? {
+                self.models.admit(&account.id, &key);
+            }
+            self.start_user(&account);
         }
         Ok(())
     }
 
-    fn start_user(self: &Arc<Self>, id: &str) -> Arc<User> {
+    fn start_user(self: &Arc<Self>, account: &Account) -> Arc<User> {
+        let id = &account.id;
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(user) = users.get(id) {
             return user.clone();
         }
-        let user = User::new(id, &self.shared);
-        users.insert(id.to_owned(), user.clone());
+        let user = User::new(account, &self.shared);
+        users.insert(id.clone(), user.clone());
         // `start` only spawns, so holding the lock here is fine.
         user.start(self);
         log::info!("user started; user={id}");
