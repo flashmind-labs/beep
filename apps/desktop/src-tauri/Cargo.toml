@@ -1,0 +1,41 @@
+[package]
+name = "beep-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+description = "Beep for macOS: a tray app with a bar opened by double-tapping Option"
+publish = false
+
+# Its own workspace, so the server's Docker build and Linux checks never see Tauri.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+ammonia = "4"
+beep-proto = { path = "../../../crates/proto" }
+iroh = "1.3"
+log = "0.4"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+secrecy = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-graphics = "0.24"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
