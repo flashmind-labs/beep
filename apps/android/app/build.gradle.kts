@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -27,13 +29,24 @@ android {
         buildConfigField("String", "SERVER_NODE_ID", "\"$nodeId\"")
     }
     androidResources { localeFilters += "en" }
+    // CI writes keystore.properties from secrets. Without it a release build is signed with
+    // the debug key, which lets it install over the debug build.
+    val keystore = rootProject.file("keystore.properties")
+    if (keystore.exists()) {
+        val props = Properties().apply { keystore.inputStream().use { load(it) } }
+        signingConfigs.create("release") {
+            storeFile = file(props.getProperty("storeFile"))
+            storePassword = props.getProperty("storePassword")
+            keyAlias = props.getProperty("keyAlias")
+            keyPassword = props.getProperty("keyPassword")
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // No release keystore yet; the debug key lets this install over the debug build.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     sourceSets.getByName("main").java.srcDir("build/generated/uniffi")
