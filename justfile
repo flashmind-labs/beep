@@ -24,7 +24,8 @@ desktop-dev:
 
 # Build the desktop DMG
 desktop-build:
-    cd apps/desktop/src-tauri && CI=true cargo tauri build --bundles dmg
+    cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app
+    bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
 
 # Format, lint and test the desktop app
 desktop-check:
