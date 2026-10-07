@@ -3,21 +3,25 @@
 use super::App;
 use crate::{
     cron,
+    memories::PROFILE_HEADER,
     protocol::{AppIntegration, ForegroundApp},
     store::Location,
     user::User,
 };
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
+use flashmind::core::{Conversation, EntryKind};
 use std::fmt::Write;
 
 impl App {
-    /// Time, location, the app behind the bubble, which apps are connected and,
-    /// for a routine, how to answer it, sent as a developer message. Memories are not included:
-    /// the model looks them up with `memory_recall`.
+    /// Time, location, the app behind the bubble, which apps are connected,
+    /// for a routine how to answer it, and the memory profile when `chat` has
+    /// not had this one yet, sent as a developer message. Other memories the
+    /// model looks up with `memory_recall`.
     pub(super) async fn build_context(
         &self,
         user: &User,
+        chat: &Conversation,
         foreground: Option<&ForegroundApp>,
         apps: &[AppIntegration],
         scheduled: Option<&str>,
@@ -53,8 +57,30 @@ impl App {
             let _ = writeln!(ctx, "{}", cron::scheduled_context(label));
         }
 
+        // Last, so the profile a chat got runs to the end of its message.
+        match user.memory_profile().await {
+            Ok(Some(profile)) if last_profile(chat) != Some(profile.as_str()) => {
+                let _ = writeln!(ctx, "{profile}");
+            }
+            Ok(_) => {}
+            Err(error) => log::warn!("unable to build the memory profile: {error}; user={user}"),
+        }
+
         (!ctx.is_empty()).then_some(ctx)
     }
+}
+
+/// The memory profile the chat's context last carried.
+fn last_profile(chat: &Conversation) -> Option<&str> {
+    chat.entries()
+        .iter()
+        .rev()
+        .find_map(|entry| match &entry.kind {
+            EntryKind::Developer { content, .. } => content
+                .find(PROFILE_HEADER)
+                .map(|at| content[at..].trim_end()),
+            _ => None,
+        })
 }
 
 /// `Location: Shinjuku, Tokyo, Japan (35.6938 N, 139.7034 E, 3 min ago)`.
@@ -193,5 +219,21 @@ mod tests {
             "Location: 35.6938 N, 139.7034 E (3 h ago)"
         );
         assert!(location_line(&fix(None, now), now).ends_with("(just now)"));
+    }
+
+    #[test]
+    fn last_profile_is_the_newest_one_the_chat_got() {
+        use flashmind::core::ConversationEntry;
+        let mut chat = Conversation::new();
+        assert_eq!(last_profile(&chat), None);
+        chat.add(ConversationEntry::system_message(format!(
+            "Time: now\n{PROFILE_HEADER}\n- Is called Sam.\n"
+        )));
+        chat.add(ConversationEntry::user("hi"));
+        chat.add(ConversationEntry::system_message("Time: later\n"));
+        assert_eq!(
+            last_profile(&chat),
+            Some(format!("{PROFILE_HEADER}\n- Is called Sam.").as_str())
+        );
     }
 }

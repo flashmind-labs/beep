@@ -1,6 +1,6 @@
 use crate::{
     protocol::MemorySource,
-    store::{Fact, Origin, Validity},
+    store::{Fact, MEMORY_CATEGORIES, Origin, Validity},
     user::User,
 };
 use anyhow::{Result, anyhow};
@@ -12,15 +12,6 @@ use flashmind::types::{
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
-
-const CATEGORIES: [&str; 6] = [
-    "personal",
-    "preference",
-    "work",
-    "location",
-    "routine",
-    "general",
-];
 
 /// Stores and updates in one chat, which becomes the origin of what they write.
 struct MemoryWriter {
@@ -79,7 +70,7 @@ fn fact(args: &Value, origin: Origin) -> Result<Fact<'_>> {
     };
     Ok(Fact {
         content: arg(args, "content")?,
-        category: opt_arg(args, "category"),
+        category: None,
         source: MemorySource::User {},
         valid: (valid != Validity::default()).then_some(valid),
         origin: Some(origin),
@@ -89,7 +80,6 @@ fn fact(args: &Value, origin: Origin) -> Result<Fact<'_>> {
 fn fact_schema(required: &[&str], extra: Value) -> Value {
     let mut properties = json!({
         "content":{"type":"string","description":"One short self-contained sentence."},
-        "category":{"type":"string","enum":CATEGORIES},
         "valid_from":{"type":"string","description":"YYYY-MM-DD the fact starts holding, for temporary facts like a trip."},
         "valid_until":{"type":"string","description":"YYYY-MM-DD of the last day the fact holds. Leave out for lasting facts."}
     });
@@ -142,7 +132,7 @@ impl Tool for MemoryRecallTool {
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
             "query":{"type":"string"},
-            "category":{"type":"string","enum":CATEGORIES,"description":"Filter by category. When nothing matches, the search runs again without it."}
+            "category":{"type":"string","enum":MEMORY_CATEGORIES,"description":"Filter by category. When nothing matches, the search runs again without it."}
         },"required":["query"],"additionalProperties":false})
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
@@ -151,8 +141,8 @@ impl Tool for MemoryRecallTool {
         let limit = if query.trim().is_empty() { 100 } else { 30 };
         let category = opt_arg(&ctx.args, "category");
         let mut hits = self.0.search_memories(query, category, limit).await?;
-        // Models guess categories the memory was never filed under, such as
-        // "location" for a hotel stay kept as "general".
+        // A model can guess a category the memory was not filed under, such
+        // as "place" for a hotel stay filed under "plan".
         if hits.is_empty() && category.is_some() {
             hits = self.0.search_memories(query, None, limit).await?;
         }
@@ -183,7 +173,7 @@ impl Tool for MemoryUpdateTool {
         "memory_update"
     }
     fn description(&self) -> &str {
-        "Replace a memory's text by the id memory_recall gave, with the full new sentence. Days and category stay unless given."
+        "Replace a memory's text by the id memory_recall gave, with the full new sentence. Days stay unless given."
     }
     fn parameters(&self) -> Value {
         fact_schema(&["id", "content"], json!({"id":{"type":"string"}}))

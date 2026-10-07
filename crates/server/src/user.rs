@@ -16,12 +16,14 @@ use crate::{
         },
         mcp_app,
     },
+    decision::DecisionTool,
     feeds::{self, SYNC_SWEEP, mail::Mailbox},
     memories::{
         CURATE_EVERY, CURATE_SWEEP, CURATE_SYSTEM, CURATE_TIMEOUT, Change, DUPLICATE, Exchange,
-        Hit, LEARN_RULES, LEARN_SYSTEM, LEARN_TIMEOUT, LearnKind, LearnOp, Learned, MAX_CURATED,
-        READING_LEARN_TIMEOUT, RECALLABLE, Reading, Remembered, Step, clip, curate_prompt, hit,
-        learn_prompt, parse_curate_ops, parse_learn_ops, plan_curation, reading_prompt, settle,
+        FILE_CONCURRENCY, FILE_QUESTION, FILING, Hit, LEARN_RULES, LEARN_SYSTEM, LEARN_TIMEOUT,
+        LearnKind, LearnOp, Learned, MAX_CURATED, MAX_FILED, READING_LEARN_TIMEOUT, RECALLABLE,
+        Reading, Remembered, Step, clip, core_ids, curate_prompt, hit, learn_prompt,
+        parse_curation, parse_learn_ops, plan_curation, profile, reading_prompt, settle,
     },
     permissions::{self, Rules, ToolSlug},
     protocol::{
@@ -50,6 +52,7 @@ use flashmind::{
     },
     types::{Model, ReasoningLevel, Tool},
 };
+use futures::{StreamExt, stream};
 use secrecy::ExposeSecret;
 use serde_json::Value;
 use std::{
@@ -88,6 +91,8 @@ pub struct User {
     /// This user, for parts that must reach back without keeping it alive.
     pub(crate) me: Weak<User>,
     pub(crate) composio: Option<Arc<Composio>>,
+    /// Files memories under a category; without it they stay unfiled.
+    decision: Option<Arc<DecisionTool>>,
     /// MCP servers the user connected, such as Fastmail, made on first use.
     pub(crate) mcp: OnceCell<McpRegistry>,
     pub(crate) notifications: broadcast::Sender<UserNotice>,
@@ -105,6 +110,7 @@ pub(crate) struct Shared {
     pub store: Store,
     pub notifications: broadcast::Sender<UserNotice>,
     pub composio: Option<Arc<Composio>>,
+    pub decision: Option<Arc<DecisionTool>>,
 }
 
 impl User {
@@ -116,6 +122,7 @@ impl User {
             store: shared.store.clone(),
             me: me.clone(),
             composio: shared.composio.clone(),
+            decision: shared.decision.clone(),
             mcp: OnceCell::new(),
             notifications: shared.notifications.clone(),
             starters: AsyncMutex::new(None),
@@ -134,6 +141,7 @@ impl User {
                 store,
                 notifications,
                 composio: None,
+                decision: None,
             },
         )
     }
@@ -181,6 +189,11 @@ impl User {
             let mut ticks = interval(CURATE_SWEEP);
             loop {
                 ticks.tick().await;
+                match user.file_memories().await {
+                    Ok(0) => {}
+                    Ok(filed) => log::info!("filed {filed} memories; user={user}"),
+                    Err(error) => log::warn!("unable to file memories: {error}; user={user}"),
+                }
                 user.curate_if_due(app.generator(user.id())).await;
             }
         });
@@ -380,26 +393,82 @@ impl User {
         self.store.memory_scores(&self.key, session).await
     }
 
-    /// Stores a new memory and returns its id.
+    /// Stores a new memory, filed by Jev, and returns its id.
     pub async fn add_memory(&self, fact: Fact<'_>) -> Result<String> {
+        let category = self.file(fact.content).await;
+        let fact = Fact {
+            category: category.or(fact.category),
+            ..fact
+        };
         self.store.add_memory(&self.key, fact).await
     }
 
-    /// Replaces a memory's text, and its days when given. A memory the user
-    /// stated stays stated. Returns whether it exists.
+    /// Replaces a memory's text, and its days when given, and files it again.
+    /// A memory the user stated stays stated. Returns whether it exists.
     pub async fn update_memory(&self, id: &str, fact: Fact<'_>) -> Result<bool> {
+        let category = self.file(fact.content).await;
+        let fact = Fact {
+            category: category.or(fact.category),
+            ..fact
+        };
         self.store.update_memory(&self.key, id, fact).await
     }
 
     /// Replaces only a memory's text, as the user does from the Memories
-    /// screen; it then counts as stated by the user.
+    /// screen, and files it again; it then counts as stated by the user.
     pub async fn edit_memory(&self, id: &str, content: &str) -> Result<bool> {
-        self.store.edit_memory(&self.key, id, content).await
+        let category = self.file(content).await;
+        self.store
+            .edit_memory(&self.key, id, content, category)
+            .await
+    }
+
+    /// Jev's category for a memory, `None` when Jev is not set up or failed.
+    async fn file(&self, content: &str) -> Option<&'static str> {
+        let decision = self.decision.as_ref()?;
+        match decision.choose(content, FILE_QUESTION, &FILING).await {
+            Ok(category) => Some(category),
+            Err(error) => {
+                log::warn!("unable to file a memory: {error}; user={self}");
+                None
+            }
+        }
+    }
+
+    /// Files the memories that are unfiled or under a category no longer
+    /// used, a few at a time. Returns how many it filed.
+    pub(crate) async fn file_memories(&self) -> Result<usize> {
+        if self.decision.is_none() {
+            return Ok(0);
+        }
+        let rows: Vec<MemoryRow> = self
+            .memory_rows()
+            .await?
+            .into_iter()
+            .filter(|row| !MEMORY_CATEGORIES.contains(&row.category.as_str()))
+            .take(MAX_FILED)
+            .collect();
+        let filed: Vec<(String, &str)> = stream::iter(rows)
+            .map(|row| async move { self.file(&row.content).await.map(|c| (row.id, c)) })
+            .buffer_unordered(FILE_CONCURRENCY)
+            .filter_map(|filed| async move { filed })
+            .collect()
+            .await;
+        let mut changed = 0;
+        for (id, category) in filed {
+            changed += usize::from(self.store.set_category(&self.key, &id, category).await?);
+        }
+        Ok(changed)
     }
 
     /// Every memory of the user, most recently changed first.
     pub async fn memory_rows(&self) -> Result<Vec<MemoryRow>> {
         self.store.memory_rows(&self.key).await
+    }
+
+    /// The memory profile for a chat's context, `None` when it is empty.
+    pub async fn memory_profile(&self) -> Result<Option<String>> {
+        Ok(profile(&self.memory_rows().await?, self.today().await))
     }
 
     /// Deletes a memory; `false` when the user has no memory with `id`.
@@ -789,10 +858,12 @@ impl User {
         let attempt = async {
             let mut known = self.search_memories(&reading.query, None, 15).await?;
             // Anything can mention the user's name or family, which a search
-            // on its text would not bring up, so personal facts always come along.
-            for hit in self.search_memories("", Some("personal"), 15).await? {
-                if !known.iter().any(|k| k.id == hit.id) {
-                    known.push(hit);
+            // on its text would not bring up, so those facts always come along.
+            for category in ["identity", "people"] {
+                for hit in self.search_memories("", Some(category), 15).await? {
+                    if !known.iter().any(|k| k.id == hit.id) {
+                        known.push(hit);
+                    }
                 }
             }
             let system = format!("{}\n{LEARN_RULES}", reading.kind.intro());
@@ -855,10 +926,7 @@ impl User {
         };
         let fact = Fact {
             content,
-            category: op
-                .category
-                .as_deref()
-                .filter(|c| MEMORY_CATEGORIES.contains(c)),
+            category: None,
             source,
             valid: op.validity(),
             origin: Some(origin),
@@ -906,13 +974,14 @@ impl User {
             let answer = generator
                 .text(CURATE_SYSTEM, curate_prompt(&rows, today))
                 .await?;
-            parse_curate_ops(&answer)
+            parse_curation(&answer)
         };
-        let ops = tokio::time::timeout(CURATE_TIMEOUT, attempt)
+        let curation = tokio::time::timeout(CURATE_TIMEOUT, attempt)
             .await
             .map_err(|_| anyhow::anyhow!("curation timed out"))??;
         let by_id: HashMap<&str, &MemoryRow> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
-        let plan = plan_curation(ops, &by_id, today);
+        let plan = plan_curation(curation.ops, &by_id, today);
+        let core = curation.core.map(|core| core_ids(core, &plan, &by_id));
         let mut changed = 0;
         for step in plan {
             match step {
@@ -922,7 +991,7 @@ impl User {
                 Step::Rewrite { keep, fact, drop } => {
                     let fact = Fact {
                         content: &fact.content,
-                        category: fact.category.as_deref(),
+                        category: None,
                         source: fact.source,
                         valid: fact.valid,
                         origin: None,
@@ -935,6 +1004,12 @@ impl User {
                         changed += usize::from(self.forget(&id).await?);
                     }
                 }
+            }
+        }
+        // Only the memories curation read move in or out of the profile.
+        if let Some(core) = core {
+            for row in rows.iter().filter(|row| row.core != core.contains(&row.id)) {
+                changed += usize::from(self.store.set_core(&self.key, &row.id, !row.core).await?);
             }
         }
         Ok(changed)

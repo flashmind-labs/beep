@@ -136,14 +136,20 @@ pub struct Store {
     crons_changed: Arc<Notify>,
 }
 
+/// The categories Jev files a memory under, with what each holds.
 pub(crate) const MEMORY_CATEGORIES: &[&str] = &[
-    "personal",
+    "identity",
+    "people",
     "preference",
     "work",
-    "location",
+    "place",
+    "plan",
     "routine",
-    "general",
 ];
+
+/// What a memory is filed under until Jev files it, such as when Jev was
+/// unreachable. The hourly sweep files these and any old category.
+pub(crate) const UNFILED: &str = "unfiled";
 
 /// The days a fact holds, like the dates of a trip. Both open by default.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -179,6 +185,8 @@ pub struct MemoryRow {
     pub updated_at: String,
     pub valid: Validity,
     pub origin: Option<Origin>,
+    /// Picked by curation as part of the profile every chat starts with.
+    pub core: bool,
 }
 
 impl MemoryRow {
