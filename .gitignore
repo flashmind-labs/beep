@@ -15,3 +15,4 @@ config.toml
 /apps/android/app/src/main/assets/testing-profile.json
 /apps/android/app/google-services.json
 __pycache__/
+/apps/android/keystore.properties
