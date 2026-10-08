@@ -170,9 +170,11 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             attachedImages = emptyList()
         }
     }
-    // While nothing of the reply is written yet, its progress sits in the conversation where the reply will appear.
-    val workingInline = chat.busy && chat.status.isNotEmpty() &&
-        chat.messages.lastOrNull().let { it == null || it.role != "assistant" || it.text.isBlank() }
+    // While Beep works, its progress sits in the conversation under the last message, even after some
+    // reply text is in. Pinned above the composer it left a gap and took height from the messages.
+    // The streaming text is its own progress, so "Replying" needs no line of its own.
+    val workingInline = chat.busy && chat.status.isNotEmpty() && !chat.status.startsWith("Replying")
+    val replyStarted = chat.messages.lastOrNull().let { it != null && it.role == "assistant" && it.text.isNotBlank() }
     Column(modifier.imePadding()) {
         // Clipboard suggestion banner
         ClipboardBanner(clipboardContent, onAction = { action, text ->
@@ -410,7 +412,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             StatusText(chat.status)
                         }
                         ThinkingPreview(chat.thinking, Modifier.padding(end = if (compact) 0.dp else 48.dp))
-                        if (!compact) ReplySkeleton(Modifier.padding(top = 12.dp, end = 48.dp))
+                        if (!compact && !replyStarted) ReplySkeleton(Modifier.padding(top = 12.dp, end = 48.dp))
                     }
                 }
             }
@@ -424,8 +426,8 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
             }
         }
-        // The streaming text is its own progress, so "Replying" needs no line of its own.
-        AnimatedVisibility(visible = chat.status.isNotEmpty() && !workingInline && !chat.status.startsWith("Replying"),
+        // A status left once the run is over, such as "Stopping…".
+        AnimatedVisibility(visible = chat.status.isNotEmpty() && !chat.busy && !chat.status.startsWith("Replying"),
             enter = fadeIn(tween(200)) + expandVertically(tween(200)), exit = fadeOut(tween(150)) + shrinkVertically(tween(150))) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
                 Row(Modifier.animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)),
