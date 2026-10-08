@@ -61,6 +61,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -110,6 +112,14 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                        onExpand: (() -> Unit)? = null) {
     var draft by DraftField({ repository.draft(chat.id).text }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(text = it)) }
     var attachedImages by DraftField({ repository.draft(chat.id).images }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(images = it)) }
+    // The composer's text with its cursor. When the draft changes from outside the field, such as a quote or
+    // dictation, the cursor goes to `draftCursor` if one was set, or else to the end.
+    var draftField by remember(chat.id) { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    var draftCursor by remember(chat.id) { mutableStateOf<Int?>(null) }
+    if (draftField.text != draft) {
+        draftField = TextFieldValue(draft, TextRange((draftCursor ?: draft.length).coerceIn(0, draft.length)))
+        draftCursor = null
+    }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -301,7 +311,9 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         var menuOpen by remember(message.id) { mutableStateOf(false) }
                         // The quote goes above whatever is already typed.
                         val quoteText: (String) -> Unit = { text ->
-                            draft = text.trim().lines().joinToString("\n") { "> $it" } + "\n\n" + draft.trimStart()
+                            val quoted = text.trim().lines().joinToString("\n") { "> $it" } + "\n\n"
+                            draftCursor = quoted.length
+                            draft = quoted + draft.trimStart()
                             inputFocusRequester.requestFocus()
                         }
                         val quote: () -> Unit = { quoteText(message.text.trim().lines().take(4).joinToString("\n")) }
@@ -568,7 +580,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         Icon(Icons.Outlined.Image, "Attach image", Modifier.size(22.dp), tint = TextMuted)
                     }
                 }
-                TextField(value = draft, onValueChange = { if (it.toByteArray().size <= 32768) draft = it },
+                TextField(value = draftField, onValueChange = { if (it.text.toByteArray().size <= 32768) { draftField = it; draft = it.text } },
                     modifier = Modifier.weight(1f).focusRequester(inputFocusRequester),
                     placeholder = { Text(if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else "Ask anything...", fontSize = 15.sp, color = TextDim) },
                     textStyle = LocalTextStyle.current.copy(fontSize = 15.sp),
