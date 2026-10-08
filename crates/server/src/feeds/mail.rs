@@ -1,12 +1,13 @@
 //! Learns about users from their email.
 //!
 //! Once a day each connected mailbox is read back to a day before the last
-//! finished run, or six months back until one finishes. Emails are scored
+//! finished run, or a month back until one finishes; the profile pass (see
+//! `crate::profile`) reads the rest once. Emails are scored
 //! page by page as they are listed, newest first where the mailbox lists them
 //! that way, several at once; nothing waits for the whole listing. Jev scores
 //! each one for whether it says something lasting about the user, and the
-//! likely ones go to the memory learner one at a time. No agent decides what
-//! to read.
+//! likely ones go to the memory learner one at a time, at most
+//! `SCORES_PER_WINDOW` emails every `SCORE_WINDOW`. No agent decides what to read.
 //!
 //! Each processed email is recorded as seen, and a run skips those, so a run
 //! that stops halfway resumes where it was. An email Jev fails to score stays
@@ -38,17 +39,22 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
+use tokio::time::{MissedTickBehavior, interval};
 
 /// How far back the first run reads.
-const BACKFILL_DAYS: i64 = 183;
+const BACKFILL_DAYS: i64 = 30;
 /// Each run starts this long before the last finished one; seen ids skip the overlap.
 const OVERLAP_DAYS: i64 = 1;
 /// Jev calls, and Fastmail body reads, in flight at once.
-const CONCURRENCY: usize = 8;
+const CONCURRENCY: usize = 32;
+/// Emails one mailbox run scores per `SCORE_WINDOW`, so a full mailbox spreads out.
+const SCORES_PER_WINDOW: u32 = 5000;
+const SCORE_WINDOW: Duration = Duration::from_secs(5 * 60);
 const PAGE_SIZE: usize = 50;
 /// Stops a provider that keeps handing out next pages.
-const MAX_PAGES: usize = 400;
+const MAX_PAGES: usize = 10_000;
 /// What Jev sees of each email: headers and the start of the body.
 const JEV_EMAIL_CHARS: usize = 2500;
 /// What the learner reads of an email Jev passed.
@@ -66,7 +72,10 @@ const OUTLOOK_FIELDS: &[&str] = &[
     "bodyPreview",
     "parentFolderId",
     "isDraft",
+    "conversationId",
 ];
+/// Gmail's tabs for mail nobody wrote to the user in person.
+const BULK_LABELS: [&str; 3] = ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"];
 /// Above this Jev score the learner reads the email.
 const MEMORY_THRESHOLD: f64 = 0.8;
 const EMAIL_QUESTION: &str = "Does this email from the user's mailbox show a fact about the user still worth remembering today?";
@@ -128,6 +137,10 @@ pub struct Email {
     pub subject: String,
     /// Set for mail the user sent.
     pub sent: bool,
+    /// Promotions, social or forum mail, as the mailbox files it.
+    pub bulk: bool,
+    /// The conversation it belongs to, when the mailbox says.
+    pub thread: Option<String>,
     /// Plain text; only a preview until `fill_body` reads the rest.
     pub body: String,
 }
@@ -185,8 +198,15 @@ impl Listing {
     }
 }
 
+/// The stretch of time a listing covers.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Window {
+    pub after: DateTime<Utc>,
+    pub before: Option<DateTime<Utc>>,
+}
+
 /// Where a user's mail is read from.
-enum Source<'a> {
+pub(crate) enum Source<'a> {
     Gmail(Arc<ComposioClient>),
     Fastmail(&'a User),
     Outlook {
@@ -197,7 +217,7 @@ enum Source<'a> {
 }
 
 impl<'a> Source<'a> {
-    async fn new(user: &'a User, mailbox: Mailbox) -> Result<Self> {
+    pub(crate) async fn new(user: &'a User, mailbox: Mailbox) -> Result<Self> {
         let composio = || user.composio_client().context("Composio is not configured");
         Ok(match mailbox {
             Mailbox::Gmail => Source::Gmail(composio()?),
@@ -213,17 +233,18 @@ impl<'a> Source<'a> {
         })
     }
 
-    async fn page(
-        &self,
-        after: DateTime<Utc>,
-        listing: Listing,
-        cursor: Option<&str>,
-    ) -> Result<Page> {
+    async fn page(&self, window: Window, listing: Listing, cursor: Option<&str>) -> Result<Page> {
+        let Window { after, before } = window;
         match self {
             Source::Gmail(client) => {
                 // Gmail reads Unix seconds after `after:`.
                 let mut arguments = json!({
-                    "query": format!("{}after:{}", listing.query_term(), after.timestamp()),
+                    "query": format!(
+                        "{}after:{}{}",
+                        listing.query_term(),
+                        after.timestamp(),
+                        before.map(|b| format!(" before:{}", b.timestamp())).unwrap_or_default()
+                    ),
                     "max_results": PAGE_SIZE,
                     "include_payload": true,
                 });
@@ -238,7 +259,11 @@ impl<'a> Source<'a> {
             }
             Source::Fastmail(user) => {
                 // Fastmail only takes days; the overlap and seen ids cover the rest.
-                let query = format!("{}after:{}", listing.query_term(), after.format("%Y-%m-%d"));
+                let mut query =
+                    format!("{}after:{}", listing.query_term(), after.format("%Y-%m-%d"));
+                if let Some(before) = before {
+                    let _ = write!(query, " before:{}", before.format("%Y-%m-%d"));
+                }
                 let mut arguments = json!({"query": query, "limit": PAGE_SIZE});
                 if let Some(cursor) = cursor {
                     arguments["cursor"] = json!(cursor);
@@ -256,6 +281,10 @@ impl<'a> Source<'a> {
                     "top": PAGE_SIZE,
                     "select": OUTLOOK_FIELDS,
                 });
+                if let Some(before) = before {
+                    arguments["received_date_time_lt"] =
+                        json!(before.to_rfc3339_opts(SecondsFormat::Secs, true));
+                }
                 if listing == Listing::Unread {
                     arguments["is_read"] = json!(false);
                 }
@@ -275,7 +304,7 @@ impl<'a> Source<'a> {
 
     /// Replaces a Fastmail preview with the whole body. On failure the
     /// preview stays and is scored as it is.
-    async fn fill_body(&self, email: &mut Email) {
+    pub(crate) async fn fill_body(&self, email: &mut Email) {
         let Source::Fastmail(user) = self else {
             return;
         };
@@ -294,7 +323,7 @@ impl<'a> Source<'a> {
     /// each fetched only when the one before it has been taken.
     fn pages(
         &self,
-        after: DateTime<Utc>,
+        window: Window,
         listing: Listing,
     ) -> impl Stream<Item = Result<Vec<Email>>> + '_ {
         // `None` once the last page is out; `Some(None)` before the first.
@@ -308,7 +337,7 @@ impl<'a> Source<'a> {
                 return Ok(None);
             }
             let page = self
-                .page(after, listing, cursor.as_deref())
+                .page(window, listing, cursor.as_deref())
                 .await
                 .with_context(|| format!("page {number}"))?;
             log::debug!(
@@ -322,7 +351,17 @@ impl<'a> Source<'a> {
 
     /// Every email received after `after`.
     async fn list(&self, after: DateTime<Utc>, listing: Listing) -> Result<Vec<Email>> {
-        self.pages(after, listing).try_concat().await
+        let window = Window {
+            after,
+            before: None,
+        };
+        self.pages(window, listing).try_concat().await
+    }
+
+    /// Pages of every email in `window`, newest first where the mailbox
+    /// lists them that way.
+    pub(crate) fn history(&self, window: Window) -> impl Stream<Item = Result<Vec<Email>>> + '_ {
+        self.pages(window, Listing::All)
     }
 }
 
@@ -375,18 +414,32 @@ pub(crate) async fn sync(
         mailbox.slug()
     );
 
-    // Each page is scored as soon as it is listed, several emails at once.
-    // `seen` also drops an email a page repeats.
+    // Each page is scored as soon as it is listed, several emails at once,
+    // each waiting for a tick. `seen` also drops an email a page repeats.
     let listed = AtomicUsize::new(0);
+    let mut every = interval(SCORE_WINDOW / SCORES_PER_WINDOW);
+    every.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let ticks = stream::unfold(every, |mut every| async move {
+        every.tick().await;
+        Some(((), every))
+    });
     let today = Utc::now().format("%A %Y-%m-%d").to_string();
     let mut scored = source
-        .pages(after, Listing::All)
+        .pages(
+            Window {
+                after,
+                before: None,
+            },
+            Listing::All,
+        )
         .map_ok(|emails| stream::iter(emails).map(anyhow::Ok))
         .try_flatten()
         .inspect_ok(|_| {
             listed.fetch_add(1, Ordering::Relaxed);
         })
         .try_filter(move |email| future::ready(seen.insert(email.id.clone())))
+        .zip(ticks)
+        .map(|(email, ())| email)
         .map_ok(|email| score(decision, &source, &today, email, digest).map(Ok))
         .try_buffer_unordered(CONCURRENCY)
         .boxed();
@@ -492,7 +545,9 @@ fn parse_gmail(data: &Value) -> Result<Page> {
             continue;
         };
         let labels = message["labelIds"].as_array();
-        let sent = labels.is_some_and(|labels| labels.iter().any(|l| l == "SENT"));
+        let has = |label: &str| labels.is_some_and(|labels| labels.iter().any(|l| l == label));
+        let sent = has("SENT");
+        let bulk = BULK_LABELS.iter().any(|label| has(label));
         let body = message["messageText"]
             .as_str()
             .or_else(|| message["preview"]["body"].as_str())
@@ -504,6 +559,8 @@ fn parse_gmail(data: &Value) -> Result<Page> {
             to: text(&message["to"]),
             subject: text(&message["subject"]),
             sent,
+            bulk,
+            thread: message["threadId"].as_str().map(str::to_owned),
             body: body.to_owned(),
         });
     }
@@ -536,6 +593,8 @@ fn parse_fastmail(value: &Value) -> Result<Page> {
             to: addresses(&result["to"]),
             subject: text(&result["subject"]),
             sent,
+            bulk: false,
+            thread: result["threadId"].as_str().map(str::to_owned),
             body: text(&result["preview"]),
         });
     }
@@ -595,6 +654,8 @@ fn parse_outlook(data: &Value, sent_folder: Option<&str>) -> Result<Page> {
             to: recipients(&message["toRecipients"]),
             subject: text(&message["subject"]),
             sent,
+            bulk: false,
+            thread: message["conversationId"].as_str().map(str::to_owned),
             body: outlook_body(message),
         });
     }
@@ -678,7 +739,7 @@ fn addresses(value: &Value) -> String {
         .join(", ")
 }
 
-fn clip(text: &str, chars: usize) -> String {
+pub(crate) fn clip(text: &str, chars: usize) -> String {
     text.chars().take(chars).collect()
 }
 

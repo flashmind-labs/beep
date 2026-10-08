@@ -37,8 +37,9 @@ use crate::{
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
         DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Join, JoinedGroup, LinkKey, Location,
-        MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewKey, NewMessage, Origin, Posted, PushDevice,
-        RunStatus, Share, Store, StoredContext, TurnModel, TurnsToDelete,
+        MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewKey, NewMessage, Origin, Posted,
+        ProfileNote, ProfileRead, PushDevice, RunStatus, Share, Store, StoredContext, TurnModel,
+        TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -654,6 +655,41 @@ impl User {
     /// Records that `feed` was just synced.
     pub async fn mark_feed_synced(&self, feed: Feed) -> Result<()> {
         self.store.mark_feed_synced(&self.key, feed).await
+    }
+
+    /// How far the profile pass got through `source`.
+    pub(crate) async fn profile_read(&self, source: &str) -> Result<ProfileRead> {
+        self.store.profile_read(&self.key, source).await
+    }
+
+    /// Saves what the profile pass noted and how far it read.
+    pub(crate) async fn add_profile_notes(
+        &self,
+        source: &str,
+        notes: &[ProfileNote],
+        read_before: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        self.store
+            .add_profile_notes(&self.key, source, notes, read_before)
+            .await
+    }
+
+    pub(crate) async fn finish_profile_read(&self, source: &str) -> Result<()> {
+        self.store.finish_profile_read(&self.key, source).await
+    }
+
+    pub(crate) async fn profile_notes(&self) -> Result<Vec<ProfileNote>> {
+        self.store.profile_notes(&self.key).await
+    }
+
+    /// The input schema of `tool` on MCP server `server`, once it has connected.
+    pub(crate) async fn mcp_tool_schema(&self, server: &str, tool: &str) -> Option<Value> {
+        let tools = self.mcp_registry().await.current_mcp_tools();
+        tools
+            .get(server)?
+            .iter()
+            .find(|def| def.name == tool)
+            .map(|def| def.input_schema.clone())
     }
 
     /// When `feed` last finished a sync.

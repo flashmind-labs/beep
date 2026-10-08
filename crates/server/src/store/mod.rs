@@ -19,6 +19,7 @@ mod groups;
 mod habits;
 mod location;
 mod memories;
+mod profile;
 mod runs;
 mod sessions;
 mod shares;
@@ -38,6 +39,7 @@ pub use feeds::Feed;
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
+pub use profile::{ProfileNote, ProfileRead};
 pub use runs::{CreateRun, FinishedTurn, RunStatus};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
 pub use shares::{CopiedShare, Share};
@@ -139,6 +141,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         20,
         "group member names",
         include_str!("../../migrations/0020_group_member_names.sql"),
+    ),
+    (
+        21,
+        "group invite codes",
+        include_str!("../../migrations/0021_group_invite_codes.sql"),
+    ),
+    (
+        22,
+        "profile",
+        include_str!("../../migrations/0022_profile.sql"),
     ),
 ];
 
