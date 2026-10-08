@@ -80,12 +80,12 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
     }
     fun run(cron: ChatRepository.Cron) { scope.launch {
         try { onOpenChat(withContext(Dispatchers.IO) { repository.runCron(cron.id) }) }
-        catch (e: Exception) { error = e.message.orEmpty() }
+        catch (e: Exception) { error = userMessage(e) }
     } }
     fun refresh() { scope.launch {
         error = ""
         try { crons = withContext(Dispatchers.IO) { repository.listCrons() } }
-        catch (e: Exception) { error = e.message.orEmpty() }
+        catch (e: Exception) { error = userMessage(e) }
         finally { loading = false }
     } }
     LaunchedEffect(Unit) { refresh() }
@@ -93,7 +93,7 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
         CreateCronDialog(onDismiss = { showCreate = false }, onAskBeep = { showCreate = false; onAskBeep() }, onCreate = { label, prompt, schedule ->
             scope.launch {
                 try { withContext(Dispatchers.IO) { repository.createCron(label, prompt, schedule) }; showCreate = false; refresh() }
-                catch (e: Exception) { error = e.message.orEmpty() }
+                catch (e: Exception) { error = userMessage(e) }
             }
         })
     }
@@ -115,7 +115,7 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
                     RoutineCard(cron, Modifier.animateItem(), onRun = { run(cron) }, onDelete = { delete(cron) }, onToggle = { enabled ->
                         scope.launch {
                             try { withContext(Dispatchers.IO) { repository.toggleCron(cron.id, enabled) }; refresh() }
-                            catch (e: Exception) { error = e.message.orEmpty() }
+                            catch (e: Exception) { error = userMessage(e) }
                         }
                     })
                 }
