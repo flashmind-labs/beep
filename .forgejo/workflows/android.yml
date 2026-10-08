@@ -1,4 +1,8 @@
 # Builds the release APK on every push to main and keeps it as a run artifact.
+# The same build goes to the Play internal track as an app bundle when the
+# PLAY_SERVICE_ACCOUNT_JSON secret is set. Releases stay drafts until the
+# repository variable PLAY_RELEASE_STATUS says `completed`, which Play only
+# accepts once the app has been published.
 #
 # The server's node id is the repository variable BEEP_NODE_ID. Signing comes
 # from four secrets, ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
@@ -70,9 +74,12 @@ jobs:
             printf '%s' "$GOOGLE_SERVICES_JSON" > apps/android/app/google-services.json
           fi
 
-      - name: Build the APK
+      - name: Build the APK and bundle
         working-directory: apps/android
-        run: ./gradlew --no-daemon :app:assembleRelease -PbeepNodeId='${{ vars.BEEP_NODE_ID }}'
+        run: >-
+          ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease
+          -PbeepNodeId='${{ vars.BEEP_NODE_ID }}'
+          -PbeepVersionCode=$((100 + ${{ github.run_number }}))
 
       - name: Package
         run: |
@@ -87,6 +94,21 @@ jobs:
             beep-android.apk
             beep-android.apk.sha256
 
+      - name: Upload to Play
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "No Play service account, skipping the upload."
+            exit 0
+          fi
+          umask 077
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play.json"
+          python3 scripts/play-upload.py "$RUNNER_TEMP/play.json" \
+            apps/android/app/build/outputs/bundle/release/app-release.aab \
+            internal '${{ vars.PLAY_RELEASE_STATUS || 'draft' }}'
+
       - name: Remove signing files
         if: always()
-        run: rm -f apps/android/keystore.properties apps/android/app/google-services.json "$RUNNER_TEMP/release.keystore"
+        run: rm -f apps/android/keystore.properties apps/android/app/google-services.json "$RUNNER_TEMP/release.keystore" "$RUNNER_TEMP/play.json"
