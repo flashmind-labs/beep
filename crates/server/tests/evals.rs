@@ -234,7 +234,6 @@ impl Server {
             request_id: Uuid::new_v4(),
             message: message.into(),
             images: Vec::new(),
-            foreground: None,
             model: None,
             thinking: None,
         };

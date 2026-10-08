@@ -29,7 +29,6 @@ import com.flashmind.beep.proto.ReasoningLevel
 import com.flashmind.beep.proto.DeviceQuery
 import com.flashmind.beep.proto.PermissionLevel
 import com.flashmind.beep.proto.Event
-import com.flashmind.beep.proto.ForegroundApp
 import com.flashmind.beep.proto.HistoryEntry
 import com.flashmind.beep.proto.MemorySource
 import com.flashmind.beep.proto.Cron as ProtoCron
@@ -122,8 +121,6 @@ class ChatRepository(private val storage: LocalStorage) {
     val pendingIntent = MutableStateFlow<AppIntent?>(null)
     val pendingAlarm = MutableStateFlow<AlarmRequest?>(null)
     val browserOpen = MutableStateFlow(false)
-    /** The app behind the bubble while it is in front, sent with each message. */
-    @Volatile var foregroundApp: ForegroundApp? = null
     private var reconnectJob: Job? = null
     /** Renames, pins and deletes not yet on the server, oldest first. Guarded by [lock]. */
     private var changes = storage.loadChanges()
@@ -519,7 +516,7 @@ class ChatRepository(private val storage: LocalStorage) {
 
                     if (chat.runId.isEmpty()) refreshLocation()
                     // A new message streams its run from the start; a run we lost is resumed from the cursor.
-                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImages, foregroundApp,
+                    val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImages,
                         chat.pendingModel.takeIf { it.isNotEmpty() }?.let { Rerun(it, ReasoningLevel.entries.find { level -> level.name.equals(chat.pendingThinking, true) }) })
                         else api.events(chat.runId, chat.cursor)
                     var runId = chat.runId
@@ -828,7 +825,7 @@ class ChatRepository(private val storage: LocalStorage) {
         var cursor = 0L
         var finished = false
         while (!finished) {
-            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, emptyList(), null, null) else api.events(runId, cursor)
+            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, emptyList(), null) else api.events(runId, cursor)
             stream.use { events ->
                 var first = true
                 while (true) {

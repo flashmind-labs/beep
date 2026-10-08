@@ -13,7 +13,7 @@ use crate::{
     images::Describer,
     live::LiveRun,
     models::ModelChoices,
-    protocol::{ApprovalDecision, DeviceAnswer, DeviceKind, ForegroundApp, Notice, RunEvent},
+    protocol::{ApprovalDecision, DeviceAnswer, DeviceKind, Notice, RunEvent},
     sandbox::Sandbox,
     search::SearchTool,
     starters::Generator,
@@ -138,7 +138,6 @@ pub struct Message {
     #[serde(default)]
     pub images: Vec<String>,
     #[serde(default)]
-    pub foreground: Option<ForegroundApp>,
     /// Set when the run resumes a session that stopped to ask the user.
     #[serde(skip)]
     pub answer: Option<Answer>,

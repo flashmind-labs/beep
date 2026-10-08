@@ -269,7 +269,6 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         request_id: Uuid::new_v4(),
         message: "Remember I prefer tea".into(),
         images: Vec::new(),
-        foreground: None,
         model: None,
         thinking: None,
     };
@@ -372,7 +371,6 @@ async fn cancellation_busy_session_and_invalid_input() {
         request_id: Uuid::new_v4(),
         message: "slow".into(),
         images: Vec::new(),
-        foreground: None,
         model: None,
         thinking: None,
     };
@@ -384,7 +382,6 @@ async fn cancellation_busy_session_and_invalid_input() {
         request_id: Uuid::new_v4(),
         message: "again".into(),
         images: Vec::new(),
-        foreground: None,
         model: None,
         thinking: None,
     };
@@ -399,7 +396,6 @@ async fn cancellation_busy_session_and_invalid_input() {
         request_id: Uuid::new_v4(),
         message: " ".into(),
         images: Vec::new(),
-        foreground: None,
         model: None,
         thinking: None,
     };
@@ -731,7 +727,6 @@ async fn a_linked_computer_shares_the_account_until_removed() {
         request_id: Uuid::new_v4(),
         message: "hello from the desk".into(),
         images: Vec::new(),
-        foreground: None,
         model: None,
         thinking: None,
     };
