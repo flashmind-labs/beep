@@ -26,8 +26,8 @@ use std::{env, fs, path::PathBuf, sync::Arc, time::Duration};
 use tokio::time::timeout;
 use uuid::Uuid;
 
-/// The longest follow-up the writer is asked for.
-const MAX_FOLLOW_UP_CHARS: usize = 32;
+/// The longest follow-up `suggest_replies` keeps; the writer is asked for 32.
+const MAX_FOLLOW_UP_CHARS: usize = 40;
 const TURN_TIMEOUT: Duration = Duration::from_secs(240);
 
 /// What a case expects of its turn.
