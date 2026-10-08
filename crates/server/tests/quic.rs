@@ -198,6 +198,7 @@ impl Harness {
                 app: None,
                 approval: None,
                 changed: false,
+                group: false,
             },
         };
         self.app.notifications.send(notice).unwrap();

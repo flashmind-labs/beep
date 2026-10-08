@@ -21,6 +21,7 @@ object Notices : NoticeListener {
 
     private fun show(app: BeepApplication, notice: Notice) {
         // A chat changed on the server, maybe from another phone.
+        if (notice.group) { showGroup(app, notice); return }
         if (notice.changed) { app.repository.refreshHistory(); return }
         val title = notice.title.ifEmpty { return }
         val body = notice.body
@@ -56,5 +57,29 @@ object Notices : NoticeListener {
             builder.addAction(ChatNotifications.replyAction(app, conversationId))
 
         app.getSystemService(NotificationManager::class.java).notify(nextId.getAndIncrement(), builder.build())
+    }
+
+    /** A group message, or a change in a group such as Beep starting to type. */
+    private fun showGroup(app: BeepApplication, notice: Notice) {
+        val groupId = notice.sessionId
+        app.repository.groupChanged(groupId)
+        if (notice.changed || notice.title.isEmpty() || app.repository.groupOnScreen(groupId)) return
+        ChatNotifications.ensureChannel(app)
+        val intent = Intent(app, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("group_id", groupId)
+        }
+        val pending = PendingIntent.getActivity(app, ChatNotifications.groupId(groupId), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification = Notification.Builder(app, ChatNotifications.CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle(notice.title)
+            .setContentText(notice.body)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .setColor(0xFF3B9B7A.toInt())
+            .setStyle(Notification.BigTextStyle().bigText(notice.body))
+            .build()
+        app.getSystemService(NotificationManager::class.java).notify(ChatNotifications.groupId(groupId), notification)
     }
 }

@@ -36,9 +36,9 @@ use crate::{
     },
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
-        DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, LinkKey, Location, MEMORY_CATEGORIES,
-        McpServerRow, MemoryRow, NewKey, Origin, PushDevice, RunStatus, Share, Store,
-        StoredContext, TurnModel, TurnsToDelete,
+        DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Join, JoinedGroup, LinkKey, Location,
+        MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewKey, NewMessage, Origin, Posted, PushDevice,
+        RunStatus, Share, Store, StoredContext, TurnModel, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -343,6 +343,43 @@ impl User {
             self.changed("");
         }
         Ok(copied)
+    }
+
+    /// Makes the group `id` with the user in it; `false` when the id is taken.
+    pub async fn create_group(&self, id: &str, name: &str, member_name: &str) -> Result<bool> {
+        self.store
+            .create_group(&self.key, id, name, member_name)
+            .await
+    }
+
+    /// The groups the user is in, most recently active first.
+    pub async fn groups(&self) -> Result<Vec<JoinedGroup>> {
+        self.store.groups(&self.key).await
+    }
+
+    /// The group `id`, if the user is in it.
+    pub async fn group(&self, id: &str) -> Result<Option<JoinedGroup>> {
+        self.store.group(&self.key, id).await
+    }
+
+    /// Posts to a group the user is in; `None` when they are not.
+    pub async fn post_to_group(&self, message: NewMessage<'_>) -> Result<Option<Posted>> {
+        self.store.post_to_group(&self.key, message).await
+    }
+
+    /// The invite token of a group the user is in, a new one with `reset`.
+    pub async fn group_invite(&self, id: &str, reset: bool) -> Result<Option<String>> {
+        self.store.group_invite(&self.key, id, reset).await
+    }
+
+    /// Joins the group behind `token`.
+    pub async fn join_group(&self, token: &str, name: &str) -> Result<Join> {
+        self.store.join_group(&self.key, token, name).await
+    }
+
+    /// Leaves a group; `false` when the user was not in it.
+    pub async fn leave_group(&self, id: &str) -> Result<bool> {
+        self.store.leave_group(&self.key, id).await
     }
 
     /// Tells the user's phones that `session_id` changed, or the chat list
@@ -1107,6 +1144,7 @@ impl User {
                 app: Some(name.to_owned()),
                 approval: None,
                 changed: false,
+                group: false,
             },
         };
         // Nobody listening just means the phone is offline; Apps still shows it.

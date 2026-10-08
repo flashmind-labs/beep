@@ -80,6 +80,7 @@ impl App {
                     approval,
                 }),
                 changed: false,
+                group: false,
             },
         });
     }

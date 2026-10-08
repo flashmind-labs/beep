@@ -247,6 +247,26 @@ requests! {
     /// The phone's timezone, such as "Europe/Madrid", which routines and
     /// reminders run in. Sent on connect, so no location is needed for it.
     56 SetTimezone { timezone: String } => Call<()>
+    /// Makes a group chat `id` with the caller as its first member, shown
+    /// to the others as `member_name`.
+    57 CreateGroup { id: Uuid, name: String, member_name: String } => Call<Group>
+    /// The caller's groups, most recently active first.
+    58 ListGroups {} => Call<Vec<Group>>
+    /// A group with its latest messages, oldest first.
+    59 GetGroup { id: String } => Call<GroupChat>
+    /// Posts to a group. A message that mentions `@beep` asks Beep to
+    /// reply, running as the sender. Sending the same `request_id` twice
+    /// posts once.
+    60 SendToGroup { group_id: String, request_id: Uuid, message: String } => Call<GroupMessage>
+    /// The group's invite link. `reset` makes a new one, so the old link
+    /// stops working.
+    61 GroupInvite { id: String, reset: bool } => Call<GroupLink>
+    /// What an invite link's `token` leads to, before joining.
+    62 PeekGroup { token: String } => Call<GroupPreview>
+    /// Joins the group behind an invite `token` as `member_name`.
+    63 JoinGroup { token: String, member_name: String } => Call<Group>
+    /// Leaves a group. The last member to leave deletes it.
+    64 LeaveGroup { id: String } => Call<()>
 }
 
 /// The link prefix a shared session's token follows.
@@ -260,6 +280,20 @@ pub fn share_url(token: &str) -> String {
 /// The token in a shared session's link, if `url` is one.
 pub fn share_token(url: &str) -> Option<&str> {
     let token = url.trim().strip_prefix(SHARE_URL_PREFIX)?;
+    (!token.is_empty() && token.bytes().all(|b| b.is_ascii_alphanumeric())).then_some(token)
+}
+
+/// The link prefix a group invite's token follows.
+pub const GROUP_URL_PREFIX: &str = "beep://group/";
+
+/// The invite link with `token`.
+pub fn group_url(token: &str) -> String {
+    format!("{GROUP_URL_PREFIX}{token}")
+}
+
+/// The token in a group invite link, if `url` is one.
+pub fn group_token(url: &str) -> Option<&str> {
+    let token = url.trim().strip_prefix(GROUP_URL_PREFIX)?;
     (!token.is_empty() && token.bytes().all(|b| b.is_ascii_alphanumeric())).then_some(token)
 }
 
@@ -802,6 +836,84 @@ pub struct LinkedDevice {
     pub linked_at: SystemTime,
 }
 
+/// A group chat as its list row shows it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Group {
+    pub id: String,
+    pub name: String,
+    /// Oldest first; Beep is not listed.
+    pub members: Vec<GroupMember>,
+    pub last: Option<GroupMessage>,
+    /// When the last message came in, in milliseconds since the Unix epoch.
+    pub updated_at: i64,
+    /// Beep is writing a reply.
+    pub beep_typing: bool,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupMember {
+    pub name: String,
+    /// The caller.
+    pub you: bool,
+    /// Made the group.
+    pub creator: bool,
+    /// In milliseconds since the Unix epoch.
+    pub joined_at: i64,
+}
+
+/// A group with its latest messages, oldest first.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupChat {
+    pub group: Group,
+    pub messages: Vec<GroupMessage>,
+}
+
+/// One message in a group. Beep's replies hold text only: its thinking and
+/// tool calls never reach the group.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupMessage {
+    /// Grows with each message in the group.
+    pub seq: i64,
+    pub author: GroupAuthor,
+    pub content: String,
+    /// In milliseconds since the Unix epoch.
+    pub timestamp: i64,
+}
+
+wire_enum! {
+    /// Who wrote a group message. `you` marks the caller's own messages.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum GroupAuthor {
+        0 Member { name: String, you: bool }
+        1 Beep {}
+    }
+}
+
+/// A group's invite link.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupLink {
+    pub token: String,
+    pub url: String,
+}
+
+/// What an invite shows before joining.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupPreview {
+    pub id: String,
+    pub name: String,
+    /// Member names, oldest first.
+    pub members: Vec<String>,
+    /// The caller is in it already.
+    pub joined: bool,
+}
+
 /// A message the server pushes to the user's open notification streams.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -816,6 +928,10 @@ pub struct Notice {
     /// Nothing to show: `session_id` changed on the server, or the chat list
     /// did when it is empty, so the phone refreshes its copy.
     pub changed: bool,
+    /// `session_id` is a group's id. Defaults so a phone from before groups
+    /// still decodes notices.
+    #[serde(default)]
+    pub group: bool,
 }
 
 #[cfg(test)]
@@ -874,6 +990,8 @@ mod tests {
         assert_eq!(share_token("beep://share/"), None);
         assert_eq!(share_token("beep://share/../x"), None);
         assert_eq!(share_token("beep://apps"), None);
+        assert_eq!(group_token(&group_url("cd34")), Some("cd34"));
+        assert_eq!(group_token(&share_url("cd34")), None);
     }
 
     #[test]

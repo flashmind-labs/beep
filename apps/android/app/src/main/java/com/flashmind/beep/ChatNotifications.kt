@@ -91,6 +91,12 @@ object ChatNotifications {
     fun cancel(context: Context, conversationId: String) =
         context.getSystemService(NotificationManager::class.java).cancel(conversationId.hashCode())
 
+    /** The id of a group's notification: one per group, replaced by each new message. */
+    fun groupId(groupId: String) = "group:$groupId".hashCode()
+
+    fun cancelGroup(context: Context, groupId: String) =
+        context.getSystemService(NotificationManager::class.java).cancel(groupId(groupId))
+
     fun replyText(intent: Intent): String? =
         RemoteInput.getResultsFromIntent(intent)?.getCharSequence(REPLY_KEY)?.toString()?.trim()?.takeIf { it.isNotEmpty() }
 }

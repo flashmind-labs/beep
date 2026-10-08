@@ -30,6 +30,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="beep" android:host="apps" />
                 <data android:scheme="beep" android:host="share" />
+                <data android:scheme="beep" android:host="group" />
             </intent-filter>
         </activity>
         <!-- Launcher icons. AppIcons enables exactly one of these. -->

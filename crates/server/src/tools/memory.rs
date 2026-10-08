@@ -45,15 +45,15 @@ pub fn register(registry: &mut ToolRegistry, user: &Arc<User>, session_id: &str)
     registry.register(Arc::new(MemoryUpdateTool(writer())));
 }
 
-fn arg<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
+pub(super) fn arg<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
     opt_arg(args, name).ok_or_else(|| anyhow!("missing string argument: {name}"))
 }
 
-fn opt_arg<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
+pub(super) fn opt_arg<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
     args.get(name).and_then(Value::as_str)
 }
 
-fn date(args: &Value, name: &str) -> Result<Option<NaiveDate>> {
+pub(super) fn date(args: &Value, name: &str) -> Result<Option<NaiveDate>> {
     opt_arg(args, name)
         .map(str::trim)
         .filter(|d| !d.is_empty())
@@ -77,7 +77,7 @@ fn fact(args: &Value, origin: Origin) -> Result<Fact<'_>> {
     })
 }
 
-fn fact_schema(required: &[&str], extra: Value) -> Value {
+pub(super) fn fact_schema(required: &[&str], extra: Value) -> Value {
     let mut properties = json!({
         "content":{"type":"string","description":"One short self-contained sentence."},
         "valid_from":{"type":"string","description":"YYYY-MM-DD the fact starts holding, for temporary facts like a trip."},
@@ -89,7 +89,7 @@ fn fact_schema(required: &[&str], extra: Value) -> Value {
     json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
 }
 
-fn reply(ctx: &ToolContext<'_>, output: Value) -> Result<ToolResult> {
+pub(super) fn reply(ctx: &ToolContext<'_>, output: Value) -> Result<ToolResult> {
     Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
 }
 

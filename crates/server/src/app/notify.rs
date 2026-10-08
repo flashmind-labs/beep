@@ -48,6 +48,7 @@ impl App {
                 app: None,
                 approval: None,
                 changed: false,
+                group: false,
             },
         };
         // Best-effort: ignore send errors (no active receivers).

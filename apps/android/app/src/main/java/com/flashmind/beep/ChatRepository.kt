@@ -9,6 +9,7 @@ import android.provider.ContactsContract
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -29,6 +30,11 @@ import com.flashmind.beep.proto.ReasoningLevel
 import com.flashmind.beep.proto.DeviceQuery
 import com.flashmind.beep.proto.PermissionLevel
 import com.flashmind.beep.proto.Event
+import com.flashmind.beep.proto.Group
+import com.flashmind.beep.proto.GroupChat
+import com.flashmind.beep.proto.GroupLink
+import com.flashmind.beep.proto.GroupMessage
+import com.flashmind.beep.proto.GroupPreview
 import com.flashmind.beep.proto.HistoryEntry
 import com.flashmind.beep.proto.MemorySource
 import com.flashmind.beep.proto.Cron as ProtoCron
@@ -347,6 +353,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     resumePending()
                     pushChanges()
                     runCatching { syncHistory(settings.value) }
+                    refreshGroups()
                     return@launch
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
@@ -582,6 +589,39 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     /** The memories last fetched, null if never. */
     fun cachedMemories(): List<Memory>? = lists.memories?.map(::memory)
+    /** The user's group chats, most recently active first. */
+    val groups = MutableStateFlow<List<Group>>(emptyList())
+    /** Ids of groups that changed on the server, for the open group to reload. */
+    val groupChanges = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    @Volatile private var openGroup: String? = null
+    /** The group on screen, or null when none is. Its notification goes. */
+    fun groupShown(id: String?) {
+        openGroup = id
+        if (id != null) ChatNotifications.cancelGroup(storage.context, id)
+    }
+    fun groupOnScreen(id: String) = chatScreens.get() > 0 && openGroup == id
+    fun groupChanged(id: String) {
+        groupChanges.tryEmit(id)
+        refreshGroups()
+    }
+    fun refreshGroups() {
+        scope.launch { runCatching { api().listGroups() }.onSuccess { groups.value = it } }
+    }
+    suspend fun group(id: String): GroupChat = api().getGroup(id)
+    suspend fun createGroup(name: String, memberName: String): Group =
+        api().createGroup(UUID.randomUUID().toString(), name, memberName).also { refreshGroups() }
+    /** Posts to a group; the same [requestId] sent twice posts once. */
+    suspend fun sendToGroup(id: String, requestId: String, text: String): GroupMessage =
+        api().sendToGroup(id, requestId, text)
+    suspend fun groupInvite(id: String, reset: Boolean = false): GroupLink = api().groupInvite(id, reset)
+    suspend fun peekGroup(token: String): GroupPreview = api().peekGroup(token)
+    suspend fun joinGroup(token: String, memberName: String): Group =
+        api().joinGroup(token, memberName).also { refreshGroups() }
+    suspend fun leaveGroup(id: String) {
+        api().leaveGroup(id)
+        groups.value = groups.value.filter { it.id != id }
+    }
+
     suspend fun listMemories(): List<Memory> {
         val fresh = api().listMemories()
         saveLists { it.copy(memories = fresh) }

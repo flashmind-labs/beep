@@ -1,7 +1,7 @@
 //! Request handlers, one function per request type.
 
 use crate::{
-    app::{Answer, Message},
+    app::{Answer, Message, UserNotice, group_message},
     apps::catalog_app,
     cron, feeds,
     images::{MAX_IMAGE_BYTES, MAX_IMAGES},
@@ -11,8 +11,8 @@ use crate::{
     protocol::*,
     router::{Cx, Router, Sink},
     store::{
-        AccountKey, CopiedShare, CreateRun, DeletedTurn, Feed, FoundSession, LinkKey, Location,
-        NewKey, PushDevice, TurnModel, TurnsToDelete, decode_schedule,
+        AccountKey, CopiedShare, CreateRun, DeletedTurn, Feed, FoundSession, Join, LinkKey,
+        Location, NewKey, PushDevice, TurnModel, TurnsToDelete, decode_schedule,
     },
     wake,
 };
@@ -88,6 +88,14 @@ pub fn router() -> Router {
         .call(unshare_session)
         .call(get_share)
         .call(copy_share)
+        .call(create_group)
+        .call(list_groups)
+        .call(get_group)
+        .call(send_to_group)
+        .call(group_invite)
+        .call(peek_group)
+        .call(join_group)
+        .call(leave_group)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -293,6 +301,161 @@ async fn copy_share(cx: Cx, CopyShare { token, session_id }: CopyShare) -> Reply
         .into_iter()
         .find(|session| session.id == id)
         .ok_or(ApiError::Internal {})
+}
+
+/// Messages a group chat loads at once.
+const GROUP_MESSAGES: i64 = 200;
+
+/// A group or member name, trimmed. Nobody may go by Beep.
+fn group_name(name: &str, what: &str, max: usize) -> Reply<String> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > max {
+        return Err(ApiError::bad_request(format!(
+            "{what} must be 1-{max} characters"
+        )));
+    }
+    if what == "member name" && name.eq_ignore_ascii_case("beep") {
+        return Err(ApiError::bad_request("Beep is taken"));
+    }
+    Ok(name.to_owned())
+}
+
+async fn create_group(
+    cx: Cx,
+    CreateGroup {
+        id,
+        name,
+        member_name,
+    }: CreateGroup,
+) -> Reply<Group> {
+    let name = group_name(&name, "group name", 60)?;
+    let member_name = group_name(&member_name, "member name", 30)?;
+    let id = id.to_string();
+    if !cx.user.create_group(&id, &name, &member_name).await? {
+        return Err(ApiError::Conflict {
+            message: "group id is taken".into(),
+        });
+    }
+    let joined = cx.user.group(&id).await?.ok_or(ApiError::Internal {})?;
+    Ok(cx.app.group_view(&joined, cx.user.id()))
+}
+
+async fn list_groups(cx: Cx, _: ListGroups) -> Reply<Vec<Group>> {
+    Ok(cx
+        .user
+        .groups()
+        .await?
+        .iter()
+        .map(|joined| cx.app.group_view(joined, cx.user.id()))
+        .collect())
+}
+
+async fn get_group(cx: Cx, GetGroup { id }: GetGroup) -> Reply<GroupChat> {
+    let joined = cx.user.group(&id).await?.ok_or(ApiError::NotFound {})?;
+    let messages = cx.app.store.group_messages(&id, GROUP_MESSAGES).await?;
+    Ok(GroupChat {
+        group: cx.app.group_view(&joined, cx.user.id()),
+        messages: messages
+            .iter()
+            .map(|row| group_message(row, cx.user.id()))
+            .collect(),
+    })
+}
+
+async fn send_to_group(
+    cx: Cx,
+    SendToGroup {
+        group_id,
+        request_id,
+        message,
+    }: SendToGroup,
+) -> Reply<GroupMessage> {
+    if message.trim().is_empty() || message.len() > 8192 {
+        return Err(ApiError::bad_request("message must be 1-8192 bytes"));
+    }
+    cx.app
+        .send_to_group(&cx.user, &group_id, request_id, message.trim())
+        .await?
+        .ok_or(ApiError::NotFound {})
+}
+
+async fn group_invite(cx: Cx, GroupInvite { id, reset }: GroupInvite) -> Reply<GroupLink> {
+    let token = cx
+        .user
+        .group_invite(&id, reset)
+        .await?
+        .ok_or(ApiError::NotFound {})?;
+    Ok(GroupLink {
+        url: group_url(&token),
+        token,
+    })
+}
+
+async fn peek_group(cx: Cx, PeekGroup { token }: PeekGroup) -> Reply<GroupPreview> {
+    let joined = cx
+        .app
+        .store
+        .group_by_invite(&token)
+        .await?
+        .ok_or(ApiError::NotFound {})?;
+    Ok(GroupPreview {
+        joined: joined.members.iter().any(|m| m.user_id == cx.user.id()),
+        members: joined.members.into_iter().map(|m| m.name).collect(),
+        id: joined.group.id,
+        name: joined.group.name,
+    })
+}
+
+async fn join_group(cx: Cx, JoinGroup { token, member_name }: JoinGroup) -> Reply<Group> {
+    let member_name = group_name(&member_name, "member name", 30)?;
+    let invited = cx
+        .app
+        .store
+        .group_by_invite(&token)
+        .await?
+        .ok_or(ApiError::NotFound {})?;
+    // Beep tells members apart by name, so two may not share one.
+    let taken = invited
+        .members
+        .iter()
+        .any(|m| m.user_id != cx.user.id() && m.name.eq_ignore_ascii_case(&member_name));
+    if taken {
+        return Err(ApiError::Conflict {
+            message: "someone in the group already goes by that name".into(),
+        });
+    }
+    let id = match cx.user.join_group(&token, &member_name).await? {
+        Join::Joined(id) => id,
+        Join::NameTaken => {
+            return Err(ApiError::Conflict {
+                message: "someone in the group already goes by that name".into(),
+            });
+        }
+        Join::UnknownInvite => return Err(ApiError::NotFound {}),
+    };
+    let joined = cx.user.group(&id).await?.ok_or(ApiError::Internal {})?;
+    for member in &joined.members {
+        let _ = cx
+            .app
+            .notifications
+            .send(UserNotice::group_changed(&member.user_id, &id));
+    }
+    Ok(cx.app.group_view(&joined, cx.user.id()))
+}
+
+async fn leave_group(cx: Cx, LeaveGroup { id }: LeaveGroup) -> Reply<()> {
+    let members = match cx.user.group(&id).await? {
+        Some(joined) => joined.members,
+        None => return Err(ApiError::NotFound {}),
+    };
+    cx.user.leave_group(&id).await?;
+    for member in &members {
+        let _ = cx
+            .app
+            .notifications
+            .send(UserNotice::group_changed(&member.user_id, &id));
+    }
+    Ok(())
 }
 
 /// The text of the user and assistant messages in `entries`, as a

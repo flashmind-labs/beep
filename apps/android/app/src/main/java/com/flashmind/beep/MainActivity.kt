@@ -35,7 +35,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
+import com.flashmind.beep.ffi.groupToken
 import com.flashmind.beep.ffi.shareToken
+import com.flashmind.beep.proto.Group
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -87,6 +89,10 @@ open class MainActivity : ComponentActivity() {
     private val pendingOpenApps = mutableStateOf(false)
     /** The token of a `beep://share/` link to open. */
     private val pendingShareToken = mutableStateOf<String?>(null)
+    /** The token of a `beep://group/` invite to open. */
+    private val pendingGroupToken = mutableStateOf<String?>(null)
+    /** A group to open, from its notification. */
+    private val pendingGroup = mutableStateOf<String?>(null)
     private val clipboardContent = mutableStateOf<String?>(null)
     /** Set to true right before the app copies text, to suppress showing the banner for our own copies. */
     var suppressNextClipboard = false
@@ -139,7 +145,12 @@ open class MainActivity : ComponentActivity() {
         intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it) }
         if (intent.getBooleanExtra("focus_input", false)) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
-        intent.data?.let { shareToken(it.toString()) }?.let { pendingShareToken.value = it }
+        takeLinks(intent)
+    }
+    private fun takeLinks(intent: Intent?) {
+        intent?.data?.let { shareToken(it.toString()) }?.let { pendingShareToken.value = it }
+        intent?.data?.let { groupToken(it.toString()) }?.let { pendingGroupToken.value = it }
+        intent?.getStringExtra("group_id")?.let { pendingGroup.value = it }
     }
     override fun onResume() {
         super.onResume()
@@ -195,10 +206,10 @@ open class MainActivity : ComponentActivity() {
         intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
         if (intent?.getBooleanExtra("focus_input", false) == true) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
-        intent?.data?.let { shareToken(it.toString()) }?.let { pendingShareToken.value = it }
+        takeLinks(intent)
         setContent {
             BeepTheme {
-                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, shareToken = pendingShareToken, clipboardContent = clipboardContent, onFloat = {
+                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
                 }, onExpand = {
@@ -273,7 +284,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-private enum class Screen { Chat, Memories, Crons, Integrations, Settings, Devices, Shared }
+private enum class Screen { Chat, Memories, Crons, Integrations, Settings, Devices, Shared, GroupJoin, GroupInfo }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -282,6 +293,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     focusInput: MutableState<Boolean> = mutableStateOf(false),
                     openApps: MutableState<Boolean> = mutableStateOf(false),
                     shareToken: MutableState<String?> = mutableStateOf(null),
+                    groupToken: MutableState<String?> = mutableStateOf(null),
+                    groupToOpen: MutableState<String?> = mutableStateOf(null),
                     clipboardContent: MutableState<String?> = mutableStateOf(null),
                     onFloat: () -> Unit, onExpand: () -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
@@ -311,6 +324,25 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             screen = Screen.Shared
         }
     }
+    // The group chat on screen instead of a one to one chat, if any.
+    var openGroup by rememberSaveable { mutableStateOf<String?>(null) }
+    var joinToken by rememberSaveable { mutableStateOf<String?>(null) }
+    var newGroup by remember { mutableStateOf(false) }
+    var inviting by remember { mutableStateOf<Group?>(null) }
+    val groups by repository.groups.collectAsStateWithLifecycle()
+    LaunchedEffect(groupToken.value) {
+        groupToken.value?.let {
+            groupToken.value = null
+            joinToken = it
+            screen = Screen.GroupJoin
+        }
+    }
+    LaunchedEffect(groupToOpen.value) {
+        groupToOpen.value?.let {
+            groupToOpen.value = null
+            if (!bubble) { openGroup = it; screen = Screen.Chat }
+        }
+    }
     // Chats left by starting a new one, newest last, so a swipe right can go back to them.
     // The trail only holds while the user stays on the chat the swipes led to: opening one from the
     // list, a notification or a share starts over, and it lives no longer than this screen.
@@ -318,9 +350,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     var trailEnd by remember { mutableStateOf<String?>(null) }
     fun openChat(id: String) {
         visited = emptyList()
+        openGroup = null
         repository.select(id)
     }
     fun startNewChat() {
+        if (openGroup != null) { openGroup = null; return }
         if (state.current.messages.isEmpty()) return
         visited = visited.filter { it != state.current.id } + state.current.id
         repository.newChat()
@@ -365,6 +399,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     BackHandler(enabled = activeScreen != Screen.Chat) {
         screen = if (activeScreen == Screen.Devices) Screen.Settings else Screen.Chat
     }
+    fun openGroupChat(id: String) {
+        openGroup = id
+        screen = Screen.Chat
+    }
     Crossfade(targetState = activeScreen, animationSpec = tween(300), label = "screen-transition") { currentScreen ->
         when (currentScreen) {
             Screen.Memories -> MemoriesScreen(repository, onBack = { screen = Screen.Chat })
@@ -375,6 +413,14 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Chat },
                 onBubbleSettings = onBubbleSettings, onLinkedDevices = { screen = Screen.Devices })
             Screen.Devices -> LinkedDevicesScreen(repository, onBack = { screen = Screen.Settings })
+            Screen.GroupJoin -> joinToken?.let { token ->
+                GroupJoinScreen(repository, token, onJoined = { joinToken = null; openGroupChat(it) },
+                    onBack = { joinToken = null; screen = Screen.Chat })
+            }
+            Screen.GroupInfo -> openGroup?.let { id ->
+                GroupInfoScreen(repository, id, onBack = { screen = Screen.Chat }, onInvite = { inviting = it },
+                    onLeft = { openGroup = null; screen = Screen.Chat })
+            }
             Screen.Shared -> sharedToken?.let { token ->
                 SharedChatScreen(repository, token, onBack = { screen = Screen.Chat }, onContinued = { sharedToken = null; screen = Screen.Chat })
             }
@@ -387,7 +433,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             // The composer keeps focus behind the drawer otherwise, and the keyboard covers the list.
             focusManager.clearFocus()
             keyboard?.hide()
-            repository.refreshHistory(); drawerState.open()
+            repository.refreshHistory(); repository.refreshGroups(); drawerState.open()
         } else drawerState.close()
     }
     LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
@@ -397,7 +443,13 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         ModalDrawerSheet(modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(0.9f), drawerContainerColor = Ink,
             drawerShape = RoundedCornerShape(topEnd = Beep.shapes.radius, bottomEnd = Beep.shapes.radius)) {
             Spacer(Modifier.height(if (bubble) 8.dp else 20.dp))
-            Text(displayText("Your chats"), Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = displayStyle(26.sp))
+            Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(displayText("Your chats"), Modifier.weight(1f), style = displayStyle(26.sp))
+                if (!bubble) ChunkyButton(onClick = { newGroup = true }, shape = RoundedCornerShape(Beep.shapes.smallRadius),
+                    modifier = Modifier.size(40.dp), contentPadding = PaddingValues(0.dp)) {
+                    Icon(Icons.Outlined.GroupAdd, "New group", Modifier.size(20.dp))
+                }
+            }
             OutlinedTextField(historyQuery, { historyQuery = it }, placeholder = { Text("Find a conversation", fontSize = 13.sp) },
                 leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) }, singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
@@ -423,6 +475,15 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 delay(350)
                 contentHits = runCatching { withContext(Dispatchers.IO) { repository.searchChats(query) } }.getOrDefault(emptyList())
             }
+            // Groups sit among the chats by when they were last active, after the pinned chats.
+            val visibleGroups = if (bubble || picked != null) emptyList()
+                else groups.filter { it.name.contains(historyQuery, ignoreCase = true) }
+            val rows: List<Any> = run {
+                val pinned = visibleChats.filter { it.pinned }
+                pinned + (visibleChats.filter { !it.pinned } + visibleGroups).sortedByDescending {
+                    if (it is Group) it.updatedAt else (it as Conversation).lastActive
+                }
+            }
             val known = state.conversations.associateBy { it.id }
             val titled = visibleChats.map { it.id }.toSet()
             val messageHits = if (picked != null) emptyList()
@@ -442,11 +503,16 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             }
             LazyColumn(Modifier.weight(1f)) {
                 if (messageHits.isNotEmpty() && visibleChats.isNotEmpty()) item(key = "titles-label") { DrawerLabel("Titles") }
-                items(visibleChats, key = { it.id }) { chat ->
+                items(rows, key = { if (it is Group) "group-" + it.id else (it as Conversation).id }) { row ->
+                    if (row is Group) {
+                        GroupRow(row, highlighted = openGroup == row.id) { openGroupChat(row.id); drawerOpen = false }
+                        return@items
+                    }
+                    val chat = row as Conversation
                     Box(Modifier.padding(horizontal = 12.dp, vertical = 2.dp)) {
                         val selecting = picked
                         val toggle = { selecting?.let { picked = if (chat.id in it) it - chat.id else it + chat.id } }
-                        val highlighted = if (selecting != null) chat.id in selecting else state.current.id == chat.id
+                        val highlighted = if (selecting != null) chat.id in selecting else openGroup == null && state.current.id == chat.id
                         // NavigationDrawerItem consumes the press itself, so it never reports a long press.
                         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Beep.shapes.smallRadius))
                             .background(if (highlighted) Beep.colors.user else Color.Transparent)
@@ -553,7 +619,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             }
         }
     }) {
-        Scaffold(containerColor = Ink, topBar = {
+        val group = openGroup.takeIf { !bubble }
+        if (group != null) GroupChatPane(repository, group, onMenu = { drawerOpen = true }, onInfo = { screen = Screen.GroupInfo },
+            onInvite = { inviting = it }, onGone = { openGroup = null })
+        else Scaffold(containerColor = Ink, topBar = {
             if (bubble) {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(displayText("Beep"), style = displayStyle(18.sp))
@@ -607,6 +676,15 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     } // end Screen.Chat
     } // end when
     } // end Crossfade
+    if (newGroup) NewGroupSheet(repository, onDismiss = { newGroup = false }, onCreated = {
+        newGroup = false
+        drawerOpen = false
+        openGroupChat(it.id)
+        inviting = it
+    })
+    inviting?.let { invite ->
+        GroupInviteSheet(repository, invite.id, invite.name, onDismiss = { inviting = null })
+    }
     // Browser overlay
     AnimatedVisibility(visible = browserOpen,
         enter = fadeIn() + slideInVertically { it },

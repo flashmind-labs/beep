@@ -660,7 +660,7 @@ impl App {
 
 /// Firecrawl's page tools. Each run gets its own cache, so `web_search_read`
 /// only reaches pages this run crawled.
-fn register_web_tools(registry: &mut ToolRegistry, key: &str) {
+pub(super) fn register_web_tools(registry: &mut ToolRegistry, key: &str) {
     let cache: SearchCacheRef = Arc::new(RwLock::new(SearchResultCache::new()));
     registry.register(Arc::new(WebScrapeTool::new(key.to_owned())));
     registry.register(Arc::new(WebMapTool::new(key.to_owned())));
