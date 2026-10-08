@@ -4,7 +4,7 @@ use super::{App, Message};
 use crate::{
     cron,
     memories::PROFILE_HEADER,
-    protocol::{AppIntegration, DeviceKind, ForegroundApp},
+    protocol::{AppIntegration, DeviceKind},
     store::Location,
     user::User,
 };
@@ -14,7 +14,7 @@ use flashmind::core::{Conversation, EntryKind};
 use std::fmt::Write;
 
 impl App {
-    /// Time, location, the app behind the bubble, which apps are connected,
+    /// Time, location, which apps are connected,
     /// for a routine how to answer it, and the memory profile when `chat` has
     /// not had this one yet, sent as a developer message. Other memories the
     /// model looks up with `memory_recall`.
@@ -42,10 +42,6 @@ impl App {
 
         if let Ok(Some(loc)) = user.get_location().await {
             let _ = writeln!(ctx, "{}", location_line(&loc, Utc::now()));
-        }
-
-        if let Some(app) = &message.foreground {
-            let _ = writeln!(ctx, "{}", foreground_line(app));
         }
 
         if message.origin == (DeviceKind::Desktop {}) {
@@ -141,13 +137,6 @@ fn apps_line(apps: &[AppIntegration]) -> Option<String> {
         ));
     }
     Some(line)
-}
-
-fn foreground_line(app: &ForegroundApp) -> String {
-    format!(
-        "Open app: {} ({}). The user is chatting from the bubble over this app.",
-        app.name, app.package
-    )
 }
 
 #[cfg(test)]

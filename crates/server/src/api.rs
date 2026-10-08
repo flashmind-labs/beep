@@ -117,7 +117,6 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         cron_id: None,
         scheduled: None,
         images: req.images,
-        foreground: req.foreground,
         answer: None,
         model,
         thinking: req.thinking,
@@ -668,7 +667,6 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         cron_id: None,
         scheduled: None,
         images: Vec::new(),
-        foreground: None,
         answer: Some(Answer {
             call_id: query_id.clone(),
             decision,

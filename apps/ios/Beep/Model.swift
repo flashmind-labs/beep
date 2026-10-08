@@ -278,7 +278,7 @@ final class AppModel {
                     if chat.runId.isEmpty {
                         stream = try await api.chat(
                             sessionId: chatId, requestId: chat.requestId, message: chat.pendingText,
-                            images: [], foreground: nil, rerun: nil)
+                            images: [], rerun: nil)
                     } else {
                         stream = try await api.events(runId: chat.runId, after: chat.cursor)
                     }

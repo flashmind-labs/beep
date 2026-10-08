@@ -315,7 +315,6 @@ impl Beep {
                 request_id: Uuid::new_v4(),
                 message,
                 images: Vec::new(),
-                foreground: None,
                 model: None,
                 thinking: None,
             })

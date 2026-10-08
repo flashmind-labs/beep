@@ -10,10 +10,7 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
-    <!-- Granted by the user in Settings, to name the app behind the bubble. -->
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
-        xmlns:tools="http://schemas.android.com/tools" tools:ignore="ProtectedPermissions" />
-    <!-- Labels for the app behind the bubble. -->
+    <!-- Which ride apps are installed, for the map card. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />

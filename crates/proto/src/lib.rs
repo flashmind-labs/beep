@@ -141,11 +141,10 @@ requests! {
     1 Health {} => Call<()>
     /// Starts a run and streams its events, starting with `RunStarted`. Resending
     /// the same `request_id` follows the existing run instead of starting another.
-    /// `images` are `data:image/...;base64,` URIs. `foreground` is the app the
-    /// user opened Beep's bubble over, if any. `model` is a `ModelChoice::id` to
-    /// run this one turn on instead of the picked model, and `thinking` how long
-    /// it reasons; only admins may set either.
-    2 Chat { session_id: Uuid, request_id: Uuid, message: String, images: Vec<String>, foreground: Option<ForegroundApp>, model: Option<String>, thinking: Option<ReasoningLevel> } => Stream<Event>
+    /// `images` are `data:image/...;base64,` URIs. `model` is a `ModelChoice::id` to run this
+    /// one turn on instead of the picked model, and `thinking` how long it
+    /// reasons; only admins may set either.
+    2 Chat { session_id: Uuid, request_id: Uuid, message: String, images: Vec<String>, model: Option<String>, thinking: Option<ReasoningLevel> } => Stream<Event>
     3 GetRun { id: String } => Call<Run>
     4 CancelRun { id: String } => Call<()>
     5 GetEvents { run_id: String, after: i64 } => Stream<Event>
@@ -494,16 +493,6 @@ pub struct AppAction {
     pub allowed: bool,
 }
 
-/// The app the user was in when they opened Beep's bubble.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ForegroundApp {
-    /// The app's label, such as "Maps".
-    pub name: String,
-    /// The Android package name, such as "com.google.android.apps.maps".
-    pub package: String,
-}
-
 wire_enum! {
     /// An action for the in-app browser on the phone.
     #[derive(Debug, Clone, PartialEq)]
@@ -844,10 +833,6 @@ mod tests {
             request_id: Uuid::new_v4(),
             message: "hi".into(),
             images: vec!["data:image/jpeg;base64,AAAA".into()],
-            foreground: Some(ForegroundApp {
-                name: "Maps".into(),
-                package: "com.example.maps".into(),
-            }),
             model: Some("openai/gpt-test".into()),
             thinking: Some(ReasoningLevel::High),
         };

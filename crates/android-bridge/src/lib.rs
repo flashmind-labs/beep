@@ -9,10 +9,10 @@ use beep_proto::{
     AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
     Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare, CreateCron, Cron, DeleteCron,
     DeleteMemory, DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
-    DeviceResult, DisconnectApp, Event, ExistingSessions, FinishAppAuth, ForegroundApp,
-    GetAppPermissions, GetEvents, GetModels, GetRun, GetSession, GetShare, Health, HistoryEntry,
-    LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices, ListMemories, ListSessions, Memory,
-    Models, Notice, PermissionLevel, PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    DeviceResult, DisconnectApp, Event, ExistingSessions, FinishAppAuth, GetAppPermissions,
+    GetEvents, GetModels, GetRun, GetSession, GetShare, Health, HistoryEntry, LinkDevice,
+    LinkedDevice, ListApps, ListCrons, ListDevices, ListMemories, ListSessions, Memory, Models,
+    Notice, PermissionLevel, PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice,
     RemoveDevice, RenameSession, Run, RunCron, SearchSessions, Session, SessionMatch,
     SetAppPermissions, SetAutoModel, SetModel, SetThinking, ShareSession, SharedLink,
     SharedSession, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice,
@@ -297,7 +297,6 @@ impl BeepClient {
         request_id: String,
         message: String,
         images: Vec<String>,
-        foreground: Option<ForegroundApp>,
         rerun: Option<Rerun>,
     ) -> Result<Arc<EventStream>, BeepError> {
         let uuid = |s: &str| Uuid::parse_str(s).map_err(|_| bad_request("invalid UUID"));
@@ -306,7 +305,6 @@ impl BeepClient {
             request_id: uuid(&request_id)?,
             message,
             images,
-            foreground,
             model: rerun.as_ref().map(|rerun| rerun.model.clone()),
             thinking: rerun.and_then(|rerun| rerun.thinking),
         };
