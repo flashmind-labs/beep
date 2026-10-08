@@ -3,7 +3,11 @@
 //! The run reads every member's memories, and its reply passes the leak gate
 //! before anyone sees it.
 
-use super::{App, UserNotice, run::register_web_tools};
+use super::{
+    App, UserNotice,
+    group_tools::{self, GroupRun},
+    run::register_web_tools,
+};
 use crate::{
     apps::markdown,
     decision::Criteria,
@@ -155,6 +159,10 @@ impl App {
                 .members
                 .iter()
                 .any(|member| member.user_id == user_id && member.pinned),
+            apps_shared: joined
+                .members
+                .iter()
+                .any(|member| member.user_id == user_id && member.shares_apps),
         }
     }
 
@@ -191,7 +199,7 @@ impl App {
     }
 
     /// Wakes every member but `except` with `body`, titled with the group.
-    fn group_notice(
+    pub(super) fn group_notice(
         &self,
         members: &[MemberRow],
         joined: &JoinedGroup,
@@ -405,11 +413,20 @@ impl App {
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }
+        let chat: Vec<Said> = history
+            .iter()
+            .map(|row| Said {
+                author: match row.author_id {
+                    Some(_) => row.author_name.clone(),
+                    None => "Beep".to_owned(),
+                },
+                text: row.content.clone(),
+            })
+            .collect();
         match &self.tools.decision {
             Some(tool) => {
                 // The run holds members' memories, and the gate only reads the
-                // reply. Fetching a URL or calling an app sends text out where
-                // the gate cannot see it, so those tools stay out of the run.
+                // reply, so the web and app tools screen what they send out.
                 registry.register(tool.clone());
                 let me = joined
                     .members
@@ -417,11 +434,36 @@ impl App {
                     .find(|row| row.user_id == actor.id())
                     .map(|row| row.name.clone())
                     .unwrap_or_default();
-                let actor = Member {
+                let actor_member = Member {
                     name: me,
                     user: actor.clone(),
                 };
-                group_memory::register(&mut registry, members.clone(), actor, secrets.clone());
+                // Members who keep their apps to themselves still lend them
+                // when they are the one asking.
+                let lenders: Vec<Member> = joined
+                    .members
+                    .iter()
+                    .filter(|row| row.shares_apps || row.user_id == actor.id())
+                    .filter_map(|row| members.iter().find(|m| m.user.id() == row.user_id))
+                    .cloned()
+                    .collect();
+                let run = Arc::new(GroupRun {
+                    app: self.clone(),
+                    group_id: group_id.clone(),
+                    group_name: joined.group.name.clone(),
+                    actor: actor_member.clone(),
+                    secrets: secrets.clone(),
+                    chat: chat.clone(),
+                    decision: tool.clone(),
+                });
+                let key = self.tools.firecrawl_key.as_ref().map(|k| k.expose_secret());
+                group_tools::register(&mut registry, run, lenders, key).await;
+                group_memory::register(
+                    &mut registry,
+                    members.clone(),
+                    actor_member,
+                    secrets.clone(),
+                );
             }
             None => {
                 if let Some(key) = &self.tools.firecrawl_key {
@@ -512,16 +554,6 @@ impl App {
             // Without Jev no member memory entered the run.
             return Ok(reply.to_owned());
         };
-        let chat: Vec<Said> = history
-            .iter()
-            .map(|row| Said {
-                author: match row.author_id {
-                    Some(_) => row.author_name.clone(),
-                    None => "Beep".to_owned(),
-                },
-                text: row.content.clone(),
-            })
-            .collect();
         let gate = Gate {
             decision,
             secrets: &secrets,
@@ -547,6 +579,7 @@ mod tests {
             creator: false,
             joined_at: at,
             pinned: false,
+            shares_apps: true,
         };
         let row = |seq, author: &str, content: &str| MessageRow {
             seq,

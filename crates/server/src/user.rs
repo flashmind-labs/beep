@@ -378,11 +378,18 @@ impl User {
         self.store.join_group(&self.key, token, name).await
     }
 
-    /// Leaves a group; `false` when the user was not in it.
+    /// Pins or unpins a group; `false` when the user is not in it.
     pub async fn pin_group(&self, id: &str, pinned: bool) -> Result<bool> {
         self.store.pin_group(&self.key, id, pinned).await
     }
 
+    /// Lets Beep use the user's apps in a group when others ask, or stops
+    /// it; `false` when the user is not in it.
+    pub async fn share_group_apps(&self, id: &str, shared: bool) -> Result<bool> {
+        self.store.share_group_apps(&self.key, id, shared).await
+    }
+
+    /// Leaves a group; `false` when the user was not in it.
     pub async fn leave_group(&self, id: &str) -> Result<bool> {
         self.store.leave_group(&self.key, id).await
     }

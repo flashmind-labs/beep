@@ -626,6 +626,16 @@ class ChatRepository(private val storage: LocalStorage) {
         groups.value = groups.value.map { if (it.id == id) it.copy(pinned = pinned) else it }
         scope.launch { runCatching { api().pinGroup(id, pinned) }.onFailure { refreshGroups() } }
     }
+    /** Lets Beep use the user's apps in a group, or stops it; the list is fetched again if the server refuses. */
+    fun shareGroupApps(id: String, shared: Boolean) {
+        groups.value = groups.value.map { if (it.id == id) it.copy(appsShared = shared) else it }
+        scope.launch { runCatching { api().shareGroupApps(id, shared) }.onFailure { refreshGroups() } }
+    }
+    /** Answers an app action Beep asked to take for the user from a group. */
+    fun answerGroupApproval(queryId: String, allow: Boolean) {
+        ApprovalNotifications.cancel(storage.context, queryId)
+        scope.launch { runCatching { api().answerGroupApproval(queryId, allow) } }
+    }
     /** Leaves each group in the background, as bulk delete does for chats. */
     fun leaveGroups(ids: Set<String>) {
         groups.value = groups.value.filter { it.id !in ids }

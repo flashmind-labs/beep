@@ -115,17 +115,18 @@ class ReplyReceiver : BroadcastReceiver() {
 
 /** A tool call waiting for the user, with Allow and Deny right in the notification. */
 object ApprovalNotifications {
-    fun show(context: Context, pending: PendingApproval, conversationId: String, title: String, body: String, open: PendingIntent) {
+    fun show(context: Context, pending: PendingApproval, conversationId: String, title: String, body: String, open: PendingIntent, group: Boolean = false) {
         ChatNotifications.ensureChannel(context)
         fun action(label: String, decision: String): Notification.Action {
             val intent = Intent(context, ApprovalReceiver::class.java)
-                .putExtra("conversation_id", conversationId).putExtra("query_id", pending.queryId).putExtra("decision", decision)
+                .putExtra("conversation_id", conversationId).putExtra("query_id", pending.queryId).putExtra("decision", decision).putExtra("group", group)
             val request = (pending.queryId + decision).hashCode()
             val broadcast = PendingIntent.getBroadcast(context, request, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             return Notification.Action.Builder(null as Icon?, label, broadcast).build()
         }
-        val text = arguments(pending).ifEmpty { body }
+        // A group asks on behalf of someone, so say who before the arguments.
+        val text = if (group) SpannableStringBuilder(body).append('\n').append(arguments(pending)) else arguments(pending).ifEmpty { body }
         val notification = Notification.Builder(context, ChatNotifications.CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)
@@ -164,6 +165,7 @@ class ApprovalReceiver : BroadcastReceiver() {
         val queryId = intent.getStringExtra("query_id") ?: return
         val decision = intent.getStringExtra("decision") ?: return
         val repository = (context.applicationContext as BeepApplication).repository
+        if (intent.getBooleanExtra("group", false)) return repository.answerGroupApproval(queryId, decision == "allow")
         val conversationId = intent.getStringExtra("conversation_id") ?: return
         repository.answerApproval(conversationId, queryId, decision)
     }

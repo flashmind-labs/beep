@@ -97,6 +97,8 @@ pub fn router() -> Router {
         .call(join_group)
         .call(leave_group)
         .call(pin_group)
+        .call(share_group_apps)
+        .call(answer_group_approval)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -448,6 +450,21 @@ async fn join_group(cx: Cx, JoinGroup { token, member_name }: JoinGroup) -> Repl
 
 async fn pin_group(cx: Cx, PinGroup { id, pinned }: PinGroup) -> Reply<()> {
     found(cx.user.pin_group(&id, pinned).await?)
+}
+
+async fn share_group_apps(cx: Cx, ShareGroupApps { id, shared }: ShareGroupApps) -> Reply<()> {
+    found(cx.user.share_group_apps(&id, shared).await?)
+}
+
+async fn answer_group_approval(
+    cx: Cx,
+    AnswerGroupApproval { query_id, allow }: AnswerGroupApproval,
+) -> Reply<()> {
+    found(
+        cx.app
+            .answer_group_action(&cx.user, &query_id, allow)
+            .await?,
+    )
 }
 
 async fn leave_group(cx: Cx, LeaveGroup { id }: LeaveGroup) -> Reply<()> {

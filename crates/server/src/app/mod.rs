@@ -2,6 +2,7 @@ mod auto;
 mod context;
 mod device;
 mod group;
+mod group_tools;
 mod learning;
 mod notify;
 mod run;
@@ -71,6 +72,8 @@ pub struct App {
     device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
     /// Groups Beep is writing a reply in.
     groups_busy: StdMutex<HashSet<String>>,
+    /// Actions Beep asked a group member to allow, keyed by query id.
+    group_actions: StdMutex<HashMap<String, group_tools::GroupAction>>,
     /// Set once the server starts stopping.
     shutting_down: AtomicBool,
 }
@@ -233,6 +236,7 @@ impl App {
             runs: Mutex::new(HashMap::new()),
             device_queries: Mutex::new(HashMap::new()),
             groups_busy: StdMutex::new(HashSet::new()),
+            group_actions: StdMutex::new(HashMap::new()),
             shutting_down: AtomicBool::new(false),
         })
     }

@@ -31,7 +31,10 @@ use flashmind::{
         search_cache::{SearchCacheRef, SearchResultCache},
         search_read::WebSearchReadTool,
     },
-    types::{AgentEvent, AgentInput, ContentPart, ToolRegistry, tool::ToolResult},
+    types::{
+        AgentEvent, AgentInput, ContentPart, ToolRegistry,
+        tool::{Tool, ToolResult},
+    },
 };
 use futures::StreamExt;
 use secrecy::ExposeSecret;
@@ -661,10 +664,19 @@ impl App {
 /// Firecrawl's page tools. Each run gets its own cache, so `web_search_read`
 /// only reaches pages this run crawled.
 pub(super) fn register_web_tools(registry: &mut ToolRegistry, key: &str) {
+    for tool in web_tools(key) {
+        registry.register(tool);
+    }
+}
+
+/// Firecrawl's page tools, sharing one cache.
+pub(super) fn web_tools(key: &str) -> Vec<Arc<dyn Tool>> {
     let cache: SearchCacheRef = Arc::new(RwLock::new(SearchResultCache::new()));
-    registry.register(Arc::new(WebScrapeTool::new(key.to_owned())));
-    registry.register(Arc::new(WebMapTool::new(key.to_owned())));
-    registry.register(Arc::new(WebCrawlTool::new(key.to_owned(), cache.clone())));
-    registry.register(Arc::new(WebExtractTool::new(key.to_owned())));
-    registry.register(Arc::new(WebSearchReadTool::new(cache)));
+    vec![
+        Arc::new(WebScrapeTool::new(key.to_owned())),
+        Arc::new(WebMapTool::new(key.to_owned())),
+        Arc::new(WebCrawlTool::new(key.to_owned(), cache.clone())),
+        Arc::new(WebExtractTool::new(key.to_owned())),
+        Arc::new(WebSearchReadTool::new(cache)),
+    ]
 }

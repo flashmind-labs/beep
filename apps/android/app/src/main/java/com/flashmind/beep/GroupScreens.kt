@@ -24,6 +24,8 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -702,6 +704,21 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
                 ChunkyButton(onClick = { onInvite(group) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)); Text("Invite with a link", fontWeight = FontWeight.SemiBold)
                 }
+            }
+            Text("Your apps", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+            Row(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface).padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Share my apps with Beep here", fontWeight = FontWeight.Medium)
+                    Text(if (group.appsShared) "Beep can read your calendar, mail, files and tasks to plan for the group, and never shows them here. Creating or sending anything asks you first."
+                        else "Beep uses your apps here only when you ask it yourself.", fontSize = 12.sp, lineHeight = 17.sp, color = Beep.colors.muted)
+                }
+                Spacer(Modifier.width(10.dp))
+                Switch(checked = group.appsShared, onCheckedChange = { shared ->
+                    fetched = fetched?.copy(appsShared = shared)
+                    repository.shareGroupApps(group.id, shared)
+                }, modifier = Modifier.semantics { contentDescription = "Share my apps with Beep here" },
+                    colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok))
             }
             Text("Privacy", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
             Column(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface).padding(14.dp),

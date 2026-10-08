@@ -94,6 +94,23 @@ fn lookup(tool: &str) -> Option<(&'static CatalogApp, Acts)> {
     Some((catalog_app("fastmail")?, acts))
 }
 
+/// The app of `tool` and whether a call with `args` acts, for a call made
+/// outside a session, such as from a group. `None` for a tool outside the
+/// catalog.
+pub(crate) fn call_acts(tool: &str, args: &Value) -> Option<(&'static CatalogApp, bool)> {
+    let (app, acts) = lookup(tool)?;
+    Some((app, acts.on(args)))
+}
+
+/// The card that asks to allow `tool` with `args`.
+pub(crate) fn approval_for(app: &CatalogApp, tool: &str, args: &Value) -> Approval {
+    Approval {
+        app: app.name.to_owned(),
+        action: action_name(app, ToolSlug::new(tool).as_str()),
+        fields: fields(args),
+    }
+}
+
 /// The tools of `app` that can act, by the name the agent calls them.
 fn action_tools(app: &CatalogApp) -> Vec<String> {
     if app.slug == "fastmail" {
@@ -164,6 +181,11 @@ impl Rules {
 
     fn get(&self, app: &str) -> Rule {
         self.0.get(app).cloned().unwrap_or_default()
+    }
+
+    /// Whether `app` may only read.
+    pub(crate) fn read_only(&self, app: &str) -> bool {
+        self.get(app).level == PermissionLevel::ReadOnly {}
     }
 }
 
