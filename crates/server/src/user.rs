@@ -656,9 +656,9 @@ impl User {
         self.store.mark_feed_synced(&self.key, feed).await
     }
 
-    /// When the newest processed item of `feed` arrived.
-    pub async fn feed_cursor(&self, feed: Feed) -> Result<Option<DateTime<Utc>>> {
-        self.store.feed_cursor(&self.key, feed).await
+    /// When `feed` last finished a sync.
+    pub async fn feed_synced_at(&self, feed: Feed) -> Result<Option<DateTime<Utc>>> {
+        self.store.feed_synced_at(&self.key, feed).await
     }
 
     /// Ids of the items of `feed` already processed.

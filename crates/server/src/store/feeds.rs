@@ -69,19 +69,19 @@ impl Store {
         Ok(())
     }
 
-    /// When the newest processed item of `feed` arrived.
-    pub(crate) async fn feed_cursor(
+    /// When `feed` last finished a sync.
+    pub(crate) async fn feed_synced_at(
         &self,
         user: &UserKey,
         feed: Feed,
     ) -> Result<Option<DateTime<Utc>>> {
-        Ok(sqlx::query_scalar(
-            "SELECT max(received_at) FROM mail_seen WHERE user_id=$1 AND mailbox=$2",
+        Ok(
+            sqlx::query_scalar("SELECT synced_at FROM mail_sync WHERE user_id=$1 AND mailbox=$2")
+                .bind(user.as_str())
+                .bind(feed.slug())
+                .fetch_optional(&self.pool)
+                .await?,
         )
-        .bind(user.as_str())
-        .bind(feed.slug())
-        .fetch_one(&self.pool)
-        .await?)
     }
 
     /// Ids of the items of `feed` already processed.
@@ -122,11 +122,8 @@ impl Store {
         feed: Feed,
         before: DateTime<Utc>,
     ) -> Result<usize> {
-        // The newest row is the cursor and always stays.
         let deleted = sqlx::query(
-            "DELETE FROM mail_seen WHERE user_id=$1 AND mailbox=$2 AND received_at < $3
-             AND received_at < (SELECT max(received_at) FROM mail_seen
-                                WHERE user_id=$1 AND mailbox=$2)",
+            "DELETE FROM mail_seen WHERE user_id=$1 AND mailbox=$2 AND received_at < $3",
         )
         .bind(user.as_str())
         .bind(feed.slug())
@@ -145,7 +142,7 @@ mod tests {
     use chrono::NaiveDate;
 
     #[tokio::test]
-    async fn feed_cursor_follows_seen_items_and_survives_pruning() {
+    async fn feeds_keep_seen_items_and_when_they_last_synced() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let day = |d: u32| {
@@ -156,57 +153,30 @@ mod tests {
                 .and_utc()
         };
         let gmail = Feed::Mail(Mailbox::Gmail);
-        assert!(
-            store
-                .feed_cursor(&UserKey::for_test("alice"), gmail)
-                .await
-                .unwrap()
-                .is_none()
-        );
         for (id, d) in [("a", 1), ("b", 5), ("c", 3)] {
             store
                 .mark_feed_seen(&UserKey::for_test("alice"), gmail, id, day(d))
                 .await
                 .unwrap();
         }
-        store
-            .mark_feed_seen(&UserKey::for_test("alice"), gmail, "a", day(9))
-            .await
-            .unwrap();
-        assert_eq!(
-            store
-                .feed_cursor(&UserKey::for_test("alice"), gmail)
-                .await
-                .unwrap(),
-            Some(day(5))
-        );
-        assert!(
-            store
-                .feed_cursor(&UserKey::for_test("alice"), Feed::Slack)
-                .await
-                .unwrap()
-                .is_none()
-        );
-
-        // Everything is older than the cutoff, but the newest row stays.
         let pruned = store
-            .prune_feed_seen(&UserKey::for_test("alice"), gmail, day(20))
+            .prune_feed_seen(&UserKey::for_test("alice"), gmail, day(4))
             .await
             .unwrap();
         assert_eq!(pruned, 2);
-        assert_eq!(
-            store
-                .feed_cursor(&UserKey::for_test("alice"), gmail)
-                .await
-                .unwrap(),
-            Some(day(5))
-        );
         let seen = store
             .feed_seen(&UserKey::for_test("alice"), gmail)
             .await
             .unwrap();
         assert_eq!(seen, HashSet::from(["b".to_owned()]));
 
+        assert!(
+            store
+                .feed_synced_at(&UserKey::for_test("alice"), gmail)
+                .await
+                .unwrap()
+                .is_none()
+        );
         let every = Duration::from_secs(60);
         assert!(
             !store
@@ -223,6 +193,13 @@ mod tests {
                 .feed_synced_recently(&UserKey::for_test("alice"), gmail, every)
                 .await
                 .unwrap()
+        );
+        assert!(
+            store
+                .feed_synced_at(&UserKey::for_test("alice"), gmail)
+                .await
+                .unwrap()
+                .is_some()
         );
         assert!(
             !store
