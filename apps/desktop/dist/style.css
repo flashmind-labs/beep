@@ -21,6 +21,8 @@ button { font: inherit; color: inherit; cursor: default }
 .dinput.small { font-size: 15px; padding: 10px 16px; border-top: 1px solid var(--border) }
 .dinput input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; caret-color: var(--emerald); padding: 0 }
 .dinput input::placeholder { color: var(--dim) }
+.dinput textarea { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; caret-color: var(--emerald); padding: 0; resize: none; overflow-y: auto; scrollbar-width: none; align-self: center }
+.dinput textarea::placeholder { color: var(--dim) }
 .dinput .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dlogo { width: 28px; height: 28px; border-radius: 8px; background: var(--coral); color: var(--ink); display: grid; place-items: center; flex: none;
   font-family: var(--display); font-weight: 800; font-size: 16px }
@@ -46,7 +48,7 @@ button { font: inherit; color: inherit; cursor: default }
 
 .turn { display: flex; flex-direction: column; gap: 10px }
 .turn + .turn { padding-top: 12px; border-top: 1px solid var(--border) }
-.ask { font-weight: 500; color: var(--fg) }
+.ask { font-weight: 500; color: var(--fg); white-space: pre-wrap }
 
 .dhints { flex: none; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 16px; border-top: 1px solid var(--border); background: rgba(10, 14, 12, .35);
   font-size: 11.5px; color: var(--muted) }
@@ -103,6 +105,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dchat .t { flex: 1; min-width: 0; display: grid }
 .dchat .t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px }
 .dchat .t small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted) }
+.dchat .pin { color: var(--coral); display: grid; flex: none }
+.dchat .run { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--emerald); flex: none }
 .dchat .w { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none }
 .dchat[aria-selected="true"] { background: rgba(59, 155, 122, .28) }
 .dchat mark { background: rgba(240, 122, 106, .3); color: inherit; border-radius: 3px; padding: 0 1px }
