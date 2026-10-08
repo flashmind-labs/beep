@@ -81,9 +81,22 @@ fn message(row: &PgRow) -> Result<MessageRow> {
     })
 }
 
-/// A new invite token, as long and plain as a share's.
+/// Letters and digits that read the same aloud and in any font: no 0/O,
+/// 1/I/L or U/V.
+const CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTWXYZ";
+
+/// A new invite code, ten characters from [`CODE_ALPHABET`] so it can be
+/// typed: about 48 bits from a v4 UUID's random ones.
 fn new_token() -> String {
-    Uuid::new_v4().simple().to_string()
+    let base = CODE_ALPHABET.len() as u128;
+    let mut random = Uuid::new_v4().as_u128();
+    (0..10)
+        .map(|_| {
+            let c = CODE_ALPHABET[(random % base) as usize];
+            random /= base;
+            char::from(c)
+        })
+        .collect()
 }
 
 impl Store {
@@ -391,6 +404,14 @@ mod tests {
             request_id,
             content,
         }
+    }
+
+    #[test]
+    fn invite_codes_are_ten_typeable_characters() {
+        let code = new_token();
+        assert_eq!(code.len(), 10);
+        assert!(code.bytes().all(|b| CODE_ALPHABET.contains(&b)));
+        assert_ne!(code, new_token());
     }
 
     #[tokio::test]

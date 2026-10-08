@@ -184,6 +184,18 @@ pub fn group_token(url: String) -> Option<String> {
     beep_proto::group_token(&url).map(str::to_owned)
 }
 
+/// The invite code in typed or pasted text, uppercase and without dashes.
+#[uniffi::export]
+pub fn group_code(input: String) -> Option<String> {
+    beep_proto::group_code(&input)
+}
+
+/// An invite code as people read it, such as `K7QM4-X9TRP`.
+#[uniffi::export]
+pub fn format_group_code(code: String) -> String {
+    beep_proto::format_group_code(&code)
+}
+
 /// The readable name of `identity`, such as `mega-fox-trot`.
 #[uniffi::export]
 pub fn identity_name(identity: Vec<u8>) -> Result<String, BeepError> {

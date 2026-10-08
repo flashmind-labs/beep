@@ -7,7 +7,10 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -39,6 +42,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flashmind.beep.ffi.BeepException
+import com.flashmind.beep.ffi.formatGroupCode
+import com.flashmind.beep.ffi.groupCode
 import com.flashmind.beep.proto.Group
 import com.flashmind.beep.proto.GroupAuthor
 import com.flashmind.beep.proto.GroupChat
@@ -123,7 +128,7 @@ private data class Outgoing(val requestId: String, val text: String)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: () -> Unit, onInfo: () -> Unit,
-                           onInvite: (Group) -> Unit, onGone: () -> Unit) {
+                           onInvite: (Group) -> Unit, onGone: () -> Unit, onNewChat: () -> Unit, onPrevious: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var chat by remember(groupId) { mutableStateOf<GroupChat?>(null) }
@@ -176,7 +181,7 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(title = {
             Column(Modifier.clickable(enabled = group != null, onClick = onInfo)) {
-                Text(displayText(group?.name ?: "Group"), style = displayStyle(22.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(displayText(group?.name ?: "Group"), style = displayStyle(24.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 group?.let {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
@@ -202,7 +207,10 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
         }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            // Swipes work as in a one to one chat: left starts a new chat, right goes back to the chat before.
+            SwipeChats(canStartNew = true, hasPrevious = true, onNew = onNewChat, onBack = onPrevious,
+                modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Box(Modifier.fillMaxSize()) {
                 val loaded = chat
                 when {
                     loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center).size(22.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
@@ -210,30 +218,37 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
                         Modifier.align(Alignment.Center).padding(32.dp), textAlign = TextAlign.Center, color = Beep.colors.muted, lineHeight = 22.sp)
                     else -> {
                         val days = remember(messages) { groupDays(messages) }
-                        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), state = listState,
-                            verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+                        // Quotes go above whatever is already typed, as in a one to one chat.
+                        val quote: (String) -> Unit = { text ->
+                            val quoted = text.trim().lines().joinToString("\n") { "> $it" } + "\n\n"
+                            val rest = field.text.trimStart()
+                            field = TextFieldValue(quoted + rest, TextRange(quoted.length))
+                        }
+                        LazyColumn(Modifier.fillMaxSize(), state = listState,
+                            verticalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(18.dp)) {
                             items(messages, key = { it.seq }) { message ->
                                 Column {
                                     days[message.seq]?.let {
-                                        Text(it, Modifier.fillMaxWidth().padding(bottom = 10.dp), fontSize = 11.sp,
+                                        Text(it, Modifier.fillMaxWidth().padding(bottom = 12.dp), fontSize = 11.sp,
                                             color = Beep.colors.dim, textAlign = TextAlign.Center)
                                     }
-                                    GroupBubble(loaded.group, message.author, message.content)
+                                    GroupBubble(loaded.group, message.author, message.content, quote)
                                 }
                             }
                             items(outgoing, key = { it.requestId }) { out ->
-                                Box(Modifier.alpha(0.6f)) { GroupBubble(loaded.group, GroupAuthor.Member("", you = true), out.text) }
+                                Box(Modifier.alpha(0.6f)) { GroupBubble(loaded.group, GroupAuthor.Member("", you = true), out.text, quote) }
                             }
                             if (typing) item(key = "typing") {
-                                Row(Modifier.padding(start = 36.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Beep is typing", fontSize = 12.sp, color = Beep.colors.muted)
-                                    Spacer(Modifier.width(6.dp))
-                                    CircularProgressIndicator(Modifier.size(10.dp), strokeWidth = 1.5.dp, color = Beep.colors.muted)
+                                Row(Modifier.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    PulsingDots()
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("Beep is typing", fontSize = 13.sp, color = Beep.colors.muted)
                                 }
                             }
                         }
                     }
                 }
+            }
             }
             group?.let { MentionPicker(it, field) { field = it } }
             GroupComposer(field, onChange = { if (it.text.toByteArray().size <= 8192) field = it }, onSend = ::send)
@@ -254,29 +269,40 @@ private fun groupDays(messages: List<GroupMessage>): Map<Long, String> {
     return labels
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GroupBubble(group: Group, author: GroupAuthor, content: String) {
+private fun GroupBubble(group: Group, author: GroupAuthor, content: String, onQuote: (String) -> Unit) {
     val radius = Beep.shapes.radius
-    when {
-        author is GroupAuthor.Member && author.you -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            Box(Modifier.padding(start = 48.dp).beepFrame(RoundedCornerShape(radius, radius, 6.dp, radius), Beep.colors.user)) {
-                MessageContent(withMentions(content), "user", compact = false)
+    val you = author is GroupAuthor.Member && author.you
+    val beep = author is GroupAuthor.Beep
+    val name = if (author is GroupAuthor.Member) author.name else "Beep"
+    var menuOpen by remember { mutableStateOf(false) }
+    val shape = if (you) RoundedCornerShape(radius, radius, 6.dp, radius) else RoundedCornerShape(6.dp, radius, radius, radius)
+    // The same bubbles as a one to one chat: yours on the right, Beep's reply as Beep writes it there,
+    // and other members on the left with their name on top.
+    val frame = when {
+        you -> Modifier.padding(start = 48.dp).then(if (Beep.shapes.card == CardLook.Hairline)
+            Modifier.clip(shape).background(Beep.colors.user) else Modifier.beepFrame(shape, Beep.colors.user))
+        beep && !Beep.shapes.botBubble -> Modifier.fillMaxWidth()
+        else -> Modifier.padding(end = if (beep) 24.dp else 48.dp).beepFrame(shape, Beep.colors.surface)
+    }
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (you) Alignment.End else Alignment.Start) {
+        if (beep) Text("Beep", Modifier.padding(start = 4.dp, bottom = 4.dp), fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold, color = Beep.colors.brand)
+        SelectableMessage(onQuote) { picker -> Box {
+            // Long press and double tap select text, so a tap opens the menu.
+            Column(frame.then(picker.tracking).combinedClickable(onClickLabel = "Message actions", indication = null,
+                interactionSource = remember { MutableInteractionSource() }, onDoubleClick = picker::selectWord) {
+                if (!picker.picking) menuOpen = true
+            }) {
+                if (!you && !beep) Text(name, Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp), fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, color = nameColors[memberIndex(group, name).mod(nameColors.size)])
+                MessageContent(withMentions(content), if (you) "user" else "assistant", compact = false,
+                    padded = !beep || Beep.shapes.botBubble)
             }
-        }
-        else -> {
-            val beep = author is GroupAuthor.Beep
-            val name = if (author is GroupAuthor.Member) author.name else "Beep"
-            val index = memberIndex(group, name)
-            Row(Modifier.fillMaxWidth().padding(end = 24.dp), verticalAlignment = Alignment.Top) {
-                GroupAvatar(if (beep) "b" else name.take(1).uppercase(), if (beep) Beep.colors.brand else memberTint(index), beep = beep)
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.beepFrame(RoundedCornerShape(6.dp, radius, radius, radius), if (beep) Beep.colors.tints[1] else Beep.colors.surface)) {
-                    Text(name, Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                        color = if (beep) Beep.colors.brand else nameColors[index.mod(nameColors.size)])
-                    MessageContent(withMentions(content), "assistant", compact = false, padded = true)
-                }
-            }
-        }
+            MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = content,
+                onQuote = { onQuote(content.trim().lines().take(4).joinToString("\n")) })
+        } }
     }
 }
 
@@ -364,10 +390,10 @@ private fun NameField(label: String, value: String, onChange: (String) -> Unit, 
             unfocusedBorderColor = Beep.colors.softLine, focusedBorderColor = Beep.colors.brand))
 }
 
-/** Makes a group with the user in it, then hands it over so its invite link can be sent. */
+/** Makes a group with the user in it, then hands it over so its invite code can be sent. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun NewGroupSheet(repository: ChatRepository, onDismiss: () -> Unit, onCreated: (Group) -> Unit) {
+internal fun NewGroupSheet(repository: ChatRepository, onDismiss: () -> Unit, onCreated: (Group) -> Unit, onJoinCode: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
@@ -378,9 +404,10 @@ internal fun NewGroupSheet(repository: ChatRepository, onDismiss: () -> Unit, on
             SheetHeader(Icons.Outlined.Groups, Beep.colors.tints[2], "New group", "Chat with people, and @beep when you want it")
             NameField("Group name", name, { if (it.length <= 60) name = it })
             NameField("Your name in the group", memberName, { if (it.length <= 30) memberName = it })
-            Text("You get a link to send to people. Anyone with Beep who opens it can join.",
+            Text("You get a code to send to people. Anyone with Beep who enters it can join.",
                 fontSize = 12.sp, lineHeight = 18.sp, color = Beep.colors.muted)
             Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onJoinCode, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("Join with a code") }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Spacer(Modifier.width(8.dp))
@@ -400,59 +427,107 @@ internal fun NewGroupSheet(repository: ChatRepository, onDismiss: () -> Unit, on
     }
 }
 
-/** The group's invite link, to copy, send or replace. */
+/** The group's invite code, to copy, send or replace. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GroupInviteSheet(repository: ChatRepository, groupId: String, groupName: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var url by remember(groupId) { mutableStateOf<String?>(null) }
+    var code by remember(groupId) { mutableStateOf<String?>(null) }
     var reset by remember(groupId) { mutableStateOf(false) }
     LaunchedEffect(groupId) {
         runCatching { withContext(Dispatchers.IO) { repository.groupInvite(groupId) } }
-            .onSuccess { url = it.url }
+            .onSuccess { code = formatGroupCode(it.token) }
             .onFailure { Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show(); onDismiss() }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Beep.colors.surface) {
         Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             SheetHeader(Icons.Outlined.Link, Beep.colors.tints[1], "Invite people", groupName)
-            Box(Modifier.fillMaxWidth().height(46.dp).background(Beep.colors.page, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp),
-                contentAlignment = Alignment.CenterStart) {
-                val link = url
-                if (link == null) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
-                else Text(link, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Beep.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.fillMaxWidth().height(64.dp).background(Beep.colors.page, RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center) {
+                val shown = code
+                if (shown == null) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
+                else Text(shown, fontFamily = FontFamily.Monospace, fontSize = 28.sp, fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 3.sp, color = Beep.colors.ink, maxLines = 1)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ChunkyButton(onClick = {
                     (context as? MainActivity)?.suppressNextClipboard = true
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Beep group", url))
-                    Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
-                }, enabled = url != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp)) {
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Beep group code", code))
+                    Toast.makeText(context, "Code copied", Toast.LENGTH_SHORT).show()
+                }, enabled = code != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp)) {
                     Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)); Text("Copy", fontWeight = FontWeight.SemiBold)
                 }
                 ChunkyButton(onClick = {
-                    val text = "Join $groupName on Beep\n$url"
+                    val text = "Join $groupName on Beep with the code $code\n" +
+                        "Open Beep, start a new group and tap Join with a code."
                     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), null))
-                }, enabled = url != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp),
+                }, enabled = code != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp),
                     color = Beep.colors.accent, contentColor = Beep.colors.onAccent) {
                     Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Text("Send", fontWeight = FontWeight.SemiBold)
                 }
             }
-            Text((if (reset) "New link made. The old one no longer opens. " else "") +
-                "Anyone with Beep who opens the link joins and sees the whole chat. Beep uses what it knows about each of you " +
+            Text((if (reset) "New code made. The old one no longer works. " else "") +
+                "People enter it under New group, Join with a code, and see the whole chat. Beep uses what it knows about each of you " +
                 "to help, but never shows one person's memories to the others.",
                 fontSize = 12.sp, lineHeight = 18.sp, color = Beep.colors.muted)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = {
                     scope.launch {
                         runCatching { withContext(Dispatchers.IO) { repository.groupInvite(groupId, reset = true) } }
-                            .onSuccess { url = it.url; reset = true }
+                            .onSuccess { code = formatGroupCode(it.token); reset = true }
                             .onFailure { Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
                     }
-                }, enabled = url != null) { Text("Reset link", color = Beep.colors.error) }
+                }, enabled = code != null) { Text("Reset code", color = Beep.colors.error) }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onDismiss) { Text("Done") }
+            }
+        }
+    }
+}
+
+/** Entering an invite code someone sent. Case, spaces and dashes do not matter. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun JoinCodeSheet(repository: ChatRepository, onDismiss: () -> Unit, onFound: (String) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var typed by remember { mutableStateOf("") }
+    var wrong by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    val code = groupCode(typed)
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Beep.colors.surface) {
+        Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SheetHeader(Icons.Outlined.Groups, Beep.colors.tints[1], "Join a group", "Enter the code someone sent you")
+            OutlinedTextField(typed, { if (it.length <= 24) { typed = it.uppercase(); wrong = false } }, Modifier.fillMaxWidth(),
+                label = { Text("Invite code") }, singleLine = true, isError = wrong,
+                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 18.sp, letterSpacing = 2.sp),
+                supportingText = { Text(if (wrong) "No group has this code. Check it, or ask for a new one." else "Ten letters and digits, like K7QM4-X9TRP") },
+                shape = RoundedCornerShape(12.dp),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false),
+                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Beep.colors.page, focusedContainerColor = Beep.colors.page,
+                    unfocusedBorderColor = Beep.colors.softLine, focusedBorderColor = Beep.colors.brand))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                Spacer(Modifier.width(8.dp))
+                ChunkyButton(onClick = {
+                    val found = code ?: return@ChunkyButton
+                    busy = true
+                    scope.launch {
+                        runCatching { withContext(Dispatchers.IO) { repository.peekGroup(found) } }
+                            .onSuccess { onFound(found) }
+                            .onFailure {
+                                busy = false
+                                if (it is BeepException.NotFound) wrong = true
+                                else Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show()
+                            }
+                    }
+                }, enabled = !busy && code != null && !wrong, color = Beep.colors.accent,
+                    contentColor = Beep.colors.onAccent, shape = RoundedCornerShape(12.dp)) {
+                    Text("Find group", fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
@@ -467,7 +542,7 @@ private fun PrivacyLine(icon: ImageVector, text: String) {
     }
 }
 
-/** What a `beep://group/` link opens: the group's name and members, and a name to join as. */
+/** Where an invite code leads: the group's name and members, and a name to join as. */
 @Composable
 internal fun GroupJoinScreen(repository: ChatRepository, token: String, onJoined: (String) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -489,8 +564,8 @@ internal fun GroupJoinScreen(repository: ChatRepository, token: String, onJoined
             expired -> {
                 Box(Modifier.align(Alignment.CenterHorizontally).size(64.dp).background(Beep.colors.tints[0], RoundedCornerShape(18.dp)),
                     contentAlignment = Alignment.Center) { Icon(Icons.Outlined.LinkOff, null, Modifier.size(28.dp), tint = Beep.colors.ink) }
-                Text(displayText("This link no longer works"), style = displayStyle(30.sp), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                Text("Whoever sent it reset the group's link. Ask them for a new one.", color = Beep.colors.muted,
+                Text(displayText("This code no longer works"), style = displayStyle(30.sp), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                Text("Whoever sent it reset the group's code. Ask them for a new one.", color = Beep.colors.muted,
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 ChunkyButton(onClick = onBack, modifier = Modifier.fillMaxWidth().height(52.dp), color = Beep.colors.accent,
                     contentColor = Beep.colors.onAccent, shape = RoundedCornerShape(16.dp)) { Text("Back to Beep", fontWeight = FontWeight.SemiBold) }

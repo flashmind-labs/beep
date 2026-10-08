@@ -392,6 +392,7 @@ async fn group_invite(cx: Cx, GroupInvite { id, reset }: GroupInvite) -> Reply<G
 }
 
 async fn peek_group(cx: Cx, PeekGroup { token }: PeekGroup) -> Reply<GroupPreview> {
+    let token = group_code(&token).ok_or(ApiError::NotFound {})?;
     let joined = cx
         .app
         .store
@@ -408,6 +409,7 @@ async fn peek_group(cx: Cx, PeekGroup { token }: PeekGroup) -> Reply<GroupPrevie
 
 async fn join_group(cx: Cx, JoinGroup { token, member_name }: JoinGroup) -> Reply<Group> {
     let member_name = group_name(&member_name, "member name", 30)?;
+    let token = group_code(&token).ok_or(ApiError::NotFound {})?;
     let invited = cx
         .app
         .store

@@ -297,6 +297,28 @@ pub fn group_token(url: &str) -> Option<&str> {
     (!token.is_empty() && token.bytes().all(|b| b.is_ascii_alphanumeric())).then_some(token)
 }
 
+/// The invite code in what someone typed or pasted: a code with any case,
+/// spaces or dashes, or an old `beep://group/` link. None for other text.
+pub fn group_code(input: &str) -> Option<String> {
+    let input = input.trim();
+    let input = input.strip_prefix(GROUP_URL_PREFIX).unwrap_or(input);
+    let code: String = input
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    let valid = (4..=64).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_alphanumeric());
+    valid.then_some(code)
+}
+
+/// `code` as people read it: `K7QM4-X9TRP` for a ten-character code.
+pub fn format_group_code(code: &str) -> String {
+    match code.len() {
+        10 if code.is_ascii() => format!("{}-{}", &code[..5], &code[5..]),
+        _ => code.to_owned(),
+    }
+}
+
 wire_enum! {
     /// Why the server refused or failed a request.
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -992,6 +1014,21 @@ mod tests {
         assert_eq!(share_token("beep://apps"), None);
         assert_eq!(group_token(&group_url("cd34")), Some("cd34"));
         assert_eq!(group_token(&share_url("cd34")), None);
+    }
+
+    #[test]
+    fn group_code_reads_typed_codes_and_old_links() {
+        assert_eq!(group_code("k7qm4-x9trp").as_deref(), Some("K7QM4X9TRP"));
+        assert_eq!(group_code(" K7QM4 X9TRP\n").as_deref(), Some("K7QM4X9TRP"));
+        assert_eq!(
+            group_code(&group_url("7a2d5f90be13")).as_deref(),
+            Some("7A2D5F90BE13")
+        );
+        assert_eq!(group_code("hey there!"), None);
+        assert_eq!(group_code("ab"), None);
+        assert_eq!(group_code(&share_url("cd34ef")), None);
+        assert_eq!(format_group_code("K7QM4X9TRP"), "K7QM4-X9TRP");
+        assert_eq!(format_group_code("7A2D5F90BE13"), "7A2D5F90BE13");
     }
 
     #[test]

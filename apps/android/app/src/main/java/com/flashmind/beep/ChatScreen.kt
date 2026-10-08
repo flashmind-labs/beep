@@ -817,7 +817,7 @@ private fun RerunButton(models: Models, used: String?, color: Color = TextMuted,
 
 /** Tap actions on a message. */
 @Composable
-private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQuote: () -> Unit, onDelete: (() -> Unit)? = null) {
+internal fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, onQuote: () -> Unit, onDelete: (() -> Unit)? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
     DropdownMenu(expanded = open, onDismissRequest = onDismiss, containerColor = Surface, shape = RoundedCornerShape(Beep.shapes.smallRadius)) {
         DropdownMenuItem(text = { Text("Copy") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)) }, onClick = {
@@ -875,7 +875,7 @@ private suspend fun LazyListState.scrollToEnd(animated: Boolean) {
 }
 
 @Composable
-private fun PulsingDots() {
+internal fun PulsingDots() {
     val noMotion = reduceMotion()
     val dot = Beep.colors.accent
     if (noMotion) {
