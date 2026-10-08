@@ -210,10 +210,15 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         &[
             read("SLACK_SEARCH_MESSAGES"),
             read("SLACK_FETCH_CONVERSATION_HISTORY"),
+            read("SLACK_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION"),
             read("SLACK_LIST_UNREAD_CHANNEL_MESSAGES"),
             read("SLACK_FIND_CHANNELS"),
             read("SLACK_FIND_USERS"),
+            // Only opens the DM channel a message to a person needs, so the
+            // approval comes once, at the send.
+            read("SLACK_OPEN_DM"),
             act("SLACK_SEND_MESSAGE"),
+            act("SLACK_ADD_REACTION_TO_AN_ITEM"),
         ],
     ),
     composio(
