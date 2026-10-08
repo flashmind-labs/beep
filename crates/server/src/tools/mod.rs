@@ -1,6 +1,7 @@
 mod alarm;
 mod browser;
 mod contacts;
+pub(crate) mod group_memory;
 mod habits;
 mod image;
 mod location;

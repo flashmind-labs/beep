@@ -1,10 +1,13 @@
 mod auto;
 mod context;
 mod device;
+mod group;
 mod learning;
 mod notify;
 mod run;
 mod starters;
+
+pub(crate) use group::group_message;
 
 use crate::{
     apps::{Composio, ComposioSettings},
@@ -30,7 +33,7 @@ use iroh::EndpointId;
 use secrecy::SecretString;
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         Arc, Mutex as StdMutex, PoisonError,
         atomic::{AtomicBool, Ordering},
@@ -66,6 +69,8 @@ pub struct App {
     runs: Mutex<HashMap<String, Arc<LiveRun>>>,
     /// Questions sent to a phone, keyed by query id, waiting for its answer.
     device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
+    /// Groups Beep is writing a reply in.
+    groups_busy: StdMutex<HashSet<String>>,
     /// Set once the server starts stopping.
     shutting_down: AtomicBool,
 }
@@ -124,8 +129,16 @@ impl UserNotice {
                 app: None,
                 approval: None,
                 changed: true,
+                group: false,
             },
         }
+    }
+
+    /// Tells the user's devices that group `id` changed.
+    pub fn group_changed(user: &str, id: &str) -> Self {
+        let mut notice = Self::changed(user, id);
+        notice.notice.group = true;
+        notice
     }
 }
 
@@ -219,6 +232,7 @@ impl App {
             users: StdMutex::new(HashMap::new()),
             runs: Mutex::new(HashMap::new()),
             device_queries: Mutex::new(HashMap::new()),
+            groups_busy: StdMutex::new(HashSet::new()),
             shutting_down: AtomicBool::new(false),
         })
     }

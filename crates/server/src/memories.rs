@@ -673,17 +673,25 @@ fn current(valid: &Validity, today: NaiveDate) -> bool {
     valid.until.is_some_and(|until| until >= today) && valid.from.is_none_or(|from| from <= today)
 }
 
-/// The profile a chat's context carries: what holds right now, then the core
-/// memories, cut to `MAX_PROFILE_CHARS`. `None` when there is nothing to say.
-pub(crate) fn profile(rows: &[MemoryRow], today: NaiveDate) -> Option<String> {
+/// The facts a profile is made of, in order: what holds right now, then the
+/// core memories, each with its days.
+pub(crate) fn profile_facts(rows: &[MemoryRow], today: NaiveDate) -> Vec<String> {
     let now = rows.iter().filter(|row| current(&row.valid, today));
     let core = rows
         .iter()
         .filter(|row| row.core && !row.valid.ended(today) && !current(&row.valid, today));
+    now.chain(core)
+        .map(|row| format!("{}{}", row.content, days(&row.valid)))
+        .collect()
+}
+
+/// The profile a chat's context carries: `profile_facts` cut to
+/// `MAX_PROFILE_CHARS`. `None` when there is nothing to say.
+pub(crate) fn profile(rows: &[MemoryRow], today: NaiveDate) -> Option<String> {
     let mut text = String::from(PROFILE_HEADER);
     let mut any = false;
-    for row in now.chain(core) {
-        let line = format!("\n- {}{}", row.content, days(&row.valid));
+    for fact in profile_facts(rows, today) {
+        let line = format!("\n- {fact}");
         if text.chars().count() + line.chars().count() > MAX_PROFILE_CHARS {
             break;
         }

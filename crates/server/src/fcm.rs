@@ -312,6 +312,7 @@ mod tests {
             app: None,
             approval: None,
             changed: false,
+            group: false,
         }
     }
 

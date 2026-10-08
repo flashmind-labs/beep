@@ -7,16 +7,18 @@
 
 use beep_proto::{
     AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
-    Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare, CreateCron, Cron, DeleteCron,
-    DeleteMemory, DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
-    DeviceResult, DisconnectApp, Event, ExistingSessions, FinishAppAuth, GetAppPermissions,
-    GetEvents, GetModels, GetRun, GetSession, GetShare, Health, HistoryEntry, LinkDevice,
-    LinkedDevice, ListApps, ListCrons, ListDevices, ListMemories, ListSessions, Memory, Models,
-    Notice, PermissionLevel, PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice,
-    RemoveDevice, RenameSession, Run, RunCron, SearchSessions, Session, SessionMatch,
-    SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone, ShareSession, SharedLink,
-    SharedSession, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice,
-    UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
+    Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare, CreateCron, CreateGroup, Cron,
+    DeleteCron, DeleteMemory, DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom,
+    DeviceAnswer, DeviceResult, DisconnectApp, Event, ExistingSessions, FinishAppAuth,
+    GetAppPermissions, GetEvents, GetGroup, GetModels, GetRun, GetSession, GetShare, Group,
+    GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, Health, HistoryEntry, JoinGroup,
+    LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices, ListGroups,
+    ListMemories, ListSessions, Memory, Models, Notice, PeekGroup, PermissionLevel, PinSession,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron,
+    SearchSessions, SendToGroup, Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel,
+    SetThinking, SetTimezone, ShareSession, SharedLink, SharedSession, StartAppAuth, Stream,
+    SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation,
+    UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -174,6 +176,12 @@ pub fn link_preview(offer_uri: String) -> Result<LinkPreview, BeepError> {
 #[uniffi::export]
 pub fn share_token(url: String) -> Option<String> {
     beep_proto::share_token(&url).map(str::to_owned)
+}
+
+/// The token of a `beep://group/` invite link, or None for any other text.
+#[uniffi::export]
+pub fn group_token(url: String) -> Option<String> {
+    beep_proto::group_token(&url).map(str::to_owned)
 }
 
 /// The readable name of `identity`, such as `mega-fox-trot`.
@@ -422,6 +430,64 @@ impl BeepClient {
     ) -> Result<Session, BeepError> {
         let session_id = Uuid::parse_str(&session_id).map_err(|_| bad_request("invalid UUID"))?;
         self.call(CopyShare { token, session_id }).await
+    }
+
+    /// Makes a group as `id`, a UUID, with the caller in it as `member_name`.
+    pub async fn create_group(
+        &self,
+        id: String,
+        name: String,
+        member_name: String,
+    ) -> Result<Group, BeepError> {
+        let id = Uuid::parse_str(&id).map_err(|_| bad_request("invalid UUID"))?;
+        self.call(CreateGroup {
+            id,
+            name,
+            member_name,
+        })
+        .await
+    }
+
+    pub async fn list_groups(&self) -> Result<Vec<Group>, BeepError> {
+        self.call(ListGroups {}).await
+    }
+
+    pub async fn get_group(&self, id: String) -> Result<GroupChat, BeepError> {
+        self.call(GetGroup { id }).await
+    }
+
+    /// Posts to a group. Mentioning @beep starts its reply, which arrives
+    /// as a notice. `request_id` is a UUID, so a retry posts once.
+    pub async fn send_to_group(
+        &self,
+        group_id: String,
+        request_id: String,
+        message: String,
+    ) -> Result<GroupMessage, BeepError> {
+        let request_id = Uuid::parse_str(&request_id).map_err(|_| bad_request("invalid UUID"))?;
+        self.call(SendToGroup {
+            group_id,
+            request_id,
+            message,
+        })
+        .await
+    }
+
+    /// The group's invite link; `reset` makes a new one and breaks the old.
+    pub async fn group_invite(&self, id: String, reset: bool) -> Result<GroupLink, BeepError> {
+        self.call(GroupInvite { id, reset }).await
+    }
+
+    pub async fn peek_group(&self, token: String) -> Result<GroupPreview, BeepError> {
+        self.call(PeekGroup { token }).await
+    }
+
+    pub async fn join_group(&self, token: String, member_name: String) -> Result<Group, BeepError> {
+        self.call(JoinGroup { token, member_name }).await
+    }
+
+    pub async fn leave_group(&self, id: String) -> Result<(), BeepError> {
+        self.call(LeaveGroup { id }).await
     }
 
     pub async fn list_memories(&self) -> Result<Vec<Memory>, BeepError> {

@@ -15,6 +15,7 @@ mod crons;
 mod devices;
 mod digest;
 mod feeds;
+mod groups;
 mod habits;
 mod location;
 mod memories;
@@ -34,6 +35,7 @@ pub(crate) use cron_jobs::decode_schedule;
 pub use devices::PushDevice;
 pub use digest::AttentionItem;
 pub use feeds::Feed;
+pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
 pub use runs::{CreateRun, FinishedTurn, RunStatus};
@@ -127,6 +129,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         18,
         "user_timezone",
         include_str!("../../migrations/0018_user_timezone.sql"),
+    ),
+    (
+        19,
+        "groups",
+        include_str!("../../migrations/0019_groups.sql"),
+    ),
+    (
+        20,
+        "group member names",
+        include_str!("../../migrations/0020_group_member_names.sql"),
     ),
 ];
 
