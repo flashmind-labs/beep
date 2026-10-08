@@ -102,7 +102,7 @@ private fun parseBlocks(text: String): List<MsgBlock> {
                 i = j + 1; continue
             }
         }
-        if (line.matches(Regex("^\\s*[-*_]{3,}\\s*$")) && pending.isBlank()) { flush(); blocks.add(MsgBlock.Rule); i++; continue }
+        if (line.matches(Regex("^\\s*[-*_]{3,}\\s*$"))) { flush(); blocks.add(MsgBlock.Rule); i++; continue }
         if (line.trimStart().startsWith("|") && line.trimEnd().endsWith("|")) {
             val tableLines = mutableListOf(line)
             var j = i + 1
