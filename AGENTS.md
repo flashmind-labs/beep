@@ -35,3 +35,12 @@ installer window comes from `apps/desktop/installer/`). The `desktop` Forgejo
 workflow builds the same DMG on the Mac runner. Its key and state live in
 `~/Library/Application Support/com.flashmind.beep.desktop/`. The bar's screens
 are in the same mock as the phone's.
+
+## iOS app
+
+`apps/ios` is the SwiftUI port. `just ios-run` builds the Rust bridge for the
+simulator, generates the Xcode project with xcodegen and launches it on the
+iPhone 17 simulator. Debug builds take `-send "text"` and `-open
+chats|settings|memories|routines` as launch arguments
+(`xcrun simctl launch booted com.flashmind.beep -send "hi"`), so it can be
+tested without tapping.

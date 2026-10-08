@@ -31,6 +31,18 @@ desktop-build:
 desktop-check:
     cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 
+# Build the iOS app for the simulator (Rust bridge, bindings, Xcode project)
+ios-build:
+    bash apps/ios/scripts/build-rust.sh sim
+    cd apps/ios && xcodegen generate --quiet && xcodebuild -project Beep.xcodeproj -scheme Beep -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath build -quiet build
+
+# Install and launch the iOS app on the iPhone 17 simulator
+ios-run: ios-build
+    xcrun simctl boot "iPhone 17" || true
+    open -a Simulator
+    xcrun simctl install "iPhone 17" apps/ios/build/Build/Products/Debug-iphonesimulator/Beep.app
+    xcrun simctl launch "iPhone 17" com.flashmind.beep
+
 # Restart the server (kill old, start new)
 restart-server:
     -pkill -f "beep-server {{server_config}}"
