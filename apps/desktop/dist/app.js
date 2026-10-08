@@ -97,7 +97,7 @@ function hints(items) {
 function chatHints() {
   if (S.approval) return hints([[`⌘${ICON.ret}`, "allow"], ["esc", "to hide"]]);
   if (S.run) return hints([["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]]);
-  return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]]);
+  return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"], ["⌘Q", "quit"]]);
 }
 function refreshHints() {
   const old = $(".dhints");
@@ -184,6 +184,14 @@ function approvalCard(turn, { query_id, app, action, fields }) {
   refreshHints();
 }
 
+/// Follow-ups under the reply; picking one sends it.
+function suggestions(turn, replies) {
+  turn.querySelector(".dreplies")?.remove();
+  const row = h(`<div class="dreplies">${replies.map(r => `<button class="dbtn">${esc(r)}</button>`).join("")}</div>`);
+  row.querySelectorAll("button").forEach((b, i) => b.addEventListener("click", () => send(replies[i])));
+  turn.append(row);
+}
+
 function failed(turn, message) {
   turn.append(h(`<div class="derr">${esc(message)}</div>`));
   if (/removed|not linked/i.test(message)) refreshStatus();
@@ -227,6 +235,9 @@ function follow(turn) {
         drawSteps(turn, false);
         break;
       }
+      case "replies":
+        suggestions(turn, ev.replies);
+        break;
       case "approval":
         turn.querySelector(".caret")?.remove();
         approvalCard(turn, ev);
@@ -247,6 +258,7 @@ function follow(turn) {
 async function send(message) {
   if (S.run || S.approval || !message.trim()) return;
   const ask = $("#ask");
+  body().querySelectorAll(".dreplies").forEach(r => r.remove());
   ask.value = "";
   ask.placeholder = "Ask a follow-up…";
   const turn = newTurn(message);
@@ -307,7 +319,7 @@ async function openSession(id) {
 
 function drawHistory(turns) {
   body().innerHTML = "";
-  let turn = null;
+  let turn = null, last = null;
   for (const t of turns) {
     if (t.role === "user" || t.role === "scheduled") {
       turn = newTurn(t.role === "user" ? t.text : t.label || "Routine");
@@ -315,13 +327,17 @@ function drawHistory(turns) {
       turn ??= newTurn("");
       turn.steps.push(...t.tools.map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
       if (t.html) reply(turn).innerHTML += t.html;
+      last = t.replies.length ? { turn, replies: t.replies } : null;
       turn.done = true;
       drawSteps(turn, true);
     } else if (t.role === "approval") {
       turn ??= newTurn("");
       approvalCard(turn, t);
+      last = null;
     }
   }
+  // Only the latest reply's follow-ups still make sense.
+  if (last) suggestions(last.turn, last.replies);
   scrollDown();
 }
 
@@ -476,6 +492,7 @@ document.addEventListener("keydown", e => {
     return invoke("hide_bar");
   }
   if (S.view === "link" || S.view === "revoked") return;
+  if (cmd && e.key.toLowerCase() === "q") { e.preventDefault(); return invoke("quit"); }
   if (cmd && e.key.toLowerCase() === "n") { e.preventDefault(); return newChat(); }
   if (cmd && e.key.toLowerCase() === "k") { e.preventDefault(); return S.view === "chats" ? null : renderChats(); }
   if (cmd && e.key === ".") { e.preventDefault(); return stop(); }

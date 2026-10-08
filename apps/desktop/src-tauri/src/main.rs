@@ -55,6 +55,7 @@ fn main() {
             commands::start_over,
             commands::resize_bar,
             commands::hide_bar,
+            commands::quit,
             commands::open_url,
         ])
         .run(tauri::generate_context!())
