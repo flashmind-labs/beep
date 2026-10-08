@@ -54,7 +54,7 @@ const SYSTEM: &str = "You write conversation starters for Beep, a personal assis
 Answer with a Markdown list of 4 starters and nothing else, one per line as \"- title | prompt\", \
 or \"- title | prompt | until YYYY-MM-DDTHH:MM\" for one tied to an event. \
 title: at most 28 characters, shown on a small chip. Name the outcome the user gets, \
-like \"Reply to Holger on Utexo\" or \"Dinner near Tanjong Pagar\", never a vague topic like \"Utexo email check\" or \"Singapore offbeat\". \
+like \"Pick a gift for Sam\" or \"Dinner near the hotel\", never a vague topic like \"Email check\" or \"City offbeat\". \
 prompt: the full message the user would send, in first person, one or two sentences, \
 asking Beep to do or decide something concrete. \
 until: the local time when the starter stops being useful, like a few hours after a flight lands \
@@ -62,6 +62,9 @@ or the end of a meeting; leave it out when it stays useful. \
 Pick the 4 things that would help most right now, judging by the local time, place and what is coming up soon. \
 Each starter covers a different need and a different kind of task: at most one about reading or answering email, \
 and never two about the same trip, event or person. \
+Memories say who the user knows and works with, not what they owe anyone: \
+never suggest replying to or following up with someone unless the context names a message from them still waiting on the user. \
+A starter about an email asks Beep to write and send it, since the user approves it before it goes out. \
 Skip chores the user does without help, like checking out of a hotel or packing, \
 unless the context gives a real problem to solve. \
 Leave out starters about events that are already over. \
@@ -104,7 +107,7 @@ pub struct StarterContext {
     pub memories: Vec<MemoryNote>,
     pub recent_titles: Vec<String>,
     pub now: LocalTime,
-    /// Where the phone last was, like "Marina Bay, Singapore".
+    /// Where the phone last was, like "Old Town, Lisbon".
     pub place: Option<String>,
     pub connected_apps: Vec<String>,
     /// What Beep recently did in the user's apps, newest first.

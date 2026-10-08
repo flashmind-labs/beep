@@ -71,7 +71,7 @@ impl Tool for OpenMapsTool {
                 },
                 "query": {
                     "type": "string",
-                    "description": "Search query or place name, e.g. 'italian restaurant', 'ramen near Hotel Gracery Shinjuku' or 'Lau Pa Sat Singapore'. Searches run around the user's location unless latitude/longitude are given."
+                    "description": "Search query or place name, e.g. 'italian restaurant', 'ramen near Hotel Gracery Shinjuku' or 'central market Lisbon'. Searches run around the user's location unless latitude/longitude are given."
                 },
                 "latitude": {
                     "type": "number",

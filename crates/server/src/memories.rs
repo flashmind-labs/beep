@@ -342,7 +342,7 @@ that memory by id, or update it to the lasting fact if one remains. An action al
 A fact that only holds for a while (a trip, a visit, a stay, an appointment, a temporary job) gets valid_from \
 and/or valid_until as YYYY-MM-DD, worked out from today's date. Lasting facts leave both out.
 Write each memory as one short self-contained sentence about the user in third person that names its subject, \
-like \"Has a dog named Rex.\" or \"Is in Singapore at the Mandarin Oriental.\", in the language of the user's \
+like \"Has a dog named Rex.\" or \"Is in Lisbon at the Harbour Hotel.\", in the language of the user's \
 latest message. Never translate a known memory.
 Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"id\": string, \"content\": string, \
 \"valid_from\": string, \"valid_until\": string, \"quote\": string}]}. \
@@ -837,7 +837,7 @@ mod tests {
     fn parses_learn_ops_with_days() {
         let ops = parse_learn_ops(
             r#"```json
-{"ops":[{"op":"add","content":"Is in Singapore.","valid_from":"2026-10-04","valid_until":"2026-10-09"},
+{"ops":[{"op":"add","content":"Is in Lisbon.","valid_from":"2026-10-04","valid_until":"2026-10-09"},
 {"op":"forget","id":"abc123"}]}
 ```"#,
         )
@@ -978,7 +978,7 @@ mod tests {
     fn profile_puts_what_holds_today_first() {
         let mut name = row("n", "Is called Sam.");
         name.core = true;
-        let mut trip = row("t", "Is in Singapore.");
+        let mut trip = row("t", "Is in Lisbon.");
         trip.valid = Validity {
             from: Some(day("2026-10-04")),
             until: Some(day("2026-10-10")),
@@ -991,7 +991,7 @@ mod tests {
         assert_eq!(
             profile(&rows, day("2026-10-07")).unwrap(),
             format!(
-                "{PROFILE_HEADER}\n- Is in Singapore. (2026-10-04 to 2026-10-10)\n- Is called Sam."
+                "{PROFILE_HEADER}\n- Is in Lisbon. (2026-10-04 to 2026-10-10)\n- Is called Sam."
             )
         );
         assert_eq!(profile(&rows[3..], day("2026-10-07")), None);
