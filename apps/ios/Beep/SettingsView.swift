@@ -2,74 +2,117 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Binding var path: [Route]
 
     var body: some View {
-        List {
-            Section {
-                HStack(spacing: 12) {
-                    TintIcon(system: "person", tint: Mint.tints[1])
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(model.accountName).font(.body(16, .semibold))
-                        Text("This iPhone's account").font(.body(12)).foregroundStyle(Mint.muted)
+        VStack(spacing: 0) {
+            BackBar(title: "Settings", back: { path.removeAll() })
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if let models = model.models, !models.choices.isEmpty {
+                        modelPicker(models)
                     }
-                }
-                if let file = keyFile {
-                    ShareLink(item: file) { Label("Save key", systemImage: "key") }
-                }
-            } footer: {
-                Text("The key file signs another phone into this account. Keep it private.")
-            }
-
-            Section("Server") {
-                HStack {
-                    Text("Status")
-                    Spacer()
-                    Circle().fill(model.connected ? Mint.ok : Mint.error).frame(width: 8, height: 8)
-                    Text(model.connected ? "Connected" : (model.connectionError.isEmpty ? "Connecting" : model.connectionError))
-                        .foregroundStyle(Mint.muted).lineLimit(1)
-                }
-            }
-
-            if let models = model.models, !models.choices.isEmpty {
-                Section("Model") {
-                    Picker("Model", selection: Binding(
-                        get: { models.selected },
-                        set: { id in Task { await model.setModel(id) } }
-                    )) {
-                        ForEach(models.choices, id: \.id) { Text($0.name).tag($0.id) }
+                    VStack(spacing: 0) {
+                        divider
+                        if let file = keyFile {
+                            ShareLink(item: file) {
+                                row("key", model.accountName.isEmpty ? "Account" : model.accountName,
+                                    "Key not backed up · tap to save it to a file")
+                            }
+                        }
+                        divider
+                        Button { if !model.connected { model.connect() } } label: {
+                            row("server.rack", "Server", model.connected ? "Connected"
+                                : (model.connectionError.isEmpty ? "Connecting" : model.connectionError),
+                                dot: true)
+                        }
+                        divider
                     }
-                    Picker("Thinking", selection: Binding(
-                        get: { models.thinking },
-                        set: { level in Task { await model.setThinking(level) } }
-                    )) {
-                        Text("Off").tag(ReasoningLevel.off)
-                        Text("Low").tag(ReasoningLevel.low)
-                        Text("Medium").tag(ReasoningLevel.medium)
-                        Text("High").tag(ReasoningLevel.high)
-                    }
-                    .pickerStyle(.segmented)
-                    if models.autoAvailable {
-                        Toggle("Pick the model for me", isOn: Binding(
-                            get: { models.auto },
-                            set: { on in Task { await model.setAuto(on) } }
-                        ))
-                    }
+                    .buttonStyle(.plain)
                 }
-            }
-
-            Section {
-                NavigationLink(value: Route.memories) {
-                    Label("Memories", systemImage: "brain")
-                }
-                NavigationLink(value: Route.routines) {
-                    Label("Routines", systemImage: "clock")
-                }
+                .padding(.horizontal, 20).padding(.vertical, 8)
             }
         }
-        .font(.body(15))
-        .scrollContentBackground(.hidden)
         .background(Mint.page)
-        .navigationTitle("Settings")
+    }
+
+    private var divider: some View { Rectangle().fill(Mint.soft).frame(height: 1) }
+
+    private func row(_ icon: String, _ label: String, _ detail: String, dot: Bool = false) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.system(size: 17)).foregroundStyle(Mint.muted).frame(width: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label).font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                HStack(spacing: 6) {
+                    if dot { ConnectionDot(connected: model.connected) }
+                    Text(detail).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right").font(.system(size: 13, weight: .medium)).foregroundStyle(Mint.muted)
+        }
+        .padding(.vertical, 14)
+        .contentShape(Rectangle())
+    }
+
+    private func modelPicker(_ models: Models) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Model (admin)").font(.body(12, .semibold)).foregroundStyle(Mint.muted).padding(.bottom, 8)
+            if models.autoAvailable {
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Auto").font(.body(14, .medium)).foregroundStyle(Mint.ink)
+                        Text("Jev picks the model and thinking for each prompt").font(.body(12)).foregroundStyle(Mint.muted)
+                    }
+                    Spacer()
+                    Toggle("Auto", isOn: Binding(get: { models.auto }, set: { on in Task { await model.setAuto(on) } }))
+                        .labelsHidden().tint(Mint.ok)
+                }
+                .padding(.bottom, 8)
+                if models.auto {
+                    Text("Used when Jev cannot pick:").font(.body(12)).foregroundStyle(Mint.muted).padding(.bottom, 6)
+                }
+            }
+            VStack(spacing: 6) {
+                ForEach(models.choices, id: \.id) { choice in
+                    let selected = choice.id == models.selected
+                    Button { Task { await model.setModel(choice.id) } } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(choice.default ? "\(choice.name) (default)" : choice.name)
+                                    .font(.body(14, .medium)).foregroundStyle(Mint.ink)
+                                Text(modelDetail(choice)).font(.body(12)).foregroundStyle(Mint.muted)
+                            }
+                            Spacer()
+                            if selected {
+                                Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(Mint.ink)
+                            }
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 9)
+                        .overlay(RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(selected ? Mint.ink : Mint.soft, lineWidth: selected ? 2 : 1))
+                        .contentShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Text("Thinking").font(.body(12, .semibold)).foregroundStyle(Mint.muted).padding(.top, 12).padding(.bottom, 4)
+            HStack(spacing: 6) {
+                ForEach([ReasoningLevel.off, .low, .medium, .high], id: \.self) { level in
+                    FilterChip(label: "\(level)".capitalized, selected: level == models.thinking) {
+                        Task { await model.setThinking(level) }
+                    }
+                }
+            }
+            Text("Applies to your own turns. Everyone else stays on the default.")
+                .font(.body(12)).foregroundStyle(Mint.muted).padding(.top, 6)
+        }
+    }
+
+    private func modelDetail(_ choice: ModelChoice) -> String {
+        let price = { (usd: Double?) in usd.map { String(format: "$%.2f", $0) } ?? "?" }
+        let prices = "\(price(choice.inputPrice)) in, \(price(choice.outputPrice)) out per M tokens"
+        return choice.seesImages ? prices : prices + ", text only"
     }
 
     /// The key as the same JSON profile the Android app saves and imports.

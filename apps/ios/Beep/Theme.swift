@@ -14,6 +14,9 @@ enum Mint {
     static let accent = Color(hex: 0xF07A6A)
     static let ok = Color(hex: 0x3B9B7A)
     static let error = Color(hex: 0xD9473A)
+    static let warn = Color(hex: 0xE0A630)
+    static let raised = Color(hex: 0xE9F2EC)
+    static let code = Color(hex: 0xECF3EE)
     static let tints = [Color(hex: 0xFDE7E2), Color(hex: 0xE2F4EA), Color(hex: 0xFFF4CC)]
 }
 
@@ -33,28 +36,124 @@ extension Font {
     }
 }
 
-/// A thick ink border with a solid drop under it, the app's "chunky" look.
+/// A 2px ink outline with a hard 3,3 shadow, the Android `beepFrame`.
 struct Chunky: ViewModifier {
     var fill: Color = Mint.surface
-    var radius: CGFloat = 12
+    var shape: AnyShape = AnyShape(RoundedRectangle(cornerRadius: 18))
     var drop: CGFloat = 3
 
     func body(content: Content) -> some View {
         content
-            .background(RoundedRectangle(cornerRadius: radius).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(Mint.ledge, lineWidth: 1.5))
-            .background(RoundedRectangle(cornerRadius: radius).fill(Mint.ledge).offset(y: drop))
+            .background(shape.fill(fill))
+            .overlay(shape.stroke(Mint.ledge, lineWidth: 2))
+            .background(shape.fill(Mint.ledge).offset(x: drop, y: drop))
     }
 }
 
 extension View {
-    func chunky(_ fill: Color = Mint.surface, radius: CGFloat = 12, drop: CGFloat = 3) -> some View {
-        modifier(Chunky(fill: fill, radius: radius, drop: drop))
+    func chunky(_ fill: Color = Mint.surface, radius: CGFloat = 18, drop: CGFloat = 3) -> some View {
+        modifier(Chunky(fill: fill, shape: AnyShape(RoundedRectangle(cornerRadius: radius)), drop: drop))
     }
 
-    func card(_ fill: Color = Mint.surface, radius: CGFloat = 16) -> some View {
+    func chunky<S: Shape>(_ fill: Color = Mint.surface, shape: S, drop: CGFloat = 3) -> some View {
+        modifier(Chunky(fill: fill, shape: AnyShape(shape), drop: drop))
+    }
+
+    func card(_ fill: Color = Mint.surface, radius: CGFloat = 18) -> some View {
         background(RoundedRectangle(cornerRadius: radius).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(Mint.ledge, lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(Mint.ledge, lineWidth: 2))
+    }
+}
+
+/// A square chunky button that sinks into its shadow while pressed.
+struct ChunkyButton: ButtonStyle {
+    var fill: Color = Mint.surface
+    var size: CGFloat = 42
+    var radius: CGFloat = 12
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius)
+        let down: CGFloat = configuration.isPressed ? 3 : 0
+        configuration.label
+            .font(.system(size: size * 0.45, weight: .semibold))
+            .foregroundStyle(Mint.ink)
+            .frame(width: size, height: size)
+            .background(shape.fill(fill))
+            .overlay(shape.stroke(Mint.ledge, lineWidth: 2))
+            .offset(x: down, y: down)
+            .background(shape.fill(Mint.ledge).offset(x: 3, y: 3))
+    }
+}
+
+/// The small connection status dot.
+struct ConnectionDot: View {
+    let connected: Bool
+
+    var body: some View {
+        Circle().fill(connected ? Mint.ok : Mint.error).frame(width: 7, height: 7)
+    }
+}
+
+/// A plain text button in the brand color, as Android's TextButton.
+struct TextAction: ButtonStyle {
+    var color: Color = Mint.brand
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body(14, .medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .frame(minHeight: 36)
+            .opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+
+/// The Android top bar for pushed screens: chunky back button, title, trailing actions.
+struct BackBar<Trailing: View>: View {
+    let title: String
+    let back: () -> Void
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Button(action: back) { Image(systemName: "arrow.left") }
+                .buttonStyle(ChunkyButton())
+            Text(title).font(.display(24)).foregroundStyle(Mint.ink)
+            Spacer()
+            trailing
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+    }
+}
+
+extension BackBar where Trailing == EmptyView {
+    init(title: String, back: @escaping () -> Void) {
+        self.init(title: title, back: back) { EmptyView() }
+    }
+}
+
+/// Android's FilterChip: a capsule that fills with the user color when selected.
+struct FilterChip: View {
+    let label: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if selected { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)) }
+                Text(label).font(.body(13, .medium))
+            }
+            .foregroundStyle(Mint.ink)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 32)
+            .background(RoundedRectangle(cornerRadius: 10).fill(selected ? Mint.user : Mint.surface))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(selected ? Mint.ledge : Mint.soft, lineWidth: selected ? 2 : 1))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -67,10 +166,10 @@ struct PrimaryButton: ButtonStyle {
             .font(.body(16, .semibold))
             .foregroundStyle(Mint.ink)
             .frame(maxWidth: .infinity, minHeight: 52)
-            .background(RoundedRectangle(cornerRadius: 14).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Mint.ledge, lineWidth: 1.5))
-            .offset(y: configuration.isPressed ? 2 : 0)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Mint.ledge).offset(y: 3))
+            .background(RoundedRectangle(cornerRadius: 18).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Mint.ledge, lineWidth: 2))
+            .offset(x: configuration.isPressed ? 3 : 0, y: configuration.isPressed ? 3 : 0)
+            .background(RoundedRectangle(cornerRadius: 18).fill(Mint.ledge).offset(x: 3, y: 3))
     }
 }
 
@@ -84,7 +183,7 @@ struct PillButton: ButtonStyle {
             .padding(.horizontal, 14)
             .frame(minHeight: 36)
             .background(Capsule().fill(fill))
-            .overlay(Capsule().stroke(Mint.ledge, lineWidth: 1.5))
+            .overlay(Capsule().stroke(Mint.ledge, lineWidth: 2))
             .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
@@ -100,7 +199,7 @@ struct TintIcon: View {
             .font(.system(size: size * 0.42, weight: .semibold))
             .foregroundStyle(Mint.ink)
             .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: size / 4).fill(tint))
-            .overlay(RoundedRectangle(cornerRadius: size / 4).stroke(Mint.ledge, lineWidth: 1.5))
+            .background(RoundedRectangle(cornerRadius: 12).fill(tint))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.ledge, lineWidth: 2))
     }
 }

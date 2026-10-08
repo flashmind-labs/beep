@@ -48,3 +48,23 @@ private let toolLabels: [String: String] = [
 func toolInitial(_ name: String) -> String {
     String(toolLabel(name).prefix(1)).uppercased()
 }
+
+/// A finished chip's label in the past tense, as on Android: "Searching the web" becomes "Searched the web".
+func doneLabel(_ label: String) -> String {
+    var text = label
+    while text.hasSuffix(".") || text.hasSuffix("…") { text.removeLast() }
+    let space = text.firstIndex(of: " ") ?? text.endIndex
+    let head = String(text[..<space])
+    guard let past = pastTense[head.lowercased()] else { return text }
+    return past + text[space...]
+}
+
+private let pastTense: [String: String] = [
+    "searching": "Searched", "reading": "Read", "checking": "Checked", "looking": "Looked",
+    "fetching": "Fetched", "opening": "Opened", "saving": "Saved", "finding": "Found",
+    "getting": "Got", "creating": "Created", "updating": "Updated", "deleting": "Deleted",
+    "sending": "Sent", "setting": "Set", "using": "Used", "remembering": "Remembered",
+    "loading": "Loaded", "browsing": "Browsed", "scheduling": "Scheduled", "running": "Ran",
+    "weighing": "Weighed", "recalling": "Recalled", "forgetting": "Forgot", "changing": "Changed",
+    "logging": "Logged", "suggesting": "Suggested",
+]

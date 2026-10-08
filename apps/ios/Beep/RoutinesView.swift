@@ -9,48 +9,44 @@ struct RoutinesView: View {
     @State private var creating = false
 
     var body: some View {
-        List {
+        VStack(spacing: 0) {
+            BackBar(title: "Routines", back: { path.removeAll() }) {
+                Button { creating = true } label: { Image(systemName: "plus") }
+                    .buttonStyle(ChunkyButton(fill: Mint.accent))
+                    .accessibilityLabel("New routine")
+            }
             if !error.isEmpty {
-                Text(error).foregroundStyle(Mint.error)
+                Text(error).font(.body(12)).foregroundStyle(Mint.error)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20).padding(.vertical, 8)
             }
-            ForEach(crons, id: \.id) { cron in
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(cron.label.isEmpty ? "Reminder" : cron.label).font(.body(16, .medium)).foregroundStyle(Mint.ink)
-                        Text(describeSchedule(cron.schedule)).font(.body(13)).foregroundStyle(Mint.muted)
-                        if cron.enabled, let next = cron.nextRunAt.flatMap(parseInstant) {
-                            Text("Next: " + describeDay(next)).font(.body(12)).foregroundStyle(Mint.dim)
+            if !loaded, crons.isEmpty {
+                ProgressView().padding(40)
+                Spacer()
+            } else if crons.isEmpty {
+                Text("No routines yet.\nSchedule tasks for Beep to run on a timer.")
+                    .font(.body(13)).foregroundStyle(Mint.muted).lineSpacing(5)
+                    .multilineTextAlignment(.center)
+                    .padding(40)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(crons, id: \.id) { cron in
+                            RoutineCard(cron: cron, toggle: { set(cron, enabled: $0) },
+                                        run: { run(cron) }, delete: { delete(cron) })
                         }
+                        Text("Swipe right to run now, left to delete")
+                            .font(.body(11)).foregroundStyle(Mint.dim)
+                            .padding(.vertical, 6)
                     }
-                    Spacer()
-                    Toggle("Enabled", isOn: Binding(get: { cron.enabled }, set: { set(cron, enabled: $0) }))
-                        .labelsHidden()
-                        .tint(Mint.brand)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
                 }
-                .swipeActions(edge: .leading) {
-                    Button { run(cron) } label: { Label("Run now", systemImage: "play") }.tint(Mint.brand)
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) { delete(cron) } label: { Label("Delete", systemImage: "trash") }
-                }
+                .refreshable { await load() }
             }
         }
-        .font(.body(15))
-        .scrollContentBackground(.hidden)
         .background(Mint.page)
-        .overlay {
-            if loaded, crons.isEmpty, error.isEmpty {
-                ContentUnavailableView("No routines", systemImage: "clock",
-                    description: Text("Beep can run a prompt for you on a schedule."))
-            }
-        }
-        .navigationTitle("Routines")
-        .toolbar {
-            Button { creating = true } label: { Image(systemName: "plus") }
-                .accessibilityLabel("New routine")
-        }
         .task(id: model.connected) { if model.connected { await load() } }
-        .refreshable { await load() }
         .sheet(isPresented: $creating) {
             NewRoutineView { label, prompt, schedule in
                 try await model.createCron(label: label, prompt: prompt, schedule: schedule)
@@ -77,7 +73,7 @@ struct RoutinesView: View {
     }
 
     private func delete(_ cron: Cron) {
-        crons.removeAll { $0.id == cron.id }
+        withAnimation(.snappy) { crons.removeAll { $0.id == cron.id } }
         Task {
             do { try await model.deleteCron(cron.id) } catch { self.error = describe(error) }
             await load()
@@ -96,10 +92,78 @@ struct RoutinesView: View {
     }
 }
 
-private enum Repeat: String, CaseIterable {
-    case once = "Once", daily = "Daily", weekdays = "Weekdays", weekly = "Days", hourly = "Hourly"
+/// A routine card that runs when swiped right and is deleted when swiped left.
+private struct RoutineCard: View {
+    let cron: Cron
+    let toggle: (Bool) -> Void
+    let run: () -> Void
+    let delete: () -> Void
+    @State private var offset: CGFloat = 0
+
+    private static let threshold: CGFloat = 110
+
+    var body: some View {
+        let armed = abs(offset) > Self.threshold
+        let toDelete = offset < 0
+        ZStack {
+            if offset != 0 {
+                HStack(spacing: 8) {
+                    if !toDelete { Image(systemName: "play.fill") }
+                    Text(toDelete ? "Delete" : "Run now").font(.body(13, .semibold))
+                    if toDelete { Image(systemName: "trash") }
+                }
+                .scaleEffect(armed ? 1.1 : 1)
+                .foregroundStyle(Mint.ink)
+                .padding(.horizontal, 22)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: toDelete ? .trailing : .leading)
+                .background(RoundedRectangle(cornerRadius: 18)
+                    .fill(!armed ? Mint.soft : toDelete ? Mint.error : Mint.accent))
+            }
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(cron.label.isEmpty ? "Reminder" : cron.label)
+                        .font(.body(13, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
+                    Text(cron.prompt).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(2).lineSpacing(4)
+                        .padding(.top, 3)
+                    Text(describeSchedule(cron.schedule)).font(.body(11)).foregroundStyle(Mint.dim)
+                        .padding(.top, 4)
+                    if cron.enabled, parseInstant(cron.schedule) == nil,
+                       let next = cron.nextRunAt.flatMap(parseInstant) {
+                        Text("Next: " + describeDay(next)).font(.body(11)).foregroundStyle(Mint.dim)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Toggle("Enabled", isOn: Binding(get: { cron.enabled }, set: toggle))
+                    .labelsHidden()
+                    .tint(Mint.ok)
+            }
+            .padding(14)
+            .chunky()
+            .offset(x: offset)
+        }
+        .padding(.trailing, 3).padding(.bottom, 3)
+        .sensoryFeedback(.impact, trigger: armed) { _, now in now }
+        .gesture(DragGesture(minimumDistance: 20)
+            .onChanged { drag in
+                if abs(drag.translation.width) > abs(drag.translation.height) { offset = drag.translation.width }
+            }
+            .onEnded { _ in
+                let done = abs(offset) > Self.threshold
+                if done, offset < 0 {
+                    delete()
+                } else {
+                    if done { run() }
+                    withAnimation(.spring(duration: 0.3)) { offset = 0 }
+                }
+            })
+    }
 }
 
+private enum Repeat: String, CaseIterable {
+    case once = "Once", daily = "Daily", weekdays = "Weekdays", weekly = "Weekly", hourly = "Hourly"
+}
+
+/// The Android "New routine" dialog, as a sheet.
 private struct NewRoutineView: View {
     @Environment(\.dismiss) private var dismiss
     let create: (String, String, String) async throws -> Void
@@ -112,56 +176,86 @@ private struct NewRoutineView: View {
     @State private var error = ""
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Name", text: $label)
-                    TextField("What should Beep do?", text: $prompt, axis: .vertical).lineLimit(3...8)
-                }
-                Section("Repeat") {
-                    Picker("Repeat", selection: $repeatMode) {
-                        ForEach(Repeat.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("New routine").font(.display(22)).foregroundStyle(Mint.ink)
+                field("Name", text: $label, placeholder: "Morning briefing")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Repeat.allCases, id: \.self) { mode in
+                            FilterChip(label: mode.rawValue, selected: repeatMode == mode) { repeatMode = mode }
+                        }
                     }
-                    .pickerStyle(.segmented)
-                    if repeatMode == .weekly {
-                        HStack {
-                            ForEach(cronDays, id: \.self) { day in
-                                let on = days.contains(day)
-                                Button(String(cronDayName(day).prefix(2))) {
-                                    if on { days.remove(day) } else { days.insert(day) }
-                                }
-                                .buttonStyle(PillButton(fill: on ? Mint.user : Mint.surface))
+                }
+                if repeatMode == .weekly {
+                    HStack(spacing: 6) {
+                        ForEach(cronDays, id: \.self) { day in
+                            FilterChip(label: String(cronDayName(day).prefix(2)), selected: days.contains(day)) {
+                                if days.contains(day) { days.remove(day) } else { days.insert(day) }
                             }
                         }
                     }
-                    if repeatMode == .once {
-                        DatePicker("When", selection: $time, in: Date.now...)
-                    } else if repeatMode == .hourly {
-                        Picker("Minute", selection: Binding(
-                            get: { Calendar.current.component(.minute, from: time) },
-                            set: { time = Calendar.current.date(bySettingHour: 9, minute: $0, second: 0, of: time) ?? time }
-                        )) {
-                            ForEach(Array(stride(from: 0, to: 60, by: 5)), id: \.self) { Text(String(format: ":%02d", $0)).tag($0) }
-                        }
-                    } else {
-                        DatePicker("Time", selection: $time, displayedComponents: .hourAndMinute)
-                    }
                 }
+                timePicker
+                field("What should Beep do?", text: $prompt, placeholder: "Give me a summary of...", lines: 2...4)
                 if !error.isEmpty {
-                    Text(error).foregroundStyle(Mint.error)
+                    Text(error).font(.body(12)).foregroundStyle(Mint.error)
                 }
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button("Cancel") { dismiss() }.buttonStyle(TextAction())
+                    Button { save() } label: {
+                        Text("Create").font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                            .padding(.horizontal, 20).frame(minHeight: 44)
+                            .chunky(Mint.accent, radius: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!valid || saving)
+                    .opacity(valid ? 1 : 0.5)
+                }
+                .padding(.top, 4)
             }
-            .font(.body(15))
-            .navigationTitle("New routine")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") { save() }.disabled(!valid || saving)
+            .padding(24)
+        }
+        .background(Mint.page)
+        .presentationDetents([.medium, .large])
+        .presentationBackground(Mint.page)
+        .presentationCornerRadius(28)
+    }
+
+    @ViewBuilder private var timePicker: some View {
+        HStack {
+            Text(repeatMode == .once ? "When" : repeatMode == .hourly ? "Past the hour" : "At")
+                .font(.body(14)).foregroundStyle(Mint.muted)
+            Spacer()
+            if repeatMode == .once {
+                DatePicker("When", selection: $time, in: Date.now...).labelsHidden()
+            } else if repeatMode == .hourly {
+                Picker("Minute", selection: Binding(
+                    get: { Calendar.current.component(.minute, from: time) },
+                    set: { time = Calendar.current.date(bySettingHour: 9, minute: $0, second: 0, of: time) ?? time }
+                )) {
+                    ForEach(Array(stride(from: 0, to: 60, by: 5)), id: \.self) { Text(String(format: ":%02d", $0)).tag($0) }
                 }
+                .tint(Mint.ink)
+            } else {
+                DatePicker("Time", selection: $time, displayedComponents: .hourAndMinute).labelsHidden()
             }
         }
-        .presentationDetents([.large])
+        .tint(Mint.brand)
+    }
+
+    private func field(_ title: String, text: Binding<String>, placeholder: String,
+                       lines: ClosedRange<Int> = 1...1) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.body(12, .medium)).foregroundStyle(Mint.muted)
+            TextField("", text: text, prompt: Text(placeholder).foregroundStyle(Mint.dim), axis: .vertical)
+                .lineLimit(lines)
+                .font(.body(15)).foregroundStyle(Mint.ink)
+                .padding(.horizontal, 14).padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.soft, lineWidth: 1))
+        }
     }
 
     private var valid: Bool {

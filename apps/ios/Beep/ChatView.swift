@@ -2,20 +2,22 @@ import SwiftUI
 
 struct ChatView: View {
     @Environment(AppModel.self) private var model
-    @Binding var path: [Route]
+    @Binding var drawer: Bool
     @State private var draft = ""
     @FocusState private var typing: Bool
 
     var body: some View {
         VStack(spacing: 0) {
+            topBar
             ScrollViewReader { scroller in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: 18) {
                         if model.chat.messages.isEmpty {
-                            EmptyChat { model.send($0) }
+                            EmptyChat { model.send($0) } fill: { draft = $0; typing = true }
                         }
                         ForEach(model.chat.messages) { message in
-                            MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)")
+                            MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
+                                        quote: quote)
                         }
                         if model.chat.busy, !model.chat.thinking.isEmpty {
                             ThinkingPreview(text: model.chat.thinking)
@@ -24,17 +26,13 @@ struct ChatView: View {
                             ProgressView().padding(.leading, 4)
                         }
                         if !model.chat.error.isEmpty, !model.chat.busy {
-                            HStack(spacing: 10) {
-                                Text(model.chat.error).font(.body(13)).foregroundStyle(Mint.error)
-                                Button("Retry") { model.retry() }.buttonStyle(PillButton())
-                            }
+                            ErrorRow(text: model.chat.error) { model.retry() }
                         } else if !model.chat.error.isEmpty {
                             Text(model.chat.error).font(.body(13)).foregroundStyle(Mint.muted)
                         }
                         Color.clear.frame(height: 1).id("end")
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(18)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: model.chat.messages) { scroller.scrollTo("end", anchor: .bottom) }
@@ -43,29 +41,7 @@ struct ChatView: View {
             composer
         }
         .background(Mint.page)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Mint.page, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { path.append(.chats) } label: { Image(systemName: "line.3.horizontal") }
-                    .accessibilityLabel("Chats")
-            }
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
-                    Text("Beep").font(.display(20)).foregroundStyle(Mint.ink)
-                    HStack(spacing: 5) {
-                        Circle().fill(model.connected ? Mint.ok : Mint.error).frame(width: 6, height: 6)
-                        Text(model.connected ? "Connected" : "Reconnecting")
-                            .font(.body(11, .medium)).foregroundStyle(Mint.muted)
-                    }
-                    .onTapGesture { if !model.connected { model.connect() } }
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { model.newChat() } label: { Image(systemName: "square.and.pencil") }
-                    .accessibilityLabel("New chat")
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     private var waitingForFirstEvent: Bool {
@@ -73,77 +49,139 @@ struct ChatView: View {
         return last.role == .user
     }
 
+    /// The Android top bar: a chunky menu button that opens the chats, the name and the connection dot.
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                typing = false
+                withAnimation(.snappy) { drawer = true }
+            } label: { Image(systemName: "line.3.horizontal") }
+                .buttonStyle(ChunkyButton())
+                .accessibilityLabel("Conversations")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Beep").font(.display(24)).foregroundStyle(Mint.ink)
+                HStack(spacing: 6) {
+                    ConnectionDot(connected: model.connected)
+                    if !model.connected {
+                        Text("Tap to reconnect").font(.body(12, .medium)).foregroundStyle(Mint.muted)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { if !model.connected { model.connect() } }
+            }
+            Spacer()
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 16)
+        .padding(.vertical, 8)
+        .background(Mint.page)
+    }
+
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message", text: $draft, axis: .vertical)
-                .font(.body(16))
+        let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(alignment: .bottom, spacing: 8) {
+            TextField("", text: $draft, prompt: Text("Ask anything...").foregroundStyle(Mint.dim), axis: .vertical)
+                .font(.body(15))
+                .foregroundStyle(Mint.ink)
+                .tint(Mint.ink)
                 .lineLimit(1...6)
                 .focused($typing)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-                .background(RoundedRectangle(cornerRadius: 22).fill(Mint.surface))
-                .overlay(RoundedRectangle(cornerRadius: 22).stroke(Mint.soft, lineWidth: 1.5))
+                .padding(.vertical, 14)
+                .frame(minHeight: 50)
+                .chunky()
             if model.chat.busy {
-                Button { model.stop() } label: {
-                    RoundedRectangle(cornerRadius: 3).fill(Mint.ink).frame(width: 12, height: 12)
-                        .frame(width: 44, height: 44)
-                        .chunky(Mint.surface, radius: 22, drop: 2)
-                }
-                .accessibilityLabel("Stop")
+                Button { model.stop() } label: { Image(systemName: "stop.fill") }
+                    .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 18))
+                    .foregroundStyle(Mint.page)
+                    .accessibilityLabel("Stop reply")
             } else {
-                let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 Button {
                     model.send(draft)
                     draft = ""
-                } label: {
-                    Image(systemName: "arrow.up").font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(empty ? Mint.dim : Mint.ink)
-                        .frame(width: 44, height: 44)
-                        .chunky(empty ? Mint.soft : Mint.accent, radius: 22, drop: empty ? 0 : 2)
-                }
-                .disabled(empty)
-                .accessibilityLabel("Send")
+                } label: { Image(systemName: "paperplane") }
+                    .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.accent, size: 50, radius: 18))
+                    .opacity(empty ? 0.5 : 1)
+                    .disabled(empty)
+                    .accessibilityLabel("Send message")
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.leading, 14)
+        .padding(.trailing, 16)
         .padding(.top, 8)
-        .padding(.bottom, 6)
+        .padding(.bottom, 12)
         .background(Mint.page)
+    }
+
+    /// Puts the quoted text above whatever is already typed.
+    private func quote(_ text: String) {
+        let lines = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n", omittingEmptySubsequences: false).prefix(4)
+        let quoted = lines.map { "> " + $0 }.joined(separator: "\n") + "\n\n"
+        draft = quoted + draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        typing = true
+    }
+}
+
+private struct ErrorRow: View {
+    let text: String
+    let retry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.circle").foregroundStyle(Mint.error)
+            Text(text).font(.body(13)).foregroundStyle(Mint.ink)
+            Spacer(minLength: 0)
+            Button("Retry", action: retry).buttonStyle(TextAction(color: Mint.error))
+        }
+        .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Mint.error.opacity(0.1)))
     }
 }
 
 private struct EmptyChat: View {
     @Environment(AppModel.self) private var model
     let send: (String) -> Void
+    let fill: (String) -> Void
 
-    private static let templates = [
-        PromptSuggestion(title: "Remember something", prompt: "Remember that I prefer short, practical answers."),
-        PromptSuggestion(title: "Plan my Saturday", prompt: "What's the weather for Saturday and anything on my calendar?"),
-        PromptSuggestion(title: "What's nearby", prompt: "What's a good place for coffee near me?"),
+    /// Templates until the server's starters arrive; the last two only fill the composer.
+    private static let templates: [(title: String, prompt: String, complete: Bool)] = [
+        ("Remember something", "Remember that I prefer short, practical answers.", true),
+        ("Search the web", "Search the web for ", false),
+        ("Set a reminder", "Remind me to ", false),
     ]
-    private static let icons = ["brain", "clock", "magnifyingglass"]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Hey. What can I help with?")
-                .font(.display(32)).foregroundStyle(Mint.ink)
-                .padding(.top, 20)
+        VStack(alignment: .leading, spacing: 0) {
+            (Text("A little help.\n") + Text("Right here.").foregroundColor(Mint.ok))
+                .font(.display(40)).foregroundStyle(Mint.ink)
+                .lineSpacing(0)
+                .padding(.top, 24)
             Text("Find an answer. Untangle a thought.\nKeep something worth remembering.")
-                .font(.body(15)).foregroundStyle(Mint.muted).lineSpacing(4)
-                .padding(.bottom, 12)
-            let items = model.starters.isEmpty ? Self.templates : Array(model.starters.prefix(3))
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                Button { send(item.prompt) } label: {
-                    HStack(spacing: 12) {
-                        TintIcon(system: Self.icons[index % 3], tint: Mint.tints[index % 3], size: 36)
-                        Text(item.title).font(.body(15, .semibold)).foregroundStyle(Mint.ink)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 0)
+                .font(.body(15)).foregroundStyle(Mint.muted).lineSpacing(5)
+                .padding(.top, 12)
+                .padding(.bottom, 28)
+            let items = model.starters.isEmpty ? Self.templates
+                : model.starters.prefix(3).map { (title: $0.title, prompt: $0.prompt, complete: true) }
+            VStack(spacing: 12) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    Button { item.complete ? send(item.prompt) : fill(item.prompt) } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: starterIcon(item.title + " " + item.prompt))
+                                .font(.system(size: 16, weight: .medium)).foregroundStyle(Mint.ink)
+                                .frame(width: 34, height: 34)
+                                .background(RoundedRectangle(cornerRadius: 12).fill(Mint.tints[index % 3]))
+                            Text(item.title).font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                            Image(systemName: "arrow.up.right").font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(Mint.muted).padding(.top, 10)
+                        }
+                        .padding(12)
+                        .chunky()
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 12)
-                    .chunky()
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             if !model.starters.isEmpty {
                 Button {
@@ -151,12 +189,27 @@ private struct EmptyChat: View {
                 } label: {
                     Label("New ideas", systemImage: "arrow.clockwise").font(.body(13))
                 }
-                .foregroundStyle(Mint.muted)
+                .buttonStyle(TextAction(color: Mint.muted))
                 .frame(maxWidth: .infinity)
                 .padding(.top, 4)
             }
         }
     }
+}
+
+/// The same icon choice as the Android starter cards.
+private func starterIcon(_ text: String) -> String {
+    let t = text.lowercased()
+    func has(_ words: String...) -> Bool { words.contains { t.contains($0) } }
+    if has("remind", "alarm", "timer") { return "alarm" }
+    if has("remember", "note", "save") { return "bookmark" }
+    if has("mail", "inbox") { return "envelope" }
+    if has("calendar", "meeting", "schedule", "week", "today", "tomorrow") { return "calendar" }
+    if has("map", "near", "place", "restaurant", "route", "where") { return "mappin.and.ellipse" }
+    if has("weather", "rain", "forecast") { return "sun.max" }
+    if has("search", "news", "latest", "find", "look up") { return "magnifyingglass" }
+    if has("plan", "idea", "brainstorm", "write", "draft") { return "lightbulb" }
+    return "sparkles"
 }
 
 private struct ThinkingPreview: View {
@@ -166,9 +219,9 @@ private struct ThinkingPreview: View {
         Text(String(text.suffix(240)))
             .font(.body(13)).foregroundStyle(Mint.muted)
             .lineLimit(3)
-            .padding(10)
+            .padding(.horizontal, 12).padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Mint.surface))
+            .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
     }
 }
 
@@ -176,78 +229,159 @@ struct MessageView: View {
     @Environment(AppModel.self) private var model
     let message: Message
     let live: Bool
+    var quote: (String) -> Void = { _ in }
     @State private var showThoughts = false
     @State private var showAllTools = false
+    @State private var copied = false
 
     var body: some View {
         switch message.role {
         case .user:
-            HStack {
-                Spacer(minLength: 60)
-                Text(message.text)
-                    .font(.body(15)).foregroundStyle(Mint.ink)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(bubble.fill(Mint.user))
-                    .overlay(bubble.stroke(Mint.ledge, lineWidth: 1.5))
-            }
+            Text(message.text)
+                .font(.body(15)).foregroundStyle(Mint.ink)
+                .textSelection(.enabled)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .chunky(Mint.user, shape: UnevenRoundedRectangle(
+                    topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18))
+                .padding(.leading, 48)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         case .scheduled:
-            Label(message.text, systemImage: "clock")
-                .font(.body(13, .medium)).foregroundStyle(Mint.muted)
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 6) {
+                Image(systemName: "clock").font(.system(size: 11))
+                Text(message.text.isEmpty ? "Scheduled" : "Scheduled · \(message.text)").lineLimit(1)
+            }
+            .font(.body(11)).foregroundStyle(Mint.dim)
+            .frame(maxWidth: .infinity)
         case .assistant:
-            VStack(alignment: .leading, spacing: 8) {
-                if !message.reasoning.isEmpty {
-                    Button { withAnimation(.snappy) { showThoughts.toggle() } } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.down").rotationEffect(.degrees(showThoughts ? 0 : -90))
-                            Text("Thoughts")
-                        }
-                        .font(.body(12, .medium)).foregroundStyle(Mint.muted)
-                    }
-                    if showThoughts {
-                        MarkdownText(text: message.reasoning, size: 13, color: Mint.muted)
-                            .padding(10)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Mint.surface))
-                    }
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                if !message.reasoning.isEmpty { thoughts.padding(.bottom, 4) }
                 tools
+                ForEach(message.approvals, id: \.queryId) { prompt in
+                    ApprovalCard(prompt: prompt).padding(.bottom, 8)
+                }
                 if !message.text.isEmpty {
                     MarkdownText(text: message.text)
                 }
-                ForEach(message.approvals, id: \.queryId) { prompt in
-                    ApprovalCard(prompt: prompt)
+                if !message.text.isEmpty, !live { actions }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var thoughts: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { withAnimation(.snappy) { showThoughts.toggle() } } label: {
+                HStack(spacing: 2) {
+                    Text("Thoughts").font(.body(12, .medium))
+                    Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+                        .rotationEffect(.degrees(showThoughts ? 180 : 0))
                 }
+                .foregroundStyle(Mint.muted)
+                .padding(.horizontal, 4)
+                .frame(minHeight: 40)
+            }
+            .buttonStyle(.plain)
+            if showThoughts {
+                MarkdownText(text: message.reasoning, size: 13, color: Mint.muted)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
+                    .padding(.bottom, 6)
             }
         }
     }
 
-    private var bubble: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 4, topTrailingRadius: 18)
-    }
-
-    /// While a run streams only the last three calls show; older ones fold into one line.
+    /// While a reply runs only the latest three chips show and the earlier ones fold
+    /// into one line; once it is done a long run folds away entirely.
     @ViewBuilder private var tools: some View {
-        let calls = message.tools
-        let folded = showAllTools ? 0 : max(0, calls.count - (live ? 3 : 0))
-        if folded > 0 {
-            Button { withAnimation(.snappy) { showAllTools = true } } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.right")
-                    let failed = calls.prefix(folded).filter { $0.done && !$0.success }.count
-                    Text("\(folded) \(folded == 1 ? "tool" : "tools")" + (failed > 0 ? ", \(failed) failed" : ""))
+        let calls = message.tools.filter { $0.name != "suggest_replies" }
+        if !calls.isEmpty {
+            let finished = !live && calls.allSatisfy(\.done)
+            let folded = finished && calls.count > 3 ? calls.count : max(0, calls.count - 3)
+            let hidden = showAllTools ? 0 : folded
+            VStack(alignment: .leading, spacing: 6) {
+                if folded > 0 {
+                    FoldedTools(calls: Array(calls.prefix(folded)), finished: folded == calls.count,
+                                open: showAllTools) { withAnimation(.snappy) { showAllTools.toggle() } }
                 }
-                .font(.body(12, .medium)).foregroundStyle(Mint.muted)
+                ForEach(Array(calls.enumerated()), id: \.element.id) { index, call in
+                    if index >= hidden { ToolChip(call: call, tint: Mint.tints[index % 3]) }
+                }
+            }
+            .padding(.bottom, 8)
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 0) {
+            Button {
+                UIPasteboard.general.string = message.text
+                copied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.8))
+                    copied = false
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 12))
+                        .foregroundStyle(copied ? Mint.ok : Mint.muted)
+                    Text(copied ? "Copied" : "Copy reply").font(.body(11))
+                }
+            }
+            Button { quote(message.text) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "quote.opening").font(.system(size: 12))
+                    Text("Quote").font(.body(11))
+                }
             }
         }
-        ForEach(calls.dropFirst(folded)) { call in
-            ToolChip(call: call)
+        .buttonStyle(TextAction(color: Mint.muted))
+        .padding(.leading, -8)
+        .padding(.top, 2)
+    }
+}
+
+/// The folded part of a run of tools: their icons stacked, a count and a chevron.
+struct FoldedTools: View {
+    let calls: [ToolCall]
+    let finished: Bool
+    let open: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 6) {
+                HStack(spacing: -6) {
+                    ForEach(Array(calls.prefix(4).enumerated()), id: \.offset) { index, call in
+                        Text(toolInitial(call.name))
+                            .font(.body(9, .semibold)).foregroundStyle(Mint.ink)
+                            .frame(width: 20, height: 20)
+                            .background(Circle().fill(Mint.tints[index % 3]))
+                            .overlay(Circle().stroke(Mint.page, lineWidth: 2))
+                    }
+                }
+                Text(summary).font(.body(12)).foregroundStyle(Mint.muted)
+                Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Mint.muted)
+                    .rotationEffect(.degrees(open ? 180 : 0))
+            }
+            .padding(.leading, 4).padding(.trailing, 8).padding(.vertical, 3)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+    }
+
+    private var summary: String {
+        let count = calls.count
+        if !finished { return "+\(count) \(count == 1 ? "tool" : "tools")" }
+        let failed = calls.filter { $0.done && !$0.success }.count
+        return "\(count) \(count == 1 ? "tool" : "tools")" + (failed > 0 ? ", \(failed) failed" : "")
     }
 }
 
 struct ToolChip: View {
     let call: ToolCall
+    var tint: Color = Mint.tints[1]
 
     var body: some View {
         HStack(spacing: 8) {
@@ -255,23 +389,20 @@ struct ToolChip: View {
                 .font(.body(11, .semibold))
                 .frame(width: 26, height: 26)
                 .background(Circle().fill(Mint.surface))
-            Text(call.label).font(.body(13, .medium)).lineLimit(1)
-            Group {
-                if !call.done {
-                    ProgressView().controlSize(.mini)
-                } else if call.success {
-                    Image(systemName: "checkmark").foregroundStyle(Mint.ok)
-                } else {
-                    Image(systemName: "xmark").foregroundStyle(Mint.error)
-                }
+            Text(call.done ? doneLabel(call.label) : call.label)
+                .font(.body(13, .medium)).lineLimit(1)
+            if call.done {
+                Image(systemName: call.success ? "checkmark" : "xmark")
+                    .font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(call.success ? Mint.ok : Mint.error))
+            } else {
+                ProgressView().controlSize(.mini).tint(Mint.ink).frame(width: 13, height: 13)
             }
-            .font(.system(size: 12, weight: .bold))
-            .frame(width: 18, height: 18)
         }
         .foregroundStyle(Mint.ink)
         .padding(.leading, 5).padding(.trailing, 12).padding(.vertical, 5)
-        .background(Capsule().fill(call.done ? Mint.tints[1] : Mint.tints[2]))
-        .overlay(Capsule().stroke(Mint.ledge, lineWidth: 1.5))
+        .chunky(tint, shape: Capsule())
     }
 }
 
@@ -290,7 +421,7 @@ struct ApprovalCard: View {
                         .font(.body(14, .semibold))
                         .frame(width: 32, height: 32)
                         .background(RoundedRectangle(cornerRadius: 9).fill(Mint.surface))
-                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Mint.ledge, lineWidth: 1.5))
+                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Mint.ledge, lineWidth: 2))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(prompt.approval.action) with \(prompt.approval.app)?").font(.body(15, .semibold))
                         Text("\(prompt.approval.app) asks before it does this").font(.body(12)).foregroundStyle(Mint.muted)
@@ -323,7 +454,7 @@ struct ApprovalCard: View {
                 .padding(14)
             }
             .foregroundStyle(Mint.ink)
-            .chunky(radius: 16)
+            .chunky()
         }
     }
 
