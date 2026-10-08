@@ -27,6 +27,21 @@ desktop-build:
     cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app
     bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
 
+# Set the desktop app's version, commit it and tag desktop-v<version>.
+# Pushing the tag makes the desktop workflow build, sign, notarize and publish it.
+desktop-release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 1.2.3" >&2; exit 1; }
+    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
+    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
+    ! git rev-parse -q --verify "refs/tags/desktop-v{{version}}" > /dev/null || { echo "desktop-v{{version}} already exists" >&2; exit 1; }
+    sed -i '' '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' apps/desktop/src-tauri/Cargo.toml
+    (cd apps/desktop/src-tauri && cargo update --workspace --offline --quiet)
+    git commit --quiet -m "Release Beep for macOS {{version}}" apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
+    git tag -a "desktop-v{{version}}" -m "Beep for macOS {{version}}"
+    echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
+
 # Format, lint and test the desktop app
 desktop-check:
     cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test

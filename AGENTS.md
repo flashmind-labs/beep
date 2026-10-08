@@ -36,6 +36,12 @@ workflow builds the same DMG on the Mac runner. Its key and state live in
 `~/Library/Application Support/com.flashmind.beep.desktop/`. The bar's screens
 are in the same mock as the phone's.
 
+To release it, `just desktop-release 0.2.0` sets the version in
+`apps/desktop/src-tauri/Cargo.toml`, commits and tags `desktop-v0.2.0`. Pushing
+the tag runs the same workflow, which refuses to build without the Developer ID
+and notary secrets, then attaches a signed, notarized `Beep-0.2.0.dmg` to the
+tag's Forgejo release.
+
 ## iOS app
 
 `apps/ios` is the SwiftUI port. `just ios-run` builds the Rust bridge for the
