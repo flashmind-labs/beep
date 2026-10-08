@@ -15,7 +15,8 @@ android {
         applicationId = "com.flashmind.beep"
         minSdk = 30
         targetSdk = 36
-        versionCode = 5
+        // CI passes a growing number, since Play refuses a version code it has seen before.
+        versionCode = providers.gradleProperty("beepVersionCode").orNull?.toInt() ?: 5
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
