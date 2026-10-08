@@ -50,12 +50,12 @@ internal fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
     fun refresh() { scope.launch {
         error = ""
         try { memories = withContext(Dispatchers.IO) { repository.listMemories() } }
-        catch (e: Exception) { error = e.message.orEmpty() }
+        catch (e: Exception) { error = userMessage(e) }
         finally { loading = false }
     } }
     fun act(action: suspend () -> Unit) { scope.launch {
         try { withContext(Dispatchers.IO) { action() }; refresh() }
-        catch (e: Exception) { error = e.message.orEmpty() }
+        catch (e: Exception) { error = userMessage(e) }
     } }
     LaunchedEffect(Unit) { refresh() }
     val today = remember { LocalDate.now().toString() }

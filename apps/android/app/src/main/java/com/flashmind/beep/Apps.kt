@@ -103,7 +103,7 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
 
     fun refresh() { scope.launch {
         try { apps = withContext(Dispatchers.IO) { repository.listApps() }; error = "" }
-        catch (e: Exception) { error = e.message.orEmpty() }
+        catch (e: Exception) { error = userMessage(e) }
         finally { loading = false; busy = null }
     } }
     fun connect(app: AppIntegration) { scope.launch {
@@ -118,12 +118,12 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
         try {
             val url = withContext(Dispatchers.IO) { repository.connectApp(app.slug) }
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (e: Exception) { error = e.message.orEmpty(); busy = null }
+        } catch (e: Exception) { error = userMessage(e); busy = null }
     } }
     fun disconnect(app: AppIntegration) { scope.launch {
         busy = app.slug
         try { withContext(Dispatchers.IO) { repository.disconnectApp(app.slug) }; refresh() }
-        catch (e: Exception) { error = e.message.orEmpty(); busy = null }
+        catch (e: Exception) { error = userMessage(e); busy = null }
     } }
 
     // A localhost sign-in finishes after the browser step, often after ON_RESUME already ran.
@@ -250,7 +250,7 @@ private fun AppPermissionsScreen(repository: ChatRepository, app: AppIntegration
     var error by remember { mutableStateOf("") }
     LaunchedEffect(app.slug) {
         try { permissions = withContext(Dispatchers.IO) { repository.appPermissions(app.slug) } }
-        catch (e: Exception) { error = e.message.orEmpty() }
+        catch (e: Exception) { error = userMessage(e) }
     }
     fun save(next: AppPermissions) {
         val before = permissions
@@ -261,7 +261,7 @@ private fun AppPermissionsScreen(repository: ChatRepository, app: AppIntegration
                     repository.setAppPermissions(app.slug, next.level, next.actions.filter { it.allowed }.map { it.tool })
                 }
                 error = ""
-            } catch (e: Exception) { permissions = before; error = e.message.orEmpty() }
+            } catch (e: Exception) { permissions = before; error = userMessage(e) }
         }
     }
 
