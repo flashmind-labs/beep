@@ -244,6 +244,9 @@ requests! {
     /// Copies a shared session into the caller's chats as `session_id`, so
     /// they can carry it on. Returns the new session.
     55 CopyShare { token: String, session_id: Uuid } => Call<Session>
+    /// The phone's timezone, such as "Europe/Madrid", which routines and
+    /// reminders run in. Sent on connect, so no location is needed for it.
+    56 SetTimezone { timezone: String } => Call<()>
 }
 
 /// The link prefix a shared session's token follows.

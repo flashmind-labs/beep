@@ -14,7 +14,7 @@ use beep_proto::{
     LinkedDevice, ListApps, ListCrons, ListDevices, ListMemories, ListSessions, Memory, Models,
     Notice, PermissionLevel, PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice,
     RemoveDevice, RenameSession, Run, RunCron, SearchSessions, Session, SessionMatch,
-    SetAppPermissions, SetAutoModel, SetModel, SetThinking, ShareSession, SharedLink,
+    SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone, ShareSession, SharedLink,
     SharedSession, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice,
     UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
@@ -535,6 +535,11 @@ impl BeepClient {
             place,
         })
         .await
+    }
+
+    /// Tells the server the phone's timezone, such as "Europe/Madrid".
+    pub async fn set_timezone(&self, timezone: String) -> Result<(), BeepError> {
+        self.call(SetTimezone { timezone }).await
     }
 
     /// The curated app list with each app's connection state.

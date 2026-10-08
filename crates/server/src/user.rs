@@ -743,7 +743,12 @@ impl User {
         self.store.get_location(&self.key).await
     }
 
-    /// The user's timezone name from their last location, `UTC` when unknown.
+    /// Saves the timezone the phone is set to.
+    pub async fn set_timezone(&self, timezone: &str) -> Result<()> {
+        self.store.set_timezone(&self.key, timezone).await
+    }
+
+    /// The user's timezone name, `UTC` when unknown.
     pub async fn get_timezone(&self) -> Result<String> {
         self.store.get_timezone(&self.key).await
     }

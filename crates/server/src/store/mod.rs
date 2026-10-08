@@ -123,6 +123,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "shares",
         include_str!("../../migrations/0017_shares.sql"),
     ),
+    (
+        18,
+        "user_timezone",
+        include_str!("../../migrations/0018_user_timezone.sql"),
+    ),
 ];
 
 fn migrator() -> Migrator {

@@ -67,6 +67,7 @@ final class AppModel {
     private var connectTask: Task<Void, Never>?
     private let pathMonitor = NWPathMonitor()
     let location = LocationReporter()
+    private var reportedTimezone: String?
 
     init() {
         let key = Identity.loadOrCreate()
@@ -112,6 +113,7 @@ final class AppModel {
         await refreshSessions()
         await loadStarters(refresh: false)
         models = try? await client?.getModels()
+        await reportTimezone()
         location.refresh()
         if chat.busy { launchRun() }
     }
@@ -276,6 +278,7 @@ final class AppModel {
                     let api = try api()
                     let stream: EventStream
                     if chat.runId.isEmpty {
+                        await reportTimezone()
                         stream = try await api.chat(
                             sessionId: chatId, requestId: chat.requestId, message: chat.pendingText,
                             images: [], rerun: nil)
@@ -448,6 +451,14 @@ final class AppModel {
         stopStreaming()
         chat = Chat(id: sessionId, title: sessions.first { $0.id == sessionId }?.title ?? "")
         await loadHistory()
+    }
+
+    /// Tells the server the phone's timezone when it differs from the last
+    /// one sent, so routines run in local time without a location.
+    private func reportTimezone() async {
+        let tz = TimeZone.current.identifier
+        guard tz != reportedTimezone else { return }
+        if (try? await api().setTimezone(timezone: tz)) != nil { reportedTimezone = tz }
     }
 
     private func sendLocation(_ fix: LocationReporter.Fix) {

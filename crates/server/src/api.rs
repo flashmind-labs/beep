@@ -16,6 +16,7 @@ use crate::{
     },
 };
 use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
 use flashmind::{
     core::{Conversation, ConversationEntry, EntryKind},
     cron::{CronSchedule, JobSchedule},
@@ -60,6 +61,7 @@ pub fn router() -> Router {
         .call(register_device)
         .call(unregister_device)
         .call(update_location)
+        .call(set_timezone)
         .stream(stream_notifications)
         .call(list_apps)
         .call(connect_app)
@@ -975,6 +977,14 @@ async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
         updated_at: Utc::now(),
     };
     cx.user.update_location(&fix).await?;
+    Ok(())
+}
+
+async fn set_timezone(cx: Cx, SetTimezone { timezone }: SetTimezone) -> Reply<()> {
+    let timezone: Tz = timezone
+        .parse()
+        .map_err(|_| ApiError::bad_request("unknown timezone"))?;
+    cx.user.set_timezone(timezone.name()).await?;
     Ok(())
 }
 
