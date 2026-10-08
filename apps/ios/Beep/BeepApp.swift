@@ -14,25 +14,41 @@ struct BeepApp: App {
 }
 
 enum Route: Hashable {
-    case chats, settings, memories, routines
+    case settings, memories, routines
 }
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @State private var path: [Route] = []
+    @State private var drawer = false
 
     var body: some View {
         if model.onboarded {
-            NavigationStack(path: $path) {
-                ChatView(path: $path)
-                    .navigationDestination(for: Route.self) { route in
-                        switch route {
-                        case .chats: SessionsView(path: $path)
-                        case .settings: SettingsView()
-                        case .memories: MemoriesView()
-                        case .routines: RoutinesView(path: $path)
+            ZStack(alignment: .leading) {
+                NavigationStack(path: $path) {
+                    ChatView(drawer: $drawer)
+                        .navigationDestination(for: Route.self) { route in
+                            Group {
+                                switch route {
+                                case .settings: SettingsView(path: $path)
+                                case .memories: MemoriesView(path: $path)
+                                case .routines: RoutinesView(path: $path)
+                                }
+                            }
+                            .toolbar(.hidden, for: .navigationBar)
                         }
-                    }
+                }
+                if drawer {
+                    Mint.ink.opacity(0.32).ignoresSafeArea()
+                        .onTapGesture { withAnimation(.snappy) { drawer = false } }
+                        .transition(.opacity)
+                    ChatsDrawer(open: $drawer, path: $path)
+                        .padding(.trailing, 40)
+                        .transition(.move(edge: .leading))
+                        .gesture(DragGesture().onEnded { drag in
+                            if drag.translation.width < -60 { withAnimation(.snappy) { drawer = false } }
+                        })
+                }
             }
             .tint(Mint.brand)
             #if DEBUG
@@ -49,10 +65,10 @@ struct RootView: View {
     private func debugLaunch() async {
         let defaults = UserDefaults.standard
         switch defaults.string(forKey: "open") {
-        case "chats": path = [.chats]
+        case "chats": drawer = true
         case "settings": path = [.settings]
-        case "memories": path = [.settings, .memories]
-        case "routines": path = [.settings, .routines]
+        case "memories": path = [.memories]
+        case "routines": path = [.routines]
         default: break
         }
         guard let text = defaults.string(forKey: "send") else { return }
