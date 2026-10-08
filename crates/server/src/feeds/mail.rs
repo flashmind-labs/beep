@@ -1,15 +1,17 @@
 //! Learns about users from their email.
 //!
-//! Once a day each connected mailbox is read from where the last run stopped,
-//! or six months back on the first run. Jev scores every email, in parallel,
-//! for whether it says something lasting about the user; the likely ones go to
-//! the memory learner one at a time, oldest first, so newer mail corrects what
-//! older mail taught. No agent decides what to read.
+//! Once a day each connected mailbox is read back to a day before the last
+//! finished run, or six months back until one finishes. Emails are scored
+//! page by page as they are listed, newest first where the mailbox lists them
+//! that way, several at once; nothing waits for the whole listing. Jev scores
+//! each one for whether it says something lasting about the user, and the
+//! likely ones go to the memory learner one at a time. No agent decides what
+//! to read.
 //!
-//! The cursor is the newest email processed. Each run reads from a day before
-//! it and skips the message ids it already processed, so mail that arrives
-//! late is not lost and a run that stops halfway resumes where it was.
-//! Email content is never logged.
+//! Each processed email is recorded as seen, and a run skips those, so a run
+//! that stops halfway resumes where it was. An email Jev fails to score stays
+//! unseen and the run does not count as finished, so the next one tries it
+//! again from the same point. Email content is never logged.
 //!
 //! While the user has the evening digest on, each recent email they did not
 //! send also gets a second question: does it need their attention? Those
@@ -26,18 +28,21 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Duration as Days, SecondsFormat, Utc};
 use flashmind::tools::composio::ComposioClient;
-use futures::{StreamExt, stream};
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream};
 use serde_json::{Value, json};
 use std::{
     collections::HashSet,
     fmt::{self, Write},
     slice,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 /// How far back the first run reads.
 const BACKFILL_DAYS: i64 = 183;
-/// Each run starts this long before the cursor; seen ids skip the overlap.
+/// Each run starts this long before the last finished one; seen ids skip the overlap.
 const OVERLAP_DAYS: i64 = 1;
 /// Jev calls, and Fastmail body reads, in flight at once.
 const CONCURRENCY: usize = 8;
@@ -285,30 +290,39 @@ impl<'a> Source<'a> {
         }
     }
 
-    /// Every email received after `after`, oldest first.
-    async fn list(&self, after: DateTime<Utc>, listing: Listing) -> Result<Vec<Email>> {
-        let mut emails = Vec::new();
-        let mut cursor: Option<String> = None;
-        for page_number in 1..=MAX_PAGES {
+    /// Pages of the emails received after `after`, in the mailbox's order,
+    /// each fetched only when the one before it has been taken.
+    fn pages(
+        &self,
+        after: DateTime<Utc>,
+        listing: Listing,
+    ) -> impl Stream<Item = Result<Vec<Email>>> + '_ {
+        // `None` once the last page is out; `Some(None)` before the first.
+        let start: (Option<Option<String>>, usize) = (Some(None), 1);
+        stream::try_unfold(start, move |(cursor, number)| async move {
+            let Some(cursor) = cursor else {
+                return Ok(None);
+            };
+            if number > MAX_PAGES {
+                log::warn!("mail: stopped listing after {MAX_PAGES} pages");
+                return Ok(None);
+            }
             let page = self
                 .page(after, listing, cursor.as_deref())
                 .await
-                .with_context(|| format!("page {page_number}"))?;
+                .with_context(|| format!("page {number}"))?;
             log::debug!(
-                "mail: listed page {page_number} with {} emails",
+                "mail: listed page {number} with {} emails",
                 page.emails.len()
             );
-            emails.extend(page.emails);
-            match page.next {
-                Some(next) if !next.is_empty() => cursor = Some(next),
-                _ => break,
-            }
-            if page_number == MAX_PAGES {
-                log::warn!("mail: stopped listing after {MAX_PAGES} pages");
-            }
-        }
-        emails.sort_by_key(|email| email.received);
-        Ok(emails)
+            let next = page.next.filter(|next| !next.is_empty()).map(Some);
+            Ok(Some((page.emails, (next, number + 1))))
+        })
+    }
+
+    /// Every email received after `after`.
+    async fn list(&self, after: DateTime<Utc>, listing: Listing) -> Result<Vec<Email>> {
+        self.pages(after, listing).try_concat().await
     }
 }
 
@@ -317,6 +331,7 @@ impl<'a> Source<'a> {
 pub(crate) struct Outcome {
     listed: usize,
     scored: usize,
+    failed: usize,
     passed: usize,
     learned: usize,
     flagged: usize,
@@ -327,13 +342,14 @@ impl fmt::Display for Outcome {
         let Outcome {
             listed,
             scored,
+            failed,
             passed,
             learned,
             flagged,
         } = self;
         write!(
             f,
-            "listed={listed} scored={scored} passed={passed} learned={learned} flagged={flagged}"
+            "listed={listed} scored={scored} failed={failed} passed={passed} learned={learned} flagged={flagged}"
         )
     }
 }
@@ -346,36 +362,46 @@ pub(crate) async fn sync(
 ) -> Result<Outcome> {
     let source = Source::new(user, mailbox).await?;
     let feed = Feed::Mail(mailbox);
-    let after = match user.feed_cursor(feed).await? {
-        Some(cursor) => cursor - Days::days(OVERLAP_DAYS),
+    let after = match user.feed_synced_at(feed).await? {
+        Some(synced) => synced - Days::days(OVERLAP_DAYS),
         None => Utc::now() - Days::days(BACKFILL_DAYS),
     };
     user.prune_feed_seen(feed, after - Days::days(OVERLAP_DAYS))
         .await?;
-    let seen = user.feed_seen(feed).await?;
+    let mut seen = user.feed_seen(feed).await?;
     let digest = user.digest_enabled().await?;
-    let listed = source.list(after, Listing::All).await?;
-    let mut outcome = Outcome {
-        listed: listed.len(),
-        ..Outcome::default()
-    };
-    let fresh = unseen(listed, &seen);
     log::info!(
-        "mail: {} new of {} listed in {} after {after}; user={user}",
-        fresh.len(),
-        outcome.listed,
+        "mail: reading {} after {after}; user={user}",
         mailbox.slug()
     );
 
-    // Bodies and scores run ahead in parallel; results come back in order.
+    // Each page is scored as soon as it is listed, several emails at once.
+    // `seen` also drops an email a page repeats.
+    let listed = AtomicUsize::new(0);
     let today = Utc::now().format("%A %Y-%m-%d").to_string();
-    let mut scored = stream::iter(fresh)
-        .map(|email| score(decision, &source, &today, email, digest))
-        .buffered(CONCURRENCY);
+    let mut scored = source
+        .pages(after, Listing::All)
+        .map_ok(|emails| stream::iter(emails).map(anyhow::Ok))
+        .try_flatten()
+        .inspect_ok(|_| {
+            listed.fetch_add(1, Ordering::Relaxed);
+        })
+        .try_filter(move |email| future::ready(seen.insert(email.id.clone())))
+        .map_ok(|email| score(decision, &source, &today, email, digest).map(Ok))
+        .try_buffer_unordered(CONCURRENCY)
+        .boxed();
+    let mut outcome = Outcome::default();
     let generator = app.generator(user.id());
-    while let Some((email, scores)) = scored.next().await {
-        // Stop at the first unscored email so the cursor never passes it.
-        let probability = scores.memory.context("Jev failed")?;
+    while let Some((email, scores)) = scored.try_next().await? {
+        // Left unseen, so the next run tries it again.
+        let probability = match scores.memory {
+            Ok(probability) => probability,
+            Err(error) => {
+                outcome.failed += 1;
+                log::debug!("mail: not scored: {error:#}; user={user} id={}", email.id);
+                continue;
+            }
+        };
         log::debug!(
             "mail: scored {probability:.2} attention={:?}; user={user} id={}",
             scores.attention,
@@ -397,6 +423,11 @@ pub(crate) async fn sync(
             .await?;
         }
         user.mark_feed_seen(feed, &email.id, email.received).await?;
+    }
+    drop(scored);
+    outcome.listed = listed.into_inner();
+    if outcome.failed > 0 {
+        bail!("Jev could not score {} emails; {outcome}", outcome.failed);
     }
     Ok(outcome)
 }
@@ -445,15 +476,6 @@ pub(crate) async fn unread_since(
     let source = Source::new(user, mailbox).await?;
     let unread = source.list(after, Listing::Unread).await?;
     Ok(unread.into_iter().map(|email| email.id).collect())
-}
-
-/// Drops emails already processed and duplicates within the listing.
-fn unseen(emails: Vec<Email>, seen: &HashSet<String>) -> Vec<Email> {
-    let mut ids = HashSet::new();
-    emails
-        .into_iter()
-        .filter(|email| !seen.contains(&email.id) && ids.insert(email.id.clone()))
-        .collect()
 }
 
 fn parse_gmail(data: &Value) -> Result<Page> {
@@ -764,19 +786,5 @@ mod tests {
         assert_eq!(timestamp("1767225600000"), timestamp("1767225600"));
         assert!(timestamp("Thu, 1 Jan 2026 00:00:00 +0000").is_some());
         assert!(timestamp("soon").is_none());
-
-        let email = |id: &str| Email {
-            id: id.to_owned(),
-            received: Utc::now(),
-            from: String::new(),
-            to: String::new(),
-            subject: String::new(),
-            sent: false,
-            body: String::new(),
-        };
-        let seen = HashSet::from(["a".to_owned()]);
-        let fresh = unseen(vec![email("a"), email("b"), email("b")], &seen);
-        assert_eq!(fresh.len(), 1);
-        assert_eq!(fresh[0].id, "b");
     }
 }
