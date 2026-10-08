@@ -29,7 +29,8 @@ button { font: inherit; color: inherit; cursor: default }
   font-size: 14px; line-height: 21px; scrollbar-width: none; user-select: text; cursor: auto }
 .dbody::-webkit-scrollbar { display: none }
 .dbody:empty { display: none }
-.dbody ul, .dbody ol { margin: 0; padding-left: 18px; display: grid; gap: 2px }
+.dbody ul, .dbody ol { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 2px }
+.dbody li > ul, .dbody li > ol, .dbody :is(ul, ol):last-child { margin-bottom: 0 }
 .dbody p { margin: 0 0 8px } .dbody p:last-child { margin: 0 }
 .dbody strong { font-weight: 600 }
 .dbody a { color: var(--emerald) }
@@ -38,7 +39,10 @@ button { font: inherit; color: inherit; cursor: default }
 .dbody pre code { border: 0; padding: 0; background: none }
 .dbody table { border-collapse: collapse; font-size: 13px }
 .dbody th, .dbody td { border: 1px solid var(--border); padding: 3px 8px; text-align: left }
-.dbody h1, .dbody h2, .dbody h3 { font-size: 15px; margin: 4px 0; font-weight: 600 }
+.dbody h1, .dbody h2, .dbody h3, .dbody h4 { font-size: 15px; margin: 4px 0; font-weight: 600 }
+.dbody blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--border); color: var(--muted) }
+.dbody hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0 12px; width: 100% }
+.dbody table { margin-bottom: 8px }
 
 .turn { display: flex; flex-direction: column; gap: 10px }
 .turn + .turn { padding-top: 12px; border-top: 1px solid var(--border) }
@@ -72,6 +76,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--elev);
   color: var(--fg); font-size: 12.5px; font-weight: 500 }
 .dbtn:hover { border-color: #3A4A41 }
+.dbody math[display="block"] { margin: 6px 0; overflow-x: auto }
+.dreplies { display: flex; flex-wrap: wrap; gap: 6px }
 .dbtn.pri { background: var(--emerald); border-color: transparent; color: var(--ink); font-weight: 600 }
 .dbtn.pri kbd { background: rgba(10, 14, 12, .18); border-color: transparent; color: var(--ink) }
 .dbtn.warn { color: var(--err) }

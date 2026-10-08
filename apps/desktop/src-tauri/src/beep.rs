@@ -15,7 +15,7 @@ use beep_proto::{
     link::LinkOffer,
 };
 use iroh::EndpointId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime},
@@ -28,6 +28,8 @@ pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 const NOT_HERE: &str = "not available on desktop";
+/// The server saves follow-up replies as this tool's result.
+const SUGGEST_REPLIES: &str = "suggest_replies";
 
 /// What the bar draws while a run streams.
 #[derive(Debug, Clone, Serialize)]
@@ -53,6 +55,10 @@ pub enum BarEvent {
         call_id: String,
         name: String,
         success: bool,
+    },
+    /// Follow-ups to offer under the reply.
+    Replies {
+        replies: Vec<String>,
     },
     Approval {
         query_id: String,
@@ -84,6 +90,7 @@ pub enum Turn {
     Assistant {
         html: String,
         tools: Vec<ToolStep>,
+        replies: Vec<String>,
     },
     Scheduled {
         label: String,
@@ -379,6 +386,7 @@ impl Beep {
                     }
                 }
                 RunEvent::ReasoningDelta { delta } => BarEvent::Reasoning { delta },
+                RunEvent::ToolStarted { name, .. } if name == SUGGEST_REPLIES => continue,
                 RunEvent::ToolStarted {
                     name,
                     call_id,
@@ -388,6 +396,12 @@ impl Beep {
                     name,
                     description,
                 },
+                RunEvent::ToolResult { name, output, .. } if name == SUGGEST_REPLIES => {
+                    match suggested_replies(&output) {
+                        Some(replies) => BarEvent::Replies { replies },
+                        None => continue,
+                    }
+                }
                 RunEvent::ToolResult {
                     name,
                     call_id,
@@ -444,19 +458,43 @@ fn fields(fields: Vec<beep_proto::ApprovalField>) -> Vec<Field> {
         .collect()
 }
 
+#[derive(Deserialize)]
+struct Suggestions {
+    replies: Vec<String>,
+}
+
+/// The replies in a `suggest_replies` result, or `None` when it has none.
+fn suggested_replies(output: &str) -> Option<Vec<String>> {
+    let suggestions: Suggestions = serde_json::from_str(output).ok()?;
+    let replies: Vec<String> = suggestions
+        .replies
+        .into_iter()
+        .filter(|reply| !reply.trim().is_empty())
+        .collect();
+    (!replies.is_empty()).then_some(replies)
+}
+
 fn turn(entry: HistoryEntry) -> Turn {
     match entry {
         HistoryEntry::User { content, .. } => Turn::User { text: content },
-        HistoryEntry::Assistant { content, tools, .. } => Turn::Assistant {
-            html: markdown::to_html(&content),
-            tools: tools
-                .into_iter()
-                .map(|t| ToolStep {
-                    name: t.name,
-                    success: t.success,
-                })
-                .collect(),
-        },
+        HistoryEntry::Assistant { content, tools, .. } => {
+            let (suggest, tools): (Vec<_>, Vec<_>) =
+                tools.into_iter().partition(|t| t.name == SUGGEST_REPLIES);
+            Turn::Assistant {
+                html: markdown::to_html(&content),
+                tools: tools
+                    .into_iter()
+                    .map(|t| ToolStep {
+                        name: t.name,
+                        success: t.success,
+                    })
+                    .collect(),
+                replies: suggest
+                    .iter()
+                    .find_map(|t| suggested_replies(&t.output))
+                    .unwrap_or_default(),
+            }
+        }
         HistoryEntry::Scheduled { label, .. } => Turn::Scheduled { label },
         HistoryEntry::Approval { query_id, approval } => Turn::Approval {
             query_id,

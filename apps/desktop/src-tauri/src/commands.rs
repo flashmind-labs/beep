@@ -127,6 +127,12 @@ pub fn hide_bar(app: AppHandle) {
     bar::hide(&app);
 }
 
+/// The app has no menu bar of its own, so the bar handles ⌘Q.
+#[tauri::command]
+pub fn quit(app: AppHandle) {
+    app.exit(0);
+}
+
 /// Opens a link from a reply in the browser, never in the bar.
 #[tauri::command]
 pub fn open_url(url: String) -> Result<()> {
