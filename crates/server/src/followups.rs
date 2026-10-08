@@ -31,7 +31,7 @@ const CRITERIA: Criteria = Criteria {
 const SYSTEM: &str = "You write follow-ups, shown as tappable chips under an assistant's \
 reply. Answer with a Markdown list of 2 or 3 items, one per line starting with \"- \", and \
 nothing else. Write 3 only when each one is clearly worth tapping. Each item is a message the \
-user would send next, in the user's language, at most 32 characters, no quotes.
+user would send next, in the user's language, at most 40 characters, no quotes.
 
 You read what the assistant knew (time, place, connected apps, what it remembers), the latest \
 exchange, and what its tools returned. A good follow-up is specific to this reply and is one of:

@@ -16,8 +16,8 @@ use secrecy::SecretString;
 use serde::Deserialize;
 use std::{env, fs, path::PathBuf};
 
-/// What `suggest_replies` keeps; the writer is asked for 32.
-const MAX_CHARS: usize = 40;
+/// What `suggest_replies` keeps; the writer is asked for 40.
+const MAX_CHARS: usize = 50;
 
 const JUDGE: &str = "You grade follow-up chips shown under an assistant's reply. Each chip \
 is a message the user could tap to send next. A chip passes only when all of these hold:
