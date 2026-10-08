@@ -374,12 +374,6 @@ const LISBON: Fix = Fix {
     longitude: -9.14,
     timezone: "Europe/Lisbon",
 };
-const SINGAPORE: Fix = Fix {
-    place: "Singapore",
-    latitude: 1.28,
-    longitude: 103.85,
-    timezone: "Asia/Singapore",
-};
 const NEW_YORK: Fix = Fix {
     place: "New York, New York, United States",
     latitude: 40.71,
@@ -430,8 +424,8 @@ const WAKE_CASES: &[WakeCase] = &[
         name: "wake: lands on a planned trip",
         memories: &[
             Memory {
-                content: "Is in Singapore for the Fintech Week conference, staying at the \
-                          Pan Pacific hotel on Raffles Boulevard",
+                content: "Is in New York for a payments conference, staying at a hotel \
+                          near the venue",
                 from: Some(0),
                 until: Some(4),
             },
@@ -443,7 +437,7 @@ const WAKE_CASES: &[WakeCase] = &[
             always("Lives in Barcelona"),
         ],
         from: BARCELONA,
-        to: SINGAPORE,
+        to: NEW_YORK,
         notifies: Some(true),
     },
     WakeCase {

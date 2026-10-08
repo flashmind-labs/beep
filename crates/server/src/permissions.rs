@@ -245,8 +245,20 @@ pub(crate) fn guard(
             if read_only && acts == Acts::Always {
                 return None;
             }
+            let slug = ToolSlug::new(tool.name());
+            let rule = shared.rules.get(app.slug);
+            // The model only drafts in a send tool when it knows the user sees the call first.
+            let description = if acts == Acts::Always
+                && rule.level == (PermissionLevel::Ask {})
+                && !rule.allowed.contains(slug.as_str())
+            {
+                format!("{} {ASKS_FIRST}", tool.description())
+            } else {
+                tool.description().to_owned()
+            };
             Some(Arc::new(Guarded {
-                slug: ToolSlug::new(tool.name()),
+                slug,
+                description,
                 tool,
                 app,
                 acts,
@@ -256,9 +268,14 @@ pub(crate) fn guard(
         .collect()
 }
 
+/// Added to the description of a tool that waits for the user's OK.
+const ASKS_FIRST: &str = "Beep shows the user this call, with its full arguments, \
+     and it runs only once they allow it.";
+
 struct Guarded {
     tool: Arc<dyn Tool>,
     slug: ToolSlug,
+    description: String,
     app: &'static CatalogApp,
     acts: Acts,
     shared: Arc<Shared>,
@@ -525,7 +542,7 @@ impl Tool for Guarded {
     }
 
     fn description(&self) -> &str {
-        self.tool.description()
+        &self.description
     }
 
     fn parameters(&self) -> Value {
