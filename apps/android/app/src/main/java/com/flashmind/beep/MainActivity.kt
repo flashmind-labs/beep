@@ -328,6 +328,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     var openGroup by rememberSaveable { mutableStateOf<String?>(null) }
     var joinToken by rememberSaveable { mutableStateOf<String?>(null) }
     var newGroup by remember { mutableStateOf(false) }
+    var joiningByCode by remember { mutableStateOf(false) }
     var inviting by remember { mutableStateOf<Group?>(null) }
     val groups by repository.groups.collectAsStateWithLifecycle()
     LaunchedEffect(groupToken.value) {
@@ -354,7 +355,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         repository.select(id)
     }
     fun startNewChat() {
-        if (openGroup != null) { openGroup = null; return }
+        if (openGroup != null) {
+            openGroup = null
+            if (state.current.messages.isNotEmpty()) repository.newChat()
+            return
+        }
         if (state.current.messages.isEmpty()) return
         visited = visited.filter { it != state.current.id } + state.current.id
         repository.newChat()
@@ -621,7 +626,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }) {
         val group = openGroup.takeIf { !bubble }
         if (group != null) GroupChatPane(repository, group, onMenu = { drawerOpen = true }, onInfo = { screen = Screen.GroupInfo },
-            onInvite = { inviting = it }, onGone = { openGroup = null })
+            onInvite = { inviting = it }, onGone = { openGroup = null },
+            onNewChat = { startNewChat() }, onPrevious = { openGroup = null })
         else Scaffold(containerColor = Ink, topBar = {
             if (bubble) {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -681,6 +687,12 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         drawerOpen = false
         openGroupChat(it.id)
         inviting = it
+    }, onJoinCode = { newGroup = false; joiningByCode = true })
+    if (joiningByCode) JoinCodeSheet(repository, onDismiss = { joiningByCode = false }, onFound = {
+        joiningByCode = false
+        drawerOpen = false
+        joinToken = it
+        screen = Screen.GroupJoin
     })
     inviting?.let { invite ->
         GroupInviteSheet(repository, invite.id, invite.name, onDismiss = { inviting = null })
