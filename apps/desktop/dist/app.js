@@ -9,6 +9,7 @@ const ICON = {
   x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   chev: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
   ret: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5v7a3 3 0 0 1-3 3H5m4-4l-4 4 4 4"/></svg>',
+  pin: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3l6 6-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z"/></svg>',
   phone: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></svg>',
 };
 /// Tool steps shown while a run works; older ones fold into "+N tools".
@@ -61,9 +62,8 @@ const S = {
   view: "chat", // chat | chats | link | revoked
   link: "unlinked",
   session: null,
-  run: null, // { id, turn } while a run streams
-  approval: null, // { queryId, turn } while a card waits
   chats: { list: [], sel: 0, query: "" },
+  cache: [], // the last chat list, drawn at once while a fresh one loads
   offer: null,
   timer: null,
 };
@@ -71,6 +71,23 @@ const S = {
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const h = html => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; };
 const $ = sel => bar.querySelector(sel);
+
+// Chats with a run streaming or an approval waiting, by session id. Each keeps
+// its own body, so the bar can show other chats and come back to it.
+const live = new Map(); // id -> { run: { id } | null, approval: { queryId, turn, card } | null, body }
+const here = () => live.get(S.session);
+function entry(id) {
+  if (!live.has(id)) live.set(id, { run: null, approval: null, body: null });
+  return live.get(id);
+}
+// Made here so a new chat's run can be tracked before the server answers.
+function newId() {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = b[6] & 0x0f | 0x40;
+  b[8] = b[8] & 0x3f | 0x80;
+  const x = [...b].map(n => n.toString(16).padStart(2, "0")).join("");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
 
 // ---------- Size ----------
 
@@ -95,8 +112,10 @@ function hints(items) {
   return `<div class="dhints">${items.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}<span class="st"><span class="ddot ${st[0]}"></span>${st[1]}</span></div>`;
 }
 function chatHints() {
-  if (S.approval) return hints([[`⌘${ICON.ret}`, "allow"], ["esc", "to hide"]]);
-  if (S.run) return hints([["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]]);
+  const e = here();
+  if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], ["esc", "to hide"]]);
+  if (e?.run) return hints([["⌘.", "stop"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]]);
+  if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]]);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"], ["⌘Q", "quit"]]);
 }
 function refreshHints() {
@@ -108,9 +127,22 @@ function refreshHints() {
 
 function renderChat() {
   S.view = "chat";
-  bar.innerHTML = `<div class="dinput"><span class="dlogo">b</span><input id="ask" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></div>
+  bar.innerHTML = `<div class="dinput"><span class="dlogo">b</span><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea></div>
     <div class="dbody" id="body"></div>${chatHints()}`;
+  const kept = here()?.body;
+  if (kept) $("#body").replaceWith(kept);
+  const ask = $("#ask");
+  let multi = false;
+  ask.addEventListener("input", () => {
+    grow(ask);
+    if (multi !== ask.value.includes("\n")) { multi = !multi; refreshHints(); }
+  });
   focusAsk();
+}
+/// The prompt grows with its lines, up to six, then scrolls.
+function grow(ask) {
+  ask.style.height = "auto";
+  ask.style.height = Math.min(ask.scrollHeight, 156) + "px";
 }
 function focusAsk() { const ask = $("#ask"); if (ask) ask.focus(); }
 function body() { return $("#body"); }
@@ -172,7 +204,7 @@ function thinking(turn, delta) {
   row.querySelector(".think").textContent += delta;
 }
 
-function approvalCard(turn, { query_id, app, action, fields }) {
+function approvalCard(id, turn, { query_id, app, action, fields }) {
   const card = h(`<div class="dcard">
     <div class="head"><span class="dapp">${esc((app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
     ${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
@@ -180,8 +212,10 @@ function approvalCard(turn, { query_id, app, action, fields }) {
   </div>`);
   card.querySelectorAll("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d)));
   turn.append(card);
-  S.approval = { queryId: query_id, turn, card };
-  refreshHints();
+  const e = entry(id);
+  e.approval = { queryId: query_id, turn, card };
+  e.body ??= turn.parentElement;
+  if (id === S.session) refreshHints();
 }
 
 /// Follow-ups under the reply; picking one sends it.
@@ -197,26 +231,31 @@ function failed(turn, message) {
   if (/removed|not linked/i.test(message)) refreshStatus();
 }
 
-function finish(turn) {
+function finish(id, turn) {
   turn.done = true;
   turn.querySelector(".caret")?.remove();
   for (const s of turn.steps) if (s.state === "run") s.state = "stop";
   turn.folded = true;
   drawSteps(turn, true);
-  S.run = null;
-  refreshHints();
+  const e = live.get(id);
+  if (e) {
+    e.run = null;
+    if (!e.approval) live.delete(id);
+  }
+  if (id === S.session) refreshHints();
+  else if (S.view === "chats") drawChats();
 }
 
-/// A channel that draws one run's events into `turn`.
-function follow(turn) {
+/// A channel that draws one run's events into `turn`, which stays in its
+/// chat's body while the bar shows another chat.
+function follow(id, turn) {
   const channel = new Channel();
   let text = "";
   channel.onmessage = ev => {
     switch (ev.kind) {
       case "started":
-        S.run = { id: ev.run_id, turn };
-        S.session = ev.session_id;
-        refreshHints();
+        entry(id).run = { id: ev.run_id };
+        if (id === S.session) refreshHints();
         break;
       case "text":
         text = ev.html;
@@ -240,84 +279,97 @@ function follow(turn) {
         break;
       case "approval":
         turn.querySelector(".caret")?.remove();
-        approvalCard(turn, ev);
+        approvalCard(id, turn, ev);
         break;
       case "error":
         failed(turn, ev.message);
         break;
       case "finished":
         if (ev.status === "cancelled") turn.append(h('<div class="dmuted">Stopped</div>'));
-        finish(turn);
+        finish(id, turn);
         break;
     }
-    scrollDown();
+    if (turn.isConnected) scrollDown();
   };
   return channel;
 }
 
 async function send(message) {
-  if (S.run || S.approval || !message.trim()) return;
+  const busy = here();
+  if (busy?.run || busy?.approval || !message.trim()) return;
+  const id = S.session ??= newId();
   const ask = $("#ask");
   body().querySelectorAll(".dreplies").forEach(r => r.remove());
   ask.value = "";
   ask.placeholder = "Ask a follow-up…";
+  grow(ask);
   const turn = newTurn(message);
   reply(turn).innerHTML = '<span class="caret"></span>';
-  S.run = { id: null, turn };
+  const e = entry(id);
+  e.body = body();
+  e.run = { id: null };
   refreshHints();
   scrollDown();
   try {
-    S.session = await invoke("send_prompt", { session: S.session, message, onEvent: follow(turn) });
-  } catch (e) {
-    failed(turn, String(e));
+    await invoke("send_prompt", { session: id, message, onEvent: follow(id, turn) });
+  } catch (err) {
+    failed(turn, String(err));
   }
-  if (!turn.done) finish(turn);
+  if (!turn.done) finish(id, turn);
 }
 
 async function answer(decision) {
-  const pending = S.approval;
-  if (!pending || !S.session) return;
-  S.approval = null;
+  const id = S.session, e = live.get(id), pending = e?.approval;
+  if (!pending) return;
+  e.approval = null;
   const said = { allow: "Allowed once", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
   pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
   const turn = pending.turn;
   turn.done = false;
-  S.run = { id: null, turn };
+  e.run = { id: null };
   refreshHints();
   try {
-    await invoke("answer_approval", { session: S.session, queryId: pending.queryId, decision, onEvent: follow(turn) });
-  } catch (e) {
-    failed(turn, String(e));
+    await invoke("answer_approval", { session: id, queryId: pending.queryId, decision, onEvent: follow(id, turn) });
+  } catch (err) {
+    failed(turn, String(err));
   }
-  if (!turn.done) finish(turn);
+  if (!turn.done) finish(id, turn);
 }
 
 async function stop() {
-  if (S.run?.id) await invoke("cancel_run", { runId: S.run.id }).catch(() => {});
+  const run = here()?.run;
+  if (run?.id) await invoke("cancel_run", { runId: run.id }).catch(() => {});
 }
 
 async function newChat() {
-  if (S.run) return;
-  await invoke("new_chat");
   S.session = null;
-  S.approval = null;
   renderChat();
+  await invoke("new_chat");
 }
 
 async function openSession(id) {
   S.session = id;
-  S.approval = null;
+  // A chat still answering keeps its body; anything else comes from the server.
+  const running = live.get(id)?.run;
+  if (!running) live.delete(id);
   renderChat();
   $("#ask").placeholder = "Ask a follow-up…";
+  if (running) {
+    scrollDown();
+    invoke("open_session", { id }).catch(() => {});
+    return;
+  }
   try {
     const turns = await invoke("open_session", { id });
-    drawHistory(turns);
+    // The user may have moved on, or started a run here, while it loaded.
+    if (S.session !== id || S.view !== "chat" || live.has(id)) return;
+    drawHistory(id, turns);
   } catch (e) {
-    failed(newTurn(""), String(e));
+    if (S.session === id && S.view === "chat") failed(newTurn(""), String(e));
   }
 }
 
-function drawHistory(turns) {
+function drawHistory(id, turns) {
   body().innerHTML = "";
   let turn = null, last = null;
   for (const t of turns) {
@@ -332,7 +384,7 @@ function drawHistory(turns) {
       drawSteps(turn, true);
     } else if (t.role === "approval") {
       turn ??= newTurn("");
-      approvalCard(turn, t);
+      approvalCard(id, turn, t);
       last = null;
     }
   }
@@ -354,9 +406,8 @@ function when(ms) {
 }
 
 function renderChats() {
-  if (S.run) return;
   S.view = "chats";
-  S.chats = { list: [], sel: 0, query: "" };
+  S.chats = { list: S.cache, sel: 0, query: "" };
   bar.innerHTML = `<div class="dinput"><span class="dlogo">b</span><input id="find" placeholder="Search chats" autocomplete="off" spellcheck="false"><kbd>⌘K</kbd></div>
     <div class="dsec" id="sec">Recent</div><div class="dlist" id="list" role="listbox" aria-label="Chats"></div>
     ${hints([[ICON.ret, "open"], ["⌘N", "new chat"], ["esc", "back"]])}`;
@@ -367,6 +418,7 @@ function renderChats() {
     const q = find.value.trim(), mine = ++pending;
     setTimeout(() => { if (mine === pending) loadChats(q); }, 180);
   });
+  drawChats();
   loadChats("");
 }
 
@@ -375,8 +427,10 @@ async function loadChats(query) {
     const rows = query
       ? (await invoke("search_sessions", { query })).map(m => ({ ...m.session, snippet: m.snippet }))
       : await invoke("list_sessions");
+    if (!query) S.cache = rows.slice(0, 50);
     if (S.view !== "chats") return;
-    S.chats = { list: rows.slice(0, 50), sel: 0, query };
+    const sel = query === S.chats.query ? Math.min(S.chats.sel, Math.max(0, rows.length - 1)) : 0;
+    S.chats = { list: rows.slice(0, 50), sel, query };
     drawChats();
   } catch (e) {
     if (S.view === "chats") $("#list").innerHTML = `<div class="derr" style="padding:8px 10px">${esc(e)}</div>`;
@@ -394,8 +448,9 @@ function drawChats() {
   const { list, sel, query } = S.chats;
   $("#sec").textContent = query ? `${list.length} chat${list.length === 1 ? "" : "s"}` : "Recent";
   $("#list").innerHTML = list.map((c, i) => `<button class="dchat" role="option" aria-selected="${i === sel}" data-i="${i}">
+      ${c.pinned ? `<span class="pin" aria-label="Pinned">${ICON.pin}</span>` : ""}
       <span class="t"><span>${mark(c.title || "New chat", query)}</span>${c.snippet ? `<small>${mark(c.snippet, query)}</small>` : ""}</span>
-      <span class="w">${when(c.updated_at)}</span></button>`).join("") || '<div class="dmuted" style="padding:8px 10px">No chats</div>';
+      ${live.get(c.id)?.run ? '<span class="run"><span class="dspin"></span>Answering</span>' : `<span class="w">${when(c.updated_at)}</span>`}</button>`).join("") || '<div class="dmuted" style="padding:8px 10px">No chats</div>';
   $("#list").querySelectorAll(".dchat").forEach(b => b.addEventListener("click", () => openSession(list[+b.dataset.i].id)));
   $(`[data-i="${sel}"]`)?.scrollIntoView({ block: "nearest" });
 }
@@ -459,6 +514,11 @@ async function show(view) {
   if (S.link === "revoked") return renderRevoked();
   if (S.link === "unlinked" || view === "link") return S.link === "linked" ? renderChat() : renderLink();
   if (view === "new") return newChat();
+  // A chat picked from the tray's Recent menu, already made current in Rust.
+  if (view === "open") {
+    const { session } = await invoke("status");
+    if (session) return openSession(session);
+  }
   if (S.view !== "chat" || !$("#ask")) {
     if (S.session) return openSession(S.session);
     return renderChat();
@@ -479,7 +539,7 @@ listen("link-state", async e => {
 });
 listen("sessions-changed", e => {
   if (S.view === "chats" && !S.chats.query) loadChats("");
-  else if (S.view === "chat" && !S.run && e.payload && e.payload === S.session) openSession(S.session);
+  else if (S.view === "chat" && !here()?.run && e.payload && e.payload === S.session) openSession(S.session);
 });
 
 // ---------- Keys ----------
@@ -497,9 +557,9 @@ document.addEventListener("keydown", e => {
   if (cmd && e.key.toLowerCase() === "k") { e.preventDefault(); return S.view === "chats" ? null : renderChats(); }
   if (cmd && e.key === ".") { e.preventDefault(); return stop(); }
   if (S.view === "chat") {
-    if (cmd && e.key === "Enter" && S.approval) { e.preventDefault(); return answer("allow"); }
-    if (e.key === "Enter" && !e.shiftKey && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
-    if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value && !S.run) { e.preventDefault(); return renderChats(); }
+    if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer("allow"); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
+    if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
   }
   if (S.view === "chats") {
     const { list } = S.chats;

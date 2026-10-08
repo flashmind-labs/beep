@@ -11,14 +11,20 @@ mod state;
 
 use anyhow::Context;
 use beep::{Beep, Notices};
-use beep_proto::link::MAX_NAME;
+use beep_proto::{Session, link::MAX_NAME};
 use iroh::EndpointId;
 use state::{LinkState, StateFile};
-use std::{fs, path::PathBuf, process::Command, sync::Arc};
+use std::{
+    cmp::Reverse,
+    fs,
+    path::PathBuf,
+    process::Command,
+    sync::{Arc, Mutex},
+};
 use tauri::{
     ActivationPolicy, App, AppHandle, Emitter, Manager, WindowEvent,
     image::Image,
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
@@ -27,6 +33,15 @@ use tauri_plugin_notification::NotificationExt;
 /// The server's node id, baked in by build.rs.
 const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
 const TRAY: &str = "beep";
+/// Chats listed under Recent in the tray menu.
+const RECENT: usize = 5;
+/// Menu ids of Recent's items start with this, then the session id.
+const CHAT_ITEM: &str = "chat:";
+
+/// The latest chats, kept so the tray menu can be built without waiting on
+/// the server.
+#[derive(Default)]
+struct Recent(Mutex<Vec<Session>>);
 
 fn main() {
     tauri::Builder::default()
@@ -79,6 +94,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let file = StateFile::new(dir.join("state.json"));
     let (beep, notices) = tauri::async_runtime::block_on(Beep::start(identity, server, file))?;
     app.manage(beep.clone());
+    app.manage(Recent::default());
 
     tauri::async_runtime::spawn(serve_notices(handle.clone(), beep.clone(), notices));
     let toggle = handle.clone();
@@ -94,6 +110,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         .show_menu_on_left_click(true)
         .on_menu_event(on_menu)
         .build(app)?;
+    tauri::async_runtime::spawn(refresh_recent(handle.clone()));
 
     // First launch, or a link still to finish: show the code.
     if beep.link_state() != LinkState::Linked {
@@ -110,9 +127,11 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, mut notices: Notices) {
             beep.set_link_state(LinkState::Linked);
             let _ = app.emit("link-state", LinkState::Linked);
             refresh_tray(&app);
+            tauri::async_runtime::spawn(refresh_recent(app.clone()));
         }
         if notice.changed {
             let _ = app.emit("sessions-changed", notice.session_id);
+            tauri::async_runtime::spawn(refresh_recent(app.clone()));
             continue;
         }
         let bar_open = app
@@ -150,20 +169,36 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "open",
-        "Open Beep",
-        true,
-        None::<&str>,
-    )?)?;
+    let linked = link == LinkState::Linked;
     menu.append(&MenuItem::with_id(
         app,
         "new",
         "New chat",
-        link == LinkState::Linked,
-        None::<&str>,
+        linked,
+        Some("cmd+n"),
     )?)?;
+    let chats = app
+        .state::<Recent>()
+        .0
+        .lock()
+        .map(|c| c.clone())
+        .unwrap_or_default();
+    let recent = Submenu::with_id(app, "recent", "Recent", linked && !chats.is_empty())?;
+    for chat in &chats {
+        let title = if chat.title.is_empty() {
+            "New chat"
+        } else {
+            chat.title.as_str()
+        };
+        recent.append(&MenuItem::with_id(
+            app,
+            format!("{CHAT_ITEM}{}", chat.id),
+            title,
+            true,
+            None::<&str>,
+        )?)?;
+    }
+    menu.append(&recent)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     match link {
         LinkState::Linked => menu.append(&MenuItem::with_id(
@@ -214,9 +249,33 @@ fn refresh_tray(app: &AppHandle) {
     }
 }
 
+/// Fetches the latest chats for Recent and rebuilds the menu.
+async fn refresh_recent(app: AppHandle) {
+    let beep = app.state::<Arc<Beep>>().inner().clone();
+    if beep.link_state() != LinkState::Linked {
+        return;
+    }
+    match beep.sessions().await {
+        Ok(mut chats) => {
+            // The server lists pinned chats first; Recent is by time.
+            chats.sort_by_key(|c| Reverse(c.updated_at));
+            chats.truncate(RECENT);
+            if let Ok(mut recent) = app.state::<Recent>().0.lock() {
+                *recent = chats;
+            }
+            refresh_tray(&app);
+        }
+        Err(e) => log::warn!("listing chats for the tray: {e}"),
+    }
+}
+
 fn on_menu(app: &AppHandle, event: MenuEvent) {
+    if let Some(id) = event.id().as_ref().strip_prefix(CHAT_ITEM) {
+        app.state::<Arc<Beep>>().set_session(Some(id.to_owned()));
+        bar::show(app, Some("open"));
+        return;
+    }
     match event.id().as_ref() {
-        "open" => bar::show(app, None),
         "new" => {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));
