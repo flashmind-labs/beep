@@ -229,7 +229,7 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
                 val loaded = chat
                 when {
                     loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center).size(22.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
-                    messages.isEmpty() && outgoing.isEmpty() -> Text("No messages yet.\nSay hi, or write @beep to ask Beep something.",
+                    messages.isEmpty() && outgoing.isEmpty() -> Text("No messages yet.\nSay hi. Beep joins in when it can help.",
                         Modifier.align(Alignment.Center).padding(32.dp), textAlign = TextAlign.Center, color = Beep.colors.muted, lineHeight = 22.sp)
                     else -> {
                         val days = remember(messages) { groupDays(messages) }
@@ -369,7 +369,7 @@ private fun GroupComposer(field: TextFieldValue, onChange: (TextFieldValue) -> U
         Row(Modifier.weight(1f).heightIn(min = size).beepFrame(shape, Beep.colors.surface, pressableLook()),
             verticalAlignment = Alignment.CenterVertically) {
             TextField(field, onChange, Modifier.weight(1f),
-                placeholder = { Text("Message, or @beep to ask", fontSize = 15.sp, color = Beep.colors.dim) },
+                placeholder = { Text("Message", fontSize = 15.sp, color = Beep.colors.dim) },
                 textStyle = LocalTextStyle.current.copy(fontSize = 15.sp),
                 colors = TextFieldDefaults.colors(unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, cursorColor = Beep.colors.ink),
@@ -416,7 +416,7 @@ internal fun NewGroupSheet(repository: ChatRepository, onDismiss: () -> Unit, on
     var busy by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Beep.colors.surface) {
         Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SheetHeader(Icons.Outlined.Groups, Beep.colors.tints[2], "New group", "Chat with people, and @beep when you want it")
+            SheetHeader(Icons.Outlined.Groups, Beep.colors.tints[2], "New group", "Chat with people, and Beep helps when it can")
             NameField("Group name", name, { if (it.length <= 60) name = it })
             NameField("Your name in the group", memberName, { if (it.length <= 30) memberName = it })
             Text("You get a code to send to people. Anyone with Beep who enters it can join.",
@@ -637,7 +637,7 @@ internal fun GroupJoinScreen(repository: ChatRepository, token: String, onJoined
                 Column(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface).padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     PrivacyLine(Icons.Outlined.Psychology, "Beep can use your memories to help the group. It never shows or quotes them to others.")
-                    PrivacyLine(Icons.Outlined.Shield, "When you @beep, it runs with your apps and your account, never someone else's.")
+                    PrivacyLine(Icons.Outlined.Shield, "Beep reads the messages to see when it can help. When it answers you, it runs with your apps and your account, never someone else's.")
                     PrivacyLine(Icons.Outlined.Notifications, "You get a notification for each new message.")
                 }
                 NameField("Your name in the group", name, { if (it.length <= 30) { name = it; taken = null } },
@@ -698,7 +698,7 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
                     MemberLine({ GroupAvatar(m.name.take(1).uppercase(), memberTint(i), 36.dp) },
                         if (m.you) "${m.name} (you)" else m.name, if (m.creator) "Created the group" else "Joined $joined")
                 }
-                MemberLine({ GroupAvatar("b", Beep.colors.brand, 36.dp, beep = true) }, "Beep", "Replies when someone writes @beep")
+                MemberLine({ GroupAvatar("b", Beep.colors.brand, 36.dp, beep = true) }, "Beep", "Joins in when it can help, or when someone writes @beep")
                 ChunkyButton(onClick = { onInvite(group) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)); Text("Invite with a link", fontWeight = FontWeight.SemiBold)
                 }
