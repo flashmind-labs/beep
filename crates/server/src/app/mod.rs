@@ -54,6 +54,8 @@ pub struct App {
     tools: RunTools,
     /// Describes images; without it only a model that sees them can.
     vision_model: Option<Model>,
+    /// Summarizes long sessions; see `Config::compaction_model`.
+    compaction_model: Option<Model>,
     /// What admins may run their own turns on.
     pub models: ModelChoices,
     /// What a new `User` is built from.
@@ -80,6 +82,8 @@ pub struct ServerTools {
     pub composio: Option<ComposioSettings>,
     /// Describes images; see `Config::vision_model`.
     pub vision_model: Option<Model>,
+    /// Summarizes long sessions; see `Config::compaction_model`.
+    pub compaction_model: Option<Model>,
     /// Per-user files and code execution; see `Config::sandbox_dir`.
     pub sandbox: Option<Arc<Sandbox>>,
 }
@@ -187,6 +191,7 @@ impl App {
             decision,
             composio,
             vision_model,
+            compaction_model,
             sandbox,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
@@ -202,6 +207,7 @@ impl App {
             provider,
             llm,
             vision_model,
+            compaction_model,
             models,
             tools: RunTools {
                 search,
@@ -402,11 +408,13 @@ impl App {
 
     /// Summarizes sessions that are long and have gone quiet.
     pub async fn compact_idle_sessions(&self) {
+        // The limit follows the model the sessions run on, not the summarizer.
+        let window = self.provider.context_window(&self.llm.model).await;
         let summarizer = Summarizer {
             provider: self.provider.as_ref(),
-            model: &self.llm.model,
+            model: self.compaction_model.as_ref().unwrap_or(&self.llm.model),
         };
-        compaction::compact_idle(&self.store, summarizer).await;
+        compaction::compact_idle(&self.store, summarizer, compaction::compact_at(window)).await;
     }
 
     /// Retitles sessions that changed and have gone quiet.
