@@ -621,6 +621,19 @@ class ChatRepository(private val storage: LocalStorage) {
         api().leaveGroup(id)
         groups.value = groups.value.filter { it.id != id }
     }
+    /** Pins a group at once; the list is fetched again if the server refuses. */
+    fun pinGroup(id: String, pinned: Boolean) {
+        groups.value = groups.value.map { if (it.id == id) it.copy(pinned = pinned) else it }
+        scope.launch { runCatching { api().pinGroup(id, pinned) }.onFailure { refreshGroups() } }
+    }
+    /** Leaves each group in the background, as bulk delete does for chats. */
+    fun leaveGroups(ids: Set<String>) {
+        groups.value = groups.value.filter { it.id !in ids }
+        scope.launch {
+            for (id in ids) runCatching { api().leaveGroup(id) }
+            refreshGroups()
+        }
+    }
 
     suspend fun listMemories(): List<Memory> {
         val fresh = api().listMemories()

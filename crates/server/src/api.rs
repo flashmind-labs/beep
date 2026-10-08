@@ -96,6 +96,7 @@ pub fn router() -> Router {
         .call(peek_group)
         .call(join_group)
         .call(leave_group)
+        .call(pin_group)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -443,6 +444,10 @@ async fn join_group(cx: Cx, JoinGroup { token, member_name }: JoinGroup) -> Repl
             .send(UserNotice::group_changed(&member.user_id, &id));
     }
     Ok(cx.app.group_view(&joined, cx.user.id()))
+}
+
+async fn pin_group(cx: Cx, PinGroup { id, pinned }: PinGroup) -> Reply<()> {
+    found(cx.user.pin_group(&id, pinned).await?)
 }
 
 async fn leave_group(cx: Cx, LeaveGroup { id }: LeaveGroup) -> Reply<()> {

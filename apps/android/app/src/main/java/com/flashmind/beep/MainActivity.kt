@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.*
 import com.flashmind.beep.ffi.groupToken
 import com.flashmind.beep.ffi.shareToken
@@ -461,10 +462,12 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     unfocusedBorderColor = Border, focusedBorderColor = Moss),
                 shape = RoundedCornerShape(Beep.shapes.radius), modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp).fillMaxWidth())
             var contextMenuChat by remember { mutableStateOf<String?>(null) }
+            var contextMenuGroup by remember { mutableStateOf<String?>(null) }
+            var leavingGroup by remember { mutableStateOf<Group?>(null) }
             var showRenameDialog by remember { mutableStateOf<Conversation?>(null) }
             var showDeleteDialog by remember { mutableStateOf<Conversation?>(null) }
             var sharingChat by remember { mutableStateOf<Conversation?>(null) }
-            // Chats picked for bulk delete; selection mode is on while it is not null.
+            // Chats and groups (keyed by groupKey) picked for bulk delete; selection mode is on while it is not null.
             var picked by remember { mutableStateOf<Set<String>?>(null) }
             var confirmBulkDelete by remember { mutableStateOf(false) }
             LaunchedEffect(drawerOpen) { if (!drawerOpen) picked = null }
@@ -480,14 +483,15 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 delay(350)
                 contentHits = runCatching { withContext(Dispatchers.IO) { repository.searchChats(query) } }.getOrDefault(emptyList())
             }
-            // Groups sit among the chats by when they were last active, after the pinned chats.
-            val visibleGroups = if (bubble || picked != null) emptyList()
+            // Groups sit among the chats by when they were last active, pinned ones with the pinned chats.
+            val visibleGroups = if (bubble) emptyList()
                 else groups.filter { it.name.contains(historyQuery, ignoreCase = true) }
             val rows: List<Any> = run {
-                val pinned = visibleChats.filter { it.pinned }
-                pinned + (visibleChats.filter { !it.pinned } + visibleGroups).sortedByDescending {
+                val all: List<Any> = (visibleChats + visibleGroups).sortedByDescending {
                     if (it is Group) it.updatedAt else (it as Conversation).lastActive
                 }
+                val (pinned, rest) = all.partition { if (it is Group) it.pinned else (it as Conversation).pinned }
+                pinned + rest
             }
             val known = state.conversations.associateBy { it.id }
             val titled = visibleChats.map { it.id }.toSet()
@@ -496,7 +500,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             picked?.let { ids ->
                 Row(Modifier.padding(start = 20.dp, end = 8.dp, bottom = 4.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("${ids.size} selected", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                    val all = visibleChats.map { it.id }.toSet()
+                    val all = visibleChats.map { it.id }.toSet() + visibleGroups.map { groupKey(it.id) }
                     TextButton(onClick = { picked = if (ids.containsAll(all)) emptySet() else ids + all }) {
                         Text(if (ids.containsAll(all) && all.isNotEmpty()) "None" else "All")
                     }
@@ -508,9 +512,30 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             }
             LazyColumn(Modifier.weight(1f)) {
                 if (messageHits.isNotEmpty() && visibleChats.isNotEmpty()) item(key = "titles-label") { DrawerLabel("Titles") }
-                items(rows, key = { if (it is Group) "group-" + it.id else (it as Conversation).id }) { row ->
-                    if (row is Group) {
-                        GroupRow(row, highlighted = openGroup == row.id) { openGroupChat(row.id); drawerOpen = false }
+                items(rows, key = { if (it is Group) groupKey(it.id) else (it as Conversation).id }) { row ->
+                    if (row is Group) Box {
+                        val selecting = picked
+                        val key = groupKey(row.id)
+                        val toggle = { selecting?.let { picked = if (key in it) it - key else it + key } }
+                        GroupRow(row, highlighted = if (selecting != null) key in selecting else openGroup == row.id,
+                            selected = selecting?.let { key in it },
+                            onClick = { if (selecting != null) toggle() else { openGroupChat(row.id); drawerOpen = false } },
+                            onLongClick = { if (selecting != null) toggle() else contextMenuGroup = row.id })
+                        DropdownMenu(expanded = contextMenuGroup == row.id, onDismissRequest = { contextMenuGroup = null },
+                            containerColor = Surface) {
+                            DropdownMenuItem(text = { Text("Select") },
+                                leadingIcon = { Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp)) },
+                                onClick = { contextMenuGroup = null; picked = setOf(key) })
+                            DropdownMenuItem(text = { Text(if (row.pinned) "Unpin" else "Pin") },
+                                leadingIcon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
+                                onClick = { contextMenuGroup = null; repository.pinGroup(row.id, !row.pinned) })
+                            DropdownMenuItem(text = { Text("Invite") },
+                                leadingIcon = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) },
+                                onClick = { contextMenuGroup = null; inviting = row })
+                            DropdownMenuItem(text = { Text("Leave", color = Coral) },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Logout, null, Modifier.size(18.dp), tint = Coral) },
+                                onClick = { contextMenuGroup = null; leavingGroup = row })
+                        }
                         return@items
                     }
                     val chat = row as Conversation
@@ -590,17 +615,38 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     text = { Text("This will permanently delete this conversation and all its messages.") },
                     containerColor = Surface)
             }
+            leavingGroup?.let { g ->
+                AlertDialog(
+                    onDismissRequest = { leavingGroup = null },
+                    confirmButton = { TextButton(onClick = {
+                        leavingGroup = null
+                        if (openGroup == g.id) openGroup = null
+                        repository.leaveGroups(setOf(g.id))
+                    }) { Text("Leave", color = Coral) } },
+                    dismissButton = { TextButton(onClick = { leavingGroup = null }) { Text("Cancel") } },
+                    title = { Text("Leave ${g.name}?") },
+                    text = { Text(if (g.members.size <= 1) "You are the last member, so the group and its messages are deleted."
+                        else "You stop getting its messages. Someone in it can invite you again.") },
+                    containerColor = Surface)
+            }
             if (confirmBulkDelete) {
-                val ids = picked.orEmpty()
+                val (groupKeys, chatIds) = picked.orEmpty().partition { it.startsWith(GROUP_KEY) }
+                val groupIds = groupKeys.map { it.removePrefix(GROUP_KEY) }.toSet()
+                val chats = when (chatIds.size) { 0 -> null; 1 -> "1 conversation"; else -> "${chatIds.size} conversations" }
+                val leave = when (groupIds.size) { 0 -> null; 1 -> "1 group"; else -> "${groupIds.size} groups" }
                 AlertDialog(
                     onDismissRequest = { confirmBulkDelete = false },
                     confirmButton = { TextButton(onClick = {
                         confirmBulkDelete = false; picked = null
-                        repository.deleteSessions(ids)
-                    }) { Text("Delete", color = Coral) } },
+                        repository.deleteSessions(chatIds.toSet())
+                        if (openGroup in groupIds) openGroup = null
+                        repository.leaveGroups(groupIds)
+                    }) { Text(if (chats == null) "Leave" else "Delete", color = Coral) } },
                     dismissButton = { TextButton(onClick = { confirmBulkDelete = false }) { Text("Cancel") } },
-                    title = { Text(if (ids.size == 1) "Delete 1 conversation?" else "Delete ${ids.size} conversations?") },
-                    text = { Text("This will permanently delete them and all their messages.") },
+                    title = { Text(listOfNotNull(chats?.let { "Delete $it" }, leave?.let { "leave $it" })
+                        .joinToString(" and ").replaceFirstChar { it.uppercase() } + "?") },
+                    text = { Text(listOfNotNull(chats?.let { "The conversations and their messages are deleted for good." },
+                        leave?.let { "You stop getting the groups' messages." }).joinToString(" ")) },
                     containerColor = Surface)
             }
             if (!bubble) {
@@ -734,3 +780,7 @@ private fun MessageHitRow(title: String, hit: SessionMatch, query: String, onCli
         Text(snippet, maxLines = 2, fontSize = 12.sp, lineHeight = 16.sp, overflow = TextOverflow.Ellipsis, color = TextMuted)
     }
 }
+
+/** A group's key in the drawer list and in the picked set, apart from chat ids. */
+private const val GROUP_KEY = "group-"
+private fun groupKey(id: String) = GROUP_KEY + id

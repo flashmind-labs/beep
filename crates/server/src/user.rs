@@ -379,6 +379,10 @@ impl User {
     }
 
     /// Leaves a group; `false` when the user was not in it.
+    pub async fn pin_group(&self, id: &str, pinned: bool) -> Result<bool> {
+        self.store.pin_group(&self.key, id, pinned).await
+    }
+
     pub async fn leave_group(&self, id: &str) -> Result<bool> {
         self.store.leave_group(&self.key, id).await
     }

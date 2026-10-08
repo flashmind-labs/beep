@@ -152,6 +152,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "profile",
         include_str!("../../migrations/0022_profile.sql"),
     ),
+    (
+        23,
+        "group pins",
+        include_str!("../../migrations/0023_group_pins.sql"),
+    ),
 ];
 
 fn migrator() -> Migrator {
