@@ -1,5 +1,6 @@
-//! Double-tapping Option. A listen-only event tap sees every key and
-//! modifier change, which needs the Input Monitoring permission.
+//! Double-tapping Option. An AppKit monitor for modifier changes sees
+//! Option go down and up in any app, and macOS hands those out without the
+//! Input Monitoring permission that watching every key would need.
 
 use std::time::{Duration, Instant};
 
@@ -59,111 +60,75 @@ impl DoubleTap {
 }
 
 #[cfg(target_os = "macos")]
-mod tap {
+mod monitor {
     use super::{DoubleTap, Input};
-    use core_foundation::runloop::{CFRunLoop, kCFRunLoopCommonModes};
-    use core_graphics::event::{
-        CGEvent, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions,
-        CGEventTapPlacement, CGEventType, EventField,
-    };
-    use std::{cell::RefCell, thread, time::Instant};
+    use block2::RcBlock;
+    use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
+    use std::{cell::RefCell, ptr::NonNull, rc::Rc, time::Instant};
 
-    const LEFT_OPTION: i64 = 58;
-    const RIGHT_OPTION: i64 = 61;
+    const LEFT_OPTION: u16 = 58;
+    const RIGHT_OPTION: u16 = 61;
 
-    #[link(name = "CoreGraphics", kind = "framework")]
-    unsafe extern "C" {
-        fn CGPreflightListenEventAccess() -> bool;
-        fn CGRequestListenEventAccess() -> bool;
-    }
-
-    /// Whether the app may watch keys.
-    pub fn allowed() -> bool {
-        // SAFETY: takes no arguments and only reads the permission.
-        unsafe { CGPreflightListenEventAccess() }
-    }
-
-    /// Asks for Input Monitoring. macOS shows its prompt once, and after
-    /// that only System Settings can change it.
-    pub fn request() -> bool {
-        // SAFETY: takes no arguments.
-        unsafe { CGRequestListenEventAccess() }
-    }
-
-    fn input(kind: CGEventType, event: &CGEvent) -> Input {
-        if !matches!(kind, CGEventType::FlagsChanged) {
-            return Input::Other;
-        }
-        let key = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
+    fn input(event: &NSEvent) -> Input {
+        let key = event.keyCode();
         if key != LEFT_OPTION && key != RIGHT_OPTION {
             return Input::Other;
         }
-        let flags = event.get_flags();
-        let others = CGEventFlags::CGEventFlagCommand
-            | CGEventFlags::CGEventFlagControl
-            | CGEventFlags::CGEventFlagShift
-            | CGEventFlags::CGEventFlagSecondaryFn;
+        let flags = event.modifierFlags();
+        let others = NSEventModifierFlags::Command
+            | NSEventModifierFlags::Control
+            | NSEventModifierFlags::Shift
+            | NSEventModifierFlags::Function;
         if flags.intersects(others) {
             Input::Other
-        } else if flags.contains(CGEventFlags::CGEventFlagAlternate) {
+        } else if flags.contains(NSEventModifierFlags::Option) {
             Input::OptionDown
         } else {
             Input::OptionUp
         }
     }
 
-    /// Starts the tap on its own thread and calls `fire` on each double tap.
-    /// False if macOS refused the tap, which means no permission.
-    pub fn start(fire: impl Fn() + Send + 'static) -> bool {
-        let (ready, started) = std::sync::mpsc::channel();
-        thread::Builder::new()
-            .name("option-tap".into())
-            .spawn(move || {
-                let state = RefCell::new(DoubleTap::default());
-                let tap = CGEventTap::new(
-                    CGEventTapLocation::Session,
-                    CGEventTapPlacement::TailAppendEventTap,
-                    CGEventTapOptions::ListenOnly,
-                    vec![
-                        CGEventType::FlagsChanged,
-                        CGEventType::KeyDown,
-                        CGEventType::LeftMouseDown,
-                        CGEventType::RightMouseDown,
-                        CGEventType::OtherMouseDown,
-                        CGEventType::ScrollWheel,
-                    ],
-                    |_, kind, event| {
-                        if state
-                            .borrow_mut()
-                            .on_event(input(kind, event), Instant::now())
-                        {
-                            fire();
-                        }
-                        None
-                    },
-                );
-                let Ok(tap) = tap else {
-                    let _ = ready.send(false);
-                    return;
-                };
-                let Ok(source) = tap.mach_port.create_runloop_source(0) else {
-                    let _ = ready.send(false);
-                    return;
-                };
-                // SAFETY: the source and the tap live until the run loop
-                // below returns, which is never.
-                unsafe { CFRunLoop::get_current().add_source(&source, kCFRunLoopCommonModes) };
-                tap.enable();
-                let _ = ready.send(true);
-                CFRunLoop::run_current();
-            })
-            .is_ok()
-            && started.recv().unwrap_or(false)
+    /// Watches modifier changes in other apps and in our own windows, and
+    /// calls `fire` on each double tap. Runs on the main thread, which is
+    /// where AppKit delivers the events.
+    pub fn start(fire: impl Fn() + 'static) {
+        let state = RefCell::new(DoubleTap::default());
+        let on_event = Rc::new(move |event: NonNull<NSEvent>| {
+            // SAFETY: AppKit passes a live event for the length of the call.
+            let event = unsafe { event.as_ref() };
+            if state.borrow_mut().on_event(input(event), Instant::now()) {
+                fire();
+            }
+        });
+
+        let global = on_event.clone();
+        let global = RcBlock::new(move |event: NonNull<NSEvent>| global(event));
+        let local = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+            on_event(event);
+            // Handing the event back passes it on; returning nothing would
+            // swallow every modifier change in our own windows.
+            event.as_ptr()
+        });
+        let global = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
+            NSEventMask::FlagsChanged,
+            &global,
+        );
+        // SAFETY: the block always returns the event it was given.
+        let local = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::FlagsChanged, &local)
+        };
+        if global.is_none() {
+            log::warn!("macOS refused the Option monitor");
+        }
+        // The monitors stop when their tokens drop, and they should run for
+        // as long as the app does.
+        std::mem::forget(global);
+        std::mem::forget(local);
     }
 }
 
 #[cfg(target_os = "macos")]
-pub use tap::{allowed, request, start};
+pub use monitor::start;
 
 #[cfg(test)]
 mod tests {
