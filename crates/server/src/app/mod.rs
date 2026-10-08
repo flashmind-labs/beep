@@ -135,6 +135,9 @@ pub struct Message {
     /// A routine's label, empty when it has none. Set for routine runs only.
     #[serde(skip)]
     pub scheduled: Option<String>,
+    /// An event's label when an event woke the agent (see `crate::wake`).
+    #[serde(skip)]
+    pub woken: Option<String>,
     #[serde(default)]
     pub images: Vec<String>,
     #[serde(default)]
@@ -292,8 +295,9 @@ impl App {
                 user: user.id().to_owned(),
                 id: run.session_id.clone(),
             };
+            // A woken chat is named after its event, and only if it is kept.
             match self.store.needs_first_title(&session).await {
-                Ok(true) => {
+                Ok(true) if message.woken.is_none() => {
                     let (app, text) = (self.clone(), message.message.clone());
                     tokio::spawn(async move {
                         let generator = Generator {
@@ -309,7 +313,7 @@ impl App {
                         }
                     });
                 }
-                Ok(false) => {}
+                Ok(_) => {}
                 Err(error) => log::warn!("unable to check title: {error}; run_id={}", run.id),
             }
             tokio::spawn(async move {

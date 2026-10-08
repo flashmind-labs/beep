@@ -1,19 +1,25 @@
 //! Prompt evals: real turns against the configured model, each checked for
 //! the behavior the assistant prompt and the follow-up writer promise. They
 //! cost money and the model is not deterministic, so they are ignored by
-//! default. `just eval` runs them with the dev config.
+//! default. `just eval` runs them with the dev config, and `just eval wake`
+//! runs only the woken-agent cases.
 use beep_server::{
     app::{App, ServerTools},
     client::Node,
     config::Config,
     decision::DecisionTool,
+    memories,
     models::ModelChoices,
-    protocol::{Chat, RunEvent},
+    protocol::{Chat, MemorySource, RunEvent},
     push::Pusher,
     search::SearchTool,
-    store::TestDb,
+    starters::Generator,
+    store::{Fact, Location, TestDb, Validity},
     transport,
+    user::User,
+    wake,
 };
+use chrono::{Duration as Days, Local, NaiveDate, Utc};
 use flashmind::{
     llm::OpenRouterProvider,
     types::{AgentLlmConfig, Model},
@@ -96,6 +102,8 @@ struct Turn {
     /// The most calls running at once.
     widest: Vec<String>,
     follow_ups: Option<Vec<String>>,
+    /// What each memory search returned, for reading a failed case.
+    recalled: Vec<String>,
     errors: Vec<String>,
 }
 
@@ -111,7 +119,12 @@ impl Turn {
         for event in events {
             match event {
                 RunEvent::TextDelta { delta } => turn.reply.push_str(&delta),
-                RunEvent::ToolStarted { name, .. } if name != "suggest_replies" => {
+                RunEvent::ToolStarted {
+                    name, description, ..
+                } if name != "suggest_replies" => {
+                    if name == "memory_recall" {
+                        turn.recalled.push(description);
+                    }
                     turn.tools.push(name.clone());
                     running.push(name);
                     if running.len() > turn.widest.len() {
@@ -123,7 +136,10 @@ impl Turn {
                         .ok()
                         .map(|s| s.replies);
                 }
-                RunEvent::ToolResult { name, .. } => {
+                RunEvent::ToolResult { name, output, .. } => {
+                    if name == "memory_recall" {
+                        turn.recalled.push(output);
+                    }
                     if let Some(at) = running.iter().position(|n| *n == name) {
                         running.remove(at);
                     }
@@ -168,6 +184,7 @@ impl Turn {
 /// throwaway schema.
 struct Server {
     _db: TestDb,
+    app: Arc<App>,
     router: Router,
 }
 
@@ -176,7 +193,12 @@ impl Server {
         let db = TestDb::new()
             .await
             .expect("BEEP_TEST_DATABASE_URL names a database");
-        let store = db.store().await.expect("the test schema opens");
+        // Memory search by meaning needs the embedder production uses.
+        let embedder = memories::embedder(config).expect("the embedder builds");
+        let store = db
+            .store_with(embedder)
+            .await
+            .expect("the test schema opens");
         let key = config
             .provider_key
             .as_deref()
@@ -214,9 +236,16 @@ impl Server {
         let pusher = Pusher::new(endpoint.clone(), Arc::new(app.store.clone()), None);
         pusher.start(app.notifications.subscribe());
         let router = Router::builder(endpoint)
-            .accept(transport::ALPN, transport::BeepHandler::new(app, pusher))
+            .accept(
+                transport::ALPN,
+                transport::BeepHandler::new(app.clone(), pusher),
+            )
             .spawn();
-        Self { _db: db, router }
+        Self {
+            _db: db,
+            app,
+            router,
+        }
     }
 
     /// Sends `message` in a new chat and reads the turn to its end.
@@ -293,4 +322,360 @@ async fn prompt_evals() {
         failed += usize::from(!failures.is_empty());
     }
     assert_eq!(failed, 0, "{failed} of {} evals failed", cases.len());
+}
+
+/// The judge for woken runs: the newest small model from another family
+/// than the assistant's, at the same price.
+const WAKE_JUDGE_MODEL: &str = "openrouter:anthropic/claude-haiku-5.5";
+
+const WAKE_JUDGE: &str = "You grade an assistant that was woken by an event on the user's \
+phone while nobody was chatting. It could send one notification or stay silent. You get \
+what it knew about the user, the event, whether it notified, and its final reply (the \
+notification text when it notified, its private reason otherwise).
+A run passes only when all of these hold:
+- notifying was the right call: the event plus what it knew gives the user something \
+useful or timely now; a move with nothing known about it, or coming back home, is not \
+worth an interruption;
+- when it notified, the text is one or two short sentences of plain text without \
+Markdown, specific to this user and event, and states nothing the context does not \
+support;
+- when it stayed silent, its reason is sound.
+Answer with one line, \"PASS\" or \"FAIL: <short reason>\", and nothing else.";
+
+/// A city the phone reports, as Android names it.
+struct Fix {
+    place: &'static str,
+    latitude: f64,
+    longitude: f64,
+    timezone: &'static str,
+}
+
+const BARCELONA: Fix = Fix {
+    place: "Barcelona, Catalonia, Spain",
+    latitude: 41.39,
+    longitude: 2.16,
+    timezone: "Europe/Madrid",
+};
+const GIRONA: Fix = Fix {
+    place: "Girona, Catalonia, Spain",
+    latitude: 41.98,
+    longitude: 2.82,
+    timezone: "Europe/Madrid",
+};
+const TARRAGONA: Fix = Fix {
+    place: "Tarragona, Catalonia, Spain",
+    latitude: 41.12,
+    longitude: 1.25,
+    timezone: "Europe/Madrid",
+};
+const LISBON: Fix = Fix {
+    place: "Lisbon, Lisbon, Portugal",
+    latitude: 38.72,
+    longitude: -9.14,
+    timezone: "Europe/Lisbon",
+};
+const SINGAPORE: Fix = Fix {
+    place: "Singapore",
+    latitude: 1.28,
+    longitude: 103.85,
+    timezone: "Asia/Singapore",
+};
+const NEW_YORK: Fix = Fix {
+    place: "New York, New York, United States",
+    latitude: 40.71,
+    longitude: -74.01,
+    timezone: "America/New_York",
+};
+
+impl Fix {
+    fn location(&self, hours_ago: i64) -> Location {
+        Location {
+            latitude: self.latitude,
+            longitude: self.longitude,
+            accuracy: 20.0,
+            timezone: self.timezone.to_owned(),
+            place: Some(self.place.to_owned()),
+            updated_at: Utc::now() - Days::hours(hours_ago),
+        }
+    }
+}
+
+/// A memory the user has before the event, valid between two days counted
+/// from today, either end open.
+struct Memory {
+    content: &'static str,
+    from: Option<i64>,
+    until: Option<i64>,
+}
+
+const fn always(content: &'static str) -> Memory {
+    Memory {
+        content,
+        from: None,
+        until: None,
+    }
+}
+
+struct WakeCase {
+    name: &'static str,
+    memories: &'static [Memory],
+    from: Fix,
+    to: Fix,
+    /// Whether it must notify; `None` leaves the call to the judge.
+    notifies: Option<bool>,
+}
+
+const WAKE_CASES: &[WakeCase] = &[
+    WakeCase {
+        name: "wake: lands on a planned trip",
+        memories: &[
+            Memory {
+                content: "Is in Singapore for the Fintech Week conference, staying at the \
+                          Pan Pacific hotel on Raffles Boulevard",
+                from: Some(0),
+                until: Some(4),
+            },
+            Memory {
+                content: "Gives a talk at the conference on the second day at 10:00",
+                from: Some(1),
+                until: Some(1),
+            },
+            always("Lives in Barcelona"),
+        ],
+        from: BARCELONA,
+        to: SINGAPORE,
+        notifies: Some(true),
+    },
+    WakeCase {
+        name: "wake: a new time zone with a daily medication",
+        memories: &[
+            always("Takes levothyroxine every morning at 7:00, before breakfast"),
+            always("Lives in Barcelona"),
+        ],
+        from: BARCELONA,
+        to: NEW_YORK,
+        notifies: Some(true),
+    },
+    WakeCase {
+        name: "wake: a day trip with nothing known",
+        memories: &[always("Lives in Barcelona")],
+        from: BARCELONA,
+        to: TARRAGONA,
+        notifies: Some(false),
+    },
+    WakeCase {
+        name: "wake: back home",
+        memories: &[
+            always("Lives in Barcelona"),
+            Memory {
+                content: "Was in Lisbon for a client workshop",
+                from: Some(-4),
+                until: Some(-1),
+            },
+        ],
+        from: LISBON,
+        to: BARCELONA,
+        notifies: Some(false),
+    },
+    WakeCase {
+        name: "wake: a city where a friend lives",
+        memories: &[
+            always("Lives in Barcelona"),
+            always("Their sister Laia lives in Girona and runs a bakery there"),
+        ],
+        from: BARCELONA,
+        to: GIRONA,
+        notifies: None,
+    },
+];
+
+/// What a woken run did.
+struct Woken {
+    /// The event as the model got it.
+    event: String,
+    turn: Turn,
+    notified: bool,
+    /// Whether the chat is still in the user's list.
+    kept: bool,
+    title: Option<String>,
+}
+
+impl Server {
+    /// Seeds a new user with the case's memories and location, wakes the
+    /// agent on the arrival, and reads the run to its end.
+    async fn wake(&self, case: &WakeCase) -> Woken {
+        let user = self
+            .app
+            .sign_in(&SecretKey::generate().public())
+            .await
+            .expect("the store signs in")
+            .expect("a new key is not revoked")
+            .user;
+        let today = Local::now().date_naive();
+        for memory in case.memories {
+            seed(&user, memory, today).await;
+        }
+        let (before, now) = (case.from.location(3), case.to.location(0));
+        user.update_location(&now)
+            .await
+            .expect("the location saves");
+        let event = wake::arrival(&before, &now).expect("the case is an arrival");
+        let told = format!("{}\nDetails: {}", event.description, event.data);
+        let run = wake::wake(&self.app, &user, event)
+            .await
+            .expect("the run submits")
+            .expect("a run starts");
+
+        let mut events = Vec::new();
+        let read = async {
+            let Some(live) = self.app.live(&run.id).await else {
+                return;
+            };
+            let mut feed = live.subscribe(0);
+            events.extend(feed.backlog.into_iter().map(|e| e.event));
+            while !events
+                .iter()
+                .any(|e| matches!(e, RunEvent::RunFinished { .. }))
+            {
+                match feed.live.recv().await {
+                    Ok(event) => events.push(event.event),
+                    Err(_) => break,
+                }
+            }
+            // The chat is kept or deleted after `RunFinished`.
+            while self.app.live(&run.id).await.is_some() {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        };
+        if timeout(TURN_TIMEOUT, read).await.is_err() {
+            events.push(RunEvent::Error {
+                message: "timed out".into(),
+            });
+        }
+        let turn = Turn::read(events);
+        let session = user
+            .sessions()
+            .await
+            .expect("the sessions list")
+            .into_iter()
+            .find(|s| s.id == run.session_id);
+        Woken {
+            event: told,
+            notified: turn.tools.iter().any(|t| t == "notify_user"),
+            kept: session.is_some(),
+            title: session.map(|s| s.title),
+            turn,
+        }
+    }
+}
+
+async fn seed(user: &User, memory: &Memory, today: NaiveDate) {
+    let day = |offset: Option<i64>| offset.map(|days| today + Days::days(days));
+    let valid = (memory.from.is_some() || memory.until.is_some()).then(|| Validity {
+        from: day(memory.from),
+        until: day(memory.until),
+    });
+    user.add_memory(Fact {
+        content: memory.content,
+        category: None,
+        source: MemorySource::User {},
+        valid,
+        origin: None,
+    })
+    .await
+    .expect("the memory saves");
+}
+
+/// What the judge reads about a case and its run.
+fn wake_report(case: &WakeCase, woken: &Woken) -> String {
+    let memories: String = case
+        .memories
+        .iter()
+        .map(|m| {
+            format!(
+                "\n- {} (days {:?} to {:?} from today)",
+                m.content, m.from, m.until
+            )
+        })
+        .collect();
+    format!(
+        "What it knew:{memories}\n\nEvent:\n{}\n\nTools it \
+         called: {:?}\nNotified: {}\n\nFinal reply:\n{}",
+        woken.event,
+        woken.turn.tools,
+        woken.notified,
+        woken.turn.reply.trim()
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "calls the real model; run with `just eval wake`"]
+async fn wake_evals() {
+    let config = config();
+    let only = env::var("BEEP_EVAL").ok();
+    let cases: Vec<&WakeCase> = WAKE_CASES
+        .iter()
+        .filter(|case| only.as_deref().is_none_or(|only| case.name.contains(only)))
+        .collect();
+    if cases.is_empty() {
+        return;
+    }
+    let server = Server::start(&config).await;
+    let key = config
+        .provider_key
+        .as_deref()
+        .expect("the config has a provider_key");
+    let judge_model: Model = WAKE_JUDGE_MODEL.parse().expect("the judge model parses");
+    let judge_llm = AgentLlmConfig::new(judge_model);
+    let judge_provider = OpenRouterProvider::new(key.to_owned());
+    let judge = Generator {
+        provider: &judge_provider,
+        llm: &judge_llm,
+        user: "eval",
+    };
+
+    let runs = join_all(cases.iter().map(|case| server.wake(case))).await;
+    let mut failed = 0;
+    for (case, woken) in cases.iter().zip(&runs) {
+        let mut failures: Vec<String> = woken
+            .turn
+            .errors
+            .iter()
+            .map(|e| format!("error: {e}"))
+            .collect();
+        if let Some(wanted) = case.notifies
+            && wanted != woken.notified
+        {
+            failures.push(format!("notified={}, wanted {wanted}", woken.notified));
+        }
+        if woken.kept != woken.notified {
+            failures.push(format!(
+                "chat kept={} but notified={}",
+                woken.kept, woken.notified
+            ));
+        }
+        let report = wake_report(case, woken);
+        let verdict = judge
+            .text(WAKE_JUDGE, report)
+            .await
+            .expect("the judge answers");
+        let verdict = verdict.trim();
+        if !verdict.starts_with("PASS") {
+            failures.push(format!("judge: {verdict}"));
+        }
+
+        let result = if failures.is_empty() { "PASS" } else { "FAIL" };
+        println!("{result} {}", case.name);
+        println!("  tools: {:?}", woken.turn.tools);
+        println!("  notified: {} title: {:?}", woken.notified, woken.title);
+        for recalled in &woken.turn.recalled {
+            println!("  recalled: {}", recalled.replace('\n', " | "));
+        }
+        println!("  reply: {}", woken.turn.reply.trim().replace('\n', " "));
+        for failure in &failures {
+            println!("  - {failure}");
+        }
+        failed += usize::from(!failures.is_empty());
+    }
+    assert_eq!(failed, 0, "{failed} of {} wake evals failed", cases.len());
 }

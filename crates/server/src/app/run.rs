@@ -20,6 +20,7 @@ use crate::{
     timing::{Output, TurnTimer},
     tools,
     user::User,
+    wake,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -35,7 +36,10 @@ use flashmind::{
 use futures::StreamExt;
 use secrecy::ExposeSecret;
 use std::{
-    sync::{Arc, atomic::Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 use tokio::{sync::RwLock, time::Instant};
@@ -59,8 +63,10 @@ impl App {
     ) -> Result<()> {
         let cancel = &live.cancel;
         let is_cron = message.cron_id.is_some();
+        // Nobody asked for a routine's or an event's turn.
+        let background = is_cron || message.woken.is_some();
         let mut timer = TurnTimer::start();
-        if !is_cron && message.answer.is_none() {
+        if !background && message.answer.is_none() {
             user.forget_used_starter(&message.message).await;
         }
 
@@ -87,7 +93,7 @@ impl App {
         let auto = match (one_off, answer) {
             (true, _) => None,
             (false, Some(_)) => self.resumed_pick(user, &run.session_id, &transcript).await,
-            (false, None) if is_cron => None,
+            (false, None) if background => None,
             (false, None) => {
                 let prompt = Prompt {
                     message: &message.message,
@@ -142,6 +148,12 @@ impl App {
         }
         if let Some(sandbox) = &self.tools.sandbox {
             sandbox::register(&mut registry, sandbox, user);
+        }
+        let notify = Arc::new(AtomicBool::new(false));
+        if message.woken.is_some() {
+            registry.register(Arc::new(tools::NotifyUserTool {
+                notify: notify.clone(),
+            }));
         }
 
         // Calls of the last model turn still without a result: the session
@@ -453,7 +465,7 @@ impl App {
         // Learn from the turn while the run is still open, so what was saved shows
         // as memory tool chips under the reply. Scheduled prompts are written by
         // the user once, not said in conversation.
-        if status == RunStatus::Completed && !is_cron {
+        if status == RunStatus::Completed && !background {
             let generator = Generator {
                 provider: self.provider.as_ref(),
                 llm: &self.llm,
@@ -468,7 +480,7 @@ impl App {
                         || message.message.clone(),
                         |entry| entry.content().to_owned(),
                     ),
-                    reply,
+                    reply: reply.clone(),
                     actions,
                 },
             };
@@ -633,6 +645,15 @@ impl App {
             status: status.as_str().to_owned(),
             updated_at: updated_at.map(SystemTime::from),
         });
+        if let Some(label) = &message.woken {
+            let finished = wake::Finished {
+                label,
+                status,
+                notified: notify.load(Ordering::SeqCst),
+                reply: &reply,
+            };
+            wake::finish(self, user, run, finished).await;
+        }
         Ok(())
     }
 }

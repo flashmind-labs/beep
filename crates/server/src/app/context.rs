@@ -7,6 +7,7 @@ use crate::{
     protocol::{AppIntegration, DeviceKind},
     store::Location,
     user::User,
+    wake,
 };
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
@@ -15,7 +16,7 @@ use std::fmt::Write;
 
 impl App {
     /// Time, location, which apps are connected,
-    /// for a routine how to answer it, and the memory profile when `chat` has
+    /// for a routine or an event how to answer it, and the memory profile when `chat` has
     /// not had this one yet, sent as a developer message. Other memories the
     /// model looks up with `memory_recall`.
     pub(super) async fn build_context(
@@ -58,6 +59,9 @@ impl App {
 
         if let Some(label) = message.scheduled.as_deref() {
             let _ = writeln!(ctx, "{}", cron::scheduled_context(label));
+        }
+        if let Some(label) = message.woken.as_deref() {
+            let _ = writeln!(ctx, "{}", wake::woken_context(label));
         }
 
         // Last, so the profile a chat got runs to the end of its message.

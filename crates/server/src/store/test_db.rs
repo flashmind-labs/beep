@@ -3,6 +3,7 @@
 
 use super::{Store, WordEmbedder};
 use anyhow::{Context, Result};
+use flashmind::memory::EmbeddingProvider;
 use sqlx::{
     Connection, Executor, PgConnection,
     postgres::{PgConnectOptions, PgPoolOptions},
@@ -56,13 +57,19 @@ impl TestDb {
     /// Opens a store on this schema, with the accounts tests use. Opening it
     /// again sees the same data.
     pub async fn store(&self) -> Result<Store> {
+        self.store_with(Arc::new(WordEmbedder)).await
+    }
+
+    /// [`Self::store`] with a real embedder, for evals that need memory
+    /// search by meaning.
+    pub async fn store_with(&self, embedder: Arc<dyn EmbeddingProvider>) -> Result<Store> {
         let options = PgConnectOptions::from_str(&self.url)?
             .options([("search_path", format!("{},public", self.schema))]);
         let pool = PgPoolOptions::new()
             .max_connections(4)
             .connect_with(options)
             .await?;
-        let store = Store::with_pool(pool, Arc::new(WordEmbedder)).await?;
+        let store = Store::with_pool(pool, embedder).await?;
         sqlx::query(
             "INSERT INTO users (id, name, external_id) SELECT id, id, id FROM unnest($1::text[]) id \
              ON CONFLICT (id) DO NOTHING",
