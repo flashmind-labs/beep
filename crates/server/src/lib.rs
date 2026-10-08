@@ -27,6 +27,7 @@ pub mod titles;
 pub mod tools;
 pub mod transport;
 pub mod user;
+pub mod wake;
 
 pub use beep_proto::{self as protocol, client};
 

@@ -151,6 +151,7 @@ pub(crate) async fn submit(
         message: task.to_owned(),
         cron_id: Some(job.id.to_string()),
         scheduled: Some(label.to_owned()),
+        woken: None,
         images: Vec::new(),
         answer: None,
         model: None,

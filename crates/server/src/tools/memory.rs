@@ -132,7 +132,7 @@ impl Tool for MemoryRecallTool {
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
             "query":{"type":"string"},
-            "category":{"type":"string","enum":MEMORY_CATEGORIES,"description":"Filter by category. When nothing matches, the search runs again without it."}
+            "category":{"type":"string","enum":MEMORY_CATEGORIES,"description":"Puts memories in this category first; the others follow."}
         },"required":["query"],"additionalProperties":false})
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
@@ -142,9 +142,16 @@ impl Tool for MemoryRecallTool {
         let category = opt_arg(&ctx.args, "category");
         let mut hits = self.0.search_memories(query, category, limit).await?;
         // A model can guess a category the memory was not filed under, such
-        // as "place" for a hotel stay filed under "plan".
-        if hits.is_empty() && category.is_some() {
-            hits = self.0.search_memories(query, None, limit).await?;
+        // as "place" for a hotel stay filed under "plan", so the rest follow.
+        if category.is_some() && hits.len() < limit {
+            for hit in self.0.search_memories(query, None, limit).await? {
+                if hits.len() == limit {
+                    break;
+                }
+                if !hits.iter().any(|h| h.id == hit.id) {
+                    hits.push(hit);
+                }
+            }
         }
         reply(&ctx, hits.iter().map(|h| h.to_json()).collect())
     }

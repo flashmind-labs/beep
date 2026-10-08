@@ -14,6 +14,7 @@ use beep_server::{
     store::{CreateRun, Fact, SignIn, TestDb},
     transport,
     user::User,
+    wake::{self, Event as WakeEvent},
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role,
@@ -75,6 +76,11 @@ impl LlmProvider for ProviderStub {
             .messages
             .last()
             .is_some_and(|m| m.role == Role::Tool);
+        // An event the stub finds worth telling the user about.
+        let worth_it = request
+            .messages
+            .iter()
+            .any(|m| m.role == Role::User && m.content.starts_with("Worth it."));
         let slow = request
             .messages
             .iter()
@@ -83,6 +89,11 @@ impl LlmProvider for ProviderStub {
             if slow {
                 yield Ok(StreamEvent::ContentDelta("Working".into()));
                 tokio::time::sleep(Duration::from_secs(60)).await;
+            } else if !is_tool_result && worth_it {
+                yield Ok(StreamEvent::ToolCallStart { index: 0, id: Uuid::new_v4().to_string(), name: "notify_user".into() });
+                yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: "{}".into() });
+                yield Ok(StreamEvent::Finished(FinishReason::ToolCalls));
+                return;
             } else if !is_tool_result {
                 yield Ok(StreamEvent::ToolCallStart { index: 0, id: Uuid::new_v4().to_string(), name: "memory_store".into() });
                 yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: json!({"content":"Prefers tea"}).to_string() });
@@ -650,6 +661,61 @@ async fn notices_reach_the_phone_open_idle_retried_or_after_being_away() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     refuse.store(false, Ordering::SeqCst);
     assert_eq!(next_title(&mut titles).await, "retried");
+}
+
+#[tokio::test]
+async fn a_woken_agent_reaches_the_phone_only_when_it_asks_to() {
+    let h = Harness::new().await;
+    let (on_notice, mut titles, _) = inbox();
+    let node = h.node(alice(), on_notice).await;
+    h.introduce(&node);
+    let c = node.connect().await.unwrap();
+    c.call(&Health {}).await.unwrap();
+    let user = h.app.user(&h.alice_id).unwrap();
+    let event = |description: &str| WakeEvent {
+        label: "Arrived in Singapore".into(),
+        description: description.into(),
+        data: json!({"city": "Singapore"}),
+    };
+    let finished = |run_id: String| {
+        let app = h.app.clone();
+        async move {
+            timeout(Duration::from_secs(20), async {
+                while app.live(&run_id).await.is_some() {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            })
+            .await
+            .expect("the run finishes");
+        }
+    };
+    // Change notices carry no title.
+    let next_notice = async |titles: &mut mpsc::UnboundedReceiver<String>| loop {
+        let title = next_title(titles).await;
+        if !title.is_empty() {
+            return title;
+        }
+    };
+
+    // Without notify_user the chat goes away and nothing reaches the phone.
+    let quiet = wake::wake(&h.app, &user, event("Not worth it."))
+        .await
+        .unwrap()
+        .expect("a run starts");
+    finished(quiet.id).await;
+    let sessions = user.sessions().await.unwrap();
+    assert!(sessions.iter().all(|s| s.id != quiet.session_id));
+
+    // With it the reply is the notice, in a chat named after the event.
+    let told = wake::wake(&h.app, &user, event("Worth it."))
+        .await
+        .unwrap()
+        .expect("a run starts");
+    finished(told.id).await;
+    assert_eq!(next_notice(&mut titles).await, "Arrived in Singapore");
+    let sessions = user.sessions().await.unwrap();
+    let session = sessions.iter().find(|s| s.id == told.session_id).unwrap();
+    assert_eq!(session.title, "Arrived in Singapore");
 }
 
 /// The computer Alice links to her account.

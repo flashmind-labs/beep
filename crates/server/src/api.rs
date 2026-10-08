@@ -14,6 +14,7 @@ use crate::{
         AccountKey, CopiedShare, CreateRun, DeletedTurn, Feed, FoundSession, LinkKey, Location,
         NewKey, PushDevice, TurnModel, TurnsToDelete, decode_schedule,
     },
+    wake,
 };
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
@@ -118,6 +119,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         message: req.message,
         cron_id: None,
         scheduled: None,
+        woken: None,
         images: req.images,
         answer: None,
         model,
@@ -427,7 +429,8 @@ fn history(
 ) -> Vec<HistoryEntry> {
     let mut history = Vec::new();
     let mut turn = Turn::default();
-    // A routine's label, from the context saved just before its message.
+    // A routine's or an event's label, from the context saved just before
+    // its message.
     let mut scheduled = None;
     for entry in entries {
         let timestamp = entry.timestamp.timestamp_millis();
@@ -496,7 +499,7 @@ fn history(
                 });
             }
             EntryKind::Developer { content, .. } => {
-                scheduled = cron::scheduled_label(content);
+                scheduled = cron::scheduled_label(content).or_else(|| wake::woken_label(content));
             }
             _ => {}
         }
@@ -668,6 +671,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         message: decision.as_str().to_owned(),
         cron_id: None,
         scheduled: None,
+        woken: None,
         images: Vec::new(),
         answer: Some(Answer {
             call_id: query_id.clone(),
@@ -976,7 +980,17 @@ async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
         place,
         updated_at: Utc::now(),
     };
+    let before = cx.user.get_location().await?;
     cx.user.update_location(&fix).await?;
+    if let Some(event) = before.and_then(|before| wake::arrival(&before, &fix)) {
+        log::info!("wake: arrival; user={}", cx.user.id());
+        let (app, user) = (cx.app.clone(), cx.user.clone());
+        tokio::spawn(async move {
+            if let Err(error) = wake::wake(&app, &user, event).await {
+                log::warn!("wake: unable to start the run: {error:#}; user={user}");
+            }
+        });
+    }
     Ok(())
 }
 

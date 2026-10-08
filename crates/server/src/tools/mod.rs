@@ -6,10 +6,12 @@ mod image;
 mod location;
 mod maps;
 mod memory;
+mod notify_user;
 mod open_app;
 mod progress;
 mod suggest;
 
+pub(crate) use notify_user::NotifyUserTool;
 pub(crate) use suggest::{
     NAME as SUGGEST_REPLIES, SUGGESTING as SUGGESTING_REPLIES, replies_output,
 };
