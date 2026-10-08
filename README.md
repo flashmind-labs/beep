@@ -43,7 +43,8 @@ BEEP_IDENTITY=.dev/probe-key cargo run -q -p beep-server --bin beep-probe -- NOD
 ## Android
 
 Needs JDK 17 or 21, SDK 36, NDK `28.2.13676358` and
-`rustup target add aarch64-linux-android`. Gradle runs
+`rustup target add aarch64-linux-android armv7-linux-androideabi
+x86_64-linux-android i686-linux-android`. Gradle runs
 `scripts/build-android-native.sh` to build the Rust library and Kotlin
 bindings.
 
