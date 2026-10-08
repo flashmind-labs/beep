@@ -1,4 +1,4 @@
-//! The phone's last position and the timezone it implies.
+//! The phone's last position, and the user's timezone.
 
 use super::Store;
 use crate::user::UserKey;
@@ -20,17 +20,14 @@ pub struct Location {
 }
 
 impl Store {
-    /// Saves the phone's location. A new timezone reloads the scheduler, since
-    /// recurring jobs run in the user's local time.
+    /// Saves the phone's location and the timezone it was in.
     pub(crate) async fn update_location(&self, user: &UserKey, fix: &Location) -> Result<()> {
-        let previous: Option<String> = sqlx::query_scalar(
-            "WITH old AS (SELECT timezone FROM locations WHERE user_id=$1)
-             INSERT INTO locations (user_id, latitude, longitude, accuracy, timezone, place, updated_at)
+        sqlx::query(
+            "INSERT INTO locations (user_id, latitude, longitude, accuracy, timezone, place, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (user_id) DO UPDATE SET latitude=excluded.latitude,
                  longitude=excluded.longitude, accuracy=excluded.accuracy,
-                 timezone=excluded.timezone, place=excluded.place, updated_at=excluded.updated_at
-             RETURNING (SELECT timezone FROM old)",
+                 timezone=excluded.timezone, place=excluded.place, updated_at=excluded.updated_at",
         )
         .bind(user.as_str())
         .bind(fix.latitude)
@@ -39,9 +36,24 @@ impl Store {
         .bind(&fix.timezone)
         .bind(&fix.place)
         .bind(fix.updated_at)
-        .fetch_one(&self.pool)
+        .execute(&self.pool)
         .await?;
-        if previous.as_deref() != Some(fix.timezone.as_str()) {
+        self.set_timezone(user, &fix.timezone).await
+    }
+
+    /// Saves the user's timezone. A new one reloads the scheduler, since
+    /// recurring jobs run in the user's local time.
+    pub(crate) async fn set_timezone(&self, user: &UserKey, timezone: &str) -> Result<()> {
+        let changed = sqlx::query(
+            "UPDATE users SET timezone=$2 WHERE id=$1 AND timezone IS DISTINCT FROM $2",
+        )
+        .bind(user.as_str())
+        .bind(timezone)
+        .execute(&self.pool)
+        .await?
+        .rows_affected()
+            > 0;
+        if changed {
             self.notify_crons_changed();
         }
         Ok(())
@@ -69,11 +81,11 @@ impl Store {
     }
 
     pub(crate) async fn get_timezone(&self, user: &UserKey) -> Result<String> {
-        let timezone: Option<String> =
-            sqlx::query_scalar("SELECT timezone FROM locations WHERE user_id=$1")
-                .bind(user.as_str())
-                .fetch_optional(&self.pool)
-                .await?;
+        let timezone: Option<String> = sqlx::query_scalar("SELECT timezone FROM users WHERE id=$1")
+            .bind(user.as_str())
+            .fetch_optional(&self.pool)
+            .await?
+            .flatten();
         Ok(timezone.unwrap_or_else(|| "UTC".into()))
     }
 }
@@ -119,5 +131,17 @@ mod tests {
             .await
             .unwrap();
         assert!(reloads().await, "a new timezone does");
+    }
+
+    #[tokio::test]
+    async fn the_timezone_is_kept_without_a_location() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let user = UserKey::for_test("alice");
+
+        assert_eq!(store.get_timezone(&user).await.unwrap(), "UTC");
+        store.set_timezone(&user, "Europe/Madrid").await.unwrap();
+        assert_eq!(store.get_timezone(&user).await.unwrap(), "Europe/Madrid");
+        assert_eq!(store.get_location(&user).await.unwrap(), None);
     }
 }

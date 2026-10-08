@@ -335,6 +335,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     connection.value = if (attempt > 0) "Reconnecting… (attempt ${attempt + 1})" else "Checking connection…"
                     api().health()
                     connected.value = true
+                    scope.launch { reportTimezone() }
                     scope.launch {
                         // Online now, so no token means no Firebase on this phone.
                         val token = PushService.token()
@@ -514,7 +515,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     updateChat(id) { it.copy(error = "", status = if (it.runId.isEmpty()) "Sending…" else "Beep is thinking…") }
                     if (chat.runId.isNotEmpty() && chat.cancelRequested) api.cancelRun(chat.runId)
 
-                    if (chat.runId.isEmpty()) refreshLocation()
+                    if (chat.runId.isEmpty()) { reportTimezone(); refreshLocation() }
                     // A new message streams its run from the start; a run we lost is resumed from the cursor.
                     val stream = if (chat.runId.isEmpty()) api.chat(id, chat.requestId, chat.pendingText, chat.pendingImages,
                         chat.pendingModel.takeIf { it.isNotEmpty() }?.let { Rerun(it, ReasoningLevel.entries.find { level -> level.name.equals(chat.pendingThinking, true) }) })
@@ -888,6 +889,15 @@ class ChatRepository(private val storage: LocalStorage) {
                 delay(15 * 60 * 1000L)
             }
         }
+    }
+
+    @Volatile private var reportedTimezone: String? = null
+
+    /** Tells the server the phone's timezone when it differs from the last one sent, so routines run in local time without a location. */
+    private suspend fun reportTimezone() {
+        val tz = java.util.TimeZone.getDefault().id
+        if (tz == reportedTimezone) return
+        try { api().setTimezone(tz); reportedTimezone = tz } catch (_: Exception) {}
     }
 
     /** Reports the position before a message when the last report is over a minute old, so "nearby" means here. */
