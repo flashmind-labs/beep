@@ -1,0 +1,50 @@
+import Foundation
+
+/// What a tool chip says, the same words as on Android.
+func toolLabel(_ name: String) -> String {
+    if let known = toolLabels[name] { return known }
+    let words = name.split(whereSeparator: { "_.-".contains($0) }).map { $0.lowercased() }
+    guard let head = words.first else { return "Using a tool" }
+    // Connected app tools are named APP_ACTION.
+    if name == name.uppercased(), words.count > 1 {
+        return head.capitalized + ": " + words.dropFirst().joined(separator: " ")
+    }
+    let text = words.joined(separator: " ")
+    return text.prefix(1).uppercased() + text.dropFirst()
+}
+
+private let toolLabels: [String: String] = [
+    "web_search": "Searching the web",
+    "decision": "Weighing the options",
+    "get_location": "Checking your location",
+    "get_time": "Checking the time",
+    "open_app": "Opening an app",
+    "set_alarm": "Setting an alarm",
+    "open_browser": "Opening a page",
+    "browser": "Browsing",
+    "mcp_search": "Finding the right app tool",
+    "mcp": "Using a connected app",
+    "open_maps": "Looking up a place",
+    "query_contacts": "Looking up contacts",
+    "suggest_replies": "Suggesting replies",
+    "task_progress": "Updating progress",
+    "memory_store": "Remembering",
+    "memory_recall": "Recalling memories",
+    "memory_update": "Updating a memory",
+    "memory_forget": "Forgetting a memory",
+    "cron_create": "Setting a reminder",
+    "schedule_once": "Setting a reminder",
+    "cron_edit": "Changing a reminder",
+    "cron_list": "Checking reminders",
+    "cron_delete": "Deleting a reminder",
+    "cron_history": "Checking past reminders",
+    "habit_create": "Creating a habit",
+    "habit_log": "Logging a habit",
+    "habit_status": "Checking habits",
+    "habit_delete": "Deleting a habit",
+]
+
+/// The first letter a chip shows in its circle: the app's for app tools.
+func toolInitial(_ name: String) -> String {
+    String(toolLabel(name).prefix(1)).uppercased()
+}
