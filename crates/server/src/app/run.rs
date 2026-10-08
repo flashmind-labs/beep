@@ -476,7 +476,13 @@ impl App {
             let follow_up = self.decision().map(|decision| {
                 (
                     decision,
-                    followups::render(&exchange.earlier, &exchange.latest),
+                    followups::Input::new(
+                        &conversation,
+                        turn_from,
+                        &exchange.earlier,
+                        &exchange.latest,
+                    )
+                    .to_string(),
                 )
             });
             let follow_up = async {

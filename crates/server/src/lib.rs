@@ -8,7 +8,7 @@ pub mod decision;
 pub mod digest;
 pub mod fcm;
 pub mod feeds;
-pub(crate) mod followups;
+pub mod followups;
 pub mod images;
 pub mod live;
 pub mod memories;

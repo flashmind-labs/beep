@@ -145,6 +145,10 @@ eval filter="": test-db
     BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:55432/beep BEEP_EVAL="{{filter}}" \
         cargo test -p beep-server --test evals -- --ignored --nocapture
 
+# Follow-up chips for fixed turns, each graded by a judge model: just eval-followups [filter]
+eval-followups filter="":
+    BEEP_EVAL="{{filter}}" cargo test -p beep-server --test followups -- --ignored --nocapture
+
 # List the OpenRouter models Beep could use, newest first: just models [max-output-price] [filter]
 models *args:
     cargo run -q --package beep-server --bin beep-models -- {{args}}

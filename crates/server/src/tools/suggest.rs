@@ -4,7 +4,7 @@
 use serde::Serialize;
 
 /// Longer replies are dropped rather than cut, so no chip reads half-written.
-const MAX_REPLY_CHARS: usize = 48;
+const MAX_REPLY_CHARS: usize = 40;
 const MIN_REPLIES: usize = 2;
 const MAX_REPLIES: usize = 3;
 pub(crate) const NAME: &str = "suggest_replies";
