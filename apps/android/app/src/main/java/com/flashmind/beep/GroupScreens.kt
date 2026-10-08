@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -28,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -44,11 +47,19 @@ import androidx.compose.ui.unit.sp
 import com.flashmind.beep.ffi.BeepException
 import com.flashmind.beep.ffi.formatGroupCode
 import com.flashmind.beep.ffi.groupCode
+import com.flashmind.beep.ffi.groupToken
 import com.flashmind.beep.proto.Group
 import com.flashmind.beep.proto.GroupAuthor
 import com.flashmind.beep.proto.GroupChat
+import com.flashmind.beep.proto.GroupLink
 import com.flashmind.beep.proto.GroupMessage
 import com.flashmind.beep.proto.GroupPreview
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -103,20 +114,24 @@ private fun memberTint(index: Int) = Beep.colors.tints[index.mod(Beep.colors.tin
 private fun memberIndex(group: Group, name: String): Int =
     group.members.indexOfFirst { it.name.equals(name, ignoreCase = true) }.takeIf { it >= 0 } ?: name.hashCode()
 
-/** A group row in the drawer's chat list. */
+/** A group row in the drawer's chat list. [selected] is null outside selection mode. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun GroupRow(group: Group, highlighted: Boolean, onClick: () -> Unit) {
+internal fun GroupRow(group: Group, highlighted: Boolean, selected: Boolean?, onClick: () -> Unit, onLongClick: () -> Unit) {
     Row(Modifier.padding(horizontal = 12.dp, vertical = 2.dp).fillMaxWidth().heightIn(min = 56.dp)
         .clip(RoundedCornerShape(Beep.shapes.smallRadius))
         .background(if (highlighted) Beep.colors.user else Color.Transparent)
-        .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        .combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (selected != null) Icon(if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+            null, Modifier.size(18.dp), tint = if (selected) Beep.colors.error else Beep.colors.muted)
         Column(Modifier.weight(1f)) {
             Text(group.name, maxLines = 1, fontSize = 14.sp, overflow = TextOverflow.Ellipsis,
                 color = if (highlighted) Beep.colors.onUser else Color.Unspecified)
             Text(groupSummary(group), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (highlighted) Beep.colors.onUser.copy(alpha = 0.7f) else Beep.colors.muted)
         }
+        if (group.pinned && selected == null) Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(16.dp), tint = Beep.colors.brand)
         Icon(Icons.Outlined.Groups, "Group", Modifier.size(16.dp), tint = Beep.colors.brand)
     }
 }
@@ -433,21 +448,26 @@ internal fun NewGroupSheet(repository: ChatRepository, onDismiss: () -> Unit, on
 internal fun GroupInviteSheet(repository: ChatRepository, groupId: String, groupName: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var code by remember(groupId) { mutableStateOf<String?>(null) }
+    var link by remember(groupId) { mutableStateOf<GroupLink?>(null) }
+    val code = link?.let { formatGroupCode(it.token) }
     var reset by remember(groupId) { mutableStateOf(false) }
     LaunchedEffect(groupId) {
         runCatching { withContext(Dispatchers.IO) { repository.groupInvite(groupId) } }
-            .onSuccess { code = formatGroupCode(it.token) }
+            .onSuccess { link = it }
             .onFailure { Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show(); onDismiss() }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Beep.colors.surface) {
         Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             SheetHeader(Icons.Outlined.Link, Beep.colors.tints[1], "Invite people", groupName)
-            Box(Modifier.fillMaxWidth().height(64.dp).background(Beep.colors.page, RoundedCornerShape(12.dp)),
+            Box(Modifier.size(180.dp).align(Alignment.CenterHorizontally).background(QR_PAPER, RoundedCornerShape(12.dp)).padding(12.dp),
+                contentAlignment = Alignment.Center) {
+                link?.let { QrCode(it.url, Modifier.fillMaxSize()) }
+            }
+            Box(Modifier.fillMaxWidth().height(56.dp).background(Beep.colors.page, RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center) {
                 val shown = code
                 if (shown == null) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
-                else Text(shown, fontFamily = FontFamily.Monospace, fontSize = 28.sp, fontWeight = FontWeight.SemiBold,
+                else Text(shown, fontFamily = FontFamily.Monospace, fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
                     letterSpacing = 3.sp, color = Beep.colors.ink, maxLines = 1)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -469,14 +489,14 @@ internal fun GroupInviteSheet(repository: ChatRepository, groupId: String, group
                 }
             }
             Text((if (reset) "New code made. The old one no longer works. " else "") +
-                "People enter it under New group, Join with a code, and see the whole chat. Beep uses what it knows about each of you " +
+                "People scan it, or enter the code under New group, Join with a code, and see the whole chat. Beep uses what it knows about each of you " +
                 "to help, but never shows one person's memories to the others.",
                 fontSize = 12.sp, lineHeight = 18.sp, color = Beep.colors.muted)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = {
                     scope.launch {
                         runCatching { withContext(Dispatchers.IO) { repository.groupInvite(groupId, reset = true) } }
-                            .onSuccess { code = formatGroupCode(it.token); reset = true }
+                            .onSuccess { link = it; reset = true }
                             .onFailure { Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
                     }
                 }, enabled = code != null) { Text("Reset code", color = Beep.colors.error) }
@@ -497,9 +517,32 @@ internal fun JoinCodeSheet(repository: ChatRepository, onDismiss: () -> Unit, on
     var wrong by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     val code = groupCode(typed)
+    fun find(found: String) {
+        busy = true
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { repository.peekGroup(found) } }
+                .onSuccess { onFound(found) }
+                .onFailure {
+                    busy = false
+                    if (it is BeepException.NotFound) wrong = true
+                    else Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
+    fun scan() {
+        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+        GmsBarcodeScanning.getClient(context, options).startScan()
+            .addOnSuccessListener { barcode ->
+                // The QR holds a beep://group/ link to the code.
+                val scanned = barcode.rawValue?.let(::groupToken)?.let(::groupCode)
+                if (scanned == null) Toast.makeText(context, "That is not a Beep group code", Toast.LENGTH_SHORT).show()
+                else { typed = formatGroupCode(scanned); wrong = false; find(scanned) }
+            }
+            .addOnFailureListener { Toast.makeText(context, "Could not open the scanner", Toast.LENGTH_SHORT).show() }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Beep.colors.surface) {
         Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SheetHeader(Icons.Outlined.Groups, Beep.colors.tints[1], "Join a group", "Enter the code someone sent you")
+            SheetHeader(Icons.Outlined.Groups, Beep.colors.tints[1], "Join a group", "Enter or scan the code someone sent you")
             OutlinedTextField(typed, { if (it.length <= 24) { typed = it.uppercase(); wrong = false } }, Modifier.fillMaxWidth(),
                 label = { Text("Invite code") }, singleLine = true, isError = wrong,
                 textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 18.sp, letterSpacing = 2.sp),
@@ -508,27 +551,37 @@ internal fun JoinCodeSheet(repository: ChatRepository, onDismiss: () -> Unit, on
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false),
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Beep.colors.page, focusedContainerColor = Beep.colors.page,
                     unfocusedBorderColor = Beep.colors.softLine, focusedBorderColor = Beep.colors.brand))
+            ChunkyButton(onClick = ::scan, enabled = !busy, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(12.dp)) {
+                Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(18.dp)); Text("Scan a QR code", fontWeight = FontWeight.SemiBold)
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Spacer(Modifier.width(8.dp))
-                ChunkyButton(onClick = {
-                    val found = code ?: return@ChunkyButton
-                    busy = true
-                    scope.launch {
-                        runCatching { withContext(Dispatchers.IO) { repository.peekGroup(found) } }
-                            .onSuccess { onFound(found) }
-                            .onFailure {
-                                busy = false
-                                if (it is BeepException.NotFound) wrong = true
-                                else Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show()
-                            }
-                    }
-                }, enabled = !busy && code != null && !wrong, color = Beep.colors.accent,
+                ChunkyButton(onClick = { code?.let(::find) }, enabled = !busy && code != null && !wrong, color = Beep.colors.accent,
                     contentColor = Beep.colors.onAccent, shape = RoundedCornerShape(12.dp)) {
                     Text("Find group", fontWeight = FontWeight.SemiBold)
                 }
             }
+        }
+    }
+}
+
+/** The light card behind a QR code, so any camera reads it in dark mode too. */
+private val QR_PAPER = Color(0xFFF4F8F5)
+
+/** [text] as a QR code, drawn square by square. */
+@Composable
+private fun QrCode(text: String, modifier: Modifier = Modifier) {
+    val matrix = remember(text) {
+        QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, mapOf(EncodeHintType.MARGIN to 0))
+    }
+    Canvas(modifier) {
+        val cell = size.minDimension / matrix.width
+        // A hair wider than a cell, so no seams show between squares.
+        val square = Size(cell + 0.5f, cell + 0.5f)
+        for (y in 0 until matrix.height) for (x in 0 until matrix.width) {
+            if (matrix[x, y]) drawRect(Color(0xFF0A0E0C), Offset(x * cell, y * cell), square)
         }
     }
 }

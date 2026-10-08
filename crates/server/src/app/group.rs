@@ -115,6 +115,10 @@ impl App {
             last: joined.last.as_ref().map(|row| group_message(row, user_id)),
             updated_at: millis(joined.group.updated_at),
             beep_typing: self.beep_typing(&joined.group.id),
+            pinned: joined
+                .members
+                .iter()
+                .any(|member| member.user_id == user_id && member.pinned),
         }
     }
 

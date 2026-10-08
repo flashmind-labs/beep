@@ -21,6 +21,8 @@ pub struct MemberRow {
     pub name: String,
     pub creator: bool,
     pub joined_at: DateTime<Utc>,
+    /// Pinned to the top of this member's list.
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -194,7 +196,7 @@ impl Store {
     /// Who is in group `id`, oldest first.
     pub(crate) async fn group_members(&self, id: &str) -> Result<Vec<MemberRow>> {
         let rows = sqlx::query(
-            "SELECT user_id, name, creator, joined_at FROM group_members
+            "SELECT user_id, name, creator, joined_at, pinned FROM group_members
              WHERE group_id = $1 ORDER BY joined_at, user_id",
         )
         .bind(id)
@@ -207,6 +209,7 @@ impl Store {
                     name: row.try_get(1)?,
                     creator: row.try_get(2)?,
                     joined_at: row.try_get(3)?,
+                    pinned: row.try_get(4)?,
                 })
             })
             .collect()
@@ -361,6 +364,20 @@ impl Store {
             Err(sqlx::Error::Database(error)) if error.is_unique_violation() => Ok(Join::NameTaken),
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Pins or unpins group `id` in `user`'s list. `false` when they are not in it.
+    pub(crate) async fn pin_group(&self, user: &UserKey, id: &str, pinned: bool) -> Result<bool> {
+        let changed = sqlx::query(
+            "UPDATE group_members SET pinned = $3 WHERE group_id = $1 AND user_id = $2",
+        )
+        .bind(id)
+        .bind(user.as_str())
+        .bind(pinned)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(changed > 0)
     }
 
     /// Takes `user` out of group `id`, deleting it when nobody is left.
@@ -527,6 +544,16 @@ mod tests {
             .unwrap();
         store.join_group(&bob, &token, "Bo").await.unwrap();
         assert_eq!(store.groups(&bob).await.unwrap().len(), 1);
+        assert!(store.pin_group(&bob, "g1", true).await.unwrap());
+        let members = store.group_members("g1").await.unwrap();
+        let pinned: Vec<bool> = members.iter().map(|member| member.pinned).collect();
+        assert_eq!(pinned, [false, true]);
+        assert!(
+            !store
+                .pin_group(&UserKey::for_test("carol"), "g1", true)
+                .await
+                .unwrap()
+        );
         assert!(store.leave_group(&alice, "g1").await.unwrap());
         assert!(!store.leave_group(&alice, "g1").await.unwrap());
         assert!(store.group_by_invite(&token).await.unwrap().is_some());

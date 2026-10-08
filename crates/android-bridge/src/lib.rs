@@ -13,12 +13,12 @@ use beep_proto::{
     GetAppPermissions, GetEvents, GetGroup, GetModels, GetRun, GetSession, GetShare, Group,
     GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, Health, HistoryEntry, JoinGroup,
     LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices, ListGroups,
-    ListMemories, ListSessions, Memory, Models, Notice, PeekGroup, PermissionLevel, PinSession,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron,
-    SearchSessions, SendToGroup, Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel,
-    SetThinking, SetTimezone, ShareSession, SharedLink, SharedSession, StartAppAuth, Stream,
-    SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation,
-    UpdateMemory,
+    ListMemories, ListSessions, Memory, Models, Notice, PeekGroup, PermissionLevel, PinGroup,
+    PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession,
+    Run, RunCron, SearchSessions, SendToGroup, Session, SessionMatch, SetAppPermissions,
+    SetAutoModel, SetModel, SetThinking, SetTimezone, ShareSession, SharedLink, SharedSession,
+    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron,
+    UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -496,6 +496,10 @@ impl BeepClient {
 
     pub async fn join_group(&self, token: String, member_name: String) -> Result<Group, BeepError> {
         self.call(JoinGroup { token, member_name }).await
+    }
+
+    pub async fn pin_group(&self, id: String, pinned: bool) -> Result<(), BeepError> {
+        self.call(PinGroup { id, pinned }).await
     }
 
     pub async fn leave_group(&self, id: String) -> Result<(), BeepError> {

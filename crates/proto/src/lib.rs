@@ -267,6 +267,8 @@ requests! {
     63 JoinGroup { token: String, member_name: String } => Call<Group>
     /// Leaves a group. The last member to leave deletes it.
     64 LeaveGroup { id: String } => Call<()>
+    /// Pins a group to the top of the caller's list, as `PinSession` does a chat.
+    65 PinGroup { id: String, pinned: bool } => Call<()>
 }
 
 /// The link prefix a shared session's token follows.
@@ -871,6 +873,9 @@ pub struct Group {
     pub updated_at: i64,
     /// Beep is writing a reply.
     pub beep_typing: bool,
+    /// Pinned to the top of the caller's list.
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
