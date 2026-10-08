@@ -51,6 +51,8 @@ private sealed class MsgBlock {
     data class Quote(val content: String) : MsgBlock()
     data object Rule : MsgBlock()
     data class Picture(val url: String, val alt: String) : MsgBlock()
+    /** Two or more images with nothing but blank lines between them, shown as one row. */
+    data class Gallery(val pictures: List<ReplyPicture>) : MsgBlock()
     /** Display math; [closed] is false while the closing delimiter has not streamed in yet. */
     data class Math(val latex: String, val closed: Boolean) : MsgBlock()
 }
@@ -138,7 +140,26 @@ private fun parseBlocks(text: String): List<MsgBlock> {
         pending.append(line); i++
     }
     flush()
-    return blocks
+    return groupPictures(blocks)
+}
+
+/** Folds each run of consecutive images into a [MsgBlock.Gallery]; a lone image stays as it is. */
+private fun groupPictures(blocks: List<MsgBlock>): List<MsgBlock> {
+    val out = mutableListOf<MsgBlock>()
+    val run = mutableListOf<MsgBlock.Picture>()
+    fun end() {
+        when (run.size) {
+            0 -> {}
+            1 -> out.add(run[0])
+            else -> out.add(MsgBlock.Gallery(run.map { ReplyPicture(it.url, it.alt) }))
+        }
+        run.clear()
+    }
+    for (block in blocks) {
+        if (block is MsgBlock.Picture) run.add(block) else { end(); out.add(block) }
+    }
+    end()
+    return out
 }
 
 /** Colors the inline formatter needs, read from the theme once per composition. */
@@ -167,6 +188,7 @@ internal fun MessageContent(text: String, role: String, compact: Boolean, padded
                 is MsgBlock.Quote -> BlockQuoteView(block.content, compact)
                 MsgBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Border)
                 is MsgBlock.Picture -> ReplyImage(block.url, block.alt, compact)
+                is MsgBlock.Gallery -> ReplyGallery(block.pictures, compact)
             }
         }
     } }

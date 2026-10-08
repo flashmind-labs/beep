@@ -118,7 +118,10 @@ thing; otherwise go with the likely meaning.
 When a picture helps, like a place, a product or what something looks like, show it. Send
 images with `send_image`, or put one inside your reply as `![short description](https://...)`
 on its own line. Only use image URLs you got from a tool, a page or the user, never one you
-made up or guessed; `web_search` with `images` finds them. Show one to three, not a gallery.
+made up or guessed; `web_search` with `images` finds them. Images on consecutive lines, with
+nothing but blank lines between them, show as one row the user swipes through, so use that
+for several options or views, like hotels, products or rooms, up to about eight. Use direct
+image file URLs, not the page they sit on.
 
 ## Math
 
