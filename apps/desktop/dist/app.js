@@ -14,6 +14,48 @@ const ICON = {
 /// Tool steps shown while a run works; older ones fold into "+N tools".
 const VISIBLE_STEPS = 3;
 
+/// What a tool is doing, in words, the same as the phone's toolLabel.
+/// Unknown tools fall back to their name: "GMAIL_SEND_EMAIL" becomes "Gmail: send email".
+const TOOL_LABELS = {
+  web_search: "Searching the web",
+  decision: "Weighing the options",
+  get_location: "Checking your location",
+  get_time: "Checking the time",
+  open_app: "Opening an app",
+  set_alarm: "Setting an alarm",
+  open_browser: "Opening a page",
+  browser: "Browsing",
+  mcp_search: "Finding the right app tool",
+  mcp: "Using a connected app",
+  open_maps: "Looking up a place",
+  query_contacts: "Looking up contacts",
+  suggest_replies: "Suggesting replies",
+  task_progress: "Updating progress",
+  memory_store: "Remembering",
+  memory_recall: "Recalling memories",
+  memory_update: "Updating a memory",
+  memory_forget: "Forgetting a memory",
+  cron_create: "Setting a reminder",
+  schedule_once: "Setting a reminder",
+  cron_edit: "Changing a reminder",
+  cron_list: "Checking reminders",
+  cron_delete: "Deleting a reminder",
+  cron_history: "Checking past reminders",
+  habit_create: "Creating a habit",
+  habit_log: "Logging a habit",
+  habit_status: "Checking habits",
+  habit_delete: "Deleting a habit",
+};
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+function toolLabel(name) {
+  if (TOOL_LABELS[name]) return TOOL_LABELS[name];
+  const words = String(name ?? "").split(/[_.-]/).filter(w => w.trim()).map(w => w.toLowerCase());
+  if (!words.length) return "";
+  // Connected app tools are named APP_ACTION.
+  if (name === name.toUpperCase() && words.length > 1) return cap(words[0]) + ": " + words.slice(1).join(" ");
+  return cap(words.join(" "));
+}
+
 const bar = document.getElementById("bar");
 const S = {
   view: "chat", // chat | chats | link | revoked
@@ -176,7 +218,7 @@ function follow(turn) {
         thinking(turn, ev.delta);
         break;
       case "tool_started":
-        turn.steps.push({ id: ev.call_id, label: ev.description || ev.name, state: "run" });
+        turn.steps.push({ id: ev.call_id, label: toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
         drawSteps(turn, false);
         break;
       case "tool_result": {
@@ -271,7 +313,7 @@ function drawHistory(turns) {
       turn = newTurn(t.role === "user" ? t.text : t.label || "Routine");
     } else if (t.role === "assistant") {
       turn ??= newTurn("");
-      turn.steps.push(...t.tools.map(x => ({ id: "", label: x.name, state: x.success ? "ok" : "bad" })));
+      turn.steps.push(...t.tools.map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
       if (t.html) reply(turn).innerHTML += t.html;
       turn.done = true;
       drawSteps(turn, true);

@@ -14,15 +14,7 @@ use beep::{Beep, Notices};
 use beep_proto::link::MAX_NAME;
 use iroh::EndpointId;
 use state::{LinkState, StateFile};
-use std::{
-    fs,
-    path::PathBuf,
-    process::Command,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use std::{fs, path::PathBuf, process::Command, sync::Arc};
 use tauri::{
     ActivationPolicy, App, AppHandle, Emitter, Manager, WindowEvent,
     image::Image,
@@ -30,19 +22,11 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
 /// The server's node id, baked in by build.rs.
 const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
 const TRAY: &str = "beep";
-/// The fallback key while Input Monitoring is off.
-const FALLBACK_SHORTCUT: &str = "alt+space";
-const INPUT_MONITORING: &str =
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent";
-
-/// Whether the Option tap runs.
-static TAP_RUNNING: AtomicBool = AtomicBool::new(false);
 
 fn main() {
     tauri::Builder::default()
@@ -51,15 +35,6 @@ fn main() {
             MacosLauncher::LaunchAgent,
             None,
         ))
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _, event| {
-                    if event.state() == ShortcutState::Pressed {
-                        bar::toggle(app);
-                    }
-                })
-                .build(),
-        )
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| {
             if let WindowEvent::Focused(false) = event {
@@ -105,7 +80,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(beep.clone());
 
     tauri::async_runtime::spawn(serve_notices(handle.clone(), beep.clone(), notices));
-    start_hotkey(&handle);
+    let toggle = handle.clone();
+    hotkey::start(move || bar::toggle(&toggle));
 
     let menu = tray_menu(&handle, &beep)?;
     let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
@@ -123,23 +99,6 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         bar::show(&handle, Some("link"));
     }
     Ok(())
-}
-
-/// Starts the Option tap, or falls back to ⌥Space without permission.
-fn start_hotkey(app: &AppHandle) {
-    if !hotkey::allowed() {
-        hotkey::request();
-    }
-    let handle = app.clone();
-    let started = hotkey::allowed()
-        && hotkey::start(move || {
-            let app = handle.clone();
-            let _ = handle.run_on_main_thread(move || bar::toggle(&app));
-        });
-    TAP_RUNNING.store(started, Ordering::Relaxed);
-    if !started && let Err(e) = app.global_shortcut().register(FALLBACK_SHORTCUT) {
-        log::warn!("registering {FALLBACK_SHORTCUT}: {e}");
-    }
 }
 
 /// The server pushes notices to every key on the account. The first one
@@ -221,15 +180,6 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
             None::<&str>,
         )?)?,
     }
-    if !TAP_RUNNING.load(Ordering::Relaxed) {
-        menu.append(&MenuItem::with_id(
-            app,
-            "hotkey",
-            "Enable Option-Option…",
-            true,
-            None::<&str>,
-        )?)?;
-    }
     let autostart = app.autolaunch().is_enabled().unwrap_or(false);
     menu.append(&CheckMenuItem::with_id(
         app,
@@ -281,9 +231,6 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
                 let _ = app.emit("link-state", beep.link_state());
                 refresh_tray(&app);
             });
-        }
-        "hotkey" => {
-            let _ = Command::new("open").arg(INPUT_MONITORING).spawn();
         }
         "autostart" => {
             let manager = app.autolaunch();
