@@ -19,7 +19,7 @@ android {
         versionCode = providers.gradleProperty("beepVersionCode").orNull?.toInt() ?: 5
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }
         // The server this build talks to, so a new install needs no setup. `just bake-profile`
         // writes it from the server log; -PbeepNodeId overrides it.
         val profile = rootProject.file("../../.dev/android-assets/testing-profile.json")
@@ -94,7 +94,7 @@ val buildNative by tasks.registering(Exec::class) {
     inputs.files(fileTree("../../../crates/proto") { exclude("target/**") })
     inputs.files(fileTree("../../../crates/android-bridge") { exclude("target/**") })
     inputs.file("../../../Cargo.lock")
-    outputs.file("src/main/jniLibs/arm64-v8a/libbeep_android.so")
+    outputs.dir("src/main/jniLibs")
     outputs.dir("build/generated/uniffi")
 }
 tasks.named("preBuild").configure { dependsOn(buildNative) }
