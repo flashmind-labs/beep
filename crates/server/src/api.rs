@@ -7,7 +7,7 @@ use crate::{
     images::{MAX_IMAGE_BYTES, MAX_IMAGES},
     live::Subscription,
     models::Picked,
-    permissions,
+    permissions, profile,
     protocol::*,
     router::{Cx, Router, Sink},
     store::{
@@ -745,6 +745,12 @@ async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {
     if !feeds.is_empty() {
         feeds::spawn_sync(&cx.app, &cx.user, feeds);
     }
+    let connected: Vec<String> = apps
+        .iter()
+        .filter(|app| app.connected)
+        .map(|app| app.slug.clone())
+        .collect();
+    profile::spawn(&cx.app, &cx.user, &connected);
     Ok(apps)
 }
 

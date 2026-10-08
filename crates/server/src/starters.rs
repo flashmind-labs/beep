@@ -288,13 +288,23 @@ impl Generator<'_> {
 
     /// One plain completion with no tools, returning the whole answer.
     pub async fn text(&self, system: &str, prompt: String) -> Result<String> {
+        self.text_up_to(system, prompt, 4000).await
+    }
+
+    /// [`Self::text`] with room for an answer of up to `max_tokens`.
+    pub async fn text_up_to(
+        &self,
+        system: &str,
+        prompt: String,
+        max_tokens: u32,
+    ) -> Result<String> {
         let request = CompletionRequest {
             model: self.llm.model.clone(),
             messages: vec![Message::system(system), Message::user(prompt)],
             tools: Vec::new(),
             // Off leaves the provider default, and reasoning models then spend
             // a small budget thinking before writing any text.
-            max_tokens: Some(4000),
+            max_tokens: Some(max_tokens),
             reasoning: ReasoningLevel::Low,
             sampling: SamplingParams::default(),
             modalities: Vec::new(),
