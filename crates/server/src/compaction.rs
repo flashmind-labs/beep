@@ -53,13 +53,10 @@ pub fn compact_at(window: Option<u32>) -> u32 {
     }
 }
 
-/// Compacts every session that is both idle and over the token limit.
-pub async fn compact_idle(store: &Store, summarizer: Summarizer<'_>) {
-    let window = summarizer.provider.context_window(summarizer.model).await;
-    let sessions = match store
-        .sessions_to_compact(compact_at(window), IDLE_BEFORE_COMPACT)
-        .await
-    {
+/// Compacts every session that is both idle and over `limit` tokens, the
+/// chat model's `compact_at`.
+pub async fn compact_idle(store: &Store, summarizer: Summarizer<'_>, limit: u32) {
+    let sessions = match store.sessions_to_compact(limit, IDLE_BEFORE_COMPACT).await {
         Ok(sessions) => sessions,
         Err(error) => {
             log::warn!("unable to list sessions to compact: {error}");
@@ -204,7 +201,7 @@ mod tests {
         make_idle(&store, &long_idle.id).await;
         make_idle(&store, &short_idle.id).await;
 
-        compact_idle(&store, summarizer()).await;
+        compact_idle(&store, summarizer(), compact_at(None)).await;
 
         let context = |s: SessionRef| {
             let store = store.clone();

@@ -99,6 +99,7 @@ async fn main() -> Result<()> {
             decision,
             composio,
             vision_model,
+            compaction_model: config.compaction_model.clone(),
             sandbox,
         },
         models,
