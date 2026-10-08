@@ -181,13 +181,32 @@ impl Firebase {
                 log::info!("fcm: token no longer registered: {body}");
                 Delivery::Gone
             }
+            400 if rejects_token(&body) => {
+                log::info!("fcm: token is not a valid registration token");
+                Delivery::Gone
+            }
             _ => {
                 log::warn!("fcm: answered {status}: {body}");
                 Delivery::Failed
             }
         })
     }
+}
 
+/// Whether a 400 body blames the token itself, as for the placeholder early
+/// builds registered. A 400 about the rest of the message keeps the token.
+fn rejects_token(body: &str) -> bool {
+    let Ok(body) = serde_json::from_str::<Value>(body) else {
+        return false;
+    };
+    let details = body["error"]["details"].as_array().into_iter().flatten();
+    details
+        .filter_map(|detail| detail["fieldViolations"].as_array())
+        .flatten()
+        .any(|violation| violation["field"] == "message.token")
+}
+
+impl Firebase {
     /// Sends a push to each phone that registered with `phone`'s key. True
     /// when one took it.
     async fn send_all(&self, phone: EndpointId, android: Value, data: Value) -> bool {
@@ -308,6 +327,21 @@ mod tests {
         assert!(opened.body.ends_with("..."));
         assert!(long.starts_with(opened.body.trim_end_matches("...")));
         assert!(opened.body.len() > 2000);
+    }
+
+    #[test]
+    fn only_a_rejected_token_is_dropped() {
+        let violation = |field: &str| {
+            json!({"error": {"code": 400, "details": [
+                {"@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError"},
+                {"@type": "type.googleapis.com/google.rpc.BadRequest",
+                 "fieldViolations": [{"field": field, "description": "invalid"}]},
+            ]}})
+            .to_string()
+        };
+        assert!(rejects_token(&violation("message.token")));
+        assert!(!rejects_token(&violation("message.data")));
+        assert!(!rejects_token("not json"));
     }
 
     #[test]
