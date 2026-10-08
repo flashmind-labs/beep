@@ -336,7 +336,7 @@ struct ApprovalCard: View {
     }
 }
 
-/// Replies as markdown: paragraphs, bullets and headings, with inline styling.
+/// Replies as markdown: paragraphs, bullets, headings, code and tables, with inline styling.
 struct MarkdownText: View {
     let text: String
     var size: CGFloat = 15
@@ -359,6 +359,8 @@ struct MarkdownText: View {
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(RoundedRectangle(cornerRadius: 10).fill(Mint.tints[1]))
+                case .table(let table):
+                    tableView(table)
                 case .paragraph(let line):
                     inline(line)
                 }
@@ -371,14 +373,83 @@ struct MarkdownText: View {
     }
 
     private enum Block {
-        case paragraph(String), bullet(String), heading(String), code(String)
+        case paragraph(String), bullet(String), heading(String), code(String), table(Table)
+    }
+
+    private struct Table {
+        let header: [String]
+        let rows: [[String]]
+    }
+
+    /// A run of `| a | b |` lines is a table when it has a header, a `---` line and a row.
+    private static func table(_ lines: [String]) -> Table? {
+        guard lines.count >= 3, lines[1].contains("---") else { return nil }
+        let cells = { (line: String) in
+            line.split(separator: "|")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
+        let header = cells(lines[0])
+        let rows = lines.dropFirst(2).map { row in
+            let row = cells(row)
+            return Array(row.prefix(header.count)) + Array(repeating: "", count: max(0, header.count - row.count))
+        }
+        return Table(header: header, rows: rows)
+    }
+
+    private func tableView(_ table: Table) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    ForEach(Array(table.header.enumerated()), id: \.offset) { _, cell in
+                        tableCell(cell, lines: 2).fontWeight(.semibold).background(Mint.tints[1])
+                    }
+                }
+                ForEach(Array(table.rows.enumerated()), id: \.offset) { _, row in
+                    Rectangle().fill(Mint.soft).frame(height: 1).gridCellUnsizedAxes(.horizontal)
+                    GridRow {
+                        ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                            tableCell(cell, lines: 4)
+                        }
+                    }
+                }
+            }
+            .background(Mint.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Mint.soft, lineWidth: 1))
+            .padding(1)
+        }
+        .font(.body(size - 3))
+        .lineSpacing(1)
+    }
+
+    private func tableCell(_ text: String, lines: Int) -> some View {
+        inline(text)
+            .lineLimit(lines)
+            .frame(minWidth: 90, maxWidth: 220, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
     }
 
     private var blocks: [Block] {
         var out: [Block] = []
         var code: [String]?
+        var rows: [String] = []
+        func flushRows() {
+            if let table = Self.table(rows) {
+                out.append(.table(table))
+            } else {
+                out += rows.map { .paragraph($0) }
+            }
+            rows = []
+        }
         for raw in text.components(separatedBy: "\n") {
             let line = raw.trimmingCharacters(in: .whitespaces)
+            if code == nil, line.count > 1, line.hasPrefix("|"), line.hasSuffix("|") {
+                rows.append(line)
+                continue
+            }
+            if !rows.isEmpty { flushRows() }
             if line.hasPrefix("```") {
                 if let lines = code {
                     out.append(.code(lines.joined(separator: "\n")))
@@ -401,6 +472,7 @@ struct MarkdownText: View {
                 out.append(.paragraph(line))
             }
         }
+        if !rows.isEmpty { flushRows() }
         if let lines = code { out.append(.code(lines.joined(separator: "\n"))) }
         return out
     }
