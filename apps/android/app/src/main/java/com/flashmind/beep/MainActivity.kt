@@ -342,7 +342,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     LaunchedEffect(groupToOpen.value) {
         groupToOpen.value?.let {
             groupToOpen.value = null
-            if (!bubble) { openGroup = it; screen = Screen.Chat }
+            openGroup = it; screen = Screen.Chat
         }
     }
     // Chats left by starting a new one, newest last, so a swipe right can go back to them.
@@ -484,8 +484,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 contentHits = runCatching { withContext(Dispatchers.IO) { repository.searchChats(query) } }.getOrDefault(emptyList())
             }
             // Groups sit among the chats by when they were last active, pinned ones with the pinned chats.
-            val visibleGroups = if (bubble) emptyList()
-                else groups.filter { it.name.contains(historyQuery, ignoreCase = true) }
+            val visibleGroups = groups.filter { it.name.contains(historyQuery, ignoreCase = true) }
             val rows: List<Any> = run {
                 val all: List<Any> = (visibleChats + visibleGroups).sortedByDescending {
                     if (it is Group) it.updatedAt else (it as Conversation).lastActive
@@ -670,8 +669,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             }
         }
     }) {
-        val group = openGroup.takeIf { !bubble }
-        if (group != null) GroupChatPane(repository, group, onMenu = { drawerOpen = true }, onInfo = { screen = Screen.GroupInfo },
+        val group = openGroup
+        // The bubble has no room for the group screen, so its info opens the app.
+        if (group != null) GroupChatPane(repository, group, onMenu = { drawerOpen = true }, onInfo = { if (bubble) onExpand() else screen = Screen.GroupInfo },
             onInvite = { inviting = it }, onGone = { openGroup = null },
             onNewChat = { startNewChat() }, onPrevious = { openGroup = null })
         else Scaffold(containerColor = Ink, topBar = {

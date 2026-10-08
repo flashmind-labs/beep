@@ -1,10 +1,12 @@
-//! Group chats: members post, and a message that mentions @beep starts a
-//! run that answers in the group. The run reads every member's memories,
-//! and its reply passes the leak gate before anyone sees it.
+//! Group chats: members post, and a message that mentions @beep, or that
+//! Jev judges Beep can help with, starts a run that answers in the group.
+//! The run reads every member's memories, and its reply passes the leak gate
+//! before anyone sees it.
 
 use super::{App, UserNotice, run::register_web_tools};
 use crate::{
     apps::markdown,
+    decision::Criteria,
     leak::{Gate, Said, Secret},
     memories::profile_facts,
     permissions::{self, Approved, Rules},
@@ -40,6 +42,20 @@ const FAILED: &str = "Sorry, I couldn't answer that just now. Try again in a bit
 /// What Beep posts when an app call needs the sender's approval.
 const NEEDS_APPROVAL: &str =
     "That needs your OK first. Ask me in our own chat and you can approve it there.";
+
+/// How long Beep waits after a message without @beep, so a sender who
+/// writes in bursts finishes first.
+const SETTLE: Duration = Duration::from_secs(3);
+/// Messages Jev reads to judge whether Beep should answer.
+const CALL_CONTEXT: i64 = 15;
+/// How sure Jev must be before Beep answers without being mentioned.
+const CALL_THRESHOLD: f64 = 0.8;
+const CALL_QUESTION: &str =
+    "Nobody wrote @beep. Should Beep, the group's assistant, answer the latest message on its own?";
+const CALL_CRITERIA: Criteria = Criteria {
+    yes: "The latest message asks Beep, or asks the group something Beep can answer or do now: where to eat or stay, opening hours, how to get somewhere, prices, weather, a fact, a plan or a list; or it follows up on what Beep just said.",
+    no: "People talking to each other: greetings, jokes, news, feelings, a question only another member can answer (their plans, opinions or whereabouts), a reply to another member, thanks, or something already answered.",
+};
 
 /// Whether `text` calls Beep.
 pub(crate) fn mentions_beep(text: &str) -> bool {
@@ -97,6 +113,26 @@ impl Drop for Typing {
 }
 
 /// A message as notices and the model show it.
+/// What Jev reads to judge the last of `history`: the group and its recent messages.
+fn call_state(joined: &JoinedGroup, history: &[MessageRow]) -> String {
+    let names: Vec<&str> = joined.members.iter().map(|m| m.name.as_str()).collect();
+    let mut state = format!(
+        "Group chat \"{}\" with {} and Beep, an assistant that searches the web and knows \
+         the members.\n\nMessages, oldest first:",
+        joined.group.name,
+        names.join(", ")
+    );
+    for (i, row) in history.iter().enumerate() {
+        let latest = if i + 1 == history.len() {
+            " (latest)"
+        } else {
+            ""
+        };
+        let _ = write!(state, "\n{}{latest}: {}", row.author_name, row.content);
+    }
+    state
+}
+
 fn said(name: &str, text: &str) -> String {
     format!("{name}: {text}")
 }
@@ -217,44 +253,83 @@ impl App {
             Some(user.id()),
             &said(&posted.message.author_name, text),
         );
-        if mentions_beep(text) && self.start_typing(group_id) {
-            self.group_changed(&joined.members, group_id);
-            let typing = Typing {
-                app: self.clone(),
-                group_id: group_id.to_owned(),
-            };
-            let app = self.clone();
-            let actor = user.clone();
-            let mention = posted.message.seq;
-            tokio::spawn(async move {
-                let group_id = joined.group.id.clone();
-                let reply = match app.answer_group(&actor, &joined, mention).await {
-                    Ok(reply) => reply,
-                    Err(error) => {
-                        log::warn!("group run failed; group={group_id}: {error:#}");
-                        FAILED.to_owned()
-                    }
-                };
-                let posted = app.store.post_beep(&group_id, &reply).await;
-                drop(typing);
-                // Someone may have left or joined during the run.
-                let members = match app.store.group_members(&group_id).await {
-                    Ok(members) => members,
-                    Err(error) => {
-                        log::warn!("unable to load members; group={group_id}: {error:#}");
-                        return;
-                    }
-                };
-                match posted {
-                    Ok(_) => app.group_notice(&members, &joined, None, &said("Beep", &reply)),
-                    Err(error) => {
-                        log::warn!("unable to post Beep's reply; group={group_id}: {error:#}");
-                        app.group_changed(&members, &group_id);
-                    }
-                }
-            });
+        let mentioned = mentions_beep(text);
+        if !mentioned && self.decision().is_none() {
+            return Ok(Some(message));
         }
+        let app = self.clone();
+        let actor = user.clone();
+        let mention = posted.message.seq;
+        tokio::spawn(async move {
+            let group_id = joined.group.id.clone();
+            if !mentioned && !app.called_without_mention(&joined, mention).await {
+                return;
+            }
+            if !app.start_typing(&group_id) {
+                return;
+            }
+            app.group_changed(&joined.members, &group_id);
+            let typing = Typing {
+                app: app.clone(),
+                group_id: group_id.clone(),
+            };
+            let reply = match app.answer_group(&actor, &joined, mention).await {
+                Ok(reply) => reply,
+                Err(error) => {
+                    log::warn!("group run failed; group={group_id}: {error:#}");
+                    FAILED.to_owned()
+                }
+            };
+            let posted = app.store.post_beep(&group_id, &reply).await;
+            drop(typing);
+            // Someone may have left or joined during the run.
+            let members = match app.store.group_members(&group_id).await {
+                Ok(members) => members,
+                Err(error) => {
+                    log::warn!("unable to load members; group={group_id}: {error:#}");
+                    return;
+                }
+            };
+            match posted {
+                Ok(_) => app.group_notice(&members, &joined, None, &said("Beep", &reply)),
+                Err(error) => {
+                    log::warn!("unable to post Beep's reply; group={group_id}: {error:#}");
+                    app.group_changed(&members, &group_id);
+                }
+            }
+        });
         Ok(Some(message))
+    }
+
+    /// Whether Beep should answer message `seq`, which does not mention it.
+    /// Waits for the sender to settle first; a newer message gets its own look.
+    async fn called_without_mention(&self, joined: &JoinedGroup, seq: i64) -> bool {
+        let Some(decision) = self.decision() else {
+            return false;
+        };
+        tokio::time::sleep(SETTLE).await;
+        let group_id = &joined.group.id;
+        let history = match self.store.group_messages(group_id, CALL_CONTEXT).await {
+            Ok(history) => history,
+            Err(error) => {
+                log::warn!("unable to load group messages; group={group_id}: {error:#}");
+                return false;
+            }
+        };
+        if history.last().is_none_or(|last| last.seq != seq) {
+            return false;
+        }
+        let state = call_state(joined, &history);
+        match decision
+            .probability_with(&state, CALL_QUESTION, &CALL_CRITERIA)
+            .await
+        {
+            Ok(probability) => probability >= CALL_THRESHOLD,
+            Err(error) => {
+                log::warn!("Jev could not judge a group message; group={group_id}: {error:#}");
+                false
+            }
+        }
     }
 
     /// Runs Beep for `actor` on the group's messages up to `mention`, the
@@ -461,6 +536,44 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::GroupRow;
+
+    #[test]
+    fn jev_reads_the_group_and_marks_the_latest_message() {
+        let at = DateTime::<Utc>::UNIX_EPOCH;
+        let member = |name: &str| MemberRow {
+            user_id: name.to_lowercase(),
+            name: name.into(),
+            creator: false,
+            joined_at: at,
+            pinned: false,
+        };
+        let row = |seq, author: &str, content: &str| MessageRow {
+            seq,
+            author_id: Some(author.to_lowercase()),
+            author_name: author.into(),
+            content: content.into(),
+            sent_at: at,
+        };
+        let joined = JoinedGroup {
+            group: GroupRow {
+                id: "g1".into(),
+                name: "Tokyo trip".into(),
+                updated_at: at,
+            },
+            members: vec![member("Dani"), member("Sam")],
+            last: None,
+        };
+        let state = call_state(
+            &joined,
+            &[
+                row(1, "Sam", "Landed!"),
+                row(2, "Dani", "Where should we eat?"),
+            ],
+        );
+        assert!(state.starts_with("Group chat \"Tokyo trip\" with Dani, Sam and Beep"));
+        assert!(state.ends_with("\nSam: Landed!\nDani (latest): Where should we eat?"));
+    }
 
     #[test]
     fn only_a_whole_mention_calls_beep() {
