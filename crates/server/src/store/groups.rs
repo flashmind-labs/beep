@@ -23,6 +23,8 @@ pub struct MemberRow {
     pub joined_at: DateTime<Utc>,
     /// Pinned to the top of this member's list.
     pub pinned: bool,
+    /// Beep may use this member's apps when someone else asks.
+    pub shares_apps: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -196,7 +198,7 @@ impl Store {
     /// Who is in group `id`, oldest first.
     pub(crate) async fn group_members(&self, id: &str) -> Result<Vec<MemberRow>> {
         let rows = sqlx::query(
-            "SELECT user_id, name, creator, joined_at, pinned FROM group_members
+            "SELECT user_id, name, creator, joined_at, pinned, shares_apps FROM group_members
              WHERE group_id = $1 ORDER BY joined_at, user_id",
         )
         .bind(id)
@@ -210,6 +212,7 @@ impl Store {
                     creator: row.try_get(2)?,
                     joined_at: row.try_get(3)?,
                     pinned: row.try_get(4)?,
+                    shares_apps: row.try_get(5)?,
                 })
             })
             .collect()
@@ -374,6 +377,26 @@ impl Store {
         .bind(id)
         .bind(user.as_str())
         .bind(pinned)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(changed > 0)
+    }
+
+    /// Lets Beep use `user`'s apps in group `id` when others ask, or stops it.
+    /// `false` when they are not in it.
+    pub(crate) async fn share_group_apps(
+        &self,
+        user: &UserKey,
+        id: &str,
+        shared: bool,
+    ) -> Result<bool> {
+        let changed = sqlx::query(
+            "UPDATE group_members SET shares_apps = $3 WHERE group_id = $1 AND user_id = $2",
+        )
+        .bind(id)
+        .bind(user.as_str())
+        .bind(shared)
         .execute(&self.pool)
         .await?
         .rows_affected();
@@ -548,6 +571,11 @@ mod tests {
         let members = store.group_members("g1").await.unwrap();
         let pinned: Vec<bool> = members.iter().map(|member| member.pinned).collect();
         assert_eq!(pinned, [false, true]);
+        assert!(members.iter().all(|member| member.shares_apps));
+        assert!(store.share_group_apps(&bob, "g1", false).await.unwrap());
+        let members = store.group_members("g1").await.unwrap();
+        let shared: Vec<bool> = members.iter().map(|member| member.shares_apps).collect();
+        assert_eq!(shared, [true, false]);
         assert!(
             !store
                 .pin_group(&UserKey::for_test("carol"), "g1", true)

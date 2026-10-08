@@ -269,6 +269,13 @@ requests! {
     64 LeaveGroup { id: String } => Call<()>
     /// Pins a group to the top of the caller's list, as `PinSession` does a chat.
     65 PinGroup { id: String, pinned: bool } => Call<()>
+    /// Lets Beep use the caller's apps in a group when other members ask, or
+    /// stops it. Their own asks always may.
+    66 ShareGroupApps { id: String, shared: bool } => Call<()>
+    /// Answers an app action Beep asked to take for the caller from a group,
+    /// sent as a `Notice` with `group` set. Allowing runs it, and Beep tells
+    /// the group how it went.
+    67 AnswerGroupApproval { query_id: String, allow: bool } => Call<()>
 }
 
 /// The link prefix a shared session's token follows.
@@ -876,6 +883,13 @@ pub struct Group {
     /// Pinned to the top of the caller's list.
     #[serde(default)]
     pub pinned: bool,
+    /// Beep may use the caller's apps here when other members ask.
+    #[serde(default = "shared_by_default")]
+    pub apps_shared: bool,
+}
+
+fn shared_by_default() -> bool {
+    true
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]

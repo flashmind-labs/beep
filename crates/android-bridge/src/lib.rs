@@ -6,7 +6,7 @@
 //! the server dials the endpoint to deliver notices.
 
 use beep_proto::{
-    AnswerApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
+    AnswerApproval, AnswerGroupApproval, ApiError, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
     Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare, CreateCron, CreateGroup, Cron,
     DeleteCron, DeleteMemory, DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom,
     DeviceAnswer, DeviceResult, DisconnectApp, Event, ExistingSessions, FinishAppAuth,
@@ -16,7 +16,7 @@ use beep_proto::{
     ListMemories, ListSessions, Memory, Models, Notice, PeekGroup, PermissionLevel, PinGroup,
     PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession,
     Run, RunCron, SearchSessions, SendToGroup, Session, SessionMatch, SetAppPermissions,
-    SetAutoModel, SetModel, SetThinking, SetTimezone, ShareSession, SharedLink, SharedSession,
+    SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession,
     StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron,
     UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
@@ -500,6 +500,19 @@ impl BeepClient {
 
     pub async fn pin_group(&self, id: String, pinned: bool) -> Result<(), BeepError> {
         self.call(PinGroup { id, pinned }).await
+    }
+
+    pub async fn share_group_apps(&self, id: String, shared: bool) -> Result<(), BeepError> {
+        self.call(ShareGroupApps { id, shared }).await
+    }
+
+    /// Allows or denies an app action Beep asked to take for the user from a group.
+    pub async fn answer_group_approval(
+        &self,
+        query_id: String,
+        allow: bool,
+    ) -> Result<(), BeepError> {
+        self.call(AnswerGroupApproval { query_id, allow }).await
     }
 
     pub async fn leave_group(&self, id: String) -> Result<(), BeepError> {

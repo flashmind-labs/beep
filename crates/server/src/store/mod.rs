@@ -157,6 +157,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "group pins",
         include_str!("../../migrations/0023_group_pins.sql"),
     ),
+    (
+        24,
+        "group shared apps",
+        include_str!("../../migrations/0024_group_shared_apps.sql"),
+    ),
 ];
 
 fn migrator() -> Migrator {

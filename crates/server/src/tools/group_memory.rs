@@ -1,7 +1,7 @@
 //! Memory tools for a group chat. Beep reads every member's memories, but
 //! each hit is recorded as a secret so the leak gate can check the reply
-//! against it. Facts are stored only for the member who asked, since the
-//! others did not.
+//! against it. Facts can be stored for any member, such as a plan the group
+//! made, and default to the member who asked.
 
 use super::memory::{arg, date, fact_schema, opt_arg, reply};
 use crate::{
@@ -44,18 +44,22 @@ struct GroupRecallTool {
 }
 
 struct GroupStoreTool {
+    members: Arc<[Member]>,
     actor: Member,
 }
 
-/// Registers recall across `members` and store for `actor`, who asked.
+/// Registers recall and store across `members`; `actor` asked.
 pub fn register(
     registry: &mut ToolRegistry,
     members: Arc<[Member]>,
     actor: Member,
     secrets: Secrets,
 ) {
-    registry.register(Arc::new(GroupRecallTool { members, secrets }));
-    registry.register(Arc::new(GroupStoreTool { actor }));
+    registry.register(Arc::new(GroupRecallTool {
+        members: members.clone(),
+        secrets,
+    }));
+    registry.register(Arc::new(GroupStoreTool { members, actor }));
 }
 
 fn names(members: &[Member]) -> Vec<&str> {
@@ -118,13 +122,27 @@ impl Tool for GroupStoreTool {
         "memory_store"
     }
     fn description(&self) -> &str {
-        "Remember a fact about the member who asked you, only when they said it in the chat or asked you to. One short self-contained sentence that names them. Never store anything about other members, and never secrets."
+        "Remember a fact about a member: something they said in the chat, a plan the group agreed that involves them, or what they asked you to remember. One short self-contained sentence that names them. Store a shared plan once per member it involves. `about` defaults to the member who asked. Never store secrets, or guesses about someone."
     }
     fn parameters(&self) -> Value {
-        fact_schema(&["content"], json!({}))
+        fact_schema(
+            &["content"],
+            json!({"about":{"type":"string","enum":names(&self.members),"description":"Whose memory this is. Defaults to the member who asked."}}),
+        )
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let member = &self.actor;
+        let member = match opt_arg(&ctx.args, "about") {
+            Some(name) => match self.members.iter().find(|m| m.name == name) {
+                Some(member) => member,
+                None => {
+                    return Ok(ToolResult::failure(
+                        ctx.tool_call_id,
+                        format!("No member is called {name}."),
+                    ));
+                }
+            },
+            None => &self.actor,
+        };
         let content = arg(&ctx.args, "content")?;
         let valid = Validity {
             from: date(&ctx.args, "valid_from")?,
