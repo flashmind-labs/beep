@@ -361,6 +361,8 @@ struct MarkdownText: View {
                         .background(RoundedRectangle(cornerRadius: 10).fill(Mint.tints[1]))
                 case .table(let table):
                     tableView(table)
+                case .rule:
+                    Rectangle().fill(Mint.soft).frame(height: 1).padding(.vertical, 6)
                 case .paragraph(let line):
                     inline(line)
                 }
@@ -373,7 +375,7 @@ struct MarkdownText: View {
     }
 
     private enum Block {
-        case paragraph(String), bullet(String), heading(String), code(String), table(Table)
+        case paragraph(String), bullet(String), heading(String), code(String), table(Table), rule
     }
 
     private struct Table {
@@ -464,7 +466,9 @@ struct MarkdownText: View {
                 continue
             }
             if line.isEmpty { continue }
-            if line.hasPrefix("- ") || line.hasPrefix("* ") {
+            if line.count >= 3, let mark = line.first, "-*_".contains(mark), line.allSatisfy({ $0 == mark }) {
+                out.append(.rule)
+            } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
                 out.append(.bullet(String(line.dropFirst(2))))
             } else if line.hasPrefix("#") {
                 out.append(.heading(line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)))
