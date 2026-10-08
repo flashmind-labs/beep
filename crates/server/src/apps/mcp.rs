@@ -132,24 +132,33 @@ pub(crate) fn lost_login(error: &anyhow::Error) -> bool {
 
 /// The Fastmail tools the agent gets, each as its own tool with a flat schema.
 /// Weaker models leave out the nested `params` a generic `mcp` tool needs. The
-/// rest are left out: the event and note deletes and `compose_event` only stage
-/// a widget in Fastmail's own UI, and the prompt stays smaller.
+/// rest are left out to keep the prompt smaller: `compose_event` only stages a
+/// widget in Fastmail's own UI, and Beep keeps its own notes as memories.
 /// Whether each acts decides if it falls under the app's permission level;
-/// events act because Fastmail mails the invites.
+/// events act because Fastmail mails the invites. Drafts and uploads stay in
+/// the account, so they do not act.
 pub(crate) const FASTMAIL_TOOLS: &[(&str, Acts)] = &[
     ("search_email", Acts::Never),
     ("read_email", Acts::Never),
     ("read_thread", Acts::Never),
+    ("read_attachment", Acts::Never),
+    ("list_folders", Acts::Never),
+    ("draft_email", Acts::Never),
+    ("upload_attachment", Acts::Never),
     ("send_email", Acts::Always),
     ("list_identities", Acts::Never),
     ("update_email", Acts::WhenMoving),
     ("archive_email", Acts::Always),
     ("delete_email", Acts::Always),
+    ("list_calendars", Acts::Never),
     ("search_events", Acts::Never),
     ("create_event", Acts::Always),
     ("update_event", Acts::Always),
+    ("delete_event", Acts::Always),
     ("rsvp_event", Acts::Always),
     ("search_contacts", Acts::Never),
+    ("create_contact", Acts::Always),
+    ("update_contact", Acts::Always),
     ("delete_contact", Acts::Always),
 ];
 
