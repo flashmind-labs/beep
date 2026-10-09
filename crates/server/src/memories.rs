@@ -453,7 +453,8 @@ of a Beep group chat, called the user here. You get the latest stretch of the ch
 marked. Only the last message is new; the ones before it are context and were read already. Decide what the last \
 message teaches about the user that is worth remembering, whether the user says it or another member says it about \
 them, like a friend saying the user cannot eat soy. Plans the user takes part in count, like a trip the group is \
-taking. Most group chat teaches nothing lasting about the user, such as jokes, greetings, Beep's suggestions, or \
+taking. When the last message asks Beep to remember, like \"remember that\" or \"recuérdanoslo\", the earlier messages \
+it points to are what to learn from. Most group chat teaches nothing lasting about the user, such as jokes, greetings, Beep's suggestions, or \
 facts about other members; then reply {\"ops\": []}.";
 
 /// How the learner judges and answers, whatever it reads.
