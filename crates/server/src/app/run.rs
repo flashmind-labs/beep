@@ -507,9 +507,10 @@ impl App {
                     .to_string(),
                 )
             });
+            let kind = followups::Kind::of(&exchange.latest.reply);
             let follow_up = async {
                 let (decision, state) = follow_up?;
-                followups::write(decision, generator, state).await
+                followups::write(decision, generator, state, kind).await
             };
             let learning = async {
                 let known = user

@@ -7,6 +7,8 @@ use serde::Serialize;
 const MAX_REPLY_CHARS: usize = 50;
 const MIN_REPLIES: usize = 2;
 const MAX_REPLIES: usize = 3;
+/// A question can name a few more options than a follow-up row holds.
+const MAX_CHOICES: usize = 4;
 pub(crate) const NAME: &str = "suggest_replies";
 pub(crate) const SUGGESTING: &str = "Suggesting replies";
 
@@ -15,8 +17,8 @@ pub(crate) const SUGGESTING: &str = "Suggesting replies";
 struct Suggestions {
     #[serde(rename = "type")]
     card: &'static str,
-    /// Always `replies`; phones also know `choice`, from when the model
-    /// offered options itself.
+    /// `replies` for follow-ups, `choice` for answers to a question the
+    /// reply asked, which phones draw as full-width buttons.
     kind: &'static str,
     replies: Vec<String>,
 }
@@ -28,8 +30,8 @@ fn fit(text: &str, max: usize) -> Option<String> {
     (!text.is_empty() && text.chars().count() <= max).then_some(text)
 }
 
-/// `replies` that fit, without duplicates, at most three.
-fn suggestions(replies: Vec<String>) -> Option<Suggestions> {
+/// `replies` that fit, without duplicates, at most `max`.
+fn suggestions(replies: Vec<String>, kind: &'static str, max: usize) -> Option<Suggestions> {
     let mut kept: Vec<String> = Vec::new();
     for reply in &replies {
         let Some(reply) = fit(reply, MAX_REPLY_CHARS) else {
@@ -39,17 +41,23 @@ fn suggestions(replies: Vec<String>) -> Option<Suggestions> {
             kept.push(reply);
         }
     }
-    kept.truncate(MAX_REPLIES);
+    kept.truncate(max);
     (kept.len() >= MIN_REPLIES).then_some(Suggestions {
         card: "suggestions",
-        kind: "replies",
+        kind,
         replies: kept,
     })
 }
 
 /// The tool result for `replies`, or `None` when fewer than two are usable.
 pub(crate) fn replies_output(replies: Vec<String>) -> Option<String> {
-    serde_json::to_string(&suggestions(replies)?).ok()
+    serde_json::to_string(&suggestions(replies, "replies", MAX_REPLIES)?).ok()
+}
+
+/// The tool result for answers to the reply's question, or `None` when fewer
+/// than two are usable.
+pub(crate) fn choice_output(answers: Vec<String>) -> Option<String> {
+    serde_json::to_string(&suggestions(answers, "choice", MAX_CHOICES)?).ok()
 }
 
 #[cfg(test)]
@@ -84,5 +92,15 @@ mod tests {
         );
         assert!(output(&[long, "Not now"]).is_none());
         assert!(output(&["Only one"]).is_none());
+    }
+
+    #[test]
+    fn choices_hold_four() {
+        let answers = ["a", "b", "c", "d", "e"].map(String::from).to_vec();
+        let out: Value = serde_json::from_str(&choice_output(answers).unwrap()).unwrap();
+        assert_eq!(
+            out,
+            json!({"type": "suggestions", "kind": "choice", "replies": ["a", "b", "c", "d"]})
+        );
     }
 }

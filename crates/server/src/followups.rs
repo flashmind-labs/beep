@@ -1,11 +1,12 @@
 //! Follow-up replies shown under the assistant's reply. Jev decides
 //! whether the reply invites one, then one plain completion writes them as a
-//! Markdown list, one follow-up per line.
+//! Markdown list, one follow-up per line. A reply that ends on a question
+//! skips Jev and gets the likely answers instead, shown as a choice.
 use crate::{
     decision::{Criteria, DecisionTool},
     memories::{Turn, clip},
     starters::{Generator, list_items},
-    tools::replies_output,
+    tools::{choice_output, replies_output},
 };
 use chrono::{DateTime, Duration, Utc};
 use flashmind::core::{Conversation, EntryKind};
@@ -43,6 +44,45 @@ something later today or on a date, a reminder before it is often the best one.
 Never suggest a question that the reply, the tool results or the context already answer, an \
 action the assistant cannot do, or a topic from an earlier turn. A follow-up that would fit any \
 reply is a bad one.";
+
+const ANSWERS_SYSTEM: &str = "You write the answers to an assistant's question, shown as \
+buttons the user taps instead of typing. Answer with a Markdown list of 2 to 4 items, one per \
+line starting with \"- \", and nothing else. Each item is the user's whole reply, in the \
+user's language, at most 40 characters, no quotes.
+
+You read what the assistant knew (time, place, connected apps, what it remembers), the latest \
+exchange, and what its tools returned. Answer the question the reply ends on:
+- when it names options, one item per option, named so the assistant can tell them apart.
+- when it asks for a time or a date, the likeliest concrete ones given the context, like \
+\"Tomorrow 9am\" or \"Tonight at 8\".
+- when it asks yes or no, the yes and the no, each with a few words if that helps.
+
+When the question has no short likely answers, like a name, an address or a free-form \
+description, or the reply does not ask the user anything, answer with nothing.";
+
+/// What goes under a reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// Things to ask or do next, when Jev thinks the reply invites them.
+    FollowUps,
+    /// Answers to the question the reply ends on.
+    Answers,
+}
+
+impl Kind {
+    /// `Answers` when the last paragraph of `reply` asks something.
+    pub fn of(reply: &str) -> Self {
+        let last = reply.trim().rsplit("\n\n").next().unwrap_or_default();
+        // A `?` inside a link is not a question.
+        let asks = last.match_indices('?').any(|(at, _)| {
+            last[at + 1..]
+                .chars()
+                .next()
+                .is_none_or(|c| c.is_whitespace() || matches!(c, '"' | ')' | '*' | '_' | '”'))
+        });
+        if asks { Self::Answers } else { Self::FollowUps }
+    }
+}
 
 /// What Jev and the writer read about the turn.
 pub struct Input<'a> {
@@ -155,11 +195,23 @@ pub async fn write(
     decision: &DecisionTool,
     generator: Generator<'_>,
     state: String,
+    kind: Kind,
 ) -> Option<String> {
-    if score(decision, &state).await? < THRESHOLD {
-        return None;
+    match kind {
+        Kind::Answers => {
+            let output = choice_output(items(generator, ANSWERS_SYSTEM, state).await?);
+            if output.is_none() {
+                log::info!("no short answers to the reply's question");
+            }
+            output
+        }
+        Kind::FollowUps => {
+            if score(decision, &state).await? < THRESHOLD {
+                return None;
+            }
+            draft(generator, state).await
+        }
     }
-    draft(generator, state).await
 }
 
 /// Jev's estimate that the turn calls for follow-ups.
@@ -179,22 +231,27 @@ pub async fn score(decision: &DecisionTool, state: &str) -> Option<f64> {
 /// The follow-ups for `state` as a `suggest_replies` result, whatever Jev
 /// thinks of the turn.
 pub async fn draft(generator: Generator<'_>, state: String) -> Option<String> {
-    let answer = match generator.text(SYSTEM, state).await {
+    let output = replies_output(items(generator, SYSTEM, state).await?);
+    if output.is_none() {
+        log::warn!("fewer than two usable follow-ups");
+    }
+    output
+}
+
+/// The list items `generator` writes for `state` under `system`, unquoted.
+async fn items(generator: Generator<'_>, system: &str, state: String) -> Option<Vec<String>> {
+    let answer = match generator.text(system, state).await {
         Ok(answer) => answer,
         Err(error) => {
             log::warn!("unable to write follow-ups: {error}");
             return None;
         }
     };
-    let replies = list_items(&answer)
+    let items = list_items(&answer)
         .into_iter()
         .map(|item| item.trim_matches(['"', '\'', '“', '”']).trim().to_owned())
         .collect();
-    let output = replies_output(replies);
-    if output.is_none() {
-        log::warn!("fewer than two usable follow-ups");
-    }
-    output
+    Some(items)
 }
 
 #[cfg(test)]
@@ -261,6 +318,21 @@ mod tests {
         assert_eq!(input.results[0].tool, "outlook_get_calendar_view");
         assert_eq!(input.results[0].output, "Room 12");
         assert!(input.to_string().contains("What its tools returned:"));
+    }
+
+    #[test]
+    fn a_reply_ending_on_a_question_gets_answers() {
+        assert_eq!(
+            Kind::of("Sure.\n\nWhat time should I remind you? Say \"tomorrow 9am\"."),
+            Kind::Answers
+        );
+        assert_eq!(Kind::of("Want me to book it?"), Kind::Answers);
+        assert_eq!(Kind::of("**Lunch or dinner?**"), Kind::Answers);
+        assert_eq!(Kind::of("Which one?\n\nIt opens at nine."), Kind::FollowUps);
+        assert_eq!(
+            Kind::of("Here it is: https://example.com/search?q=beep"),
+            Kind::FollowUps
+        );
     }
 
     #[test]
