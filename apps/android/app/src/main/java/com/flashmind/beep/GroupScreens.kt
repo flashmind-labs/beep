@@ -476,22 +476,22 @@ internal fun GroupInviteSheet(repository: ChatRepository, groupId: String, group
                 ChunkyButton(onClick = {
                     (context as? MainActivity)?.suppressNextClipboard = true
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Beep group code", code))
-                    Toast.makeText(context, "Code copied", Toast.LENGTH_SHORT).show()
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Beep group link", link?.url))
+                    Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
                 }, enabled = code != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp)) {
-                    Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)); Text("Copy", fontWeight = FontWeight.SemiBold)
+                    Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)); Text("Copy link", fontWeight = FontWeight.SemiBold)
                 }
                 ChunkyButton(onClick = {
-                    val text = "Join $groupName on Beep with the code $code\n" +
-                        "Open Beep, start a new group and tap Join with a code."
+                    val text = "Join $groupName on Beep: ${link?.url}\n" +
+                        "Or open Beep, start a new group, tap Join with a code and enter $code."
                     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), null))
                 }, enabled = code != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp),
                     color = Beep.colors.accent, contentColor = Beep.colors.onAccent) {
-                    Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Text("Send", fontWeight = FontWeight.SemiBold)
+                    Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Text("Send link", fontWeight = FontWeight.SemiBold)
                 }
             }
             Text((if (reset) "New code made. The old one no longer works. " else "") +
-                "People scan it, or enter the code under New group, Join with a code, and see the whole chat. Beep uses what it knows about each of you " +
+                "People open the link or scan the code, or enter the code under New group, Join with a code, and see the whole chat. Beep uses what it knows about each of you " +
                 "to help, but never shows one person's memories to the others.",
                 fontSize = 12.sp, lineHeight = 18.sp, color = Beep.colors.muted)
             Row(verticalAlignment = Alignment.CenterVertically) {
