@@ -1,6 +1,9 @@
-//! Summarizes the older turns of long sessions once they go quiet, so later
-//! turns send less history. Only the model's context is compacted; the
-//! transcript the phone shows keeps every message.
+//! Shrinks the model's context of long sessions, so later turns send less
+//! history. Right after a turn whose prompt reached `compact_at`, and again
+//! for any session left over it once it goes quiet, old tool output is
+//! dropped first; if that is not enough, the older turns are summarized.
+//! Only the model's context is compacted; the transcript the phone shows
+//! keeps every message.
 
 use crate::{
     app::App,
@@ -8,20 +11,26 @@ use crate::{
     store::{SessionRef, Store},
 };
 use anyhow::Result;
-use flashmind::types::{LlmProvider, Model};
+use flashmind::{
+    core::{Conversation, EntryKind},
+    types::{LlmProvider, Model},
+};
 use std::{sync::Arc, time::Duration};
 
-/// A session is compacted only when its last prompt reached `compact_at`
-/// tokens and nobody has used it for this long.
+/// The sweep compacts a session over `compact_at` that nobody has used for
+/// this long, in case compacting right after its turn lost to a newer run.
 pub const IDLE_BEFORE_COMPACT: Duration = Duration::from_secs(15 * 60);
-/// Limit for models with a context window of at least `LARGE_WINDOW`.
-const LARGE_WINDOW: u32 = 1_000_000;
-const LARGE_LIMIT: u32 = 300_000;
-const LIMIT: u32 = 200_000;
+/// Prompt size that triggers compaction. Past it models lose the thread and
+/// every turn costs more, whatever their window.
+const LIMIT: u32 = 250_000;
 /// Assumed window when the provider does not report one, as flashmind does.
 const DEFAULT_WINDOW: u32 = 128_000;
-/// Recent history kept verbatim after the summary.
-const KEEP_RECENT_TOKENS: u32 = 8_000;
+/// Recent history kept verbatim, tool output included.
+const KEEP_RECENT_TOKENS: u32 = 20_000;
+/// Older tool output longer than this is replaced by a short stub.
+const TRIM_OVER_CHARS: usize = 2000;
+/// Rough size of a token, to tell whether trimming was enough.
+const CHARS_PER_TOKEN: usize = 3;
 const SWEEP_EVERY: Duration = Duration::from_secs(60);
 
 /// Checks for sessions to compact every minute.
@@ -41,16 +50,10 @@ pub struct Summarizer<'a> {
     pub model: &'a Model,
 }
 
-/// Token limit for a model's context window: 300k from a 1M window up,
-/// otherwise 200k, or 80% of a smaller window so the summary runs before the
-/// window fills mid-turn.
+/// Token limit for a model's context window: 250k, or 80% of a smaller
+/// window so the summary runs before the window fills mid-turn.
 pub fn compact_at(window: Option<u32>) -> u32 {
-    let window = window.unwrap_or(DEFAULT_WINDOW);
-    if window >= LARGE_WINDOW {
-        LARGE_LIMIT
-    } else {
-        LIMIT.min(window / 5 * 4)
-    }
+    LIMIT.min(window.unwrap_or(DEFAULT_WINDOW) / 5 * 4)
 }
 
 /// Compacts every session that is both idle and over `limit` tokens, the
@@ -64,16 +67,31 @@ pub async fn compact_idle(store: &Store, summarizer: Summarizer<'_>, limit: u32)
         }
     };
     for session in sessions {
-        match compact(store, &summarizer, &session).await {
-            Ok(true) => log::info!("session compacted; session={}", session.id),
-            Ok(false) => {}
-            Err(error) => log::warn!("compaction failed: {error}; session={}", session.id),
-        }
+        compact_session(store, &summarizer, &session, limit).await;
+    }
+}
+
+/// Compacts one session and logs how it went.
+pub async fn compact_session(
+    store: &Store,
+    summarizer: &Summarizer<'_>,
+    session: &SessionRef,
+    limit: u32,
+) {
+    match compact(store, summarizer, session, limit).await {
+        Ok(true) => log::info!("session compacted; session={}", session.id),
+        Ok(false) => {}
+        Err(error) => log::warn!("compaction failed: {error}; session={}", session.id),
     }
 }
 
 /// Returns whether the session's context was replaced.
-async fn compact(store: &Store, summarizer: &Summarizer<'_>, session: &SessionRef) -> Result<bool> {
+async fn compact(
+    store: &Store,
+    summarizer: &Summarizer<'_>,
+    session: &SessionRef,
+    limit: u32,
+) -> Result<bool> {
     let Some(before) = store.session_context(session).await? else {
         return Ok(false);
     };
@@ -82,6 +100,15 @@ async fn compact(store: &Store, summarizer: &Summarizer<'_>, session: &SessionRe
         return Ok(false);
     }
     let mut context = before.conversation.clone();
+    let dropped = trim_tool_output(&mut context, KEEP_RECENT_TOKENS);
+    // Half the limit, so the next turns do not trigger it again right away.
+    if dropped > 0 && estimated_tokens(&context) < limit / 2 {
+        log::debug!(
+            "compaction: dropped {dropped} chars of tool output; session={}",
+            session.id
+        );
+        return store.save_compacted(session, &before, &context).await;
+    }
     let summary = metering::billed_to(
         &session.user,
         context.compact_with_llm_keeping_tokens(
@@ -101,6 +128,41 @@ async fn compact(store: &Store, summarizer: &Summarizer<'_>, session: &SessionRe
     }
     // A run that started meanwhile changed the context; the next idle sweep retries.
     store.save_compacted(session, &before, &context).await
+}
+
+/// Replaces long tool output older than the last `keep_recent_tokens` with a
+/// stub saying how much was there. The calls and the replies that used them
+/// stay. Returns the characters dropped.
+fn trim_tool_output(conversation: &mut Conversation, keep_recent_tokens: u32) -> usize {
+    let keep_chars = keep_recent_tokens as usize * CHARS_PER_TOKEN;
+    let mut seen = 0;
+    let mut dropped = 0;
+    for entry in conversation.entries_mut().iter_mut().rev() {
+        let recent = seen < keep_chars;
+        seen += entry.content().len();
+        if recent {
+            continue;
+        }
+        if let EntryKind::Tool { output, .. } = &mut entry.kind
+            && output.len() > TRIM_OVER_CHARS
+        {
+            dropped += output.len();
+            *output = format!(
+                "[{} KB of tool output dropped to save room. Call the tool again if it is needed.]",
+                output.len().div_ceil(1024)
+            );
+        }
+    }
+    dropped
+}
+
+fn estimated_tokens(conversation: &Conversation) -> u32 {
+    let chars: usize = conversation
+        .entries()
+        .iter()
+        .map(|entry| entry.content().len())
+        .sum();
+    u32::try_from(chars / CHARS_PER_TOKEN).unwrap_or(u32::MAX)
 }
 
 #[cfg(test)]
@@ -137,7 +199,7 @@ mod tests {
         for turn in 0..4 {
             chat.add(ConversationEntry::user(format!(
                 "turn {turn} {}",
-                "x".repeat(9_000)
+                "x".repeat(25_000)
             )));
             chat.add(ConversationEntry::assistant(format!("reply {turn}")));
         }
@@ -177,11 +239,29 @@ mod tests {
     }
 
     #[test]
+    fn old_tool_output_is_dropped_and_recent_output_kept() {
+        let mut chat = Conversation::with_system("system");
+        chat.add(ConversationEntry::user("Find the bank emails"));
+        chat.add(ConversationEntry::tool("old", "x".repeat(300_000)));
+        chat.add(ConversationEntry::tool("small", "ok"));
+        chat.add(ConversationEntry::assistant("Found three."));
+        chat.add(ConversationEntry::user("And the newest?"));
+        chat.add(ConversationEntry::tool("new", "y".repeat(70_000)));
+        let dropped = trim_tool_output(&mut chat, 20_000);
+        assert_eq!(dropped, 300_000);
+        let outputs: Vec<&str> = chat.entries().iter().map(|entry| entry.content()).collect();
+        assert!(outputs[2].starts_with("[293 KB of tool output dropped"));
+        assert_eq!(outputs[3], "ok");
+        assert_eq!(outputs[4], "Found three.");
+        assert_eq!(outputs[6].len(), 70_000);
+        assert!(estimated_tokens(&chat) < 25_000);
+    }
+
+    #[test]
     fn limit_follows_the_context_window() {
-        assert_eq!(compact_at(Some(2_000_000)), 300_000);
-        assert_eq!(compact_at(Some(1_000_000)), 300_000);
-        assert_eq!(compact_at(Some(400_000)), 200_000);
+        assert_eq!(compact_at(Some(1_000_000)), 250_000);
         assert_eq!(compact_at(Some(200_000)), 160_000);
+        assert_eq!(compact_at(Some(128_000)), 102_400);
         assert_eq!(compact_at(None), 102_400);
     }
 

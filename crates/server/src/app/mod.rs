@@ -250,6 +250,16 @@ impl App {
             .cloned()
     }
 
+    /// Every user started so far.
+    pub fn users(&self) -> Vec<Arc<User>> {
+        self.users
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect()
+    }
+
     /// The user `endpoint` is, made and started on its first connection.
     /// `None` for a key that was linked and then removed.
     pub async fn sign_in(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Option<SignedIn>> {
@@ -433,6 +443,28 @@ impl App {
             model: self.compaction_model.as_ref().unwrap_or(&self.llm.model),
         };
         compaction::compact_idle(&self.store, summarizer, compaction::compact_at(window)).await;
+    }
+
+    /// Compacts `session` in the background when the last prompt of its turn
+    /// on `model` reached the limit, so the next message starts small.
+    pub(super) fn compact_after_turn(
+        self: &Arc<Self>,
+        session: SessionRef,
+        model: Model,
+        prompt_tokens: u32,
+    ) {
+        let app = self.clone();
+        tokio::spawn(async move {
+            let limit = compaction::compact_at(app.provider.context_window(&model).await);
+            if prompt_tokens < limit {
+                return;
+            }
+            let summarizer = Summarizer {
+                provider: app.provider.as_ref(),
+                model: app.compaction_model.as_ref().unwrap_or(&app.llm.model),
+            };
+            compaction::compact_session(&app.store, &summarizer, &session, limit).await;
+        });
     }
 
     /// Retitles sessions that changed and have gone quiet.

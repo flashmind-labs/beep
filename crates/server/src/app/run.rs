@@ -16,7 +16,7 @@ use crate::{
     repeat::{self, RepeatGuard},
     sandbox,
     starters::Generator,
-    store::{FinishedTurn, RunStatus, TurnModel},
+    store::{FinishedTurn, RunStatus, SessionRef, TurnModel},
     timing::{Output, TurnTimer},
     tools,
     user::User,
@@ -639,6 +639,14 @@ impl App {
             prompt_tokens,
         };
         let updated_at = user.finish(run, Some(turn), status).await?;
+        self.compact_after_turn(
+            SessionRef {
+                user: user.id().to_owned(),
+                id: run.session_id.clone(),
+            },
+            model.clone(),
+            prompt_tokens,
+        );
         log::info!(
             "turn timing; run_id={} status={} model={model} {timer}",
             run.id,
