@@ -42,8 +42,10 @@ desktop-release version:
     git tag -a "desktop-v{{version}}" -m "Beep for macOS {{version}}"
     echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
 
-# Deploy the Cloudflare Worker behind https share and invite links
+# Deploy the Cloudflare Worker behind https share and invite links. Needs
+# CLOUDFLARE_ACCOUNT_ID in .env: the account that holds flashmind.com.
 links-deploy:
+    test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "Set CLOUDFLARE_ACCOUNT_ID in .env"; exit 1; }
     cd deploy/links && npx wrangler deploy
 
 # Format, lint and test the desktop app
