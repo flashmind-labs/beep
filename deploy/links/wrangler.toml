@@ -1,0 +1,9 @@
+# Serves https share and invite links. The host must match LINK_HOST in
+# crates/proto and the App Links host in the Android manifest.
+name = "beep-links"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[[routes]]
+pattern = "beep.flashmind.com"
+custom_domain = true

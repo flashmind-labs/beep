@@ -32,6 +32,16 @@
                 <data android:scheme="beep" android:host="share" />
                 <data android:scheme="beep" android:host="group" />
             </intent-filter>
+            <!-- Share and invite links. The host is LINK_HOST in crates/proto, and
+                 deploy/links serves the assetlinks.json that verifies it. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="beep.flashmind.com" />
+                <data android:pathPrefix="/s/" />
+                <data android:pathPrefix="/g/" />
+            </intent-filter>
         </activity>
         <!-- Launcher icons. AppIcons enables exactly one of these. -->
         <activity-alias android:name=".LauncherBeep" android:targetActivity=".MainActivity"
