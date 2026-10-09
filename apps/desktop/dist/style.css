@@ -122,3 +122,70 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .wait { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg); padding: 6px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border) }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important } }
+
+/* Groups, file cards and chat actions, as in the desktop mock. */
+.dg { display: grid; gap: 2px; max-width: 78%; align-self: flex-start }
+.dg .who { font-size: 11.5px; font-weight: 600; line-height: 16px }
+.dg .b { background: var(--elev); border: 1px solid var(--border); border-radius: 12px 12px 12px 4px; padding: 6px 10px }
+.dg.me { align-self: flex-end } .dg.me .b { background: rgba(59,155,122,.22); border-color: transparent; border-radius: 12px 12px 4px 12px }
+.dg.beep { max-width: none; align-self: stretch } .dg.beep .b { background: none; border: 0; padding: 0 }
+.dg.pending { opacity: .6 }
+.dday { text-align: center; font-size: 11px; color: var(--dim) }
+.dmention { color: var(--emerald); font-weight: 600 }
+.davs { display: inline-flex; flex: none }
+.dav { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: var(--ink); border: 1.5px solid var(--surface); margin-left: -6px }
+.davs .dav:first-child { margin-left: 0 }
+.dhead { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border) }
+.dhead .tt { flex: 1; min-width: 0; display: grid; line-height: 19px }
+.dhead .tt b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dhead .tt small { font-size: 12px; color: var(--muted) }
+.dtyping { display: inline-flex; gap: 3px } .dtyping i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: tdot 1s infinite }
+.dtyping i:nth-child(2) { animation-delay: .15s } .dtyping i:nth-child(3) { animation-delay: .3s }
+.dmlist { flex: none; margin: 0 12px 8px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--elev); display: grid; gap: 1px }
+.dmlist button { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; color: var(--fg); padding: 6px 8px; border-radius: 7px; text-align: left; font-size: 13px }
+.dmlist button[aria-selected="true"] { background: rgba(59,155,122,.28) }
+.dmlist small { color: var(--muted); font-size: 12px; margin-left: auto }
+.dform { display: grid; gap: 12px; padding: 4px 18px 16px }
+.dfield { display: grid; gap: 4px; font-size: 12px; color: var(--muted) }
+.dfield .f { min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-size: 14px; display: flex; align-items: center }
+.dfield.on .f { border-color: var(--emerald) }
+.dfield.err .f { border-color: var(--err) } .dfield.err > span { color: var(--err) }
+.dfield .f.mono { font-family: var(--mono); letter-spacing: .12em; font-size: 15px }
+.dfile { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--elev); max-width: 340px; cursor: pointer; text-align: left; color: var(--fg) }
+.dfile:hover { border-color: #3A4A41 }
+.dfile .ic { width: 34px; height: 34px; border-radius: 8px; background: rgba(240,122,106,.16); color: var(--coral); display: grid; place-items: center; flex: none }
+.dfile .nm { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dfile .sz { font-size: 12px; color: var(--muted) }
+.dfile.gone { opacity: .6; cursor: default }
+.dswitch { width: 30px; height: 18px; border-radius: 9px; background: var(--border); position: relative; border: 0; padding: 0; flex: none }
+.dswitch::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); transition: transform .2s var(--ease) }
+.dswitch[aria-checked="true"] { background: var(--emerald) }
+.dswitch[aria-checked="true"]::after { transform: translateX(12px) }
+.dchat .acts { display: flex; gap: 4px; flex: none }
+.dchat .acts .dbtn { min-height: 22px; padding: 0 7px; font-size: 11.5px }
+.dchat .grp { color: var(--muted); display: grid; flex: none }
+.dchat input { flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--fg); background: var(--surface); border: 1px solid var(--emerald); border-radius: 6px; padding: 2px 6px }
+.dinfo { display: grid; gap: 8px; font-size: 13px; line-height: 19px }
+.dinfo .row { display: flex; gap: 10px; align-items: center }
+.dinfo .row > svg { flex: none; color: var(--muted) }
+@keyframes tdot { 0%,60%,100% { opacity: .3; transform: none } 30% { opacity: 1; transform: translateY(-3px) } }
+.dg .b { white-space: pre-wrap; overflow-wrap: anywhere }
+.dg.beep .b { white-space: normal }
+.dhead .tt { border: 0; background: transparent; color: inherit; text-align: left; padding: 0 }
+.dfield input { min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; outline: 0; caret-color: var(--emerald) }
+.dfield input:focus { border-color: var(--emerald) }
+.dfield.err input { border-color: var(--err) }
+.dfield input.mono { font-family: var(--mono); letter-spacing: .12em; font-size: 15px; text-transform: uppercase }
+.dfield .note { font-size: 12px; color: var(--muted) } .dfield.err .note { color: var(--err) }
+.dform .row { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
+.dinfo .member { display: flex; gap: 10px; align-items: center }
+.dinfo .member .dav { width: 28px; height: 28px; font-size: 12px; margin: 0 }
+.dinfo .member > span:not(.dav) { flex: 1; min-width: 0; display: grid; line-height: 18px }
+.dinfo .member small { font-size: 12px; color: var(--muted) }
+.dtoggle { display: flex; gap: 12px; align-items: center }
+.dtoggle span { flex: 1; display: grid; line-height: 19px }
+.dtoggle b { font-weight: 500; font-size: 13.5px }
+.dtoggle small { font-size: 12px; color: var(--muted) }
+.dsec.flat { padding: 0; border: 0 }
+.dshare { display: grid; gap: 8px; padding: 10px 12px; margin: 2px 2px 6px }
+.dshare .code { font-size: 12.5px; letter-spacing: 0; overflow-wrap: anywhere }

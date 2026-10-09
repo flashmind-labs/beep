@@ -4,6 +4,7 @@ mod bar;
 mod beep;
 mod commands;
 mod error;
+mod groups;
 mod hotkey;
 mod identity;
 mod markdown;
@@ -11,7 +12,8 @@ mod state;
 
 use anyhow::Context;
 use beep::{Beep, Notices};
-use beep_proto::{Session, link::MAX_NAME};
+use beep_proto::{Notice, Session, link::MAX_NAME};
+use groups::GroupApproval;
 use iroh::EndpointId;
 use state::{LinkState, StateFile};
 use std::{
@@ -66,6 +68,24 @@ fn main() {
             commands::search_sessions,
             commands::open_session,
             commands::new_chat,
+            commands::rename_session,
+            commands::pin_session,
+            commands::delete_session,
+            commands::share_session,
+            commands::unshare_session,
+            commands::list_groups,
+            commands::open_group,
+            commands::close_group,
+            commands::send_to_group,
+            commands::create_group,
+            commands::group_invite,
+            commands::peek_group,
+            commands::join_group,
+            commands::leave_group,
+            commands::pin_group,
+            commands::share_group_apps,
+            commands::answer_group_approval,
+            commands::open_file,
             commands::unlink,
             commands::start_over,
             commands::resize_bar,
@@ -129,6 +149,10 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, mut notices: Notices) {
             refresh_tray(&app);
             tauri::async_runtime::spawn(refresh_recent(app.clone()));
         }
+        if notice.group {
+            group_notice(&app, &beep, notice);
+            continue;
+        }
         if notice.changed {
             let _ = app.emit("sessions-changed", notice.session_id);
             tauri::async_runtime::spawn(refresh_recent(app.clone()));
@@ -141,15 +165,50 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, mut notices: Notices) {
         if bar_open && beep.session().as_deref() == Some(notice.session_id.as_str()) {
             continue;
         }
-        let shown = app
-            .notification()
-            .builder()
-            .title(&notice.title)
-            .body(&notice.body)
-            .show();
-        if let Err(e) = shown {
-            log::warn!("showing a notice: {e}");
-        }
+        notify(&app, &notice);
+    }
+}
+
+/// A message or change in a group. The bar refreshes it, and a message
+/// notifies unless the bar shows that group.
+fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
+    let id = notice.session_id.clone();
+    let _ = app.emit("group-changed", &id);
+    if let Some(pending) = &notice.approval {
+        let _ = app.emit(
+            "group-approval",
+            GroupApproval {
+                group_id: id.clone(),
+                query_id: pending.query_id.clone(),
+                app: pending.approval.app.clone(),
+                action: pending.approval.action.clone(),
+                fields: beep::fields(pending.approval.fields.clone()),
+            },
+        );
+    }
+    if notice.changed || notice.title.is_empty() {
+        return;
+    }
+    let bar_open = app
+        .get_webview_window("bar")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    // An approval still notifies: the bar may be on another chat by then.
+    if bar_open && beep.group().as_deref() == Some(id.as_str()) && notice.approval.is_none() {
+        return;
+    }
+    notify(app, &notice);
+}
+
+fn notify(app: &AppHandle, notice: &Notice) {
+    let shown = app
+        .notification()
+        .builder()
+        .title(&notice.title)
+        .body(&notice.body)
+        .show();
+    if let Err(e) = shown {
+        log::warn!("showing a notice: {e}");
     }
 }
 

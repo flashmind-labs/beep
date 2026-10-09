@@ -9,14 +9,18 @@ use crate::{
 };
 use beep_proto::{
     AnswerApproval, ApprovalDecision, Call, CancelRun, Chat, DeviceAnswer, DeviceQuery,
-    DeviceResult, Event, GetEvents, GetSession, HistoryEntry, ListSessions, Notice, RemoveDevice,
-    RunEvent, SearchSessions, Session, SessionMatch, Stream,
+    DeviceResult, Event, GetEvents, GetFile, GetSession, HistoryEntry, ListSessions, Notice,
+    RemoveDevice, RunEvent, SearchSessions, Session, SessionMatch, Stream,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
 };
 use iroh::EndpointId;
+use qrcode::{QrCode, render::svg::Color};
 use serde::{Deserialize, Serialize};
 use std::{
+    fs::{self, File},
+    io::Write,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime},
 };
@@ -30,6 +34,8 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 const NOT_HERE: &str = "not available on desktop";
 /// The server saves follow-up replies as this tool's result.
 const SUGGEST_REPLIES: &str = "suggest_replies";
+/// Its result names a file Beep sent, which shows as a card.
+const SEND_FILE: &str = "send_file";
 
 /// What the bar draws while a run streams.
 #[derive(Debug, Clone, Serialize)]
@@ -55,6 +61,7 @@ pub enum BarEvent {
         call_id: String,
         name: String,
         success: bool,
+        file: Option<SentFile>,
     },
     /// Follow-ups to offer under the reply.
     Replies {
@@ -107,6 +114,16 @@ pub enum Turn {
 pub struct ToolStep {
     pub name: String,
     pub success: bool,
+    pub file: Option<SentFile>,
+}
+
+/// A file Beep sent in the chat, fetched with `GetFile` when opened.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentFile {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
 }
 
 /// A code for the phone to scan.
@@ -134,6 +151,8 @@ pub struct Beep {
     client: AsyncMutex<Option<Arc<Client>>>,
     saved: Mutex<Saved>,
     file: StateFile,
+    /// The group the bar shows, so its messages do not also notify.
+    group: Mutex<Option<String>>,
 }
 
 /// The notices the server pushes, for the app to show.
@@ -157,6 +176,7 @@ impl Beep {
                 client: AsyncMutex::new(None),
                 saved: Mutex::new(saved),
                 file,
+                group: Mutex::new(None),
             }),
             rx,
         ))
@@ -189,6 +209,17 @@ impl Beep {
         self.with_saved(|s| s.session = session);
     }
 
+    pub fn group(&self) -> Option<String> {
+        self.group
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    pub fn set_group(&self, group: Option<String>) {
+        *self.group.lock().unwrap_or_else(PoisonError::into_inner) = group;
+    }
+
     /// A fresh offer, signed for this server.
     pub fn link_offer(&self, name: &str) -> Result<LinkView> {
         let offer = LinkOffer::sign(
@@ -199,14 +230,7 @@ impl Beep {
         )
         .map_err(|e| DesktopError::BadRequest(e.to_string()))?;
         let uri = offer.to_uri();
-        let qr = qrcode::QrCode::new(uri.as_bytes())
-            .map_err(|e| DesktopError::BadRequest(e.to_string()))?;
-        let qr_svg = qr
-            .render::<qrcode::render::svg::Color>()
-            .quiet_zone(false)
-            .dark_color(qrcode::render::svg::Color("#0A0E0C"))
-            .light_color(qrcode::render::svg::Color("#F4F8F5"))
-            .build();
+        let qr_svg = qr_svg(&uri)?;
         let expires_in = offer
             .expires_at()
             .duration_since(SystemTime::now())
@@ -350,6 +374,32 @@ impl Beep {
         Ok(())
     }
 
+    /// Downloads a sent file to `dest`, part by part. It lands under a
+    /// `.part` name first, so a cut-off download is never opened.
+    pub async fn download(&self, id: &str, dest: &Path) -> Result<()> {
+        let mut partial = dest.as_os_str().to_owned();
+        partial.push(".part");
+        let partial = PathBuf::from(partial);
+        let mut out = File::create(&partial).map_err(anyhow::Error::from)?;
+        let mut offset = 0;
+        loop {
+            let part = self
+                .call(GetFile {
+                    id: id.to_owned(),
+                    offset,
+                })
+                .await?;
+            out.write_all(&part.data).map_err(anyhow::Error::from)?;
+            offset += part.data.len() as u64;
+            if part.data.is_empty() || offset >= part.size {
+                break;
+            }
+        }
+        drop(out);
+        fs::rename(&partial, dest).map_err(anyhow::Error::from)?;
+        Ok(())
+    }
+
     pub async fn cancel(&self, run_id: String) -> Result<()> {
         self.call(CancelRun { id: run_id }).await
     }
@@ -405,8 +455,9 @@ impl Beep {
                     name,
                     call_id,
                     success,
-                    ..
+                    output,
                 } => BarEvent::ToolResult {
+                    file: sent_file(&name, &output),
                     call_id,
                     name,
                     success,
@@ -447,7 +498,7 @@ impl Beep {
     }
 }
 
-fn fields(fields: Vec<beep_proto::ApprovalField>) -> Vec<Field> {
+pub fn fields(fields: Vec<beep_proto::ApprovalField>) -> Vec<Field> {
     fields
         .into_iter()
         .map(|f| Field {
@@ -473,6 +524,32 @@ fn suggested_replies(output: &str) -> Option<Vec<String>> {
     (!replies.is_empty()).then_some(replies)
 }
 
+#[derive(Deserialize)]
+struct FileOutput {
+    file: SentFile,
+}
+
+/// The file a `send_file` result names, or `None` for any other tool.
+fn sent_file(name: &str, output: &str) -> Option<SentFile> {
+    if name != SEND_FILE {
+        return None;
+    }
+    serde_json::from_str::<FileOutput>(output)
+        .ok()
+        .map(|o| o.file)
+}
+
+/// `data` as a QR code the bar can draw.
+pub fn qr_svg(data: &str) -> Result<String> {
+    let qr = QrCode::new(data.as_bytes()).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
+    Ok(qr
+        .render::<Color>()
+        .quiet_zone(false)
+        .dark_color(Color("#0A0E0C"))
+        .light_color(Color("#F4F8F5"))
+        .build())
+}
+
 fn turn(entry: HistoryEntry) -> Turn {
     match entry {
         HistoryEntry::User { content, .. } => Turn::User { text: content },
@@ -484,6 +561,7 @@ fn turn(entry: HistoryEntry) -> Turn {
                 tools: tools
                     .into_iter()
                     .map(|t| ToolStep {
+                        file: sent_file(&t.name, &t.output),
                         name: t.name,
                         success: t.success,
                     })
@@ -501,5 +579,20 @@ fn turn(entry: HistoryEntry) -> Turn {
             action: approval.action,
             fields: fields(approval.fields),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sent_file_reads_send_file_results_only() {
+        let output = r#"{"action":"send_file","file":{"id":"f1","name":"Pass.pdf","mime":"application/pdf","size":26000}}"#;
+        let file = sent_file(SEND_FILE, output).expect("a send_file result names its file");
+        assert_eq!(file.id, "f1");
+        assert_eq!(file.size, 26000);
+        assert!(sent_file("web_search", output).is_none());
+        assert!(sent_file(SEND_FILE, "failed").is_none());
     }
 }
