@@ -77,8 +77,8 @@ const OUTLOOK_FIELDS: &[&str] = &[
 /// Gmail's tabs for mail nobody wrote to the user in person.
 const BULK_LABELS: [&str; 3] = ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"];
 /// Above this Jev score the learner reads the email.
-const MEMORY_THRESHOLD: f64 = 0.8;
-const EMAIL_QUESTION: &str = "Does this email from the user's mailbox show a fact about the user still worth remembering today?";
+const MEMORY_THRESHOLD: f64 = 0.3;
+const EMAIL_QUESTION: &str = "Does this email show something about the user's own life that a personal assistant should know to help them?";
 /// Above this Jev score an email goes to the digest.
 const ATTENTION_THRESHOLD: f64 = 0.7;
 /// Only mail this recent is judged for the digest, so a backfill flags nothing old.
@@ -93,10 +93,11 @@ show up; a deadline, or a time-sensitive problem with their accounts, money, tra
 that need nothing, FYIs, and anything the user only needs to know",
 };
 const EMAIL_CRITERIA: Criteria = Criteria {
-    yes: "A lasting fact about the user: their name, people in their life, where they live or work, \
-what they do, what they like, or a trip or appointment still ahead",
-    no: "Newsletters, marketing, notifications, receipts, one-off errands and admin, events already over, \
-or facts only about other people",
+    yes: "Written to or by the user personally, or a record of their own: homes and property, money, \
+investments and banks they actually use, purchases, bookings and trips (past or ahead), health, insurance, visas \
+and documents, work and projects, people in their life, pets, hobbies, beliefs and views",
+    no: "Newsletters, marketing, promotions, generic notices sent to all customers, security codes, \
+verification links, and news about the world",
 };
 
 /// A mailbox the user can connect.
@@ -461,7 +462,7 @@ pub(crate) async fn sync(
             email.id
         );
         outcome.scored += 1;
-        if probability >= MEMORY_THRESHOLD {
+        if worth_learning(probability) {
             outcome.passed += 1;
             outcome.learned += user.learn_reading(generator, &email.reading()).await.len();
         }
@@ -493,6 +494,25 @@ struct Scores {
     attention: Option<f64>,
 }
 
+/// How likely Jev finds `email` worth the learner's time. The bar is low on
+/// purpose: it only drops mail that is plainly not about the user, and the
+/// model that reads it next decides what to keep.
+pub(crate) async fn worth_reading(
+    decision: &DecisionTool,
+    today: &str,
+    email: &Email,
+) -> Result<f64> {
+    let state = format!("Today: {today}\n{}", email.render(JEV_EMAIL_CHARS));
+    decision
+        .probability_with(&state, EMAIL_QUESTION, &EMAIL_CRITERIA)
+        .await
+}
+
+/// Passes `worth_reading`.
+pub(crate) fn worth_learning(probability: f64) -> bool {
+    probability >= MEMORY_THRESHOLD
+}
+
 /// Fetches the body and asks Jev how likely the email is to teach a lasting
 /// fact and, for the digest, whether it needs the user's attention.
 async fn score(
@@ -504,7 +524,7 @@ async fn score(
 ) -> (Email, Scores) {
     source.fill_body(&mut email).await;
     let state = format!("Today: {today}\n{}", email.render(JEV_EMAIL_CHARS));
-    let memory = decision.probability_with(&state, EMAIL_QUESTION, &EMAIL_CRITERIA);
+    let memory = worth_reading(decision, today, &email);
     let recent = Utc::now() - Days::days(ATTENTION_DAYS);
     let attention = async {
         if !digest || email.sent || email.received < recent {
