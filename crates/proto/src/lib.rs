@@ -293,39 +293,50 @@ pub struct FilePart {
     pub size: u64,
 }
 
-/// The link prefix a shared session's token follows.
-pub const SHARE_URL_PREFIX: &str = "beep://share/";
+/// The web host share and invite links point at. The Cloudflare Worker in
+/// `deploy/links` serves it, and the Android manifest claims it for App Links.
+pub const LINK_HOST: &str = "beep.flashmind.com";
 
 /// The link to the shared session `token`.
 pub fn share_url(token: &str) -> String {
-    format!("{SHARE_URL_PREFIX}{token}")
+    format!("https://{LINK_HOST}/s/{token}")
 }
 
-/// The token in a shared session's link, if `url` is one.
+/// The token in a shared session's link, if `url` is one. Old `beep://share/`
+/// links still read.
 pub fn share_token(url: &str) -> Option<&str> {
-    let token = url.trim().strip_prefix(SHARE_URL_PREFIX)?;
-    (!token.is_empty() && token.bytes().all(|b| b.is_ascii_alphanumeric())).then_some(token)
+    link_token(url, "s", "beep://share/")
 }
-
-/// The link prefix a group invite's token follows.
-pub const GROUP_URL_PREFIX: &str = "beep://group/";
 
 /// The invite link with `token`.
 pub fn group_url(token: &str) -> String {
-    format!("{GROUP_URL_PREFIX}{token}")
+    format!("https://{LINK_HOST}/g/{token}")
 }
 
-/// The token in a group invite link, if `url` is one.
+/// The token in a group invite link, if `url` is one. Old `beep://group/`
+/// links still read.
 pub fn group_token(url: &str) -> Option<&str> {
-    let token = url.trim().strip_prefix(GROUP_URL_PREFIX)?;
+    link_token(url, "g", "beep://group/")
+}
+
+/// The token after `https://LINK_HOST/<path>/` or the older `legacy` prefix.
+fn link_token<'a>(url: &'a str, path: &str, legacy: &str) -> Option<&'a str> {
+    let url = url.trim();
+    let token = url.strip_prefix(legacy).or_else(|| {
+        url.strip_prefix("https://")?
+            .strip_prefix(LINK_HOST)?
+            .strip_prefix('/')?
+            .strip_prefix(path)?
+            .strip_prefix('/')
+    })?;
+    let token = token.strip_suffix('/').unwrap_or(token);
     (!token.is_empty() && token.bytes().all(|b| b.is_ascii_alphanumeric())).then_some(token)
 }
 
 /// The invite code in what someone typed or pasted: a code with any case,
-/// spaces or dashes, or an old `beep://group/` link. None for other text.
+/// spaces or dashes, or an invite link. None for other text.
 pub fn group_code(input: &str) -> Option<String> {
-    let input = input.trim();
-    let input = input.strip_prefix(GROUP_URL_PREFIX).unwrap_or(input);
+    let input = group_token(input).unwrap_or(input.trim());
     let code: String = input
         .chars()
         .filter(|c| !c.is_whitespace() && *c != '-')
@@ -1041,12 +1052,21 @@ mod tests {
 
     #[test]
     fn share_token_reads_only_share_links() {
+        assert_eq!(share_url("ab12"), "https://beep.flashmind.com/s/ab12");
         assert_eq!(share_token(&share_url("ab12")), Some("ab12"));
+        assert_eq!(
+            share_token(" https://beep.flashmind.com/s/ab12/\n"),
+            Some("ab12")
+        );
         assert_eq!(share_token(" beep://share/ab12\n"), Some("ab12"));
         assert_eq!(share_token("beep://share/"), None);
         assert_eq!(share_token("beep://share/../x"), None);
+        assert_eq!(share_token("https://beep.flashmind.com/s/"), None);
+        assert_eq!(share_token("https://beep.flashmind.com.evil/s/ab12"), None);
+        assert_eq!(share_token("http://beep.flashmind.com/s/ab12"), None);
         assert_eq!(share_token("beep://apps"), None);
         assert_eq!(group_token(&group_url("cd34")), Some("cd34"));
+        assert_eq!(group_token("beep://group/cd34"), Some("cd34"));
         assert_eq!(group_token(&share_url("cd34")), None);
     }
 
@@ -1056,6 +1076,10 @@ mod tests {
         assert_eq!(group_code(" K7QM4 X9TRP\n").as_deref(), Some("K7QM4X9TRP"));
         assert_eq!(
             group_code(&group_url("7a2d5f90be13")).as_deref(),
+            Some("7A2D5F90BE13")
+        );
+        assert_eq!(
+            group_code("beep://group/7a2d5f90be13").as_deref(),
             Some("7A2D5F90BE13")
         );
         assert_eq!(group_code("hey there!"), None);

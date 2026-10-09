@@ -42,6 +42,10 @@ desktop-release version:
     git tag -a "desktop-v{{version}}" -m "Beep for macOS {{version}}"
     echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
 
+# Deploy the Cloudflare Worker behind https share and invite links
+links-deploy:
+    cd deploy/links && npx wrangler deploy
+
 # Format, lint and test the desktop app
 desktop-check:
     cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
