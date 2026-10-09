@@ -535,7 +535,7 @@ internal fun JoinCodeSheet(repository: ChatRepository, onDismiss: () -> Unit, on
         val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
         GmsBarcodeScanning.getClient(context, options).startScan()
             .addOnSuccessListener { barcode ->
-                // The QR holds a beep://group/ link to the code.
+                // The QR holds an invite link to the code, https or an older beep://group/ one.
                 val scanned = barcode.rawValue?.let(::groupToken)?.let(::groupCode)
                 if (scanned == null) Toast.makeText(context, "That is not a Beep group code", Toast.LENGTH_SHORT).show()
                 else { typed = formatGroupCode(scanned); wrong = false; find(scanned) }
