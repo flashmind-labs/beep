@@ -2,14 +2,21 @@
 
 use crate::{
     bar,
-    beep::{Answer, BarEvent, Beep, LinkView, Turn},
+    beep::{Answer, BarEvent, Beep, LinkView, Turn, qr_svg},
     error::{DesktopError, Result},
+    groups::{GroupChatView, GroupView, InviteView, MessageView},
     state::LinkState,
 };
-use beep_proto::{ApprovalDecision, Session, SessionMatch};
+use beep_proto::{
+    AnswerGroupApproval, ApiError, ApprovalDecision, CreateGroup, DeleteSession, GetGroup,
+    GroupInvite, GroupPreview, JoinGroup, LeaveGroup, ListGroups, PeekGroup, PinGroup, PinSession,
+    RenameSession, SendToGroup, Session, SessionMatch, ShareGroupApps, ShareSession, SharedLink,
+    UnshareSession, format_group_code, group_code,
+};
 use serde::{Deserialize, Serialize};
-use std::{process::Command, sync::Arc};
-use tauri::{AppHandle, State, ipc::Channel};
+use std::{fs, path::Path, process::Command, sync::Arc};
+use tauri::{AppHandle, Manager, State, ipc::Channel};
+use uuid::Uuid;
 
 type Service<'a> = State<'a, Arc<Beep>>;
 
@@ -96,12 +103,215 @@ pub async fn search_sessions(beep: Service<'_>, query: String) -> Result<Vec<Ses
 pub async fn open_session(beep: Service<'_>, id: String) -> Result<Vec<Turn>> {
     let turns = beep.history(id.clone()).await?;
     beep.set_session(Some(id));
+    beep.set_group(None);
     Ok(turns)
 }
 
 #[tauri::command]
 pub fn new_chat(beep: Service<'_>) {
     beep.set_session(None);
+    beep.set_group(None);
+}
+
+#[tauri::command]
+pub async fn rename_session(beep: Service<'_>, id: String, title: String) -> Result<()> {
+    beep.call(RenameSession { id, title }).await
+}
+
+#[tauri::command]
+pub async fn pin_session(beep: Service<'_>, id: String, pinned: bool) -> Result<()> {
+    beep.call(PinSession { id, pinned }).await
+}
+
+#[tauri::command]
+pub async fn delete_session(beep: Service<'_>, id: String) -> Result<()> {
+    beep.call(DeleteSession { id: id.clone() }).await?;
+    if beep.session().as_deref() == Some(id.as_str()) {
+        beep.set_session(None);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn share_session(beep: Service<'_>, id: String) -> Result<SharedLink> {
+    beep.call(ShareSession { id }).await
+}
+
+#[tauri::command]
+pub async fn unshare_session(beep: Service<'_>, id: String) -> Result<()> {
+    beep.call(UnshareSession { id }).await
+}
+
+// ---------- Groups ----------
+
+/// What the bar shows for a code that finds no group.
+const NO_GROUP: &str = "No group has this code. Check it, or ask for a new one.";
+
+#[tauri::command]
+pub async fn list_groups(beep: Service<'_>) -> Result<Vec<GroupView>> {
+    let groups = beep.call(ListGroups {}).await?;
+    Ok(groups.into_iter().map(GroupView::from).collect())
+}
+
+#[tauri::command]
+pub async fn open_group(beep: Service<'_>, id: String) -> Result<GroupChatView> {
+    let chat = beep.call(GetGroup { id: id.clone() }).await?;
+    beep.set_group(Some(id));
+    Ok(chat.into())
+}
+
+/// The bar left the group, so its messages notify again.
+#[tauri::command]
+pub fn close_group(beep: Service<'_>) {
+    beep.set_group(None);
+}
+
+#[tauri::command]
+pub async fn send_to_group(
+    beep: Service<'_>,
+    group_id: String,
+    message: String,
+) -> Result<MessageView> {
+    let sent = beep
+        .call(SendToGroup {
+            group_id,
+            request_id: Uuid::new_v4(),
+            message,
+        })
+        .await?;
+    Ok(sent.into())
+}
+
+#[tauri::command]
+pub async fn create_group(
+    beep: Service<'_>,
+    name: String,
+    member_name: String,
+) -> Result<GroupView> {
+    let group = beep
+        .call(CreateGroup {
+            id: Uuid::new_v4(),
+            name,
+            member_name,
+        })
+        .await?;
+    Ok(group.into())
+}
+
+#[tauri::command]
+pub async fn group_invite(beep: Service<'_>, id: String, reset: bool) -> Result<InviteView> {
+    let link = beep.call(GroupInvite { id, reset }).await?;
+    Ok(InviteView {
+        code: format_group_code(&link.token),
+        qr_svg: qr_svg(&link.url)?,
+        url: link.url,
+    })
+}
+
+/// The group a typed code or pasted link opens, before joining it.
+#[derive(Serialize)]
+pub struct Found {
+    token: String,
+    preview: GroupPreview,
+}
+
+#[tauri::command]
+pub async fn peek_group(beep: Service<'_>, code: String) -> Result<Found> {
+    let token = group_code(&code).ok_or_else(|| DesktopError::BadRequest(NO_GROUP.into()))?;
+    match beep
+        .call(PeekGroup {
+            token: token.clone(),
+        })
+        .await
+    {
+        Ok(preview) => Ok(Found { token, preview }),
+        Err(DesktopError::Api(ApiError::NotFound {})) => {
+            Err(DesktopError::BadRequest(NO_GROUP.into()))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+pub async fn join_group(
+    beep: Service<'_>,
+    token: String,
+    member_name: String,
+) -> Result<GroupView> {
+    let name = member_name.clone();
+    match beep.call(JoinGroup { token, member_name }).await {
+        Ok(group) => Ok(group.into()),
+        Err(DesktopError::Api(ApiError::Conflict { .. })) => Err(DesktopError::BadRequest(
+            format!("Someone in the group already goes by {name}"),
+        )),
+        Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(
+            "This code no longer works. Ask for a new one.".into(),
+        )),
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+pub async fn leave_group(beep: Service<'_>, id: String) -> Result<()> {
+    beep.call(LeaveGroup { id }).await?;
+    beep.set_group(None);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn pin_group(beep: Service<'_>, id: String, pinned: bool) -> Result<()> {
+    beep.call(PinGroup { id, pinned }).await
+}
+
+#[tauri::command]
+pub async fn share_group_apps(beep: Service<'_>, id: String, shared: bool) -> Result<()> {
+    beep.call(ShareGroupApps { id, shared }).await
+}
+
+#[tauri::command]
+pub async fn answer_group_approval(beep: Service<'_>, query_id: String, allow: bool) -> Result<()> {
+    beep.call(AnswerGroupApproval { query_id, allow }).await
+}
+
+// ---------- Files ----------
+
+/// Opens a file Beep sent, downloading it into the cache the first time.
+#[tauri::command]
+pub async fn open_file(app: AppHandle, beep: Service<'_>, id: String, name: String) -> Result<()> {
+    if !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') || id.is_empty() {
+        return Err(DesktopError::BadRequest("bad file".into()));
+    }
+    let dir = app.path().app_cache_dir()?.join("files").join(&id);
+    fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
+    let path = dir.join(file_name(&name));
+    if !path.exists() {
+        match beep.download(&id, &path).await {
+            Ok(()) => {}
+            Err(DesktopError::Api(ApiError::NotFound {})) => {
+                return Err(DesktopError::BadRequest("No longer available".into()));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(anyhow::Error::from)?;
+    Ok(())
+}
+
+/// `name` without anything that would leave the file's folder.
+fn file_name(name: &str) -> String {
+    let base = Path::new(name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .trim_start_matches('.');
+    if base.is_empty() {
+        "file".into()
+    } else {
+        base.into()
+    }
 }
 
 #[tauri::command]
@@ -144,4 +354,18 @@ pub fn open_url(url: String) -> Result<()> {
         .spawn()
         .map_err(anyhow::Error::from)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::file_name;
+
+    #[test]
+    fn file_name_stays_in_its_folder() {
+        assert_eq!(file_name("Pass.pdf"), "Pass.pdf");
+        assert_eq!(file_name("../../etc/passwd"), "passwd");
+        assert_eq!(file_name(".hidden"), "hidden");
+        assert_eq!(file_name(".."), "file");
+        assert_eq!(file_name(""), "file");
+    }
 }
