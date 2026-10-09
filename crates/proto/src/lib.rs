@@ -276,6 +276,21 @@ requests! {
     /// sent as a `Notice` with `group` set. Allowing runs it, and Beep tells
     /// the group how it went.
     67 AnswerGroupApproval { query_id: String, allow: bool } => Call<()>
+    /// Up to `FILE_PART` bytes of a file Beep sent, from `offset` on, as a
+    /// `send_file` tool result names it by `id`.
+    68 GetFile { id: String, offset: u64 } => Call<FilePart>
+}
+
+/// The most of a file one `GetFile` returns, well under a frame.
+pub const FILE_PART: u64 = 4 * 1024 * 1024;
+
+/// Part of a sent file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FilePart {
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+    /// The whole file's size, so the caller knows when it has it all.
+    pub size: u64,
 }
 
 /// The link prefix a shared session's token follows.

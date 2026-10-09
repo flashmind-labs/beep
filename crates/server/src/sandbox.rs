@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use std::{
     env,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::Stdio,
     sync::Arc,
     time::{Duration, SystemTime},
@@ -194,28 +194,7 @@ impl Sandbox {
 
     async fn download(&self, user_id: &str, url: &str, name: Option<&str>) -> Result<Saved> {
         let dir = self.folder(user_id).await?;
-        let mut url = Url::parse(url).context("not a valid URL")?;
-        let mut response = None;
-        for _ in 0..=MAX_REDIRECTS {
-            let reply = fetch(&url).await?;
-            if !reply.status().is_redirection() {
-                response = Some(reply);
-                break;
-            }
-            let location = reply
-                .headers()
-                .get(LOCATION)
-                .and_then(|v| v.to_str().ok())
-                .context("redirect without a location")?;
-            url = url.join(location).context("bad redirect")?;
-        }
-        let response = response.context("too many redirects")?;
-        if response.status() != StatusCode::OK {
-            bail!("the server answered {}", response.status());
-        }
-        if response.content_length().is_some_and(|n| n > MAX_DOWNLOAD) {
-            bail!("the file is larger than {} MiB", MAX_DOWNLOAD >> 20);
-        }
+        let Followed { response, url } = follow(url).await?;
         let used = folder_size(&dir).await?;
         let room = MAX_FOLDER.saturating_sub(used).min(MAX_DOWNLOAD);
         let content_type = response
@@ -248,6 +227,37 @@ impl Sandbox {
             path: file_name,
             bytes,
             content_type,
+        })
+    }
+
+    /// The file at `path` in the user's folder, with its plain name.
+    pub(crate) async fn read(&self, user_id: &str, path: &str) -> Result<FolderFile> {
+        let dir = self.folder(user_id).await?;
+        let relative = Path::new(path.trim_start_matches("./"));
+        ensure!(
+            relative
+                .components()
+                .all(|part| matches!(part, Component::Normal(_))),
+            "the path must be inside the user's folder"
+        );
+        let full = dir.join(relative);
+        let meta = fs::symlink_metadata(&full)
+            .await
+            .context("there is no such file")?;
+        ensure!(meta.is_file(), "it is not a file");
+        ensure!(
+            meta.len() <= MAX_DOWNLOAD,
+            "the file is larger than {} MiB",
+            MAX_DOWNLOAD >> 20
+        );
+        let name = relative
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("file")
+            .to_owned();
+        Ok(FolderFile {
+            name,
+            data: fs::read(&full).await?,
         })
     }
 
@@ -397,6 +407,81 @@ impl Tool for DownloadFileTool {
             )),
         }
     }
+}
+
+/// A file read from the user's folder.
+pub(crate) struct FolderFile {
+    pub(crate) name: String,
+    pub(crate) data: Vec<u8>,
+}
+
+/// The final answer to a request after its redirects, and where it came from.
+struct Followed {
+    response: reqwest::Response,
+    url: Url,
+}
+
+/// Fetches `url`, following up to `MAX_REDIRECTS` redirects through public
+/// addresses only, and checks the answer is a file of at most `MAX_DOWNLOAD`.
+async fn follow(url: &str) -> Result<Followed> {
+    let mut url = Url::parse(url).context("not a valid URL")?;
+    let mut response = None;
+    for _ in 0..=MAX_REDIRECTS {
+        let reply = fetch(&url).await?;
+        if !reply.status().is_redirection() {
+            response = Some(reply);
+            break;
+        }
+        let location = reply
+            .headers()
+            .get(LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .context("redirect without a location")?;
+        url = url.join(location).context("bad redirect")?;
+    }
+    let response = response.context("too many redirects")?;
+    if response.status() != StatusCode::OK {
+        bail!("the server answered {}", response.status());
+    }
+    if response.content_length().is_some_and(|n| n > MAX_DOWNLOAD) {
+        bail!("the file is larger than {} MiB", MAX_DOWNLOAD >> 20);
+    }
+    Ok(Followed { response, url })
+}
+
+/// A file fetched from a public URL.
+pub(crate) struct Fetched {
+    /// The URL's last path segment, cleaned up.
+    pub(crate) name: String,
+    pub(crate) content_type: Option<String>,
+    pub(crate) data: Vec<u8>,
+}
+
+/// Fetches a file of at most `MAX_DOWNLOAD` from a public http(s) URL, with
+/// the same address checks as `download_file`.
+pub(crate) async fn fetch_public(url: &str) -> Result<Fetched> {
+    let Followed { response, url } = follow(url).await?;
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let mut data = Vec::new();
+    let mut body = response.bytes_stream();
+    while let Some(chunk) = body.next().await {
+        let chunk = chunk.context("the download broke off")?;
+        ensure!(
+            (data.len() + chunk.len()) as u64 <= MAX_DOWNLOAD,
+            "the file is larger than {} MiB",
+            MAX_DOWNLOAD >> 20
+        );
+        data.extend_from_slice(&chunk);
+    }
+    Ok(Fetched {
+        name: file_name(None, &url),
+        content_type,
+        data,
+    })
 }
 
 /// One request to `url`, without following redirects, after checking that

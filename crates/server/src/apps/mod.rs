@@ -93,6 +93,7 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         &[
             read("GMAIL_FETCH_EMAILS"),
             read("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID"),
+            read("GMAIL_GET_ATTACHMENT"),
             act("GMAIL_SEND_EMAIL"),
             act("GMAIL_REPLY_TO_THREAD"),
             act("GMAIL_MOVE_TO_TRASH"),
@@ -143,6 +144,7 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         &[
             read("OUTLOOK_SEARCH_MESSAGES"),
             read("OUTLOOK_GET_MESSAGE"),
+            read("OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT"),
             read("OUTLOOK_QUERY_EMAILS"),
             act("OUTLOOK_SEND_EMAIL"),
             act("OUTLOOK_REPLY_EMAIL"),

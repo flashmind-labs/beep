@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
+base64 = "0.22"
 beep-proto = { path = "../proto" }
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -38,4 +39,6 @@ jsonwebtoken = "9.3"
 
 [dev-dependencies]
 async-stream = "0.3"
+# Builds real MCP results to check how `send_file` reads them.
+rmcp = { version = "2.2", default-features = false }
 tempfile = "3"

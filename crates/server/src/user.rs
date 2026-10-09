@@ -27,8 +27,8 @@ use crate::{
     },
     permissions::{self, Rules, ToolSlug},
     protocol::{
-        ApiError, AppIntegration, AppKind, ConnectLink, Cron, Memory, MemorySource, Notice,
-        PromptSuggestion, PromptSuggestions, Run, Session,
+        ApiError, AppIntegration, AppKind, ConnectLink, Cron, FilePart, Memory, MemorySource,
+        Notice, PromptSuggestion, PromptSuggestions, Run, Session,
     },
     starters::{
         Cached, FALLBACK_FRESH, FRESH, Generator, STARTER_REFRESH_WINDOW, STARTER_REFRESHES,
@@ -37,7 +37,7 @@ use crate::{
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
         DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Join, JoinedGroup, LinkKey, Location,
-        MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewKey, NewMessage, Origin, Posted,
+        MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewFile, NewKey, NewMessage, Origin, Posted,
         ProfileNote, ProfileRead, PushDevice, RunStatus, Share, Store, StoredContext, TurnModel,
         TurnsToDelete,
     },
@@ -318,6 +318,34 @@ impl User {
             .await?;
         self.changed("");
         Ok(pinned)
+    }
+
+    /// Keeps a file Beep sends in `session_id` and returns its id.
+    pub(crate) async fn save_file(
+        &self,
+        session_id: &str,
+        name: &str,
+        mime: &str,
+        data: &[u8],
+    ) -> Result<String> {
+        let file = NewFile {
+            session_id,
+            name,
+            mime,
+            data,
+        };
+        self.store.save_file(&self.key, file).await
+    }
+
+    /// Up to `len` bytes of a sent file from `offset` on, or `None` when it
+    /// is gone.
+    pub(crate) async fn file_part(
+        &self,
+        id: &str,
+        offset: u64,
+        len: u64,
+    ) -> Result<Option<FilePart>> {
+        self.store.file_part(&self.key, id, offset, len).await
     }
 
     /// Shares `session_id` as `conversation`; `None` when the user has no

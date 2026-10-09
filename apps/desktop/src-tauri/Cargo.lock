@@ -396,6 +396,7 @@ dependencies = [
  "log",
  "rmp-serde",
  "serde",
+ "serde_bytes",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
