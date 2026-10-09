@@ -51,11 +51,13 @@ object NetworkWatch {
         job?.cancel()
         job = scope.launch {
             delay(400)
+            val repository = BeepApplication.instance?.repository
+            val network = cm.activeNetwork
+            val online = network != null && cm.getNetworkCapabilities(network)
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+            if (online) repository?.networkBack() else { caughtUpOn = null; repository?.networkLost() }
             val client = BeepClients.current() ?: return@launch
             client.networkChanged()
-            val network = cm.activeNetwork ?: return@launch
-            val online = cm.getNetworkCapabilities(network)
-                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
             if (online && network != caughtUpOn) {
                 caughtUpOn = network
                 // Connecting is enough: the server sends what it queued. The connection closes

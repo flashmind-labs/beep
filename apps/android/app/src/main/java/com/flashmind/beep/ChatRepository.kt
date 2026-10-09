@@ -103,6 +103,8 @@ private const val CACHE_FOR_MS = 72 * 60 * 60 * 1000L
 /** New starters the user may ask for within the window, as the server allows. */
 private const val STARTER_REFRESHES = 3
 private const val STARTER_REFRESH_WINDOW_MS = 10 * 60 * 1000L
+/** What a chat shows while the phone has no network: an unsent message goes out once it is back. */
+private fun waiting(chat: Conversation) = if (chat.runId.isEmpty()) "Sends when you’re back online" else "Waiting for a connection…"
 /** Roles of the messages that start a turn. */
 private val TURN_STARTS = setOf("user", "scheduled")
 
@@ -128,6 +130,8 @@ class ChatRepository(private val storage: LocalStorage) {
     val pendingAlarm = MutableStateFlow<AlarmRequest?>(null)
     val browserOpen = MutableStateFlow(false)
     private var reconnectJob: Job? = null
+    /** False while the phone has no working network, so runs wait instead of spinning. */
+    @Volatile private var networkUp = true
     /** Renames, pins and deletes not yet on the server, oldest first. Guarded by [lock]. */
     private var changes = storage.loadChanges()
     private val pushing = Mutex()
@@ -340,6 +344,7 @@ class ChatRepository(private val storage: LocalStorage) {
                 try {
                     connection.value = if (attempt > 0) "Reconnecting… (attempt ${attempt + 1})" else "Checking connection…"
                     api().health()
+                    networkUp = true
                     connected.value = true
                     scope.launch { reportTimezone() }
                     scope.launch {
@@ -369,6 +374,23 @@ class ChatRepository(private val storage: LocalStorage) {
                 }
             }
         }
+    }
+    /**
+     * The phone has no working network. Runs stop waiting on a dead connection and show that
+     * they wait; each resumes from its cursor once [networkBack] reconnects.
+     */
+    fun networkLost() {
+        networkUp = false
+        reconnectJob?.cancel()
+        connected.value = false
+        connection.value = "No internet"
+        synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
+        state.value.conversations.filter { it.busy }.forEach { chat -> updateChat(chat.id) { it.copy(status = waiting(it), error = "") } }
+    }
+    /** A working network is back: reconnect, which resumes waiting runs. */
+    fun networkBack() {
+        networkUp = true
+        if (!connected.value && settings.value.configured) reconnect()
     }
     private fun resumePending() { state.value.conversations.filter { it.busy }.forEach { launchRun(it.id) } }
     fun send(text: String, images: List<String> = emptyList(), conversationId: String = state.value.current.id, model: String = "", thinking: String = "") {
@@ -517,6 +539,7 @@ class ChatRepository(private val storage: LocalStorage) {
                 val chat = state.value.conversations.find { it.id == id } ?: break
                 if (!chat.busy && !startQueued(chat)) break
                 if (!chat.busy) continue
+                if (!networkUp) { updateChat(id) { it.copy(status = waiting(it), error = "") }; break }
                 try {
                     val api = api()
                     updateChat(id) { it.copy(error = "", status = if (it.runId.isEmpty()) "Sending…" else "Beep is thinking…") }
@@ -560,6 +583,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     delay(150)
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
+                    if (!networkUp) { updateChat(id) { it.copy(status = waiting(it), error = "") }; break }
                     failures++
                     connected.value = false; connection.value = "Connection interrupted"
                     updateChat(id) { it.copy(status = "", error = if (failures < 4) "Reconnecting…" else userMessage(error)) }
