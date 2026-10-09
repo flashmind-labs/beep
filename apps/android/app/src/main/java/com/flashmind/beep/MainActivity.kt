@@ -213,9 +213,10 @@ open class MainActivity : ComponentActivity() {
                 BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
-                }, onExpand = {
+                }, onExpand = { groupId ->
                     startActivity(Intent(this, MainActivity::class.java).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        groupId?.let { putExtra("group_id", it) }
                     })
                     if (panel) finish()
                 }, onBubbleSettings = { Bubble.settings(this) })
@@ -297,7 +298,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     groupToken: MutableState<String?> = mutableStateOf(null),
                     groupToOpen: MutableState<String?> = mutableStateOf(null),
                     clipboardContent: MutableState<String?> = mutableStateOf(null),
-                    onFloat: () -> Unit, onExpand: () -> Unit, onBubbleSettings: () -> Unit) {
+                    onFloat: () -> Unit, onExpand: (groupId: String?) -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
     val config by repository.settings.collectAsStateWithLifecycle()
     val status by repository.connection.collectAsStateWithLifecycle()
@@ -671,9 +672,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }) {
         val group = openGroup
         // The bubble has no room for the group screen, so its info opens the app.
-        if (group != null) GroupChatPane(repository, group, onMenu = { drawerOpen = true }, onInfo = { if (bubble) onExpand() else screen = Screen.GroupInfo },
+        if (group != null) GroupChatPane(repository, group, onMenu = { drawerOpen = true }, onInfo = { if (bubble) onExpand(group) else screen = Screen.GroupInfo },
             onInvite = { inviting = it }, onGone = { openGroup = null },
-            onNewChat = { startNewChat() }, onPrevious = { openGroup = null })
+            onNewChat = { startNewChat() }, onPrevious = { openGroup = null },
+            onExpand = if (bubble) { { onExpand(group) } } else null)
         else Scaffold(containerColor = Ink, topBar = {
             if (bubble) {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -720,7 +722,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 // Each chat gets its own list, so rows of the chat being left never animate under the next one.
                 key(state.current.id) {
                     ChatScreen(state.current, repository, Modifier.fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent,
-                        onExpand = if (bubble) onExpand else null)
+                        onExpand = if (bubble) { { onExpand(null) } } else null)
                 }
             }
         }

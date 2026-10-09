@@ -145,7 +145,8 @@ private data class Outgoing(val requestId: String, val text: String)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: () -> Unit, onInfo: () -> Unit,
-                           onInvite: (Group) -> Unit, onGone: () -> Unit, onNewChat: () -> Unit, onPrevious: () -> Unit) {
+                           onInvite: (Group) -> Unit, onGone: () -> Unit, onNewChat: () -> Unit, onPrevious: () -> Unit,
+                           onExpand: (() -> Unit)? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var chat by remember(groupId) { mutableStateOf<GroupChat?>(null) }
@@ -268,7 +269,7 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
             }
             }
             group?.let { MentionPicker(it, field) { field = it } }
-            GroupComposer(field, onChange = { if (it.text.toByteArray().size <= 8192) field = it }, onSend = ::send)
+            GroupComposer(field, onChange = { if (it.text.toByteArray().size <= 8192) field = it }, onSend = ::send, onExpand = onExpand)
         }
     }
 }
@@ -363,11 +364,17 @@ private fun MentionPicker(group: Group, field: TextFieldValue, onPick: (TextFiel
 }
 
 @Composable
-private fun GroupComposer(field: TextFieldValue, onChange: (TextFieldValue) -> Unit, onSend: () -> Unit) {
+private fun GroupComposer(field: TextFieldValue, onChange: (TextFieldValue) -> Unit, onSend: () -> Unit, onExpand: (() -> Unit)?) {
     val size = 50.dp
     val shape = RoundedCornerShape(Beep.shapes.radius)
-    Row(Modifier.padding(start = 14.dp, end = 16.dp, top = 8.dp, bottom = 12.dp).fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // In the bubble, the same open-full-app button as a normal chat.
+    Row(Modifier.padding(start = if (onExpand != null) 2.dp else 14.dp, end = 16.dp, top = 8.dp, bottom = 12.dp).fillMaxWidth(),
+        verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(if (onExpand != null) 2.dp else 8.dp)) {
+        if (onExpand != null) {
+            IconButton(onClick = onExpand, modifier = Modifier.size(size)) {
+                Icon(Icons.Outlined.OpenInFull, "Open full app", Modifier.size(18.dp), tint = Beep.colors.muted)
+            }
+        }
         Row(Modifier.weight(1f).heightIn(min = size).beepFrame(shape, Beep.colors.surface, pressableLook()),
             verticalAlignment = Alignment.CenterVertically) {
             TextField(field, onChange, Modifier.weight(1f),
