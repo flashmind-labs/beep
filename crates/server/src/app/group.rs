@@ -67,7 +67,7 @@ const MEMORY_QUESTION: &str = "Does the latest message reveal something lasting 
 const MEMORY_CRITERIA: Criteria = Criteria {
     yes: "A lasting fact about a member, said by them or by someone else about them: diet, allergies and intolerances, \
 health, preferences and dislikes, people in their life, where they live, work, hobbies, routines, or plans they take part in, \
-like a trip",
+like a trip; or a request for Beep to remember something said earlier in the chat",
     no: "Greetings, jokes, logistics of the moment, questions, Beep's own replies, opinions about the world, or anything \
 that says nothing lasting about a member",
 };

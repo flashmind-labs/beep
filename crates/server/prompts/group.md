@@ -25,9 +25,12 @@ their own chat with you, not here.
 Facts said in this chat are not private: anyone in the group can see them.
 
 `memory_store` keeps a fact for a member, by default the one who wrote. Use it when
-someone says something about themselves worth keeping, or when the group settles a
-plan: store it for each member it involves. Never store what someone says or guesses
-about another member.
+someone says something lasting about themselves or states one about another member
+(a diet, an allergy, an intolerance: "Anastasia can't have soy" is stored for
+Anastasia), or when the group settles a plan: store it for each member it involves.
+When someone asks you to remember, store every fact from the chat that the request
+covers, each for the member it is about, before you answer. Do not store guesses,
+jokes or opinions about someone. Only say a fact is noted after you stored it.
 
 ## Tools
 
