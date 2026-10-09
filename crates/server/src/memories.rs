@@ -397,6 +397,8 @@ pub(crate) fn learn_prompt(known: &[Hit], exchange: &Exchange) -> String {
 pub enum ReadingKind {
     Email,
     Slack,
+    /// A stretch of a Beep group chat, read for one member.
+    Group,
 }
 
 impl ReadingKind {
@@ -404,6 +406,8 @@ impl ReadingKind {
         match self {
             ReadingKind::Email => MemorySource::Email {},
             ReadingKind::Slack => MemorySource::Slack {},
+            // Members said it in Beep itself, so like a chat it may be used in groups.
+            ReadingKind::Group => MemorySource::Learned {},
         }
     }
 
@@ -411,6 +415,7 @@ impl ReadingKind {
         match self {
             ReadingKind::Email => EMAIL_INTRO,
             ReadingKind::Slack => SLACK_INTRO,
+            ReadingKind::Group => GROUP_INTRO,
         }
     }
 }
@@ -442,6 +447,14 @@ talk; then reply {\"ops\": []}. Facts about the user's work count, like their ro
 but not the day-to-day of tasks and tickets. One exception: a request made to the user with a date or deadline \
 still ahead, like someone asking them to send something by Friday, is kept as a short fact naming who asked, with \
 valid_until on that day. Drop requests without a date.";
+
+const GROUP_INTRO: &str = "You keep the long-term memory of Beep, a personal assistant app, for one member \
+of a Beep group chat, called the user here. You get the latest stretch of the chat with the user's own messages \
+marked. Only the last message is new; the ones before it are context and were read already. Decide what the last \
+message teaches about the user that is worth remembering, whether the user says it or another member says it about \
+them, like a friend saying the user cannot eat soy. Plans the user takes part in count, like a trip the group is \
+taking. Most group chat teaches nothing lasting about the user, such as jokes, greetings, Beep's suggestions, or \
+facts about other members; then reply {\"ops\": []}.";
 
 /// How the learner judges and answers, whatever it reads.
 pub(crate) const LEARN_RULES: &str = "Worth keeping: the user's name, the people in their life and how they relate, where \
