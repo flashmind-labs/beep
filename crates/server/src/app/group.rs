@@ -6,13 +6,14 @@
 use super::{
     App, UserNotice,
     group_tools::{self, GroupRun},
+    learning::MEMORY_THRESHOLD,
     run::register_web_tools,
 };
 use crate::{
     apps::markdown,
     decision::Criteria,
     leak::{Gate, Said, Secret},
-    memories::profile_facts,
+    memories::{Reading, ReadingKind, profile_facts},
     permissions::{self, Approved, Rules},
     protocol::{Group, GroupAuthor, GroupMember, GroupMessage, Notice},
     store::{JoinedGroup, MemberRow, MessageRow, NewMessage},
@@ -53,12 +54,22 @@ const SETTLE: Duration = Duration::from_secs(3);
 /// Messages Jev reads to judge whether Beep should answer.
 const CALL_CONTEXT: i64 = 15;
 /// How sure Jev must be before Beep answers without being mentioned.
-const CALL_THRESHOLD: f64 = 0.8;
+const CALL_THRESHOLD: f64 = 0.6;
 const CALL_QUESTION: &str =
     "Nobody wrote @beep. Should Beep, the group's assistant, answer the latest message on its own?";
 const CALL_CRITERIA: Criteria = Criteria {
-    yes: "The latest message asks Beep, or asks the group something Beep can answer or do now: where to eat or stay, opening hours, how to get somewhere, prices, weather, a fact, a plan or a list; or it follows up on what Beep just said.",
-    no: "People talking to each other: greetings, jokes, news, feelings, a question only another member can answer (their plans, opinions or whereabouts), a reply to another member, thanks, or something already answered.",
+    yes: "The latest message asks Beep, or asks the group something Beep can answer, find or do now: where to eat or stay, opening hours, how to get somewhere, prices, weather, a fact, a plan, an itinerary or a list; or the group is planning something Beep could help with; or it replies to what Beep said, including a correction, an objection or a new constraint on Beep's suggestion (an allergy, a diet, a date, a budget) that calls for a better answer.",
+    no: "People talking to each other: greetings, jokes, news, feelings, a question only another member can answer (their plans, opinions or whereabouts), a reply to another member that does not need Beep, thanks, or something already answered.",
+};
+/// Messages the learner reads around a new one.
+const LEARN_CONTEXT: i64 = 10;
+const MEMORY_QUESTION: &str = "Does the latest message reveal something lasting about one of the members that Beep should remember about them?";
+const MEMORY_CRITERIA: Criteria = Criteria {
+    yes: "A lasting fact about a member, said by them or by someone else about them: diet, allergies and intolerances, \
+health, preferences and dislikes, people in their life, where they live, work, hobbies, routines, or plans they take part in, \
+like a trip",
+    no: "Greetings, jokes, logistics of the moment, questions, Beep's own replies, opinions about the world, or anything \
+that says nothing lasting about a member",
 };
 
 /// Whether `text` calls Beep.
@@ -135,6 +146,33 @@ fn call_state(joined: &JoinedGroup, history: &[MessageRow]) -> String {
         let _ = write!(state, "\n{}{latest}: {}", row.author_name, row.content);
     }
     state
+}
+
+/// The chat as the learner reads it for `member`: their own messages marked,
+/// the last one the new message.
+fn learn_text(joined: &JoinedGroup, history: &[MessageRow], member: &MemberRow) -> String {
+    let others: Vec<&str> = joined
+        .members
+        .iter()
+        .filter(|m| m.user_id != member.user_id)
+        .map(|m| m.name.as_str())
+        .collect();
+    let mut text = format!(
+        "Group chat \"{}\". The user is {}; the other members are {}.\n\nMessages, oldest first:",
+        joined.group.name,
+        member.name,
+        others.join(", ")
+    );
+    for (i, row) in history.iter().enumerate() {
+        let author = match &row.author_id {
+            Some(id) if *id == member.user_id => format!("{} (the user)", row.author_name),
+            Some(_) => row.author_name.clone(),
+            None => "Beep".to_owned(),
+        };
+        let new = if i + 1 == history.len() { " (new)" } else { "" };
+        let _ = write!(text, "\n{author}{new}: {}", row.content);
+    }
+    text
 }
 
 fn said(name: &str, text: &str) -> String {
@@ -261,6 +299,12 @@ impl App {
             Some(user.id()),
             &said(&posted.message.author_name, text),
         );
+        if self.decision().is_some() {
+            let app = self.clone();
+            let joined = joined.clone();
+            let seq = posted.message.seq;
+            tokio::spawn(async move { app.learn_from_group(&joined, seq).await });
+        }
         let mentioned = mentions_beep(text);
         if !mentioned && self.decision().is_none() {
             return Ok(Some(message));
@@ -332,10 +376,71 @@ impl App {
             .probability_with(&state, CALL_QUESTION, &CALL_CRITERIA)
             .await
         {
-            Ok(probability) => probability >= CALL_THRESHOLD,
+            Ok(probability) => {
+                log::info!("group call scored {probability:.2}; group={group_id} seq={seq}");
+                probability >= CALL_THRESHOLD
+            }
             Err(error) => {
                 log::warn!("Jev could not judge a group message; group={group_id}: {error:#}");
                 false
+            }
+        }
+    }
+
+    /// Learns what message `seq` says about each member, into that member's
+    /// own memory. Jev screens it first, since most group chat teaches nothing.
+    async fn learn_from_group(&self, joined: &JoinedGroup, seq: i64) {
+        let Some(decision) = self.decision() else {
+            return;
+        };
+        let group_id = &joined.group.id;
+        let history = match self
+            .store
+            .group_messages_until(group_id, seq, LEARN_CONTEXT)
+            .await
+        {
+            Ok(history) => history,
+            Err(error) => {
+                log::warn!("unable to load group messages; group={group_id}: {error:#}");
+                return;
+            }
+        };
+        let Some(latest) = history.last().filter(|last| last.seq == seq) else {
+            return;
+        };
+        let state = call_state(joined, &history);
+        let probability = match decision
+            .probability_with(&state, MEMORY_QUESTION, &MEMORY_CRITERIA)
+            .await
+        {
+            Ok(probability) => probability,
+            Err(error) => {
+                log::warn!("Jev could not score a group message; group={group_id}: {error:#}");
+                return;
+            }
+        };
+        log::info!("group memory scored {probability:.2}; group={group_id} seq={seq}");
+        if probability < MEMORY_THRESHOLD {
+            return;
+        }
+        for row in &joined.members {
+            let Some(user) = self.user(&row.user_id) else {
+                continue;
+            };
+            let reading = Reading {
+                kind: ReadingKind::Group,
+                id: format!("group:{group_id}:{seq}"),
+                query: latest.content.clone(),
+                text: learn_text(joined, &history, row),
+            };
+            let learned = user
+                .learn_reading(self.generator(&row.user_id), &reading)
+                .await;
+            if !learned.is_empty() {
+                log::info!(
+                    "group memory learned {}; group={group_id} seq={seq} user={user}",
+                    learned.len()
+                );
             }
         }
     }
@@ -606,6 +711,20 @@ mod tests {
         );
         assert!(state.starts_with("Group chat \"Tokyo trip\" with Dani, Sam and Beep"));
         assert!(state.ends_with("\nSam: Landed!\nDani (latest): Where should we eat?"));
+
+        let beep = MessageRow {
+            author_id: None,
+            ..row(2, "Beep", "Try ramen.")
+        };
+        let text = learn_text(
+            &joined,
+            &[beep, row(3, "Dani", "Not ramen, Sam can't have soy")],
+            &joined.members[1],
+        );
+        assert!(text.starts_with(
+            "Group chat \"Tokyo trip\". The user is Sam; the other members are Dani."
+        ));
+        assert!(text.ends_with("\nBeep: Try ramen.\nDani (new): Not ramen, Sam can't have soy"));
     }
 
     #[test]
