@@ -3,11 +3,13 @@
 // to Android that the app owns the links, and shows a page to anyone without it.
 
 const PACKAGE = "com.flashmind.beep";
-// SHA-256 of the certificates that sign the app: the upload key for sideloaded
-// release builds. Add the Play app signing key from Play Console > Test and
-// release > App signing, or Play installs will not open links directly.
+// SHA-256 of the certificates that sign the app: the upload key CI signs with,
+// and the debug key of the Mac that builds the APKs installed by hand. Add the
+// Play app signing key from Play Console > Test and release > App signing, or
+// Play installs will not open links directly.
 const FINGERPRINTS = [
   "78:DB:DE:A5:7C:78:F3:B3:FC:E3:C8:62:2E:28:BC:4A:BD:08:6B:3C:AA:A8:B3:C2:49:AD:1B:92:BE:82:55:75",
+  "BA:60:80:F8:8E:A7:D2:0F:1F:10:D9:6C:1E:73:B5:90:2C:4D:34:4D:0A:4E:AC:CE:C7:BC:F3:4D:C5:34:E2:FB",
 ];
 const PLAY = `https://play.google.com/store/apps/details?id=${PACKAGE}`;
 
