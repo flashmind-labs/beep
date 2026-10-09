@@ -2,16 +2,13 @@
 
 ## Getting the app onto the phone
 
-Install the release APK on the physical phone over wireless ADB, and the debug
-APK on an emulator (`./gradlew assembleDebug`). The phone's ADB port changes, so
-take it from `adb devices`.
+Releases always go to Play internal testing. Every push to main runs the `apk`
+workflow, which signs the bundle with the upload key and uploads it to the
+internal track, and the phone updates from Play. Do not hand-install APKs on
+the phone: a locally built APK is signed with another key and will not install
+over the Play build.
 
-    cd apps/android && ./gradlew assembleRelease
-    adb -s sm-f966b.box.ray:<port> install -r apps/android/app/build/outputs/apk/release/app-release.apk
-
-If the phone is not on ADB, send the same APK with
-`ray send sm-f966b.box.ray <apk>`, which queues it while the phone is offline.
-Never serve the file over HTTP.
+Use the debug APK on an emulator (`./gradlew assembleDebug`).
 
 ## UI changes
 

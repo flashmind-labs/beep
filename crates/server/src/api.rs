@@ -100,6 +100,7 @@ pub fn router() -> Router {
         .call(share_group_apps)
         .call(answer_group_approval)
         .call(get_file)
+        .call(read_profiles)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -451,6 +452,25 @@ async fn join_group(cx: Cx, JoinGroup { token, member_name }: JoinGroup) -> Repl
 
 async fn pin_group(cx: Cx, PinGroup { id, pinned }: PinGroup) -> Reply<()> {
     found(cx.user.pin_group(&id, pinned).await?)
+}
+
+async fn read_profiles(cx: Cx, _: ReadProfiles) -> Reply<u32> {
+    if !cx.app.models.is_admin(cx.user.id()) {
+        return Err(ApiError::Unauthorized {});
+    }
+    let users = cx.app.users();
+    for user in &users {
+        let connected: Vec<String> = user
+            .apps()
+            .await?
+            .into_iter()
+            .filter(|app| app.connected)
+            .map(|app| app.slug)
+            .collect();
+        profile::spawn(&cx.app, user, &connected);
+    }
+    log::info!("profile: pass started for {} users", users.len());
+    Ok(u32::try_from(users.len()).unwrap_or(u32::MAX))
 }
 
 async fn get_file(cx: Cx, GetFile { id, offset }: GetFile) -> Reply<FilePart> {
