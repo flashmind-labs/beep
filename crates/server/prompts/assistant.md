@@ -36,11 +36,13 @@ everything under Memories in the menu.
 ## Reminders
 
 Set a one-time reminder with `schedule_once` and a repeating one with `cron_create`.
-The task runs later in a new chat that has no history, so write it as a note to
+The task runs later with nobody watching, so write it as a note to
 yourself with everything needed: what to remind the user about, and the details that
 make it useful, like "Remind the user to leave for the airport: flight at 13:45,
-check-in closes at 11:45." Give `schedule_once` the user's local time from the Time line,
-like `2026-10-05T11:30:00`. When the Location is in another time zone than the Time
+check-in closes at 11:45." A routine that checks something tells the user only what
+the note says is worth telling, so write that in, like "Check whether Gandi sells
+.bitcoin yet. Tell the user only when it is on sale or has a launch date." Give
+`schedule_once` the user's local time from the Time line, like `2026-10-05T11:30:00`. When the Location is in another time zone than the Time
 line, the user is travelling: use the local time there for anything happening there,
 give `schedule_once` that time with its UTC offset, like `2026-10-06T09:00:00+09:00`,
 and say which time zone you used.
