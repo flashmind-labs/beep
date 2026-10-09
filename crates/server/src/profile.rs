@@ -2,7 +2,8 @@
 //! everything it can reach and builds a profile of the user from it.
 //!
 //! Mail is read a year at a time, newest first, back to the first empty
-//! years. Newsletters and promotions only feed counts. Threads the user wrote
+//! years. Newsletters and promotions only feed counts. Jev drops the other
+//! received mail that is plainly not about the user. Threads the user wrote
 //! in, repeated senders (a few samples and every subject) and the remaining
 //! emails go to the cheap model in batches, which writes short dated notes.
 //! Calendars are read once, five years back and half a year ahead, with each
@@ -11,13 +12,15 @@
 //!
 //! When no source of the user is still being read, the notes are condensed
 //! into dossiers and then into facts, saved as memories with the evidence
-//! behind each, and the user gets a notice. Health, religion, politics,
-//! sexuality, debts and legal trouble are never noted. Content is never logged.
+//! behind each, and the user gets a notice. Content is never logged.
 
 use crate::{
     app::{App, UserNotice},
     apps::mcp::FASTMAIL,
-    feeds::mail::{Email, Mailbox, Source as MailSource, Window, clip},
+    decision::DecisionTool,
+    feeds::mail::{
+        Email, Mailbox, Source as MailSource, Window, clip, worth_learning, worth_reading,
+    },
     protocol::{MemorySource, Notice},
     starters::{Generator, unfence},
     store::{Fact, Origin, ProfileNote, Validity},
@@ -25,7 +28,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Datelike, Duration as Days, NaiveDate, SecondsFormat, Utc};
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::{StreamExt, TryStreamExt, future, stream};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -46,6 +49,8 @@ const YEAR_CHARS: usize = 480_000;
 const BATCH_CHARS: usize = 16_000;
 /// Extraction calls at once.
 const CONCURRENCY: usize = 8;
+/// Jev calls at once while screening a year of mail.
+const SCREEN_CONCURRENCY: usize = 16;
 /// Emails from one sender past which they are summed up, not read one by one.
 const DIGEST_AFTER: usize = 10;
 /// Emails of a repeated sender read in full.
@@ -95,10 +100,12 @@ const NOTE_RULES: &str = "Note anything that tells who the user is and how they 
 languages, where they live and lived, work, employers, colleagues, studies, the people in their life and how \
 they relate, purchases (shop, item, brand, size, color, price range), bookings and trips (where, when, with \
 whom), subscriptions and services, hobbies, sports and fitness, food and diet, events they go to, habits and \
-routines, tastes. Be specific and keep names, places, brands and dates. A repeated thing is worth one note with \
-how often. Never note anything about health conditions, religion, politics, sexuality, debts or legal trouble, \
-and never passwords, codes, tokens, card, account or ID numbers. Only what the text shows about the user, \
-not guesses. Each note one short sentence in English about the user in third person.
+routines, tastes, homes and property, health and insurance, beliefs, religion and politics, money: banks, \
+investments and debts, residency and visas. Be specific and keep names, places, brands and dates. A repeated \
+thing is worth one note with how often. A newsletter or promotion shows at most a subscription, worth a note \
+only when it says something about the user's interests or views. Never note passwords, codes, tokens, or card, \
+account, contract or ID numbers. Only what the text shows about the user, never guesses (nothing \"likely\" \
+or \"probably\"). Each note one short sentence in English about the user in third person.
 Reply with only JSON: {\"notes\": [{\"date\": \"YYYY-MM-DD\", \"note\": string}]}. date is the day the \
 note is about, left out when there is none. At most 60 notes; {\"notes\": []} when nothing is worth it.";
 
@@ -114,18 +121,19 @@ const DOSSIER_SYSTEM: &str = "You help a personal assistant app get to know its 
 taken from their mail and calendar over the years, plus counts, oldest first. Merge them into a dossier on \
 the user: identity and languages, home over time, work over time, people and how they relate (and who \
 appears in both mail and calendar), shopping (shops, brands, sizes, colors), travel, subscriptions, hobbies, \
-fitness, food, routines and tastes. Keep counts, names, places and dates, and a timeline wherever something \
-changed. Drop repeats. Never mention health conditions, religion, politics, sexuality, debts or legal \
-trouble. Plain text, at most 1500 words.";
+fitness, food, routines and tastes, homes and property, health and insurance, beliefs, religion and politics, \
+money (banks, investments, debts), residency and visas. Keep counts, names, places and dates, and a timeline \
+wherever something changed. Drop repeats. Plain text, at most 1500 words.";
 
 const FACTS_SYSTEM: &str = "You keep the long-term memory of a personal assistant app. You get dossiers \
 on the user built from their mail and calendar, and the memories already kept. Write the facts most worth \
 knowing to help the user day to day: who they are, where they live, their work, the people close to them, \
-shops, brands, sizes and colors they buy, trips, subscriptions, hobbies, routines and tastes. Each fact is one \
+shops, brands, sizes and colors they buy, trips, subscriptions, hobbies, routines and tastes, homes and \
+property, health, beliefs, religion and politics, money (banks, investments, debts), residency and visas. Each fact is one \
 short self-contained sentence in third person that names its subject, like \"Buys running shoes from \
 Decathlon, size 43.\" Where something changed over time (a job, a home), only the current one is a lasting \
-fact; a past one may be kept with valid_until. Skip what a kept memory already says. Never write about health \
-conditions, religion, politics, sexuality, debts or legal trouble, or any secret or number that gives access.
+fact; a past one may be kept with valid_until. Skip what a kept memory already says. Never write a secret or a number that gives access, or a \
+card, account, contract or ID number.
 Reply with only JSON: {\"facts\": [{\"content\": string, \"valid_from\": \"YYYY-MM-DD\", \"valid_until\": \
 \"YYYY-MM-DD\", \"evidence\": string}]}. Days only for facts that hold for a while. evidence says in at most \
 25 words what in the dossier shows it. At most 80 facts.";
@@ -236,7 +244,7 @@ pub fn spawn(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) {
             log::info!("profile: reading {source}; user={user}");
             let generator = app.generator(user.id());
             let read = match source {
-                Source::Mail(mailbox) => read_mail(generator, &user, mailbox).await,
+                Source::Mail(mailbox) => read_mail(generator, app.decision(), &user, mailbox).await,
                 Source::Calendar(calendar) => read_calendar(generator, &user, calendar).await,
             };
             let summary = match read {
@@ -306,7 +314,12 @@ fn notify(user: &User, source: Source, summary: &Summary, learned: usize) {
 
 // Mail.
 
-async fn read_mail(generator: Generator<'_>, user: &User, mailbox: Mailbox) -> Result<Summary> {
+async fn read_mail(
+    generator: Generator<'_>,
+    decision: Option<&DecisionTool>,
+    user: &User,
+    mailbox: Mailbox,
+) -> Result<Summary> {
     let source = MailSource::new(user, mailbox).await?;
     let key = Source::Mail(mailbox).key();
     let mut before = user
@@ -322,7 +335,7 @@ async fn read_mail(generator: Generator<'_>, user: &User, mailbox: Mailbox) -> R
             after,
             before: Some(before),
         };
-        let year = read_year(generator, &source, window).await?;
+        let year = read_year(generator, decision, &source, window).await?;
         if year.emails == 0 {
             empty += 1;
         } else {
@@ -351,6 +364,7 @@ struct Year {
 
 async fn read_year(
     generator: Generator<'_>,
+    decision: Option<&DecisionTool>,
     source: &MailSource<'_>,
     window: Window,
 ) -> Result<Year> {
@@ -381,6 +395,9 @@ async fn read_year(
     let year = window.after.date_naive();
     let mut notes = vec![counts_note(year, &emails)];
     emails.retain(|email| !email.bulk && !skipped(&email.from));
+    if let Some(decision) = decision {
+        emails = screen(decision, emails).await;
+    }
     let mut groups = group_mail(emails);
     fill_bodies(source, &mut groups).await;
     let texts: Vec<String> = groups.iter().map(Group::render).collect();
@@ -394,6 +411,43 @@ async fn read_year(
         emails: count,
         notes,
     })
+}
+
+/// Keeps mail the user wrote, the threads they wrote in, and received mail
+/// Jev finds worth reading. Mailboxes without a bulk flag, like Fastmail,
+/// rely on this to drop newsletters. Mail Jev fails on is kept.
+async fn screen(decision: &DecisionTool, emails: Vec<Email>) -> Vec<Email> {
+    let written: HashSet<String> = emails
+        .iter()
+        .filter(|email| email.sent)
+        .filter_map(|email| email.thread.clone())
+        .collect();
+    let today = Utc::now().format("%A %Y-%m-%d").to_string();
+    let count = emails.len();
+    let kept: Vec<Email> = stream::iter(emails)
+        .map(|email| {
+            let today = &today;
+            let mine = email.sent || email.thread.as_ref().is_some_and(|t| written.contains(t));
+            async move {
+                if mine {
+                    return Some(email);
+                }
+                match worth_reading(decision, today, &email).await {
+                    Ok(probability) if !worth_learning(probability) => None,
+                    Ok(_) => Some(email),
+                    Err(error) => {
+                        log::debug!("profile: not screened: {error:#}");
+                        Some(email)
+                    }
+                }
+            }
+        })
+        .buffer_unordered(SCREEN_CONCURRENCY)
+        .filter_map(future::ready)
+        .collect()
+        .await;
+    log::debug!("profile: screened mail; kept={} of={count}", kept.len());
+    kept
 }
 
 /// Mail the model reads together.

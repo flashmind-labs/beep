@@ -429,7 +429,8 @@ pub struct Reading {
 const EMAIL_INTRO: &str = "You keep the long-term memory of Beep, a personal assistant app. \
 You get one email from the user's own mailbox: either sent by the user, or received by them. Decide what it \
 teaches about the user that is worth remembering. Most emails teach nothing lasting, such as newsletters, \
-marketing, notifications and routine receipts; then reply {\"ops\": []}. \
+marketing, notifications and routine receipts; then reply {\"ops\": []}. A quick screen let this email \
+through because it might be about the user, but the screen is loose and you are the final judge. \
 The older the email, the higher the bar: from an email more than a few weeks old keep only stable facts, like \
 where the user lives, who they know, what they do and what they like, and nothing about what they were doing then.";
 
@@ -444,12 +445,15 @@ valid_until on that day. Drop requests without a date.";
 
 /// How the learner judges and answers, whatever it reads.
 pub(crate) const LEARN_RULES: &str = "Worth keeping: the user's name, the people in their life and how they relate, where \
-they live and work, their job and ongoing projects, stable likes, dislikes and dietary needs, routines, important \
-dates, goals, and plans such as trips, visits and appointments that are still ahead. Only what the text clearly \
-shows about the user, not about anyone else, and only what is still likely true today. \
-Never keep one-off errands and admin (utilities, meters, deliveries, repairs, bookings, accounts, applications, \
-support requests), events and episodes that only mattered at the time, plans that are already over by today, \
-guesses, general knowledge, money, health, or secrets such as passwords, codes, tokens, card or account numbers.
+they live and work, homes and property they own, their job and ongoing projects, stable likes, dislikes and dietary \
+needs, health conditions and insurance, beliefs, religion and politics, money: the banks, investments and debts \
+they have, residency and visas, routines, important dates, goals, and plans such as trips, visits and \
+appointments that are still ahead. Only what the text clearly shows about the user, not about anyone else, and \
+only what is still likely true today. \
+Never keep one-off errands and admin (utilities, meters, deliveries, repairs, support requests), single \
+payments and statements, events and episodes that only mattered at the time, plans that are already over by \
+today, guesses (nothing \"likely\" or \"probably\"), general knowledge, or secrets and numbers such as \
+passwords, codes, tokens, card, account, contract or ID numbers.
 Known memories are listed with their ids. If a fact is already known, do nothing. If the text shows a known \
 fact changed or extends it, update it by id with the full new text. Forget a memory by id only when the text \
 shows it is no longer true; never because the text does not mention it. Otherwise add it.
