@@ -16,7 +16,7 @@ mod suggest;
 pub(crate) use file::SendFileTool;
 pub(crate) use notify_user::NotifyUserTool;
 pub(crate) use suggest::{
-    NAME as SUGGEST_REPLIES, SUGGESTING as SUGGESTING_REPLIES, replies_output,
+    NAME as SUGGEST_REPLIES, SUGGESTING as SUGGESTING_REPLIES, choice_output, replies_output,
 };
 
 use crate::{
