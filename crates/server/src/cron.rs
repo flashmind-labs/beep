@@ -64,10 +64,13 @@ const SCHEDULED_TASK: &str = "Scheduled task";
 
 /// How the model answers a routine, sent only on routine turns.
 const SCHEDULED_RULE: &str = "The message is the note you wrote yourself when you set up \
-this task, not something the user said. Your reply is sent to the phone as the \
-notification, so write the reminder itself to the user in one or two short, specific \
-sentences of plain text, without Markdown. Do not mention that a task ran or that this \
-is a reminder.";
+this task, not something the user said, and nobody is watching this chat. Do the task. \
+To tell the user something, call notify_user, then write it to them in one or two short, \
+specific sentences of plain text, without Markdown; it is sent as the notification and \
+shown in this chat. A reminder is always sent. A check is sent only when the note's \
+condition is met or you found something new since its last run in this chat; otherwise \
+do not call notify_user and end with one line on what you found, which the user never \
+sees. Do not mention that a task ran or that this is a reminder.";
 
 /// The context lines for a routine's turn. History reads the label back with
 /// [`scheduled_label`] so clients show the turn as a routine, not a prompt.

@@ -1,4 +1,4 @@
-//! How a woken run says its reply is worth sending (see `crate::wake`).
+//! How a woken or scheduled run says its reply is worth sending.
 
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
@@ -23,7 +23,7 @@ impl Tool for NotifyUserTool {
     fn description(&self) -> &str {
         "Send your final reply to the user as a notification. Call it only when the event is \
          worth interrupting them for. Without this call the reply is dropped and the user \
-         never sees this chat."
+         never sees it."
     }
     fn parameters(&self) -> Value {
         json!({

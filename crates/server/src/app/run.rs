@@ -158,7 +158,7 @@ impl App {
             sandbox: self.tools.sandbox.clone(),
         }));
         let notify = Arc::new(AtomicBool::new(false));
-        if message.woken.is_some() {
+        if background {
             registry.register(Arc::new(tools::NotifyUserTool {
                 notify: notify.clone(),
             }));
@@ -446,9 +446,11 @@ impl App {
             status = RunStatus::Waiting;
         }
 
+        // A routine that found nothing to say leaves no trace in the chat. Its
+        // turn stays in the context, so the next run knows what this one saw.
+        let silent = is_cron && status == RunStatus::Completed && !notify.load(Ordering::SeqCst);
         // A run that stops to ask notifies with the question instead.
-        if is_cron && status != RunStatus::Waiting {
-            // Notify registered devices for cron-triggered runs only.
+        if is_cron && status != RunStatus::Waiting && !silent {
             self.notify_run_complete(user, run, status, &reply).await;
         }
 
@@ -598,13 +600,15 @@ impl App {
                 }
             }
         }
-        transcript.entries_mut().extend(
-            conversation
-                .entries()
-                .iter()
-                .filter(|entry| entry.timestamp >= turn_started && !entry.is_summary())
-                .cloned(),
-        );
+        if !silent {
+            transcript.entries_mut().extend(
+                conversation
+                    .entries()
+                    .iter()
+                    .filter(|entry| entry.timestamp >= turn_started && !entry.is_summary())
+                    .cloned(),
+            );
+        }
         // Kept before the turn is saved, so the history the phone reloads on
         // the change notice already names the model.
         let asked = transcript
