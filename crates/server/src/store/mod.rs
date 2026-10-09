@@ -15,6 +15,7 @@ mod crons;
 mod devices;
 mod digest;
 mod feeds;
+mod files;
 mod groups;
 mod habits;
 mod location;
@@ -36,6 +37,7 @@ pub(crate) use cron_jobs::decode_schedule;
 pub use devices::PushDevice;
 pub use digest::AttentionItem;
 pub use feeds::Feed;
+pub use files::NewFile;
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
@@ -162,6 +164,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "group shared apps",
         include_str!("../../migrations/0024_group_shared_apps.sql"),
     ),
+    (25, "files", include_str!("../../migrations/0025_files.sql")),
 ];
 
 fn migrator() -> Migrator {

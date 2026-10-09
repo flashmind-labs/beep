@@ -152,6 +152,11 @@ impl App {
         if let Some(sandbox) = &self.tools.sandbox {
             sandbox::register(&mut registry, sandbox, user);
         }
+        registry.register(Arc::new(tools::SendFileTool {
+            user: user.clone(),
+            session_id: run.session_id.clone(),
+            sandbox: self.tools.sandbox.clone(),
+        }));
         let notify = Arc::new(AtomicBool::new(false));
         if message.woken.is_some() {
             registry.register(Arc::new(tools::NotifyUserTool {

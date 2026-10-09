@@ -305,6 +305,7 @@ impl Store {
             "turn_models",
             "session_titles",
             "shares",
+            "files",
         ] {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE user_id=$1 AND session_id = ANY($2)"

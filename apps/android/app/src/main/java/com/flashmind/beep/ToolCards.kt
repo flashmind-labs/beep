@@ -104,6 +104,8 @@ sealed class ToolCard {
     data class Alarm(val alarm: AlarmRequest) : ToolCard()
     data class Replies(val replies: List<String>, val choice: Boolean) : ToolCard()
     data class Images(val images: List<SentImage>) : ToolCard()
+    /** A file Beep sent, fetched from the server by [id] when first opened. */
+    data class File(val id: String, val name: String, val mime: String, val size: Long) : ToolCard()
 }
 
 data class SentImage(val url: String, val caption: String)
@@ -146,6 +148,10 @@ fun cardFor(call: ToolCall): ToolCard? {
                 image.text("url")?.let { SentImage(it, image.text("caption").orEmpty()) }
             }
             if (images.isEmpty()) null else ToolCard.Images(images)
+        }
+        "send_file" -> json.optJSONObject("file")?.let { f ->
+            val id = f.text("id") ?: return null
+            ToolCard.File(id, f.text("name") ?: "file", f.text("mime") ?: "application/octet-stream", f.optLong("size"))
         }
         else -> null
     }
@@ -710,6 +716,7 @@ fun ToolCards(cards: List<ToolCard>, compact: Boolean, onBrowse: (String) -> Uni
                         if (image.caption.isNotBlank()) Text(image.caption, fontSize = 13.sp, color = LocalBeep.current.colors.muted)
                     }
                 }
+                is ToolCard.File -> FileCard(card)
                 is ToolCard.Replies -> Unit
             }
         }

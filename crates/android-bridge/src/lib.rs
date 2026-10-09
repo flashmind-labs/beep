@@ -10,15 +10,15 @@ use beep_proto::{
     ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare,
     CreateCron, CreateGroup, Cron, DeleteCron, DeleteMemory, DeleteSession, DeleteSessions,
     DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult, DisconnectApp, Event,
-    ExistingSessions, FinishAppAuth, GetAppPermissions, GetEvents, GetGroup, GetModels, GetRun,
-    GetSession, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview,
-    Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons,
-    ListDevices, ListGroups, ListMemories, ListSessions, Memory, Models, Notice, PeekGroup,
-    PermissionLevel, PinGroup, PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice,
-    RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup, Session, SessionMatch,
-    SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps,
-    ShareSession, SharedLink, SharedSession, StartAppAuth, Stream, SuggestPrompts, ToggleCron,
-    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
+    ExistingSessions, FinishAppAuth, GetAppPermissions, GetEvents, GetFile, GetGroup, GetModels,
+    GetRun, GetSession, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
+    GroupPreview, Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice, LinkedDevice, ListApps,
+    ListCrons, ListDevices, ListGroups, ListMemories, ListSessions, Memory, Models, Notice,
+    PeekGroup, PermissionLevel, PinGroup, PinSession, PromptSuggestions, ReasoningLevel,
+    RegisterDevice, RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup,
+    Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone,
+    ShareGroupApps, ShareSession, SharedLink, SharedSession, StartAppAuth, Stream, SuggestPrompts,
+    ToggleCron, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -28,10 +28,13 @@ use iroh::{EndpointId, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::{
     future::Future,
+    io,
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
 use tokio::{
+    fs,
+    io::AsyncWriteExt,
     sync::{Mutex as AsyncMutex, OnceCell},
     time::timeout,
 };
@@ -80,6 +83,12 @@ impl From<anyhow::Error> for BeepError {
                 reason: format!("{e:#}"),
             },
         }
+    }
+}
+
+fn io_error(error: io::Error) -> BeepError {
+    BeepError::Connection {
+        reason: format!("could not save the file: {error}"),
     }
 }
 
@@ -504,6 +513,32 @@ impl BeepClient {
 
     pub async fn share_group_apps(&self, id: String, shared: bool) -> Result<(), BeepError> {
         self.call(ShareGroupApps { id, shared }).await
+    }
+
+    /// Downloads a file Beep sent, named by its `send_file` id, to `path`,
+    /// replacing what is there. Returns its size. It lands under a temporary
+    /// name first, so `path` never holds half a file.
+    pub async fn save_file(&self, id: String, path: String) -> Result<u64, BeepError> {
+        let partial = format!("{path}.part");
+        let mut file = fs::File::create(&partial).await.map_err(io_error)?;
+        let mut offset = 0;
+        loop {
+            let part = self
+                .call(GetFile {
+                    id: id.clone(),
+                    offset,
+                })
+                .await?;
+            file.write_all(&part.data).await.map_err(io_error)?;
+            offset += part.data.len() as u64;
+            if offset >= part.size || part.data.is_empty() {
+                break;
+            }
+        }
+        file.flush().await.map_err(io_error)?;
+        drop(file);
+        fs::rename(&partial, &path).await.map_err(io_error)?;
+        Ok(offset)
     }
 
     /// Allows or denies an app action Beep asked to take for the user from a group.

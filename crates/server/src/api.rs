@@ -99,6 +99,7 @@ pub fn router() -> Router {
         .call(pin_group)
         .call(share_group_apps)
         .call(answer_group_approval)
+        .call(get_file)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -450,6 +451,13 @@ async fn join_group(cx: Cx, JoinGroup { token, member_name }: JoinGroup) -> Repl
 
 async fn pin_group(cx: Cx, PinGroup { id, pinned }: PinGroup) -> Reply<()> {
     found(cx.user.pin_group(&id, pinned).await?)
+}
+
+async fn get_file(cx: Cx, GetFile { id, offset }: GetFile) -> Reply<FilePart> {
+    cx.user
+        .file_part(&id, offset, FILE_PART)
+        .await?
+        .ok_or(ApiError::NotFound {})
 }
 
 async fn share_group_apps(cx: Cx, ShareGroupApps { id, shared }: ShareGroupApps) -> Reply<()> {
