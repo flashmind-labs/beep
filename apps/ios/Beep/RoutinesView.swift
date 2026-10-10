@@ -9,6 +9,8 @@ struct RoutinesView: View {
     @State private var creating = false
     /// Opens the new routine sheet set to arrive at this place, from the places screen.
     var startAt: SavedPlace?
+    /// The Always ask shows after the first place routine only; the places screen keeps a banner after that.
+    @AppStorage("place_routine_asked") private var askedAlways = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,8 +55,11 @@ struct RoutinesView: View {
             NewRoutineView(places: model.places, place: startAt) { label, prompt, schedule in
                 try await model.createCron(label: label, prompt: prompt, schedule: schedule)
                 await load()
+                guard PlaceTrigger(schedule: schedule) != nil else { return }
+                await model.refreshPlaces()
                 // Arriving only reaches Beep with the app closed when location is Always.
-                if PlaceTrigger(schedule: schedule) != nil, !model.location.always {
+                if !model.location.always, !askedAlways {
+                    askedAlways = true
                     try? await Task.sleep(for: .milliseconds(400))
                     path.append(.locationAlways)
                 }

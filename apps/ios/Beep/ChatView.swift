@@ -337,6 +337,13 @@ struct MessageView: View {
                 if !message.text.isEmpty {
                     MarkdownText(text: message.text)
                 }
+                // The mock shows a saved place under the reply that names it.
+                ForEach(message.tools.compactMap(\.savedPlace), id: \.id) { place in
+                    PlaceCard(place: place) { model.destination = .placeRoutine(place.id) }
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .card()
+                        .padding(.top, 10)
+                }
                 if !message.text.isEmpty, !live { actions }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
