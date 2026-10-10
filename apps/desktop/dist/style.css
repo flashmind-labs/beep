@@ -231,3 +231,32 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
   background: #1C2420; color: #E8EEEA; border: 1.5px solid #34413A; cursor: pointer }
 .dprod-copy:hover { border-color: var(--emerald) }
 .dprod.pending .dprod-card { min-height: 220px; cursor: default }
+
+/* Memories and routines */
+.dmem { display: grid; gap: 2px; padding: 7px 10px; border-radius: 9px; color: var(--fg) }
+.dmem[aria-selected="true"] { background: rgba(59, 155, 122, .28) }
+.dmem .top { display: flex; align-items: flex-start; gap: 10px }
+.dmem .c { flex: 1; min-width: 0; font-size: 14px; line-height: 20px }
+.dmem .m { font-size: 12px; color: var(--muted); line-height: 17px }
+.dmem q { font-style: italic; color: var(--muted); font-size: 12px; line-height: 17px; quotes: "\201C" "\201D" }
+.dmem.ended .c, .dmem.ended q { opacity: .55 }
+.dmem textarea { flex: 1; min-width: 0; font: inherit; font-size: 14px; line-height: 20px; color: var(--fg); background: var(--surface); border: 1px solid var(--emerald); border-radius: 6px; padding: 3px 6px; resize: none; outline: 0 }
+.dmem mark { background: rgba(240, 122, 106, .3); color: inherit; border-radius: 3px; padding: 0 1px }
+.dmem .acts, .drt .acts { display: flex; gap: 4px; flex: none }
+.dmem .acts .dbtn, .drt .acts .dbtn { min-height: 22px; padding: 0 7px; font-size: 11.5px }
+.drt { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 9px; color: var(--fg) }
+.drt[aria-selected="true"] { background: rgba(59, 155, 122, .28) }
+.drt .ic { width: 30px; height: 30px; border-radius: 8px; background: rgba(59, 155, 122, .16); color: var(--emerald); display: grid; place-items: center; flex: none }
+.drt.off .ic { background: var(--surface); color: var(--dim) } .drt.off .tt b { color: var(--muted) }
+.drt .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
+.drt .tt b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.drt .tt > span { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.drt .tt small { font-size: 12px; color: var(--dim) }
+.dchips { display: flex; flex-wrap: wrap; gap: 6px }
+.dchip { min-height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-size: 12.5px }
+.dchip[aria-pressed="true"] { background: rgba(59, 155, 122, .28); border-color: var(--emerald) }
+.dchip.day { min-width: 34px; padding: 0 8px }
+.dfield textarea { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; line-height: 20px; outline: 0; resize: none; caret-color: var(--emerald) }
+.dfield textarea:focus { border-color: var(--emerald) }
+.dfield.err textarea { border-color: var(--err) }
+.dfield input[type="time"], .dfield input[type="date"] { color-scheme: dark }

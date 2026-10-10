@@ -67,7 +67,7 @@ function toolLabel(name) {
 
 const bar = document.getElementById("bar");
 const S = {
-  view: "chat", // chat | chats | group | ginfo | invite | gnew | link | revoked
+  view: "chat", // chat | chats | group | ginfo | invite | gnew | link | revoked | settings | memories | routines | rnew
   link: "unlinked",
   session: null,
   chats: { list: [], sel: 0, query: "" },
@@ -384,7 +384,7 @@ async function send(message) {
   refreshHints();
   scrollDown();
   try {
-    await invoke("send_prompt", { session: id, message, onEvent: follow(id, turn) });
+    await invoke("send_prompt", { session: id, message, images: [], onEvent: follow(id, turn) });
   } catch (err) {
     failed(turn, String(err));
   }
@@ -956,7 +956,7 @@ async function sendGroup() {
   closeMention();
   drawGroup(true);
   try {
-    const sent = await invoke("send_to_group", { groupId: id, message: text });
+    const sent = await invoke("send_to_group", { groupId: id, message: text, images: [] });
     if (G.id !== id) return;
     G.pending = G.pending.filter(x => x !== p);
     if (!G.chat.messages.some(m => m.seq === sent.seq)) G.chat.messages.push(sent);
@@ -1329,6 +1329,405 @@ async function renderSettings(confirm = false) {
   });
 }
 
+// ---------- Memories ----------
+
+const MEM_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V4a3 3 0 00-3 0zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/></svg>';
+const CLOCK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+const PLUS_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+const PLAY_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+const MEM_SOURCE = { user: "You told Beep", learned: "Learned in a chat", email: "From your email", slack: "From Slack" };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// mode: list | actions | edit | clear
+const M = { all: [], list: [], sel: 0, query: "", mode: "list", error: "", loaded: false };
+
+/// "2 Sep" from `YYYY-MM-DD`.
+function shortDate(day) {
+  const [, m, d] = String(day ?? "").split("-").map(Number);
+  return m && d ? `${d} ${MONTHS[m - 1]}` : "";
+}
+
+function renderMemories() {
+  S.view = "memories";
+  invoke("close_group").catch(() => {});
+  Object.assign(M, { sel: 0, query: "", mode: "list", error: "" });
+  bar.innerHTML = `<div class="dinput"><input id="mfind" placeholder="Search memories" autocomplete="off" spellcheck="false"><span class="dmuted" id="mcount"></span><kbd>⌘M</kbd></div>
+    <div class="dlist" id="mlist" role="listbox" aria-label="Memories" style="border-top:1px solid var(--border);padding-top:2px"></div><div id="mhints"></div>`;
+  const find = $("#mfind");
+  find.focus();
+  find.addEventListener("input", () => { M.query = find.value.trim(); M.sel = 0; M.mode = "list"; drawMemories(); });
+  $("#mlist").addEventListener("click", memClick);
+  drawMemories();
+  loadMemories();
+}
+
+async function loadMemories() {
+  try {
+    M.all = await invoke("list_memories");
+    M.loaded = true;
+    M.error = "";
+  } catch (e) {
+    M.error = String(e);
+  }
+  if (S.view === "memories") drawMemories();
+}
+
+function drawMemories() {
+  const list = $("#mlist");
+  if (!list) return;
+  const q = M.query.toLowerCase();
+  M.list = M.all.filter(m => !q || [m.content, m.category, m.quote].some(t => t?.toLowerCase().includes(q)));
+  // Grouped by category; the server lists newest first, so each group keeps that order.
+  const cats = [...new Set(M.list.map(m => m.category || "Other"))];
+  M.list = cats.flatMap(c => M.list.filter(m => (m.category || "Other") === c));
+  M.sel = Math.max(0, Math.min(M.sel, M.list.length - 1));
+  $("#mcount").textContent = M.loaded ? (q ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
+  const today = new Date().toISOString().slice(0, 10);
+  let html = M.error ? `<div class="derr" style="padding:8px 10px">${esc(M.error)}</div>` : "";
+  if (M.mode === "clear") {
+    html += `<div class="dcard" style="margin:8px"><div style="padding:10px 12px;display:grid;gap:8px">
+      <b style="font-size:13.5px">Forget everything?</b><div class="dmuted" style="display:block">Beep will forget all ${M.all.length} memories. This cannot be undone.</div>
+      <div style="display:flex;gap:8px"><button class="dbtn warn" data-m="clear-yes">Forget all</button><button class="dbtn" data-m="list">Cancel</button></div></div></div>`;
+  } else if (M.loaded && !M.all.length) {
+    html += `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${MEM_ICON}</span>
+      <b style="font-size:14px">Nothing remembered yet.</b><span class="dmuted" style="display:block">Beep learns as you chat, or tell it "remember that…"</span></div>`;
+  } else {
+    let i = 0;
+    for (const cat of cats) {
+      html += `<div class="dsec" style="border:0;padding-left:10px">${esc(cat)}</div>`;
+      for (const m of M.list.filter(m => (m.category || "Other") === cat)) {
+        const on = i === M.sel, ended = m.valid_until && m.valid_until < today;
+        const meta = [MEM_SOURCE[m.source] ?? "", shortDate(m.updated)].filter(Boolean).join(" · ")
+          + (m.valid_from || m.valid_until ? ` · ${m.valid_from ? shortDate(m.valid_from) : ""} to ${m.valid_until ? shortDate(m.valid_until) : ""}` : "");
+        if (on && M.mode === "edit") {
+          html += `<div class="dmem" aria-selected="true" data-i="${i}"><div class="top"><textarea id="medit" rows="2" aria-label="Memory">${esc(m.content)}</textarea>
+            <span style="font-size:12px;color:var(--muted);flex:none;display:inline-flex;gap:4px;align-items:center">${ICON.ret} save</span></div><div class="m">${esc(meta)}</div></div>`;
+        } else {
+          const acts = on ? `<span class="acts"><button class="dbtn" data-m="edit">Edit</button><button class="dbtn warn" data-m="forget">Forget<kbd>⌘⌫</kbd></button></span>` : "";
+          html += `<div class="dmem${ended ? " ended" : ""}" role="option" aria-selected="${on}" data-i="${i}"><div class="top"><span class="c">${mark(m.content, M.query)}</span>${acts}</div>
+            <div class="m">${esc(meta)}</div>${m.quote ? `<q>${mark(m.quote, M.query)}</q>` : ""}</div>`;
+        }
+        i++;
+      }
+    }
+    if (M.all.length && !M.query) html += `<div style="padding:6px 10px 4px"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`;
+  }
+  list.innerHTML = html;
+  list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  const edit = $("#medit");
+  if (edit) { edit.focus(); edit.setSelectionRange(edit.value.length, edit.value.length); }
+  $("#mhints").outerHTML = `<div id="mhints">${M.mode === "edit"
+    ? hints([[ICON.ret, "save"], [`⇧${ICON.ret}`, "new line"], ["esc", "cancel"]])
+    : hints([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ["esc", "back"]])}</div>`;
+}
+
+function memClick(e) {
+  const btn = e.target.closest("[data-m]");
+  const row = e.target.closest(".dmem[data-i]");
+  if (!btn && row && M.mode !== "edit") {
+    M.sel = Number(row.dataset.i);
+    M.mode = "list";
+    return drawMemories();
+  }
+  if (btn) memAction(btn.dataset.m);
+}
+
+async function memAction(a) {
+  const m = M.list[M.sel];
+  if (a === "list" || a === "clear" || a === "edit") {
+    if (a === "edit" && !m) return;
+    M.mode = a;
+    return drawMemories();
+  }
+  try {
+    if (a === "save" && m) {
+      const content = $("#medit").value.trim();
+      if (content && content !== m.content) {
+        await invoke("update_memory", { id: m.id, content });
+        m.content = content;
+      }
+    } else if (a === "forget" && m) {
+      await invoke("delete_memory", { id: m.id });
+      M.all = M.all.filter(x => x.id !== m.id);
+    } else if (a === "clear-yes") {
+      await invoke("clear_memories");
+      M.all = [];
+    }
+    M.error = "";
+  } catch (e) {
+    M.error = String(e);
+  }
+  M.mode = "list";
+  if (S.view === "memories") drawMemories();
+  $("#mfind")?.focus();
+}
+
+function memKeys(e, cmd) {
+  if (M.mode === "edit") {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); memAction("save"); }
+    return;
+  }
+  if (M.mode === "clear") {
+    if (e.key === "Enter") { e.preventDefault(); memAction("clear-yes"); }
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    M.sel = Math.max(0, Math.min(M.list.length - 1, M.sel + (e.key === "ArrowDown" ? 1 : -1)));
+    drawMemories();
+  } else if (e.key === "Enter" && !e.isComposing && M.list.length) {
+    e.preventDefault();
+    memAction("edit");
+  } else if (cmd && e.key === "Backspace" && M.list.length) {
+    e.preventDefault();
+    memAction("forget");
+  }
+}
+
+// ---------- Routines ----------
+
+// mode: list | actions | delete
+const R = { list: [], sel: 0, mode: "list", error: "", loaded: false };
+// The new routine form. repeat: day | weekdays | week | hour | once | cron
+const NR = { label: "", prompt: "", repeat: "day", days: [1], time: "08:00", date: "", cron: "", error: "", busy: false };
+const CRON_DAYS = [1, 2, 3, 4, 5, 6, 0];
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+const clock = (h, m) => `${h}:${String(m).padStart(2, "0")}`;
+
+/// "today 9:00", "tomorrow 9:00", "Mon 9:00" or, further out, "12 Oct 9:00".
+function describeDay(at) {
+  const day = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const ahead = Math.round((day(at) - day(new Date())) / 86400000);
+  const label = ahead === 0 ? "today" : ahead === 1 ? "tomorrow" : ahead > 1 && ahead < 7 ? DAY_NAMES[at.getDay()] : `${at.getDate()} ${MONTHS[at.getMonth()]}`;
+  return `${label} ${clock(at.getHours(), at.getMinutes())}`;
+}
+
+/// Reads the cron shapes the form writes as words, the same as the phone. Anything else shows as written.
+function describeSchedule(s) {
+  const place = /^(arrive|leave):[^:]+(:daily)?$/.exec(s);
+  if (place) return (place[1] === "arrive" ? "When you arrive at a saved place" : "When you leave a saved place") + (place[2] ? " · once a day at most" : "");
+  if (/^\d{4}-\d\d-\d\dT/.test(s)) {
+    const at = new Date(s);
+    if (!isNaN(at)) return "Once, " + describeDay(at);
+  }
+  const p = s.trim().split(/\s+/);
+  if (p.length !== 5 || p[2] !== "*" || p[3] !== "*" || !/^\d+$/.test(p[0])) return s;
+  const min = Number(p[0]), days = p[4];
+  if (p[1] === "*" && days === "*") return min ? `Every hour at :${String(min).padStart(2, "0")}` : "Every hour";
+  if (!/^\d+$/.test(p[1])) return s;
+  const at = clock(Number(p[1]), min);
+  if (days === "*") return `Every day at ${at}`;
+  if (days === "1-5") return `Weekdays at ${at}`;
+  if (/^[0-6]$/.test(days)) return `Every ${DAY_FULL[days]} at ${at}`;
+  if (/^[0-6](,[0-6])*$/.test(days)) return days.split(",").map(d => DAY_NAMES[d]).join(", ") + ` at ${at}`;
+  return s;
+}
+
+function renderRoutines() {
+  S.view = "routines";
+  invoke("close_group").catch(() => {});
+  Object.assign(R, { sel: Math.min(R.sel, Math.max(0, R.list.length - 1)), mode: "list", error: "" });
+  drawRoutines();
+  loadRoutines();
+}
+
+async function loadRoutines() {
+  try {
+    R.list = await invoke("list_crons");
+    R.loaded = true;
+    R.error = "";
+  } catch (e) {
+    R.error = String(e);
+  }
+  if (S.view === "routines") drawRoutines();
+}
+
+function drawRoutines() {
+  R.sel = Math.max(0, Math.min(R.sel, R.list.length - 1));
+  const on = R.list.filter(c => c.enabled).length, off = R.list.length - on;
+  const sum = !R.loaded ? "" : !R.list.length ? "Nothing scheduled" : [on && `${on} on`, off && `${off} paused`].filter(Boolean).join(", ");
+  const head = `<div class="dhead"><span class="tt"><b>Routines</b><small>${sum}</small></span><button class="dbtn" data-r="new">${PLUS_ICON}New<kbd>⌘N</kbd></button></div>`;
+  const err = R.error ? `<div class="derr" style="padding:8px 18px 0">${esc(R.error)}</div>` : "";
+  if (R.loaded && !R.list.length) {
+    bar.innerHTML = head + err + `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${CLOCK_ICON}</span>
+      <b style="font-size:14px">No routines yet.</b><span class="dmuted" style="display:block">Schedule tasks for Beep to run on a timer.</span><button class="dbtn pri" data-r="new" style="margin-top:4px">New routine</button></div>`
+      + hints([["⌘N", "new routine"], ["esc", "back"]]);
+  } else {
+    const rows = R.list.map((c, i) => {
+      const cur = i === R.sel, label = esc(c.label || "Reminder");
+      if (cur && R.mode === "delete") {
+        return `<div class="drt" aria-selected="true" data-i="${i}"><span class="tt"><span style="font-size:14px">Delete <b>${label}</b>?</span></span>
+          <span class="acts"><button class="dbtn warn" data-r="delete-yes">Delete</button><button class="dbtn" data-r="list">Cancel</button></span></div>`;
+      }
+      const next = c.enabled ? (c.next_run_at && !c.run_once ? "Next: " + describeDay(new Date(c.next_run_at)) : "") : "Paused";
+      const tail = cur && R.mode === "actions"
+        ? `<span class="acts"><button class="dbtn" data-r="run">${PLAY_ICON}Run now</button><button class="dbtn warn" data-r="delete">Delete<kbd>⌘⌫</kbd></button></span>`
+        : `<button class="dswitch" role="switch" aria-checked="${c.enabled}" aria-label="${label} on" data-r="toggle" data-i="${i}"></button>`;
+      return `<div class="drt${c.enabled ? "" : " off"}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${CLOCK_ICON}</span>
+        <span class="tt"><b>${label}</b><span>${esc(c.prompt)}</span><small>${esc([describeSchedule(c.schedule), next].filter(Boolean).join(" · "))}</small></span>${tail}</div>`;
+    }).join("");
+    bar.innerHTML = head + err + `<div class="dlist" id="rlist" role="listbox" aria-label="Routines" style="padding-top:8px">${rows}</div>`
+      + hints(R.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["esc", "back"]]);
+    bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }
+  bar.onclick = routineClick;
+}
+
+function routineClick(e) {
+  if (S.view !== "routines") return;
+  const btn = e.target.closest("[data-r]");
+  const row = e.target.closest(".drt[data-i]");
+  if (btn?.dataset.i) R.sel = Number(btn.dataset.i);
+  if (btn) return routineAction(btn.dataset.r);
+  if (row) {
+    R.sel = Number(row.dataset.i);
+    R.mode = "actions";
+    drawRoutines();
+  }
+}
+
+async function routineAction(a) {
+  const c = R.list[R.sel];
+  if (a === "new") return renderRoutineNew();
+  if (a === "list" || a === "actions" || a === "delete") {
+    if (!c && a !== "list") return;
+    R.mode = a;
+    return drawRoutines();
+  }
+  if (!c) return;
+  try {
+    if (a === "toggle") {
+      c.enabled = await invoke("toggle_cron", { id: c.id });
+    } else if (a === "delete-yes") {
+      await invoke("delete_cron", { id: c.id });
+      R.list = R.list.filter(x => x.id !== c.id);
+    } else if (a === "run") {
+      const session = await invoke("run_cron", { id: c.id });
+      return openSession(session);
+    }
+    R.error = "";
+  } catch (e) {
+    R.error = String(e);
+  }
+  R.mode = "list";
+  if (S.view === "routines") drawRoutines();
+}
+
+function routineKeys(e, cmd) {
+  if (R.mode === "delete") {
+    if (e.key === "Enter") { e.preventDefault(); routineAction("delete-yes"); }
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    R.sel = Math.max(0, Math.min(R.list.length - 1, R.sel + (e.key === "ArrowDown" ? 1 : -1)));
+    R.mode = "list";
+    drawRoutines();
+  } else if (e.key === "Tab" && R.list.length) {
+    e.preventDefault();
+    routineAction(R.mode === "actions" ? "list" : "actions");
+  } else if (e.key === " " && R.mode === "list" && R.list.length) {
+    e.preventDefault();
+    routineAction("toggle");
+  } else if (cmd && e.key === "Backspace" && R.list.length) {
+    e.preventDefault();
+    routineAction("delete");
+  } else if (e.key === "Enter" && R.mode === "actions") {
+    e.preventDefault();
+    routineAction("run");
+  }
+}
+
+/// The schedule the form describes, or "" when it is not complete.
+function routineSchedule() {
+  const [h, m] = NR.time.split(":").map(Number);
+  if (NR.repeat === "cron") return NR.cron.trim();
+  if (NR.repeat === "hour") return `${m || 0} * * * *`;
+  if (isNaN(h)) return "";
+  if (NR.repeat === "day") return `${m} ${h} * * *`;
+  if (NR.repeat === "weekdays") return `${m} ${h} * * 1-5`;
+  if (NR.repeat === "week") {
+    const days = CRON_DAYS.filter(d => NR.days.includes(d));
+    return days.length ? `${m} ${h} * * ${days.join(",")}` : "";
+  }
+  if (!NR.date) return "";
+  const at = new Date(`${NR.date}T${NR.time}`);
+  return isNaN(at) ? "" : at.toISOString();
+}
+
+function renderRoutineNew() {
+  S.view = "rnew";
+  const today = new Date();
+  Object.assign(NR, { label: "", prompt: "", repeat: "day", days: [1], time: "08:00", cron: "", error: "", busy: false,
+    date: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}` });
+  drawRoutineNew();
+  $("#nrlabel").focus();
+}
+
+function drawRoutineNew() {
+  const chip = (k, l) => `<button class="dchip" aria-pressed="${NR.repeat === k}" data-rep="${k}">${l}</button>`;
+  const days = CRON_DAYS.map(d => `<button class="dchip day" aria-pressed="${NR.days.includes(d)}" data-day="${d}">${DAY_NAMES[d]}</button>`).join("");
+  const time = `<label class="dfield" style="max-width:140px"><span>${NR.repeat === "hour" ? "Minute past" : "Time"}</span><input id="nrtime" type="time" value="${esc(NR.time)}"></label>`;
+  const when = NR.repeat === "cron"
+    ? `<label class="dfield"><span>Cron expression</span><input id="nrcron" class="mono" style="text-transform:none" placeholder="30 7 * * 1-5" value="${esc(NR.cron)}" spellcheck="false"></label>
+       <span class="dmuted" id="nrcronsays" style="margin-top:-6px"></span>`
+    : NR.repeat === "once"
+      ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="dfield"><span>Date</span><input id="nrdate" type="date" value="${esc(NR.date)}"></label>${time.replace(' style="max-width:140px"', "")}</div>`
+      : (NR.repeat === "week" ? `<div class="dchips">${days}</div>` : "") + time;
+  const missing = NR.error === "prompt";
+  bar.innerHTML = `<div class="dhead"><span class="tt"><b>New routine</b><small>Runs on this account, phone or computer off</small></span></div>
+    <div class="dform" style="padding-top:12px;flex:1;min-height:0;overflow:auto;scrollbar-width:none">
+      <label class="dfield"><span>Name</span><input id="nrlabel" placeholder="Morning briefing" value="${esc(NR.label)}"></label>
+      <label class="dfield${missing ? " err" : ""}"><span>${missing ? "Tell Beep what to do" : "What should Beep do?"}</span>
+        <textarea id="nrprompt" rows="2" placeholder="Summarise my calendar and the weather">${esc(NR.prompt)}</textarea></label>
+      <div class="dfield"><span>Repeat</span><div class="dchips">${chip("day", "Every day")}${chip("weekdays", "Weekdays")}${chip("week", "Weekly")}${chip("hour", "Every hour")}${chip("once", "Once")}${chip("cron", "Cron")}</div></div>
+      ${when}
+      ${NR.error && !missing ? `<div class="derr">${esc(NR.error)}</div>` : ""}
+      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" id="nrgo"${NR.busy ? " disabled" : ""}>Create<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" id="nrno">Cancel</button>
+        <span class="dmuted" style="margin-left:auto">Or just tell Beep in a chat</span></div>
+    </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "create"], ["esc", "cancel"]])}`;
+  const bind = (id, key) => $(id)?.addEventListener("input", e => { NR[key] = e.target.value; if (id === "#nrcron") cronSays(); });
+  bind("#nrlabel", "label"); bind("#nrprompt", "prompt"); bind("#nrtime", "time"); bind("#nrdate", "date"); bind("#nrcron", "cron");
+  cronSays();
+  bar.onclick = e => {
+    if (S.view !== "rnew") return;
+    const rep = e.target.closest("[data-rep]"), day = e.target.closest("[data-day]");
+    if (rep) { NR.repeat = rep.dataset.rep; drawRoutineNew(); }
+    else if (day) {
+      const d = Number(day.dataset.day);
+      NR.days = NR.days.includes(d) ? NR.days.filter(x => x !== d) : [...NR.days, d];
+      day.setAttribute("aria-pressed", NR.days.includes(d));
+    } else if (e.target.closest("#nrgo")) createRoutine();
+    else if (e.target.closest("#nrno")) renderRoutines();
+  };
+}
+
+function cronSays() {
+  const el = $("#nrcronsays");
+  if (!el) return;
+  const said = NR.cron.trim() && describeSchedule(NR.cron.trim());
+  el.textContent = said && said !== NR.cron.trim() ? said : "";
+}
+
+async function createRoutine() {
+  if (NR.busy) return;
+  const prompt = NR.prompt.trim(), schedule = routineSchedule();
+  NR.error = !prompt ? "prompt" : !schedule ? (NR.repeat === "week" ? "Pick at least one day" : "Set when it runs") : "";
+  if (NR.error) return drawRoutineNew();
+  NR.busy = true;
+  try {
+    await invoke("create_cron", { label: NR.label.trim() || prompt.slice(0, 40), prompt, schedule });
+    if (S.view === "rnew") renderRoutines();
+  } catch (e) {
+    NR.error = String(e);
+    if (S.view === "rnew") drawRoutineNew();
+  } finally {
+    NR.busy = false;
+  }
+}
+
 // ---------- State ----------
 
 async function refreshStatus() {
@@ -1344,6 +1743,8 @@ async function show(view) {
   if (view === "settings") return renderSettings();
   if (S.link === "unlinked" || view === "link") return S.link === "linked" ? renderChat() : renderLink();
   if (view === "new") return newChat();
+  if (view === "memories") return renderMemories();
+  if (view === "routines") return renderRoutines();
   // A chat picked from the tray's Recent menu, already made current in Rust.
   if (view === "open") {
     const { session } = await invoke("status");
@@ -1400,6 +1801,10 @@ function back() {
     return S.session ? openSession(S.session) : renderChat();
   }
   if (S.view === "group" && G.mention) return closeMention();
+  if (S.view === "memories" && M.mode !== "list") { M.mode = "list"; drawMemories(); return $("#mfind")?.focus(); }
+  if (S.view === "routines" && R.mode !== "list") return routineAction("list");
+  if (S.view === "rnew") return renderRoutines();
+  if ((S.view === "memories" || S.view === "routines") && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
   if (S.view === "settings" && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
   if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id);
   if (S.view === "gnew") {
@@ -1465,6 +1870,10 @@ document.addEventListener("keydown", e => {
   const key = e.key.toLowerCase();
   if (cmd && e.key === ",") { e.preventDefault(); return renderSettings(); }
   if (cmd && key === "q") { e.preventDefault(); return invoke("quit"); }
+  if (cmd && key === "m") { e.preventDefault(); return renderMemories(); }
+  if (cmd && key === "j") { e.preventDefault(); return renderRoutines(); }
+  if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
+  if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
   if (cmd && key === "n") { e.preventDefault(); return newChat(); }
   if (cmd && key === "g") { e.preventDefault(); J.error = ""; J.name = ""; return renderGroupNew("new"); }
   if (cmd && key === "k") { e.preventDefault(); return S.view === "chats" ? null : renderChats(); }
@@ -1476,6 +1885,8 @@ document.addEventListener("keydown", e => {
     if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
   }
   if (S.view === "chats") return chatsKeys(e, cmd);
+  if (S.view === "memories") return memKeys(e, cmd);
+  if (S.view === "routines") return routineKeys(e, cmd);
   if (S.view === "group") return groupKeys(e, cmd);
   if (S.view === "gnew" && e.key === "Enter" && !e.isComposing && e.target.tagName === "INPUT") { e.preventDefault(); return groupFormGo(); }
 });

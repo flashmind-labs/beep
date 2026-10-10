@@ -519,6 +519,7 @@ pub struct MemoryView {
     updated: String,
     valid_from: Option<String>,
     valid_until: Option<String>,
+    quote: Option<String>,
 }
 
 impl From<Memory> for MemoryView {
@@ -531,6 +532,7 @@ impl From<Memory> for MemoryView {
             updated: m.updated,
             valid_from: m.valid_from,
             valid_until: m.valid_until,
+            quote: m.quote,
         }
     }
 }
