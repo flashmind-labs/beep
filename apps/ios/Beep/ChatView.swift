@@ -2,13 +2,16 @@ import SwiftUI
 
 struct ChatView: View {
     @Environment(AppModel.self) private var model
-    @Binding var drawer: Bool
+    let back: () -> Void
     @State private var draft = ""
+    @State private var photos: [Data] = []
+    @State private var picking = false
+    @State private var camera = false
     @FocusState private var typing: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            topBar
+            chatBar
             ScrollViewReader { scroller in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
@@ -42,6 +45,32 @@ struct ChatView: View {
         }
         .background(Mint.page)
         .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            model.onScreen = model.chat.id
+            #if DEBUG
+            if UserDefaults.standard.string(forKey: "open") == "photos" { picking = true }
+            #endif
+        }
+        .onChange(of: model.chat.id) { model.onScreen = model.chat.id }
+        .onDisappear { if model.onScreen == model.chat.id { model.onScreen = nil } }
+        .sheet(isPresented: $picking) {
+            PhotoSheet(room: max(0, ChatPhotos.limit - photos.count)) { picked in
+                picking = false
+                photos += picked
+            } camera: {
+                picking = false
+                Task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    camera = true
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $camera) {
+            ChatCamera(room: max(0, ChatPhotos.limit - photos.count)) { shots in
+                camera = false
+                photos += shots
+            }
+        }
     }
 
     private var waitingForFirstEvent: Bool {
@@ -49,68 +78,117 @@ struct ChatView: View {
         return last.role == .user
     }
 
-    /// The Android top bar: a chunky menu button that opens the chats, the name and the connection dot.
-    private var topBar: some View {
-        HStack(spacing: 10) {
+    /// Back to the list, Beep's avatar, the chat's name and the connection dot.
+    private var chatBar: some View {
+        HStack(spacing: 8) {
             Button {
                 typing = false
-                withAnimation(.snappy) { drawer = true }
-            } label: { Image(systemName: "line.3.horizontal") }
-                .buttonStyle(ChunkyButton())
-                .accessibilityLabel("Conversations")
+                back()
+            } label: {
+                Image(systemName: "arrow.left").font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Mint.ink).frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Chats")
+            ChatAvatar(text: "b", fill: Mint.brand, size: 38, light: true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Beep").font(.display(24)).foregroundStyle(Mint.ink)
+                Text(model.chat.title.isEmpty ? "Beep" : model.chat.title)
+                    .font(.display(20)).foregroundStyle(Mint.ink).lineLimit(1)
                 HStack(spacing: 6) {
                     ConnectionDot(connected: model.connected)
                     if !model.connected {
                         Text("Tap to reconnect").font(.body(12, .medium)).foregroundStyle(Mint.muted)
+                    } else if model.chat.busy {
+                        Text("typing…").font(.body(12)).foregroundStyle(Mint.muted)
                     }
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { if !model.connected { model.connect() } }
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
-        .padding(.leading, 12)
+        .padding(.leading, 6)
         .padding(.trailing, 16)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(Mint.page)
     }
 
     private var composer: some View {
-        let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return HStack(alignment: .bottom, spacing: 8) {
-            TextField("", text: $draft, prompt: Text("Ask anything...").foregroundStyle(Mint.dim), axis: .vertical)
-                .font(.body(15))
-                .foregroundStyle(Mint.ink)
-                .tint(Mint.ink)
-                .lineLimit(1...6)
-                .focused($typing)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+        let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty
+        let prompt = photos.count > 1 ? "Ask about the photos..." : photos.isEmpty ? "Ask anything..." : "Ask about the photo..."
+        return VStack(alignment: .leading, spacing: 0) {
+            if !photos.isEmpty { thumbnails }
+            HStack(alignment: .bottom, spacing: 8) {
+                HStack(alignment: .bottom, spacing: 4) {
+                    TextField("", text: $draft, prompt: Text(prompt).foregroundStyle(Mint.dim), axis: .vertical)
+                        .font(.body(15))
+                        .foregroundStyle(Mint.ink)
+                        .tint(Mint.ink)
+                        .lineLimit(1...6)
+                        .focused($typing)
+                        .padding(.vertical, 14)
+                    if photos.count < ChatPhotos.limit {
+                        Button {
+                            typing = false
+                            picking = true
+                        } label: {
+                            Image(systemName: "photo").font(.system(size: 18)).foregroundStyle(Mint.muted)
+                                .frame(width: 36, height: 36).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, 7)
+                        .accessibilityLabel("Add a photo")
+                    }
+                }
+                .padding(.leading, 16).padding(.trailing, 6)
                 .frame(minHeight: 50)
                 .chunky()
-            if model.chat.busy {
-                Button { model.stop() } label: { Image(systemName: "stop.fill") }
-                    .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 18))
-                    .foregroundStyle(Mint.page)
-                    .accessibilityLabel("Stop reply")
-            } else {
-                Button {
-                    model.send(draft)
-                    draft = ""
-                } label: { Image(systemName: "paperplane") }
-                    .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.accent, size: 50, radius: 18))
-                    .opacity(empty ? 0.5 : 1)
-                    .disabled(empty)
-                    .accessibilityLabel("Send message")
+                if model.chat.busy {
+                    Button { model.stop() } label: { Image(systemName: "stop.fill") }
+                        .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 25))
+                        .foregroundStyle(Mint.page)
+                        .accessibilityLabel("Stop reply")
+                } else {
+                    Button {
+                        model.send(draft, images: photos)
+                        draft = ""
+                        photos = []
+                    } label: { Image(systemName: "arrow.up").foregroundStyle(empty ? Mint.ink : .white) }
+                        .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.brand, size: 50, radius: 25))
+                        .opacity(empty ? 0.5 : 1)
+                        .disabled(empty)
+                        .accessibilityLabel("Send")
+                }
             }
+            .padding(.leading, 14)
+            .padding(.trailing, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
         .background(Mint.page)
+    }
+
+    /// The photos waiting to go with the next message, each with a remove button.
+    private var thumbnails: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(photos.enumerated()), id: \.offset) { index, data in
+                    ZStack(alignment: .topTrailing) {
+                        PhotoThumb(data: data).frame(width: 64, height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.ledge, lineWidth: 1.5))
+                        Button { photos.remove(at: index) } label: {
+                            Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Mint.page)
+                                .frame(width: 20, height: 20).background(Circle().fill(Mint.ink))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(3)
+                        .accessibilityLabel("Remove photo \(index + 1)")
+                    }
+                }
+            }
+            .padding(.horizontal, 14).padding(.top, 8)
+        }
     }
 
     /// Puts the quoted text above whatever is already typed.
@@ -236,6 +314,26 @@ struct MessageView: View {
 
     var body: some View {
         switch message.role {
+        case .user where !message.images.isEmpty:
+            VStack(alignment: .leading, spacing: 0) {
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(104), spacing: 4), count: min(2, message.images.count)),
+                          spacing: 4) {
+                    ForEach(Array(message.images.enumerated()), id: \.offset) { _, data in
+                        PhotoThumb(data: data).frame(width: 104, height: 130)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                }
+                if !message.text.isEmpty {
+                    Text(message.text)
+                        .font(.body(15)).foregroundStyle(Mint.ink)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 6)
+                }
+            }
+            .padding(4)
+            .chunky(Mint.user, shape: UnevenRoundedRectangle(
+                topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18))
+            .frame(maxWidth: .infinity, alignment: .trailing)
         case .user:
             Text(message.text)
                 .font(.body(15)).foregroundStyle(Mint.ink)
@@ -494,6 +592,8 @@ struct MarkdownText: View {
                     tableView(table)
                 case .rule:
                     Rectangle().fill(Mint.soft).frame(height: 1).padding(.vertical, 6)
+                case .products(let products):
+                    ProductRow(products: products).padding(.vertical, 4)
                 case .paragraph(let line):
                     inline(line)
                 }
@@ -507,6 +607,7 @@ struct MarkdownText: View {
 
     private enum Block {
         case paragraph(String), bullet(String), heading(String), code(String), table(Table), rule
+        case products([Product])
     }
 
     private struct Table {
@@ -567,7 +668,21 @@ struct MarkdownText: View {
     private var blocks: [Block] {
         var out: [Block] = []
         var code: [String]?
+        var fence = ""
         var rows: [String] = []
+        /// A product block joins the row before it; one that does not parse stays code.
+        func closeFence(_ lines: [String]) {
+            let body = lines.joined(separator: "\n")
+            guard fence == "product", let product = Product.parse(body) else {
+                out.append(.code(body))
+                return
+            }
+            if case .products(let row) = out.last {
+                out[out.count - 1] = .products(row + [product])
+            } else {
+                out.append(.products([product]))
+            }
+        }
         func flushRows() {
             if let table = Self.table(rows) {
                 out.append(.table(table))
@@ -585,9 +700,10 @@ struct MarkdownText: View {
             if !rows.isEmpty { flushRows() }
             if line.hasPrefix("```") {
                 if let lines = code {
-                    out.append(.code(lines.joined(separator: "\n")))
+                    closeFence(lines)
                     code = nil
                 } else {
+                    fence = line.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased()
                     code = []
                 }
                 continue
@@ -608,7 +724,10 @@ struct MarkdownText: View {
             }
         }
         if !rows.isEmpty { flushRows() }
-        if let lines = code { out.append(.code(lines.joined(separator: "\n"))) }
+        if let lines = code {
+            // A product block still streaming in waits for its closing fence.
+            if fence != "product" { out.append(.code(lines.joined(separator: "\n"))) }
+        }
         return out
     }
 
