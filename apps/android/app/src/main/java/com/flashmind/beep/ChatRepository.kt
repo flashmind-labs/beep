@@ -444,7 +444,7 @@ class ChatRepository(private val storage: LocalStorage) {
         val chat = state.value.conversations.find { it.id == chatId } ?: return
         if (chat.busy || !chat.hasQueued) return
         val (text, images) = unqueue(chatId)
-        send(text.ifBlank { if (images.size > 1) "What are these?" else "What is this?" }, images, chatId)
+        send(text.ifBlank { imagePrompt(images.size) }, images, chatId)
     }
     /**
      * Starts [chat]'s queued message once its reply finished cleanly. A run that stopped,
@@ -454,7 +454,7 @@ class ChatRepository(private val storage: LocalStorage) {
         if (!chat.hasQueued || chat.error.isNotEmpty() || !settings.value.configured) return false
         if (chat.messages.any { m -> m.approvals.any { it.waiting } }) return false
         val (text, images) = unqueue(chat.id)
-        startTurn(chat, text.ifBlank { if (images.size > 1) "What are these?" else "What is this?" }, images, "")
+        startTurn(chat, text.ifBlank { imagePrompt(images.size) }, images, "")
         return true
     }
     /**
@@ -512,7 +512,7 @@ class ChatRepository(private val storage: LocalStorage) {
             }
         }.getOrElse(nth) { 0L }
     }
-    fun retry() { launchRun(state.value.current.id) }
+    private fun retry() { launchRun(state.value.current.id) }
     /**
      * Sends the last message again after its run ended without finishing.
      * The message is already on screen, so it is not added twice.
@@ -1245,6 +1245,11 @@ class ChatRepository(private val storage: LocalStorage) {
         return message.copy(text = cleanText.trim(), cards = message.cards + cards)
     }
 
+    /** Changes the message [messageId] with [change], or adds [create]'s when the chat has none yet. */
+    private fun Conversation.withReply(messageId: String, change: (ChatMessage) -> ChatMessage, create: () -> ChatMessage): Conversation =
+        if (messages.any { it.id == messageId }) copy(messages = messages.map { if (it.id == messageId) change(it) else it })
+        else copy(messages = messages + create())
+
     private fun event(id: String, runId: String, received: Event) {
         val sequence = received.seq
         var finished = false
@@ -1253,35 +1258,30 @@ class ChatRepository(private val storage: LocalStorage) {
             finished = received.event is RunEvent.RunFinished
             check(sequence == chat.cursor + 1) { "Missing server event; reconnecting" }
             var next = chat.copy(cursor = sequence)
+            // The reply this run is writing.
+            val messageId = "assistant-${chat.runId}"
             when (val event = received.event) {
                 is RunEvent.TextDelta -> {
-                    val messageId = "assistant-${chat.runId}"
-                    val existing = next.messages.find { it.id == messageId }
-                    val newText = existing?.text.orEmpty() + event.delta
-                    val message = if (existing != null) existing.copy(text = newText, reasoning = joinReasoning(existing.reasoning, chat.thinking))
-                        else ChatMessage(messageId, "assistant", newText, reasoning = chat.thinking.trim())
-                    next = next.copy(messages = if (existing == null) next.messages + message else next.messages.map { if (it.id == messageId) message else it }, status = "Replying...", tool = "", thinking = "")
+                    next = next.withReply(messageId, { it.copy(text = it.text + event.delta, reasoning = joinReasoning(it.reasoning, chat.thinking)) },
+                        { ChatMessage(messageId, "assistant", event.delta, reasoning = chat.thinking.trim()) })
+                        .copy(status = "Replying...", tool = "", thinking = "")
                 }
                 is RunEvent.ReasoningDelta -> next = next.copy(thinking = (chat.thinking + event.delta).takeLast(MAX_REASONING))
                 is RunEvent.ToolStarted -> {
                     val description = toolLabel(event.name).ifEmpty { "Using a tool..." }
-                    val messageId = "assistant-${chat.runId}"
-                    val existing = next.messages.find { it.id == messageId }
                     val tc = ToolCall(callId = event.callId, name = event.name, description = description)
-                    // An answered approval starts the call it already shows.
-                    val known = existing != null && event.callId.isNotEmpty() && existing.toolCalls.any { it.callId == event.callId }
-                    val msg = if (existing != null) existing.copy(toolCalls = if (known) existing.toolCalls else existing.toolCalls + tc,
+                    next = next.withReply(messageId, { existing ->
+                        // An answered approval starts the call it already shows.
+                        val known = event.callId.isNotEmpty() && existing.toolCalls.any { it.callId == event.callId }
+                        existing.copy(toolCalls = if (known) existing.toolCalls else existing.toolCalls + tc,
                             reasoning = joinReasoning(existing.reasoning, chat.thinking))
-                        else ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc), reasoning = chat.thinking.trim())
-                    next = next.copy(
-                        messages = if (existing == null) next.messages + msg else next.messages.map { if (it.id == messageId) msg else it },
-                        tool = if (event.name in QUIET_TOOLS) next.tool else description, status = "Working...", thinking = "")
+                    }, { ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc), reasoning = chat.thinking.trim()) })
+                    next = next.copy(tool = if (event.name in QUIET_TOOLS) next.tool else description, status = "Working...", thinking = "")
                 }
                 is RunEvent.ToolResult -> {
                     val callId = event.callId
                     val toolSuccess = event.success
                     val output = event.output
-                    val messageId = "assistant-${chat.runId}"
                     val curMsg = next.messages.find { it.id == messageId }
                     if (curMsg != null && curMsg.toolCalls.isNotEmpty()) {
                         val updated = curMsg.toolCalls.map { tc ->
@@ -1315,28 +1315,14 @@ class ChatRepository(private val storage: LocalStorage) {
                                         val s = stepsArr.getJSONObject(si)
                                         TaskStep(s.getString("label"), s.getString("status"))
                                     }
-                                    val messageId = "assistant-${chat.runId}"
-                                    val existing = next.messages.find { it.id == messageId }
-                                    if (existing != null) {
-                                        next = next.copy(messages = next.messages.map {
-                                            if (it.id == messageId) it.copy(taskSteps = steps) else it
-                                        })
-                                    } else {
-                                        next = next.copy(messages = next.messages + ChatMessage(messageId, "assistant", "", taskSteps = steps))
-                                    }
+                                    next = next.withReply(messageId, { it.copy(taskSteps = steps) },
+                                        { ChatMessage(messageId, "assistant", "", taskSteps = steps) })
                                 }
                             }
                             if (outputJson.optString("type") == "card") {
                                 val card = Card(outputJson.getString("card_type"), outputJson.getJSONObject("card_data"))
-                                val messageId = "assistant-${chat.runId}"
-                                val existing = next.messages.find { it.id == messageId }
-                                if (existing != null) {
-                                    next = next.copy(messages = next.messages.map {
-                                        if (it.id == messageId) it.copy(cards = it.cards + card) else it
-                                    })
-                                } else {
-                                    next = next.copy(messages = next.messages + ChatMessage(messageId, "assistant", "", listOf(card)))
-                                }
+                                next = next.withReply(messageId, { it.copy(cards = it.cards + card) },
+                                    { ChatMessage(messageId, "assistant", "", listOf(card)) })
                             }
                         } catch (_: Exception) {}
                     }
@@ -1345,11 +1331,9 @@ class ChatRepository(private val storage: LocalStorage) {
                     val query = event.query
                     if (query is DeviceQuery.Approve) {
                         // An approval waits for the user's tap on the card or the notification.
-                        val messageId = "assistant-${chat.runId}"
                         val prompt = ApprovalPrompt(event.queryId, query.approval)
-                        next = if (next.messages.any { it.id == messageId })
-                            next.copy(messages = next.messages.map { if (it.id == messageId) it.copy(approvals = it.approvals + prompt) else it })
-                        else next.copy(messages = next.messages + ChatMessage(messageId, "assistant", "", approvals = listOf(prompt)))
+                        next = next.withReply(messageId, { it.copy(approvals = it.approvals + prompt) },
+                            { ChatMessage(messageId, "assistant", "", approvals = listOf(prompt)) })
                     } else scope.launch {
                         runCatching {
                             val result = runCatching { executeDeviceQuery(query) }.getOrElse {
@@ -1369,17 +1353,14 @@ class ChatRepository(private val storage: LocalStorage) {
                         next = next.copy(version = saved)
                     }
                     // Extract any card JSON embedded in assistant text
-                    val messageId = "assistant-${chat.runId}"
                     next = next.copy(
                         messages = next.messages.map {
                             if (it.id == messageId) extractCardsFromText(it).copy(reasoning = joinReasoning(it.reasoning, chat.thinking)) else it
                         },
                         runId = "", status = "", tool = "", thinking = "", cancelRequested = false, error = runEndError(status, chat.error))
                 }
-                is RunEvent.MemoryScore -> {
-                    val messageId = "assistant-${chat.runId}"
+                is RunEvent.MemoryScore ->
                     next = next.copy(messages = next.messages.map { if (it.id == messageId) it.copy(memoryScore = event.probability) else it })
-                }
                 is RunEvent.AutoPicked -> {
                     val prompt = next.messages.lastOrNull { it.role == "user" }
                     val picked = prompt?.copy(autoModel = event.pick.model, autoThinking = event.pick.thinking.name.lowercase())

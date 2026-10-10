@@ -103,7 +103,7 @@ class RunService : Service() {
 
     private fun notification(titles: List<String>): Notification {
         val open = PendingIntent.getActivity(this, 0,
-            Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+            Intent(this, MainActivity::class.java).setAction("com.flashmind.beep.RUNNING"), PendingIntent.FLAG_IMMUTABLE)
         val builder = if (titles.isEmpty()) {
             Notification.Builder(this, CONNECTION_CHANNEL).setContentTitle("Beep is connected")
         } else {

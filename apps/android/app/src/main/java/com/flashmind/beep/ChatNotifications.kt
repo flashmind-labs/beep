@@ -24,6 +24,7 @@ import com.flashmind.beep.proto.PendingApproval
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -106,8 +107,6 @@ object ChatNotifications {
 
     fun open(context: Context, key: ChatKey): PendingIntent = PendingIntent.getActivity(context, key.notificationId,
         chatIntent(context, key), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-
-    fun open(context: Context, conversationId: String) = open(context, ChatKey(conversationId, false))
 
     /** The inline reply field. Mutable because Android writes the typed text into it. */
     private fun replyAction(context: Context, key: ChatKey): Notification.Action {
@@ -259,18 +258,25 @@ class ReplyReceiver : BroadcastReceiver() {
         val text = ChatNotifications.replyText(intent) ?: return
         val repository = (context.applicationContext as BeepApplication).repository
         if (!key.group) {
-            repository.send(text, conversationId = key.id)
+            // While Beep is still replying, hold it like the composer does instead of dropping it.
+            if (repository.state.value.conversations.find { it.id == key.id }?.busy == true) repository.queue(text, emptyList(), key.id)
+            else repository.send(text, conversationId = key.id)
             // Reposting stops the reply spinner and shows the message that was sent.
             repository.state.value.conversations.find { it.id == key.id }?.let { ChatNotifications.show(context, it) }
             return
         }
         val title = repository.groups.value.find { it.id == key.id }?.name ?: "Group"
-        val done = goAsync()
+        val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
-            val sent = runCatching { repository.sendToGroup(key.id, UUID.randomUUID().toString(), text) }.isSuccess
-            val line = if (sent) ChatLine(null, text) else ChatLine(null, "Not sent: $text")
-            ChatNotifications.append(context, key, title, line, ChatNotifications.Post(quiet = true))
-            done.finish()
+            try {
+                withTimeoutOrNull(25_000L) {
+                    val sent = runCatching { repository.sendToGroup(key.id, UUID.randomUUID().toString(), text) }.isSuccess
+                    val line = if (sent) ChatLine(null, text) else ChatLine(null, "Not sent: $text")
+                    ChatNotifications.append(context, key, title, line, ChatNotifications.Post(quiet = true))
+                }
+            } finally {
+                pending.finish()
+            }
         }
     }
 }

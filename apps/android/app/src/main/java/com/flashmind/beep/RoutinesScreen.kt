@@ -74,7 +74,7 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
                 val failed = if (undone) null else withContext(NonCancellable + Dispatchers.IO) {
                     runCatching { repository.deleteCron(cron.id) }.exceptionOrNull()
                 }
-                if (failed != null) error = failed.message.orEmpty()
+                if (failed != null) error = userMessage(failed)
                 if (undone || failed != null) hidden = hidden - cron.id
             }
         }

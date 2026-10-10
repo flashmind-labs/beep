@@ -29,7 +29,9 @@ object Notices : NoticeListener {
         if (notice.app == null) app.repository.prefetch(conversationId)
         ChatNotifications.ensureChannel(app)
 
-        val intent = Intent(app, MainActivity::class.java).apply {
+        // Its own action keeps this apart from the other PendingIntents that open the app, which
+        // Android would otherwise treat as the same one and hand this notice's extras.
+        val intent = Intent(app, MainActivity::class.java).setAction("com.flashmind.beep.NOTICE").apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (conversationId.isNotEmpty()) putExtra("conversation_id", conversationId)
             if (notice.app != null) putExtra("open_apps", true)

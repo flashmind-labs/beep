@@ -29,6 +29,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import java.time.LocalDate
 import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 // Short names for the current theme's colors.
@@ -191,7 +192,8 @@ private fun ReadChip(label: String, count: Int?, selected: Boolean, onClick: () 
         border = FilterChipDefaults.filterChipBorder(true, selected, borderColor = Border, selectedBorderColor = Moss))
 }
 
-private fun readFinished(read: MemoryRead) = runCatching { OffsetDateTime.parse(read.finishedAt).toLocalDate() }.getOrNull()
+private fun readFinished(read: MemoryRead) = 
+    runCatching { OffsetDateTime.parse(read.finishedAt).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() }.getOrNull()
 private fun readLabel(read: MemoryRead) =
     readFinished(read)?.let { "${read.source} · ${it.format(DateTimeFormatter.ofPattern("d MMM"))}" } ?: read.source
 private fun readDate(read: MemoryRead): String {

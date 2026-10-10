@@ -104,7 +104,9 @@ open class MainActivity : ComponentActivity() {
     @android.annotation.SuppressLint("MissingPermission")
     fun startLocationUpdates() {
         val repository = (application as BeepApplication).repository
-        val locationManager = getSystemService(LocationManager::class.java) ?: return
+        // The repository keeps the lambda for the life of the process, so it holds the application, not this activity.
+        val app = applicationContext
+        val locationManager = app.getSystemService(LocationManager::class.java) ?: return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         val provider = when {
@@ -113,6 +115,7 @@ open class MainActivity : ComponentActivity() {
             locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
             else -> return
         }
+        val places = PlaceNames(app)
         // No listener: the last known fix is read only when a report is due.
         repository.startLocationUpdates {
             val loc = try {
@@ -120,24 +123,8 @@ open class MainActivity : ComponentActivity() {
                     ?: locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                     ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
             } catch (_: Exception) { null }
-            loc?.let { ChatRepository.Fix(it.latitude, it.longitude, it.accuracy, placeName(it.latitude, it.longitude)) }
+            loc?.let { ChatRepository.Fix(it.latitude, it.longitude, it.accuracy, places.name(it.latitude, it.longitude)) }
         }
-    }
-    private var namedPlace: Pair<String, String?>? = null
-
-    /** "Shinjuku, Tokyo, Japan" from the phone's geocoder, reused within about 100 m. */
-    @Suppress("DEPRECATION")
-    private suspend fun placeName(latitude: Double, longitude: Double): String? {
-        val key = "%.3f,%.3f".format(java.util.Locale.ROOT, latitude, longitude)
-        namedPlace?.takeIf { it.first == key }?.let { return it.second }
-        if (!Geocoder.isPresent()) return null
-        val address = withContext(Dispatchers.IO) {
-            runCatching { Geocoder(this@MainActivity).getFromLocation(latitude, longitude, 1)?.firstOrNull() }.getOrNull()
-        } ?: return null
-        val name = listOfNotNull(address.locality ?: address.subAdminArea ?: address.subLocality, address.adminArea, address.countryName)
-            .filter { it.isNotBlank() }.distinct().joinToString(", ").ifEmpty { null }
-        namedPlace = key to name
-        return name
     }
     /** A notice about an app, or the `beep://apps` link Composio returns to after sign-in. */
     private fun opensApps(intent: Intent?): Boolean =
@@ -146,16 +133,18 @@ open class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        takeIntent(intent)
+    }
+    /** Picks up what [intent] asks to open: a chat, a group, a link or a screen. */
+    private fun takeIntent(intent: Intent?) {
+        intent ?: return
         intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it); pendingChat.value = it }
         if (intent.getBooleanExtra("focus_input", false)) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
         if (intent.getBooleanExtra("open_read", false)) pendingOpenRead.value = true
-        takeLinks(intent)
-    }
-    private fun takeLinks(intent: Intent?) {
-        intent?.data?.let { shareToken(it.toString()) }?.let { pendingShareToken.value = it }
-        intent?.data?.let { groupToken(it.toString()) }?.let { pendingGroupToken.value = it }
-        intent?.getStringExtra("group_id")?.let { pendingGroup.value = it }
+        intent.data?.let { shareToken(it.toString()) }?.let { pendingShareToken.value = it }
+        intent.data?.let { groupToken(it.toString()) }?.let { pendingGroupToken.value = it }
+        intent.getStringExtra("group_id")?.let { pendingGroup.value = it }
     }
     override fun onResume() {
         super.onResume()
@@ -208,11 +197,7 @@ open class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             startLocationUpdates()
         }
-        intent?.getStringExtra("conversation_id")?.let { repository.select(it); pendingChat.value = it }
-        if (intent?.getBooleanExtra("focus_input", false) == true) pendingFocusInput.value = true
-        if (opensApps(intent)) pendingOpenApps.value = true
-        if (intent?.getBooleanExtra("open_read", false) == true) pendingOpenRead.value = true
-        takeLinks(intent)
+        takeIntent(intent)
         setContent {
             BeepTheme { CompositionLocalProvider(LocalOpenLink provides { url: String -> repository.openBrowser(url) }) {
                 BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, openRead = pendingOpenRead, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, chatToOpen = pendingChat, clipboardContent = clipboardContent, onFloat = {
@@ -301,15 +286,15 @@ internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Inte
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BeepApp(repository: ChatRepository, bubble: Boolean,
-                    locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>? = null,
-                    focusInput: MutableState<Boolean> = mutableStateOf(false),
-                    openApps: MutableState<Boolean> = mutableStateOf(false),
-                    openRead: MutableState<Boolean> = mutableStateOf(false),
-                    shareToken: MutableState<String?> = mutableStateOf(null),
-                    groupToken: MutableState<String?> = mutableStateOf(null),
-                    groupToOpen: MutableState<String?> = mutableStateOf(null),
-                    chatToOpen: MutableState<String?> = mutableStateOf(null),
-                    clipboardContent: MutableState<String?> = mutableStateOf(null),
+                    locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>?,
+                    focusInput: MutableState<Boolean>,
+                    openApps: MutableState<Boolean>,
+                    openRead: MutableState<Boolean>,
+                    shareToken: MutableState<String?>,
+                    groupToken: MutableState<String?>,
+                    groupToOpen: MutableState<String?>,
+                    chatToOpen: MutableState<String?>,
+                    clipboardContent: MutableState<String?>,
                     onFloat: () -> Unit, onExpand: (groupId: String?) -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
     val config by repository.settings.collectAsStateWithLifecycle()
@@ -532,11 +517,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             }
             // Groups sit among the chats by when they were last active, pinned ones with the pinned chats.
             val visibleGroups = groups.filter { it.name.contains(historyQuery, ignoreCase = true) }
-            val rows: List<Any> = run {
-                val all: List<Any> = (visibleChats + visibleGroups).sortedByDescending {
-                    if (it is Group) it.updatedAt else (it as Conversation).lastActive
-                }
-                val (pinned, rest) = all.partition { if (it is Group) it.pinned else (it as Conversation).pinned }
+            val rows: List<DrawerRow> = run {
+                val all = (visibleChats.map(DrawerRow::Chat) + visibleGroups.map(DrawerRow::GroupRow)).sortedByDescending { it.lastActive }
+                val (pinned, rest) = all.partition { it.pinned }
                 pinned + rest
             }
             val known = state.conversations.associateBy { it.id }
@@ -558,8 +541,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             }
             LazyColumn(Modifier.weight(1f)) {
                 if (messageHits.isNotEmpty() && visibleChats.isNotEmpty()) item(key = "titles-label") { DrawerLabel("Titles") }
-                items(rows, key = { if (it is Group) groupKey(it.id) else (it as Conversation).id }) { row ->
-                    if (row is Group) Box {
+                items(rows, key = { it.key }) { drawerRow ->
+                    if (drawerRow is DrawerRow.GroupRow) Box {
+                        val row = drawerRow.group
                         val selecting = picked
                         val key = groupKey(row.id)
                         val toggle = { selecting?.let { picked = if (key in it) it - key else it + key } }
@@ -584,7 +568,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                         }
                         return@items
                     }
-                    val chat = row as Conversation
+                    val chat = (drawerRow as DrawerRow.Chat).chat
                     Box(Modifier.padding(horizontal = 12.dp, vertical = 2.dp)) {
                         val selecting = picked
                         val toggle = { selecting?.let { picked = if (chat.id in it) it - chat.id else it + chat.id } }
@@ -828,6 +812,42 @@ private fun MessageHitRow(title: String, hit: SessionMatch, query: String, onCli
         .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, maxLines = 1, fontSize = 14.sp, overflow = TextOverflow.Ellipsis)
         Text(snippet, maxLines = 2, fontSize = 12.sp, lineHeight = 16.sp, overflow = TextOverflow.Ellipsis, color = TextMuted)
+    }
+}
+
+/** A chat or a group in the drawer, which lists both by when they were last active. */
+private sealed interface DrawerRow {
+    val key: String
+    val lastActive: Long
+    val pinned: Boolean
+    data class Chat(val chat: Conversation) : DrawerRow {
+        override val key get() = chat.id
+        override val lastActive get() = chat.lastActive
+        override val pinned get() = chat.pinned
+    }
+    data class GroupRow(val group: Group) : DrawerRow {
+        override val key get() = groupKey(group.id)
+        override val lastActive get() = group.updatedAt
+        override val pinned get() = group.pinned
+    }
+}
+
+/** "Shinjuku, Tokyo, Japan" from the phone's geocoder, reused within about 100 m. */
+private class PlaceNames(private val context: Context) {
+    private var last: Pair<String, String?>? = null
+
+    @Suppress("DEPRECATION")
+    suspend fun name(latitude: Double, longitude: Double): String? {
+        val key = "%.3f,%.3f".format(java.util.Locale.ROOT, latitude, longitude)
+        last?.takeIf { it.first == key }?.let { return it.second }
+        if (!Geocoder.isPresent()) return null
+        val address = withContext(Dispatchers.IO) {
+            runCatching { Geocoder(context).getFromLocation(latitude, longitude, 1)?.firstOrNull() }.getOrNull()
+        } ?: return null
+        val name = listOfNotNull(address.locality ?: address.subAdminArea ?: address.subLocality, address.adminArea, address.countryName)
+            .filter { it.isNotBlank() }.distinct().joinToString(", ").ifEmpty { null }
+        last = key to name
+        return name
     }
 }
 
