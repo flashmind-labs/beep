@@ -8,6 +8,7 @@ mod groups;
 mod hotkey;
 mod identity;
 mod markdown;
+mod products;
 mod state;
 
 use anyhow::Context;
