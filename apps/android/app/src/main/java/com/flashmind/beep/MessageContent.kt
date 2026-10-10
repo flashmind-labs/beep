@@ -55,6 +55,8 @@ private sealed class MsgBlock {
     data class Gallery(val pictures: List<ReplyPicture>) : MsgBlock()
     /** Display math; [closed] is false while the closing delimiter has not streamed in yet. */
     data class Math(val latex: String, val closed: Boolean) : MsgBlock()
+    /** Consecutive ```product blocks as one row; [loading] is true while the last one is still streaming. */
+    data class Products(val products: List<Product>, val loading: Boolean) : MsgBlock()
 }
 
 private val mathClosers = mapOf("$$" to "$$", "\\[" to "\\]")
@@ -75,8 +77,14 @@ private fun parseBlocks(text: String): List<MsgBlock> {
             i++
             val code = StringBuilder()
             while (i < lines.size && !lines[i].trimStart().startsWith("```")) { if (code.isNotEmpty()) code.append('\n'); code.append(lines[i]); i++ }
-            if (i < lines.size) i++
-            blocks.add(MsgBlock.Code(lang, code.toString()))
+            val closed = i < lines.size
+            if (closed) i++
+            val product = if (lang == "product" && closed) parseProduct(code.toString()) else null
+            blocks.add(when {
+                product != null -> MsgBlock.Products(listOf(product), false)
+                lang == "product" && !closed -> MsgBlock.Products(emptyList(), true)
+                else -> MsgBlock.Code(lang, code.toString())
+            })
             continue
         }
         // $$ or \[ starting a line opens display math, up to the matching $$ or \].
@@ -140,7 +148,18 @@ private fun parseBlocks(text: String): List<MsgBlock> {
         pending.append(line); i++
     }
     flush()
-    return groupPictures(blocks)
+    return groupProducts(groupPictures(blocks))
+}
+
+/** Joins consecutive product blocks into one row. */
+private fun groupProducts(blocks: List<MsgBlock>): List<MsgBlock> {
+    val out = mutableListOf<MsgBlock>()
+    for (block in blocks) {
+        val last = out.lastOrNull()
+        if (block is MsgBlock.Products && last is MsgBlock.Products) out[out.size - 1] = MsgBlock.Products(last.products + block.products, block.loading)
+        else out.add(block)
+    }
+    return out
 }
 
 /** Folds each run of consecutive images into a [MsgBlock.Gallery]; a lone image stays as it is. */
@@ -189,6 +208,7 @@ internal fun MessageContent(text: String, role: String, compact: Boolean, padded
                 MsgBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Border)
                 is MsgBlock.Picture -> ReplyImage(block.url, block.alt, compact)
                 is MsgBlock.Gallery -> ReplyGallery(block.pictures, compact)
+                is MsgBlock.Products -> DisableSelection { ProductRow(block.products, block.loading) }
             }
         }
     } }

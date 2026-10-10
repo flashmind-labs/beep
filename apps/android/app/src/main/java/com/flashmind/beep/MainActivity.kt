@@ -209,7 +209,7 @@ open class MainActivity : ComponentActivity() {
         if (opensApps(intent)) pendingOpenApps.value = true
         takeLinks(intent)
         setContent {
-            BeepTheme {
+            BeepTheme { CompositionLocalProvider(LocalOpenLink provides { url: String -> repository.openBrowser(url) }) {
                 BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
@@ -220,7 +220,7 @@ open class MainActivity : ComponentActivity() {
                     })
                     if (panel) finish()
                 }, onBubbleSettings = { Bubble.settings(this) })
-            }
+            } }
         }
     }
     override fun onStart() {
