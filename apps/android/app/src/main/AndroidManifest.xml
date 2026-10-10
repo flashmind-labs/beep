@@ -16,6 +16,12 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- To name the default browser on the browser's "Open in" button. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
     <application android:name=".BeepApplication" android:label="Beep"
         android:icon="@mipmap/ic_launcher" android:theme="@style/Theme.Beep"

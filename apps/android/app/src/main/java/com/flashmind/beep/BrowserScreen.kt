@@ -1,5 +1,10 @@
 package com.flashmind.beep
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -9,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
@@ -17,7 +23,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,10 +92,13 @@ fun BrowserScreen(onClose: () -> Unit, chat: @Composable (Modifier) -> Unit) {
                     }
                 }
             }
-            AndroidView(
-                factory = { context -> BrowserBridge.webView(context).also { webView = it } },
-                modifier = Modifier.weight(1f).fillMaxWidth()
-            )
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                AndroidView(
+                    factory = { context -> BrowserBridge.webView(context).also { webView = it } },
+                    modifier = Modifier.fillMaxSize()
+                )
+                OpenOutsidePill(url, Modifier.align(Alignment.BottomEnd).padding(12.dp))
+            }
             Surface(color = BrowserBar, shadowElevation = 8.dp,
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
                 Column(Modifier.height(panel).navigationBarsPadding()) {
@@ -113,5 +124,46 @@ fun BrowserScreen(onClose: () -> Unit, chat: @Composable (Modifier) -> Unit) {
     }
     DisposableEffect(Unit) {
         onDispose { webView = null; BrowserBridge.pause() }
+    }
+}
+
+/** Hands the page to the phone's own browser, named when there is a default one. */
+@Composable
+private fun OpenOutsidePill(url: String, modifier: Modifier) {
+    val context = LocalContext.current
+    val name = remember { ExternalBrowser.label(context) }
+    ChunkyButton(onClick = { ExternalBrowser.open(context, url) }, modifier = modifier.heightIn(min = 40.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
+        Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, Modifier.size(16.dp))
+        Text(if (name != null) "Open in $name" else "Open in browser", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+    }
+}
+
+/** The phone's default browser, outside the app. */
+internal object ExternalBrowser {
+    private fun view(url: String) = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
+
+    /** The default browser's package, or null when none is set and Android would ask. */
+    private fun defaultPackage(context: Context): String? {
+        val info = context.packageManager.resolveActivity(view("https://example.com"), PackageManager.MATCH_DEFAULT_ONLY)
+            ?.activityInfo ?: return null
+        // With no default, the resolver itself comes back.
+        if (info.packageName == "android" || info.name.endsWith("ResolverActivity")) return null
+        return info.packageName.takeIf { it != context.packageName }
+    }
+
+    /** "Chrome", "Firefox", or null when there is no default browser. */
+    fun label(context: Context): String? = defaultPackage(context)?.let { pkg ->
+        runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+    }
+
+    /** Opens [url] in the default browser, or lets the user pick one when there is none. */
+    fun open(context: Context, url: String) {
+        val pkg = defaultPackage(context)
+        val intent = if (pkg != null) view(url).setPackage(pkg) else Intent.createChooser(view(url), "Open in browser")
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try { context.startActivity(intent) } catch (_: ActivityNotFoundException) {
+            context.startActivity(Intent.createChooser(view(url), "Open in browser").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 }
