@@ -10,6 +10,7 @@ mod maps;
 mod memory;
 mod notify_user;
 mod open_app;
+mod places;
 mod progress;
 mod suggest;
 
@@ -52,6 +53,12 @@ pub fn registry(
         registry.register(Arc::new(habits::HabitTool {
             user: user.clone(),
             variant,
+        }));
+    }
+    for kind in places::PlaceToolKind::ALL {
+        registry.register(Arc::new(places::PlaceTool {
+            user: user.clone(),
+            kind,
         }));
     }
     registry.register(Arc::new(progress::TaskProgressTool));
