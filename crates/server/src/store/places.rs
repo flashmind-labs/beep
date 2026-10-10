@@ -93,7 +93,7 @@ fn place_from(row: &PgRow) -> Result<SavedPlace> {
 }
 
 fn check_name(name: &str) -> Result<()> {
-    if name.trim().is_empty() || name.len() > 100 {
+    if name.trim().is_empty() || name.chars().count() > 100 {
         bail!("a place name must be 1-100 characters");
     }
     Ok(())
@@ -372,10 +372,10 @@ impl Store {
     ) -> Result<Uuid> {
         let label = routine.label.trim();
         let task = routine.task.trim();
-        if label.is_empty() || label.len() > 200 {
+        if label.is_empty() || label.chars().count() > 200 {
             bail!("a routine's label must be 1-200 characters");
         }
-        if task.is_empty() || task.len() > 4000 {
+        if task.is_empty() || task.chars().count() > 4000 {
             bail!("a routine's task must be 1-4000 characters");
         }
         if self.place(user, routine.trigger.place).await?.is_none() {
@@ -590,6 +590,51 @@ mod tests {
             .await
             .unwrap();
         assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn limits_count_characters_not_bytes() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let name = "é".repeat(100);
+        let place = store
+            .save_place(
+                &alice,
+                &NewPlace {
+                    name: &name,
+                    ..gym()
+                },
+            )
+            .await
+            .unwrap();
+        let name = "é".repeat(101);
+        assert!(
+            store
+                .save_place(
+                    &alice,
+                    &NewPlace {
+                        name: &name,
+                        ..gym()
+                    }
+                )
+                .await
+                .is_err()
+        );
+        let trigger = PlaceTrigger::parse(&format!("arrive:{}", place.id)).unwrap();
+        let (label, task, long) = ("é".repeat(200), "é".repeat(4000), "é".repeat(4001));
+        let fits = NewPlaceRoutine {
+            label: &label,
+            task: &task,
+            trigger,
+            once: false,
+        };
+        store.create_place_routine(&alice, &fits).await.unwrap();
+        let too_long = NewPlaceRoutine {
+            task: &long,
+            ..fits
+        };
+        assert!(store.create_place_routine(&alice, &too_long).await.is_err());
     }
 
     #[tokio::test]

@@ -32,7 +32,7 @@ impl App {
     /// Asks Jev how likely the exchange holds something worth remembering.
     /// Shown under the reply while we compare it with what the learner saves.
     pub(super) async fn memory_score(&self, state: String) -> Option<f64> {
-        let decision = self.tools.decision.as_ref()?;
+        let decision = self.decision()?;
         match decision
             .probability_with(&state, MEMORY_QUESTION, &MEMORY_CRITERIA)
             .await

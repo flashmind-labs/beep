@@ -147,7 +147,8 @@ fn distance_km(a: &Location, b: &Location) -> f64 {
     let dlat = lat2 - lat1;
     let dlon = (b.longitude - a.longitude).to_radians();
     let h = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
-    2.0 * EARTH_KM * h.sqrt().asin()
+    // Rounding can put `h` a hair over 1, where asin is NaN.
+    2.0 * EARTH_KM * h.sqrt().min(1.0).asin()
 }
 
 /// Starts the context line that marks a woken turn.
@@ -266,6 +267,7 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::f64::consts::PI;
 
     #[test]
     fn woken_context_reads_back_its_label() {
@@ -286,6 +288,12 @@ mod tests {
             place: Some(place.to_owned()),
             updated_at: chrono::Utc::now(),
         }
+    }
+
+    #[test]
+    fn antipodes_are_half_the_earth_apart() {
+        let km = distance_km(&at("South", -82.0, 0.0), &at("North", 82.0, -180.0));
+        assert!((km - 6371.0 * PI).abs() < 1.0, "{km}");
     }
 
     #[test]

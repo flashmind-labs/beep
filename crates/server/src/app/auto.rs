@@ -7,7 +7,7 @@ use flashmind::{
     core::Conversation,
     types::{Model, ReasoningLevel},
 };
-use std::{slice, time::Duration};
+use std::{fmt::Write, slice, time::Duration};
 use tokio::time::Instant;
 use uuid::Uuid;
 
@@ -119,12 +119,12 @@ async fn last_turn(user: &User, session: Uuid) -> Option<TurnRecord> {
 fn state(prompt: &Prompt<'_>) -> String {
     let mut state = String::new();
     if let Some(turn) = earlier_turns(prompt.conversation, Utc::now()).pop() {
-        state.push_str(&format!("Earlier turn:\n{turn}\n\n"));
+        let _ = write!(state, "Earlier turn:\n{turn}\n\n");
     }
     state.push_str("Latest message from the user: ");
     state.push_str(&clip(prompt.message, MAX_PROMPT_CHARS));
     if prompt.images > 0 {
-        state.push_str(&format!("\n({} image(s) attached)", prompt.images));
+        let _ = write!(state, "\n({} image(s) attached)", prompt.images);
     }
     state
 }

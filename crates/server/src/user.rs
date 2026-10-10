@@ -985,7 +985,7 @@ impl User {
         limit: usize,
     ) -> Result<Vec<Hit>> {
         let query = query.trim();
-        let today = Utc::now().date_naive();
+        let today = self.today().await;
         let holds = |row: &MemoryRow| !row.valid.ended(today);
         if query.is_empty() {
             return Ok(self
@@ -1038,8 +1038,6 @@ impl User {
         })
     }
 
-    /// Reads a finished exchange and updates memory with what it teaches about
-    /// the user, returning the changes made. Failures are logged and dropped.
     /// The memories closest to the latest exchange. Jev and the learner both
     /// see them, so a fact already known neither scores high nor is stored again.
     pub async fn related_memories(&self, exchange: &Exchange) -> Result<Vec<Hit>> {
@@ -1051,8 +1049,9 @@ impl User {
         self.search_memories(&query, None, 15).await
     }
 
-    /// Updates memory with what the exchange teaches. `known` comes from
-    /// `related_memories`.
+    /// Reads a finished exchange and updates memory with what it teaches about
+    /// the user, returning the changes made. Failures are logged and dropped.
+    /// `known` comes from `related_memories`.
     pub async fn learn(
         &self,
         generator: Generator<'_>,
@@ -1200,7 +1199,7 @@ impl User {
         if rows.len() < 2 {
             return Ok(0);
         }
-        let today = Utc::now().date_naive();
+        let today = self.today().await;
         let attempt = async {
             let answer = generator
                 .text(CURATE_SYSTEM, curate_prompt(&rows, today))
@@ -1444,11 +1443,15 @@ pub struct AppTools {
 impl User {
     /// A Composio client acting for the user, if the server has a key.
     pub fn composio_client(&self) -> Option<Arc<ComposioClient>> {
-        let key = self.composio.as_ref()?.settings.key.expose_secret();
-        Some(Arc::new(
+        Some(self.client_for(self.composio.as_deref()?))
+    }
+
+    fn client_for(&self, composio: &Composio) -> Arc<ComposioClient> {
+        let key = composio.settings.key.expose_secret();
+        Arc::new(
             ComposioClient::new(key.to_owned(), None, None)
                 .with_entity_id(self.external_id().to_owned()),
-        ))
+        )
     }
 
     /// Agent tools for the Composio apps `user` has connected. Only the
@@ -1456,12 +1459,10 @@ impl User {
     /// tools across many pages. A slow or failing Composio gives no tools
     /// rather than holding up the run.
     pub async fn app_tools(&self) -> AppTools {
-        let Some(client) = self.composio_client() else {
+        let Some(composio) = self.composio.as_deref() else {
             return AppTools::default();
         };
-        let Some(composio) = &self.composio else {
-            return AppTools::default();
-        };
+        let client = self.client_for(composio);
         let fetch = async {
             let connected = connected_slugs(&client, self.external_id()).await?;
             let slugs: Vec<&str> = connected

@@ -15,7 +15,6 @@ use crate::{
     protocol::{ApprovalDecision, AutoPick, Run, RunEvent, Usage},
     repeat::{self, RepeatGuard},
     sandbox,
-    starters::Generator,
     steps::{self, TurnsByTime},
     store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, Step, StepBody, TurnRecord},
     timing::{Output, TurnTimer},
@@ -47,7 +46,10 @@ use std::{
     },
     time::{Duration, SystemTime},
 };
-use tokio::{sync::RwLock, time::Instant};
+use tokio::{
+    sync::RwLock,
+    time::{Instant, sleep, timeout},
+};
 use uuid::Uuid;
 
 /// The longest any run may take. A model stuck repeating itself is stopped
@@ -304,7 +306,7 @@ impl App {
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
 
-            let hard_stop = tokio::time::sleep(MAX_RUN);
+            let hard_stop = sleep(MAX_RUN);
             tokio::pin!(hard_stop);
 
             let mut tools_running = 0usize;
@@ -321,7 +323,7 @@ impl App {
                         RunStatus::Cancelled
                     },
                     _ = &mut hard_stop => { cancel.cancel(); break RunStatus::TimedOut; },
-                    event = tokio::time::timeout(
+                    event = timeout(
                         if tools_running > 0 { TOOL_IDLE_TIMEOUT } else { IDLE_TIMEOUT },
                         stream.next(),
                     ) => match event {
@@ -477,11 +479,7 @@ impl App {
         // Jev's memory score for the turn, kept with it.
         let mut memory_score = None;
         if status == RunStatus::Completed && !background {
-            let generator = Generator {
-                provider: self.provider.as_ref(),
-                llm: &self.llm,
-                user: user.id(),
-            };
+            let generator = self.generator(user.id());
             let exchange = Exchange {
                 session_id: run.session_id.clone(),
                 today: user.today().await,

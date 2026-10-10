@@ -57,25 +57,21 @@ pub(crate) async fn offer(user: &User) {
 
 /// Starts the digest run for `job`, or `None` when nothing is unread.
 pub(crate) async fn run(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Result<Option<Run>> {
-    let mailboxes: Vec<_> = user
+    let feeds: Vec<_> = user
         .feeds()
         .await
         .into_iter()
-        .filter_map(|feed| match feed {
-            Feed::Mail(mailbox) => Some(mailbox),
-            Feed::Slack => None,
-        })
-        .collect();
-    let feeds: Vec<_> = mailboxes
-        .iter()
-        .map(|&mailbox| Feed::Mail(mailbox))
+        .filter(|feed| matches!(feed, Feed::Mail(_)))
         .collect();
     feeds::sync_now(app, user, &feeds).await;
 
     let items = user.attention_items(KEEP).await?;
     let mut unread: Vec<AttentionItem> = Vec::new();
     let mut handled = Vec::new();
-    for mailbox in mailboxes {
+    for &feed in &feeds {
+        let Feed::Mail(mailbox) = feed else {
+            continue;
+        };
         let flagged: Vec<_> = items
             .iter()
             .filter(|item| item.mailbox == mailbox)

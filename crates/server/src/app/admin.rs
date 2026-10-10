@@ -83,6 +83,7 @@ async fn rescan(app: &Arc<App>, only: Option<&str>) -> Result<Vec<String>> {
         return Ok(vec!["no such user".to_owned()]);
     }
     let mut lines = Vec::new();
+    let mut rescanned = 0;
     for user in &users {
         let connected: Vec<String> = match user.apps().await {
             Ok(apps) => apps
@@ -95,14 +96,21 @@ async fn rescan(app: &Arc<App>, only: Option<&str>) -> Result<Vec<String>> {
                 continue;
             }
         };
-        let started = profile::reread(app, user, &connected).await?;
+        let started = match profile::reread(app, user, &connected).await {
+            Ok(started) => started,
+            Err(error) => {
+                lines.push(format!("{}: rescan not started: {error:?}", user.id()));
+                continue;
+            }
+        };
         if started.is_empty() {
             continue;
         }
         let names: Vec<&str> = started.iter().map(|source| source.key()).collect();
         lines.push(format!("{}: {}", user.id(), names.join(", ")));
+        rescanned += 1;
     }
-    log::info!("admin: rescan started; users={}", lines.len());
-    lines.push(format!("rescan started for {} users", lines.len()));
+    log::info!("admin: rescan started; users={rescanned}");
+    lines.push(format!("rescan started for {rescanned} users"));
     Ok(lines)
 }

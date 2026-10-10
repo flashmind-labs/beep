@@ -17,7 +17,7 @@ impl App {
         status: RunStatus,
         reply: &str,
     ) {
-        // Build a title from the session's first message (truncated).
+        // Titled after the session, or "Beep" when it cannot be found.
         let title = match user.sessions().await {
             Ok(sessions) => sessions
                 .into_iter()

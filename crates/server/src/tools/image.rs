@@ -1,20 +1,14 @@
+use crate::sandbox::{content_type, follow_public};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
-use reqwest::{Client, Url, header::CONTENT_TYPE, redirect::Policy};
+use reqwest::Url;
 use serde_json::{Value, json};
-use std::{sync::LazyLock, time::Duration};
+use std::time::Duration;
+use tokio::time::timeout;
 
 const MAX_IMAGES: usize = 6;
-
-static CLIENT: LazyLock<Client> = LazyLock::new(|| {
-    Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(10))
-        .redirect(Policy::limited(3))
-        .user_agent("Beep")
-        .build()
-        .unwrap_or_default()
-});
+/// How long checking one image may take, redirects included.
+const CHECK_TIME: Duration = Duration::from_secs(10);
 
 /// Shows images in the chat. Each URL is fetched first, so a made-up link
 /// fails here instead of showing as a broken image on the phone.
@@ -111,25 +105,17 @@ pub(super) async fn check(url: &str) -> Result<(), &'static str> {
         return Err("only https URLs up to 2048 bytes are allowed");
     }
     // Model input can be steered by pages it read, so keep the server off
-    // addresses that only make sense on its own network.
-    match parsed.domain() {
-        Some(host)
-            if host != "localhost" && !host.ends_with(".localhost") && host.contains('.') => {}
-        _ => return Err("the host must be a public domain name"),
-    }
-    let response = CLIENT
-        .get(parsed)
-        .send()
+    // addresses that only make sense on its own network, through every
+    // redirect. Only the headers are read.
+    let response = timeout(CHECK_TIME, follow_public(url))
         .await
-        .map_err(|_| "could not be fetched")?;
+        .map_err(|_| "could not be fetched in time")?
+        .map_err(|_| "could not be fetched from a public address")?
+        .response;
     if !response.status().is_success() {
         return Err("the server did not return it");
     }
-    let is_image = response
-        .headers()
-        .get(CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.trim_start().starts_with("image/"));
+    let is_image = content_type(&response).is_some_and(|v| v.trim_start().starts_with("image/"));
     if !is_image {
         return Err("it is not an image");
     }
@@ -148,6 +134,8 @@ mod tests {
             "https://[::1]/a.png",
             "https://localhost/a.png",
             "https://intranet/a.png",
+            "https://[fd00::1]/a.png",
+            "https://169.254.169.254/latest/meta-data/",
             "file:///etc/passwd",
             "not a url",
         ] {

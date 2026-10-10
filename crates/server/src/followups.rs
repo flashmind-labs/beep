@@ -74,8 +74,8 @@ impl Kind {
     pub fn of(reply: &str) -> Self {
         let last = reply.trim().rsplit("\n\n").next().unwrap_or_default();
         // A `?` inside a link is not a question.
-        let asks = last.match_indices('?').any(|(at, _)| {
-            last[at + 1..]
+        let asks = last.match_indices(['?', '？', '؟']).any(|(at, mark)| {
+            last[at + mark.len()..]
                 .chars()
                 .next()
                 .is_none_or(|c| c.is_whitespace() || matches!(c, '"' | ')' | '*' | '_' | '”'))
@@ -328,6 +328,8 @@ mod tests {
         );
         assert_eq!(Kind::of("Want me to book it?"), Kind::Answers);
         assert_eq!(Kind::of("**Lunch or dinner?**"), Kind::Answers);
+        assert_eq!(Kind::of("要我帮你预订吗？"), Kind::Answers);
+        assert_eq!(Kind::of("هل أحجز الطاولة؟"), Kind::Answers);
         assert_eq!(Kind::of("Which one?\n\nIt opens at nine."), Kind::FollowUps);
         assert_eq!(
             Kind::of("Here it is: https://example.com/search?q=beep"),

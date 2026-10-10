@@ -17,10 +17,17 @@ pub(crate) const SUGGESTING: &str = "Suggesting replies";
 struct Suggestions {
     #[serde(rename = "type")]
     card: &'static str,
-    /// `replies` for follow-ups, `choice` for answers to a question the
-    /// reply asked, which phones draw as full-width buttons.
-    kind: &'static str,
+    kind: Kind,
     replies: Vec<String>,
+}
+
+/// `replies` for follow-ups, `choice` for answers to a question the reply
+/// asked, which phones draw as full-width buttons.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Kind {
+    Replies,
+    Choice,
 }
 
 /// `text` with its whitespace collapsed, or `None` when it is empty or
@@ -31,7 +38,7 @@ fn fit(text: &str, max: usize) -> Option<String> {
 }
 
 /// `replies` that fit, without duplicates, at most `max`.
-fn suggestions(replies: Vec<String>, kind: &'static str, max: usize) -> Option<Suggestions> {
+fn suggestions(replies: Vec<String>, kind: Kind, max: usize) -> Option<Suggestions> {
     let mut kept: Vec<String> = Vec::new();
     for reply in &replies {
         let Some(reply) = fit(reply, MAX_REPLY_CHARS) else {
@@ -51,13 +58,13 @@ fn suggestions(replies: Vec<String>, kind: &'static str, max: usize) -> Option<S
 
 /// The tool result for `replies`, or `None` when fewer than two are usable.
 pub(crate) fn replies_output(replies: Vec<String>) -> Option<String> {
-    serde_json::to_string(&suggestions(replies, "replies", MAX_REPLIES)?).ok()
+    serde_json::to_string(&suggestions(replies, Kind::Replies, MAX_REPLIES)?).ok()
 }
 
 /// The tool result for answers to the reply's question, or `None` when fewer
 /// than two are usable.
 pub(crate) fn choice_output(answers: Vec<String>) -> Option<String> {
-    serde_json::to_string(&suggestions(answers, "choice", MAX_CHOICES)?).ok()
+    serde_json::to_string(&suggestions(answers, Kind::Choice, MAX_CHOICES)?).ok()
 }
 
 #[cfg(test)]

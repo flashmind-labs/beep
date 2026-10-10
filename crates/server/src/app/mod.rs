@@ -13,13 +13,14 @@ mod starters;
 pub(crate) use group::group_message;
 
 use crate::{
+    AsyncMutex,
     apps::{Composio, ComposioSettings},
     compaction::{self, Summarizer},
     decision::DecisionTool,
     images::Describer,
     live::LiveRun,
     models::ModelChoices,
-    protocol::{ApprovalDecision, DeviceAnswer, DeviceKind, Notice, Platform, RunEvent},
+    protocol::{ApprovalDecision, DeviceKind, Notice, Platform, RunEvent},
     sandbox::Sandbox,
     search::SearchTool,
     starters::Generator,
@@ -34,16 +35,18 @@ use flashmind::{
 };
 use iroh::EndpointId;
 use secrecy::SecretString;
-use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        Arc, Mutex as StdMutex, PoisonError,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
-use tokio::sync::{Mutex, broadcast, oneshot};
+use tokio::{
+    sync::broadcast,
+    time::{sleep, timeout},
+};
 use uuid::Uuid;
 
 /// The server's shared state: storage, users, the model and the
@@ -67,15 +70,15 @@ pub struct App {
     /// What a new `User` is built from.
     shared: Shared,
     /// Every user signed in since the server started, by id.
-    users: StdMutex<HashMap<String, Arc<User>>>,
+    users: Mutex<HashMap<String, Arc<User>>>,
     /// Runs in progress, with their event feed.
-    runs: Mutex<HashMap<String, Arc<LiveRun>>>,
+    runs: AsyncMutex<HashMap<String, Arc<LiveRun>>>,
     /// Questions sent to a phone, keyed by query id, waiting for its answer.
-    device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
+    device_queries: device::DeviceQueries,
     /// Groups Beep is writing a reply in.
-    groups_busy: StdMutex<HashSet<Uuid>>,
+    groups_busy: Mutex<HashSet<Uuid>>,
     /// Actions Beep asked a group member to allow, keyed by query id.
-    group_actions: StdMutex<HashMap<String, group_tools::GroupAction>>,
+    group_actions: Mutex<HashMap<String, group_tools::GroupAction>>,
     /// Set once the server starts stopping.
     shutting_down: AtomicBool,
 }
@@ -147,36 +150,25 @@ impl UserNotice {
     }
 }
 
-#[derive(Deserialize)]
 pub struct Message {
     pub session_id: Uuid,
     pub request_id: Uuid,
     pub message: String,
-    #[serde(default)]
     pub cron_id: Option<String>,
     /// A routine's label, empty when it has none. Set for routine runs only.
-    #[serde(skip)]
     pub scheduled: Option<String>,
     /// An event's label when an event woke the agent (see `crate::wake`).
-    #[serde(skip)]
     pub woken: Option<String>,
-    #[serde(default)]
     pub images: Vec<String>,
-    #[serde(default)]
     /// Set when the run resumes a session that stopped to ask the user.
-    #[serde(skip)]
     pub answer: Option<Answer>,
     /// An admin's one-off model for this run, instead of their picked one.
-    #[serde(skip)]
     pub model: Option<Model>,
     /// An admin's one-off thinking for this run, instead of their picked one.
-    #[serde(skip)]
     pub thinking: Option<ReasoningLevel>,
     /// The device the message came from. A computer has no phone to act on.
-    #[serde(skip)]
     pub origin: DeviceKind,
     /// The app the message came from, when it says.
-    #[serde(skip)]
     pub platform: Option<Platform>,
 }
 
@@ -237,11 +229,11 @@ impl App {
                 sandbox,
             },
             shared,
-            users: StdMutex::new(HashMap::new()),
-            runs: Mutex::new(HashMap::new()),
-            device_queries: Mutex::new(HashMap::new()),
-            groups_busy: StdMutex::new(HashSet::new()),
-            group_actions: StdMutex::new(HashMap::new()),
+            users: Mutex::new(HashMap::new()),
+            runs: AsyncMutex::new(HashMap::new()),
+            device_queries: device::DeviceQueries::default(),
+            groups_busy: Mutex::new(HashSet::new()),
+            group_actions: Mutex::new(HashMap::new()),
             shutting_down: AtomicBool::new(false),
         })
     }
@@ -324,6 +316,7 @@ impl App {
                 session_id: run.session_id.clone(),
             });
             runs.insert(run.id.clone(), live.clone());
+            drop(runs);
 
             let (app, user, run) = (self.clone(), user.clone(), run.clone());
             let session = SessionRef {
@@ -335,11 +328,7 @@ impl App {
                 Ok(true) if message.woken.is_none() => {
                     let (app, text) = (self.clone(), message.message.clone());
                     tokio::spawn(async move {
-                        let generator = Generator {
-                            provider: app.provider.as_ref(),
-                            llm: &app.llm,
-                            user: &session.user,
-                        };
+                        let generator = app.generator(&session.user);
                         if titles::name_first(&app.store, generator, &session, &text).await {
                             // Nobody listening just means no phone is online.
                             let _ = app
@@ -385,12 +374,12 @@ impl App {
         for live in self.runs.lock().await.values() {
             live.cancel.cancel();
         }
-        let _ = tokio::time::timeout(Duration::from_secs(10), async {
+        let _ = timeout(Duration::from_secs(10), async {
             loop {
                 if self.runs.lock().await.is_empty() {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(25)).await;
+                sleep(Duration::from_millis(25)).await;
             }
         })
         .await;
@@ -439,11 +428,12 @@ impl App {
     pub async fn compact_idle_sessions(&self) {
         // The limit follows the model the sessions run on, not the summarizer.
         let window = self.provider.context_window(&self.llm.model).await;
-        let summarizer = Summarizer {
-            provider: self.provider.as_ref(),
-            model: self.compaction_model.as_ref().unwrap_or(&self.llm.model),
-        };
-        compaction::compact_idle(&self.store, summarizer, compaction::compact_at(window)).await;
+        compaction::compact_idle(
+            &self.store,
+            self.summarizer(),
+            compaction::compact_at(window),
+        )
+        .await;
     }
 
     /// Compacts `session` in the background when the last prompt of its turn
@@ -460,11 +450,7 @@ impl App {
             if prompt_tokens < limit {
                 return;
             }
-            let summarizer = Summarizer {
-                provider: app.provider.as_ref(),
-                model: app.compaction_model.as_ref().unwrap_or(&app.llm.model),
-            };
-            compaction::compact_session(&app.store, &summarizer, &session, limit).await;
+            compaction::compact_session(&app.store, &app.summarizer(), &session, limit).await;
         });
     }
 
@@ -481,6 +467,14 @@ impl App {
     /// Jev, when the server has an OpenRouter key.
     pub fn decision(&self) -> Option<&DecisionTool> {
         self.tools.decision.as_deref()
+    }
+
+    /// Summarizes sessions on the compaction model, else the assistant's.
+    fn summarizer(&self) -> Summarizer<'_> {
+        Summarizer {
+            provider: self.provider.as_ref(),
+            model: self.compaction_model.as_ref().unwrap_or(&self.llm.model),
+        }
     }
 
     /// Plain completions on the assistant's model for `user`.

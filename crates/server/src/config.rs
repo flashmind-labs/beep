@@ -1,4 +1,12 @@
-use std::{collections::HashMap, env, io, path::Path, path::PathBuf};
+use std::{
+    collections::HashMap,
+    env,
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    os::unix::fs::OpenOptionsExt,
+    path::Path,
+    path::PathBuf,
+};
 
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
@@ -114,7 +122,7 @@ fn default_routing() -> ProviderPreferences {
 
 pub fn ensure_parent_dir(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)?;
     }
     Ok(())
 }
@@ -123,13 +131,20 @@ pub fn load_secret_key(path: Option<&Path>) -> Result<SecretKey> {
     let Some(path) = path else {
         return Ok(SecretKey::generate());
     };
-    match std::fs::read_to_string(path) {
+    match fs::read_to_string(path) {
         Ok(data) => Ok(data.trim().parse::<SecretKey>()?),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
             let key = SecretKey::generate();
             ensure_parent_dir(path)?;
             let hex: String = key.to_bytes().iter().map(|b| format!("{b:02x}")).collect();
-            std::fs::write(path, &hex)?;
+            // Only the server's user may read the key.
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+                .with_context(|| format!("writing {}", path.display()))?
+                .write_all(hex.as_bytes())?;
             log::info!("generated new secret key at {}", path.display());
             Ok(key)
         }
@@ -140,6 +155,21 @@ pub fn load_secret_key(path: Option<&Path>) -> Result<SecretKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn writes_a_new_secret_key_for_the_owner_only() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let path = dir.path().join("keys/server.key");
+        let key = load_secret_key(Some(&path)).expect("a new key");
+        let mode = fs::metadata(&path)
+            .expect("the key file")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+        let again = load_secret_key(Some(&path)).expect("the same key");
+        assert_eq!(again.public(), key.public());
+    }
 
     #[test]
     fn reads_admins_and_model_choices() {

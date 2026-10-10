@@ -23,11 +23,23 @@ pub(crate) use suggest::{
 
 use crate::{
     app::App,
-    protocol::{DeviceKind, Run},
+    protocol::{DeviceAnswer, DeviceKind, Run},
     user::User,
 };
-use flashmind::{tools::time::TimeTool, types::ToolRegistry};
+use flashmind::{
+    tools::time::TimeTool,
+    types::{ToolRegistry, tool::ToolResult},
+};
 use std::sync::Arc;
+
+/// The tool result for what the phone answered a query.
+fn device_result(call_id: &str, answer: anyhow::Result<DeviceAnswer>) -> ToolResult {
+    match answer {
+        Ok(DeviceAnswer::Ok { output }) => ToolResult::success(call_id, output),
+        Ok(DeviceAnswer::Err { message }) => ToolResult::failure(call_id, message),
+        Err(e) => ToolResult::failure(call_id, format!("Could not reach the user's device: {e}")),
+    }
+}
 
 pub fn registry(
     app: Arc<App>,
@@ -46,15 +58,14 @@ pub fn registry(
         user.id(),
         &run.session_id,
         timezone,
-        None,
     );
     registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));
     registry.register(Arc::new(image::SendImageTool));
     registry.register(Arc::new(products::ShowProductsTool));
-    for variant in ["habit_create", "habit_log", "habit_status", "habit_delete"] {
+    for kind in habits::HabitToolKind::ALL {
         registry.register(Arc::new(habits::HabitTool {
             user: user.clone(),
-            variant,
+            kind,
         }));
     }
     for kind in places::PlaceToolKind::ALL {

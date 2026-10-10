@@ -35,6 +35,7 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
+use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 /// Messages the model sees before the one that mentions it.
@@ -128,7 +129,6 @@ impl Drop for Typing {
     }
 }
 
-/// A message as notices and the model show it.
 /// What Jev reads to judge the last of `history`: the group and its recent messages.
 fn call_state(joined: &JoinedGroup, history: &[MessageRow]) -> String {
     let names: Vec<&str> = joined.members.iter().map(|m| m.name.as_str()).collect();
@@ -176,7 +176,7 @@ fn learn_text(joined: &JoinedGroup, history: &[MessageRow], member: &MemberRow) 
     text
 }
 
-fn said(name: &str, text: &str) -> String {
+pub(super) fn said(name: &str, text: &str) -> String {
     format!("{name}: {text}")
 }
 
@@ -391,7 +391,7 @@ impl App {
         let Some(decision) = self.decision() else {
             return false;
         };
-        tokio::time::sleep(SETTLE).await;
+        sleep(SETTLE).await;
         let group_id = joined.group.id;
         let history = match self.store.group_messages(group_id, CALL_CONTEXT).await {
             Ok(history) => history,
@@ -655,12 +655,12 @@ impl App {
         {
             let stream = agent.start(&mut conversation, cancel.clone(), input, None);
             tokio::pin!(stream);
-            let deadline = tokio::time::sleep(MAX_RUN);
+            let deadline = sleep(MAX_RUN);
             tokio::pin!(deadline);
             loop {
                 let event = tokio::select! {
                     _ = &mut deadline => { cancel.cancel(); return Ok(FAILED.to_owned()); }
-                    event = tokio::time::timeout(IDLE_TIMEOUT, stream.next()) => match event {
+                    event = timeout(IDLE_TIMEOUT, stream.next()) => match event {
                         Ok(event) => event,
                         Err(_) => { cancel.cancel(); return Ok(FAILED.to_owned()); }
                     },

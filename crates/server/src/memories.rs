@@ -30,9 +30,11 @@ use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Write},
+    slice,
     sync::Arc,
     time::Duration,
 };
+use tokio::time::{error::Elapsed, interval};
 
 /// The same model under its OpenAI and OpenRouter names, so stored
 /// embeddings stay comparable whichever provider is configured.
@@ -214,7 +216,7 @@ pub struct Remembered {
 /// Deletes memories of every user whose days ended a while ago, once an hour.
 pub fn start_purge(app: Arc<App>) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(CURATE_SWEEP);
+        let mut interval = interval(CURATE_SWEEP);
         loop {
             interval.tick().await;
             match app.store.purge_ended_memories().await {
@@ -274,10 +276,7 @@ impl Learned {
 }
 
 /// Logs how a learning attempt went and returns its changes, none on failure.
-pub(crate) fn settle(
-    user: &str,
-    outcome: Result<Result<Vec<Learned>>, tokio::time::error::Elapsed>,
-) -> Vec<Learned> {
+pub(crate) fn settle(user: &str, outcome: Result<Result<Vec<Learned>>, Elapsed>) -> Vec<Learned> {
     match outcome {
         Ok(Ok(learned)) => {
             if !learned.is_empty() {
@@ -779,12 +778,12 @@ pub(crate) fn plan_curation(
                 if row.source == (MemorySource::User {}) && !row.valid.ended(today) {
                     continue;
                 }
-                if claim(std::slice::from_ref(&id)).is_some() {
+                if claim(slice::from_ref(&id)).is_some() {
                     steps.push(Step::Forget(id));
                 }
             }
             CurateOp::Update { id, text: new } => {
-                let Some(found) = claim(std::slice::from_ref(&id)) else {
+                let Some(found) = claim(slice::from_ref(&id)) else {
                     continue;
                 };
                 // An update without days keeps a memory's days, but one that is

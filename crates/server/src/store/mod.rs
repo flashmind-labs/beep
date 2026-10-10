@@ -303,8 +303,8 @@ impl MemoryRow {
     }
 }
 
-fn parse_date(text: Option<String>) -> Option<NaiveDate> {
-    NaiveDate::parse_from_str(text.as_deref()?, "%Y-%m-%d").ok()
+fn parse_date(text: Option<&str>) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(text?, "%Y-%m-%d").ok()
 }
 
 fn format_date(date: Option<NaiveDate>) -> Option<String> {

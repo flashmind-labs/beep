@@ -5,7 +5,7 @@
 
 use super::{Store, seconds};
 use anyhow::Result;
-use sqlx::{PgConnection, Row};
+use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::{
     collections::HashMap,
     sync::{Mutex, PoisonError},
@@ -80,7 +80,7 @@ pub enum Readers<'a> {
     User(&'a str),
 }
 
-impl Readers<'_> {
+impl<'a> Readers<'a> {
     /// The readers of the chat bound as `$1`, as a query taking the user,
     /// if any, as parameter `user`. Ordered so concurrent writes lock
     /// counters in the same order and cannot deadlock.
@@ -93,10 +93,10 @@ impl Readers<'_> {
         }
     }
 
-    fn user(self) -> Option<String> {
+    fn user(self) -> Option<&'a str> {
         match self {
             Self::Members => None,
-            Self::User(user) => Some(user.to_owned()),
+            Self::User(user) => Some(user),
         }
     }
 }
@@ -181,7 +181,7 @@ pub(super) async fn log_chat(
     bumped(&rows)
 }
 
-fn bumped(rows: &[sqlx::postgres::PgRow]) -> Result<Vec<Bumped>> {
+fn bumped(rows: &[PgRow]) -> Result<Vec<Bumped>> {
     rows.iter()
         .map(|row| {
             Ok(Bumped {
@@ -234,7 +234,7 @@ impl UpdateHub {
 
 impl Store {
     /// Wakes the update streams of the users a committed write logged for.
-    pub(crate) fn announce(&self, bumped: &[Bumped]) {
+    pub(super) fn announce(&self, bumped: &[Bumped]) {
         self.updates.announce(bumped);
     }
 
@@ -244,7 +244,7 @@ impl Store {
         Ok(self.updates.subscribe(user, last))
     }
 
-    pub(crate) async fn last_update(&self, user: &str) -> Result<i64> {
+    pub(super) async fn last_update(&self, user: &str) -> Result<i64> {
         let last: Option<i64> =
             sqlx::query_scalar("SELECT last FROM sync_counters WHERE user_id = $1")
                 .bind(user)

@@ -188,7 +188,7 @@ impl Store {
         chat: Uuid,
         title: &str,
     ) -> Result<bool> {
-        if title.is_empty() || title.len() > 200 {
+        if title.is_empty() || title.chars().count() > 200 {
             bail!("session title must be 1-200 characters");
         }
         if !self.owns_session(user, chat).await? {
@@ -302,16 +302,7 @@ impl Store {
         .await?;
         let mut files = Vec::new();
         let mut bumped = Vec::new();
-        let mut deleted = 0;
-        for chat in owned {
-            let saved: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sessions WHERE chat_id = $1)")
-                    .bind(chat)
-                    .fetch_one(&mut *tx)
-                    .await?;
-            if saved {
-                deleted += 1;
-            }
+        for &chat in &owned {
             let gone = delete_chat(&mut tx, chat).await?;
             files.extend(gone.files);
             bumped.extend(gone.bumped);
@@ -319,7 +310,7 @@ impl Store {
         tx.commit().await?;
         self.announce(&bumped);
         self.blobs.delete(&files).await?;
-        Ok(deleted)
+        Ok(owned.len() as u64)
     }
 
     /// Removes the turn whose opening message was sent at `timestamp`, in
@@ -355,19 +346,16 @@ impl Store {
             tx.rollback().await?;
             return Ok(DeletedTurn::Busy);
         }
-        let openers = sqlx::query(
-            "SELECT id, sent_at FROM messages WHERE chat_id = $1 AND turn_id = id ORDER BY id",
+        // Times are stored to the microsecond and asked for to the millisecond.
+        let opener: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM messages WHERE chat_id = $1 AND turn_id = id
+               AND sent_at >= $2 AND sent_at < $2 + interval '1 millisecond'
+             ORDER BY id DESC LIMIT 1",
         )
         .bind(chat)
-        .fetch_all(&mut *tx)
+        .bind(DateTime::from_timestamp_millis(timestamp))
+        .fetch_optional(&mut *tx)
         .await?;
-        let mut opener = None;
-        for row in &openers {
-            let sent_at: DateTime<Utc> = row.try_get(1)?;
-            if sent_at.timestamp_millis() == timestamp {
-                opener = Some(row.try_get::<i64, _>(0)?);
-            }
-        }
         let Some(opener) = opener else {
             tx.rollback().await?;
             return Ok(DeletedTurn::NotFound);
@@ -383,7 +371,7 @@ impl Store {
                 .await?;
         }
         let which_messages = match which {
-            TurnsToDelete::One => "turn_id = $2 OR id = $2",
+            TurnsToDelete::One => "turn_id = $2",
             TurnsToDelete::Onward => "id >= $2",
         };
         let gone: Vec<i64> = sqlx::query_scalar(&format!(
@@ -585,5 +573,93 @@ mod tests {
         assert!(alice.search_sessions("10_%", 10).await.unwrap().is_empty());
         let bob = User::for_test(store.clone(), "bob");
         assert!(bob.search_sessions("kimpton", 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_chat_whose_first_run_failed_is_found_and_deleted() {
+        use crate::store::{CreateRun, RunStatus, TestDb, test_chat};
+
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let s1 = test_chat("s1");
+        let CreateRun::Created(run) = store.create_run(&alice, s1, "req-1", "hi").await.unwrap()
+        else {
+            panic!("the run was not created");
+        };
+        store
+            .finish(&alice, &run, None, RunStatus::Failed)
+            .await
+            .unwrap();
+
+        assert!(store.delete_session(&alice, s1).await.unwrap());
+        assert!(!store.in_chat(&alice, s1).await.unwrap());
+        assert!(!store.delete_session(&alice, s1).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn titles_count_characters_not_bytes() {
+        use crate::store::{TestDb, test_chat, test_turn};
+
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let s1 = test_chat("s1");
+        test_turn(&store, &alice, s1, "hi", 1000).await.unwrap();
+        assert!(
+            store
+                .rename_session(&alice, s1, &"é".repeat(200))
+                .await
+                .unwrap()
+        );
+        assert!(
+            store
+                .rename_session(&alice, s1, &"é".repeat(201))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_turn_finds_the_turn_by_its_time() {
+        use crate::store::{StoredMessage, TestDb, test_chat, test_turn};
+
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let s1 = test_chat("s1");
+        for (at, prompt) in [(1000, "one"), (2000, "two"), (3000, "three")] {
+            test_turn(&store, &alice, s1, prompt, at).await.unwrap();
+        }
+        let contents = |messages: Vec<StoredMessage>| -> Vec<String> {
+            messages.iter().map(|m| m.text().to_owned()).collect()
+        };
+
+        assert_eq!(
+            store
+                .delete_turn(&alice, s1, 1500, TurnsToDelete::One)
+                .await
+                .unwrap(),
+            DeletedTurn::NotFound
+        );
+        assert_eq!(
+            store
+                .delete_turn(&alice, s1, 2000, TurnsToDelete::One)
+                .await
+                .unwrap(),
+            DeletedTurn::Deleted
+        );
+        assert_eq!(
+            contents(store.chat_messages(s1).await.unwrap()),
+            ["one", "re: one", "three", "re: three"]
+        );
+        assert_eq!(
+            store
+                .delete_turn(&alice, s1, 1000, TurnsToDelete::Onward)
+                .await
+                .unwrap(),
+            DeletedTurn::Deleted
+        );
+        assert!(store.chat_messages(s1).await.unwrap().is_empty());
     }
 }

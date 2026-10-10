@@ -8,7 +8,7 @@
 //! or an email, goes through the same gate first, and what another member's
 //! app returns joins the secrets the reply is checked against.
 
-use super::{App, UserNotice, run::web_tools};
+use super::{App, UserNotice, group::said, run::web_tools};
 use crate::{
     apps::{CatalogApp, markdown},
     decision::DecisionTool,
@@ -17,6 +17,7 @@ use crate::{
     permissions::{self, Rules, ToolSlug},
     protocol::{Approval, Notice, PendingApproval},
     tools::group_memory::{Member, Secrets},
+    user::User,
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -126,13 +127,6 @@ pub(super) struct GroupAction {
     asked: Instant,
 }
 
-/// A member Beep may use the apps of in this run.
-pub(super) struct AppsOf {
-    pub member: Member,
-    /// The apps each tool of theirs belongs to, and what they allow there.
-    pub rules: Rules,
-}
-
 /// Registers the web tools and the apps of `members`, all screened.
 pub(super) async fn register(
     registry: &mut ToolRegistry,
@@ -146,6 +140,14 @@ pub(super) async fn register(
             run: run.clone(),
         }));
     }
+    /// A member Beep may use the apps of in this run.
+    struct AppsOf {
+        member: Member,
+        /// The apps each tool of theirs belongs to, and what they allow there.
+        rules: Rules,
+        tools: Vec<Arc<dyn Tool>>,
+    }
+
     let loaded = join_all(members.into_iter().map(|member| async move {
         let user = member.user.clone();
         let (composio, mcp, rules) =
@@ -155,14 +157,18 @@ pub(super) async fn register(
             Rules::default()
         });
         let tools = markdown::wrap(composio.tools.into_iter().chain(mcp).collect());
-        (AppsOf { member, rules }, tools)
+        AppsOf {
+            member,
+            rules,
+            tools,
+        }
     }))
     .await;
 
     let mut by_name: BTreeMap<String, Vec<Owned>> = BTreeMap::new();
-    for (apps, tools) in loaded {
+    for apps in loaded {
         let member = Arc::new(apps.member);
-        for tool in tools {
+        for tool in apps.tools {
             let slug = ToolSlug::new(tool.name());
             if !GROUP_TOOLS.contains(&slug.as_str()) {
                 continue;
@@ -408,7 +414,7 @@ impl App {
     /// tells the group. `false` when nothing of theirs waits under it.
     pub(crate) async fn answer_group_action(
         &self,
-        user: &crate::user::User,
+        user: &User,
         query_id: &str,
         allow: bool,
     ) -> Result<bool> {
@@ -457,7 +463,7 @@ impl App {
         };
         self.store.post_beep(group_id, &text).await?;
         if let Some(joined) = user.group(group_id).await? {
-            self.group_notice(&joined.members, &joined, None, &format!("Beep: {text}"));
+            self.group_notice(&joined.members, &joined, None, &said("Beep", &text));
         }
         Ok(true)
     }

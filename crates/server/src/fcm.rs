@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use iroh::EndpointId;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
-use reqwest::{Client, header::CONTENT_TYPE};
+use reqwest::{Client, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -124,16 +124,10 @@ impl Firebase {
             exp: now + 3600,
         };
         let assertion = jsonwebtoken::encode(&Header::new(Algorithm::RS256), &claims, &self.key)?;
-        // A JWT is base64url and dots, so it needs no form escaping.
-        let body = format!(
-            "grant_type={}&assertion={assertion}",
-            GRANT_TYPE.replace(':', "%3A")
-        );
         let response = self
             .client
             .post(&self.account.token_uri)
-            .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .body(body)
+            .form(&[("grant_type", GRANT_TYPE), ("assertion", &assertion)])
             .send()
             .await?;
         let status = response.status();
@@ -169,21 +163,33 @@ impl Firebase {
             .json(&message)
             .send()
             .await?;
-        let status = response.status().as_u16();
+        let status = response.status();
         // The body names the message on success and the reason on failure.
         // It never repeats the device token.
         let body = response.text().await.unwrap_or_default();
         Ok(match status {
-            200 => Delivery::Sent,
+            StatusCode::OK => Delivery::Sent,
             // UNREGISTERED: the app is gone or got a new token. A 403 can be
             // this project's own setup, so it never drops tokens.
-            404 => {
+            StatusCode::NOT_FOUND => {
                 log::info!("fcm: token no longer registered: {body}");
                 Delivery::Gone
             }
-            400 if rejects_token(&body) => {
+            StatusCode::BAD_REQUEST if rejects_token(&body) => {
                 log::info!("fcm: token is not a valid registration token");
                 Delivery::Gone
+            }
+            // Google revoked the access token early: fetch a new one next time.
+            StatusCode::UNAUTHORIZED => {
+                log::warn!("fcm: access token refused: {body}");
+                let mut cached = self.access.lock().await;
+                if cached
+                    .as_ref()
+                    .is_some_and(|t| t.value.expose_secret() == access.expose_secret())
+                {
+                    *cached = None;
+                }
+                Delivery::Failed
             }
             _ => {
                 log::warn!("fcm: answered {status}: {body}");

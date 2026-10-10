@@ -11,18 +11,28 @@ use flashmind::types::{
     tool::{Tool, ToolContext, ToolResult},
 };
 use futures::StreamExt;
-use reqwest::{Client, StatusCode, Url, header::CONTENT_TYPE, header::LOCATION, redirect::Policy};
+use reqwest::{
+    Client, Response, StatusCode, Url,
+    header::{CONTENT_TYPE, LOCATION},
+    redirect::Policy,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     env,
+    io::ErrorKind,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::{Component, Path, PathBuf},
     process::Stdio,
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tokio::{fs, io::AsyncWriteExt, net::lookup_host, process::Command};
+use tokio::{
+    fs::{self, File, OpenOptions},
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::lookup_host,
+    process::Command,
+};
 
 /// Largest file `download_file` saves.
 pub const MAX_DOWNLOAD: u64 = 20 * 1024 * 1024;
@@ -197,15 +207,11 @@ impl Sandbox {
         let Followed { response, url } = follow(url).await?;
         let used = folder_size(&dir).await?;
         let room = MAX_FOLDER.saturating_sub(used).min(MAX_DOWNLOAD);
-        let content_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
+        let content_type = content_type(&response);
         let file_name = file_name(name, &url);
         let path = dir.join(&file_name);
         let partial = dir.join(format!(".{file_name}.part"));
-        let mut file = fs::File::create(&partial).await?;
+        let mut file = create_fresh(&partial).await?;
         let mut bytes = 0;
         let mut body = response.bytes_stream();
         while let Some(chunk) = body.next().await {
@@ -233,32 +239,7 @@ impl Sandbox {
     /// The file at `path` in the user's folder, with its plain name.
     pub(crate) async fn read(&self, user_id: &str, path: &str) -> Result<FolderFile> {
         let dir = self.folder(user_id).await?;
-        let relative = Path::new(path.trim_start_matches("./"));
-        ensure!(
-            relative
-                .components()
-                .all(|part| matches!(part, Component::Normal(_))),
-            "the path must be inside the user's folder"
-        );
-        let full = dir.join(relative);
-        let meta = fs::symlink_metadata(&full)
-            .await
-            .context("there is no such file")?;
-        ensure!(meta.is_file(), "it is not a file");
-        ensure!(
-            meta.len() <= MAX_DOWNLOAD,
-            "the file is larger than {} MiB",
-            MAX_DOWNLOAD >> 20
-        );
-        let name = relative
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("file")
-            .to_owned();
-        Ok(FolderFile {
-            name,
-            data: fs::read(&full).await?,
-        })
+        read_in(&dir, path).await
     }
 
     /// Deletes files older than `FILE_TTL` every hour.
@@ -409,6 +390,63 @@ impl Tool for DownloadFileTool {
     }
 }
 
+/// The file at `path` under `dir`. A link as the file itself is refused, and
+/// the path is resolved in full, so a linked folder on the way cannot lead
+/// out of `dir`.
+async fn read_in(dir: &Path, path: &str) -> Result<FolderFile> {
+    let relative = Path::new(path.trim_start_matches("./"));
+    ensure!(
+        relative
+            .components()
+            .all(|part| matches!(part, Component::Normal(_))),
+        "the path must be inside the user's folder"
+    );
+    let full = dir.join(relative);
+    let meta = fs::symlink_metadata(&full)
+        .await
+        .context("there is no such file")?;
+    ensure!(meta.is_file(), "it is not a file");
+    let real = fs::canonicalize(&full)
+        .await
+        .context("there is no such file")?;
+    ensure!(
+        real.starts_with(fs::canonicalize(dir).await?),
+        "the path must be inside the user's folder"
+    );
+    // Read through the resolved path, so a link swapped in for the file
+    // after the checks is not followed.
+    let mut file = File::open(&real).await?;
+    let meta = file.metadata().await?;
+    ensure!(meta.is_file(), "it is not a file");
+    ensure!(
+        meta.len() <= MAX_DOWNLOAD,
+        "the file is larger than {} MiB",
+        MAX_DOWNLOAD >> 20
+    );
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).await?;
+    let name = relative
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("file")
+        .to_owned();
+    Ok(FolderFile { name, data })
+}
+
+/// Opens `path` as a new file, removing what was there first, so a link
+/// planted under that name is replaced rather than written through.
+async fn create_fresh(path: &Path) -> Result<File> {
+    match fs::remove_file(path).await {
+        Err(e) if e.kind() != ErrorKind::NotFound => return Err(e.into()),
+        _ => {}
+    }
+    Ok(OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .await?)
+}
+
 /// A file read from the user's folder.
 pub(crate) struct FolderFile {
     pub(crate) name: String,
@@ -416,14 +454,27 @@ pub(crate) struct FolderFile {
 }
 
 /// The final answer to a request after its redirects, and where it came from.
-struct Followed {
-    response: reqwest::Response,
+pub(crate) struct Followed {
+    pub(crate) response: Response,
     url: Url,
 }
 
-/// Fetches `url`, following up to `MAX_REDIRECTS` redirects through public
-/// addresses only, and checks the answer is a file of at most `MAX_DOWNLOAD`.
+/// Fetches `url`, and checks the answer is a file of at most `MAX_DOWNLOAD`.
 async fn follow(url: &str) -> Result<Followed> {
+    let followed = follow_public(url).await?;
+    let response = &followed.response;
+    if response.status() != StatusCode::OK {
+        bail!("the server answered {}", response.status());
+    }
+    if response.content_length().is_some_and(|n| n > MAX_DOWNLOAD) {
+        bail!("the file is larger than {} MiB", MAX_DOWNLOAD >> 20);
+    }
+    Ok(followed)
+}
+
+/// Fetches `url`, following up to `MAX_REDIRECTS` redirects through public
+/// addresses only. The body is left unread.
+pub(crate) async fn follow_public(url: &str) -> Result<Followed> {
     let mut url = Url::parse(url).context("not a valid URL")?;
     let mut response = None;
     for _ in 0..=MAX_REDIRECTS {
@@ -440,13 +491,16 @@ async fn follow(url: &str) -> Result<Followed> {
         url = url.join(location).context("bad redirect")?;
     }
     let response = response.context("too many redirects")?;
-    if response.status() != StatusCode::OK {
-        bail!("the server answered {}", response.status());
-    }
-    if response.content_length().is_some_and(|n| n > MAX_DOWNLOAD) {
-        bail!("the file is larger than {} MiB", MAX_DOWNLOAD >> 20);
-    }
     Ok(Followed { response, url })
+}
+
+/// The response's `Content-Type`, when it is readable text.
+pub(crate) fn content_type(response: &Response) -> Option<String> {
+    response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
 }
 
 /// A file fetched from a public URL.
@@ -461,11 +515,7 @@ pub(crate) struct Fetched {
 /// the same address checks as `download_file`.
 pub(crate) async fn fetch_public(url: &str) -> Result<Fetched> {
     let Followed { response, url } = follow(url).await?;
-    let content_type = response
-        .headers()
-        .get(CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_owned);
+    let content_type = content_type(&response);
     let mut data = Vec::new();
     let mut body = response.bytes_stream();
     while let Some(chunk) = body.next().await {
@@ -487,7 +537,30 @@ pub(crate) async fn fetch_public(url: &str) -> Result<Fetched> {
 /// One request to `url`, without following redirects, after checking that
 /// every address the host resolves to is public. The connection is pinned to
 /// the checked address so a second lookup cannot swap in another.
-async fn fetch(url: &Url) -> Result<reqwest::Response> {
+async fn fetch(url: &Url) -> Result<Response> {
+    let Resolved { domain, addrs } = public_addresses(url).await?;
+    let mut client = Client::builder().redirect(Policy::none());
+    if let Some(domain) = domain {
+        client = client.resolve(domain, addrs[0]);
+    }
+    let client = client
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(90))
+        .user_agent("Beep")
+        .build()?;
+    Ok(client.get(url.clone()).send().await?)
+}
+
+/// Where a URL points: its domain name, if it has one rather than an
+/// address, and the addresses to connect to. `addrs` is never empty.
+#[derive(Debug)]
+struct Resolved<'a> {
+    domain: Option<&'a str>,
+    addrs: Vec<SocketAddr>,
+}
+
+/// Where `url` points, checked to be public addresses only.
+async fn public_addresses(url: &Url) -> Result<Resolved<'_>> {
     ensure!(
         matches!(url.scheme(), "http" | "https"),
         "only http and https URLs are allowed"
@@ -495,23 +568,27 @@ async fn fetch(url: &Url) -> Result<reqwest::Response> {
     ensure!(url.as_str().len() <= 2048, "the URL is too long");
     let host = url.host_str().context("the URL has no host")?;
     let port = url.port_or_known_default().context("the URL has no port")?;
-    let addrs: Vec<SocketAddr> = lookup_host((host, port))
-        .await
-        .context("the host does not resolve")?
-        .collect();
+    // An IPv6 address comes in brackets, which a lookup would not take.
+    let literal = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    let (domain, addrs) = match literal.parse::<IpAddr>() {
+        Ok(ip) => (None, vec![SocketAddr::new(ip, port)]),
+        Err(_) => (
+            Some(host),
+            lookup_host((host, port))
+                .await
+                .context("the host does not resolve")?
+                .collect(),
+        ),
+    };
     ensure!(!addrs.is_empty(), "the host does not resolve");
     ensure!(
         addrs.iter().all(|a| is_public(a.ip())),
         "the host is not on the public internet"
     );
-    let client = Client::builder()
-        .redirect(Policy::none())
-        .resolve(host, addrs[0])
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(90))
-        .user_agent("Beep")
-        .build()?;
-    Ok(client.get(url.clone()).send().await?)
+    Ok(Resolved { domain, addrs })
 }
 
 fn is_public(ip: IpAddr) -> bool {
@@ -587,10 +664,7 @@ fn clip(bytes: &[u8]) -> String {
     if text.len() <= MAX_OUTPUT {
         return text.into_owned();
     }
-    let mut end = MAX_OUTPUT;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
+    let end = text.floor_char_boundary(MAX_OUTPUT);
     format!("{}\n[cut at {MAX_OUTPUT} bytes]", &text[..end])
 }
 
@@ -686,6 +760,62 @@ mod tests {
                 "{url}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn ipv6_literals_are_checked_without_a_lookup() {
+        let url = Url::parse("https://[2606:4700::1111]/a.pdf").expect("valid url");
+        let resolved = public_addresses(&url).await.expect("a public address");
+        assert_eq!(resolved.domain, None);
+        assert_eq!(
+            resolved.addrs,
+            [SocketAddr::new(
+                "2606:4700::1111".parse().expect("valid ip"),
+                443
+            )]
+        );
+        let private = Url::parse("http://[fd00::1]/").expect("valid url");
+        assert!(public_addresses(&private).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn reads_stay_in_the_folder() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let user = dir.path().join("abc");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(user.join("sub")).expect("create folder");
+        std::fs::create_dir_all(&outside).expect("create folder");
+        std::fs::write(user.join("sub/ok.txt"), "ok").expect("write");
+        std::fs::write(outside.join("secret.txt"), "secret").expect("write");
+        std::os::unix::fs::symlink(&outside, user.join("root")).expect("link");
+        std::os::unix::fs::symlink(user.join("sub/ok.txt"), user.join("link.txt")).expect("link");
+        let file = read_in(&user, "./sub/ok.txt").await.expect("read");
+        assert_eq!(
+            (file.name.as_str(), file.data.as_slice()),
+            ("ok.txt", &b"ok"[..])
+        );
+        for path in [
+            "root/secret.txt",
+            "link.txt",
+            "../outside/secret.txt",
+            "/etc/hosts",
+        ] {
+            assert!(read_in(&user, path).await.is_err(), "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_planted_partial_link_is_not_written_through() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let target = dir.path().join("target");
+        let partial = dir.path().join(".a.pdf.part");
+        std::fs::write(&target, "keep").expect("write");
+        std::os::unix::fs::symlink(&target, &partial).expect("link");
+        let mut file = create_fresh(&partial).await.expect("open");
+        file.write_all(b"new").await.expect("write");
+        file.flush().await.expect("flush");
+        assert_eq!(std::fs::read(&target).expect("read"), b"keep");
+        assert_eq!(std::fs::read(&partial).expect("read"), b"new");
     }
 
     #[test]

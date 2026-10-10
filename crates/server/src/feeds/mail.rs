@@ -34,6 +34,7 @@ use serde_json::{Value, json};
 use std::{
     collections::HashSet,
     fmt::{self, Write},
+    iter::once,
     slice,
     sync::{
         Arc,
@@ -522,10 +523,18 @@ pub(crate) async fn worth_reading(
     today: &str,
     email: &Email,
 ) -> Result<f64> {
-    let state = format!("Today: {today}\n{}", email.render(JEV_EMAIL_CHARS));
+    memory_probability(decision, &jev_state(today, email)).await
+}
+
+async fn memory_probability(decision: &DecisionTool, state: &str) -> Result<f64> {
     decision
-        .probability_with(&state, EMAIL_QUESTION, &EMAIL_CRITERIA)
+        .probability_with(state, EMAIL_QUESTION, &EMAIL_CRITERIA)
         .await
+}
+
+/// What Jev reads about `email`.
+fn jev_state(today: &str, email: &Email) -> String {
+    format!("Today: {today}\n{}", email.render(JEV_EMAIL_CHARS))
 }
 
 /// Passes `worth_reading`.
@@ -543,8 +552,8 @@ async fn score(
     digest: bool,
 ) -> (Email, Scores) {
     source.fill_body(&mut email).await;
-    let state = format!("Today: {today}\n{}", email.render(JEV_EMAIL_CHARS));
-    let memory = worth_reading(decision, today, &email);
+    let state = jev_state(today, &email);
+    let memory = memory_probability(decision, &state);
     let recent = Utc::now() - Days::days(ATTENTION_DAYS);
     let attention = async {
         if !digest || email.sent || email.received < recent {
@@ -621,10 +630,8 @@ fn parse_fastmail(value: &Value) -> Result<Page> {
             log::debug!("mail: Fastmail email without a usable date; id={id}");
             continue;
         };
-        let folders = std::iter::once(&result["folder"])
-            .chain(result["labels"].as_array().into_iter().flatten());
-        let sent = folders
-            .into_iter()
+        let sent = once(&result["folder"])
+            .chain(result["labels"].as_array().into_iter().flatten())
             .any(|folder| folder["role"].as_str() == Some("sent"));
         emails.push(Email {
             id: id.to_owned(),
@@ -757,7 +764,7 @@ fn timestamp(text: &str) -> Option<DateTime<Utc>> {
     }
 }
 
-fn text(value: &Value) -> String {
+pub(crate) fn text(value: &Value) -> String {
     value.as_str().unwrap_or_default().to_owned()
 }
 

@@ -179,29 +179,38 @@ impl Rules {
         )
     }
 
-    fn get(&self, app: &str) -> Rule {
-        self.0.get(app).cloned().unwrap_or_default()
+    /// The level of `app`.
+    fn level(&self, app: &str) -> PermissionLevel {
+        self.0
+            .get(app)
+            .map_or(Rule::default().level, |rule| rule.level)
+    }
+
+    /// Whether `tool` of `app` runs without asking under ask first.
+    fn allows(&self, app: &str, tool: &str) -> bool {
+        self.0
+            .get(app)
+            .is_some_and(|rule| rule.allowed.contains(tool))
     }
 
     /// Whether `app` may only read.
     pub(crate) fn read_only(&self, app: &str) -> bool {
-        self.get(app).level == PermissionLevel::ReadOnly {}
+        self.level(app) == PermissionLevel::ReadOnly {}
     }
 }
 
 /// What the phone shows for `app`.
 pub(crate) fn app_permissions(app: &CatalogApp, rules: &Rules) -> AppPermissions {
-    let rule = rules.get(app.slug);
     let actions = action_tools(app)
         .into_iter()
         .map(|tool| AppAction {
             label: capitalize(&action_name(app, &tool)),
-            allowed: rule.allowed.contains(&tool),
+            allowed: rules.allows(app.slug, &tool),
             tool,
         })
         .collect();
     AppPermissions {
-        level: rule.level,
+        level: rules.level(app.slug),
         actions,
     }
 }
@@ -263,16 +272,15 @@ pub(crate) fn guard(
             else {
                 return Some(tool);
             };
-            let read_only = shared.rules.get(app.slug).level == PermissionLevel::ReadOnly {};
-            if read_only && acts == Acts::Always {
+            let level = shared.rules.level(app.slug);
+            if level == (PermissionLevel::ReadOnly {}) && acts == Acts::Always {
                 return None;
             }
             let slug = ToolSlug::new(tool.name());
-            let rule = shared.rules.get(app.slug);
             // The model only drafts in a send tool when it knows the user sees the call first.
             let description = if acts == Acts::Always
-                && rule.level == (PermissionLevel::Ask {})
-                && !rule.allowed.contains(slug.as_str())
+                && level == (PermissionLevel::Ask {})
+                && !shared.rules.allows(app.slug, slug.as_str())
             {
                 format!("{} {ASKS_FIRST}", tool.description())
             } else {
@@ -496,7 +504,7 @@ pub(crate) async fn allow_always(user: &User, tool: &str) -> Result<()> {
         return Ok(());
     };
     let rules = user.app_rules().await?;
-    let mut rule = rules.get(app.slug);
+    let mut rule = rules.0.get(app.slug).cloned().unwrap_or_default();
     rule.allowed.insert(ToolSlug::new(tool).0);
     user.save_app_permissions(&row(app, rule.level, rule.allowed.into_iter().collect()))
         .await
@@ -523,17 +531,21 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
             if value.is_empty() || value == "[]" || value == "{}" {
                 return None;
             }
-            let mut value: String = value.chars().take(MAX_VALUE_CHARS).collect();
-            if value.chars().count() == MAX_VALUE_CHARS {
-                value.push_str("...");
-            }
             Some(ApprovalField {
                 label: capitalize(&key.replace('_', " ")),
-                value,
+                value: shorten(&value, MAX_VALUE_CHARS),
             })
         })
         .take(MAX_FIELDS)
         .collect()
+}
+
+/// `text` cut to `max` characters, with "..." when something was cut.
+fn shorten(text: &str, max: usize) -> String {
+    match text.char_indices().nth(max) {
+        Some((end, _)) => format!("{}...", &text[..end]),
+        None => text.to_owned(),
+    }
 }
 
 /// A recipient written as `{"name": "Jo", "email": "jo@example.com"}`, as
@@ -576,29 +588,25 @@ impl Tool for Guarded {
             return self.tool.execute(ctx).await;
         }
         let name = self.slug.as_str();
-        let rule = self.shared.rules.get(self.app.slug);
-        let app = self.app.name;
-        match rule.level {
+        let rules = &self.shared.rules;
+        match rules.level(self.app.slug) {
             PermissionLevel::Allow {} => self.tool.execute(ctx).await,
             PermissionLevel::ReadOnly {} => Ok(ToolResult::success(
                 ctx.tool_call_id,
                 format!(
-                    "Not done: the user set {app} to read only. Tell them, and that they \
-                     can change it under Apps in Beep's menu."
+                    "Not done: the user set {} to read only. Tell them, and that they \
+                     can change it under Apps in Beep's menu.",
+                    self.app.name
                 ),
             )),
             PermissionLevel::Ask {}
-                if rule.allowed.contains(name)
+                if rules.allows(self.app.slug, name)
                     || self.shared.approved.0.as_deref() == Some(ctx.tool_call_id) =>
             {
                 self.tool.execute(ctx).await
             }
             PermissionLevel::Ask {} => {
-                let approval = Approval {
-                    app: app.to_owned(),
-                    action: action_name(self.app, name),
-                    fields: fields(&ctx.args),
-                };
+                let approval = approval_for(self.app, name, &ctx.args);
                 Ok(ToolResult::interrupt(
                     ctx.tool_call_id,
                     Arc::new(ApprovalPayload { approval }),
@@ -687,12 +695,12 @@ fn describe_action(app: &CatalogApp, call: &ToolCall, conversation: &Conversatio
         .into_iter()
         .take(MAX_ACTION_FIELDS)
         .map(|field| {
-            let value: String = field.value.split_whitespace().collect::<Vec<_>>().join(" ");
-            let mut value: String = value.chars().take(MAX_ACTION_VALUE_CHARS).collect();
-            if value.chars().count() == MAX_ACTION_VALUE_CHARS {
-                value.push_str("...");
-            }
-            format!("{}: {value}", field.label)
+            let value = field.value.split_whitespace().collect::<Vec<_>>().join(" ");
+            format!(
+                "{}: {}",
+                field.label,
+                shorten(&value, MAX_ACTION_VALUE_CHARS)
+            )
         })
         .collect();
     if details.is_empty() {
@@ -938,6 +946,24 @@ mod tests {
             fields(&json!({"message_id": "AAMk", "ids": ["M1"], "emailId": "M2", "comment": "Hi"}));
         let labels: Vec<&str> = shown.iter().map(|field| field.label.as_str()).collect();
         assert_eq!(labels, ["Comment"]);
+    }
+
+    #[test]
+    fn values_at_the_limit_are_not_marked_cut() {
+        let exact = "a".repeat(MAX_VALUE_CHARS);
+        assert_eq!(fields(&json!({ "body": exact }))[0].value, exact);
+        let long = "é".repeat(MAX_VALUE_CHARS + 1);
+        let shown = &fields(&json!({ "body": long }))[0].value;
+        assert_eq!(shown.chars().count(), MAX_VALUE_CHARS + 3);
+        assert!(shown.ends_with("é..."));
+        let gmail = catalog_app("gmail").expect("gmail is in the catalog");
+        let call = ToolCall {
+            id: "send".into(),
+            name: "GMAIL_SEND_EMAIL".into(),
+            arguments: json!({ "subject": "s".repeat(MAX_ACTION_VALUE_CHARS) }),
+        };
+        let action = describe_action(gmail, &call, &Conversation::new());
+        assert!(!action.contains("..."), "{action}");
     }
 
     #[test]

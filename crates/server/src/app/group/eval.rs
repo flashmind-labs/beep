@@ -478,27 +478,37 @@ async fn group_eval() -> Result<()> {
         .collect()
         .await;
 
-    let mut wrong = 0;
+    // An error counts as a wrong judgement; a mention has no call to judge.
+    let (mut wrong, mut judged) = (0, 0);
     for (case, call, learn) in &results {
         let call = match call {
             Some(Ok(p)) => {
                 let ok = (*p >= CALL_THRESHOLD) == case.answer;
+                judged += 1;
                 wrong += usize::from(!ok);
                 format!("{}answer {p:.2}", if ok { " " } else { "!" })
             }
-            Some(Err(e)) => format!("!answer error {e:#}"),
+            Some(Err(e)) => {
+                judged += 1;
+                wrong += 1;
+                format!("!answer error {e:#}")
+            }
             None => " answer @beep".into(),
         };
+        judged += 1;
         let learn = match learn {
             Ok(p) => {
                 let ok = (*p >= MEMORY_THRESHOLD) == case.learn;
                 wrong += usize::from(!ok);
                 format!("{}learn {p:.2}", if ok { " " } else { "!" })
             }
-            Err(e) => format!("!learn error {e:#}"),
+            Err(e) => {
+                wrong += 1;
+                format!("!learn error {e:#}")
+            }
         };
         println!("{call:<16} {learn:<14} {}", case.name);
     }
-    println!("\n{wrong} wrong of {} judgements", results.len() * 2);
+    println!("\n{wrong} wrong of {judged} judgements");
     Ok(())
 }

@@ -209,9 +209,7 @@ fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String>
         .image
         .map(|i| i.trim().to_owned())
         .filter(|i| !i.is_empty());
-    let rating = requested
-        .rating
-        .filter(|r| r.is_finite() && (0.0..=5.0).contains(r));
+    let rating = requested.rating.filter(|r| (0.0..=5.0).contains(r));
     let note = requested
         .note
         .as_deref()

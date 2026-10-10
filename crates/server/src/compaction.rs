@@ -121,9 +121,8 @@ async fn compact(
     if summary.is_none() {
         // Nothing old enough to summarize. Saving still resets the token count,
         // so the session is not picked again until a new turn measures it.
-        store
-            .save_compacted(session, &before, &before.conversation)
-            .await?;
+        // Keeps whatever tool output was trimmed above.
+        store.save_compacted(session, &before, &context).await?;
         return Ok(false);
     }
     // A run that started meanwhile changed the context; the next idle sweep retries.
@@ -208,6 +207,10 @@ mod tests {
     }
 
     async fn save(store: &Store, name: &str, tokens: u32) -> SessionRef {
+        save_chat(store, name, &long_chat(), tokens).await
+    }
+
+    async fn save_chat(store: &Store, name: &str, chat: &Conversation, tokens: u32) -> SessionRef {
         let session = test_chat(name);
         let CreateRun::Created(run) = User::for_test(store.clone(), "alice")
             .create_run(session, &format!("req-{name}"), "hi")
@@ -216,10 +219,9 @@ mod tests {
         else {
             panic!("run was not created");
         };
-        let chat = long_chat();
-        let steps = test_steps(&chat);
+        let steps = test_steps(chat);
         let turn = FinishedTurn {
-            context: &chat,
+            context: chat,
             prompt_tokens: tokens,
             steps: &steps,
             carried: Default::default(),
@@ -319,6 +321,43 @@ mod tests {
             .await
             .unwrap();
         assert!(picked.is_empty());
+    }
+
+    #[tokio::test]
+    async fn trimmed_output_is_saved_when_there_is_nothing_to_summarize() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let model: Model = "openai:test".parse().unwrap();
+        let summarizer = Summarizer {
+            provider: &SummaryStub,
+            model: &model,
+        };
+        let mut chat = Conversation::with_system("system");
+        chat.add(ConversationEntry::user("Find the bank emails"));
+        chat.add(ConversationEntry::tool("old", "x".repeat(300_000)));
+        chat.add(ConversationEntry::tool("new", "y".repeat(70_000)));
+        let session = save_chat(&store, "one-message", &chat, 150_000).await;
+
+        // Still over half the limit once trimmed, and one user message
+        // leaves nothing to summarize.
+        assert!(
+            !compact(&store, &summarizer, &session, 40_000)
+                .await
+                .unwrap()
+        );
+
+        let context = User::for_test(store.clone(), &session.user)
+            .context(session.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let outputs: Vec<&str> = context
+            .conversation
+            .entries()
+            .iter()
+            .map(|entry| entry.content())
+            .collect();
+        assert!(outputs[2].starts_with("[293 KB of tool output dropped"));
     }
 
     #[tokio::test]

@@ -18,22 +18,19 @@ use flashmind::{
     llm::OpenRouterProvider,
     types::{AgentLlmConfig, Model},
 };
-use iroh::endpoint::presets;
-use iroh::protocol::Router;
+use iroh::{Endpoint, endpoint::presets, protocol::Router};
 use logforth::{
     append::{Stderr, file::FileBuilder},
     filter::rustlog::RustLogFilterBuilder,
 };
 use secrecy::SecretString;
-use std::{num::NonZeroUsize, path::Path, sync::Arc};
+use std::{env, fs, num::NonZeroUsize, path::Path, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "config.toml".into());
+    let config_path = env::args().nth(1).unwrap_or_else(|| "config.toml".into());
     let config: Config = toml::from_str(
-        &std::fs::read_to_string(&config_path).with_context(|| format!("reading {config_path}"))?,
+        &fs::read_to_string(&config_path).with_context(|| format!("reading {config_path}"))?,
     )?;
     start_logging(&config)?;
 
@@ -113,7 +110,7 @@ async fn main() -> Result<()> {
     beep_server::titles::start(app.clone());
     beep_server::memories::start_purge(app.clone());
     beep_server::store::start_pruning(app.store.clone());
-    let (cron_runner, _cron_registry) = beep_server::cron::start(app.clone(), &config.log_dir());
+    let cron_runner = beep_server::cron::start(app.clone(), &config.log_dir());
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {
             log::error!("cron runner failed: {e}");
@@ -121,7 +118,7 @@ async fn main() -> Result<()> {
     });
 
     let secret_key = config::load_secret_key(config.secret_key.as_deref())?;
-    let endpoint = iroh::Endpoint::builder(presets::N0)
+    let endpoint = Endpoint::builder(presets::N0)
         .secret_key(secret_key)
         .bind()
         .await?;

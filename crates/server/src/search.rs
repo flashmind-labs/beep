@@ -3,13 +3,73 @@ use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use futures::StreamExt;
+use reqwest::{Client, Response, Url, redirect::Policy};
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use std::time::Duration;
 
 pub struct SearchTool {
-    client: reqwest::Client,
-    key: String,
+    client: Client,
+    key: SecretString,
     endpoint: String,
+}
+
+/// A search as the model asked for it, checked.
+#[derive(Debug, PartialEq)]
+struct Query<'a> {
+    query: &'a str,
+    limit: u64,
+    location: Option<String>,
+    country: Option<String>,
+    images: bool,
+}
+
+/// Reads the tool's arguments. Models often send "" or null for an argument
+/// they mean to leave out, so blank means none.
+fn parse(args: &Value) -> Result<Query<'_>, &'static str> {
+    let query = args
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if query.is_empty() || query.len() > 1000 {
+        return Err("Search query must contain 1–1000 bytes.");
+    }
+    let limit = match args.get("limit") {
+        None | Some(Value::Null) => 3,
+        Some(value) => value
+            .as_u64()
+            .filter(|n| (1..=5).contains(n))
+            .ok_or("Search limit must be between 1 and 5.")?,
+    };
+    let location = match args.get("location") {
+        None | Some(Value::Null) => None,
+        Some(value) => value
+            .as_str()
+            .map(canonical_location)
+            .filter(|l| l.len() <= 200)
+            .ok_or("Search location must be a place name of at most 200 bytes.")
+            .map(|l| Some(l).filter(|l| !l.is_empty()))?,
+    };
+    let country = match args.get("country") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(c)) if c.trim().is_empty() => None,
+        Some(value) => Some(
+            value
+                .as_str()
+                .filter(|c| c.len() == 2 && c.bytes().all(|b| b.is_ascii_alphabetic()))
+                .map(str::to_ascii_uppercase)
+                .ok_or("Search country must be a two-letter ISO code.")?,
+        ),
+    };
+    let images = args.get("images").and_then(Value::as_bool).unwrap_or(false);
+    Ok(Query {
+        query,
+        limit,
+        location,
+        country,
+        images,
+    })
 }
 
 impl SearchTool {
@@ -19,53 +79,24 @@ impl SearchTool {
             "invalid Firecrawl key"
         );
         Ok(Self {
-            client: reqwest::Client::builder()
+            client: Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(45))
-                .redirect(reqwest::redirect::Policy::none())
+                .redirect(Policy::none())
                 .build()?,
-            key,
+            key: SecretString::from(key),
             endpoint: "https://api.firecrawl.dev/v2/search".into(),
         })
     }
 
     async fn search(&self, args: &Value) -> Result<Value, String> {
-        let query = args
-            .get("query")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim();
-        if query.is_empty() || query.len() > 1000 {
-            return Err("Search query must contain 1–1000 bytes.".into());
-        }
-        let limit = match args.get("limit") {
-            None => 3,
-            Some(value) => value
-                .as_u64()
-                .filter(|n| (1..=5).contains(n))
-                .ok_or("Search limit must be between 1 and 5.")?,
-        };
-        // Models often send "" for "no location", so blank means none.
-        let location = match args.get("location") {
-            None | Some(Value::Null) => None,
-            Some(value) => value
-                .as_str()
-                .map(canonical_location)
-                .filter(|l| l.len() <= 200)
-                .ok_or("Search location must be a place name of at most 200 bytes.")
-                .map(|l| Some(l).filter(|l| !l.is_empty()))?,
-        };
-        let country = match args.get("country") {
-            None | Some(Value::Null) => None,
-            Some(value) => Some(
-                value
-                    .as_str()
-                    .filter(|c| c.len() == 2 && c.bytes().all(|b| b.is_ascii_alphabetic()))
-                    .map(str::to_ascii_uppercase)
-                    .ok_or("Search country must be a two-letter ISO code.")?,
-            ),
-        };
-        let images = args.get("images").and_then(Value::as_bool).unwrap_or(false);
+        let Query {
+            query,
+            limit,
+            location,
+            country,
+            images,
+        } = parse(args)?;
         let sources = if images {
             json!(["web", "images"])
         } else {
@@ -108,10 +139,10 @@ impl SearchTool {
         normalize(&data, limit as usize)
     }
 
-    async fn send(&self, request: &Value) -> Result<reqwest::Response, String> {
+    async fn send(&self, request: &Value) -> Result<Response, String> {
         self.client
             .post(&self.endpoint)
-            .bearer_auth(&self.key)
+            .bearer_auth(self.key.expose_secret())
             .json(request)
             .send()
             .await
@@ -133,7 +164,7 @@ fn canonical_location(location: &str) -> String {
 /// An http(s) URL with a host, short enough to pass on.
 fn safe_url(url: &str) -> bool {
     url.len() <= 2048
-        && reqwest::Url::parse(url).is_ok_and(|parsed| {
+        && Url::parse(url).is_ok_and(|parsed| {
             matches!(parsed.scheme(), "https" | "http") && parsed.host_str().is_some()
         })
 }
@@ -251,6 +282,24 @@ mod tests {
                 .unwrap_err()
                 .contains("secret")
         );
+    }
+
+    #[test]
+    fn null_and_blank_arguments_are_left_out() {
+        let args = json!({"query":"hello","limit":null,"country":" ","location":""});
+        let query = parse(&args).expect("valid arguments");
+        assert_eq!(
+            query,
+            Query {
+                query: "hello",
+                limit: 3,
+                location: None,
+                country: None,
+                images: false,
+            }
+        );
+        assert!(parse(&json!({"query":"hello","country":"JPN"})).is_err());
+        assert!(parse(&json!({"query":"hello","limit":0})).is_err());
     }
 
     #[tokio::test]
