@@ -53,8 +53,25 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// The body as a request the server got. A body that does not decode is
+    /// the client's fault, so it becomes `BadRequest`.
     pub fn decode<T: DeserializeOwned>(&self) -> Result<T, ApiError> {
         rmp_serde::from_slice(&self.body).map_err(|e| ApiError::bad_request(e.to_string()))
+    }
+
+    /// The body as a reply frame. A body that does not decode is a transport
+    /// fault, not an `ApiError`, so callers do not mistake it for the server
+    /// refusing the request.
+    fn decode_reply<T: DeserializeOwned>(&self) -> Result<T> {
+        rmp_serde::from_slice(&self.body).context("could not read the server's reply")
+    }
+
+    fn into_reply<T: DeserializeOwned>(self) -> Result<T> {
+        match self.tag {
+            OK => self.decode_reply(),
+            ERR => Err(self.decode_reply::<ApiError>()?.into()),
+            tag => bail!("unknown reply tag {tag}"),
+        }
     }
 }
 
@@ -104,10 +121,38 @@ impl Rx {
         let Some(frame) = self.frame().await? else {
             return Ok(None);
         };
-        match frame.tag {
-            OK => Ok(Some(frame.decode()?)),
-            ERR => Err(frame.decode::<ApiError>()?.into()),
-            tag => bail!("unknown reply tag {tag}"),
+        frame.into_reply().map(Some)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(tag: u8, body: &[u8]) -> Frame {
+        Frame {
+            tag,
+            body: Bytes::copy_from_slice(body),
         }
+    }
+
+    #[test]
+    fn a_reply_that_does_not_decode_is_no_api_error() {
+        let error = frame(OK, &[0xc1]).into_reply::<u64>().unwrap_err();
+        assert!(error.downcast_ref::<ApiError>().is_none(), "{error:#}");
+        let error = frame(ERR, &[0xc1]).into_reply::<u64>().unwrap_err();
+        assert!(error.downcast_ref::<ApiError>().is_none(), "{error:#}");
+    }
+
+    #[test]
+    fn an_error_frame_is_an_api_error() {
+        let body = rmp_serde::to_vec(&ApiError::NotFound {}).unwrap();
+        let error = frame(ERR, &body).into_reply::<u64>().unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ApiError>(),
+            Some(ApiError::NotFound {})
+        ));
+        let body = rmp_serde::to_vec(&7u64).unwrap();
+        assert_eq!(frame(OK, &body).into_reply::<u64>().unwrap(), 7);
     }
 }

@@ -16,6 +16,8 @@ use ed25519_dalek::{SigningKey, VerifyingKey};
 use iroh::{EndpointId, SecretKey};
 
 const POINT_LEN: usize = 32;
+/// The Poly1305 tag every sealed notice ends with.
+const TAG_LEN: usize = 16;
 const KEY_CONTEXT: &str = "beep 2026-10-07 sealed push notice";
 
 /// The encryption key for one seal. Each seal has a fresh one-off key, so
@@ -26,11 +28,11 @@ fn cipher(
     to: &MontgomeryPoint,
 ) -> Result<ChaCha20Poly1305> {
     // A low-order point gives an all-zero secret anyone could compute.
-    anyhow::ensure!(shared.as_bytes() != &[0; 32], "not a usable key");
+    anyhow::ensure!(shared.as_bytes() != &[0; POINT_LEN], "not a usable key");
     let mut input = [0; 3 * POINT_LEN];
-    input[..32].copy_from_slice(shared.as_bytes());
-    input[32..64].copy_from_slice(one_off.as_bytes());
-    input[64..].copy_from_slice(to.as_bytes());
+    input[..POINT_LEN].copy_from_slice(shared.as_bytes());
+    input[POINT_LEN..2 * POINT_LEN].copy_from_slice(one_off.as_bytes());
+    input[2 * POINT_LEN..].copy_from_slice(to.as_bytes());
     let key = blake3::derive_key(KEY_CONTEXT, &input);
     Ok(ChaCha20Poly1305::new(Key::from_slice(&key)))
 }
@@ -56,7 +58,10 @@ pub fn open(identity: &SecretKey, sealed: &str) -> Result<Notice> {
     let data = STANDARD
         .decode(sealed)
         .context("a sealed notice is base64")?;
-    anyhow::ensure!(data.len() > POINT_LEN, "a sealed notice is too short");
+    anyhow::ensure!(
+        data.len() >= POINT_LEN + TAG_LEN,
+        "a sealed notice is too short"
+    );
     let (one_off, sealed) = data.split_at(POINT_LEN);
     let one_off = MontgomeryPoint(one_off.try_into()?);
     let signing = SigningKey::from_bytes(&identity.to_bytes());
@@ -95,6 +100,8 @@ mod tests {
         let sealed = seal(&phone.public(), &notice()).unwrap();
         assert_eq!(open(&phone, &sealed).unwrap(), notice());
         assert!(open(&other, &sealed).is_err());
+        let short = STANDARD.encode([9; POINT_LEN + TAG_LEN - 1]);
+        assert!(format!("{:#}", open(&phone, &short).unwrap_err()).contains("too short"));
         // A fresh one-off key each time.
         assert_ne!(seal(&phone.public(), &notice()).unwrap(), sealed);
     }
