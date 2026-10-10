@@ -3,11 +3,16 @@
 use crate::{
     api,
     app::App,
+    protocol::{
+        ClientInfo, Hello, Rpc,
+        wire::{Frame, Tx, framed},
+    },
     push::{CLOSE_REVOKED, Pusher},
-    router::{Cx, Router},
+    router::{Cx, Router, read_request},
 };
+use anyhow::Result;
 use iroh::{
-    endpoint::{Connection, VarInt},
+    endpoint::{Connection, RecvStream, SendStream, VarInt},
     protocol::{AcceptError, ProtocolHandler},
 };
 use std::{fmt, sync::Arc, time::Duration};
@@ -58,6 +63,29 @@ impl ProtocolHandler for BeepHandler {
             }
         };
         self.pusher.connected(connection.clone());
+        // The first stream is the client's `Hello`, or a request from an app
+        // that predates it.
+        let Ok((send, recv)) = connection.accept_bi().await else {
+            return Ok(());
+        };
+        let opening = match open(send, recv).await {
+            Ok(opening) => opening,
+            Err(e) => {
+                log::debug!("connection opened badly: {e:#}");
+                return Ok(());
+            }
+        };
+        let (client, first) = match opening {
+            Opening::Hello(client) => (client, None),
+            Opening::Request { frame, tx } => (ClientInfo::LEGACY, Some((frame, tx))),
+        };
+        log::debug!(
+            "client connected; user={} wire={} platform={:?} version={:?}",
+            signed_in.user.id(),
+            client.wire,
+            client.platform,
+            client.version
+        );
         let cx = Cx {
             app: self.app.clone(),
             user: signed_in.user,
@@ -65,8 +93,22 @@ impl ProtocolHandler for BeepHandler {
             primary: signed_in.primary,
             connection: connection.clone(),
             pusher: self.pusher.clone(),
+            client: Arc::new(client),
         };
         let streams = Arc::new(Semaphore::new(MAX_STREAMS));
+        if let Some((frame, tx)) = first {
+            let Ok(permit) = streams.clone().acquire_owned().await else {
+                return Ok(());
+            };
+            let router = self.router.clone();
+            let cx = cx.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                if let Err(e) = router.dispatch(cx, frame, tx).await {
+                    log::debug!("stream ended: {e:#}");
+                }
+            });
+        }
         while let Ok((send, recv)) = connection.accept_bi().await {
             let Ok(permit) = streams.clone().acquire_owned().await else {
                 break;
@@ -81,5 +123,36 @@ impl ProtocolHandler for BeepHandler {
             });
         }
         Ok(())
+    }
+}
+
+/// How a connection's first stream opened.
+enum Opening {
+    Hello(ClientInfo),
+    /// An app from before `Hello`, starting with a request.
+    Request {
+        frame: Frame,
+        tx: Tx,
+    },
+}
+
+/// Reads the first stream, answering a `Hello` on it.
+async fn open(send: SendStream, recv: RecvStream) -> Result<Opening> {
+    let (mut tx, mut rx) = framed(send, recv);
+    let frame = read_request(&mut rx).await?;
+    if frame.tag != Hello::OP as u8 {
+        return Ok(Opening::Request { frame, tx });
+    }
+    match frame.decode::<Hello>() {
+        Ok(hello) => {
+            tx.ok(&()).await?;
+            tx.finish()?;
+            Ok(Opening::Hello(hello.into()))
+        }
+        Err(e) => {
+            tx.err(&e).await?;
+            tx.finish()?;
+            Ok(Opening::Hello(ClientInfo::LEGACY))
+        }
     }
 }

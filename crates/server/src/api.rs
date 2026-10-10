@@ -38,6 +38,7 @@ const EVENTS_WINDOW: Duration = Duration::from_secs(30);
 
 pub fn router() -> Router {
     Router::default()
+        .call(hello)
         .call(health)
         .stream(chat)
         .call(get_run)
@@ -111,6 +112,12 @@ pub fn router() -> Router {
 }
 
 type Reply<T> = Result<T, ApiError>;
+
+/// The transport reads the `Hello` that opens a connection; a later one
+/// changes nothing.
+async fn hello(_: Cx, _: Hello) -> Reply<()> {
+    Ok(())
+}
 
 async fn health(_: Cx, _: Health) -> Reply<()> {
     Ok(())

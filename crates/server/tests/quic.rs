@@ -7,8 +7,9 @@ use beep_server::{
         ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace, DeviceKind, Event,
         ExistingSessions, GetEvents, GetRun, GetSession, Health, HistoryEntry, LinkDevice,
         ListApps, ListCrons, ListDevices, ListPlaces, ListSessions, MemorySource, Notice,
-        RemoveDevice, RunEvent, StartAppAuth, SuggestPrompts, UpdateLocation, UpdatePlace,
+        RemoveDevice, RunEvent, Session, StartAppAuth, SuggestPrompts, UpdateLocation, UpdatePlace,
         link::{LinkOffer, OFFER_TTL},
+        wire::framed,
     },
     push::Pusher,
     starters,
@@ -904,4 +905,32 @@ async fn a_linked_computer_shares_the_account_until_removed() {
     assert_eq!(phone.call(&ListDevices {}).await.unwrap().len(), 1);
     let again = desk_node.connect().await.unwrap();
     assert!(again.call(&Health {}).await.is_err());
+}
+
+#[tokio::test]
+async fn a_phone_from_before_hello_is_still_served() {
+    let h = Harness::new().await;
+    let endpoint = iroh::Endpoint::builder(presets::N0)
+        .secret_key(alice())
+        .bind()
+        .await
+        .unwrap();
+    let connection = endpoint
+        .connect(h.router.endpoint().addr(), transport::ALPN)
+        .await
+        .unwrap();
+    // A released app opens straight with a request: the server must take it
+    // as one, not as a malformed Hello.
+    for _ in 0..2 {
+        let (send, recv) = connection.open_bi().await.unwrap();
+        let (mut tx, mut rx) = framed(send, recv);
+        tx.request(&ListSessions {}).await.unwrap();
+        tx.finish().unwrap();
+        let sessions = timeout(Duration::from_secs(10), rx.reply::<Vec<Session>>())
+            .await
+            .expect("the server answers")
+            .unwrap()
+            .expect("a reply frame");
+        assert!(sessions.is_empty());
+    }
 }

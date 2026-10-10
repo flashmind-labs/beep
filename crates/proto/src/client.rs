@@ -1,5 +1,5 @@
 use crate::{
-    Call, Notice, Rpc, Stream,
+    Call, Hello, Notice, Platform, Rpc, Stream, WIRE,
     wire::{ALPN, PUSH_ALPN, Rx, framed},
 };
 use anyhow::{Context, Result};
@@ -42,6 +42,8 @@ pub struct Node {
     server: EndpointAddr,
     on_notice: OnNotice,
     idle: Duration,
+    /// Opens every connection, telling the server what this app reads.
+    hello: Hello,
     /// Dropped with the node, which stops the accept loop and closes the
     /// endpoint, so a replaced node stops pinging its relay.
     _stop: oneshot::Sender<()>,
@@ -81,6 +83,11 @@ impl Node {
             server,
             on_notice,
             idle: IDLE_TIMEOUT,
+            hello: Hello {
+                wire: WIRE,
+                platform: None,
+                version: None,
+            },
             _stop: stop,
         })
     }
@@ -88,6 +95,14 @@ impl Node {
     /// Sets how long an idle connection stays open; tests shorten it.
     pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
         self.idle = idle;
+        self
+    }
+
+    /// Names the app in each connection's `Hello`: which one it is and its
+    /// own version, such as "0.1.0 (142)".
+    pub fn with_app(mut self, platform: Platform, version: impl Into<String>) -> Self {
+        self.hello.platform = Some(platform);
+        self.hello.version = Some(version.into());
         self
     }
 
@@ -106,6 +121,17 @@ impl Node {
         let connection = timeout(CONNECT_TIMEOUT, connect)
             .await
             .context("connect timed out")??;
+        // The first stream, so the server reads it before any request. Its
+        // reply is not waited for: requests may follow at once.
+        let (send, recv) = connection.open_bi().await?;
+        let (mut tx, mut rx) = framed(send, recv);
+        tx.request(&self.hello).await?;
+        tx.finish()?;
+        tokio::spawn(async move {
+            if let Err(e) = rx.reply::<()>().await {
+                log::debug!("hello failed: {e:#}");
+            }
+        });
         let activity = Arc::new(Activity::new());
         tokio::spawn(close_when_idle(
             connection.clone(),

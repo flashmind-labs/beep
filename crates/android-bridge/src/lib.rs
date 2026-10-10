@@ -236,6 +236,8 @@ pub struct BeepClient {
     listener: Listener,
     node: OnceCell<Node>,
     client: AsyncMutex<Option<Arc<Client>>>,
+    /// The app's own version, sent to the server on connect.
+    app_version: String,
 }
 
 impl BeepClient {
@@ -252,7 +254,8 @@ impl BeepClient {
                     listener.is_some_and(|l| l.on_notice(notice))
                 });
                 let bind = Node::bind(self.identity.clone(), self.server, on_notice);
-                timed(CONNECT_TIMEOUT, "bind", bind).await
+                let node = timed(CONNECT_TIMEOUT, "bind", bind).await?;
+                Ok(node.with_app(PLATFORM, self.app_version.clone()))
             })
             .await
     }
@@ -282,9 +285,14 @@ impl BeepClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl BeepClient {
     /// `node_id` is the server's iroh public key. `identity` is this user's
-    /// 32 byte iroh secret key; see `new_identity`.
+    /// 32 byte iroh secret key; see `new_identity`. `app_version` is the
+    /// app's own version, such as "0.1.0 (142)", which the server logs.
     #[uniffi::constructor]
-    pub fn new(node_id: String, identity: Vec<u8>) -> Result<Arc<Self>, BeepError> {
+    pub fn new(
+        node_id: String,
+        identity: Vec<u8>,
+        app_version: String,
+    ) -> Result<Arc<Self>, BeepError> {
         let server: EndpointId = node_id
             .trim()
             .parse()
@@ -295,6 +303,7 @@ impl BeepClient {
             listener: Arc::default(),
             node: OnceCell::new(),
             client: AsyncMutex::new(None),
+            app_version,
         }))
     }
 
