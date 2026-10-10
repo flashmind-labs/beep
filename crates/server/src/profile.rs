@@ -1251,9 +1251,15 @@ fn pack(texts: &[String], chars: usize) -> Vec<String> {
 }
 
 fn parse_notes(answer: &str) -> Result<Vec<ProfileNote>> {
-    let notes: Notes = serde_json::from_str(unfence(answer)).context("notes are not JSON")?;
+    let answer = unfence(answer);
+    let notes = match serde_json::from_str::<Notes>(answer) {
+        Ok(notes) => notes.notes,
+        Err(error) => match complete_notes(answer) {
+            Some(notes) if !notes.is_empty() => notes,
+            _ => return Err(error).context("notes are not JSON"),
+        },
+    };
     Ok(notes
-        .notes
         .into_iter()
         .filter(|note| !note.note.trim().is_empty())
         .map(|note| ProfileNote {
@@ -1261,6 +1267,29 @@ fn parse_notes(answer: &str) -> Result<Vec<ProfileNote>> {
             text: clip(note.note.trim(), 500),
         })
         .collect())
+}
+
+/// The notes that arrived whole when the answer was cut off partway.
+fn complete_notes(answer: &str) -> Option<Vec<RawNote>> {
+    let start = answer.find("\"notes\"")?;
+    let mut rest = &answer[start..];
+    rest = &rest[rest.find('[')? + 1..];
+    let mut notes = Vec::new();
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
+        if !rest.starts_with('{') {
+            break;
+        }
+        let mut values = serde_json::Deserializer::from_str(rest).into_iter::<RawNote>();
+        match values.next() {
+            Some(Ok(note)) => {
+                notes.push(note);
+                rest = &rest[values.byte_offset()..];
+            }
+            _ => break,
+        }
+    }
+    Some(notes)
 }
 
 fn parse_day(text: &str) -> Option<NaiveDate> {
@@ -1471,6 +1500,17 @@ mod tests {
         .unwrap();
         assert_eq!(notes[0].date, NaiveDate::from_ymd_opt(2024, 5, 1));
         assert_eq!(notes[1].date, None);
+    }
+
+    #[test]
+    fn a_cut_off_answer_keeps_its_whole_notes() {
+        let notes = parse_notes(
+            "{\"notes\": [{\"note\": \"Flew to Tokyo.\"}, {\"note\": \"Speaks Spanish.\"}, {\"date\": \"2024-",
+        )
+        .unwrap();
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[1].text, "Speaks Spanish.");
+        assert!(parse_notes("{\"notes\": [{\"note\": \"Fle").is_err());
     }
 
     #[test]
