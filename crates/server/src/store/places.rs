@@ -280,6 +280,35 @@ impl Store {
         Ok(crossed)
     }
 
+    /// Records that the phone's own geofencing saw it arrive at or leave
+    /// place `id` at `at`. Returns the crossing when it changed where the
+    /// phone was, `None` when it was already known or there is no such place.
+    pub(crate) async fn cross_place(
+        &self,
+        user: &UserKey,
+        id: Uuid,
+        event: PlaceEvent,
+        at: DateTime<Utc>,
+    ) -> Result<Option<Crossed>> {
+        let inside = event == PlaceEvent::Arrive;
+        let changed = sqlx::query(
+            "UPDATE places SET inside=$3, last_here_at=$4
+             WHERE user_id=$1 AND id=$2 AND inside<>$3",
+        )
+        .bind(user.as_str())
+        .bind(id.to_string())
+        .bind(inside)
+        .bind(at)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if changed == 0 {
+            return Ok(None);
+        }
+        let place = self.place(user, id).await?;
+        Ok(place.map(|place| Crossed { place, event }))
+    }
+
     /// The enabled routines that start on `event` at place `place`.
     pub(crate) async fn place_routines(
         &self,
@@ -520,6 +549,47 @@ mod tests {
         let left = store.place(&alice, place.id).await.unwrap().unwrap();
         assert!(!left.inside);
         assert!(left.last_here_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn the_phone_crosses_a_place_once_each_way() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let bob = UserKey::for_test("bob");
+        let place = store.save_place(&alice, &gym()).await.unwrap();
+        let now = Utc::now();
+
+        let cross = async |user: &UserKey, event| {
+            (store.cross_place(user, place.id, event, now).await.unwrap())
+                .map(|crossed| (crossed.place.id, crossed.event))
+        };
+        assert_eq!(cross(&bob, PlaceEvent::Arrive).await, None, "not bob's");
+        assert_eq!(
+            cross(&alice, PlaceEvent::Arrive).await,
+            Some((place.id, PlaceEvent::Arrive))
+        );
+        assert_eq!(cross(&alice, PlaceEvent::Arrive).await, None, "once");
+        // A fix that agrees changes nothing.
+        assert!(
+            store
+                .cross_places(&alice, &north(10.0))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            cross(&alice, PlaceEvent::Leave).await,
+            Some((place.id, PlaceEvent::Leave))
+        );
+        let left = store.place(&alice, place.id).await.unwrap().unwrap();
+        assert!(!left.inside);
+        assert!(left.last_here_at.is_some());
+        let missing = store
+            .cross_place(&alice, Uuid::new_v4(), PlaceEvent::Arrive, now)
+            .await
+            .unwrap();
+        assert!(missing.is_none());
     }
 
     #[tokio::test]

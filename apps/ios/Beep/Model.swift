@@ -9,8 +9,16 @@ struct ToolCall: Identifiable, Equatable {
     var name: String
     var done = false
     var success = true
+    /// The result, cut to 16 KiB by the server; cards like a saved place read it.
+    var output = ""
 
     var label: String { toolLabel(name) }
+
+    /// The place a `place_save` call saved, for its card.
+    var savedPlace: SavedPlace? {
+        guard name == "place_save", done, success else { return nil }
+        return SavedPlace(toolOutput: output)
+    }
 }
 
 /// An approval card: a call that waits for the user.
@@ -77,9 +85,10 @@ final class AppModel {
     var pendingMention: String?
     /// The last line of each chat for the list, cached by the chat's update time.
     private(set) var previews: [String: ChatPreview] = ChatPreview.load()
-    /// Saved places, from the server once it can list them.
+    /// Saved places, from the server.
     private(set) var places: [SavedPlace] = []
-    var placesStore: any PlacesStore = PendingPlaces()
+    /// The server's places; `-places sample` swaps in made up ones.
+    @ObservationIgnored lazy var placesStore: any PlacesStore = ServerPlaces { [unowned self] in try self.api() }
     private(set) var starters: [PromptSuggestion] = []
     private(set) var models: Models?
 
@@ -99,6 +108,7 @@ final class AppModel {
         accountName = Identity.name(key)
         onboarded = UserDefaults.standard.bool(forKey: "onboarded")
         location.onUpdate = { [weak self] fix in self?.sendLocation(fix) }
+        location.onCross = { [weak self] id, crossing in self?.crossPlace(id, crossing) }
         notifier.model = self
         pathMonitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
@@ -241,7 +251,7 @@ final class AppModel {
                 pendingReasoning = ""
                 messages.append(Message(id: mid, role: .scheduled, text: label))
             case .assistant(let content, _, let tools, _, let reasoning, _):
-                let calls = pendingTools + tools.map { ToolCall(id: $0.callId, name: $0.name, done: true, success: $0.success) }
+                let calls = pendingTools + tools.map { ToolCall(id: $0.callId, name: $0.name, done: true, success: $0.success, output: $0.output) }
                 let thought = [pendingReasoning, reasoning].filter { !$0.isEmpty }.joined(separator: "\n\n")
                 if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     pendingTools = calls
@@ -530,11 +540,12 @@ final class AppModel {
                     reply.tools.append(ToolCall(id: callId.isEmpty ? UUID().uuidString : callId, name: name))
                 }
             }
-        case .toolResult(_, let callId, _, let success):
+        case .toolResult(_, let callId, let output, let success):
             updateReply(mid) { reply in
                 guard let index = reply.tools.firstIndex(where: { callId.isEmpty ? !$0.done : $0.id == callId }) else { return }
                 reply.tools[index].done = true
                 reply.tools[index].success = success
+                reply.tools[index].output = output
             }
         case .deviceQuery(let queryId, let query):
             if case .approve(let approval) = query {
@@ -637,6 +648,7 @@ final class AppModel {
         Task {
             if notice.group { await refreshGroups() } else { await refreshSessions() }
             if !notice.group, notice.sessionId == chat.id, !chat.busy { await loadHistory() }
+            if !notice.group, notice.sessionId.isEmpty { await refreshPlaces() }
         }
     }
 
@@ -656,8 +668,22 @@ final class AppModel {
 
     func updatePlace(_ id: String, name: String?, radius: Int?) async throws {
         let place = try await placesStore.update(id: id, name: name, radius: radius)
-        if let index = places.firstIndex(where: { $0.id == id }) { places[index] = place }
+        if let index = places.firstIndex(where: { $0.id == id }) { places[index] = place } else { places.append(place) }
         location.watch(places)
+    }
+
+    /// Tells the server the phone crossed a saved place's edge. iOS may have just
+    /// launched the app in the background for this, so it connects first and asks
+    /// for time to finish.
+    private func crossPlace(_ id: String, _ crossing: PlaceCrossing) {
+        let background = UIApplication.shared.beginBackgroundTask(withName: "place crossing")
+        Task {
+            defer { UIApplication.shared.endBackgroundTask(background) }
+            if !connected, connectTask == nil { connect() }
+            let deadline = Date.now.addingTimeInterval(20)
+            while !connected, Date.now < deadline { try? await Task.sleep(for: .milliseconds(250)) }
+            if (try? await api().crossPlace(id: id, crossing: crossing)) == true { await refreshPlaces() }
+        }
     }
 
     // MARK: Account
@@ -756,6 +782,8 @@ struct ChatPreview: Codable {
 enum Destination: Equatable {
     case chat(String)
     case group(String)
+    /// The new routine sheet, set to arriving at this place.
+    case placeRoutine(String)
 }
 
 func nowMillis() -> Int64 { Int64(Date.now.timeIntervalSince1970 * 1000) }

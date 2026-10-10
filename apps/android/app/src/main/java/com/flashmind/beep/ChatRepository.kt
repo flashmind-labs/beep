@@ -40,6 +40,7 @@ import com.flashmind.beep.proto.GroupReminder
 import com.flashmind.beep.proto.HistoryEntry
 import com.flashmind.beep.proto.MemorySource
 import com.flashmind.beep.proto.Cron as ProtoCron
+import com.flashmind.beep.proto.PlaceCrossing
 import com.flashmind.beep.proto.Memory as ProtoMemory
 import com.flashmind.beep.proto.PromptSuggestion
 import com.flashmind.beep.proto.RunEvent
@@ -365,6 +366,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     pushChanges()
                     runCatching { syncHistory(settings.value) }
                     refreshGroups()
+                    syncPlaces()
                     return@launch
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
@@ -707,6 +709,7 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     suspend fun createCron(label: String, prompt: String, schedule: String) {
         api().createCron(label, prompt, schedule)
+        if (placeSchedule(schedule) != null) placeRoutineMade()
     }
     suspend fun deleteCron(id: String) {
         api().deleteCron(id)
@@ -716,6 +719,37 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun toggleCron(id: String, enabled: Boolean) {
         api().updateCron(id, enabled, null, null)
     }
+
+    /** Set when a place routine was made while the phone can't watch places with the app closed; the app then asks once. */
+    val askLocationAlways = MutableStateFlow(false)
+    private fun placeRoutineMade() {
+        val prefs = storage.context.getSharedPreferences("connection", android.content.Context.MODE_PRIVATE)
+        if (locationAlways(storage.context) || prefs.getBoolean("asked_location_always", false)) return
+        prefs.edit().putBoolean("asked_location_always", true).apply()
+        askLocationAlways.value = true
+    }
+
+    /** The saved places. Fetching them also brings the phone's geofences up to date. */
+    suspend fun listPlaces(): List<Place> {
+        val fresh = api().listPlaces()
+        Geofences.sync(storage.context, fresh)
+        return fresh.map(::appPlace)
+    }
+    /** Fetches the places only to update the geofences; failures wait for the next time. */
+    suspend fun syncPlaces() { runCatching { listPlaces() } }
+    suspend fun deletePlace(id: String) {
+        api().deletePlace(id)
+        syncPlaces()
+    }
+    suspend fun renamePlace(id: String, name: String) {
+        api().updatePlace(id, name, null)
+    }
+    suspend fun setPlaceRadius(id: String, meters: Int) {
+        api().updatePlace(id, null, meters.toUInt())
+        syncPlaces()
+    }
+    /** Reports a geofence crossing; true when it changed where the server had the phone. */
+    suspend fun crossPlace(id: String, crossing: PlaceCrossing): Boolean = api().crossPlace(id, crossing)
 
     /** The apps last fetched, null if never. */
     fun cachedApps(): List<AppIntegration>? = lists.apps
@@ -1245,6 +1279,11 @@ class ChatRepository(private val storage: LocalStorage) {
                         next = next.copy(messages = next.messages.map { if (it.id == messageId) curMsg.copy(toolCalls = updated) else it })
                     }
                     next = next.copy(tool = if (toolSuccess) "Done" else "Tool didn’t complete")
+                    val toolName = curMsg?.toolCalls?.find { callId.isNotEmpty() && it.callId == callId }?.name
+                    if (toolSuccess && toolName != null && toolName.startsWith("place_")) scope.launch {
+                        syncPlaces()
+                        if (toolName == "place_routine" && runCatching { JSONObject(output).optBoolean("created") }.getOrDefault(false)) placeRoutineMade()
+                    }
                     if (output.contains("\"action\"") || output.contains("\"type\"")) {
                         try {
                             val outputJson = JSONObject(output)

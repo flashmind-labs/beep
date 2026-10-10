@@ -2,14 +2,27 @@ import SwiftUI
 
 @main
 struct BeepApp: App {
-    @State private var model = AppModel()
+    @UIApplicationDelegateAdaptor private var delegate: AppDelegate
 
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(model)
-                .task { model.connect() }
+                .environment(delegate.model)
+                .task { delegate.model.connect() }
         }
+    }
+}
+
+/// Owns the model so its location manager exists as soon as iOS starts the app,
+/// also in the background for a saved place's region event, when no window shows.
+@MainActor
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    let model = AppModel()
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        if options?[.location] != nil { model.connect() }
+        return true
     }
 }
 
@@ -145,6 +158,8 @@ struct RootView: View {
             path = [.chat]
         case .group(let id):
             openGroup(id)
+        case .placeRoutine(let id):
+            path.append(.placeRoutine(id))
         }
     }
 
@@ -152,8 +167,8 @@ struct RootView: View {
     /// Lets the simulator be driven without taps: `-open chat|settings|memories|routines|places`
     /// opens a screen and `-send "text"` sends a message once connected. The list shows without
     /// `-open`. `group`, `groupinfo` and `invite` open the first group, `photos` the photo sheet in a
-    /// new chat, `start`, `newgroup` and `joingroup` the sheets, `locationalways` the location ask. `-places sample` fills the
-    /// places with made up ones until the server lists them.
+    /// new chat, `start`, `newgroup` and `joingroup` the sheets, `locationalways` the location ask. `-places sample` swaps the
+    /// server's places for made up ones, and `placesave` shows a chat with a saved place card.
     /// `-creategroup "name"` makes a group and `-leavegroup 1` leaves the first one.
     private func debugLaunch() async {
         let defaults = UserDefaults.standard
@@ -175,6 +190,9 @@ struct RootView: View {
         case "products":
             openChat(nil)
             model.chat.messages = sampleProducts
+        case "placesave":
+            openChat(nil)
+            model.chat.messages = samplePlaceSave
         case "settings": path = [.settings]
         case "memories": path = [.memories]
         case "routines": path = [.routines]
@@ -223,6 +241,18 @@ private let sampleProducts: [Message] = {
         Message(id: "u", role: .user, text: "Find me a stick vacuum under 200 euros"),
         Message(id: "a", role: .assistant, text: reply),
     ]
+}()
+#endif
+
+#if DEBUG
+/// A made up "I'm at the gym" reply for `-open placesave`, to check the place card.
+private let samplePlaceSave: [Message] = {
+    let output = #"{"saved": true, "moved": false, "place": {"id": "gym", "name": "Gym", "address": "40 Sample Road", "radius_m": 100, "latitude": 41.399, "longitude": 2.197, "here_now": true, "last_here_at": null, "routines": 0}}"#
+    var reply = Message(id: "a", role: .assistant,
+                        text: "Saved this spot as **Gym**. I'll notice when you get here or leave.")
+    reply.tools = [ToolCall(id: "l", name: "get_location", done: true),
+                   ToolCall(id: "p", name: "place_save", done: true, output: output)]
+    return [Message(id: "u", role: .user, text: "I'm at the gym"), reply]
 }()
 #endif
 

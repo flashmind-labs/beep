@@ -345,6 +345,11 @@ requests! {
     /// Renames a place or changes how near counts as being there.
     /// `radius` is in metres, 25 to 1000.
     76 UpdatePlace { id: String, name: Option<String>, radius: Option<u32> } => Call<Place>
+    /// The phone's own geofencing saw it arrive at or leave saved place
+    /// `id`, so the server starts that place's routines without waiting for
+    /// a location fix of its own. Returns whether it changed where the server
+    /// had the phone; false when it already knew, so nothing started.
+    77 CrossPlace { id: String, crossing: PlaceCrossing } => Call<bool>
 }
 
 /// A picture someone sent, kept on the server as long as its chat. Read its
@@ -932,6 +937,16 @@ pub struct GroupReminder {
     pub set_by: String,
 }
 
+wire_enum! {
+    /// Arriving at a saved place or leaving it.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum PlaceCrossing {
+        0 Arrive {}
+        1 Leave {}
+    }
+}
+
 /// A place the user saved by name, such as Home or Gym, that routines can
 /// start on arriving at or leaving.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -1173,6 +1188,20 @@ mod tests {
         };
         let buf = rmp_serde::to_vec(&chat).unwrap();
         assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);
+    }
+
+    #[test]
+    fn a_place_crossing_decodes() {
+        let request = CrossPlace {
+            id: "p1".into(),
+            crossing: PlaceCrossing::Leave {},
+        };
+        let buf = rmp_serde::to_vec(&request).unwrap();
+        // fixarray(2), fixstr(2) "p1", fixarray(1) op 1
+        assert_eq!(buf, [0x92, 0xa2, b'p', b'1', 0x91, 0x01]);
+        assert_eq!(rmp_serde::from_slice::<CrossPlace>(&buf).unwrap(), request);
+        let unknown = [0x92, 0xa2, b'p', b'1', 0x91, 0x07];
+        assert!(rmp_serde::from_slice::<CrossPlace>(&unknown).is_err());
     }
 
     #[test]

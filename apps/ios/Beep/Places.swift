@@ -32,8 +32,8 @@ struct SavedPlace: Identifiable, Hashable {
     }
 }
 
-/// The saved places calls. The server side (requests 74 to 76) is not in the
-/// bridge yet, so the app runs on `PendingPlaces` until it is.
+/// The saved places calls.
+@MainActor
 protocol PlacesStore {
     func list() async throws -> [SavedPlace]
     func delete(id: String) async throws
@@ -41,12 +41,38 @@ protocol PlacesStore {
     func update(id: String, name: String?, radius: Int?) async throws -> SavedPlace
 }
 
-/// No places until the bridge has `list_places`, `delete_place` and `update_place`.
-struct PendingPlaces: PlacesStore {
-    func list() async throws -> [SavedPlace] { [] }
-    func delete(id: String) async throws { throw unavailable }
-    func update(id: String, name: String?, radius: Int?) async throws -> SavedPlace { throw unavailable }
-    private var unavailable: BeepError { .BadRequest(reason: "This server can't change places yet.") }
+/// The server's places, through the bridge client.
+struct ServerPlaces: PlacesStore {
+    let client: () throws -> BeepClient
+
+    func list() async throws -> [SavedPlace] { try await client().listPlaces().map(SavedPlace.init) }
+    func delete(id: String) async throws { try await client().deletePlace(id: id) }
+    func update(id: String, name: String?, radius: Int?) async throws -> SavedPlace {
+        SavedPlace(try await client().updatePlace(id: id, name: name, radius: radius.map(UInt32.init)))
+    }
+}
+
+extension SavedPlace {
+    init(_ place: Place) {
+        self.init(id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude,
+                  radius: Int(place.radius), address: place.address, here: place.here,
+                  lastHereAt: place.lastHereAt, routines: Int(place.routines))
+    }
+
+    /// The `place` of a `place_save` result that saved one; nil for anything else.
+    init?(toolOutput output: String) {
+        guard let data = output.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["saved"] as? Bool == true,
+              let place = json["place"] as? [String: Any],
+              let id = place["id"] as? String, let name = place["name"] as? String,
+              let latitude = place["latitude"] as? Double, let longitude = place["longitude"] as? Double
+        else { return nil }
+        self.init(id: id, name: name, latitude: latitude, longitude: longitude,
+                  radius: place["radius_m"] as? Int ?? 100, address: place["address"] as? String,
+                  here: place["here_now"] as? Bool ?? false, lastHereAt: place["last_here_at"] as? String,
+                  routines: place["routines"] as? Int ?? 0)
+    }
 }
 
 #if DEBUG
@@ -249,19 +275,39 @@ func placeTint(_ place: SavedPlace) -> Color {
     Mint.tints[abs(place.id.unicodeScalars.reduce(0) { $0 + Int($1.value) }) % Mint.tints.count]
 }
 
-/// One place: a map with its radius, the radius chips, a routine for arriving, and rename.
+/// One place in a sheet, from the places list.
 struct PlaceSheet: View {
+    let place: SavedPlace
+    let newRoutine: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            PlaceCard(place: place, mapHeight: 180, newRoutine: newRoutine)
+            Spacer(minLength: 0)
+        }
+        .background(Mint.page)
+        .presentationDetents([.height(440)])
+        .presentationCornerRadius(28)
+    }
+}
+
+/// One place: a map with its radius, the radius chips, a routine for arriving, and rename.
+/// Shows the model's copy of the place once it has one, so changes made elsewhere show.
+struct PlaceCard: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    @State var place: SavedPlace
+    let place: SavedPlace
+    var mapHeight: CGFloat = 150
     let newRoutine: () -> Void
     @State private var renaming = false
     @State private var newName = ""
     @State private var error = ""
 
+    private var shown: SavedPlace { model.places.first { $0.id == place.id } ?? place }
+
     var body: some View {
+        let place = shown
         VStack(alignment: .leading, spacing: 0) {
-            PlaceMap(place: place).frame(height: 180)
+            PlaceMap(place: place).frame(height: mapHeight)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(place.name).font(.display(20)).foregroundStyle(Mint.ink)
@@ -305,11 +351,7 @@ struct PlaceSheet: View {
                 .padding(.top, 14)
             }
             .padding(18)
-            Spacer(minLength: 0)
         }
-        .background(Mint.page)
-        .presentationDetents([.height(440)])
-        .presentationCornerRadius(28)
         .alert("Rename \(place.name)", isPresented: $renaming) {
             TextField("Name", text: $newName)
             Button("Cancel", role: .cancel) {}
@@ -324,7 +366,6 @@ struct PlaceSheet: View {
         Task {
             do {
                 try await model.updatePlace(place.id, name: name, radius: radius)
-                if let fresh = model.places.first(where: { $0.id == place.id }) { place = fresh }
                 error = ""
             } catch {
                 self.error = describe(error)
