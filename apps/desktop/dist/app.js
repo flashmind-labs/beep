@@ -1279,6 +1279,56 @@ function renderRevoked() {
   $("#over").addEventListener("click", () => invoke("start_over"));
 }
 
+// ---------- Settings ----------
+
+async function renderSettings(confirm = false) {
+  S.view = "settings";
+  let set;
+  try {
+    set = await invoke("settings");
+  } catch (e) {
+    bar.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(e)}</p></div>`;
+    return;
+  }
+  if (S.view !== "settings") return;
+  const linked = S.link === "linked";
+  const link = linked
+    ? `<div class="dtoggle"><span><b style="display:flex;gap:7px;align-items:center"><i class="ddot"></i>Linked to your phone</b><small>This Mac: ${esc(set.name)}</small></span>
+        ${confirm ? "" : '<button class="dbtn warn" id="unlink">Unlink this Mac</button>'}</div>`
+    : `<div class="dtoggle"><span><b>Not linked</b><small>Link to see your chats and memories here</small></span><button class="dbtn pri" id="link">Link to phone…</button></div>`;
+  const ask = linked && confirm ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+      <b style="font-size:13.5px">Unlink this Mac?</b><div class="dmuted" style="display:block">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
+      <div style="display:flex;gap:8px"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn" id="unlinkNo">Cancel</button></div>
+      <div class="derr" id="unlinkErr"></div></div></div>` : "";
+  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
+    <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">
+      <div class="dsec flat">Phone</div>${link}${ask}
+      <div class="dsec flat" style="padding-top:6px">General</div>
+      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
+        <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
+    </div>${hints([["esc", "close"]])}`;
+  $("#link")?.addEventListener("click", renderLink);
+  $("#unlink")?.addEventListener("click", () => renderSettings(true));
+  $("#unlinkNo")?.addEventListener("click", () => renderSettings());
+  $("#unlinkYes")?.addEventListener("click", async () => {
+    try {
+      await invoke("unlink");
+      show(null);
+    } catch (e) {
+      $("#unlinkErr").textContent = String(e);
+    }
+  });
+  $("#autostart").addEventListener("click", async e => {
+    const sw = e.currentTarget, on = sw.getAttribute("aria-checked") !== "true";
+    try {
+      await invoke("set_autostart", { enabled: on });
+      sw.setAttribute("aria-checked", on);
+    } catch (err) {
+      console.warn(err);
+    }
+  });
+}
+
 // ---------- State ----------
 
 async function refreshStatus() {
@@ -1291,6 +1341,7 @@ async function refreshStatus() {
 async function show(view) {
   await refreshStatus();
   if (S.link === "revoked") return renderRevoked();
+  if (view === "settings") return renderSettings();
   if (S.link === "unlinked" || view === "link") return S.link === "linked" ? renderChat() : renderLink();
   if (view === "new") return newChat();
   // A chat picked from the tray's Recent menu, already made current in Rust.
@@ -1349,6 +1400,7 @@ function back() {
     return S.session ? openSession(S.session) : renderChat();
   }
   if (S.view === "group" && G.mention) return closeMention();
+  if (S.view === "settings" && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
   if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id);
   if (S.view === "gnew") {
     if (J.mode === "join") return renderGroupNew("code");
@@ -1411,6 +1463,7 @@ document.addEventListener("keydown", e => {
   }
   if (S.view === "link" || S.view === "revoked") return;
   const key = e.key.toLowerCase();
+  if (cmd && e.key === ",") { e.preventDefault(); return renderSettings(); }
   if (cmd && key === "q") { e.preventDefault(); return invoke("quit"); }
   if (cmd && key === "n") { e.preventDefault(); return newChat(); }
   if (cmd && key === "g") { e.preventDefault(); J.error = ""; J.name = ""; return renderGroupNew("new"); }

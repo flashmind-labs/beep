@@ -28,10 +28,10 @@ use std::{
 use tauri::{
     ActivationPolicy, App, AppHandle, Emitter, Manager, WindowEvent,
     image::Image,
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
 };
-use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_notification::NotificationExt;
 
 /// The server's node id, baked in by build.rs.
@@ -92,6 +92,8 @@ fn main() {
             commands::open_file,
             commands::picture,
             commands::unlink,
+            commands::settings,
+            commands::set_autostart,
             commands::start_over,
             commands::resize_bar,
             commands::hide_bar,
@@ -267,30 +269,21 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
     }
     menu.append(&recent)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    match link {
-        LinkState::Linked => menu.append(&MenuItem::with_id(
-            app,
-            "unlink",
-            "Unlink this Mac",
-            true,
-            None::<&str>,
-        )?)?,
-        _ => menu.append(&MenuItem::with_id(
+    if link != LinkState::Linked {
+        menu.append(&MenuItem::with_id(
             app,
             "link",
             "Link to phone…",
             true,
             None::<&str>,
-        )?)?,
+        )?)?;
     }
-    let autostart = app.autolaunch().is_enabled().unwrap_or(false);
-    menu.append(&CheckMenuItem::with_id(
+    menu.append(&MenuItem::with_id(
         app,
-        "autostart",
-        "Launch at login",
+        "settings",
+        "Settings…",
         true,
-        autostart,
-        None::<&str>,
+        Some("cmd+,"),
     )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
@@ -348,29 +341,7 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             bar::show(app, Some("new"));
         }
         "link" => bar::show(app, Some("link")),
-        "unlink" => {
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move {
-                let beep = app.state::<Arc<Beep>>().inner().clone();
-                if let Err(e) = beep.unlink().await {
-                    log::warn!("unlinking: {e}");
-                }
-                let _ = app.emit("link-state", beep.link_state());
-                refresh_tray(&app);
-            });
-        }
-        "autostart" => {
-            let manager = app.autolaunch();
-            let result = if manager.is_enabled().unwrap_or(false) {
-                manager.disable()
-            } else {
-                manager.enable()
-            };
-            if let Err(e) = result {
-                log::warn!("changing launch at login: {e}");
-            }
-            refresh_tray(app);
-        }
+        "settings" => bar::show(app, Some("settings")),
         "quit" => app.exit(0),
         _ => {}
     }
