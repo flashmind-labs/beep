@@ -2,14 +2,12 @@ use anyhow::{Context, Result, bail, ensure};
 use beep_server::{
     client::{Node, OnNotice},
     config::load_secret_key,
-    protocol::{
-        GetEvents, Health, ListCrons, ListMemories, ListSessions, ReadProfiles, StreamNotifications,
-    },
+    protocol::{GetEvents, Health, ListCrons, ListMemories, ListSessions, StreamNotifications},
 };
 use iroh::PublicKey;
 use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
 
-const USAGE: &str = "usage: beep-probe NODE_ID health|sessions|memories|crons|notifications|read-profiles|events RUN_ID; key file from BEEP_IDENTITY, made if missing";
+const USAGE: &str = "usage: beep-probe NODE_ID health|sessions|memories|crons|notifications|events RUN_ID; key file from BEEP_IDENTITY, made if missing";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,7 +27,6 @@ async fn main() -> Result<()> {
         ("sessions", None) => show(c.call(&ListSessions {}).await?),
         ("memories", None) => show(c.call(&ListMemories {}).await?),
         ("crons", None) => show(c.call(&ListCrons {}).await?),
-        ("read-profiles", None) => show(c.call(&ReadProfiles {}).await?),
         ("notifications", None) => {
             let mut notices = c.stream(&StreamNotifications {}).await?;
             while let Some(notice) = notices.next().await? {

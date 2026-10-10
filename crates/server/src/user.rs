@@ -717,6 +717,10 @@ impl User {
         self.store.finish_profile_read(&self.key, source).await
     }
 
+    pub(crate) async fn reset_profile_read(&self, source: &str) -> Result<()> {
+        self.store.reset_profile_read(&self.key, source).await
+    }
+
     pub(crate) async fn profile_notes(&self) -> Result<Vec<ProfileNote>> {
         self.store.profile_notes(&self.key).await
     }

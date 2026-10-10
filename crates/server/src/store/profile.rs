@@ -87,6 +87,22 @@ impl Store {
         Ok(())
     }
 
+    /// Forgets the read of `source` and its notes, so the next read starts over.
+    pub(crate) async fn reset_profile_read(&self, user: &UserKey, source: &str) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for table in ["profile_notes", "profile_reads"] {
+            sqlx::query(&format!(
+                "DELETE FROM {table} WHERE user_id=$1 AND source=$2"
+            ))
+            .bind(user.as_str())
+            .bind(source)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Every note about the user, undated ones first, then oldest first.
     pub(crate) async fn profile_notes(&self, user: &UserKey) -> Result<Vec<ProfileNote>> {
         let rows = sqlx::query(
@@ -114,7 +130,7 @@ mod tests {
     use std::slice;
 
     #[tokio::test]
-    async fn profile_reads_resume_and_keep_their_notes() {
+    async fn profile_reads_resume_keep_their_notes_and_reset() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let alice = UserKey::for_test("alice");
@@ -167,7 +183,14 @@ mod tests {
         );
         assert_eq!(
             store.profile_notes(&alice).await.unwrap(),
-            [notes[1].clone(), calendar, notes[0].clone()]
+            [notes[1].clone(), calendar.clone(), notes[0].clone()]
         );
+
+        store.reset_profile_read(&alice, "gmail").await.unwrap();
+        assert_eq!(
+            store.profile_read(&alice, "gmail").await.unwrap(),
+            ProfileRead::default()
+        );
+        assert_eq!(store.profile_notes(&alice).await.unwrap(), [calendar]);
     }
 }

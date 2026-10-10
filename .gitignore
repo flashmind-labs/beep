@@ -21,3 +21,4 @@ __pycache__/
 /apps/ios/Generated/
 /apps/ios/Beep.xcodeproj/
 /apps/ios/build/
+admin.sock

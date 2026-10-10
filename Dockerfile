@@ -19,8 +19,8 @@ FROM source AS build
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
-    cargo build --release --package beep-server --bin beep-server \
-    && cp target/release/beep-server /usr/local/bin/
+    cargo build --release --package beep-server --bin beep-server --bin beep-admin \
+    && cp target/release/beep-server target/release/beep-admin /usr/local/bin/
 
 FROM debian:trixie-slim
 # passt gives Drop its network, poppler-utils has pdftotext.
@@ -38,7 +38,7 @@ ENV PATH=/usr/local/beep-python/bin:$PATH
 ARG DROP_VERSION=v0.3.0
 ARG TARGETARCH
 ADD --chmod=755 https://github.com/wrr/drop/releases/download/${DROP_VERSION}/drop-linux-${TARGETARCH} /usr/local/bin/drop
-COPY --from=build /usr/local/bin/beep-server /usr/local/bin/
+COPY --from=build /usr/local/bin/beep-server /usr/local/bin/beep-admin /usr/local/bin/
 COPY deploy/entrypoint.sh /usr/local/bin/beep-entrypoint
 # Starts as root to prepare /etc for Drop, then runs the server as beep.
 WORKDIR /data

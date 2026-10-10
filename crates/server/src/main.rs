@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use beep_server::{
-    app::{App, ServerTools},
+    app::{App, ServerTools, admin},
     apps::ComposioSettings,
     config::{self, Config},
     decision::DecisionTool,
@@ -25,7 +25,7 @@ use logforth::{
     filter::rustlog::RustLogFilterBuilder,
 };
 use secrecy::SecretString;
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{num::NonZeroUsize, path::Path, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -108,6 +108,7 @@ async fn main() -> Result<()> {
     // for the pusher instead of being dropped.
     let notices = app.notifications.subscribe();
     app.start_users().await?;
+    admin::serve(app.clone(), admin::default_path(Path::new(&config_path)))?;
     beep_server::compaction::start(app.clone());
     beep_server::titles::start(app.clone());
     beep_server::memories::start_purge(app.clone());
