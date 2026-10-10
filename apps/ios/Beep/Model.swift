@@ -59,6 +59,9 @@ final class AppModel {
     private(set) var connectionError = ""
     var chat = Chat()
     private(set) var sessions: [Session] = []
+    private(set) var groups: [Group] = []
+    /// The group on screen in place of the chat, or nil.
+    private(set) var openGroupId: String?
     private(set) var starters: [PromptSuggestion] = []
     private(set) var models: Models?
 
@@ -111,6 +114,7 @@ final class AppModel {
 
     private func refreshAfterConnect() async {
         await refreshSessions()
+        await refreshGroups()
         await loadStarters(refresh: false)
         models = try? await client?.getModels()
         await reportTimezone()
@@ -132,10 +136,12 @@ final class AppModel {
 
     func newChat() {
         stopStreaming()
+        openGroupId = nil
         chat = Chat()
     }
 
     func open(_ session: Session) {
+        openGroupId = nil
         guard session.id != chat.id else { return }
         stopStreaming()
         chat = Chat(id: session.id, title: session.title)
@@ -197,6 +203,68 @@ final class AppModel {
             }
         }
         chat.messages = messages
+    }
+
+    // MARK: Groups
+
+    func refreshGroups() async {
+        guard let list = try? await api().listGroups() else { return }
+        groups = list
+    }
+
+    func openGroup(_ id: String) {
+        openGroupId = id
+    }
+
+    func group(_ id: String) async throws -> GroupChat { try await api().getGroup(id: id) }
+
+    func createGroup(name: String, memberName: String) async throws -> Group {
+        let group = try await api().createGroup(id: UUID().uuidString.lowercased(), name: name, memberName: memberName)
+        await refreshGroups()
+        return group
+    }
+
+    /// Posts to a group; the same `requestId` sent twice posts once.
+    func sendToGroup(_ id: String, requestId: String, text: String) async throws {
+        _ = try await api().sendToGroup(groupId: id, requestId: requestId, message: text)
+        await refreshGroups()
+    }
+
+    func groupInvite(_ id: String, reset: Bool = false) async throws -> GroupLink {
+        try await api().groupInvite(id: id, reset: reset)
+    }
+
+    func peekGroup(_ token: String) async throws -> GroupPreview { try await api().peekGroup(token: token) }
+
+    func joinGroup(_ token: String, memberName: String) async throws -> Group {
+        let group = try await api().joinGroup(token: token, memberName: memberName)
+        await refreshGroups()
+        return group
+    }
+
+    func leaveGroup(_ id: String) async throws {
+        try await api().leaveGroup(id: id)
+        groups.removeAll { $0.id == id }
+        if openGroupId == id { newChat() }
+    }
+
+    /// Pins at once; the list is fetched again if the server refuses.
+    func pinGroup(_ id: String, pinned: Bool) async {
+        if let index = groups.firstIndex(where: { $0.id == id }) { groups[index].pinned = pinned }
+        if (try? await api().pinGroup(id: id, pinned: pinned)) == nil { await refreshGroups() }
+    }
+
+    func shareGroupApps(_ id: String, shared: Bool) async {
+        if let index = groups.firstIndex(where: { $0.id == id }) { groups[index].appsShared = shared }
+        if (try? await api().shareGroupApps(id: id, shared: shared)) == nil { await refreshGroups() }
+    }
+
+    func groupReminders(_ id: String) async throws -> [GroupReminder] {
+        try await api().listGroupReminders(groupId: id)
+    }
+
+    func deleteGroupReminder(_ groupId: String, _ id: String) async throws {
+        try await api().deleteGroupReminder(groupId: groupId, id: id)
     }
 
     // MARK: Starters
@@ -412,6 +480,7 @@ final class AppModel {
         client = trial
         newChat()
         sessions = []
+        groups = []
         starters = []
         await refreshAfterConnect()
     }
@@ -447,6 +516,7 @@ final class AppModel {
     /// Runs a routine now and opens the chat it ran in.
     func runCron(_ id: String) async throws {
         let sessionId = try await api().runCron(id: id)
+        openGroupId = nil
         await refreshSessions()
         stopStreaming()
         chat = Chat(id: sessionId, title: sessions.first { $0.id == sessionId }?.title ?? "")
