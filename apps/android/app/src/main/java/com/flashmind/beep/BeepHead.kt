@@ -1,5 +1,8 @@
 package com.flashmind.beep
 
+import android.graphics.ImageDecoder
+import android.graphics.drawable.AnimatedImageDrawable
+import android.widget.ImageView
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -12,12 +15,15 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -31,6 +37,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.res.vectorResource
 import androidx.annotation.DrawableRes
 import kotlinx.coroutines.delay
@@ -56,7 +64,9 @@ private class FaceSpot(
     val mouth: Offset, val unit: Float, val cheeks: List<Offset>, val cheekRadius: Float,
 )
 
+/** Where a drawn avatar's face sits, or null for one that plays [Avatar.clips]. */
 private fun Avatar.faceSpot() = when (this) {
+    Avatar.Pager, Avatar.Clay, Avatar.Jelly -> null
     Avatar.Beep -> FaceSpot(R.drawable.ic_bubble_beep, Offset(55f, 56f), 56f, Offset(44f, 55f), Offset(55.5f, 55f),
         Offset(50.5f, 62f), 0.8f, listOf(Offset(59.5f, 62f)), 2.1f)
     Avatar.Bubble -> FaceSpot(R.drawable.ic_bubble_bubble, Offset(56f, 54f), 58f, Offset(47f, 50f), Offset(63f, 50f),
@@ -89,8 +99,32 @@ private fun BeepFace.features() = when (this) {
  */
 @Composable
 fun BeepHead(face: BeepFace, look: State<Offset>, modifier: Modifier = Modifier, avatar: Avatar = Avatars.current) {
-    val target = face.features()
     val spot = avatar.faceSpot()
+    val clips = avatar.clips
+    if (spot != null) DrawnHead(face, look, modifier, spot)
+    else if (clips != null) ClipHead(face, clips, modifier)
+}
+
+/** A rendered avatar plays the loop for its mood, round. Asleep, it holds still on the idle loop. */
+@Composable
+private fun ClipHead(face: BeepFace, clips: Clips, modifier: Modifier) {
+    val clip = when (face) {
+        BeepFace.Thinking -> clips.thinking
+        BeepFace.Happy -> clips.talking
+        BeepFace.Idle, BeepFace.Sad, BeepFace.Sleepy -> clips.idle
+    }
+    val resources = LocalContext.current.resources
+    val drawable = remember(clip) { ImageDecoder.decodeDrawable(ImageDecoder.createSource(resources, clip)) }
+    DisposableEffect(drawable) { onDispose { (drawable as? AnimatedImageDrawable)?.stop() } }
+    AndroidView({ ImageView(it).apply { scaleType = ImageView.ScaleType.CENTER_CROP } }, modifier.clip(CircleShape)) { view ->
+        view.setImageDrawable(drawable)
+        (drawable as? AnimatedImageDrawable)?.let { if (face == BeepFace.Sleepy) it.stop() else it.start() }
+    }
+}
+
+@Composable
+private fun DrawnHead(face: BeepFace, look: State<Offset>, modifier: Modifier, spot: FaceSpot) {
+    val target = face.features()
     val soft = spring<Float>(dampingRatio = 0.6f, stiffness = 300f)
     val open by animateFloatAsState(target.open, soft, label = "open")
     val happyEyes by animateFloatAsState(target.happyEyes, soft, label = "happyEyes")
