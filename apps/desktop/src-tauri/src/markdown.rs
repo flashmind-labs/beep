@@ -229,9 +229,10 @@ fn mathml(latex: &str, display_mode: DisplayMode) -> Option<String> {
 }
 
 /// Rewrites `\(x\)` as `$x$` and `\[x\]` as `$$x$$`, which is all the
-/// Markdown parser knows, leaving code spans and fenced blocks alone.
+/// Markdown parser knows, and escapes dollars that are prices, leaving code
+/// spans and fenced blocks alone.
 fn dollar_delimiters(markdown: &str) -> String {
-    if !markdown.contains("\\(") && !markdown.contains("\\[") {
+    if !markdown.contains(['$', '\\']) {
         return markdown.to_owned();
     }
     let mut out = String::with_capacity(markdown.len());
@@ -256,10 +257,10 @@ fn dollar_delimiters(markdown: &str) -> String {
                     .min_by_key(|(i, _)| *i),
             };
             let Some((i, token)) = next else {
-                out.push_str(rest);
+                push_text(&mut out, rest, open.is_some());
                 break;
             };
-            out.push_str(&rest[..i]);
+            push_text(&mut out, &rest[..i], open.is_some());
             rest = &rest[i + token.len()..];
             match token {
                 "`" => {
@@ -288,6 +289,59 @@ fn dollar_delimiters(markdown: &str) -> String {
         }
     }
     out
+}
+
+fn push_text(out: &mut String, text: &str, math: bool) {
+    if math {
+        out.push_str(text);
+    } else {
+        escape_prices(out, text);
+    }
+}
+
+/// Pairs single dollars the way Pandoc does and escapes the ones left over,
+/// so "$4,957 of which $85" stays text. An opening `$` has no space after
+/// it; a closing one has no space before it and no digit after it.
+fn escape_prices(out: &mut String, text: &str) {
+    let bytes = text.as_bytes();
+    let at = |i: usize| bytes.get(i).copied();
+    // Lone dollars only: `\$` is already text and `$$` is display math.
+    let mut dollars = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 1,
+            b'$' if at(i + 1) == Some(b'$') => i += 1,
+            b'$' => dollars.push(i),
+            _ => {}
+        }
+        i += 1;
+    }
+    let opens = |i: usize| at(i + 1).is_some_and(|c| !c.is_ascii_whitespace());
+    let closes = |i: usize| {
+        i > 0
+            && !bytes[i - 1].is_ascii_whitespace()
+            && !at(i + 1).is_some_and(|c| c.is_ascii_digit())
+    };
+    let mut prices = Vec::new();
+    let mut k = 0;
+    while k < dollars.len() {
+        let open = dollars[k];
+        match dollars[k + 1..].iter().position(|&d| closes(d)) {
+            Some(n) if opens(open) => k += n + 2,
+            _ => {
+                prices.push(open);
+                k += 1;
+            }
+        }
+    }
+    let mut last = 0;
+    for p in prices {
+        out.push_str(&text[last..p]);
+        out.push('\\');
+        last = p;
+    }
+    out.push_str(&text[last..]);
 }
 
 #[cfg(test)]
@@ -319,6 +373,11 @@ mod tests {
     #[test]
     fn leaves_prices_and_code_alone() {
         assert!(!to_html("it costs $5 and $10").contains("<math"));
+        let html = to_html("**fees: ~$4,957**, of which&nbsp;$85 is pending");
+        assert!(!html.contains("<math"), "{html}");
+        assert!(html.contains("<strong>fees: ~$4,957</strong>"), "{html}");
+        assert!(to_html("$x$ costs $5").contains("<math"));
+        assert!(to_html(r"$a$, $b$ and \$c").matches("<math").count() == 2);
         assert!(!to_html(r"`\(x\)` and `$y$`").contains("<math"));
         assert!(!to_html("```\n\\[x\\]\n```").contains("<math"));
     }
