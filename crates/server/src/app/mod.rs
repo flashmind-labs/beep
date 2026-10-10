@@ -2,6 +2,7 @@ mod auto;
 mod context;
 mod device;
 mod group;
+mod group_reminders;
 mod group_tools;
 mod learning;
 mod notify;

@@ -199,6 +199,12 @@ impl CronHandler for BeepCronHandler {
             log::warn!("cron job for an unknown user; job_id={}", job.id);
             return Ok(None);
         };
+        if let Some(group_id) = job.metadata.get("group_id").and_then(|v| v.as_str()) {
+            self.app
+                .post_group_reminder(&user, group_id, &job.task)
+                .await?;
+            return Ok(None);
+        }
         let run = run_job(&self.app, &user, job).await?;
         Ok(run.map(|run| run.id))
     }

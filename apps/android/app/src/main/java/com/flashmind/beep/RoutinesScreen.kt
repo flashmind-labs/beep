@@ -197,7 +197,7 @@ private fun clockTime(hour: Int, minute: Int): String =
     LocalTime.of(hour, minute).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
 
 /** Reads the cron shapes the dialog writes as words. Anything else is shown as written. */
-private fun describeSchedule(expression: String): String {
+internal fun describeSchedule(expression: String): String {
     onceAt(expression)?.let { return "Once, " + describeDay(it) }
     val parts = expression.trim().split(Regex("\\s+"))
     if (parts.size != 5 || parts[2] != "*" || parts[3] != "*") return expression
@@ -215,11 +215,11 @@ private fun describeSchedule(expression: String): String {
 }
 
 /** A one-off reminder's time in the phone's timezone; its schedule is a timestamp rather than cron. */
-private fun onceAt(schedule: String): ZonedDateTime? =
+internal fun onceAt(schedule: String): ZonedDateTime? =
     runCatching { OffsetDateTime.parse(schedule.trim()).atZoneSameInstant(ZoneId.systemDefault()) }.getOrNull()
 
 /** "today 9:00", "tomorrow 9:00", "Mon 9:00" or, further out, "12 Oct 9:00". */
-private fun describeDay(at: ZonedDateTime): String {
+internal fun describeDay(at: ZonedDateTime): String {
     val today = LocalDate.now()
     val date = at.toLocalDate()
     val day = when {

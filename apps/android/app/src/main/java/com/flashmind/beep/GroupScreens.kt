@@ -11,6 +11,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -56,6 +58,7 @@ import com.flashmind.beep.proto.GroupChat
 import com.flashmind.beep.proto.GroupLink
 import com.flashmind.beep.proto.GroupMessage
 import com.flashmind.beep.proto.GroupPreview
+import com.flashmind.beep.proto.GroupReminder
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -688,13 +691,17 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
     }
     val group = fetched ?: groups.firstOrNull { it.id == groupId }
     var confirmLeave by remember { mutableStateOf(false) }
+    var reminders by remember(groupId) { mutableStateOf<List<GroupReminder>?>(null) }
+    LaunchedEffect(groupId) {
+        runCatching { withContext(Dispatchers.IO) { repository.groupReminders(groupId) } }.onSuccess { reminders = it }
+    }
     val joinedFormat = remember { DateTimeFormatter.ofPattern("d MMM") }
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(title = { Text(displayText("Group info"), style = displayStyle(22.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (group == null) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(top = 40.dp).size(22.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
                 return@Column
@@ -710,6 +717,18 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
                 MemberLine({ GroupAvatar("b", Beep.colors.brand, 36.dp, beep = true) }, "Beep", "Joins in when it can help, or when someone writes @beep")
                 ChunkyButton(onClick = { onInvite(group) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)); Text("Invite with a link", fontWeight = FontWeight.SemiBold)
+                }
+            }
+            Text("Reminders", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+            GroupReminders(reminders, you = group.members.firstOrNull { it.you }?.name) { reminder ->
+                reminders = reminders?.filter { it.id != reminder.id }
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) { repository.deleteGroupReminder(group.id, reminder.id) } }
+                        .onSuccess { Toast.makeText(context, "Reminder deleted", Toast.LENGTH_SHORT).show() }
+                        .onFailure {
+                            Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show()
+                            reminders = runCatching { withContext(Dispatchers.IO) { repository.groupReminders(group.id) } }.getOrNull() ?: reminders
+                        }
                 }
             }
             Text("Your apps", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
@@ -751,6 +770,41 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
             text = { Text(if (g.members.size <= 1) "You are the last member, so the group and its messages are deleted."
                 else "You stop getting its messages. Someone in it can invite you again.") },
             containerColor = Beep.colors.surface)
+    }
+}
+
+/** The group's reminders, each with when it goes and who set it. Beep posts them into the chat. */
+@Composable
+private fun GroupReminders(reminders: List<GroupReminder>?, you: String?, onDelete: (GroupReminder) -> Unit) {
+    val ask = "Ask Beep in the chat to add one, like \"remind us at 10 to check out\"."
+    Column(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        when {
+            reminders == null -> CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).size(18.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
+            reminders.isEmpty() -> Text("No reminders yet. $ask", fontSize = 13.sp, lineHeight = 19.sp, color = Beep.colors.muted)
+            else -> {
+                reminders.forEachIndexed { i, reminder ->
+                    val once = onceAt(reminder.schedule)
+                    val time = once?.let { describeDay(it).replaceFirstChar(Char::uppercase) } ?: describeSchedule(reminder.schedule)
+                    val by = if (reminder.setBy == you) "you" else reminder.setBy
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(36.dp).beepFrame(RoundedCornerShape(10.dp), memberTint(i)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.Schedule, null, Modifier.size(18.dp), tint = Beep.colors.ink)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(reminder.label, fontWeight = FontWeight.Medium)
+                            Text(reminder.message, fontSize = 12.sp, lineHeight = 17.sp, color = Beep.colors.muted)
+                            Text("$time · set by $by", fontSize = 12.sp, color = Beep.colors.muted)
+                        }
+                        IconButton(onClick = { onDelete(reminder) }, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Outlined.Close, "Delete reminder", Modifier.size(18.dp), tint = Beep.colors.muted)
+                        }
+                    }
+                }
+                Text(ask, fontSize = 12.sp, lineHeight = 17.sp, color = Beep.colors.muted)
+            }
+        }
     }
 }
 

@@ -283,6 +283,10 @@ requests! {
     /// calendars it has not finished. Returns how many users it looked at.
     /// Admins only.
     69 ReadProfiles {} => Call<u32>
+    /// The reminders set in a group, soonest first. Members only.
+    70 ListGroupReminders { group_id: String } => Call<Vec<GroupReminder>>
+    /// Deletes one of a group's reminders. Any member may.
+    71 DeleteGroupReminder { group_id: String, id: String } => Call<()>
 }
 
 /// The most of a file one `GetFile` returns, well under a frame.
@@ -832,6 +836,21 @@ impl MemorySource {
             _ => Self::Learned {},
         }
     }
+}
+
+/// A reminder Beep posts into a group when it is due.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupReminder {
+    pub id: String,
+    pub label: String,
+    /// What Beep posts.
+    pub message: String,
+    /// RFC 3339 for a one-off, else a cron expression in `set_by`'s timezone.
+    pub schedule: String,
+    pub next_run_at: Option<String>,
+    /// The member who asked for it, by their name in the group.
+    pub set_by: String,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]

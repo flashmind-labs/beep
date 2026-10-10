@@ -4,7 +4,7 @@
 //! before anyone sees it.
 
 use super::{
-    App, UserNotice,
+    App, UserNotice, group_reminders,
     group_tools::{self, GroupRun},
     learning::MEMORY_THRESHOLD,
     run::register_web_tools,
@@ -54,12 +54,12 @@ const SETTLE: Duration = Duration::from_secs(3);
 /// Messages Jev reads to judge whether Beep should answer.
 const CALL_CONTEXT: i64 = 15;
 /// How sure Jev must be before Beep answers without being mentioned.
-const CALL_THRESHOLD: f64 = 0.6;
+const CALL_THRESHOLD: f64 = 0.5;
 const CALL_QUESTION: &str =
     "Nobody wrote @beep. Should Beep, the group's assistant, answer the latest message on its own?";
 const CALL_CRITERIA: Criteria = Criteria {
-    yes: "The latest message asks Beep, or asks the group something Beep can answer, find or do now: where to eat or stay, opening hours, how to get somewhere, prices, weather, a fact, a plan, an itinerary or a list; or the group is planning something Beep could help with; or it replies to what Beep said, including a correction, an objection or a new constraint on Beep's suggestion (an allergy, a diet, a date, a budget) that calls for a better answer.",
-    no: "People talking to each other: greetings, jokes, news, feelings, a question only another member can answer (their plans, opinions or whereabouts), a reply to another member that does not need Beep, thanks, or something already answered.",
+    yes: "The latest message asks Beep, or asks the group something Beep can answer, find or do now: where to eat or stay, what to do on a day, opening hours, how to get somewhere, prices, weather, a fact, a plan, an itinerary or a list; or a recent question like that is still open because nobody knows the answer; or the group is planning something Beep could help with; or it asks Beep to remember, note or write down something, or asks for the group or everyone to be reminded of something (\"remind everyone\", \"recuérdanoslo\", \"avísanos a las 10\") (\"apúntalo\", \"remember this\"); or it replies to what Beep said, including a correction, a complaint that Beep was wrong, an objection or a new constraint on Beep's suggestion (an allergy, a diet, a date, a budget) that calls for a better answer.",
+    no: "People talking to each other: greetings, jokes, news, feelings, a question only another member can answer (their plans, opinions or whereabouts), a reply to another member that does not need Beep, members deciding among themselves or discussing Beep's suggestion with each other, a rhetorical question or a complaint about the world, thanks, or something already answered.",
 };
 /// Messages the learner reads around a new one.
 const LEARN_CONTEXT: i64 = 10;
@@ -67,7 +67,7 @@ const MEMORY_QUESTION: &str = "Does the latest message reveal something lasting 
 const MEMORY_CRITERIA: Criteria = Criteria {
     yes: "A lasting fact about a member, said by them or by someone else about them: diet, allergies and intolerances, \
 health, preferences and dislikes, people in their life, where they live, work, hobbies, routines, or plans they take part in, \
-like a trip; or a request for Beep to remember something said earlier in the chat",
+like a trip; or a request for Beep to remember or note something said earlier in the chat (\"apúntalo\", \"remember this\")",
     no: "Greetings, jokes, logistics of the moment, questions, Beep's own replies, opinions about the world, or anything \
 that says nothing lasting about a member",
 };
@@ -353,6 +353,23 @@ impl App {
         Ok(Some(message))
     }
 
+    /// Posts a reminder `user` set into group `group_id` and wakes every
+    /// member. Skipped once `user` has left the group.
+    pub(crate) async fn post_group_reminder(
+        &self,
+        user: &User,
+        group_id: &str,
+        message: &str,
+    ) -> Result<()> {
+        let Some(joined) = user.group(group_id).await? else {
+            log::info!("group reminder skipped, its maker left; group={group_id}");
+            return Ok(());
+        };
+        self.store.post_beep(group_id, message).await?;
+        self.group_notice(&joined.members, &joined, None, &said("Beep", message));
+        Ok(())
+    }
+
     /// Whether Beep should answer message `seq`, which does not mention it.
     /// Waits for the sender to settle first; a newer message gets its own look.
     async fn called_without_mention(&self, joined: &JoinedGroup, seq: i64) -> bool {
@@ -562,6 +579,7 @@ impl App {
                     decision: tool.clone(),
                 });
                 let key = self.tools.firecrawl_key.as_ref().map(|k| k.expose_secret());
+                group_reminders::register(&mut registry, run.clone());
                 group_tools::register(&mut registry, run, lenders, key).await;
                 group_memory::register(
                     &mut registry,
@@ -669,6 +687,9 @@ impl App {
             .await)
     }
 }
+
+#[cfg(test)]
+mod eval;
 
 #[cfg(test)]
 mod tests {

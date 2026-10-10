@@ -11,7 +11,7 @@ impl Store {
     pub(crate) async fn list_crons(&self, user: &UserKey) -> Result<Vec<Cron>> {
         let rows = sqlx::query(
             "SELECT id, label, prompt, schedule, enabled, created_at, run_once, last_run_at
-             FROM crons WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100",
+             FROM crons WHERE user_id=$1 AND group_id IS NULL ORDER BY created_at DESC LIMIT 100",
         )
         .bind(user.as_str())
         .fetch_all(&self.pool)
@@ -76,7 +76,7 @@ impl Store {
         let changed = sqlx::query(
             "UPDATE crons SET enabled=COALESCE($1, enabled), label=COALESCE($2, label),
                  schedule=COALESCE($3, schedule)
-             WHERE user_id=$4 AND id=$5 AND ($1 IS NOT NULL OR $2 IS NOT NULL OR $3 IS NOT NULL)",
+             WHERE user_id=$4 AND id=$5 AND group_id IS NULL AND ($1 IS NOT NULL OR $2 IS NOT NULL OR $3 IS NOT NULL)",
         )
         .bind(enabled)
         .bind(label)
@@ -92,7 +92,7 @@ impl Store {
 
     pub(crate) async fn toggle_cron(&self, user: &UserKey, id: &str) -> Result<Option<bool>> {
         let new_enabled = sqlx::query_scalar(
-            "UPDATE crons SET enabled = NOT enabled WHERE user_id=$1 AND id=$2 RETURNING enabled",
+            "UPDATE crons SET enabled = NOT enabled WHERE user_id=$1 AND id=$2 AND group_id IS NULL RETURNING enabled",
         )
         .bind(user.as_str())
         .bind(id)
@@ -103,12 +103,13 @@ impl Store {
     }
 
     pub(crate) async fn delete_cron(&self, user: &UserKey, id: &str) -> Result<bool> {
-        let deleted = sqlx::query("DELETE FROM crons WHERE user_id=$1 AND id=$2")
-            .bind(user.as_str())
-            .bind(id)
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
+        let deleted =
+            sqlx::query("DELETE FROM crons WHERE user_id=$1 AND id=$2 AND group_id IS NULL")
+                .bind(user.as_str())
+                .bind(id)
+                .execute(&self.pool)
+                .await?
+                .rows_affected();
         self.notify_crons_changed();
         Ok(deleted > 0)
     }

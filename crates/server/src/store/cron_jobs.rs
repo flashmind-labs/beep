@@ -1,5 +1,6 @@
 //! The `crons` table as flashmind cron jobs, for the scheduler and the
-//! cron tools. `user` limits a call to one user's jobs; `None` sees all.
+//! cron tools. `user` limits a call to one user's own jobs; `None` sees
+//! all, group reminders too.
 
 use super::Store;
 use anyhow::Result;
@@ -10,7 +11,7 @@ use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
 
 const COLUMNS: &str = "id, user_id, label, prompt, schedule, enabled, run_once, created_at, \
-    last_run_at, session_id, kind";
+    last_run_at, session_id, kind, group_id";
 
 /// A routine that wakes the agent with its prompt; the other kind is
 /// [`crate::digest::DIGEST_KIND`]. A routine's kind never changes.
@@ -22,13 +23,15 @@ fn job_from(row: &PgRow) -> Result<CronJob> {
     let label: String = row.try_get("label")?;
     let session_id: Option<String> = row.try_get("session_id")?;
     let kind: String = row.try_get("kind")?;
+    let group_id: Option<String> = row.try_get("group_id")?;
     Ok(CronJob {
         id: id.parse().unwrap_or_else(|_| Uuid::new_v4()),
         schedule: decode_schedule(row.try_get("schedule")?),
         task: row.try_get("prompt")?,
         enabled: row.try_get("enabled")?,
         once: row.try_get("run_once")?,
-        metadata: json!({"user_id": user_id, "label": label, "session_id": session_id, "kind": kind}),
+        metadata: json!({"user_id": user_id, "label": label, "session_id": session_id, "kind": kind,
+            "group_id": group_id}),
         created_at: row.try_get("created_at")?,
         last_run: row.try_get("last_run_at")?,
     })
@@ -58,7 +61,7 @@ fn meta<'a>(job: &'a CronJob, key: &str) -> Option<&'a str> {
 impl Store {
     pub(crate) async fn cron_jobs(&self, user: Option<&str>) -> Result<Vec<CronJob>> {
         let rows = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM crons WHERE $1::text IS NULL OR user_id=$1
+            "SELECT {COLUMNS} FROM crons WHERE $1::text IS NULL OR (user_id=$1 AND group_id IS NULL)
              ORDER BY created_at DESC LIMIT 500"
         ))
         .bind(user)
@@ -69,7 +72,8 @@ impl Store {
 
     pub(crate) async fn cron_job(&self, id: Uuid, user: Option<&str>) -> Result<Option<CronJob>> {
         let row = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM crons WHERE id=$1 AND ($2::text IS NULL OR user_id=$2)"
+            "SELECT {COLUMNS} FROM crons
+             WHERE id=$1 AND ($2::text IS NULL OR (user_id=$2 AND group_id IS NULL))"
         ))
         .bind(id.to_string())
         .bind(user)
@@ -82,8 +86,8 @@ impl Store {
         let schedule = encode_schedule(&job.schedule);
         sqlx::query(
             "INSERT INTO crons (user_id, id, label, prompt, schedule, enabled, run_once,
-                 created_at, last_run_at, session_id, kind)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 created_at, last_run_at, session_id, kind, group_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
              ON CONFLICT (user_id, id) DO UPDATE SET label=$3, prompt=$4, schedule=$5,
                  enabled=$6, run_once=$7, last_run_at=$9,
                  session_id=COALESCE($10, crons.session_id)",
@@ -99,6 +103,7 @@ impl Store {
         .bind(job.last_run)
         .bind(meta(job, "session_id"))
         .bind(meta(job, "kind").unwrap_or(PROMPT_KIND))
+        .bind(meta(job, "group_id"))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -122,13 +127,123 @@ impl Store {
     }
 
     pub(crate) async fn delete_cron_job(&self, id: Uuid, user: Option<&str>) -> Result<bool> {
-        let deleted =
-            sqlx::query("DELETE FROM crons WHERE id=$1 AND ($2::text IS NULL OR user_id=$2)")
-                .bind(id.to_string())
-                .bind(user)
-                .execute(&self.pool)
-                .await?
-                .rows_affected();
+        let deleted = sqlx::query(
+            "DELETE FROM crons
+                 WHERE id=$1 AND ($2::text IS NULL OR (user_id=$2 AND group_id IS NULL))",
+        )
+        .bind(id.to_string())
+        .bind(user)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
         Ok(deleted > 0)
+    }
+
+    /// The reminders set in group `group`, oldest first.
+    pub(crate) async fn group_reminders(&self, group: &str) -> Result<Vec<CronJob>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {COLUMNS} FROM crons WHERE group_id=$1 ORDER BY created_at LIMIT 100"
+        ))
+        .bind(group)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(job_from).collect()
+    }
+
+    /// Deletes reminder `id` from group `group`; false when it is not there.
+    pub(crate) async fn delete_group_reminder(&self, group: &str, id: Uuid) -> Result<bool> {
+        let deleted = sqlx::query("DELETE FROM crons WHERE id=$1 AND group_id=$2")
+            .bind(id.to_string())
+            .bind(group)
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+        self.notify_crons_changed();
+        Ok(deleted > 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{store::TestDb, user::UserKey};
+    use chrono::Utc;
+    use flashmind::cron::{CronJob, JobSchedule};
+    use serde_json::json;
+    use uuid::Uuid;
+
+    fn job(metadata: serde_json::Value) -> CronJob {
+        CronJob {
+            id: Uuid::new_v4(),
+            schedule: JobSchedule::Cron("0 9 * * *".to_owned()),
+            task: "Check-out at 11".to_owned(),
+            enabled: true,
+            once: false,
+            metadata,
+            created_at: Utc::now(),
+            last_run: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn group_reminders_stay_out_of_the_members_routines() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store opens");
+        let alice = UserKey::for_test("alice");
+        store
+            .create_group(&alice, "g1", "Trip", "Ali")
+            .await
+            .expect("group made");
+        let own = job(json!({"user_id": "alice", "label": "Own"}));
+        let group = job(json!({"user_id": "alice", "label": "Trip", "group_id": "g1"}));
+        store.upsert_cron_job(&own).await.expect("routine saved");
+        store.upsert_cron_job(&group).await.expect("reminder saved");
+
+        let mine = store.cron_jobs(Some("alice")).await.expect("jobs load");
+        assert_eq!(mine.iter().map(|j| j.id).collect::<Vec<_>>(), [own.id]);
+        assert_eq!(
+            store.list_crons(&alice).await.expect("routines load").len(),
+            1
+        );
+        assert!(
+            !store
+                .delete_cron(&alice, &group.id.to_string())
+                .await
+                .expect("delete runs")
+        );
+
+        let all = store.cron_jobs(None).await.expect("jobs load");
+        let fired = all
+            .iter()
+            .find(|j| j.id == group.id)
+            .expect("scheduler sees it");
+        assert_eq!(fired.metadata["group_id"], "g1");
+        assert_eq!(
+            store
+                .group_reminders("g1")
+                .await
+                .expect("reminders load")
+                .len(),
+            1
+        );
+
+        assert!(
+            !store
+                .delete_group_reminder("g2", group.id)
+                .await
+                .expect("delete runs")
+        );
+        assert!(
+            store
+                .delete_group_reminder("g1", group.id)
+                .await
+                .expect("delete runs")
+        );
+        assert!(
+            store
+                .group_reminders("g1")
+                .await
+                .expect("reminders load")
+                .is_empty()
+        );
     }
 }

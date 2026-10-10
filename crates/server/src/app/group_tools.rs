@@ -99,7 +99,7 @@ pub(super) struct GroupRun {
 impl GroupRun {
     /// Whether `text`, about to leave the run in a tool call, reveals a
     /// member's memory.
-    async fn leaks(&self, text: &str) -> bool {
+    pub(super) async fn leaks(&self, text: &str) -> bool {
         let secrets = self
             .secrets
             .lock()
