@@ -4,8 +4,10 @@
 
 Releases always go to Play internal testing. Every push to main runs the `apk`
 workflow, which signs the bundle with the upload key and uploads it to the
-internal track, and the phone updates from Play. Do not hand-install APKs on
-the phone: a locally built APK is signed with another key and will not install
+internal track, and the phone updates from Play. `just android-release 1.2.3`
+sets the version and tags `android-v1.2.3`; pushing the tag sends a patch
+release to the beta track and a minor or major one (`1.3.0`) to production.
+Do not hand-install APKs on the phone: a locally built APK is signed with another key and will not install
 over the Play build.
 
 Use the debug APK on an emulator (`./gradlew assembleDebug`).

@@ -1,6 +1,9 @@
 # Builds the release APK on every push to main and keeps it as a run artifact.
 # The same build goes to the Play internal track as an app bundle when the
-# PLAY_SERVICE_ACCOUNT_JSON secret is set. Releases stay drafts until the
+# PLAY_SERVICE_ACCOUNT_JSON secret is set. A tag android-vX.Y.Z (made by
+# `just android-release`) goes to the beta track when Z is not 0, and to
+# production for a minor or major release (X.Y.0). The repository variable
+# PLAY_BETA_TRACK picks another testing track, such as alpha for closed testing. Releases stay drafts until the
 # repository variable PLAY_RELEASE_STATUS says `completed`, which Play only
 # accepts once the app has been published.
 #
@@ -14,10 +17,11 @@ name: android
 on:
   push:
     branches: [main]
+    tags: ["android-v*"]
   workflow_dispatch:
 
 concurrency:
-  group: android
+  group: android-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -97,8 +101,16 @@ jobs:
       - name: Upload to Play
         env:
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          REF: ${{ github.ref }}
+        shell: bash
         run: |
           set -euo pipefail
+          track=internal
+          if [[ "$REF" =~ ^refs/tags/android-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            name=$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' apps/android/app/build.gradle.kts)
+            [ "$name" = "${REF#refs/tags/android-v}" ] || { echo "Tag does not match versionName $name"; exit 1; }
+            if [ "${BASH_REMATCH[3]}" = 0 ]; then track=production; else track='${{ vars.PLAY_BETA_TRACK || 'beta' }}'; fi
+          fi
           if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
             echo "No Play service account, skipping the upload."
             exit 0
@@ -107,7 +119,7 @@ jobs:
           printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play.json"
           python3 scripts/play-upload.py "$RUNNER_TEMP/play.json" \
             apps/android/app/build/outputs/bundle/release/app-release.aab \
-            internal '${{ vars.PLAY_RELEASE_STATUS || 'draft' }}'
+            "$track" '${{ vars.PLAY_RELEASE_STATUS || 'draft' }}'
 
       - name: Remove signing files
         if: always()

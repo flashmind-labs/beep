@@ -42,6 +42,21 @@ desktop-release version:
     git tag -a "desktop-v{{version}}" -m "Beep for macOS {{version}}"
     echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
 
+# Set the Android app's version, commit it and tag android-v<version>. Pushing
+# the tag uploads it to Play: a patch release (1.2.3) to the beta track, a minor
+# or major one (1.3.0, 2.0.0) to production.
+android-release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 1.2.3" >&2; exit 1; }
+    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
+    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
+    ! git rev-parse -q --verify "refs/tags/android-v{{version}}" > /dev/null || { echo "android-v{{version}} already exists" >&2; exit 1; }
+    sed -i '' 's/^\( *versionName = \)".*"$/\1"{{version}}"/' apps/android/app/build.gradle.kts
+    git commit --quiet -m "Release Beep for Android {{version}}" apps/android/app/build.gradle.kts
+    git tag -a "android-v{{version}}" -m "Beep for Android {{version}}"
+    echo "Tagged android-v{{version}}. Publish it with: git push origin main android-v{{version}}"
+
 # Deploy the Cloudflare Worker behind https share and invite links. Needs
 # CLOUDFLARE_ACCOUNT_ID in .env: the account that holds flashmind.com.
 links-deploy:
