@@ -29,8 +29,11 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** A chat a notification belongs to: a chat with Beep (routines included) or a group. */
 data class ChatKey(val id: String, val group: Boolean) {
-    /** Names the notification, its shortcut and its bubble. */
-    val tag get() = if (group) "group:$id" else id
+    /**
+     * Names the notification, its shortcut and its bubble. Every chat with Beep shares one,
+     * so only one bubble ever floats; it shows whichever chat spoke last.
+     */
+    val tag get() = if (group) "group:$id" else "beep"
     val notificationId get() = tag.hashCode()
     fun extras(intent: Intent): Intent = intent.putExtra(if (group) "group_id" else "conversation_id", id)
 
@@ -56,6 +59,10 @@ object ChatNotifications {
 
     /** What each chat's notification shows, so a new notice adds to it rather than replacing it. */
     private val shown = ConcurrentHashMap<String, List<ChatLine>>()
+    /** The chat with Beep that the shared notification is showing. */
+    @Volatile private var beepChat: String? = null
+    /** A chat whose reply the bubble announced, for the bubble to open on next time it expands. */
+    @Volatile var announced: String? = null
 
     fun ensureChannel(context: Context) {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -172,8 +179,12 @@ object ChatNotifications {
             style.addMessage(line.text, line.time, sender)
         }
         shown[key.tag] = kept
+        if (!key.group) {
+            beepChat = key.id
+            if (!options.quiet) announced = key.id
+        }
         val icon = if (key.group) Icon.createWithAdaptiveBitmap(initials(title)) else Icon.createWithResource(context, Avatars.current.bubbleIcon)
-        pushShortcut(context, key, title.takeIf { it != NEW_CHAT_TITLE } ?: BEEP, icon, listOf(beep) + members.values)
+        pushShortcut(context, key, if (key.group) title else BEEP, icon, listOf(beep) + members.values)
         val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setStyle(style)
@@ -185,7 +196,8 @@ object ChatNotifications {
             .setColor(0xFF3B9B7A.toInt())
             .setAutoCancel(true)
             .setOnlyAlertOnce(options.quiet)
-            .setBubbleMetadata(bubble(context, key, icon, options.expand))
+            // Only Beep floats; a group stays in the shade so there is never a second bubble.
+            .apply { if (!key.group) setBubbleMetadata(bubble(context, key, icon, options.expand)) }
         context.getSystemService(NotificationManager::class.java).notify(key.notificationId, builder.build())
     }
 
@@ -193,7 +205,7 @@ object ChatNotifications {
     fun append(context: Context, key: ChatKey, title: String, line: ChatLine, options: Post = Post()) =
         post(context, key, title, (if (isShown(context, key)) shown[key.tag].orEmpty() else emptyList()) + line, options)
 
-    private fun isShown(context: Context, key: ChatKey) =
+    private fun isShown(context: Context, key: ChatKey) = (key.group || beepChat == key.id) &&
         context.getSystemService(NotificationManager::class.java).activeNotifications.any { it.id == key.notificationId }
 
     /** The lines of a chat with Beep, from its saved turns. */
@@ -215,9 +227,12 @@ object ChatNotifications {
 
     /** Takes the chat's notification down. A chat floating as a bubble stays unless [bubble] says to drop it too. */
     fun cancel(context: Context, key: ChatKey, bubble: Boolean = false) {
+        if (announced == key.id) announced = null
         val manager = context.getSystemService(NotificationManager::class.java)
         val floating = manager.activeNotifications.any { it.id == key.notificationId && it.notification.flags and Notification.FLAG_BUBBLE != 0 }
         if (floating && !bubble) return
+        // The shared notification may be showing another chat with Beep.
+        if (!key.group && beepChat != null && beepChat != key.id) return
         shown.remove(key.tag)
         manager.cancel(key.notificationId)
     }
