@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
+import com.flashmind.beep.proto.MemoryRead
 import com.flashmind.beep.ffi.ListCache
 import com.flashmind.beep.ffi.Rerun
 import com.flashmind.beep.ffi.identityName
@@ -687,6 +688,9 @@ class ChatRepository(private val storage: LocalStorage) {
         saveLists { it.copy(memories = fresh) }
         return fresh.map(::memory)
     }
+    /** The reads of mail and calendars that found memories, newest first. Empty on servers from before them. */
+    suspend fun listMemoryReads(): List<MemoryRead> =
+        try { api().listMemoryReads() } catch (e: BeepException) { emptyList() }
     suspend fun deleteMemory(id: String) {
         api().deleteMemory(id)
     }

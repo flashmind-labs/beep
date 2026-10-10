@@ -3,7 +3,10 @@ import SwiftUI
 struct MemoriesView: View {
     @Environment(AppModel.self) private var model
     @Binding var path: [Route]
+    var latestRead = false
     @State private var memories: [Memory] = []
+    @State private var reads: [MemoryRead] = []
+    @State private var readId: String?
     @State private var loaded = false
     @State private var error = ""
     @State private var query = ""
@@ -33,6 +36,22 @@ struct MemoriesView: View {
                 Text("\(shown.count)").font(.body(12)).foregroundStyle(Mint.muted)
             }
             .padding(.horizontal, 20).padding(.vertical, 8)
+            if !reads.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ReadChip(label: "All", count: nil, selected: read == nil) { readId = nil }
+                        ForEach(reads.prefix(3), id: \.id) { r in
+                            ReadChip(label: readLabel(r), count: r.memories.count, selected: r.id == readId) { readId = r.id }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+            }
+            if let read {
+                Text("What Beep learned or confirmed reading \(read.source) \(readDate(read)).")
+                    .font(.body(12)).foregroundStyle(Mint.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 6)
+            }
             if !error.isEmpty {
                 Text(error).font(.body(12)).foregroundStyle(Mint.error)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
@@ -96,9 +115,13 @@ struct MemoriesView: View {
         }
     }
 
+    private var read: MemoryRead? { reads.first { $0.id == readId } }
+
     private var shown: [Memory] {
-        guard !query.isEmpty else { return memories }
-        return memories.filter {
+        let ids = read.map { Set($0.memories) }
+        let inRead = ids.map { ids in memories.filter { ids.contains($0.id) } } ?? memories
+        guard !query.isEmpty else { return inRead }
+        return inRead.filter {
             $0.content.localizedCaseInsensitiveContains(query) || $0.category.localizedCaseInsensitiveContains(query)
         }
     }
@@ -117,6 +140,8 @@ struct MemoriesView: View {
     private func load() async {
         do {
             memories = try await model.memories()
+            reads = await model.memoryReads()
+            if latestRead, readId == nil { readId = reads.first?.id }
             error = ""
         } catch {
             self.error = describe(error)
@@ -190,4 +215,38 @@ private func shortDate(_ date: String) -> String {
     let sameYear = Calendar.current.isDate(day, equalTo: .now, toGranularity: .year)
     return sameYear ? day.formatted(.dateTime.day().month(.abbreviated))
         : day.formatted(.dateTime.day().month(.abbreviated).year())
+}
+
+private struct ReadChip: View {
+    let label: String
+    let count: Int?
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(label).foregroundStyle(Mint.ink)
+                if let count { Text("\(count)").foregroundStyle(Mint.dim) }
+            }
+            .font(.body(12))
+            .padding(.horizontal, 12).frame(minHeight: 32)
+            .background(Capsule().fill(selected ? Mint.accent.opacity(0.18) : Mint.surface))
+            .overlay(Capsule().stroke(selected ? Mint.accent : Mint.soft, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private func readFinished(_ read: MemoryRead) -> Date? { try? Date(read.finishedAt, strategy: .iso8601) }
+
+/// "Gmail · 10 Oct".
+private func readLabel(_ read: MemoryRead) -> String {
+    guard let day = readFinished(read) else { return read.source }
+    return "\(read.source) · \(day.formatted(.dateTime.day().month(.abbreviated)))"
+}
+
+private func readDate(_ read: MemoryRead) -> String {
+    guard let day = readFinished(read) else { return "earlier" }
+    return Calendar.current.isDateInToday(day) ? "today" : "on \(day.formatted(.dateTime.day().month(.wide)))"
 }

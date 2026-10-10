@@ -70,6 +70,11 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
             post(threadId: "apps", title: notice.title, lines: [Line(sender: nil, text: notice.body)], group: false)
             return
         }
+        // No chat, app or approval: a read of mail or a calendar finished.
+        if notice.sessionId.isEmpty, !notice.group {
+            post(threadId: "read", title: notice.title, lines: [Line(sender: nil, text: notice.body)], group: false)
+            return
+        }
         post(threadId: notice.sessionId, title: notice.title, lines: [Self.line(notice.body, group: notice.group)],
              group: notice.group)
     }
@@ -191,6 +196,7 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
         case UNNotificationDefaultActionIdentifier:
             await MainActor.run {
                 guard thread != "apps" else { return }
+                if thread == "read" { model?.destination = .latestRead; return }
                 model?.destination = group ? .group(thread) : .chat(thread)
             }
         default:

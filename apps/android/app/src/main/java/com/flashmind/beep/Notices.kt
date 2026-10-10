@@ -33,6 +33,8 @@ object Notices : NoticeListener {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (conversationId.isNotEmpty()) putExtra("conversation_id", conversationId)
             if (notice.app != null) putExtra("open_apps", true)
+            // No chat, app or approval: a read of mail or a calendar finished.
+            if (conversationId.isEmpty() && notice.app == null && notice.approval == null) putExtra("open_read", true)
         }
         val requestCode = (notice.app ?: conversationId).hashCode()
         val pending = PendingIntent.getActivity(app, requestCode, intent,
