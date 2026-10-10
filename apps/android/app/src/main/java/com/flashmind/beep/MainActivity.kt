@@ -34,7 +34,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.*
 import com.flashmind.beep.ffi.groupToken
 import com.flashmind.beep.ffi.shareToken
@@ -94,6 +94,8 @@ open class MainActivity : ComponentActivity() {
     private val pendingGroupToken = mutableStateOf<String?>(null)
     /** A group to open, from its notification. */
     private val pendingGroup = mutableStateOf<String?>(null)
+    /** A chat to open, from its notification, a widget or a share. */
+    private val pendingChat = mutableStateOf<String?>(null)
     private val clipboardContent = mutableStateOf<String?>(null)
     /** Set to true right before the app copies text, to suppress showing the banner for our own copies. */
     var suppressNextClipboard = false
@@ -143,7 +145,7 @@ open class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it) }
+        intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it); pendingChat.value = it }
         if (intent.getBooleanExtra("focus_input", false)) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
         takeLinks(intent)
@@ -204,13 +206,13 @@ open class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             startLocationUpdates()
         }
-        intent?.getStringExtra("conversation_id")?.let { repository.select(it) }
+        intent?.getStringExtra("conversation_id")?.let { repository.select(it); pendingChat.value = it }
         if (intent?.getBooleanExtra("focus_input", false) == true) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
         takeLinks(intent)
         setContent {
-            BeepTheme {
-                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, clipboardContent = clipboardContent, onFloat = {
+            BeepTheme { CompositionLocalProvider(LocalOpenLink provides { url: String -> repository.openBrowser(url) }) {
+                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, chatToOpen = pendingChat, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
                 }, onExpand = { groupId ->
@@ -220,7 +222,7 @@ open class MainActivity : ComponentActivity() {
                     })
                     if (panel) finish()
                 }, onBubbleSettings = { Bubble.settings(this) })
-            }
+            } }
         }
     }
     override fun onStart() {
@@ -286,7 +288,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-private enum class Screen { Chat, Memories, Crons, Integrations, Settings, Devices, Shared, GroupJoin, GroupInfo }
+internal enum class Screen { Home, Chat, Places, LocationAlways, Memories, Crons, Integrations, Settings, Devices, Shared, GroupJoin, GroupInfo }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -297,6 +299,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     shareToken: MutableState<String?> = mutableStateOf(null),
                     groupToken: MutableState<String?> = mutableStateOf(null),
                     groupToOpen: MutableState<String?> = mutableStateOf(null),
+                    chatToOpen: MutableState<String?> = mutableStateOf(null),
                     clipboardContent: MutableState<String?> = mutableStateOf(null),
                     onFloat: () -> Unit, onExpand: (groupId: String?) -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
@@ -306,10 +309,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val pendingAppIntent by repository.pendingIntent.collectAsStateWithLifecycle()
     val pendingAlarm by repository.pendingAlarm.collectAsStateWithLifecycle()
     val browserOpen by repository.browserOpen.collectAsStateWithLifecycle()
-    var drawerOpen by remember { mutableStateOf(false) }
     var bubbleMenu by remember { mutableStateOf(false) }
-    var historyQuery by rememberSaveable { mutableStateOf("") }
-    var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
+    // The app opens on the chat list; the bubble opens on its chat.
+    var screen by rememberSaveable { mutableStateOf(if (bubble) Screen.Chat else Screen.Home) }
     // A notice about an app that lost its login opens Apps to reconnect it.
     LaunchedEffect(openApps.value) {
         if (openApps.value) {
@@ -346,6 +348,12 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             openGroup = it; screen = Screen.Chat
         }
     }
+    LaunchedEffect(chatToOpen.value) {
+        chatToOpen.value?.let {
+            chatToOpen.value = null
+            openGroup = null; screen = Screen.Chat
+        }
+    }
     // Chats left by starting a new one, newest last, so a swipe right can go back to them.
     // The trail only holds while the user stays on the chat the swipes led to: opening one from the
     // list, a notification or a share starts over, and it lives no longer than this screen.
@@ -373,7 +381,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         return visited.lastOrNull { it in ids && it != state.current.id }
     }
     fun goBack() {
-        val id = previousChat() ?: run { drawerOpen = true; return }
+        val id = previousChat() ?: run { screen = Screen.Home; return }
         visited = visited.dropLastWhile { it != id }.dropLast(1)
         repository.select(id)
         trailEnd = id
@@ -402,9 +410,16 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         })
         return
     }
-    val activeScreen = if (bubble) Screen.Chat else screen
-    BackHandler(enabled = activeScreen != Screen.Chat) {
-        screen = if (activeScreen == Screen.Devices) Screen.Settings else Screen.Chat
+    // The bubble only has room for its chat and the chat list.
+    val activeScreen = if (bubble && screen != Screen.Home) Screen.Chat else screen
+    BackHandler(enabled = if (bubble) activeScreen == Screen.Home else activeScreen != Screen.Home) {
+        screen = when {
+            bubble -> Screen.Chat
+            activeScreen == Screen.Devices -> Screen.Settings
+            activeScreen == Screen.LocationAlways -> Screen.Places
+            activeScreen == Screen.GroupInfo -> Screen.Chat
+            else -> Screen.Home
+        }
     }
     fun openGroupChat(id: String) {
         openGroup = id
@@ -412,267 +427,39 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }
     Crossfade(targetState = activeScreen, animationSpec = tween(300), label = "screen-transition") { currentScreen ->
         when (currentScreen) {
-            Screen.Memories -> MemoriesScreen(repository, onBack = { screen = Screen.Chat })
-            Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat },
+            Screen.Memories -> MemoriesScreen(repository, onBack = { screen = Screen.Home })
+            Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Home },
                 onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat },
                 onOpenChat = { id -> repository.select(id); screen = Screen.Chat })
-            Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat })
-            Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Chat },
+            Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Home })
+            Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Home },
                 onBubbleSettings = onBubbleSettings, onLinkedDevices = { screen = Screen.Devices })
             Screen.Devices -> LinkedDevicesScreen(repository, onBack = { screen = Screen.Settings })
             Screen.GroupJoin -> joinToken?.let { token ->
                 GroupJoinScreen(repository, token, onJoined = { joinToken = null; openGroupChat(it) },
-                    onBack = { joinToken = null; screen = Screen.Chat })
+                    onBack = { joinToken = null; screen = Screen.Home })
             }
             Screen.GroupInfo -> openGroup?.let { id ->
                 GroupInfoScreen(repository, id, onBack = { screen = Screen.Chat }, onInvite = { inviting = it },
-                    onLeft = { openGroup = null; screen = Screen.Chat })
+                    onLeft = { openGroup = null; screen = Screen.Home })
             }
             Screen.Shared -> sharedToken?.let { token ->
-                SharedChatScreen(repository, token, onBack = { screen = Screen.Chat }, onContinued = { sharedToken = null; screen = Screen.Chat })
+                SharedChatScreen(repository, token, onBack = { screen = Screen.Home }, onContinued = { sharedToken = null; screen = Screen.Chat })
             }
+            Screen.Home -> ChatListScreen(repository, UnwiredPlaces, HomeActions(
+                openChat = { openChat(it); screen = Screen.Chat },
+                openGroup = { openGroupChat(it) },
+                newChat = { openGroup = null; if (state.current.messages.isNotEmpty()) repository.newChat(); screen = Screen.Chat },
+                newGroup = { if (bubble) onExpand(null) else newGroup = true },
+                joinCode = { if (bubble) onExpand(null) else joiningByCode = true },
+                invite = { inviting = it },
+                open = { if (bubble) onExpand(null) else screen = it }))
+            Screen.Places -> PlacesScreen(UnwiredPlaces, onBack = { screen = Screen.Home }, onLocationAlways = { screen = Screen.LocationAlways })
+            Screen.LocationAlways -> BackgroundLocationScreen(onDone = { screen = Screen.Places }, onPlaces = { screen = Screen.Places })
             Screen.Chat -> {
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
-    val focusManager = LocalFocusManager.current
-    val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(drawerOpen) {
-        if (drawerOpen) {
-            // The composer keeps focus behind the drawer otherwise, and the keyboard covers the list.
-            focusManager.clearFocus()
-            keyboard?.hide()
-            repository.refreshHistory(); repository.refreshGroups(); drawerState.open()
-        } else drawerState.close()
-    }
-    LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
-    BackHandler(enabled = drawerOpen) { drawerOpen = false }
-    // Closed, horizontal swipes belong to the chat (new chat or back), so the drawer only takes them to close.
-    ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerOpen, drawerContent = {
-        ModalDrawerSheet(modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(0.9f), drawerContainerColor = Ink,
-            drawerShape = RoundedCornerShape(topEnd = Beep.shapes.radius, bottomEnd = Beep.shapes.radius)) {
-            Spacer(Modifier.height(if (bubble) 8.dp else 20.dp))
-            Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(displayText("Your chats"), Modifier.weight(1f), style = displayStyle(26.sp))
-                if (!bubble) ChunkyButton(onClick = { newGroup = true }, shape = RoundedCornerShape(Beep.shapes.smallRadius),
-                    modifier = Modifier.size(40.dp), contentPadding = PaddingValues(0.dp)) {
-                    Icon(Icons.Outlined.GroupAdd, "New group", Modifier.size(20.dp))
-                }
-            }
-            OutlinedTextField(historyQuery, { historyQuery = it }, placeholder = { Text("Find a conversation", fontSize = 13.sp) },
-                leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) }, singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
-                    unfocusedBorderColor = Border, focusedBorderColor = Moss),
-                shape = RoundedCornerShape(Beep.shapes.radius), modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp).fillMaxWidth())
-            var contextMenuChat by remember { mutableStateOf<String?>(null) }
-            var contextMenuGroup by remember { mutableStateOf<String?>(null) }
-            var leavingGroup by remember { mutableStateOf<Group?>(null) }
-            var showRenameDialog by remember { mutableStateOf<Conversation?>(null) }
-            var showDeleteDialog by remember { mutableStateOf<Conversation?>(null) }
-            var sharingChat by remember { mutableStateOf<Conversation?>(null) }
-            // Chats and groups (keyed by groupKey) picked for bulk delete; selection mode is on while it is not null.
-            var picked by remember { mutableStateOf<Set<String>?>(null) }
-            var confirmBulkDelete by remember { mutableStateOf(false) }
-            LaunchedEffect(drawerOpen) { if (!drawerOpen) picked = null }
-            BackHandler(enabled = picked != null) { picked = null }
-            val visibleChats = state.conversations.filter { !it.isUnused && it.title.contains(historyQuery, ignoreCase = true) }
-                .sortedWith(compareByDescending<Conversation> { it.pinned }.thenByDescending { it.lastActive })
-            // Titles match at once; what was written comes from the server after a pause in typing.
-            var contentHits by remember { mutableStateOf<List<SessionMatch>>(emptyList()) }
-            LaunchedEffect(historyQuery) {
-                contentHits = emptyList()
-                val query = historyQuery.trim()
-                if (query.length < 2) return@LaunchedEffect
-                delay(350)
-                contentHits = runCatching { withContext(Dispatchers.IO) { repository.searchChats(query) } }.getOrDefault(emptyList())
-            }
-            // Groups sit among the chats by when they were last active, pinned ones with the pinned chats.
-            val visibleGroups = groups.filter { it.name.contains(historyQuery, ignoreCase = true) }
-            val rows: List<Any> = run {
-                val all: List<Any> = (visibleChats + visibleGroups).sortedByDescending {
-                    if (it is Group) it.updatedAt else (it as Conversation).lastActive
-                }
-                val (pinned, rest) = all.partition { if (it is Group) it.pinned else (it as Conversation).pinned }
-                pinned + rest
-            }
-            val known = state.conversations.associateBy { it.id }
-            val titled = visibleChats.map { it.id }.toSet()
-            val messageHits = if (picked != null) emptyList()
-                else contentHits.filter { it.session.id !in titled && it.session.id in known }
-            picked?.let { ids ->
-                Row(Modifier.padding(start = 20.dp, end = 8.dp, bottom = 4.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${ids.size} selected", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                    val all = visibleChats.map { it.id }.toSet() + visibleGroups.map { groupKey(it.id) }
-                    TextButton(onClick = { picked = if (ids.containsAll(all)) emptySet() else ids + all }) {
-                        Text(if (ids.containsAll(all) && all.isNotEmpty()) "None" else "All")
-                    }
-                    IconButton(onClick = { confirmBulkDelete = true }, enabled = ids.isNotEmpty()) {
-                        Icon(Icons.Outlined.Delete, "Delete selected", tint = if (ids.isNotEmpty()) Coral else TextMuted)
-                    }
-                    IconButton(onClick = { picked = null }) { Icon(Icons.Outlined.Close, "Done selecting") }
-                }
-            }
-            LazyColumn(Modifier.weight(1f)) {
-                if (messageHits.isNotEmpty() && visibleChats.isNotEmpty()) item(key = "titles-label") { DrawerLabel("Titles") }
-                items(rows, key = { if (it is Group) groupKey(it.id) else (it as Conversation).id }) { row ->
-                    if (row is Group) Box {
-                        val selecting = picked
-                        val key = groupKey(row.id)
-                        val toggle = { selecting?.let { picked = if (key in it) it - key else it + key } }
-                        GroupRow(row, highlighted = if (selecting != null) key in selecting else openGroup == row.id,
-                            selected = selecting?.let { key in it },
-                            onClick = { if (selecting != null) toggle() else { openGroupChat(row.id); drawerOpen = false } },
-                            onLongClick = { if (selecting != null) toggle() else contextMenuGroup = row.id })
-                        DropdownMenu(expanded = contextMenuGroup == row.id, onDismissRequest = { contextMenuGroup = null },
-                            containerColor = Surface) {
-                            DropdownMenuItem(text = { Text("Select") },
-                                leadingIcon = { Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp)) },
-                                onClick = { contextMenuGroup = null; picked = setOf(key) })
-                            DropdownMenuItem(text = { Text(if (row.pinned) "Unpin" else "Pin") },
-                                leadingIcon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
-                                onClick = { contextMenuGroup = null; repository.pinGroup(row.id, !row.pinned) })
-                            DropdownMenuItem(text = { Text("Invite") },
-                                leadingIcon = { Icon(Icons.Outlined.Link, null, Modifier.size(18.dp)) },
-                                onClick = { contextMenuGroup = null; inviting = row })
-                            DropdownMenuItem(text = { Text("Leave", color = Coral) },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Logout, null, Modifier.size(18.dp), tint = Coral) },
-                                onClick = { contextMenuGroup = null; leavingGroup = row })
-                        }
-                        return@items
-                    }
-                    val chat = row as Conversation
-                    Box(Modifier.padding(horizontal = 12.dp, vertical = 2.dp)) {
-                        val selecting = picked
-                        val toggle = { selecting?.let { picked = if (chat.id in it) it - chat.id else it + chat.id } }
-                        val highlighted = if (selecting != null) chat.id in selecting else openGroup == null && state.current.id == chat.id
-                        // NavigationDrawerItem consumes the press itself, so it never reports a long press.
-                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Beep.shapes.smallRadius))
-                            .background(if (highlighted) Beep.colors.user else Color.Transparent)
-                            .combinedClickable(
-                                onClick = { if (selecting != null) toggle() else { openChat(chat.id); drawerOpen = false } },
-                                onLongClick = { if (selecting != null) toggle() else contextMenuChat = chat.id })
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            if (selecting != null) Icon(if (chat.id in selecting) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                                null, Modifier.size(18.dp), tint = if (chat.id in selecting) Coral else TextMuted)
-                            Column(Modifier.weight(1f)) {
-                                Text(chat.title, maxLines = 2, fontSize = 14.sp, overflow = TextOverflow.Ellipsis,
-                                    color = if (highlighted) Beep.colors.onUser else Color.Unspecified)
-                                Text(chatTime(chat.lastActive), fontSize = 12.sp, maxLines = 1,
-                                    color = if (highlighted) Beep.colors.onUser.copy(alpha = 0.7f) else TextMuted)
-                            }
-                            if (chat.pinned && selecting == null) Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(16.dp), tint = Moss)
-                        }
-                        DropdownMenu(expanded = contextMenuChat == chat.id, onDismissRequest = { contextMenuChat = null },
-                            containerColor = Surface) {
-                            DropdownMenuItem(text = { Text("Select") },
-                                leadingIcon = { Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp)) },
-                                onClick = { contextMenuChat = null; picked = setOf(chat.id) })
-                            DropdownMenuItem(text = { Text("Rename") },
-                                leadingIcon = { Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp)) },
-                                onClick = { contextMenuChat = null; showRenameDialog = chat })
-                            DropdownMenuItem(text = { Text(if (chat.pinned) "Unpin" else "Pin") },
-                                leadingIcon = { Icon(Icons.Outlined.PushPin, null, Modifier.size(18.dp)) },
-                                onClick = { contextMenuChat = null; repository.pinSession(chat.id, !chat.pinned) })
-                            DropdownMenuItem(text = { Text("Share") },
-                                leadingIcon = { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)) },
-                                onClick = { contextMenuChat = null; sharingChat = chat })
-                            DropdownMenuItem(text = { Text("Delete", color = Coral) },
-                                leadingIcon = { Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp), tint = Coral) },
-                                onClick = { contextMenuChat = null; showDeleteDialog = chat })
-                        }
-                    }
-                }
-                if (messageHits.isNotEmpty()) item(key = "messages-label") { DrawerLabel("In messages") }
-                items(messageHits, key = { "hit-" + it.session.id }) { hit ->
-                    val chat = known.getValue(hit.session.id)
-                    MessageHitRow(chat.title, hit, historyQuery.trim()) { openChat(chat.id); drawerOpen = false }
-                }
-            }
-            sharingChat?.let { chat -> ShareSheet(repository, chat, onDismiss = { sharingChat = null }) }
-            // Rename dialog
-            showRenameDialog?.let { chat ->
-                var renameText by remember(chat.id) { mutableStateOf(chat.title) }
-                AlertDialog(
-                    onDismissRequest = { showRenameDialog = null },
-                    confirmButton = { TextButton(onClick = {
-                        val title = renameText.trim()
-                        if (title.isNotEmpty()) { repository.renameSession(chat.id, title); showRenameDialog = null }
-                    }) { Text("Rename") } },
-                    dismissButton = { TextButton(onClick = { showRenameDialog = null }) { Text("Cancel") } },
-                    title = { Text("Rename conversation") },
-                    text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true, shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()) },
-                    containerColor = Surface)
-            }
-            // Delete confirmation dialog
-            showDeleteDialog?.let { chat ->
-                AlertDialog(
-                    onDismissRequest = { showDeleteDialog = null },
-                    confirmButton = { TextButton(onClick = {
-                        repository.deleteSession(chat.id); showDeleteDialog = null
-                    }) { Text("Delete", color = Coral) } },
-                    dismissButton = { TextButton(onClick = { showDeleteDialog = null }) { Text("Cancel") } },
-                    title = { Text("Delete conversation?") },
-                    text = { Text("This will permanently delete this conversation and all its messages.") },
-                    containerColor = Surface)
-            }
-            leavingGroup?.let { g ->
-                AlertDialog(
-                    onDismissRequest = { leavingGroup = null },
-                    confirmButton = { TextButton(onClick = {
-                        leavingGroup = null
-                        if (openGroup == g.id) openGroup = null
-                        repository.leaveGroups(setOf(g.id))
-                    }) { Text("Leave", color = Coral) } },
-                    dismissButton = { TextButton(onClick = { leavingGroup = null }) { Text("Cancel") } },
-                    title = { Text("Leave ${g.name}?") },
-                    text = { Text(if (g.members.size <= 1) "You are the last member, so the group and its messages are deleted."
-                        else "You stop getting its messages. Someone in it can invite you again.") },
-                    containerColor = Surface)
-            }
-            if (confirmBulkDelete) {
-                val (groupKeys, chatIds) = picked.orEmpty().partition { it.startsWith(GROUP_KEY) }
-                val groupIds = groupKeys.map { it.removePrefix(GROUP_KEY) }.toSet()
-                val chats = when (chatIds.size) { 0 -> null; 1 -> "1 conversation"; else -> "${chatIds.size} conversations" }
-                val leave = when (groupIds.size) { 0 -> null; 1 -> "1 group"; else -> "${groupIds.size} groups" }
-                AlertDialog(
-                    onDismissRequest = { confirmBulkDelete = false },
-                    confirmButton = { TextButton(onClick = {
-                        confirmBulkDelete = false; picked = null
-                        repository.deleteSessions(chatIds.toSet())
-                        if (openGroup in groupIds) openGroup = null
-                        repository.leaveGroups(groupIds)
-                    }) { Text(if (chats == null) "Leave" else "Delete", color = Coral) } },
-                    dismissButton = { TextButton(onClick = { confirmBulkDelete = false }) { Text("Cancel") } },
-                    title = { Text(listOfNotNull(chats?.let { "Delete $it" }, leave?.let { "leave $it" })
-                        .joinToString(" and ").replaceFirstChar { it.uppercase() } + "?") },
-                    text = { Text(listOfNotNull(chats?.let { "The conversations and their messages are deleted for good." },
-                        leave?.let { "You stop getting the groups' messages." }).joinToString(" ")) },
-                    containerColor = Surface)
-            }
-            if (!bubble) {
-                HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = Border)
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Memories; drawerOpen = false }
-                    DrawerTile("Routines", Icons.Outlined.Schedule, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Crons; drawerOpen = false }
-                    DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-            Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (!bubble) TextButton(onClick = { screen = Screen.Settings; drawerOpen = false }) {
-                    Icon(Icons.Outlined.Settings, null, Modifier.size(18.dp), tint = TextMuted); Spacer(Modifier.width(8.dp))
-                    Text("Settings", color = TextMuted)
-                }
-                Spacer(Modifier.weight(1f))
-                ConnectionDot(connected, status); Spacer(Modifier.width(6.dp))
-                Text(status, fontSize = 11.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(end = 12.dp).widthIn(max = 140.dp))
-            }
-        }
-    }) {
         val group = openGroup
         // The bubble has no room for the group screen, so its info opens the app.
-        if (group != null) GroupChatPane(repository, group, onMenu = { drawerOpen = true }, onInfo = { if (bubble) onExpand(group) else screen = Screen.GroupInfo },
+        if (group != null) GroupChatPane(repository, group, onBack = { screen = Screen.Home }, onInfo = { if (bubble) onExpand(group) else screen = Screen.GroupInfo },
             onInvite = { inviting = it }, onGone = { openGroup = null },
             onNewChat = { startNewChat() }, onPrevious = { openGroup = null },
             onExpand = if (bubble) { { onExpand(group) } } else null)
@@ -687,31 +474,29 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                         IconButton(onClick = { bubbleMenu = true }) { Icon(Icons.Outlined.MoreVert, "Chat options", Modifier.size(20.dp)) }
                         DropdownMenu(expanded = bubbleMenu, onDismissRequest = { bubbleMenu = false }) {
                             DropdownMenuItem(text = { Text("New conversation") }, onClick = { startNewChat(); bubbleMenu = false })
-                            DropdownMenuItem(text = { Text("Conversations") }, onClick = { drawerOpen = true; bubbleMenu = false })
+                            DropdownMenuItem(text = { Text("Conversations") }, onClick = { screen = Screen.Home; bubbleMenu = false })
                         }
                     }
                 }
             } else TopAppBar(title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GroupAvatar("b", Beep.colors.brand, 36.dp, beep = true)
                     Column {
-                        Text(displayText("Beep"), style = displayStyle(24.sp))
+                        Text(state.current.title.ifEmpty { "Beep" }, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             ConnectionDot(connected, status)
-                            if (!connected) {
-                                Spacer(Modifier.width(6.dp))
-                                Text("Tap to reconnect", fontSize = 12.sp, color = TextMuted,
-                                    fontFamily = Beep.fonts.body, fontWeight = FontWeight.Medium,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.clickable { repository.reconnect() })
-                            }
+                            Spacer(Modifier.width(6.dp))
+                            if (!connected) Text("Tap to reconnect", fontSize = 12.sp, color = TextMuted,
+                                fontFamily = Beep.fonts.body, fontWeight = FontWeight.Medium,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable { repository.reconnect() })
+                            else Text(status, fontSize = 12.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
             }, navigationIcon = {
-                ChunkyButton(onClick = { drawerOpen = true }, shape = RoundedCornerShape(Beep.shapes.smallRadius),
-                    modifier = Modifier.padding(start = 12.dp, end = 10.dp).size(42.dp), contentPadding = PaddingValues(0.dp)) {
-                    Icon(Icons.Outlined.Menu, "Conversations", Modifier.size(20.dp))
-                }
+                IconButton(onClick = { screen = Screen.Home }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Chats") }
             },
                 actions = {
                     IconButton(onClick = onFloat, Modifier.padding(end = 6.dp)) { Icon(Icons.Outlined.BubbleChart, "Float chat", tint = TextMuted) }
@@ -726,19 +511,16 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 }
             }
         }
-    } // end ModalNavigationDrawer
     } // end Screen.Chat
     } // end when
     } // end Crossfade
     if (newGroup) NewGroupSheet(repository, onDismiss = { newGroup = false }, onCreated = {
         newGroup = false
-        drawerOpen = false
         openGroupChat(it.id)
         inviting = it
     }, onJoinCode = { newGroup = false; joiningByCode = true })
     if (joiningByCode) JoinCodeSheet(repository, onDismiss = { joiningByCode = false }, onFound = {
         joiningByCode = false
-        drawerOpen = false
         joinToken = it
         screen = Screen.GroupJoin
     })
@@ -754,35 +536,3 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         }
     }
 }
-
-@Composable
-private fun DrawerLabel(text: String) =
-    Text(text, Modifier.padding(start = 28.dp, end = 20.dp, top = 10.dp, bottom = 4.dp),
-        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
-
-/** A chat found by what was written in it, with the matching words highlighted. */
-@Composable
-private fun MessageHitRow(title: String, hit: SessionMatch, query: String, onClick: () -> Unit) {
-    val highlight = Beep.colors.brand.copy(alpha = 0.25f)
-    val snippet = buildAnnotatedString {
-        if (hit.fromUser) append("You: ")
-        var from = 0
-        while (query.isNotEmpty()) {
-            val at = hit.snippet.indexOf(query, from, ignoreCase = true)
-            if (at < 0) break
-            append(hit.snippet.substring(from, at))
-            withStyle(SpanStyle(background = highlight, color = Beep.colors.ink)) { append(hit.snippet.substring(at, at + query.length)) }
-            from = at + query.length
-        }
-        append(hit.snippet.substring(from))
-    }
-    Column(Modifier.padding(horizontal = 12.dp, vertical = 2.dp).fillMaxWidth().clip(RoundedCornerShape(Beep.shapes.smallRadius))
-        .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(title, maxLines = 1, fontSize = 14.sp, overflow = TextOverflow.Ellipsis)
-        Text(snippet, maxLines = 2, fontSize = 12.sp, lineHeight = 16.sp, overflow = TextOverflow.Ellipsis, color = TextMuted)
-    }
-}
-
-/** A group's key in the drawer list and in the picked set, apart from chat ids. */
-private const val GROUP_KEY = "group-"
-private fun groupKey(id: String) = GROUP_KEY + id

@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
@@ -15,6 +17,12 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- To name the default browser on the browser's "Open in" button. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
         </intent>
     </queries>
     <application android:name=".BeepApplication" android:label="Beep"
@@ -133,6 +141,7 @@
                 android:resource="@xml/file_paths" />
         </provider>
         <receiver android:name=".ReplyReceiver" android:exported="false" />
+        <receiver android:name=".MarkReadReceiver" android:exported="false" />
         <receiver android:name=".ApprovalReceiver" android:exported="false" />
         <service android:name=".BeepTileService"
             android:label="Beep"

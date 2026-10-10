@@ -132,6 +132,10 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
         }
     }
+    var attaching by remember { mutableStateOf(false) }
+    if (attaching) AttachSheet(room = MAX_IMAGES - attachedImages.size, onDismiss = { attaching = false },
+        onAllPhotos = { photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+        onImages = { attachedImages = (attachedImages + it).take(MAX_IMAGES) })
     val inputFocusRequester = remember { FocusRequester() }
     LaunchedEffect(focusInput.value) {
         if (focusInput.value) {
@@ -576,10 +580,8 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             Row(Modifier.weight(1f).heightIn(min = buttonSize).beepFrame(buttonShape, Surface, pressableLook()),
                 verticalAlignment = Alignment.CenterVertically) {
                 if (!chat.busy && draft.isBlank() && attachedImages.size < MAX_IMAGES) {
-                    IconButton(onClick = {
-                        photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    }, modifier = Modifier.padding(start = 2.dp)) {
-                        Icon(Icons.Outlined.Image, "Attach image", Modifier.size(22.dp), tint = TextMuted)
+                    IconButton(onClick = { attaching = true }, modifier = Modifier.padding(start = 2.dp)) {
+                        Icon(Icons.Outlined.Image, "Add a photo", Modifier.size(22.dp), tint = TextMuted)
                     }
                 }
                 TextField(value = draftField, onValueChange = { if (it.text.toByteArray().size <= 32768) { draftField = it; draft = it.text } },
