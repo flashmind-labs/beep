@@ -7,16 +7,17 @@ use crate::{
     images::{MAX_IMAGE_BYTES, MAX_IMAGES},
     live::Subscription,
     models::Picked,
-    permissions, profile,
+    permissions, places, profile,
     protocol::*,
     router::{Cx, Router, Sink},
     store::{
         AccountKey, CopiedShare, CreateRun, DeletedTurn, Feed, FoundSession, Join, LinkKey,
-        Location, NewKey, PushDevice, TurnModel, TurnsToDelete, decode_schedule, encode_schedule,
+        Location, NewKey, PushDevice, SavedPlace, TurnModel, TurnsToDelete, decode_schedule,
+        encode_schedule,
     },
     wake,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
 use flashmind::{
     core::{Conversation, ConversationEntry, EntryKind},
@@ -102,6 +103,9 @@ pub fn router() -> Router {
         .call(get_file)
         .call(list_group_reminders)
         .call(delete_group_reminder)
+        .call(list_places)
+        .call(delete_place)
+        .call(update_place)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -1108,7 +1112,7 @@ async fn list_crons(cx: Cx, _: ListCrons) -> Reply<Vec<Cron>> {
 
 async fn create_cron(cx: Cx, req: CreateCron) -> Reply<String> {
     cx.user
-        .create_cron(&req.label, &req.prompt, &req.schedule)
+        .create_cron(&req.label, &req.schedule, &req.prompt)
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))
 }
@@ -1128,7 +1132,8 @@ async fn update_cron(cx: Cx, req: UpdateCron) -> Reply<()> {
     let updated = cx
         .user
         .update_cron(&req.id, req.enabled, label, schedule)
-        .await?;
+        .await
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     found(updated)
 }
 
@@ -1248,6 +1253,13 @@ async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
     };
     let before = cx.user.get_location().await?;
     cx.user.update_location(&fix).await?;
+    // A failure here must not lose the fix, which is already saved.
+    if let Err(error) = places::track(&cx.app, &cx.user, &fix).await {
+        log::warn!(
+            "places: unable to check the fix: {error:#}; user={}",
+            cx.user.id()
+        );
+    }
     if let Some(event) = before.and_then(|before| wake::arrival(&before, &fix)) {
         log::info!("wake: arrival; user={}", cx.user.id());
         let (app, user) = (cx.app.clone(), cx.user.clone());
@@ -1258,6 +1270,47 @@ async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
         });
     }
     Ok(())
+}
+
+fn place_info(place: SavedPlace) -> Place {
+    let time = |at: DateTime<Utc>| at.to_rfc3339_opts(SecondsFormat::Secs, true);
+    Place {
+        id: place.id.to_string(),
+        name: place.name,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        radius: place.radius,
+        address: place.address,
+        created_at: time(place.created_at),
+        here: place.inside,
+        last_here_at: place.last_here_at.map(time),
+        routines: place.routines,
+    }
+}
+
+async fn list_places(cx: Cx, _: ListPlaces) -> Reply<Vec<Place>> {
+    let places = cx.user.list_places().await?;
+    Ok(places.into_iter().map(place_info).collect())
+}
+
+async fn delete_place(cx: Cx, DeletePlace { id }: DeletePlace) -> Reply<()> {
+    let id: Uuid = id.parse().map_err(|_| ApiError::NotFound {})?;
+    let deleted = cx.user.delete_place(id).await?;
+    if deleted {
+        // Its routines went with it.
+        cx.user.changed("");
+    }
+    found(deleted)
+}
+
+async fn update_place(cx: Cx, req: UpdatePlace) -> Reply<Place> {
+    let id: Uuid = req.id.parse().map_err(|_| ApiError::NotFound {})?;
+    let place = cx
+        .user
+        .update_place(id, req.name.as_deref(), req.radius)
+        .await
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    place.map(place_info).ok_or(ApiError::NotFound {})
 }
 
 async fn set_timezone(cx: Cx, SetTimezone { timezone }: SetTimezone) -> Reply<()> {

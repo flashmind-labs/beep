@@ -16,6 +16,7 @@ pub mod memories;
 pub mod metering;
 pub mod models;
 pub mod permissions;
+pub mod places;
 pub mod profile;
 pub mod push;
 pub mod repeat;
