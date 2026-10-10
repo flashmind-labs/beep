@@ -121,8 +121,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dchat .pin { color: var(--coral); display: grid; flex: none }
 .dchat .run { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--emerald); flex: none }
 .dchat .w { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none }
-.dchat[aria-selected="true"] { background: rgba(59, 155, 122, .28) }
-.dchat mark { background: rgba(240, 122, 106, .3); color: inherit; border-radius: 3px; padding: 0 1px }
+.dchat[aria-selected="true"], .dmem[aria-selected="true"], .drt[aria-selected="true"] { background: rgba(59, 155, 122, .28) }
+.dchat mark, .dmem mark { background: rgba(240, 122, 106, .3); color: inherit; border-radius: 3px; padding: 0 1px }
 
 .dwin { display: grid; justify-items: center; gap: 12px; text-align: center; padding: 22px 24px 24px }
 .dwin h4 { margin: 0; font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: -0.02em; text-wrap: balance }
@@ -182,8 +182,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dswitch::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); transition: transform .2s var(--ease) }
 .dswitch[aria-checked="true"] { background: var(--emerald) }
 .dswitch[aria-checked="true"]::after { transform: translateX(12px) }
-.dchat .acts { display: flex; gap: 4px; flex: none }
-.dchat .acts .dbtn { min-height: 22px; padding: 0 7px; font-size: 11.5px }
+.dchat .acts, .dmem .acts, .drt .acts { display: flex; gap: 4px; flex: none }
+.dchat .acts .dbtn, .dmem .acts .dbtn, .drt .acts .dbtn { min-height: 22px; padding: 0 7px; font-size: 11.5px }
 .dchat .grp { color: var(--muted); display: grid; flex: none }
 .dchat input { flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--fg); background: var(--surface); border: 1px solid var(--emerald); border-radius: 6px; padding: 2px 6px }
 .dinfo { display: grid; gap: 8px; font-size: 13px; line-height: 19px }
@@ -194,8 +194,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dg.beep .b { white-space: normal }
 .dhead .tt { border: 0; background: transparent; color: inherit; text-align: left; padding: 0 }
 .dfield input { min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; outline: 0; caret-color: var(--emerald) }
-.dfield input:focus { border-color: var(--emerald) }
-.dfield.err input { border-color: var(--err) }
+.dfield input:focus, .dfield textarea:focus { border-color: var(--emerald) }
+.dfield.err input, .dfield.err textarea { border-color: var(--err) }
 .dfield input.mono { font-family: var(--mono); letter-spacing: .12em; font-size: 15px; text-transform: uppercase }
 .dfield .note { font-size: 12px; color: var(--muted) } .dfield.err .note { color: var(--err) }
 .dform .row { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
@@ -234,18 +234,13 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 
 /* Memories and routines */
 .dmem { display: grid; gap: 2px; padding: 7px 10px; border-radius: 9px; color: var(--fg) }
-.dmem[aria-selected="true"] { background: rgba(59, 155, 122, .28) }
 .dmem .top { display: flex; align-items: flex-start; gap: 10px }
 .dmem .c { flex: 1; min-width: 0; font-size: 14px; line-height: 20px }
 .dmem .m { font-size: 12px; color: var(--muted); line-height: 17px }
 .dmem q { font-style: italic; color: var(--muted); font-size: 12px; line-height: 17px; quotes: "\201C" "\201D" }
 .dmem.ended .c, .dmem.ended q { opacity: .55 }
 .dmem textarea { flex: 1; min-width: 0; font: inherit; font-size: 14px; line-height: 20px; color: var(--fg); background: var(--surface); border: 1px solid var(--emerald); border-radius: 6px; padding: 3px 6px; resize: none; outline: 0 }
-.dmem mark { background: rgba(240, 122, 106, .3); color: inherit; border-radius: 3px; padding: 0 1px }
-.dmem .acts, .drt .acts { display: flex; gap: 4px; flex: none }
-.dmem .acts .dbtn, .drt .acts .dbtn { min-height: 22px; padding: 0 7px; font-size: 11.5px }
 .drt { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 9px; color: var(--fg) }
-.drt[aria-selected="true"] { background: rgba(59, 155, 122, .28) }
 .drt .ic { width: 30px; height: 30px; border-radius: 8px; background: rgba(59, 155, 122, .16); color: var(--emerald); display: grid; place-items: center; flex: none }
 .drt.off .ic { background: var(--surface); color: var(--dim) } .drt.off .tt b { color: var(--muted) }
 .drt .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
@@ -257,6 +252,4 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dchip[aria-pressed="true"] { background: rgba(59, 155, 122, .28); border-color: var(--emerald) }
 .dchip.day { min-width: 34px; padding: 0 8px }
 .dfield textarea { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; line-height: 20px; outline: 0; resize: none; caret-color: var(--emerald) }
-.dfield textarea:focus { border-color: var(--emerald) }
-.dfield.err textarea { border-color: var(--err) }
 .dfield input[type="time"], .dfield input[type="date"] { color-scheme: dark }
