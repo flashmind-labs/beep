@@ -147,7 +147,7 @@ private data class Outgoing(val requestId: String, val text: String)
 /** A group chat: members' messages, Beep's replies and a composer that can @mention. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: () -> Unit, onInfo: () -> Unit,
+internal fun GroupChatPane(repository: ChatRepository, groupId: String, onBack: () -> Unit, onInfo: () -> Unit,
                            onInvite: (Group) -> Unit, onGone: () -> Unit, onNewChat: () -> Unit, onPrevious: () -> Unit,
                            onExpand: (() -> Unit)? = null) {
     val context = LocalContext.current
@@ -217,10 +217,7 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
                 }
             }
         }, navigationIcon = {
-            ChunkyButton(onClick = onMenu, shape = RoundedCornerShape(Beep.shapes.smallRadius),
-                modifier = Modifier.padding(start = 12.dp, end = 10.dp).size(42.dp), contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Outlined.Menu, "Conversations", Modifier.size(20.dp))
-            }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Chats") }
         }, actions = {
             IconButton(onClick = { group?.let(onInvite) }, enabled = group != null, modifier = Modifier.padding(end = 6.dp)) {
                 Icon(Icons.Outlined.Link, "Invite", tint = Beep.colors.muted)
