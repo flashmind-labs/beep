@@ -3,13 +3,8 @@
 //! against it. Facts can be stored for any member, such as a plan the group
 //! made, and default to the member who asked.
 
-use super::memory::{arg, date, fact_schema, opt_arg, reply};
-use crate::{
-    leak::Secret,
-    protocol::MemorySource,
-    store::{Fact, MEMORY_CATEGORIES, Validity},
-    user::User,
-};
+use super::memory::{arg, fact, fact_schema, opt_arg, reply};
+use crate::{leak::Secret, protocol::MemorySource, store::MEMORY_CATEGORIES, user::User};
 use anyhow::Result;
 use async_trait::async_trait;
 use flashmind::types::{
@@ -143,20 +138,9 @@ impl Tool for GroupStoreTool {
             },
             None => &self.actor,
         };
-        let content = arg(&ctx.args, "content")?;
-        let valid = Validity {
-            from: date(&ctx.args, "valid_from")?,
-            until: date(&ctx.args, "valid_until")?,
-        };
         member
             .user
-            .remember(Fact {
-                content,
-                category: None,
-                source: MemorySource::Learned {},
-                valid: (valid != Validity::default()).then_some(valid),
-                origin: None,
-            })
+            .remember(fact(&ctx.args, MemorySource::Learned {}, None)?)
             .await?;
         reply(&ctx, json!({"stored": true, "about": member.name}))
     }

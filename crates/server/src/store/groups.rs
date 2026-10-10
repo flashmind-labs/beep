@@ -9,6 +9,7 @@ use crate::user::UserKey;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row, postgres::PgRow};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Messages a member who joins gets in their log, the ones a group chat
@@ -83,6 +84,28 @@ pub struct NewMessage<'a> {
 }
 
 const MESSAGE_COLUMNS: &str = "id, author_id, COALESCE(author_name, ''), content, sent_at";
+
+const MEMBER_COLUMNS: &str = "user_id, COALESCE(name, ''), creator, joined_at, pinned, shares_apps";
+
+/// A group from the columns id, title and updated_at.
+fn group_row(row: &PgRow) -> Result<GroupRow> {
+    Ok(GroupRow {
+        id: row.try_get(0)?,
+        name: row.try_get(1)?,
+        updated_at: row.try_get(2)?,
+    })
+}
+
+fn member(row: &PgRow) -> Result<MemberRow> {
+    Ok(MemberRow {
+        user_id: row.try_get(0)?,
+        name: row.try_get(1)?,
+        creator: row.try_get(2)?,
+        joined_at: row.try_get(3)?,
+        pinned: row.try_get(4)?,
+        shares_apps: row.try_get(5)?,
+    })
+}
 
 fn message(row: &PgRow) -> Result<MessageRow> {
     Ok(MessageRow {
@@ -168,20 +191,51 @@ impl Store {
 
     /// The groups `user` is in, most recently active first.
     pub(crate) async fn groups(&self, user: &UserKey) -> Result<Vec<JoinedGroup>> {
-        let ids: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT c.id FROM chats c JOIN chat_members m ON m.chat_id = c.id
+        let groups = sqlx::query(
+            "SELECT c.id, COALESCE(c.title, ''), c.updated_at
+             FROM chats c JOIN chat_members m ON m.chat_id = c.id
              WHERE c.kind = 'group' AND m.user_id = $1 ORDER BY c.updated_at DESC LIMIT 200",
         )
         .bind(user.as_str())
         .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(group_row)
+        .collect::<Result<Vec<_>>>()?;
+        let ids: Vec<Uuid> = groups.iter().map(|group| group.id).collect();
+        let mut members: HashMap<Uuid, Vec<MemberRow>> = HashMap::new();
+        let rows = sqlx::query(&format!(
+            "SELECT {MEMBER_COLUMNS}, chat_id FROM chat_members
+             WHERE chat_id = ANY($1) ORDER BY chat_id, joined_at, user_id"
+        ))
+        .bind(&ids)
+        .fetch_all(&self.pool)
         .await?;
-        let mut groups = Vec::with_capacity(ids.len());
-        for id in ids {
-            if let Some(group) = self.joined_group(id).await? {
-                groups.push(group);
-            }
+        for row in &rows {
+            members
+                .entry(row.try_get("chat_id")?)
+                .or_default()
+                .push(member(row)?);
         }
-        Ok(groups)
+        let mut last: HashMap<Uuid, MessageRow> = HashMap::new();
+        let rows = sqlx::query(&format!(
+            "SELECT DISTINCT ON (chat_id) {MESSAGE_COLUMNS}, chat_id FROM messages
+             WHERE chat_id = ANY($1) ORDER BY chat_id, id DESC"
+        ))
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await?;
+        for row in &rows {
+            last.insert(row.try_get("chat_id")?, message(row)?);
+        }
+        Ok(groups
+            .into_iter()
+            .map(|group| JoinedGroup {
+                members: members.remove(&group.id).unwrap_or_default(),
+                last: last.remove(&group.id),
+                group,
+            })
+            .collect())
     }
 
     /// The group `id`, if `user` is in it.
@@ -192,7 +246,7 @@ impl Store {
         self.joined_group(id).await
     }
 
-    pub(crate) async fn is_member(&self, user: &UserKey, id: Uuid) -> Result<bool> {
+    async fn is_member(&self, user: &UserKey, id: Uuid) -> Result<bool> {
         let mut conn = self.pool.acquire().await?;
         member_of(&mut conn, user.as_str(), id).await
     }
@@ -207,11 +261,7 @@ impl Store {
         let Some(row) = row else {
             return Ok(None);
         };
-        let group = GroupRow {
-            id: row.try_get(0)?,
-            name: row.try_get(1)?,
-            updated_at: row.try_get(2)?,
-        };
+        let group = group_row(&row)?;
         let last = self.group_messages(id, 1).await?.pop();
         Ok(Some(JoinedGroup {
             members: self.group_members(id).await?,
@@ -222,25 +272,13 @@ impl Store {
 
     /// Who is in group `id`, oldest first.
     pub(crate) async fn group_members(&self, id: Uuid) -> Result<Vec<MemberRow>> {
-        let rows = sqlx::query(
-            "SELECT user_id, COALESCE(name, ''), creator, joined_at, pinned, shares_apps
-             FROM chat_members WHERE chat_id = $1 ORDER BY joined_at, user_id",
-        )
+        let rows = sqlx::query(&format!(
+            "SELECT {MEMBER_COLUMNS} FROM chat_members WHERE chat_id = $1 ORDER BY joined_at, user_id"
+        ))
         .bind(id)
         .fetch_all(&self.pool)
         .await?;
-        rows.iter()
-            .map(|row| {
-                Ok(MemberRow {
-                    user_id: row.try_get(0)?,
-                    name: row.try_get(1)?,
-                    creator: row.try_get(2)?,
-                    joined_at: row.try_get(3)?,
-                    pinned: row.try_get(4)?,
-                    shares_apps: row.try_get(5)?,
-                })
-            })
-            .collect()
+        rows.iter().map(member).collect()
     }
 
     /// The last `limit` messages of group `id`, oldest first. Callers check
@@ -637,6 +675,69 @@ mod tests {
         assert_eq!(
             store.group_messages(g1, 1).await.unwrap()[0].content,
             "hello Ali"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_list_has_each_groups_members_and_latest_message() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let (g1, g2, g3) = (test_chat("g1"), test_chat("g2"), test_chat("g3"));
+        let (alice, bob) = (UserKey::for_test("alice"), UserKey::for_test("bob"));
+        store.create_group(&alice, g1, "Trip", "Ali").await.unwrap();
+        store
+            .create_group(&alice, g2, "Dinner", "Al")
+            .await
+            .unwrap();
+        store
+            .create_group(&bob, g3, "Not hers", "Bo")
+            .await
+            .unwrap();
+        let token = store
+            .group_invite(&alice, g1, false)
+            .await
+            .unwrap()
+            .unwrap();
+        store.join_group(&bob, &token, "Bo").await.unwrap();
+        store
+            .post_to_group(&alice, post(g1, "r1", "first"))
+            .await
+            .unwrap();
+        store
+            .post_to_group(&bob, post(g1, "r2", "second"))
+            .await
+            .unwrap();
+
+        let groups = store.groups(&alice).await.unwrap();
+        assert!(
+            groups
+                .windows(2)
+                .all(|pair| pair[0].group.updated_at >= pair[1].group.updated_at)
+        );
+        let mut found: Vec<Uuid> = groups.iter().map(|g| g.group.id).collect();
+        found.sort();
+        let mut wanted = vec![g1, g2];
+        wanted.sort();
+        assert_eq!(found, wanted);
+        for group in &groups {
+            let names: Vec<_> = group.members.iter().map(|m| m.name.as_str()).collect();
+            let last = group.last.as_ref().map(|m| m.content.as_str());
+            if group.group.id == g1 {
+                assert_eq!(group.group.name, "Trip");
+                assert_eq!(names, ["Ali", "Bo"]);
+                assert_eq!(last, Some("second"));
+            } else {
+                assert_eq!(group.group.name, "Dinner");
+                assert_eq!(names, ["Al"]);
+                assert_eq!(last, None);
+            }
+        }
+        assert!(
+            store
+                .groups(&UserKey::for_test("user"))
+                .await
+                .unwrap()
+                .is_empty()
         );
     }
 

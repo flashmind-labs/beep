@@ -12,7 +12,7 @@ use crate::{
     user::UserKey,
 };
 use anyhow::Result;
-use sqlx::Row;
+use sqlx::{Row, postgres::PgRow};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -202,7 +202,7 @@ impl Store {
 }
 
 /// Rows of `message, id, mime, width, height`, sorted by message, grouped.
-fn by_message(rows: &[sqlx::postgres::PgRow]) -> Result<Vec<SentImages>> {
+fn by_message(rows: &[PgRow]) -> Result<Vec<SentImages>> {
     let mut sent: Vec<SentImages> = Vec::new();
     for row in rows {
         let message: i64 = row.try_get("message")?;
@@ -264,6 +264,13 @@ mod tests {
         assert_eq!(last.data, data[200..]);
         let past = alice.file_part(&id, 300, 100).await.unwrap().unwrap();
         assert!(past.data.is_empty());
+        for offset in [u64::from(u32::MAX), u64::MAX] {
+            let far = alice.file_part(&id, offset, 100).await.unwrap().unwrap();
+            assert!(far.data.is_empty());
+            assert_eq!(far.size, 256);
+        }
+        let rest = alice.file_part(&id, 200, u64::MAX).await.unwrap().unwrap();
+        assert_eq!(rest.data, data[200..]);
         assert!(bob.file_part(&id, 0, 100).await.unwrap().is_none());
 
         alice.delete_session(s1).await.unwrap();

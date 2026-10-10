@@ -362,7 +362,10 @@ pub(crate) fn list_items(answer: &str) -> Vec<&str> {
 
 /// `line` without a leading list marker.
 fn strip_marker(line: &str) -> &str {
-    if let Some(rest) = line.strip_prefix(['-', '*', '•']) {
+    // A marker needs the space after it, so `**Bold:**` stays a line.
+    if let Some(rest) = line.strip_prefix(['-', '*', '•'])
+        && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+    {
         return rest.trim_start();
     }
     let digits = line.len() - line.trim_start_matches(|c: char| c.is_ascii_digit()).len();
@@ -447,6 +450,10 @@ mod tests {
         );
         assert_eq!(list_items("Why?\nHow?"), ["Why?", "How?"]);
         assert_eq!(list_items("```\n- Why?\n```"), ["Why?"]);
+        assert_eq!(
+            list_items("**Follow-ups:**\n* Why?\n* How?"),
+            ["Why?", "How?"]
+        );
     }
 
     #[test]

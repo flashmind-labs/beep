@@ -44,13 +44,17 @@ impl Blobs for PgBlobs {
     }
 
     async fn part(&self, id: &str, offset: u64, len: u64) -> Result<Option<FilePart>> {
+        // A bytea holds at most 1 GB, so a clamped offset is still past the
+        // end and reads nothing.
+        let offset = i32::try_from(offset).unwrap_or(i32::MAX);
+        let len = i32::try_from(len).unwrap_or(i32::MAX);
         let row = sqlx::query(
-            "SELECT substring(data FROM $2::int FOR $3::int), length(data) FROM files WHERE id=$1",
+            "SELECT substring(data FROM $2 FOR $3), length(data) FROM files WHERE id=$1",
         )
         .bind(id)
         // SQL counts from 1.
-        .bind(i64::try_from(offset)?.saturating_add(1))
-        .bind(i64::try_from(len)?)
+        .bind(offset.saturating_add(1))
+        .bind(len)
         .fetch_optional(&self.pool)
         .await?;
         row.map(|row| {

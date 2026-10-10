@@ -2,7 +2,7 @@
 use crate::models::AutoModel;
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
-use flashmind::llm::{JEV_LATEST_MODEL, JevQuestion, JevRequest, OpenRouterProvider};
+use flashmind::llm::{JEV_LATEST_MODEL, JevQuestion, JevRequest, JevResponse, OpenRouterProvider};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use flashmind::types::{LlmError, LlmErrorKind, ReasoningLevel};
 use secrecy::{ExposeSecret, SecretString};
@@ -109,17 +109,10 @@ impl DecisionTool {
                 .map(|(key, fits)| ((*key).to_owned(), (*fits).to_owned()))
                 .collect(),
         };
-        let request = JevRequest {
-            model: JEV_LATEST_MODEL.into(),
-            state: state[..state.floor_char_boundary(MAX_STATE_BYTES)].into(),
-            questions: BTreeMap::from([("choice".to_owned(), question)]),
-        };
-        let response = self.provider.decide(request).await?;
-        let picked = response
-            .answers
-            .get("choice")
-            .and_then(|answer| answer["choice"].as_str())
-            .ok_or_else(|| anyhow::anyhow!("Jev made no choice"))?;
+        let questions = BTreeMap::from([("choice".to_owned(), question)]);
+        let response = self.provider.decide(request(state, questions)).await?;
+        let picked =
+            choice(&response, "choice").ok_or_else(|| anyhow::anyhow!("Jev made no choice"))?;
         options
             .iter()
             .map(|(key, _)| *key)
@@ -153,27 +146,15 @@ impl DecisionTool {
                 },
             );
         }
-        let request = JevRequest {
-            model: JEV_LATEST_MODEL.into(),
-            state: state[..state.floor_char_boundary(MAX_STATE_BYTES)].into(),
-            questions,
-        };
-        let response = self.provider.decide(request).await?;
-        let choice = |key: &str| {
-            response
-                .answers
-                .get(key)
-                .and_then(|answer| answer["choice"].as_str())
-                .map(str::to_owned)
-        };
-        let thinking = choice("thinking")
+        let response = self.provider.decide(request(state, questions)).await?;
+        let thinking = choice(&response, "thinking")
             .and_then(|level| level.parse().ok())
             .ok_or_else(|| anyhow::anyhow!("Jev picked no thinking level"))?;
         let model = match models {
             [only] => only,
             _ => {
-                let picked =
-                    choice("model").ok_or_else(|| anyhow::anyhow!("Jev picked no model"))?;
+                let picked = choice(&response, "model")
+                    .ok_or_else(|| anyhow::anyhow!("Jev picked no model"))?;
                 models
                     .iter()
                     .find(|auto| auto.model.name() == picked)
@@ -193,12 +174,8 @@ impl DecisionTool {
             instructions: instructions.into(),
             criteria,
         };
-        let request = JevRequest {
-            model: JEV_LATEST_MODEL.into(),
-            state: state[..state.floor_char_boundary(MAX_STATE_BYTES)].into(),
-            questions: BTreeMap::from([("yes".to_owned(), question)]),
-        };
-        let response = self.provider.decide(request).await?;
+        let questions = BTreeMap::from([("yes".to_owned(), question)]);
+        let response = self.provider.decide(request(state, questions)).await?;
         response
             .answers
             .get("yes")
@@ -211,6 +188,23 @@ impl DecisionTool {
         let response = self.provider.decide(request).await.map_err(describe)?;
         Ok(json!({"answers": response.answers}))
     }
+}
+
+/// A request for `questions` about `state`, cut to what Jev takes.
+fn request(state: &str, questions: BTreeMap<String, JevQuestion>) -> JevRequest {
+    JevRequest {
+        model: JEV_LATEST_MODEL.into(),
+        state: state[..state.floor_char_boundary(MAX_STATE_BYTES)].into(),
+        questions,
+    }
+}
+
+/// The option Jev picked for the choice question `key`.
+fn choice<'a>(response: &'a JevResponse, key: &str) -> Option<&'a str> {
+    response
+        .answers
+        .get(key)
+        .and_then(|answer| answer["choice"].as_str())
 }
 
 /// Turns a provider error into a client-safe message. The provider already

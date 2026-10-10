@@ -16,6 +16,7 @@
 use crate::{
     app::App,
     decision::{Criteria, DecisionTool},
+    feeds::mail::{clip, text},
     memories::{Reading, ReadingKind},
     store::Feed,
     user::User,
@@ -166,7 +167,7 @@ impl Window {
                 names.resolve(message.text.trim())
             );
         }
-        text.chars().take(chars).collect()
+        clip(&text, chars)
     }
 
     fn reading(&self, names: &Names) -> Reading {
@@ -178,7 +179,7 @@ impl Window {
         Reading {
             kind: ReadingKind::Slack,
             id: self.id(),
-            query: query.join("\n").chars().take(300).collect(),
+            query: clip(&query.join("\n"), 300),
             text: self.render(names, LEARN_WINDOW_CHARS),
         }
     }
@@ -474,10 +475,6 @@ fn timestamp(ts: &str) -> Option<DateTime<Utc>> {
     let (seconds, micros) = ts.split_once('.').unwrap_or((ts, "0"));
     let micros: u32 = format!("{micros:0<6}").get(..6)?.parse().ok()?;
     DateTime::from_timestamp(seconds.parse().ok()?, micros * 1000)
-}
-
-fn text(value: &Value) -> String {
-    value.as_str().unwrap_or_default().to_owned()
 }
 
 #[cfg(test)]

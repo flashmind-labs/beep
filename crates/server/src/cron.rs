@@ -3,11 +3,11 @@ use std::{path::Path, sync::Arc};
 use anyhow::Result;
 use async_trait::async_trait;
 use flashmind::core::CancellationToken;
-use flashmind::cron::CronListTool;
 use flashmind::cron::{
-    CronCreateTool, CronDeleteTool, CronEditTool, CronHandler, CronJob, CronLog, CronRegistry,
-    CronRunner, CronStore, ScheduleOnceTool, TimezoneResolver,
+    CronCreateTool, CronDeleteTool, CronEditTool, CronHandler, CronJob, CronListTool, CronLog,
+    CronRegistry, CronRunner, CronStore, ScheduleOnceTool, TimezoneResolver,
 };
+use flashmind::types::ToolRegistry;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -229,7 +229,7 @@ impl TimezoneResolver for BeepTimezoneResolver {
     }
 }
 
-pub fn start(app: Arc<App>, log_dir: &Path) -> (CronRunner, Arc<CronRegistry>) {
+pub fn start(app: Arc<App>, log_dir: &Path) -> CronRunner {
     let store = Arc::new(BeepCronStore::all(app.store.clone()));
     let registry = Arc::new(CronRegistry::new(store));
     let handler = Arc::new(BeepCronHandler { app: app.clone() });
@@ -251,20 +251,17 @@ pub fn start(app: Arc<App>, log_dir: &Path) -> (CronRunner, Arc<CronRegistry>) {
         }
     });
 
-    let runner = CronRunner::new(registry.clone(), handler, cancel)
+    CronRunner::new(registry, handler, cancel)
         .with_log(log)
-        .with_timezone_resolver(tz);
-
-    (runner, registry)
+        .with_timezone_resolver(tz)
 }
 
 pub fn register_tools(
-    registry: &mut flashmind::types::ToolRegistry,
+    registry: &mut ToolRegistry,
     store: Store,
     user: &str,
     session_id: &str,
     timezone: Option<&str>,
-    cron_log: Option<Arc<CronLog>>,
 ) {
     let cron_store = Arc::new(BeepCronStore::for_user(store, user));
     let cron_registry = Arc::new(CronRegistry::new(cron_store));
@@ -283,10 +280,6 @@ pub fn register_tools(
         cron_registry,
         json!({"user_id": user, "session_id": session_id, "timezone": timezone}),
     )));
-
-    if let Some(log) = cron_log {
-        registry.register(Arc::new(flashmind::cron::CronHistoryTool::new(log)));
-    }
 }
 
 #[cfg(test)]
@@ -364,14 +357,13 @@ mod tests {
     async fn a_local_reminder_time_is_read_in_the_users_timezone() {
         let db = TestDb::new().await.expect("test database");
         let store = db.store().await.expect("store opens");
-        let mut registry = flashmind::types::ToolRegistry::new();
+        let mut registry = ToolRegistry::new();
         register_tools(
             &mut registry,
             store,
             "user",
             "session",
             Some("Asia/Singapore"),
-            None,
         );
         let tool = registry
             .get("schedule_once")
@@ -396,9 +388,9 @@ mod tests {
     async fn a_reminder_remembers_the_chat_it_was_set_in() {
         let db = TestDb::new().await.expect("test database");
         let store = db.store().await.expect("store opens");
-        let mut registry = flashmind::types::ToolRegistry::new();
+        let mut registry = ToolRegistry::new();
         let chat = Uuid::new_v4().to_string();
-        register_tools(&mut registry, store.clone(), "user", &chat, None, None);
+        register_tools(&mut registry, store.clone(), "user", &chat, None);
         let tool = registry
             .get("schedule_once")
             .expect("schedule_once registered");

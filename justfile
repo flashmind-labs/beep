@@ -6,6 +6,8 @@ apk := "apps/android/app/build/outputs/apk/debug/app-debug.apk"
 remote_docker := env("BEEP_DOCKER_HOST", "")
 # The image Forgejo CI publishes, as registry/user/beep-server. Set it in .env.
 server_image := env("BEEP_IMAGE", "")
+# The local Postgres `test-db` starts, which the server tests use.
+test_db_url := "postgres://beep:beep@127.0.0.1:55432/beep"
 
 # Build and deploy everything: server on the remote host + Android APK
 deploy: deploy-server bake-profile build-android install-apk launch-app
@@ -169,16 +171,16 @@ test-db:
     #!/usr/bin/env bash
     docker start beep-pg 2>/dev/null || docker run -d --name beep-pg -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep -p 127.0.0.1:55432:5432 pgvector/pgvector:pg17
     until docker exec beep-pg pg_isready -U beep >/dev/null 2>&1; do sleep 1; done
-    echo "export BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:55432/beep"
+    echo "export BEEP_TEST_DATABASE_URL={{test_db_url}}"
 
 # Run the server tests against the local Postgres
 test: test-db
-    BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:55432/beep cargo test -p beep-server
+    BEEP_TEST_DATABASE_URL={{test_db_url}} cargo test -p beep-server
 
 # Run the prompt evals against the real model in the dev config. They cost
 # money. `just eval search` runs the cases whose name contains "search".
 eval filter="": test-db
-    BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:55432/beep BEEP_EVAL="{{filter}}" \
+    BEEP_TEST_DATABASE_URL={{test_db_url}} BEEP_EVAL="{{filter}}" \
         cargo test -p beep-server --test evals -- --ignored --nocapture
 
 # Follow-up chips for fixed turns, each graded by a judge model: just eval-followups [filter]

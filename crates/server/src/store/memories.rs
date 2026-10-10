@@ -55,13 +55,13 @@ pub struct Scored {
 }
 
 fn check_memory(content: &str) -> Result<()> {
-    if content.trim().is_empty() || content.len() > 4000 {
+    if content.trim().is_empty() || content.chars().count() > 4000 {
         bail!("memory content length out of range");
     }
     Ok(())
 }
 
-pub(crate) fn validate_category(category: Option<&str>) -> Result<String> {
+fn validate_category(category: Option<&str>) -> Result<String> {
     let cat = category.unwrap_or(UNFILED);
     if cat == UNFILED || MEMORY_CATEGORIES.contains(&cat) {
         Ok(cat.to_owned())
@@ -99,7 +99,20 @@ struct Meta<'a> {
     updated: &'a str,
 }
 
-impl Meta<'_> {
+impl<'a> Meta<'a> {
+    /// The metadata of `row`, kept by `user` and last changed at `updated`.
+    fn of(user: &'a UserKey, row: &'a MemoryRow, updated: &'a str) -> Self {
+        Self {
+            user: user.as_str(),
+            category: &row.category,
+            source: row.source,
+            valid: row.valid,
+            origin: row.origin.as_ref(),
+            core: row.core,
+            updated,
+        }
+    }
+
     fn pairs(&self) -> Vec<(&'static str, String)> {
         let mut pairs = vec![
             (USER, self.user.to_owned()),
@@ -133,7 +146,7 @@ fn meta_map(meta: &[(String, String)]) -> HashMap<&str, &str> {
 
 fn row_from(id: String, content: String, meta: &[(String, String)]) -> MemoryRow {
     let meta = meta_map(meta);
-    let date = |key| parse_date(meta.get(key).map(|v| v.to_string()));
+    let date = |key| parse_date(meta.get(key).copied());
     MemoryRow {
         id,
         content,
@@ -262,16 +275,7 @@ impl Store {
         let mut row = from_record(record);
         change(&mut row);
         let updated = now_text();
-        let meta = Meta {
-            user: user.as_str(),
-            category: &row.category,
-            source: row.source,
-            valid: row.valid,
-            origin: row.origin.as_ref(),
-            core: row.core,
-            updated: &updated,
-        };
-        let pairs = meta.pairs();
+        let pairs = Meta::of(user, &row, &updated).pairs();
         let pairs: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (*k, v.as_str())).collect();
         self.memories
             .update(
@@ -421,16 +425,7 @@ impl Store {
         if row.core == core && row.category == category {
             return Ok(false);
         }
-        let meta = Meta {
-            user: user.as_str(),
-            category: &row.category,
-            source: row.source,
-            valid: row.valid,
-            origin: row.origin.as_ref(),
-            core: row.core,
-            updated: &row.updated_at,
-        };
-        let pairs = meta.pairs();
+        let pairs = Meta::of(user, &row, &row.updated_at).pairs();
         let pairs: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (*k, v.as_str())).collect();
         self.memories
             .update(&row.id, None, Some(&pairs), None)
@@ -525,6 +520,13 @@ mod tests {
 
     fn date(text: &str) -> NaiveDate {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
+    }
+
+    #[test]
+    fn memory_length_counts_characters_not_bytes() {
+        assert!(check_memory(&"é".repeat(4000)).is_ok());
+        assert!(check_memory(&"é".repeat(4001)).is_err());
+        assert!(check_memory(" ").is_err());
     }
 
     #[test]

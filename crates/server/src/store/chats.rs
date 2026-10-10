@@ -203,7 +203,7 @@ impl Store {
                 .bind(user.as_str())
                 .fetch_optional(&self.pool)
                 .await?;
-        let reset = after > 0 && after + 1 < pruned_below.unwrap_or(0);
+        let reset = after > 0 && after < pruned_below.unwrap_or(0) - 1;
         let after = if reset { 0 } else { after.max(0) };
         // Each write holds the user's counter until it commits, so whatever
         // is visible here has no gaps below it still to fill in.
@@ -487,6 +487,8 @@ mod tests {
         assert_eq!(labels(&behind), ["chat", "user:two", "beep:re: two"]);
         let current = store.updates_page(&alice, last).await.unwrap();
         assert!(!current.reset && current.updates.is_empty());
+        let ahead = store.updates_page(&alice, i64::MAX).await.unwrap();
+        assert!(!ahead.reset && ahead.updates.is_empty());
         assert!(!store.updates_page(&alice, 0).await.unwrap().reset);
     }
 

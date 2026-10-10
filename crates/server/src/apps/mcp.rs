@@ -63,7 +63,7 @@ impl StoreProvider {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl McpConfigProvider for StoreProvider {
     /// Servers the user finished connecting. Half-started flows are left out.
     async fn list_configs(&self) -> Result<Vec<McpServerConfig>> {

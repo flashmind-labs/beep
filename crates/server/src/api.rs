@@ -18,14 +18,14 @@ use crate::{
     wake,
 };
 use chrono::{DateTime, SecondsFormat, Utc};
-use chrono_tz::Tz;
+use chrono_tz::{Tz, UTC};
 use flashmind::{
     core::{Conversation, ConversationEntry, EntryKind},
     cron::{CronSchedule, JobSchedule},
 };
 use iroh::EndpointId;
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     time::{Duration, SystemTime},
 };
 use tokio::{sync::broadcast::error::RecvError, time::timeout};
@@ -162,10 +162,15 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
 /// Refuses too many images, or one too large.
 fn check_images(images: &[String]) -> Reply<()> {
     if images.len() > MAX_IMAGES {
-        return Err(ApiError::bad_request("at most 8 images per message"));
+        return Err(ApiError::bad_request(format!(
+            "at most {MAX_IMAGES} images per message"
+        )));
     }
     if images.iter().any(|image| image.len() > MAX_IMAGE_BYTES) {
-        return Err(ApiError::bad_request("each image must be at most 2 MiB"));
+        return Err(ApiError::bad_request(format!(
+            "each image must be at most {} MiB",
+            MAX_IMAGE_BYTES >> 20
+        )));
     }
     Ok(())
 }
@@ -320,16 +325,26 @@ async fn copy_share(cx: Cx, CopyShare { token, session_id }: CopyShare) -> Reply
 /// Messages a group chat loads at once.
 const GROUP_MESSAGES: i64 = 200;
 
-/// A group or member name, trimmed. Nobody may go by Beep.
-fn group_name(name: &str, what: &str, max: usize) -> Reply<String> {
+/// A group's name, trimmed.
+fn group_name(name: &str) -> Reply<String> {
+    trimmed_name(name, "group name", 60)
+}
+
+/// What a member goes by in a group, trimmed. Nobody may go by Beep.
+fn group_member_name(name: &str) -> Reply<String> {
+    let name = trimmed_name(name, "member name", 30)?;
+    if name.eq_ignore_ascii_case("beep") {
+        return Err(ApiError::bad_request("Beep is taken"));
+    }
+    Ok(name)
+}
+
+fn trimmed_name(name: &str, what: &str, max: usize) -> Reply<String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > max {
         return Err(ApiError::bad_request(format!(
             "{what} must be 1-{max} characters"
         )));
-    }
-    if what == "member name" && name.eq_ignore_ascii_case("beep") {
-        return Err(ApiError::bad_request("Beep is taken"));
     }
     Ok(name.to_owned())
 }
@@ -342,8 +357,8 @@ async fn create_group(
         member_name,
     }: CreateGroup,
 ) -> Reply<Group> {
-    let name = group_name(&name, "group name", 60)?;
-    let member_name = group_name(&member_name, "member name", 30)?;
+    let name = group_name(&name)?;
+    let member_name = group_member_name(&member_name)?;
     if !cx.user.create_group(id, &name, &member_name).await? {
         return Err(ApiError::Conflict {
             message: "group id is taken".into(),
@@ -449,7 +464,7 @@ async fn peek_group(cx: Cx, PeekGroup { token }: PeekGroup) -> Reply<GroupPrevie
 }
 
 async fn join_group(cx: Cx, JoinGroup { token, member_name }: JoinGroup) -> Reply<Group> {
-    let member_name = group_name(&member_name, "member name", 30)?;
+    let member_name = group_member_name(&member_name)?;
     let token = group_code(&token).ok_or(ApiError::NotFound {})?;
     let invited = cx
         .app
@@ -534,8 +549,7 @@ async fn list_group_reminders(
                 .unwrap_or_else(|_| fallback.clone()),
             None => fallback.clone(),
         };
-        let schedule = encode_schedule(&job.schedule);
-        let next = next_run_at(&schedule, &tz);
+        let next = next_run(&job.schedule, &tz);
         reminders.push((
             next,
             GroupReminder {
@@ -544,7 +558,7 @@ async fn list_group_reminders(
                     .unwrap_or("Reminder")
                     .to_owned(),
                 message: job.task,
-                schedule,
+                schedule: encode_schedule(&job.schedule),
                 next_run_at: next.map(|t| t.to_rfc3339()),
                 set_by: member.map_or_else(|| "A former member".to_owned(), |m| m.name.clone()),
             },
@@ -585,10 +599,10 @@ async fn leave_group(cx: Cx, LeaveGroup { id }: LeaveGroup) -> Reply<()> {
     };
     cx.user.leave_group(group_id).await?;
     for member in &members {
-        let _ = cx
-            .app
-            .notifications
-            .send(UserNotice::group_changed(&member.user_id, &id));
+        let _ = cx.app.notifications.send(UserNotice::group_changed(
+            &member.user_id,
+            &group_id.to_string(),
+        ));
     }
     Ok(())
 }
@@ -871,7 +885,9 @@ async fn existing_sessions(
         return Err(ApiError::bad_request("at most 1000 sessions at once"));
     }
     let parsed: Vec<Uuid> = ids.iter().filter_map(|id| chat_id(id).ok()).collect();
-    let existing = cx.user.existing_sessions(&parsed).await?;
+    let existing: HashSet<Uuid> = (cx.user.existing_sessions(&parsed).await?)
+        .into_iter()
+        .collect();
     // Answered in the caller's own spelling of each id.
     Ok(ids
         .into_iter()
@@ -1251,13 +1267,18 @@ fn found(found: bool) -> Reply<()> {
 }
 
 fn next_run_at(schedule: &str, tz_name: &str) -> Option<DateTime<Utc>> {
-    let expression = match decode_schedule(schedule.to_owned()) {
-        JobSchedule::Once(at) => return Some(at),
+    next_run(&decode_schedule(schedule.to_owned()), tz_name)
+}
+
+/// When `schedule` next fires, reading a cron expression in `tz_name`.
+fn next_run(schedule: &JobSchedule, tz_name: &str) -> Option<DateTime<Utc>> {
+    let expression = match schedule {
+        JobSchedule::Once(at) => return Some(*at),
         JobSchedule::Cron(expression) => expression,
         JobSchedule::OnWake { .. } => return None,
     };
-    let tz: chrono_tz::Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
-    CronSchedule::parse(&expression)
+    let tz: Tz = tz_name.parse().unwrap_or(UTC);
+    CronSchedule::parse(expression)
         .ok()?
         .next_after_in_tz(&Utc::now(), tz)
         .map(|t| t.with_timezone(&Utc))
@@ -1268,6 +1289,42 @@ mod tests {
     use super::*;
     use flashmind::types::ToolCall;
     use serde_json::json;
+
+    fn refusal<T>(reply: Reply<T>) -> String {
+        match reply {
+            Err(ApiError::BadRequest { message }) => message,
+            _ => panic!("expected a bad request"),
+        }
+    }
+
+    #[test]
+    fn only_members_may_not_go_by_beep() {
+        assert_eq!(refusal(group_member_name(" beep ")), "Beep is taken");
+        assert_eq!(group_member_name(" Ana ").ok().as_deref(), Some("Ana"));
+        assert_eq!(group_name("Beep").ok().as_deref(), Some("Beep"));
+        assert_eq!(
+            refusal(group_member_name(&"a".repeat(31))),
+            "member name must be 1-30 characters"
+        );
+        assert_eq!(
+            refusal(group_name(" ")),
+            "group name must be 1-60 characters"
+        );
+    }
+
+    #[test]
+    fn too_many_or_too_large_images_are_refused() {
+        let image = || "x".to_owned();
+        assert_eq!(
+            refusal(check_images(&vec![image(); MAX_IMAGES + 1])),
+            "at most 8 images per message"
+        );
+        assert_eq!(
+            refusal(check_images(&["x".repeat(MAX_IMAGE_BYTES + 1)])),
+            "each image must be at most 2 MiB"
+        );
+        assert!(check_images(&vec![image(); MAX_IMAGES]).is_ok());
+    }
 
     #[test]
     fn every_op_is_routed_once() {

@@ -7,6 +7,32 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 use uuid::Uuid;
 
+/// Whether `text` is 1 to `max` characters long.
+fn within(text: &str, max: usize) -> bool {
+    !text.is_empty() && text.chars().count() <= max
+}
+
+fn check_label(label: &str) -> Result<()> {
+    if !within(label, 200) {
+        bail!("cron label must be 1-200 characters");
+    }
+    Ok(())
+}
+
+fn check_prompt(prompt: &str) -> Result<()> {
+    if !within(prompt, 4000) {
+        bail!("cron prompt must be 1-4000 characters");
+    }
+    Ok(())
+}
+
+fn check_schedule(schedule: &str) -> Result<()> {
+    if !within(schedule, 100) {
+        bail!("cron schedule must be 1-100 characters");
+    }
+    Ok(())
+}
+
 impl Store {
     pub(crate) async fn list_crons(&self, user: &UserKey) -> Result<Vec<Cron>> {
         let rows = sqlx::query(
@@ -40,15 +66,9 @@ impl Store {
         schedule: &str,
         prompt: &str,
     ) -> Result<String> {
-        if label.is_empty() || label.len() > 200 {
-            bail!("cron label must be 1–200 characters");
-        }
-        if prompt.is_empty() || prompt.len() > 4000 {
-            bail!("cron prompt must be 1–4000 characters");
-        }
-        if schedule.is_empty() || schedule.len() > 100 {
-            bail!("cron schedule must be 1–100 characters");
-        }
+        check_label(label)?;
+        check_prompt(prompt)?;
+        check_schedule(schedule)?;
         self.check_place_schedule(user, schedule).await?;
         let id = Uuid::new_v4().to_string();
         sqlx::query(
@@ -74,7 +94,11 @@ impl Store {
         label: Option<&str>,
         schedule: Option<&str>,
     ) -> Result<bool> {
+        if let Some(label) = label {
+            check_label(label)?;
+        }
         if let Some(schedule) = schedule {
+            check_schedule(schedule)?;
             self.check_place_schedule(user, schedule).await?;
         }
         let changed = sqlx::query(
@@ -116,5 +140,69 @@ impl Store {
                 .rows_affected();
         self.notify_crons_changed();
         Ok(deleted > 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{store::TestDb, user::UserKey};
+
+    #[tokio::test]
+    async fn updates_are_held_to_the_same_bounds_as_new_routines() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let id = store
+            .create_cron(&alice, "Stretch", "0 9 * * *", "Remind me to stretch")
+            .await
+            .unwrap();
+
+        assert!(
+            store
+                .update_cron(&alice, &id, None, Some(""), None)
+                .await
+                .is_err()
+        );
+        let long = "x".repeat(201);
+        assert!(
+            store
+                .update_cron(&alice, &id, None, Some(&long), None)
+                .await
+                .is_err()
+        );
+        assert!(
+            store
+                .update_cron(&alice, &id, None, None, Some(""))
+                .await
+                .is_err()
+        );
+        let crons = store.list_crons(&alice).await.unwrap();
+        assert_eq!(crons[0].label, "Stretch");
+        assert_eq!(crons[0].schedule, "0 9 * * *");
+        assert!(
+            store
+                .update_cron(&alice, &id, None, Some("Walk"), None)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn limits_count_characters_not_bytes() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let label = "é".repeat(200);
+        store
+            .create_cron(&alice, &label, "0 9 * * *", "Remind me")
+            .await
+            .unwrap();
+        let label = "é".repeat(201);
+        assert!(
+            store
+                .create_cron(&alice, &label, "0 9 * * *", "Remind me")
+                .await
+                .is_err()
+        );
     }
 }

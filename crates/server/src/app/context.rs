@@ -139,9 +139,10 @@ fn apps_line(apps: &[AppIntegration]) -> Option<String> {
         }
     );
     if !available.is_empty() {
-        line.push_str(&format!(
+        let _ = write!(
+            line,
             " Not connected: {available}. The user connects these from Apps in Beep's menu."
-        ));
+        );
     }
     Some(line)
 }

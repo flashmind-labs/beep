@@ -53,7 +53,7 @@ pub(super) fn opt_arg<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
     args.get(name).and_then(Value::as_str)
 }
 
-pub(super) fn date(args: &Value, name: &str) -> Result<Option<NaiveDate>> {
+fn date(args: &Value, name: &str) -> Result<Option<NaiveDate>> {
     opt_arg(args, name)
         .map(str::trim)
         .filter(|d| !d.is_empty())
@@ -62,8 +62,8 @@ pub(super) fn date(args: &Value, name: &str) -> Result<Option<NaiveDate>> {
         .map_err(|_| anyhow!("{name} must be YYYY-MM-DD"))
 }
 
-/// The fact the user asked to store or update, from the shared argument names.
-fn fact(args: &Value, origin: Origin) -> Result<Fact<'_>> {
+/// The fact to store or update, from the shared argument names.
+pub(super) fn fact(args: &Value, source: MemorySource, origin: Option<Origin>) -> Result<Fact<'_>> {
     let valid = Validity {
         from: date(args, "valid_from")?,
         until: date(args, "valid_until")?,
@@ -71,9 +71,9 @@ fn fact(args: &Value, origin: Origin) -> Result<Fact<'_>> {
     Ok(Fact {
         content: arg(args, "content")?,
         category: None,
-        source: MemorySource::User {},
+        source,
         valid: (valid != Validity::default()).then_some(valid),
-        origin: Some(origin),
+        origin,
     })
 }
 
@@ -105,7 +105,7 @@ impl Tool for MemoryStoreTool {
         fact_schema(&["content"], json!({}))
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let fact = fact(&ctx.args, self.0.origin())?;
+        let fact = fact(&ctx.args, MemorySource::User {}, Some(self.0.origin()))?;
         let content = fact.content;
         let remembered = self.0.user.remember(fact).await?;
         let change = if remembered.replaced {
@@ -186,7 +186,7 @@ impl Tool for MemoryUpdateTool {
         fact_schema(&["id", "content"], json!({"id":{"type":"string"}}))
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let fact = fact(&ctx.args, self.0.origin())?;
+        let fact = fact(&ctx.args, MemorySource::User {}, Some(self.0.origin()))?;
         let content = fact.content;
         let updated = self
             .0

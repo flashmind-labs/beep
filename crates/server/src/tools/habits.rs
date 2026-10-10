@@ -2,34 +2,64 @@ use crate::user::User;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
+use sqlx::Error as SqlError;
 use std::sync::Arc;
+
+/// Which of the habit tools.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HabitToolKind {
+    Create,
+    Log,
+    Status,
+    Delete,
+}
+
+impl HabitToolKind {
+    pub(crate) const ALL: [Self; 4] = [Self::Create, Self::Log, Self::Status, Self::Delete];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Create => "habit_create",
+            Self::Log => "habit_log",
+            Self::Status => "habit_status",
+            Self::Delete => "habit_delete",
+        }
+    }
+}
 
 pub(crate) struct HabitTool {
     pub user: Arc<User>,
-    pub variant: &'static str,
+    pub kind: HabitToolKind,
+}
+
+/// Whether `error` is the database refusing a second habit of the same name.
+fn is_duplicate(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<SqlError>(),
+        Some(SqlError::Database(error)) if error.is_unique_violation()
+    )
 }
 
 #[async_trait]
 impl Tool for HabitTool {
     fn name(&self) -> &str {
-        self.variant
+        self.kind.name()
     }
     fn description(&self) -> &str {
-        match self.variant {
-            "habit_create" => {
+        match self.kind {
+            HabitToolKind::Create => {
                 "Create a new habit to track. Frequency can be daily, weekly, or weekdays."
             }
-            "habit_log" => "Log a habit completion. Looks up the habit by name.",
-            "habit_status" => {
+            HabitToolKind::Log => "Log a habit completion. Looks up the habit by name.",
+            HabitToolKind::Status => {
                 "Get status and recent logs for a specific habit, including streak and completion rate."
             }
-            "habit_delete" => "Archive (soft-delete) a habit by name.",
-            _ => "",
+            HabitToolKind::Delete => "Archive (soft-delete) a habit by name.",
         }
     }
     fn parameters(&self) -> Value {
-        match self.variant {
-            "habit_create" => json!({
+        match self.kind {
+            HabitToolKind::Create => json!({
                 "type": "object",
                 "properties": {
                     "name": { "type": "string", "description": "Habit name, e.g. 'Exercise'" },
@@ -38,7 +68,7 @@ impl Tool for HabitTool {
                 "required": ["name"],
                 "additionalProperties": false
             }),
-            "habit_log" => json!({
+            HabitToolKind::Log => json!({
                 "type": "object",
                 "properties": {
                     "habit": { "type": "string", "description": "Habit name" },
@@ -48,7 +78,7 @@ impl Tool for HabitTool {
                 "required": ["habit"],
                 "additionalProperties": false
             }),
-            "habit_status" => json!({
+            HabitToolKind::Status => json!({
                 "type": "object",
                 "properties": {
                     "habit": { "type": "string", "description": "Habit name. Omit to list all habits." },
@@ -56,7 +86,7 @@ impl Tool for HabitTool {
                 },
                 "additionalProperties": false
             }),
-            "habit_delete" => json!({
+            HabitToolKind::Delete => json!({
                 "type": "object",
                 "properties": {
                     "habit": { "type": "string", "description": "Habit name to archive" }
@@ -64,12 +94,11 @@ impl Tool for HabitTool {
                 "required": ["habit"],
                 "additionalProperties": false
             }),
-            _ => json!({}),
         }
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
-        let output = match self.variant {
-            "habit_create" => {
+        let output = match self.kind {
+            HabitToolKind::Create => {
                 let name = ctx.args.get("name").and_then(Value::as_str).unwrap_or("");
                 let frequency = ctx
                     .args
@@ -81,19 +110,16 @@ impl Tool for HabitTool {
                 }
                 match self.user.create_habit(name, frequency).await {
                     Ok(_id) => json!({"created": true, "name": name, "frequency": frequency}),
-                    Err(e) => {
-                        let msg = e.to_string();
-                        if msg.contains("UNIQUE") {
-                            return Ok(ToolResult::failure(
-                                ctx.tool_call_id,
-                                format!("a habit named '{}' already exists", name),
-                            ));
-                        }
-                        return Err(e);
+                    Err(e) if is_duplicate(&e) => {
+                        return Ok(ToolResult::failure(
+                            ctx.tool_call_id,
+                            format!("a habit named '{}' already exists", name),
+                        ));
                     }
+                    Err(e) => return Err(e),
                 }
             }
-            "habit_log" => {
+            HabitToolKind::Log => {
                 let habit = ctx.args.get("habit").and_then(Value::as_str).unwrap_or("");
                 let value = ctx.args.get("value").and_then(Value::as_f64).unwrap_or(1.0);
                 let note = ctx.args.get("note").and_then(Value::as_str);
@@ -110,7 +136,7 @@ impl Tool for HabitTool {
                     }
                 }
             }
-            "habit_status" => {
+            HabitToolKind::Status => {
                 let habit = ctx.args.get("habit").and_then(Value::as_str);
                 let days = ctx.args.get("days").and_then(Value::as_i64).unwrap_or(7);
                 match habit {
@@ -121,7 +147,7 @@ impl Tool for HabitTool {
                     }
                 }
             }
-            "habit_delete" => {
+            HabitToolKind::Delete => {
                 let habit = ctx.args.get("habit").and_then(Value::as_str).unwrap_or("");
                 if habit.is_empty() {
                     return Ok(ToolResult::failure(
@@ -132,8 +158,34 @@ impl Tool for HabitTool {
                 let archived = self.user.archive_habit(habit).await?;
                 json!({"archived": archived, "habit": habit})
             }
-            _ => json!({}),
         };
         Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{store::TestDb, user::UserKey};
+
+    #[tokio::test]
+    async fn a_second_habit_of_the_same_name_is_a_duplicate() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store");
+        let alice = UserKey::for_test("alice");
+        store
+            .create_habit(&alice, "Run", "daily")
+            .await
+            .expect("first habit");
+        let again = store
+            .create_habit(&alice, "Run", "weekly")
+            .await
+            .expect_err("same name");
+        assert!(is_duplicate(&again), "{again:#}");
+        let invalid = store
+            .create_habit(&alice, "Swim", "hourly")
+            .await
+            .expect_err("bad frequency");
+        assert!(!is_duplicate(&invalid));
     }
 }

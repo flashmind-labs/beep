@@ -259,20 +259,12 @@ impl Turn {
 
 /// The end of `text`, at most `max` bytes on a character boundary.
 pub fn cap_tail(text: &str, max: usize) -> String {
-    let mut start = text.len().saturating_sub(max);
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    text[start..].to_owned()
+    text[text.ceil_char_boundary(text.len().saturating_sub(max))..].to_owned()
 }
 
 /// `text` cut to at most `max` bytes on a character boundary.
 pub fn cap(text: &str, max: usize) -> String {
-    let mut end = text.len().min(max);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_owned()
+    text[..text.floor_char_boundary(max)].to_owned()
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
+use super::device_result;
 use crate::{
     app::App,
-    protocol::{BrowserCommand, DeviceAnswer, DeviceQuery, ScrollDirection},
+    protocol::{BrowserCommand, DeviceQuery, ScrollDirection},
 };
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
@@ -175,14 +176,8 @@ impl Tool for BrowserTool {
         };
 
         let query = DeviceQuery::Browser { command };
-        match self.app.device_query(&self.run_id, query, 25).await {
-            Ok(DeviceAnswer::Ok { output }) => Ok(ToolResult::success(ctx.tool_call_id, output)),
-            Ok(DeviceAnswer::Err { message }) => Ok(ToolResult::failure(ctx.tool_call_id, message)),
-            Err(e) => Ok(ToolResult::failure(
-                ctx.tool_call_id,
-                format!("Could not reach the user's device: {e}"),
-            )),
-        }
+        let answer = self.app.device_query(&self.run_id, query, 25).await;
+        Ok(device_result(ctx.tool_call_id, answer))
     }
 }
 

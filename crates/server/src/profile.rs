@@ -220,9 +220,26 @@ struct Claim {
 
 impl Claim {
     fn take(user: &User, source: Source) -> Option<Self> {
-        let user = user.id().to_owned();
+        Self::take_id(user.id().to_owned(), source)
+    }
+
+    fn take_id(user: String, source: Source) -> Option<Self> {
         let inserted = running().insert((user.clone(), source));
         inserted.then_some(Claim { user, source })
+    }
+
+    /// Frees the source and says whether no other source of the user is
+    /// still being read, under one lock, so two reads ending together do not
+    /// both condense.
+    fn release_last(mut self) -> bool {
+        let user = mem::take(&mut self.user);
+        let mut running = running();
+        running.remove(&(user.clone(), self.source));
+        let last = !running.iter().any(|(id, _)| *id == user);
+        drop(running);
+        // Already freed above.
+        mem::forget(self);
+        last
     }
 }
 
@@ -234,10 +251,6 @@ impl Drop for Claim {
 
 fn running() -> MutexGuard<'static, HashSet<(String, Source)>> {
     RUNNING.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-fn others_running(user: &User) -> bool {
-    running().iter().any(|(id, _)| id == user.id())
 }
 
 /// The sources behind the connected apps `slugs`.
@@ -299,8 +312,8 @@ async fn read(app: Arc<App>, user: Arc<User>, source: Source, claim: Claim) {
         // so far is condensed now, or it would wait for a read that may keep
         // stopping.
         log::warn!("profile: read of {source} stopped: {error:#}; user={user} {summary}");
-        drop(claim);
-        if summary.notes > 0 && !others_running(&user) {
+        let last = claim.release_last();
+        if summary.notes > 0 && last {
             match condense(generator, &user, source).await {
                 Ok(learned) => log::info!("profile: condensed; user={user} learned={learned}"),
                 Err(error) => log::warn!("profile: condensing stopped: {error:#}; user={user}"),
@@ -313,8 +326,7 @@ async fn read(app: Arc<App>, user: Arc<User>, source: Source, claim: Claim) {
         return;
     }
     log::info!("profile: read {source}; user={user} {summary}");
-    drop(claim);
-    if others_running(&user) {
+    if !claim.release_last() {
         return;
     }
     match condense(generator, &user, source).await {
@@ -1335,10 +1347,8 @@ struct RawFact {
     evidence: Option<String>,
 }
 
-/// Turns every note about the user into dossiers, then into memories.
-/// Returns how many were saved.
-/// Condenses every source's notes into memories, tagged as one read of
-/// `source`, the read that just ended.
+/// Condenses every source's notes into dossiers, then into memories tagged as
+/// one read of `source`, the read that just ended. Returns how many were saved.
 async fn condense(generator: Generator<'_>, user: &User, source: Source) -> Result<usize> {
     let notes = user.profile_notes().await?;
     if notes.is_empty() {
@@ -1354,7 +1364,8 @@ async fn condense(generator: Generator<'_>, user: &User, source: Source) -> Resu
     // Each round merges chunks of notes, then of dossiers, until one is left.
     loop {
         let chunks = pack(&texts, CONDENSE_CHARS);
-        let last = chunks.len() <= 1;
+        // A round that merges nothing would repeat forever, so it is the last.
+        let last = chunks.len() <= 1 || chunks.len() >= texts.len();
         let dossiers: Vec<Result<String>> = stream::iter(chunks)
             .map(|chunk| generator.text_up_to(DOSSIER_SYSTEM, chunk, DOSSIER_TOKENS))
             .buffered(CONCURRENCY)
@@ -1415,11 +1426,7 @@ async fn condense(generator: Generator<'_>, user: &User, source: Source) -> Resu
 const READ_PREFIX: &str = "read:";
 
 fn read_reference(source: Source, finished: DateTime<Utc>) -> String {
-    format!(
-        "{READ_PREFIX}{}:{}",
-        source.key(),
-        finished.to_rfc3339_opts(SecondsFormat::Secs, true)
-    )
+    format!("{READ_PREFIX}{}:{}", source.key(), rfc3339(finished))
 }
 
 /// The reads that added or confirmed `rows`, newest first, each with its
@@ -1473,6 +1480,16 @@ mod tests {
             }),
             core: false,
         }
+    }
+
+    #[test]
+    fn only_the_last_read_to_end_condenses() {
+        let claim = |source| Claim::take_id("release-last-test".into(), source).unwrap();
+        let gmail = claim(Source::Mail(Mailbox::Gmail));
+        let calendar = claim(Source::Calendar(Calendar::Google));
+        assert!(!gmail.release_last());
+        assert!(calendar.release_last());
+        assert!(!running().iter().any(|(id, _)| id == "release-last-test"));
     }
 
     #[test]
