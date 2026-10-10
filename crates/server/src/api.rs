@@ -8,7 +8,7 @@ use crate::{
     live::Subscription,
     models::Picked,
     permissions, places, profile,
-    protocol::*,
+    protocol::{search::match_snippet, *},
     router::{Cx, Router, Sink},
     steps,
     store::{
@@ -26,7 +26,6 @@ use flashmind::{
 use iroh::EndpointId;
 use std::{
     collections::VecDeque,
-    ops::Range,
     time::{Duration, SystemTime},
 };
 use tokio::{sync::broadcast::error::RecvError, time::timeout};
@@ -654,11 +653,6 @@ fn share_history(conversation: &Conversation) -> Vec<HistoryEntry> {
 const SEARCH_CANDIDATES: i64 = 100;
 /// Sessions a search returns.
 const SEARCH_RESULTS: usize = 30;
-/// Characters a snippet keeps before the match.
-const SNIPPET_BEFORE: usize = 40;
-/// Characters a snippet keeps from the start of the match.
-const SNIPPET_AFTER: usize = 100;
-
 async fn search_sessions(
     cx: Cx,
     SearchSessions { query }: SearchSessions,
@@ -680,49 +674,11 @@ async fn search_sessions(
 
 /// The latest message the user or Beep wrote in `found` that holds `query`.
 fn session_match(found: FoundSession, query: &str) -> Option<SessionMatch> {
-    let at = find_ignoring_case(&found.text, query)?;
     Some(SessionMatch {
-        snippet: snippet(&found.text, at),
+        snippet: match_snippet(&found.text, query)?,
         session: found.session,
         from_user: found.from_user,
     })
-}
-
-/// Where `query` first appears in `text`, ignoring case.
-fn find_ignoring_case(text: &str, query: &str) -> Option<Range<usize>> {
-    text.char_indices().find_map(|(start, _)| {
-        let mut rest = text[start..].char_indices();
-        for wanted in query.chars() {
-            let (_, got) = rest.next()?;
-            if !got.to_lowercase().eq(wanted.to_lowercase()) {
-                return None;
-            }
-        }
-        let end = rest.next().map_or(text.len(), |(at, _)| start + at);
-        Some(start..end)
-    })
-}
-
-/// The words around `at` on one line, without Markdown marks, cut short
-/// with `...` on either side.
-fn snippet(text: &str, at: Range<usize>) -> String {
-    let before: Vec<char> = text[..at.start].chars().collect();
-    let from = before.len().saturating_sub(SNIPPET_BEFORE);
-    let after: String = text[at.start..].chars().take(SNIPPET_AFTER).collect();
-    let cut_after = text[at.start..].chars().count() > SNIPPET_AFTER;
-    let mut snippet = String::new();
-    if from > 0 {
-        snippet.push_str("...");
-    }
-    let kept: String = before[from..].iter().collect();
-    snippet.push_str(if from > 0 { kept.trim_start() } else { &kept });
-    snippet.push_str(&after);
-    let words: Vec<&str> = snippet.split_whitespace().collect();
-    let mut snippet = words.join(" ").replace(['*', '`', '#'], "");
-    if cut_after {
-        snippet.push_str("...");
-    }
-    snippet
 }
 
 async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {
@@ -1368,17 +1324,5 @@ mod tests {
                 .from_user
         );
         assert!(session_match(reply(), "boiler").is_none());
-    }
-
-    #[test]
-    fn snippets_are_cut_around_the_match() {
-        let text = format!("{} Kimpton {}", "a ".repeat(50), "b ".repeat(80));
-        let at = find_ignoring_case(&text, "kimpton").unwrap();
-        assert_eq!(&text[at.clone()], "Kimpton");
-        let snippet = snippet(&text, at);
-        assert!(snippet.starts_with("...a a"));
-        assert!(snippet.ends_with("b b..."));
-        assert!(snippet.contains("Kimpton"));
-        assert_eq!(find_ignoring_case("ÉCOLE", "école"), Some(0..6));
     }
 }

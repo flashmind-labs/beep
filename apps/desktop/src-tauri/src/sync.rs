@@ -11,8 +11,8 @@ use crate::{
     state::LinkState,
 };
 use beep_proto::{
-    ChatInfo, ChatKind, ChatMessage, GetUpdates, MessageBody, Session, StreamUpdates, Update,
-    UpdatePage,
+    ChatInfo, ChatKind, ChatMessage, GetUpdates, MessageBody, Session, SessionMatch, StreamUpdates,
+    Update, UpdatePage, search::match_snippet,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -30,6 +30,8 @@ use uuid::Uuid;
 const RETRY: Duration = Duration::from_secs(15);
 /// How often to look again while the app is not linked.
 const UNLINKED_POLL: Duration = Duration::from_secs(5);
+/// Sessions a search returns, as many as the server's.
+const SEARCH_RESULTS: usize = 30;
 
 /// The chats the server has sent, by id, and the last update applied.
 pub struct Chats {
@@ -224,6 +226,51 @@ impl Chats {
             .collect();
         sessions.sort_by_key(|s| (Reverse(s.pinned), Reverse(s.updated_at)));
         Some(sessions)
+    }
+
+    /// The sessions where the user or Beep wrote `query`, newest first,
+    /// each with the latest message that holds it, or `None` before the
+    /// copy is worth showing.
+    pub fn search(&self, query: &str) -> Option<Vec<SessionMatch>> {
+        let synced = self.synced();
+        if !synced.ready {
+            return None;
+        }
+        let query = query.trim();
+        if query.chars().count() < 2 {
+            return Some(Vec::new());
+        }
+        let mut found: Vec<SessionMatch> = synced
+            .chats
+            .values()
+            .filter(|chat| matches!(chat.kind, ChatKind::Session {}))
+            .filter_map(|chat| {
+                let (snippet, from_user) = synced.messages.get(&chat.id)?.values().rev().find_map(
+                    |message| match &message.body {
+                        MessageBody::User { content, .. } => {
+                            Some((match_snippet(content, query)?, true))
+                        }
+                        MessageBody::Assistant { content } => {
+                            Some((match_snippet(content, query)?, false))
+                        }
+                        _ => None,
+                    },
+                )?;
+                Some(SessionMatch {
+                    session: Session {
+                        id: chat.id.to_string(),
+                        title: chat.title.clone(),
+                        pinned: chat.pinned,
+                        updated_at: synced.latest(chat.id),
+                    },
+                    snippet,
+                    from_user,
+                })
+            })
+            .collect();
+        found.sort_by_key(|found| Reverse(found.session.updated_at));
+        found.truncate(SEARCH_RESULTS);
+        Some(found)
     }
 
     /// Session `id`'s turns, or `None` when the copy does not have it.
@@ -655,5 +702,48 @@ mod tests {
         assert!(reopened.sessions().unwrap().is_empty());
         reopened.clear();
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn search_finds_the_latest_message_that_holds_the_words() {
+        let dir = dir("search");
+        let (lunch, trip) = (Uuid::new_v4(), Uuid::new_v4());
+        let chats = Chats::load(dir.clone());
+        assert!(chats.search("lunch").is_none());
+        let mut updates = vec![
+            Update::Chat {
+                update_id: 1,
+                chat: info(lunch, ChatKind::Session {}, "Lunch"),
+            },
+            Update::Chat {
+                update_id: 2,
+                chat: info(trip, ChatKind::Session {}, "Trip"),
+            },
+        ];
+        let messages = [
+            (lunch, user(10, "Where is Kimpton?")),
+            (lunch, tool(11, "open_maps", "kimpton")),
+            (lunch, reply(12, "The kimpton is on Main St.")),
+            (trip, user(13, "Book the Kimpton")),
+            (trip, tool(14, "book", "kimpton")),
+        ];
+        for (at, (chat_id, message)) in messages.into_iter().enumerate() {
+            updates.push(Update::Message {
+                update_id: 3 + at as i64,
+                chat_id,
+                message,
+            });
+        }
+        chats.apply(page(7, updates));
+
+        let found = chats.search(" KIMPTON ").unwrap();
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].session.title, "Trip");
+        assert!(found[0].from_user);
+        assert_eq!(found[1].snippet, "The kimpton is on Main St.");
+        assert!(!found[1].from_user);
+        assert!(chats.search("open_maps").unwrap().is_empty());
+        assert!(chats.search("k").unwrap().is_empty());
+        chats.clear();
     }
 }
