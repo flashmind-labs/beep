@@ -31,6 +31,9 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Beep uses your location for nearby places, weather and directions.
         INFOPLIST_KEY_NSContactsUsageDescription: Beep looks up a contact when you ask it to.
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: Beep watches the places you saved, so a routine can start when you arrive or leave.
+        INFOPLIST_KEY_NSCameraUsageDescription: Beep uses the camera while it's open in a chat, to send a photo with your message.
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Beep shows your recent photos so you can send one with a message.
         SWIFT_INCLUDE_PATHS: $(PROJECT_DIR)/Generated
         HEADER_SEARCH_PATHS: $(PROJECT_DIR)/Generated
         "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": $(PROJECT_DIR)/../../target/aarch64-apple-ios-sim/release
@@ -41,3 +44,8 @@ targets:
       path: Beep/Info.plist
       properties:
         UIAppFonts: [bricolage_grotesque.ttf, rubik.ttf]
+        NSUserActivityTypes: [INSendMessageIntent]
+    entitlements:
+      path: Beep/Beep.entitlements
+      properties:
+        com.apple.developer.usernotifications.communication: true
