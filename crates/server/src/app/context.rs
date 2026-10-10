@@ -45,6 +45,9 @@ impl App {
             let _ = writeln!(ctx, "{}", location_line(&loc, Utc::now()));
         }
 
+        if let Some(platform) = message.platform {
+            let _ = writeln!(ctx, "The user is writing from {}.", platform.describe());
+        }
         if message.origin == (DeviceKind::Desktop {}) {
             let _ = writeln!(
                 ctx,

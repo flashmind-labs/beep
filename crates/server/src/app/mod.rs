@@ -19,7 +19,7 @@ use crate::{
     images::Describer,
     live::LiveRun,
     models::ModelChoices,
-    protocol::{ApprovalDecision, DeviceAnswer, DeviceKind, Notice, RunEvent},
+    protocol::{ApprovalDecision, DeviceAnswer, DeviceKind, Notice, Platform, RunEvent},
     sandbox::Sandbox,
     search::SearchTool,
     starters::Generator,
@@ -175,6 +175,9 @@ pub struct Message {
     /// The device the message came from. A computer has no phone to act on.
     #[serde(skip)]
     pub origin: DeviceKind,
+    /// The app the message came from, when it says.
+    #[serde(skip)]
+    pub platform: Option<Platform>,
 }
 
 /// The user's answer to the tool call a session stopped on.

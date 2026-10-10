@@ -160,6 +160,7 @@ pub(crate) async fn submit(
         model: None,
         thinking: None,
         origin: DeviceKind::Phone {},
+        platform: None,
     };
 
     let mut result = app

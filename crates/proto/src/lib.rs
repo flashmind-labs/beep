@@ -97,7 +97,7 @@ pub trait Stream: Rpc {
 
 /// Declares every request: its op, its fields and what it replies with.
 macro_rules! requests {
-    ($($(#[$meta:meta])* $op:literal $name:ident { $($field:ident: $ty:ty),* $(,)? } => $kind:ident<$reply:ty>)*) => {
+    ($($(#[$meta:meta])* $op:literal $name:ident { $($(#[$fmeta:meta])* $field:ident: $ty:ty),* $(,)? } => $kind:ident<$reply:ty>)*) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #[repr(u8)]
         pub enum Op {
@@ -123,7 +123,7 @@ macro_rules! requests {
             $(#[$meta])*
             #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
             pub struct $name {
-                $(pub $field: $ty,)*
+                $($(#[$fmeta])* pub $field: $ty,)*
             }
 
             impl Rpc for $name {
@@ -143,8 +143,18 @@ requests! {
     /// the same `request_id` follows the existing run instead of starting another.
     /// `images` are `data:image/...;base64,` URIs. `model` is a `ModelChoice::id` to run this
     /// one turn on instead of the picked model, and `thinking` how long it
-    /// reasons; only admins may set either.
-    2 Chat { session_id: Uuid, request_id: Uuid, message: String, images: Vec<String>, model: Option<String>, thinking: Option<ReasoningLevel> } => Stream<Event>
+    /// reasons; only admins may set either. `platform` is the app sending it,
+    /// missing from apps older than the field.
+    2 Chat {
+        session_id: Uuid,
+        request_id: Uuid,
+        message: String,
+        images: Vec<String>,
+        model: Option<String>,
+        thinking: Option<ReasoningLevel>,
+        #[serde(default)]
+        platform: Option<Platform>,
+    } => Stream<Event>
     3 GetRun { id: String } => Call<Run>
     4 CancelRun { id: String } => Call<()>
     5 GetEvents { run_id: String, after: i64 } => Stream<Event>
@@ -897,6 +907,28 @@ impl DeviceKind {
     }
 }
 
+wire_enum! {
+    /// Which app a request comes from.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum Platform {
+        0 Android {}
+        1 Ios {}
+        2 Macos {}
+    }
+}
+
+impl Platform {
+    /// How the model is told where the user is writing from.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Self::Android {} => "the Android app on their phone",
+            Self::Ios {} => "the iOS app on their iPhone",
+            Self::Macos {} => "the macOS app on their computer",
+        }
+    }
+}
+
 /// A key that signs into the account.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1040,9 +1072,24 @@ mod tests {
             images: vec!["data:image/jpeg;base64,AAAA".into()],
             model: Some("openai/gpt-test".into()),
             thinking: Some(ReasoningLevel::High),
+            platform: Some(Platform::Ios {}),
         };
         let buf = rmp_serde::to_vec(&chat).unwrap();
         assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);
+    }
+
+    #[test]
+    fn chat_from_an_app_without_platform_decodes() {
+        let old = (
+            Uuid::nil(),
+            Uuid::nil(),
+            "hi",
+            Vec::<String>::new(),
+            None::<String>,
+            None::<ReasoningLevel>,
+        );
+        let buf = rmp_serde::to_vec(&old).unwrap();
+        assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap().platform, None);
     }
 
     #[test]
