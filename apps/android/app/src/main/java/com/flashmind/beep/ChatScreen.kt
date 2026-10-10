@@ -317,7 +317,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             inputFocusRequester.requestFocus()
                         }
                         val quote: () -> Unit = { quoteText(message.text.trim().lines().take(4).joinToString("\n")) }
-                        if (shownText.isNotBlank() || message.images.isNotEmpty()) SelectableMessage(quoteText) { picker -> Box {
+                        if (shownText.isNotBlank() || message.images.isNotEmpty() || message.pictures.isNotEmpty()) SelectableMessage(quoteText) { picker -> Box {
                         // Long press and double tap belong to text selection, so a tap opens the menu (copy, quote, share).
                         Column(bubbleModifier.then(picker.tracking).combinedClickable(enabled = !isStreaming, onClickLabel = "Message actions",
                             indication = null, interactionSource = remember { MutableInteractionSource() },
@@ -343,6 +343,8 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                     }
                                 }
                             }
+                            // Pictures the server kept, for a chat reloaded or sent from another device.
+                            if (message.images.isEmpty()) SentPictureRow(message.pictures)
                             if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
                                 padded = isUser || Beep.shapes.botBubble)
                         }

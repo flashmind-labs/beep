@@ -11,6 +11,7 @@ import com.flashmind.beep.ffi.encodeListCache
 import com.flashmind.beep.ffi.newIdentity
 import com.flashmind.beep.proto.Approval
 import com.flashmind.beep.proto.ApprovalField
+import com.flashmind.beep.proto.ImageRef
 import com.flashmind.beep.proto.PromptSuggestion
 import org.json.JSONArray
 import org.json.JSONObject
@@ -65,7 +66,9 @@ data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: 
     val autoModel: String = "",
     val autoThinking: String = "",
     /** The thinking level an admin picked for that rerun, lowercase like "high". Empty keeps their usual one. */
-    val modelThinking: String = "")
+    val modelThinking: String = "",
+    /** The pictures the server kept from this prompt, read with `saveFile`. */
+    val pictures: List<ImageRef> = emptyList())
 
 /** A tool call the server holds until the user allows it. `answer` is empty while it waits. */
 data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "") {
@@ -197,7 +200,7 @@ class LocalStorage(internal val context: Context) {
                 } else emptyList()
                 ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
                     m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals, m.optString("model"), m.optLong("sentAt"),
-                    m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"))
+                    m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"), pictures = readPictures(m))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"),
                 status = c.optString("status"), error = c.optString("error"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
@@ -293,6 +296,8 @@ class LocalStorage(internal val context: Context) {
             val messages = JSONArray()
             c.messages.forEach { m ->
                 val msg = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text).apply { if (m.images.isNotEmpty()) put("images", JSONArray(m.images)) }
+                    .apply { if (m.pictures.isNotEmpty()) put("pictures", JSONArray(m.pictures.map { p ->
+                        JSONObject().put("id", p.id).put("mime", p.mime).put("width", p.width.toLong()).put("height", p.height.toLong()) })) }
                     .apply { if (m.memoryScore != null) put("memoryScore", m.memoryScore) }
                     .apply { if (m.reasoning.isNotEmpty()) put("reasoning", m.reasoning) }
                     .apply { if (m.model.isNotEmpty()) put("model", m.model) }
@@ -342,6 +347,14 @@ class LocalStorage(internal val context: Context) {
             out.write(JSONObject().put("cache", CACHE_FORMAT).put("selected", state.selected).put("conversations", list).toString().toByteArray())
             file.finishWrite(out)
         } catch (error: Exception) { file.failWrite(out); throw error }
+    }
+}
+
+private fun readPictures(json: JSONObject): List<ImageRef> {
+    val list = json.optJSONArray("pictures") ?: return emptyList()
+    return (0 until list.length()).map { i ->
+        val p = list.getJSONObject(i)
+        ImageRef(p.getString("id"), p.getString("mime"), p.getLong("width").toUInt(), p.getLong("height").toUInt())
     }
 }
 
