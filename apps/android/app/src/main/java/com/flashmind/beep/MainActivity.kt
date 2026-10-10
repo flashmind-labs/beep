@@ -488,7 +488,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     BackHandler(enabled = drawerOpen) { drawerOpen = false }
     // Closed, horizontal swipes belong to the chat (new chat or back), so the drawer only takes them to close.
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerOpen, drawerContent = {
-        ModalDrawerSheet(modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(0.9f), drawerContainerColor = Ink,
+        ModalDrawerSheet(modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(0.9f), drawerContainerColor = Ink,
             drawerShape = RoundedCornerShape(topEnd = Beep.shapes.radius, bottomEnd = Beep.shapes.radius)) {
             Spacer(Modifier.height(if (bubble) 8.dp else 20.dp))
             Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
