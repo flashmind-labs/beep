@@ -4,7 +4,6 @@ import UserNotifications
 
 struct OnboardingView: View {
     @Environment(AppModel.self) private var model
-    @State private var locationAllowed = false
     @State private var notificationsAllowed = false
     @State private var importing = false
     @State private var imported = false
@@ -27,10 +26,9 @@ struct OnboardingView: View {
 
                 PermissionCard(
                     icon: "mappin.and.ellipse", tint: Mint.tints[0], title: "Location",
-                    detail: "Nearby places, weather and directions.", done: locationAllowed
+                    detail: "Nearby places, weather and directions.", done: model.location.authorized
                 ) {
                     model.location.request()
-                    locationAllowed = true
                 }
                 PermissionCard(
                     icon: "bell", tint: Mint.tints[1], title: "Notifications",

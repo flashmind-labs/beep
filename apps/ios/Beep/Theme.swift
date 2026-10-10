@@ -14,10 +14,14 @@ enum Mint {
     static let accent = Color(hex: 0xF07A6A)
     static let ok = Color(hex: 0x3B9B7A)
     static let error = Color(hex: 0xD9473A)
-    static let warn = Color(hex: 0xE0A630)
-    static let raised = Color(hex: 0xE9F2EC)
     static let code = Color(hex: 0xECF3EE)
     static let tints = [Color(hex: 0xFDE7E2), Color(hex: 0xE2F4EA), Color(hex: 0xFFF4CC)]
+
+    /// A number for a name or id that stays the same across launches, unlike `hashValue`.
+    static func tintIndex(_ key: String) -> Int { key.unicodeScalars.reduce(0) { $0 + Int($1.value) } }
+
+    /// The same tint for a group, place or person everywhere it shows.
+    static func tint(for key: String) -> Color { tints[tintIndex(key) % tints.count] }
 }
 
 extension Color {

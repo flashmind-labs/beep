@@ -128,7 +128,8 @@ func shortDay(_ date: Date) -> String {
     let calendar = Calendar.current
     if calendar.isDateInToday(date) { return "today" }
     if calendar.isDateInYesterday(date) { return "yesterday" }
-    if let days = calendar.dateComponents([.day], from: date, to: .now).day, days < 7 {
+    if let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: .now)).day,
+        days < 7 {
         return date.formatted(.dateTime.weekday(.abbreviated))
     }
     return date.formatted(.dateTime.day().month(.abbreviated))
@@ -141,7 +142,6 @@ struct PlacesView: View {
     let back: () -> Void
     let always: () -> Void
     let newRoutine: (SavedPlace) -> Void
-    @State private var crons: [Cron] = []
     @State private var deleting: SavedPlace?
     @State private var shown: SavedPlace?
     @State private var error = ""
@@ -168,10 +168,10 @@ struct PlacesView: View {
                 }
                 .padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 24)
             }
-            .refreshable { await load() }
+            .refreshable { await model.refreshPlaces() }
         }
         .background(Mint.page)
-        .task { await load() }
+        .task { await model.refreshPlaces() }
         .alert("Delete \(deleting?.name ?? "this place")?", isPresented: Binding(
             get: { deleting != nil }, set: { if !$0 { deleting = nil } })
         ) {
@@ -188,17 +188,9 @@ struct PlacesView: View {
         }
     }
 
-    private func load() async {
-        await model.refreshPlaces()
-        crons = (try? await model.crons()) ?? []
-    }
-
     private var deleteMessage: String {
         guard let place = deleting else { return "" }
-        let names = crons.filter { PlaceTrigger(schedule: $0.schedule)?.placeId == place.id }.map(\.label)
-        guard !names.isEmpty else { return "Beep forgets this place." }
-        let list = names.count == 1 ? names[0] : names.dropLast().joined(separator: ", ") + " and " + names.last!
-        return "\(list) \(names.count == 1 ? "runs" : "run") when you arrive here, and \(names.count == 1 ? "stops" : "stop"). Beep forgets this place."
+        return place.routines > 0 ? "Routines that start here stop. Beep forgets this place." : "Beep forgets this place."
     }
 
     private var banner: some View {
@@ -222,7 +214,7 @@ struct PlacesView: View {
         HStack(spacing: 12) {
             Button { shown = place } label: {
                 HStack(spacing: 12) {
-                    TintIcon(system: "mappin", tint: placeTint(place))
+                    TintIcon(system: "mappin", tint: Mint.tint(for: place.id))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(place.name).font(.body(15, .semibold)).foregroundStyle(Mint.ink)
                         if let address = place.address {
@@ -269,10 +261,6 @@ struct PlacesView: View {
             }
         }
     }
-}
-
-func placeTint(_ place: SavedPlace) -> Color {
-    Mint.tints[abs(place.id.unicodeScalars.reduce(0) { $0 + Int($1.value) }) % Mint.tints.count]
 }
 
 /// One place in a sheet, from the places list.

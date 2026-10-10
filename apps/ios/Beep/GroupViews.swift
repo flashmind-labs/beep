@@ -31,7 +31,7 @@ private func authorName(_ author: GroupAuthor) -> String {
 }
 
 private func memberIndex(_ group: Group, _ name: String) -> Int {
-    group.members.firstIndex { $0.name.caseInsensitiveCompare(name) == .orderedSame } ?? abs(name.hashValue)
+    group.members.firstIndex { $0.name.caseInsensitiveCompare(name) == .orderedSame } ?? Mint.tintIndex(name)
 }
 
 private func memberTint(_ index: Int) -> Color { Mint.tints[index % Mint.tints.count] }
@@ -127,6 +127,7 @@ struct GroupChatView: View {
                     .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 16)
                 }
                 .overlay { placeholder }
+                .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: chat?.messages.count) { scroller.scrollTo("end", anchor: .bottom) }
                 .onChange(of: outgoing.count) { scroller.scrollTo("end", anchor: .bottom) }
@@ -754,26 +755,24 @@ struct GroupInviteSheet: View {
                 .font(.body(12)).foregroundStyle(Mint.muted).lineSpacing(4)
             if !error.isEmpty { Text(error).font(.body(12)).foregroundStyle(Mint.error) }
             HStack {
-                Button("Reset code") { load(reset: true) }
+                Button("Reset code") { Task { await load(reset: true) } }
                     .buttonStyle(TextAction(color: Mint.error)).padding(.leading, -8)
                     .disabled(link == nil)
                 Spacer()
                 Button("Done") { dismiss() }.buttonStyle(TextAction())
             }
         }
-        .task { load(reset: false) }
+        .task { await load(reset: false) }
     }
 
-    private func load(reset: Bool) {
-        Task {
-            do {
-                link = try await model.groupInvite(groupId, reset: reset)
-                if reset { self.reset = true }
-                copied = false
-                error = ""
-            } catch {
-                self.error = describe(error)
-            }
+    private func load(reset: Bool) async {
+        do {
+            link = try await model.groupInvite(groupId, reset: reset)
+            if reset { self.reset = true }
+            copied = false
+            error = ""
+        } catch {
+            self.error = describe(error)
         }
     }
 }
@@ -900,6 +899,10 @@ struct GroupJoinView: View {
                     Button("Back to Beep", action: back).buttonStyle(PrimaryButton())
                 } else if let preview {
                     details(preview)
+                } else if !error.isEmpty {
+                    Text(error).font(.body(12)).foregroundStyle(Mint.error).padding(.top, 120)
+                    Button("Try again") { Task { await peek() } }.buttonStyle(PrimaryButton())
+                    Button("Not now", action: back).buttonStyle(TextAction())
                 } else {
                     ProgressView().padding(.top, 120)
                 }
@@ -944,6 +947,7 @@ struct GroupJoinView: View {
     }
 
     private func peek() async {
+        error = ""
         do {
             let found = try await model.peekGroup(token)
             if found.joined { joined(found.id) } else { preview = found }
@@ -951,7 +955,6 @@ struct GroupJoinView: View {
             expired = true
         } catch {
             self.error = describe(error)
-            expired = true
         }
     }
 
@@ -1073,7 +1076,7 @@ struct GroupInfoView: View {
 
     @ViewBuilder private func content(_ group: Group) -> some View {
         VStack(spacing: 6) {
-            ChatAvatar(text: groupInitials(group.name), fill: groupTint(group.id), size: 84)
+            ChatAvatar(text: groupInitials(group.name), fill: Mint.tint(for: group.id), size: 84)
                 .background(Circle().fill(Mint.ledge).offset(y: 3))
             Text(group.name).font(.display(28)).foregroundStyle(Mint.ink).multilineTextAlignment(.center)
             Text("Group · \(group.members.count + 1) members").font(.body(13)).foregroundStyle(Mint.muted)

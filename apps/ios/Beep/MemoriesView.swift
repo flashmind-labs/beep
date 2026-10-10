@@ -166,7 +166,7 @@ private struct MemoryCard: View {
     let forget: () -> Void
 
     var body: some View {
-        let today = Date.now.formatted(.iso8601.year().month().day())
+        let today = Date.now.formatted(localDay)
         let ended = memory.validUntil.map { $0 < today } ?? false
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
@@ -209,9 +209,12 @@ private struct MemoryCard: View {
     }
 }
 
+/// `YYYY-MM-DD` in this phone's time zone, so a date means the local day rather than the UTC one.
+private let localDay = Date.ISO8601FormatStyle(timeZone: .current).year().month().day()
+
 /// A `YYYY-MM-DD` date as "9 Oct", with the year when it is not this year.
 private func shortDate(_ date: String) -> String {
-    guard let day = try? Date(date, strategy: .iso8601.year().month().day()) else { return date }
+    guard let day = try? Date(date, strategy: localDay) else { return date }
     let sameYear = Calendar.current.isDate(day, equalTo: .now, toGranularity: .year)
     return sameYear ? day.formatted(.dateTime.day().month(.abbreviated))
         : day.formatted(.dateTime.day().month(.abbreviated).year())

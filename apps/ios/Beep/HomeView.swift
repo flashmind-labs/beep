@@ -210,7 +210,7 @@ struct HomeView: View {
                         time: listTime(session.updatedAt), preview: chatPreview(session), pinned: session.pinned, held: held)
                     .task(id: session.updatedAt) { await model.loadPreview(session) }
             case .group(let group):
-                HomeRow(avatar: .group(groupInitials(group.name), groupTint(group.id)), name: group.name, group: true,
+                HomeRow(avatar: .group(groupInitials(group.name), Mint.tint(for: group.id)), name: group.name, group: true,
                         time: listTime(group.updatedAt), preview: groupSummary(group), pinned: group.pinned, held: held)
             }
         }
@@ -303,7 +303,7 @@ struct HomeView: View {
                             .onTapGesture { openChat(match.session) }
                     }
                     ForEach(groups, id: \.id) { group in
-                        HomeRow(avatar: .group(groupInitials(group.name), groupTint(group.id)), name: group.name, group: true,
+                        HomeRow(avatar: .group(groupInitials(group.name), Mint.tint(for: group.id)), name: group.name, group: true,
                                 time: listTime(group.updatedAt), preview: groupSummary(group), highlight: text)
                             .contentShape(Rectangle())
                             .onTapGesture { openGroup(group.id) }
@@ -312,7 +312,7 @@ struct HomeView: View {
                 if !places.isEmpty {
                     sectionLabel("Places")
                     ForEach(places) { place in
-                        HomeRow(avatar: .place(placeTint(place)), name: place.name, time: "\(place.radius) m",
+                        HomeRow(avatar: .place(Mint.tint(for: place.id)), name: place.name, time: "\(place.radius) m",
                                 preview: place.address ?? "", highlight: text)
                             .contentShape(Rectangle())
                             .onTapGesture { go(.places) }
@@ -433,11 +433,6 @@ func groupInitials(_ name: String) -> String {
     let words = name.split(whereSeparator: { $0.isWhitespace }).prefix(2)
     let letters = words.compactMap(\.first).map { String($0).uppercased() }.joined()
     return letters.isEmpty ? "?" : letters
-}
-
-/// The same tint for a group everywhere it shows.
-func groupTint(_ id: String) -> Color {
-    Mint.tints[id.unicodeScalars.reduce(0) { $0 + Int($1.value) } % Mint.tints.count]
 }
 
 /// The list's time: "09:52" today, then "Yesterday", a weekday this week, else "3 Oct".

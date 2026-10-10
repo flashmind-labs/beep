@@ -79,8 +79,6 @@ final class AppModel {
     var chat = Chat()
     private(set) var sessions: [Session] = []
     private(set) var groups: [Group] = []
-    /// The last group opened.
-    private(set) var openGroupId: String?
     /// The chat or group id on screen, so its notices are not shown.
     var onScreen: String? {
         didSet { if let onScreen { notifier.clear(onScreen) } }
@@ -179,17 +177,15 @@ final class AppModel {
 
     func refreshSessions() async {
         guard let list = try? await api().listSessions() else { return }
-        sessions = list.sorted { ($0.pinned ? 1 : 0, $0.updatedAt) > ($1.pinned ? 1 : 0, $1.updatedAt) }
+        sessions = list
     }
 
     func newChat() {
         stopStreaming()
-        openGroupId = nil
         chat = Chat()
     }
 
     func open(_ session: Session) {
-        openGroupId = nil
         guard session.id != chat.id else { return }
         stopStreaming()
         chat = Chat(id: session.id, title: session.title)
@@ -205,8 +201,7 @@ final class AppModel {
         if let session = sessions.first(where: { $0.id == id }) {
             open(session)
         } else if id != chat.id {
-            openGroupId = nil
-            stopStreaming()
+                stopStreaming()
             chat = Chat(id: id)
             Task { await loadHistory() }
         }
@@ -335,10 +330,6 @@ final class AppModel {
         groups = list
     }
 
-    func openGroup(_ id: String) {
-        openGroupId = id
-    }
-
     func group(_ id: String) async throws -> GroupChat { try await api().getGroup(id: id) }
 
     /// A group's pictures by message seq; empty when the server has none or is too old.
@@ -373,7 +364,6 @@ final class AppModel {
     func leaveGroup(_ id: String) async throws {
         try await api().leaveGroup(id: id)
         groups.removeAll { $0.id == id }
-        if openGroupId == id { openGroupId = nil }
     }
 
     /// Pins at once; the list is fetched again if the server refuses.
@@ -617,9 +607,15 @@ final class AppModel {
 
     /// Answers a chat from its notification. The app may be in the background, so
     /// this runs the turn itself and shows the reply as the next notification.
+    /// For the open chat it waits out a reply still streaming, sends, and returns once
+    /// the new run ends, so the caller's background time covers the whole turn.
     func reply(toChat id: String, text: String) async {
         if id == chat.id {
+            await waitForRun(in: id)
+            guard chat.id == id else { return await reply(toChat: id, text: text) }
+            guard !chat.busy else { return }
             send(text)
+            await waitForRun(in: id)
             return
         }
         guard let api = try? api(),
@@ -636,6 +632,13 @@ final class AppModel {
         guard !line.isEmpty else { return }
         if let session = sessions.first(where: { $0.id == id }) { remember(line, for: session) }
         notifier.show(chatId: id, title: title(of: id), lines: [.init(sender: "You", text: text), .init(sender: nil, text: line)])
+    }
+
+    /// Waits while the chat is open and its run streams, or until background time runs low.
+    private func waitForRun(in id: String) async {
+        while chat.id == id, chat.busy, runTask != nil, UIApplication.shared.backgroundTimeRemaining > 5 {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
     }
 
     /// A tool call allowed or denied from its notification.
@@ -685,7 +688,7 @@ final class AppModel {
         let background = UIApplication.shared.beginBackgroundTask(withName: "place crossing")
         Task {
             defer { UIApplication.shared.endBackgroundTask(background) }
-            if !connected, connectTask == nil { connect() }
+            if !connected { connect() }
             let deadline = Date.now.addingTimeInterval(20)
             while !connected, Date.now < deadline { try? await Task.sleep(for: .milliseconds(250)) }
             if (try? await api().crossPlace(id: id, crossing: crossing)) == true { await refreshPlaces() }
@@ -711,6 +714,11 @@ final class AppModel {
         starters = []
         previews = [:]
         ChatPreview.save(previews)
+        // The new account has not been told the timezone, and the old one's places
+        // must not keep their region monitors if the new list fails to load.
+        reportedTimezone = nil
+        places = []
+        location.watch([])
         await refreshAfterConnect()
     }
 
@@ -747,7 +755,6 @@ final class AppModel {
     /// Runs a routine now and opens the chat it ran in.
     func runCron(_ id: String) async throws {
         let sessionId = try await api().runCron(id: id)
-        openGroupId = nil
         await refreshSessions()
         stopStreaming()
         chat = Chat(id: sessionId, title: sessions.first { $0.id == sessionId }?.title ?? "")

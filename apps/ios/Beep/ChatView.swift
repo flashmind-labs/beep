@@ -40,6 +40,8 @@ struct ChatView: View {
                     }
                     .padding(18)
                 }
+                // Open at the latest message instead of scrolling down from the top.
+                .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: model.chat.messages) { scroller.scrollTo("end", anchor: .bottom) }
                 .onChange(of: model.chat.id) { scroller.scrollTo("end", anchor: .bottom) }
