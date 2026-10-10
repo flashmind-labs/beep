@@ -246,13 +246,27 @@ impl<'a> Source<'a> {
                         after.timestamp(),
                         before.map(|b| format!(" before:{}", b.timestamp())).unwrap_or_default()
                     ),
-                    "max_results": PAGE_SIZE,
                     "include_payload": true,
                 });
                 if let Some(cursor) = cursor {
                     arguments["page_token"] = json!(cursor);
                 }
-                let response = client.execute_tool("GMAIL_FETCH_EMAILS", arguments).await?;
+                // Composio refuses a page of long emails as too large, so the
+                // same page is asked for again with fewer emails.
+                let mut size = PAGE_SIZE;
+                let response = loop {
+                    arguments["max_results"] = json!(size);
+                    match client
+                        .execute_tool("GMAIL_FETCH_EMAILS", arguments.clone())
+                        .await
+                    {
+                        Err(error) if size > 1 && too_large(&error) => {
+                            size /= 2;
+                            log::debug!("mail: Gmail page too large, asking for {size}");
+                        }
+                        result => break result?,
+                    }
+                };
                 if response.successful == Some(false) {
                     bail!("Gmail fetch failed");
                 }
@@ -364,6 +378,12 @@ impl<'a> Source<'a> {
     pub(crate) fn history(&self, window: Window) -> impl Stream<Item = Result<Vec<Email>>> + '_ {
         self.pages(window, Listing::All)
     }
+}
+
+/// Whether Composio refused a tool response for its size. Its client only
+/// gives the status in the message.
+fn too_large(error: &anyhow::Error) -> bool {
+    error.to_string().contains(" returned 413")
 }
 
 /// How a mailbox run went.
@@ -766,6 +786,14 @@ pub(crate) fn clip(text: &str, chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn knows_a_response_composio_found_too_large() {
+        let refused = anyhow::anyhow!("Composio execute returned 413 Payload Too Large: {{}}");
+        let other = anyhow::anyhow!("Composio execute returned 500 Internal Server Error: 413");
+        assert!(too_large(&refused));
+        assert!(!too_large(&other));
+    }
 
     #[test]
     fn parses_gmail_page() {
