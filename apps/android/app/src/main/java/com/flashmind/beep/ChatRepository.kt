@@ -1275,7 +1275,7 @@ class ChatRepository(private val storage: LocalStorage) {
                         else ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc), reasoning = chat.thinking.trim())
                     next = next.copy(
                         messages = if (existing == null) next.messages + msg else next.messages.map { if (it.id == messageId) msg else it },
-                        tool = description, status = "Working...", thinking = "")
+                        tool = if (event.name in QUIET_TOOLS) next.tool else description, status = "Working...", thinking = "")
                 }
                 is RunEvent.ToolResult -> {
                     val callId = event.callId

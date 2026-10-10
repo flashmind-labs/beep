@@ -20,6 +20,7 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
 import android.view.animation.DecelerateInterpolator
+import android.widget.FrameLayout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -103,14 +104,13 @@ object Bubble {
     private const val TARGET_DP = 72
 
     val face = MutableStateFlow(BeepFace.Idle)
-    private val look = mutableStateOf(Offset.Zero)
     private val nearTarget = mutableStateOf(false)
     private val targetShown = mutableStateOf(false)
     /** Set while the bubble is being thrown away, for its exit animation. */
     private val leaving = mutableStateOf(false)
     /** Whether the full app is on screen, where the bubble would only be in the way. */
     private var appInFront = false
-    private var bubbleView: ComposeView? = null
+    private var bubbleView: View? = null
     private var target: ComposeView? = null
     private var params: LayoutParams? = null
     private var targetParams: LayoutParams? = null
@@ -173,8 +173,7 @@ object Bubble {
             x = if (saved.getBoolean("left", false)) bounds.left else bounds.right - size
             y = (bounds.top + saved.getFloat("down", 1 / 3f) * bounds.height()).toInt().coerceIn(bounds.top, bounds.bottom - size)
         }
-        val view = ComposeView(app).apply {
-            owner.attach(this)
+        val head = ComposeView(app).apply {
             setContent {
                 val current by face.collectAsState()
                 // Thrown away: Beep closes its eyes and spins down into the X.
@@ -182,9 +181,13 @@ object Bubble {
                 // A light disc with a shadow, so the bubble reads as floating over any background.
                 Box(Modifier.fillMaxSize().graphicsLayer { scaleX = gone; scaleY = gone; alpha = gone; rotationZ = (1 - gone) * 120f }
                     .padding(5.dp).shadow(6.dp, CircleShape).background(Color(0xFFF4F8F5), CircleShape)) {
-                    BeepHead(if (leaving.value) BeepFace.Sleepy else current, look, Modifier.fillMaxSize().padding(4.dp))
+                    BeepHead(if (leaving.value) BeepFace.Sleepy else current, Modifier.fillMaxSize().padding(4.dp))
                 }
             }
+        }
+        val view = TouchFrame(app).apply {
+            owner.attach(this)
+            addView(head)
             setOnTouchListener(Drag(app))
             if (appInFront) visibility = View.GONE
         }
@@ -434,7 +437,7 @@ object Bubble {
     private class Drag(private val context: Context) : View.OnTouchListener {
         private val slop = ViewConfiguration.get(context).scaledTouchSlop
         private val windows = context.getSystemService(WindowManager::class.java)
-        private var downX = 0f; private var downY = 0f; private var lastX = 0f; private var lastY = 0f
+        private var downX = 0f; private var downY = 0f
         private var startX = 0; private var startY = 0
         private var dragging = false
 
@@ -444,7 +447,7 @@ object Bubble {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     motion?.cancel()
-                    downX = event.rawX; downY = event.rawY; lastX = downX; lastY = downY
+                    downX = event.rawX; downY = event.rawY
                     startX = p.x; startY = p.y; dragging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -459,9 +462,6 @@ object Bubble {
                         view.performHapticFeedback(HapticFeedbackConstants.GESTURE_START)
                     }
                     if (!dragging) return true
-                    // Eyes follow the drag.
-                    look.value = Offset(((event.rawX - lastX) / 12f).coerceIn(-1f, 1f), ((event.rawY - lastY) / 12f).coerceIn(-1f, 1f))
-                    lastX = event.rawX; lastY = event.rawY
                     val t = targetParams ?: return true
                     val bubbleCenterX = startX + dx + p.width / 2; val bubbleCenterY = startY + dy + p.height / 2
                     val targetCenterX = t.x + t.width / 2f; val targetCenterY = t.y + t.height / 2f
@@ -477,7 +477,6 @@ object Bubble {
                     windows.updateViewLayout(view, p)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    look.value = Offset.Zero
                     if (!(dragging && nearTarget.value)) targetShown.value = false
                     if (!dragging) {
                         if (event.actionMasked == MotionEvent.ACTION_UP) { view.performClick(); toggle(context) }
@@ -534,6 +533,14 @@ object Bubble {
 
     private fun px(context: Context, dp: Int) = (dp * context.resources.displayMetrics.density).toInt()
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
+
+/**
+ * The bubble's window root. It takes every touch before the face does: an AndroidView in the face
+ * (the clip avatars) reports touches as handled, which kept them from the drag and tap listener.
+ */
+private class TouchFrame(context: Context) : FrameLayout(context) {
+    override fun onInterceptTouchEvent(event: MotionEvent) = true
 }
 
 /** Lifecycle and saved state for Compose views that live in overlay windows rather than an activity. */

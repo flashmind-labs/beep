@@ -130,6 +130,9 @@ data class Contact(val name: String, val phone: String, val email: String)
 
 private fun JSONObject.text(key: String) = optString(key).takeIf { it.isNotBlank() && it != "null" }
 
+/** Tools that get no chip: what they do is already on screen, or is bookkeeping. */
+val QUIET_TOOLS = setOf("suggest_replies", "show_products", "notify_user", "task_progress")
+
 /** Reads the card a tool's output describes, or null when it is just text for the model. */
 fun cardFor(call: ToolCall): ToolCard? {
     if (!call.isDone || !call.success) return null

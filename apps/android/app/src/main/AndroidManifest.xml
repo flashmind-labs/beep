@@ -54,7 +54,8 @@
                 <data android:pathPrefix="/g/" />
             </intent-filter>
         </activity>
-        <!-- Launcher icons. Avatars enables exactly one of these. -->
+        <!-- Launcher icons. Avatars enables exactly one of these. The last four belong to dropped
+             avatars; they show the pager and stay so Avatars can turn them off on phones that used them. -->
         <activity-alias android:name=".LauncherPager" android:targetActivity=".MainActivity"
             android:icon="@mipmap/ic_launcher_pager" android:roundIcon="@mipmap/ic_launcher_pager"
             android:enabled="true" android:exported="true">
@@ -80,7 +81,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".LauncherBeep" android:targetActivity=".MainActivity"
-            android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
+            android:icon="@mipmap/ic_launcher_pager" android:roundIcon="@mipmap/ic_launcher_pager"
             android:enabled="false" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -88,7 +89,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".LauncherBubble" android:targetActivity=".MainActivity"
-            android:icon="@mipmap/ic_launcher_bubble" android:roundIcon="@mipmap/ic_launcher_bubble"
+            android:icon="@mipmap/ic_launcher_pager" android:roundIcon="@mipmap/ic_launcher_pager"
             android:enabled="false" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -96,7 +97,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".LauncherSpark" android:targetActivity=".MainActivity"
-            android:icon="@mipmap/ic_launcher_spark" android:roundIcon="@mipmap/ic_launcher_spark"
+            android:icon="@mipmap/ic_launcher_pager" android:roundIcon="@mipmap/ic_launcher_pager"
             android:enabled="false" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -104,7 +105,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".LauncherGhost" android:targetActivity=".MainActivity"
-            android:icon="@mipmap/ic_launcher_ghost" android:roundIcon="@mipmap/ic_launcher_ghost"
+            android:icon="@mipmap/ic_launcher_pager" android:roundIcon="@mipmap/ic_launcher_pager"
             android:enabled="false" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
