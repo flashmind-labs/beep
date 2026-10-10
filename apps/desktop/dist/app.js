@@ -18,6 +18,9 @@ const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" s
 /// Tool steps shown while a run works; older ones fold into "+N tools".
 const VISIBLE_STEPS = 3;
 
+/// Tools that get no step: what they do is already on screen, or is bookkeeping.
+const QUIET_TOOLS = new Set(["suggest_replies", "show_products", "notify_user", "task_progress"]);
+
 /// What a tool is doing, in words, the same as the phone's toolLabel.
 /// Unknown tools fall back to their name: "GMAIL_SEND_EMAIL" becomes "Gmail: send email".
 const TOOL_LABELS = {
@@ -99,10 +102,11 @@ function newId() {
 function fit() {
   let height = 2;
   for (const el of bar.children) {
-    if (el.id === "latest") continue;
+    if (el.id === "latest" || el.id === "map") continue;
     height += el.classList.contains("dbody") || el.classList.contains("dlist") ? el.scrollHeight : el.offsetHeight;
   }
   invoke("resize_bar", { height }).catch(() => {});
+  drawMap();
 }
 const sizer = new ResizeObserver(fit);
 new MutationObserver(() => {
@@ -133,12 +137,12 @@ function refreshHints() {
 
 function renderChat() {
   S.view = "chat";
-  bar.innerHTML = `<div class="dinput"><span class="dlogo">b</span><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea></div>
+  bar.innerHTML = `<div class="dinput"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea></div>
     <div class="dbody" id="body"></div>${chatHints()}`;
   const kept = here()?.body;
   if (kept) $("#body").replaceWith(kept);
   const b = body();
-  b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; drawLatest(); };
+  b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; drawLatest(); markMap(); };
   drawLatest();
   const ask = $("#ask");
   let multi = false;
@@ -168,6 +172,43 @@ function drawLatest() {
   const el = h(`<button class="dbtn dlatest" id="latest"><span class="down">${ICON.chev}</span>Latest</button>`);
   el.addEventListener("click", () => { scrollDown(); drawLatest(); focusAsk(); });
   bar.append(el);
+}
+
+/// A tick per prompt on the right edge once the chat scrolls: hover one to read
+/// the prompt, click it to jump there. Ticks are only rebuilt when the prompts
+/// change, since fit() calls this from the bar's MutationObserver.
+function drawMap() {
+  const b = body();
+  const turns = b && S.view === "chat" ? [...b.children].filter(t => t.querySelector(":scope > .ask")) : [];
+  let map = $("#map");
+  if (turns.length < 2 || b.scrollHeight <= b.clientHeight + 4) return map?.remove();
+  if (!map) map = bar.appendChild(h('<div class="dmap" id="map" aria-label="Prompts in this chat"></div>'));
+  if (map.turns?.length !== turns.length || map.turns.some((t, i) => t !== turns[i])) {
+    map.turns = turns;
+    map.replaceChildren(...turns.map(t => {
+      const tk = h('<button class="tk"><i></i><span class="tip"></span></button>');
+      const q = t.querySelector(":scope > .ask").textContent;
+      tk.querySelector(".tip").textContent = q;
+      tk.setAttribute("aria-label", q);
+      tk.addEventListener("click", () => { b.scrollTo({ top: t.offsetTop - b.offsetTop - 6, behavior: "smooth" }); focusAsk(); });
+      return tk;
+    }));
+  }
+  map.style.top = b.offsetTop + "px";
+  map.style.height = b.clientHeight + "px";
+  turns.forEach((t, i) => {
+    const at = (t.offsetTop - b.offsetTop) / b.scrollHeight * 100;
+    map.children[i].style.top = Math.min(97, Math.max(3, at)) + "%";
+  });
+  markMap();
+}
+/// Marks the prompt whose turn is at the top of the view.
+function markMap() {
+  const b = body(), map = $("#map");
+  if (!b || !map?.turns) return;
+  let cur = 0;
+  map.turns.forEach((t, i) => { if (t.offsetTop - b.offsetTop <= b.scrollTop + b.clientHeight / 3) cur = i; });
+  [...map.children].forEach((tk, i) => tk.classList.toggle("on", i === cur));
 }
 
 function newTurn(question, images) {
@@ -293,6 +334,7 @@ function follow(id, turn) {
         thinking(turn, ev.delta);
         break;
       case "tool_started":
+        if (QUIET_TOOLS.has(ev.name)) break;
         turn.steps.push({ id: ev.call_id, label: toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
         drawSteps(turn, false);
         break;
@@ -418,7 +460,7 @@ function drawHistory(id, turns) {
       turn = t.role === "user" ? newTurn(t.text, t.images) : newTurn(t.label || "Routine");
     } else if (t.role === "assistant") {
       turn ??= newTurn("");
-      turn.steps.push(...t.tools.map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
+      turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
       if (t.html) reply(turn).innerHTML += t.html;
       for (const x of t.tools) {
         if (x.file) fileCard(turn, x.file);
@@ -475,7 +517,7 @@ function renderChats() {
   S.view = "chats";
   invoke("close_group").catch(() => {});
   S.chats = { list: S.cache, sel: 0, query: "", mode: "list", back, share: null };
-  bar.innerHTML = `<div class="dinput"><span class="dlogo">b</span><input id="find" placeholder="Search chats and groups" autocomplete="off" spellcheck="false"><kbd>⌘K</kbd></div>
+  bar.innerHTML = `<div class="dinput"><input id="find" placeholder="Search chats and groups" autocomplete="off" spellcheck="false"><kbd>⌘K</kbd></div>
     <div class="dsec" id="sec">Recent</div><div class="dlist" id="list" role="listbox" aria-label="Chats"></div>
     ${hints([[ICON.ret, "open"], ["tab", "actions"], ["⌘N", "new chat"], ["⌘G", "new group"], ["esc", "back"]])}`;
   const find = $("#find");
