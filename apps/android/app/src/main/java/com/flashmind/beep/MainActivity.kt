@@ -231,12 +231,12 @@ open class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (!bubble) Bubble.appShown(true)
-        (application as BeepApplication).repository.chatScreenShown(true)
+        (application as BeepApplication).repository.chatScreenShown(true, bubble)
     }
     override fun onStop() {
         super.onStop()
         if (!bubble) Bubble.appShown(false)
-        (application as BeepApplication).repository.chatScreenShown(false)
+        (application as BeepApplication).repository.chatScreenShown(false, bubble)
     }
     /** Float Beep: the overlay bubble when picked and allowed, otherwise the system bubble. */
     private fun float() {
@@ -253,6 +253,11 @@ open class MainActivity : ComponentActivity() {
 /** The compact chat in a system bubble, used when Beep may not draw over other apps. */
 class BubbleActivity : MainActivity() {
     override val bubble = true
+    override fun onStart() {
+        // The bubble's intent is only read when it first opens, so a reply in another chat is picked up here.
+        ChatNotifications.announced?.let { (application as BeepApplication).repository.select(it); ChatNotifications.announced = null }
+        super.onStart()
+    }
 }
 /** The compact chat that opens from the bubble, as a rounded panel under it. */
 class PanelActivity : MainActivity() {

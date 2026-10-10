@@ -149,13 +149,19 @@ class ChatRepository(private val storage: LocalStorage) {
     private var locationJob: Job? = null
     /** Chat screens currently started: the app, the bubble or the panel. */
     private val chatScreens = AtomicInteger(0)
-    fun chatScreenShown(shown: Boolean) {
-        if (!shown) { chatScreens.decrementAndGet(); return }
-        chatScreens.incrementAndGet()
+    /** The started chat screens that are a bubble or the panel. */
+    private val bubbleScreens = AtomicInteger(0)
+    fun chatScreenShown(shown: Boolean, bubble: Boolean) {
+        val step = if (shown) 1 else -1
+        if (bubble) bubbleScreens.addAndGet(step)
+        chatScreens.addAndGet(step)
+        if (!shown) return
         // The chat on screen has been read, so its notification goes.
         ChatNotifications.cancel(storage.context, state.value.current.id)
     }
     fun onScreen(id: String) = chatScreens.get() > 0 && state.value.current.id == id
+    /** Whether Beep is on screen only as the bubble or panel, which has no room for the browser. */
+    private fun onlyBubble() = bubbleScreens.get() > 0 && bubbleScreens.get() == chatScreens.get()
     private val cloud = CloudBackup(storage.context)
     /** The readable name of this phone's identity, such as mega-fox-trot. */
     val accountName = MutableStateFlow("")
@@ -1105,7 +1111,8 @@ class ChatRepository(private val storage: LocalStorage) {
         val ctx = storage.context
         val (action, params) = when (command) {
             is BrowserCommand.Navigate -> {
-                browserOpen.value = true
+                // The page still loads for Beep to read, just without covering the bubble.
+                if (!onlyBubble()) browserOpen.value = true
                 return BrowserBridge.navigate(ctx, command.url)
             }
             BrowserCommand.ReadPage -> "read_page" to JSONObject()
@@ -1126,9 +1133,10 @@ class ChatRepository(private val storage: LocalStorage) {
         return BrowserBridge.executeCommand(ctx, action, params)
     }
 
-    /** Show the in-app browser on [url]. */
+    /** Show the in-app browser on [url], or the phone's own browser from the bubble. */
     fun openBrowser(url: String) {
         if (url.isEmpty()) return
+        if (onlyBubble()) return ExternalBrowser.open(storage.context, url)
         browserOpen.value = true
         scope.launch { BrowserBridge.open(storage.context, url) }
     }
