@@ -369,7 +369,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             Text("$name · ${message.autoThinking}", fontSize = 11.sp, color = TextDim,
                                 modifier = Modifier.padding(top = 4.dp, end = 4.dp))
                         }
-                        if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact) { repository.openBrowser(it) }
+                        if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact, repository) { repository.openBrowser(it) }
                         if (!isUser && !isStreaming && message.text.isNotBlank()) {
                             val shownLinks = toolCards.mapNotNull { (it.second as? ToolCard.Link)?.url }.toSet()
                             val links = remember(message.text) { linksIn(message.text) }.filter { it !in shownLinks }

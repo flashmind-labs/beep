@@ -46,6 +46,18 @@ import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Sms
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.NotificationsNone
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.Stroke
+import kotlinx.coroutines.launch
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -106,6 +118,9 @@ sealed class ToolCard {
     data class Images(val images: List<SentImage>) : ToolCard()
     /** A file Beep sent, fetched from the server by [id] when first opened. */
     data class File(val id: String, val name: String, val mime: String, val size: Long) : ToolCard()
+    /** A place Beep saved by name, which routines can start on arriving at or leaving. */
+    data class SavedPlace(val id: String, val name: String, val address: String, val radiusMeters: Int,
+        val latitude: Double, val longitude: Double) : ToolCard()
 }
 
 data class SentImage(val url: String, val caption: String)
@@ -149,12 +164,24 @@ fun cardFor(call: ToolCall): ToolCard? {
             }
             if (images.isEmpty()) null else ToolCard.Images(images)
         }
+        "place_save" -> savedPlaceOf(json)
         "send_file" -> json.optJSONObject("file")?.let { f ->
             val id = f.text("id") ?: return null
             ToolCard.File(id, f.text("name") ?: "file", f.text("mime") ?: "application/octet-stream", f.optLong("size"))
         }
         else -> null
     }
+}
+
+/** Only a place that was saved; one held back for being near another shows nothing. */
+private fun savedPlaceOf(json: JSONObject): ToolCard.SavedPlace? {
+    if (!json.optBoolean("saved")) return null
+    val p = json.optJSONObject("place") ?: return null
+    val lat = p.optDouble("latitude", Double.NaN)
+    val lon = p.optDouble("longitude", Double.NaN)
+    if (lat.isNaN() || lon.isNaN()) return null
+    return ToolCard.SavedPlace(p.text("id") ?: return null, p.text("name") ?: return null, p.text("address").orEmpty(),
+        p.optInt("radius_m", 100), lat, lon)
 }
 
 private fun firstOf(list: JSONArray?, key: String): String {
@@ -290,9 +317,9 @@ private object MapTiles {
     }
 }
 
-/** The map part of a place or location card, with a pin on the spot. */
+/** The map part of a place or location card, with a pin on the spot and, given [ringMeters], a ring that far around it. */
 @Composable
-private fun MapSnippet(point: LatLon?, height: Int, onOpen: () -> Unit) {
+private fun MapSnippet(point: LatLon?, height: Int, ringMeters: Int? = null, onOpen: () -> Unit) {
     val t = LocalBeep.current
     val dark = t.colors.page.luminance() < 0.4f
     BoxWithConstraints(Modifier.fillMaxWidth().height(height.dp).background(t.colors.raised).clickable(onClick = onOpen)) {
@@ -304,6 +331,16 @@ private fun MapSnippet(point: LatLon?, height: Int, onOpen: () -> Unit) {
         }
         map?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             ?: Icon(Icons.Outlined.Map, null, Modifier.align(Alignment.Center).size(28.dp), tint = t.colors.dim)
+        if (map != null && point != null && ringMeters != null) {
+            val ring = t.colors.accent
+            Box(Modifier.fillMaxSize().drawBehind {
+                // The snapshot is drawn one zoom level past 15, a pixel per bitmap pixel.
+                val metersPerPixel = 156_543.034 * cos(Math.toRadians(point.latitude)) / 2.0.pow(16)
+                val radius = (ringMeters / metersPerPixel).toFloat()
+                drawCircle(ring.copy(alpha = 0.16f), radius)
+                drawCircle(ring, radius, style = Stroke(2.dp.toPx()))
+            })
+        }
         if (map != null) {
             Box(Modifier.align(Alignment.Center).offset(y = (-14).dp).size(30.dp)
                 .border(2.5.dp, t.colors.page, CircleShape).background(t.colors.accent, CircleShape),
@@ -488,6 +525,88 @@ private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
                     else RideMenu(choices)
                 }
                 CardButton("Open in Maps", Icons.Outlined.Map) { openMaps(context, card.query, point, card.near) }
+            }
+        }
+    }
+}
+
+/** How near counts as being at a saved place, as the card offers it. */
+private val PLACE_RADII = listOf(50, 100, 250)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SavedPlaceCard(card: ToolCard.SavedPlace, compact: Boolean, repository: ChatRepository) {
+    val t = LocalBeep.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var name by rememberSaveable(card.id) { mutableStateOf(card.name) }
+    var radius by rememberSaveable(card.id) { mutableIntStateOf(card.radiusMeters) }
+    var renaming by remember { mutableStateOf(false) }
+    var addingRoutine by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf("") }
+    val point = remember(card) { LatLon(card.latitude, card.longitude, card.address) }
+    fun setRadius(meters: Int) {
+        val before = radius
+        radius = meters
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { repository.setPlaceRadius(card.id, meters) } }
+                .onSuccess { note = "" }.onFailure { radius = before; note = userMessage(it) }
+        }
+    }
+    if (renaming) {
+        var draft by remember { mutableStateOf(name) }
+        AlertDialog(onDismissRequest = { renaming = false }, containerColor = t.colors.surface,
+            title = { Text("Rename $name") },
+            text = { OutlinedTextField(draft, { draft = it }, singleLine = true, label = { Text("Name") }) },
+            confirmButton = { TextButton(enabled = draft.isNotBlank(), onClick = {
+                val wanted = draft.trim()
+                renaming = false
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) { repository.renamePlace(card.id, wanted) } }
+                        .onSuccess { name = wanted; note = "" }.onFailure { note = userMessage(it) }
+                }
+            }) { Text("Rename") } },
+            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } })
+    }
+    if (addingRoutine) {
+        val here = Place(card.id, name, card.address, radius, 0, null, false)
+        val places by produceState(listOf(here)) {
+            value = runCatching { withContext(Dispatchers.IO) { repository.listPlaces() } }.getOrNull()
+                ?.takeIf { list -> list.any { it.id == card.id } } ?: value
+        }
+        CreateCronDialog(places, onDismiss = { addingRoutine = false }, onAskBeep = null,
+            preset = PlaceSchedule(PlaceEvent.Arrive, card.id, true)) { label, prompt, schedule ->
+            scope.launch {
+                runCatching { withContext(Dispatchers.IO) { repository.createCron(label, prompt, schedule) } }
+                    .onSuccess { addingRoutine = false; note = "Routine saved" }.onFailure { note = userMessage(it) }
+            }
+        }
+    }
+    BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
+        MapSnippet(point, if (compact) 110 else 140, ringMeters = radius) { openMaps(context, name, point) }
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(name, Modifier.weight(1f, fill = false), style = displayStyle(if (compact) 15.sp else 17.sp), color = t.colors.ink,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Saved", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = t.colors.ink,
+                    modifier = Modifier.background(t.colors.tints[1], RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 2.dp))
+            }
+            if (card.address.isNotBlank()) {
+                Spacer(Modifier.height(3.dp))
+                Text(card.address, fontSize = 13.sp, color = t.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.height(10.dp))
+            Text("Counts as here within", fontSize = 12.sp, color = t.colors.muted)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                PLACE_RADII.forEach { meters ->
+                    FilterChip(selected = radius == meters, onClick = { if (radius != meters) setRadius(meters) }, label = { Text("$meters m") })
+                }
+            }
+            if (note.isNotEmpty()) Text(note, fontSize = 12.sp, color = t.colors.muted, modifier = Modifier.padding(top = 4.dp))
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CardButton("When I get here", Icons.Outlined.NotificationsNone, primary = true) { addingRoutine = true }
+                CardButton("Rename", Icons.Outlined.Edit) { renaming = true }
             }
         }
     }
@@ -698,7 +817,7 @@ fun SuggestedReplies(card: ToolCard.Replies, onPick: (String) -> Unit) {
 
 /** Cards for one message's tool calls. Suggested replies are drawn separately, under the newest reply only. */
 @Composable
-fun ToolCards(cards: List<ToolCard>, compact: Boolean, onBrowse: (String) -> Unit) {
+fun ToolCards(cards: List<ToolCard>, compact: Boolean, repository: ChatRepository, onBrowse: (String) -> Unit) {
     val shown = cards.filter { it !is ToolCard.Replies }
     if (shown.isEmpty()) return
     Column(Modifier.fillMaxWidth().padding(bottom = 8.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -717,6 +836,7 @@ fun ToolCards(cards: List<ToolCard>, compact: Boolean, onBrowse: (String) -> Uni
                     }
                 }
                 is ToolCard.File -> FileCard(card)
+                is ToolCard.SavedPlace -> SavedPlaceCard(card, compact, repository)
                 is ToolCard.Replies -> Unit
             }
         }

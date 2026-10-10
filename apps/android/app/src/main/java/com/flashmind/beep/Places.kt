@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -37,10 +39,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.OffsetDateTime
 import java.time.ZonedDateTime
+import com.flashmind.beep.proto.Place as ProtoPlace
 
 /** A spot the user saved by telling Beep where they are. */
 data class Place(
@@ -63,15 +68,48 @@ interface PlaceStore {
     suspend fun setRadius(id: String, meters: Int)
 }
 
-/**
- * Stands in until the places calls exist in the protocol.
- * Follow-up: back this with the places calls (proto 74-76) through ChatRepository once they land.
- */
-object UnwiredPlaces : PlaceStore {
-    override suspend fun list(): List<Place> = emptyList()
-    override suspend fun delete(id: String) {}
-    override suspend fun rename(id: String, name: String) {}
-    override suspend fun setRadius(id: String, meters: Int) {}
+/** The places on the server, through the repository. */
+class ServerPlaces(private val repository: ChatRepository) : PlaceStore {
+    override suspend fun list(): List<Place> = repository.listPlaces()
+    override suspend fun delete(id: String) = repository.deletePlace(id)
+    override suspend fun rename(id: String, name: String) = repository.renamePlace(id, name)
+    override suspend fun setRadius(id: String, meters: Int) = repository.setPlaceRadius(id, meters)
+}
+
+internal fun appPlace(place: ProtoPlace) = Place(
+    id = place.id,
+    name = place.name,
+    address = place.address.orEmpty(),
+    radiusMeters = place.radius.toInt(),
+    routines = place.routines.toInt(),
+    lastHere = place.lastHereAt?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() },
+    here = place.here,
+)
+
+/** Arriving at a place or leaving it, as a place routine's schedule says. */
+enum class PlaceEvent(val word: String) { Arrive("arrive"), Leave("leave") }
+
+/** A place routine's schedule: `arrive:<place id>` or `leave:<place id>`, ending in `:daily` for once a day at most. */
+data class PlaceSchedule(val event: PlaceEvent, val placeId: String, val daily: Boolean) {
+    override fun toString() = "${event.word}:$placeId" + if (daily) ":daily" else ""
+}
+
+/** Reads a place routine's schedule, or null for a time-based one. */
+internal fun placeSchedule(schedule: String): PlaceSchedule? {
+    val parts = schedule.trim().split(":")
+    val event = PlaceEvent.entries.firstOrNull { it.word == parts.first() } ?: return null
+    return when {
+        parts.size == 2 && parts[1].isNotBlank() -> PlaceSchedule(event, parts[1], false)
+        parts.size == 3 && parts[1].isNotBlank() && parts[2] == "daily" -> PlaceSchedule(event, parts[1], true)
+        else -> null
+    }
+}
+
+/** "When you arrive at Gym · once a day at most", naming the place from [names] by id. */
+internal fun describePlaceSchedule(schedule: PlaceSchedule, names: Map<String, String>): String {
+    val place = names[schedule.placeId] ?: "a saved place"
+    val event = when (schedule.event) { PlaceEvent.Arrive -> "arrive at"; PlaceEvent.Leave -> "leave" }
+    return "When you $event $place" + if (schedule.daily) " · once a day at most" else ""
 }
 
 /** "Within 100 m · 1 routine · last here Thu", as a place's row says it. */
@@ -179,17 +217,41 @@ private fun PlacesHint() {
 }
 
 /**
- * Asks for location all the time, which place routines need to run with the app closed.
- * Android only grants it from the app's settings page, so the button goes there.
+ * Asks for location all the time, which place routines need to run with the app closed. Fine
+ * location comes first, since Android only offers all the time on top of it. When Android won't
+ * show its page any more, the button goes to the app's settings instead.
  */
 @Composable
 internal fun BackgroundLocationScreen(onDone: () -> Unit, onPlaces: () -> Unit) {
     val context = LocalContext.current
     var allowed by remember { mutableStateOf(locationAlways(context)) }
     var sentToSettings by remember { mutableStateOf(false) }
+    // A new grant means the geofences can go in, or now fire with the app closed.
+    fun registerAgain() {
+        Geofences.forget(context)
+        val repository = (context.applicationContext as BeepApplication).repository
+        CoroutineScope(Dispatchers.IO).launch { repository.syncPlaces() }
+    }
+    fun openSettings() {
+        sentToSettings = true
+        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+    val always = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        allowed = granted
+        if (granted) registerAgain() else sentToSettings = true
+    }
+    val fine = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            registerAgain()
+            always.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        } else sentToSettings = true
+    }
     // Coming back from settings, check again.
     LifecycleResumeEffect(Unit) {
-        allowed = locationAlways(context)
+        val now = locationAlways(context)
+        if (now && !allowed) registerAgain()
+        allowed = now
         onPauseOrDispose {}
     }
     Column(Modifier.fillMaxSize().background(Beep.colors.page).systemBarsPadding().padding(horizontal = 20.dp, vertical = 28.dp),
@@ -230,9 +292,12 @@ internal fun BackgroundLocationScreen(onDone: () -> Unit, onPlaces: () -> Unit) 
         }
         Spacer(Modifier.weight(1f))
         ChunkyButton(onClick = {
-            sentToSettings = true
-            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            when {
+                sentToSettings -> openSettings()
+                hasFine -> always.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                else -> fine.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            }
         }, modifier = Modifier.fillMaxWidth(), color = Beep.colors.accent) {
             Text(if (sentToSettings) "Open settings" else "Allow all the time", fontWeight = FontWeight.SemiBold)
         }

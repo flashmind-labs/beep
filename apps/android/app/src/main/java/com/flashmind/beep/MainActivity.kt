@@ -312,6 +312,18 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     var bubbleMenu by remember { mutableStateOf(false) }
     // The app opens on the chat list; the bubble opens on its chat.
     var screen by rememberSaveable { mutableStateOf(if (bubble) Screen.Chat else Screen.Home) }
+    val places = remember(repository) { ServerPlaces(repository) }
+    // Where "Not now" on the location screen goes back to.
+    var beforeLocationAlways by rememberSaveable { mutableStateOf(Screen.Places) }
+    // The first place routine made without location all the time opens the screen that asks for it.
+    val askLocationAlways by repository.askLocationAlways.collectAsStateWithLifecycle()
+    LaunchedEffect(askLocationAlways, bubble) {
+        if (askLocationAlways && !bubble) {
+            repository.askLocationAlways.value = false
+            beforeLocationAlways = screen
+            screen = Screen.LocationAlways
+        }
+    }
     // A notice about an app that lost its login opens Apps to reconnect it.
     LaunchedEffect(openApps.value) {
         if (openApps.value) {
@@ -416,7 +428,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         screen = when {
             bubble -> Screen.Chat
             activeScreen == Screen.Devices -> Screen.Settings
-            activeScreen == Screen.LocationAlways -> Screen.Places
+            activeScreen == Screen.LocationAlways -> beforeLocationAlways
             activeScreen == Screen.GroupInfo -> Screen.Chat
             else -> Screen.Home
         }
@@ -446,7 +458,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Shared -> sharedToken?.let { token ->
                 SharedChatScreen(repository, token, onBack = { screen = Screen.Home }, onContinued = { sharedToken = null; screen = Screen.Chat })
             }
-            Screen.Home -> ChatListScreen(repository, UnwiredPlaces, HomeActions(
+            Screen.Home -> ChatListScreen(repository, places, HomeActions(
                 openChat = { openChat(it); screen = Screen.Chat },
                 openGroup = { openGroupChat(it) },
                 newChat = { openGroup = null; if (state.current.messages.isNotEmpty()) repository.newChat(); screen = Screen.Chat },
@@ -454,8 +466,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 joinCode = { if (bubble) onExpand(null) else joiningByCode = true },
                 invite = { inviting = it },
                 open = { if (bubble) onExpand(null) else screen = it }))
-            Screen.Places -> PlacesScreen(UnwiredPlaces, onBack = { screen = Screen.Home }, onLocationAlways = { screen = Screen.LocationAlways })
-            Screen.LocationAlways -> BackgroundLocationScreen(onDone = { screen = Screen.Places }, onPlaces = { screen = Screen.Places })
+            Screen.Places -> PlacesScreen(places, onBack = { screen = Screen.Home },
+                onLocationAlways = { beforeLocationAlways = Screen.Places; screen = Screen.LocationAlways })
+            Screen.LocationAlways -> BackgroundLocationScreen(onDone = { screen = beforeLocationAlways }, onPlaces = { screen = Screen.Places })
             Screen.Chat -> {
         val group = openGroup
         // The bubble has no room for the group screen, so its info opens the app.

@@ -57,6 +57,7 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
     var loading by remember { mutableStateOf(cached == null) }
     var error by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
+    var places by remember { mutableStateOf(emptyList<Place>()) }
     // Swiped away and waiting out the Undo bar; the delete is only sent once it closes.
     var hidden by remember { mutableStateOf(setOf<String>()) }
     val snackbar = remember { SnackbarHostState() }
@@ -88,9 +89,13 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
         catch (e: Exception) { error = userMessage(e) }
         finally { loading = false }
     } }
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(Unit) {
+        refresh()
+        places = runCatching { withContext(Dispatchers.IO) { repository.listPlaces() } }.getOrDefault(emptyList())
+    }
+    val placeNames = remember(places) { places.associate { it.id to it.name } }
     if (showCreate) {
-        CreateCronDialog(onDismiss = { showCreate = false }, onAskBeep = { showCreate = false; onAskBeep() }, onCreate = { label, prompt, schedule ->
+        CreateCronDialog(places, onDismiss = { showCreate = false }, onAskBeep = { showCreate = false; onAskBeep() }, onCreate = { label, prompt, schedule ->
             scope.launch {
                 try { withContext(Dispatchers.IO) { repository.createCron(label, prompt, schedule) }; showCreate = false; refresh() }
                 catch (e: Exception) { error = userMessage(e) }
@@ -112,7 +117,7 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
             else if (crons.isEmpty()) Text("No routines yet.\nSchedule tasks for Beep to run on a timer.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
             else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(crons.filter { it.id !in hidden }, key = { it.id }) { cron ->
-                    RoutineCard(cron, Modifier.animateItem(), onRun = { run(cron) }, onDelete = { delete(cron) }, onToggle = { enabled ->
+                    RoutineCard(cron, placeNames, Modifier.animateItem(), onRun = { run(cron) }, onDelete = { delete(cron) }, onToggle = { enabled ->
                         scope.launch {
                             try { withContext(Dispatchers.IO) { repository.toggleCron(cron.id, enabled) }; refresh() }
                             catch (e: Exception) { error = userMessage(e) }
@@ -130,7 +135,7 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
 
 /** A routine that runs when swiped right and is deleted when swiped left. */
 @Composable
-private fun RoutineCard(cron: ChatRepository.Cron, modifier: Modifier, onRun: () -> Unit, onDelete: () -> Unit, onToggle: (Boolean) -> Unit) {
+private fun RoutineCard(cron: ChatRepository.Cron, placeNames: Map<String, String>, modifier: Modifier, onRun: () -> Unit, onDelete: () -> Unit, onToggle: (Boolean) -> Unit) {
     val state = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
         when (value) {
             // Running is not a dismissal: start it and let the card spring back.
@@ -173,7 +178,8 @@ private fun RoutineCard(cron: ChatRepository.Cron, modifier: Modifier, onRun: ()
                     Spacer(Modifier.height(3.dp))
                     Text(cron.prompt, fontSize = 12.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
                     Spacer(Modifier.height(4.dp))
-                    Text(describeSchedule(cron.schedule), fontSize = 11.sp, color = TextDim)
+                    val place = placeSchedule(cron.schedule)
+                    Text(place?.let { describePlaceSchedule(it, placeNames) } ?: describeSchedule(cron.schedule), fontSize = 11.sp, color = TextDim)
                     if (cron.enabled && onceAt(cron.schedule) == null) cron.nextRunAt?.let(::describeNextRun)?.let {
                         Text(it, fontSize = 11.sp, color = TextDim)
                     }
@@ -184,6 +190,9 @@ private fun RoutineCard(cron: ChatRepository.Cron, modifier: Modifier, onRun: ()
         }
     }
 }
+
+/** What starts a routine the dialog makes. */
+private enum class Trigger(val title: String, val event: PlaceEvent?) { Time("At a time", null), Arrive("I arrive", PlaceEvent.Arrive), Leave("I leave", PlaceEvent.Leave) }
 
 private enum class Repeat(val title: String) { Daily("Every day"), Weekdays("Weekdays"), Weekly("Weekly"), Hourly("Every hour"), Custom("Cron") }
 
@@ -235,17 +244,28 @@ internal fun describeDay(at: ZonedDateTime): String {
 private fun describeNextRun(rfc3339: String): String? =
     onceAt(rfc3339)?.let { "Next: " + describeDay(it) }
 
+/**
+ * Makes a routine that runs at a time, or on arriving at or leaving one of [places]. [preset]
+ * opens it on a place routine, as the saved place card in a chat does.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun CreateCronDialog(onDismiss: () -> Unit, onAskBeep: () -> Unit, onCreate: (String, String, String) -> Unit) {
+internal fun CreateCronDialog(places: List<Place>, onDismiss: () -> Unit, onAskBeep: (() -> Unit)?, preset: PlaceSchedule? = null,
+    onCreate: (String, String, String) -> Unit) {
     var label by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf("") }
+    var trigger by remember { mutableStateOf(Trigger.entries.firstOrNull { it.event != null && it.event == preset?.event } ?: Trigger.Time) }
+    var placeId by remember { mutableStateOf(preset?.placeId) }
+    // Places can arrive after the dialog opens, so the first one is picked until the user picks.
+    val chosen = placeId ?: places.firstOrNull()?.id
+    var daily by remember { mutableStateOf(preset?.daily ?: true) }
     var repeat by remember { mutableStateOf(Repeat.Daily) }
     var days by remember { mutableStateOf(setOf(1)) }
     var custom by remember { mutableStateOf("") }
     var pickingTime by remember { mutableStateOf(false) }
     val time = rememberTimePickerState(initialHour = 9, initialMinute = 0)
-    val schedule = when (repeat) {
+    val event = trigger.event
+    val schedule = if (event != null) chosen?.let { PlaceSchedule(event, it, daily).toString() }.orEmpty() else when (repeat) {
         Repeat.Daily -> "${time.minute} ${time.hour} * * *"
         Repeat.Weekdays -> "${time.minute} ${time.hour} * * 1-5"
         Repeat.Weekly -> if (days.isEmpty()) "" else "${time.minute} ${time.hour} * * ${cronDays.filter { it in days }.joinToString(",")}"
@@ -262,16 +282,36 @@ private fun CreateCronDialog(onDismiss: () -> Unit, onAskBeep: () -> Unit, onCre
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(label, { label = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Morning briefing") }, colors = fieldColors)
+            Text("When", fontSize = 12.sp, color = TextMuted)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Trigger.entries.forEach { t -> FilterChip(selected = trigger == t, onClick = { trigger = t }, label = { Text(t.title) }) }
+            }
+            if (event != null) {
+                if (places.isEmpty()) Text("No places yet. Tell Beep where you are to save one, like \"I'm at the gym\".",
+                    fontSize = 13.sp, color = TextMuted, lineHeight = 19.sp)
+                else FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    places.forEach { p -> FilterChip(selected = chosen == p.id, onClick = { placeId = p.id }, label = { Text(p.name) },
+                        leadingIcon = { Icon(Icons.Outlined.Place, null, Modifier.size(16.dp)) }) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Once a day at most", fontSize = 14.sp)
+                        Text("Skips it if you come back the same day", fontSize = 12.sp, color = TextMuted)
+                    }
+                    Switch(checked = daily, onCheckedChange = { daily = it },
+                        colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok, uncheckedTrackColor = Border))
+                }
+            }
+            if (event == null) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Repeat.entries.forEach { r -> FilterChip(selected = repeat == r, onClick = { repeat = r }, label = { Text(r.title) }) }
             }
-            if (repeat == Repeat.Weekly) FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (event == null && repeat == Repeat.Weekly) FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 cronDays.forEach { d ->
                     FilterChip(selected = d in days, onClick = { days = if (d in days) days - d else days + d },
                         label = { Text(cronDayName(d, TextStyle.NARROW)) })
                 }
             }
-            when (repeat) {
+            if (event == null) when (repeat) {
                 Repeat.Custom -> OutlinedTextField(custom, { custom = it }, label = { Text("Cron expression") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth(), placeholder = { Text("0 9 * * *") }, colors = fieldColors)
                 Repeat.Hourly -> OutlinedButton(onClick = { pickingTime = true }) { Text("At :%02d past the hour".format(time.minute)) }
@@ -279,7 +319,7 @@ private fun CreateCronDialog(onDismiss: () -> Unit, onAskBeep: () -> Unit, onCre
             }
             OutlinedTextField(prompt, { prompt = it }, label = { Text("What should Beep do?") }, maxLines = 4, modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Give me a summary of...") }, colors = fieldColors)
-            TextButton(onClick = onAskBeep, contentPadding = PaddingValues(0.dp)) { Text("Or just tell Beep in a chat") }
+            if (onAskBeep != null) TextButton(onClick = onAskBeep, contentPadding = PaddingValues(0.dp)) { Text("Or just tell Beep in a chat") }
         } },
         confirmButton = { ChunkyButton(onClick = { onCreate(label, prompt, schedule) }, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
             enabled = label.isNotBlank() && prompt.isNotBlank() && schedule.isNotBlank()) { Text("Create", fontWeight = FontWeight.SemiBold) } },
