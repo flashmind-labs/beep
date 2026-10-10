@@ -21,9 +21,9 @@ use crate::{
     feeds::mail::{
         Email, Mailbox, Source as MailSource, Window, clip, worth_learning, worth_reading,
     },
-    protocol::{MemorySource, Notice},
+    protocol::{MemoryRead, MemorySource, Notice},
     starters::{Generator, unfence},
-    store::{Fact, Origin, ProfileNote, Validity},
+    store::{Fact, MemoryRow, Origin, ProfileNote, Validity},
     user::User,
 };
 use anyhow::{Context, Result, bail};
@@ -156,6 +156,25 @@ pub enum Calendar {
 }
 
 impl Source {
+    const ALL: [Source; 6] = [
+        Source::Mail(Mailbox::Gmail),
+        Source::Mail(Mailbox::Outlook),
+        Source::Mail(Mailbox::Fastmail),
+        Source::Calendar(Calendar::Google),
+        Source::Calendar(Calendar::Outlook),
+        Source::Calendar(Calendar::Fastmail),
+    ];
+
+    /// How the user knows it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Source::Mail(mailbox) => mailbox.name(),
+            Source::Calendar(Calendar::Google) => "Google Calendar",
+            Source::Calendar(Calendar::Outlook) => "Outlook calendar",
+            Source::Calendar(Calendar::Fastmail) => "Fastmail calendar",
+        }
+    }
+
     /// The key of its read in the store.
     pub fn key(self) -> &'static str {
         match self {
@@ -282,7 +301,7 @@ async fn read(app: Arc<App>, user: Arc<User>, source: Source, claim: Claim) {
         log::warn!("profile: read of {source} stopped: {error:#}; user={user} {summary}");
         drop(claim);
         if summary.notes > 0 && !others_running(&user) {
-            match condense(generator, &user).await {
+            match condense(generator, &user, source).await {
                 Ok(learned) => log::info!("profile: condensed; user={user} learned={learned}"),
                 Err(error) => log::warn!("profile: condensing stopped: {error:#}; user={user}"),
             }
@@ -298,7 +317,7 @@ async fn read(app: Arc<App>, user: Arc<User>, source: Source, claim: Claim) {
     if others_running(&user) {
         return;
     }
-    match condense(generator, &user).await {
+    match condense(generator, &user, source).await {
         Ok(learned) => notify(&user, source, &summary, learned),
         Err(error) => log::warn!("profile: condensing stopped: {error:#}; user={user}"),
     }
@@ -1318,7 +1337,9 @@ struct RawFact {
 
 /// Turns every note about the user into dossiers, then into memories.
 /// Returns how many were saved.
-async fn condense(generator: Generator<'_>, user: &User) -> Result<usize> {
+/// Condenses every source's notes into memories, tagged as one read of
+/// `source`, the read that just ended.
+async fn condense(generator: Generator<'_>, user: &User, source: Source) -> Result<usize> {
     let notes = user.profile_notes().await?;
     if notes.is_empty() {
         return Ok(0);
@@ -1360,6 +1381,7 @@ async fn condense(generator: Generator<'_>, user: &User) -> Result<usize> {
         .text_up_to(FACTS_SYSTEM, prompt, FACTS_TOKENS)
         .await?;
     let facts: Facts = serde_json::from_str(unfence(&answer)).context("facts are not JSON")?;
+    let read = read_reference(source, Utc::now());
     let mut saved = 0;
     for fact in facts.facts.into_iter().take(MAX_FACTS) {
         let content = fact.content.trim();
@@ -1371,7 +1393,7 @@ async fn condense(generator: Generator<'_>, user: &User) -> Result<usize> {
             until: fact.valid_until.as_deref().and_then(parse_day),
         };
         let origin = Origin {
-            reference: "profile".to_owned(),
+            reference: read.clone(),
             quote: fact.evidence.map(|evidence| clip(evidence.trim(), 300)),
         };
         let fact = Fact {
@@ -1389,9 +1411,104 @@ async fn condense(generator: Generator<'_>, user: &User) -> Result<usize> {
     Ok(saved)
 }
 
+/// Marks a memory a read added or confirmed: `read:<source key>:<finished>`.
+const READ_PREFIX: &str = "read:";
+
+fn read_reference(source: Source, finished: DateTime<Utc>) -> String {
+    format!(
+        "{READ_PREFIX}{}:{}",
+        source.key(),
+        finished.to_rfc3339_opts(SecondsFormat::Secs, true)
+    )
+}
+
+/// The reads that added or confirmed `rows`, newest first, each with its
+/// memories in the order of `rows`.
+pub fn memory_reads(rows: &[MemoryRow]) -> Vec<MemoryRead> {
+    let mut reads: Vec<MemoryRead> = Vec::new();
+    for row in rows {
+        let Some(reference) = row.origin.as_ref().map(|origin| &origin.reference) else {
+            continue;
+        };
+        let Some((key, finished_at)) = reference
+            .strip_prefix(READ_PREFIX)
+            .and_then(|rest| rest.split_once(':'))
+        else {
+            continue;
+        };
+        let Some(source) = Source::ALL.into_iter().find(|source| source.key() == key) else {
+            continue;
+        };
+        match reads.iter_mut().find(|read| &read.id == reference) {
+            Some(read) => read.memories.push(row.id.clone()),
+            None => reads.push(MemoryRead {
+                id: reference.clone(),
+                source: source.name().to_owned(),
+                finished_at: finished_at.to_owned(),
+                memories: vec![row.id.clone()],
+            }),
+        }
+    }
+    // RFC 3339 in UTC to the second sorts as text.
+    reads.sort_by(|a, b| b.finished_at.cmp(&a.finished_at));
+    reads
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
+
+    fn row(id: &str, reference: Option<&str>) -> MemoryRow {
+        MemoryRow {
+            id: id.into(),
+            content: format!("fact {id}"),
+            category: "work".into(),
+            source: MemorySource::Email {},
+            updated_at: "2026-10-10 05:00:00".into(),
+            valid: Validity::default(),
+            origin: reference.map(|reference| Origin {
+                reference: reference.into(),
+                quote: None,
+            }),
+            core: false,
+        }
+    }
+
+    #[test]
+    fn memories_are_grouped_by_the_read_that_found_them() {
+        let older = Utc.with_ymd_and_hms(2026, 10, 4, 8, 0, 0).unwrap();
+        let newer = Utc.with_ymd_and_hms(2026, 10, 10, 5, 31, 6).unwrap();
+        let gmail = read_reference(Source::Mail(Mailbox::Gmail), newer);
+        let outlook = read_reference(Source::Calendar(Calendar::Outlook), older);
+        assert_eq!(gmail, "read:gmail:2026-10-10T05:31:06Z");
+        let rows = [
+            row("a", Some(&outlook)),
+            row("b", Some(&gmail)),
+            row("c", Some("profile")),
+            row("d", None),
+            row("e", Some(&gmail)),
+            row("f", Some("read:nowhere:2026-10-10T05:31:06Z")),
+        ];
+        let reads = memory_reads(&rows);
+        assert_eq!(
+            reads,
+            [
+                MemoryRead {
+                    id: gmail,
+                    source: "Gmail".into(),
+                    finished_at: "2026-10-10T05:31:06Z".into(),
+                    memories: vec!["b".into(), "e".into()],
+                },
+                MemoryRead {
+                    id: outlook,
+                    source: "Outlook calendar".into(),
+                    finished_at: "2026-10-04T08:00:00Z".into(),
+                    memories: vec!["a".into()],
+                },
+            ]
+        );
+    }
 
     fn email(id: &str, from: &str, sent: bool, thread: Option<&str>) -> Email {
         Email {

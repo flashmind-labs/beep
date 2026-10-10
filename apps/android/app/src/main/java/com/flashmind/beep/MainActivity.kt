@@ -88,6 +88,7 @@ open class MainActivity : ComponentActivity() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val pendingFocusInput = mutableStateOf(false)
     private val pendingOpenApps = mutableStateOf(false)
+    private val pendingOpenRead = mutableStateOf(false)
     /** The token of a `beep://share/` link to open. */
     private val pendingShareToken = mutableStateOf<String?>(null)
     /** The token of a `beep://group/` invite to open. */
@@ -148,6 +149,7 @@ open class MainActivity : ComponentActivity() {
         intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it); pendingChat.value = it }
         if (intent.getBooleanExtra("focus_input", false)) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
+        if (intent.getBooleanExtra("open_read", false)) pendingOpenRead.value = true
         takeLinks(intent)
     }
     private fun takeLinks(intent: Intent?) {
@@ -209,10 +211,11 @@ open class MainActivity : ComponentActivity() {
         intent?.getStringExtra("conversation_id")?.let { repository.select(it); pendingChat.value = it }
         if (intent?.getBooleanExtra("focus_input", false) == true) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
+        if (intent?.getBooleanExtra("open_read", false) == true) pendingOpenRead.value = true
         takeLinks(intent)
         setContent {
             BeepTheme { CompositionLocalProvider(LocalOpenLink provides { url: String -> repository.openBrowser(url) }) {
-                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, chatToOpen = pendingChat, clipboardContent = clipboardContent, onFloat = {
+                BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, openRead = pendingOpenRead, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, chatToOpen = pendingChat, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
                 }, onExpand = { groupId ->
@@ -296,6 +299,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>? = null,
                     focusInput: MutableState<Boolean> = mutableStateOf(false),
                     openApps: MutableState<Boolean> = mutableStateOf(false),
+                    openRead: MutableState<Boolean> = mutableStateOf(false),
                     shareToken: MutableState<String?> = mutableStateOf(null),
                     groupToken: MutableState<String?> = mutableStateOf(null),
                     groupToOpen: MutableState<String?> = mutableStateOf(null),
@@ -329,6 +333,15 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         if (openApps.value) {
             openApps.value = false
             screen = Screen.Integrations
+        }
+    }
+    // A finished read of mail or a calendar opens Memories on what it found.
+    var showLatestRead by remember { mutableStateOf(false) }
+    LaunchedEffect(openRead.value) {
+        if (openRead.value) {
+            openRead.value = false
+            showLatestRead = true
+            screen = Screen.Memories
         }
     }
     // A shared chat's link opens it read only until the user goes back or continues it.
@@ -439,7 +452,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }
     Crossfade(targetState = activeScreen, animationSpec = tween(300), label = "screen-transition") { currentScreen ->
         when (currentScreen) {
-            Screen.Memories -> MemoriesScreen(repository, onBack = { screen = Screen.Home })
+            Screen.Memories -> MemoriesScreen(repository, latestRead = showLatestRead, onBack = { showLatestRead = false; screen = Screen.Home })
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Home },
                 onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat },
                 onOpenChat = { id -> repository.select(id); screen = Screen.Chat })

@@ -350,6 +350,10 @@ requests! {
     /// a location fix of its own. Returns whether it changed where the server
     /// had the phone; false when it already knew, so nothing started.
     77 CrossPlace { id: String, crossing: PlaceCrossing } => Call<bool>
+    /// The reads of the caller's mail and calendars that added or confirmed
+    /// memories, newest first. A notice with no `session_id`, `app` or
+    /// `approval` is one finishing, so tapping it opens the newest here.
+    78 ListMemoryReads {} => Call<Vec<MemoryRead>>
 }
 
 /// A picture someone sent, kept on the server as long as its chat. Read its
@@ -886,6 +890,20 @@ pub struct Memory {
     /// The words in the chat, email or Slack message the memory came from.
     #[serde(default)]
     pub quote: Option<String>,
+}
+
+/// One read of a mailbox or calendar, and the memories it added or
+/// confirmed. A memory a later read confirms moves to that read.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryRead {
+    pub id: String,
+    /// The app that was read, such as "Gmail" or "Outlook calendar".
+    pub source: String,
+    /// RFC 3339 of when the read finished.
+    pub finished_at: String,
+    /// The `Memory` ids, in the order `ListMemories` gives them.
+    pub memories: Vec<String>,
 }
 
 wire_enum! {

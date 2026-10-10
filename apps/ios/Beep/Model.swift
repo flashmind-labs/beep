@@ -723,6 +723,8 @@ final class AppModel {
     }
 
     func memories() async throws -> [Memory] { try await api().listMemories() }
+    /// Empty on servers from before reads were listed.
+    func memoryReads() async -> [MemoryRead] { (try? await api().listMemoryReads()) ?? [] }
     func updateMemory(_ id: String, _ content: String) async throws { try await api().updateMemory(id: id, content: content) }
     func deleteMemory(_ id: String) async throws { try await api().deleteMemory(id: id) }
     func clearMemories() async throws { _ = try await api().clearMemories() }
@@ -784,6 +786,8 @@ enum Destination: Equatable {
     case group(String)
     /// The new routine sheet, set to arriving at this place.
     case placeRoutine(String)
+    /// Memories, showing what the newest read of mail or a calendar found.
+    case latestRead
 }
 
 func nowMillis() -> Int64 { Int64(Date.now.timeIntervalSince1970 * 1000) }

@@ -31,6 +31,8 @@ enum Route: Hashable {
     case group(String)
     case groupInfo(String)
     case settings, memories, routines, places, locationAlways
+    /// Memories, opened on the newest read.
+    case latestRead
     /// Routines with the new routine sheet open on arriving at a place.
     case placeRoutine(String)
 }
@@ -124,6 +126,7 @@ struct RootView: View {
             }
         case .settings: SettingsView(path: $path)
         case .memories: MemoriesView(path: $path)
+        case .latestRead: MemoriesView(path: $path, latestRead: true)
         case .routines: RoutinesView(path: $path)
         case .placeRoutine(let id):
             RoutinesView(path: $path, startAt: model.places.first { $0.id == id })
@@ -160,6 +163,8 @@ struct RootView: View {
             openGroup(id)
         case .placeRoutine(let id):
             path.append(.placeRoutine(id))
+        case .latestRead:
+            path = [.latestRead]
         }
     }
 

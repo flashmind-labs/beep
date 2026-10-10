@@ -98,6 +98,7 @@ sample_struct! {
     SharedSession { title, shared_at, entries }
     SessionMatch { session, snippet, from_user }
     Memory { id, content, category, source, updated, valid_from, valid_until, quote }
+    MemoryRead { id, source, finished_at, memories }
     GroupReminder { id, label, message, schedule, next_run_at, set_by }
     Place { id, name, latitude, longitude, radius, address, created_at, here, last_here_at, routines }
     Cron { id, label, prompt, schedule, enabled, created_at, run_once, last_run_at, next_run_at }

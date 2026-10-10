@@ -1,5 +1,6 @@
 package com.flashmind.beep
 
+import com.flashmind.beep.proto.MemoryRead
 import com.flashmind.beep.proto.MemorySource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.clickable
@@ -24,7 +25,10 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import java.time.LocalDate
+import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 
 // Short names for the current theme's colors.
@@ -38,7 +42,7 @@ private val TextDim: Color @Composable @ReadOnlyComposable get() = Beep.colors.d
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
+internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = false, onBack: () -> Unit) {
     val cached = remember { repository.cachedMemories() }
     var memories by remember { mutableStateOf(cached.orEmpty()) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -46,10 +50,16 @@ internal fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
     var error by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<ChatRepository.Memory?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    var reads by remember { mutableStateOf(emptyList<MemoryRead>()) }
+    var readId by rememberSaveable { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     fun refresh() { scope.launch {
         error = ""
-        try { memories = withContext(Dispatchers.IO) { repository.listMemories() } }
+        try {
+            memories = withContext(Dispatchers.IO) { repository.listMemories() }
+            reads = withContext(Dispatchers.IO) { repository.listMemoryReads() }
+            if (latestRead && readId == null) readId = reads.firstOrNull()?.id
+        }
         catch (e: Exception) { error = userMessage(e) }
         finally { loading = false }
     } }
@@ -59,7 +69,10 @@ internal fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
     } }
     LaunchedEffect(Unit) { refresh() }
     val today = remember { LocalDate.now().toString() }
+    val read = reads.firstOrNull { it.id == readId }
+    val inRead = read?.memories?.toSet()
     val groups = memories
+        .filter { inRead == null || it.id in inRead }
         .filter { query.isBlank() || it.content.contains(query, true) || it.category.contains(query, true) }
         .sortedByDescending { it.updated }
         .groupBy { it.category }
@@ -101,6 +114,13 @@ internal fun MemoriesScreen(repository: ChatRepository, onBack: () -> Unit) {
                 Spacer(Modifier.width(12.dp))
                 Text("$shown", fontSize = 12.sp, color = TextMuted)
             }
+            if (reads.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReadChip("All", null, read == null) { readId = null }
+                reads.take(3).forEach { r -> ReadChip(readLabel(r), r.memories.size, r.id == readId) { readId = r.id } }
+            }
+            read?.let { Text("What Beep learned or confirmed reading ${it.source} ${readDate(it)}.", fontSize = 12.sp, color = TextMuted,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) }
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp))
             if (loading && memories.isEmpty()) Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
             else if (shown == 0) Text(if (memories.isEmpty()) "Nothing remembered yet.\nBeep learns as you chat, or tell it \"remember that...\"" else "No matches.",
@@ -160,4 +180,21 @@ private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () 
             }
         }
     }
+}
+
+@Composable
+private fun ReadChip(label: String, count: Int?, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(selected, onClick, label = {
+        Text(label, fontSize = 12.sp)
+        count?.let { Text("  $it", fontSize = 12.sp, color = TextDim) }
+    }, colors = FilterChipDefaults.filterChipColors(containerColor = Surface, selectedContainerColor = Moss.copy(alpha = 0.18f)),
+        border = FilterChipDefaults.filterChipBorder(true, selected, borderColor = Border, selectedBorderColor = Moss))
+}
+
+private fun readFinished(read: MemoryRead) = runCatching { OffsetDateTime.parse(read.finishedAt).toLocalDate() }.getOrNull()
+private fun readLabel(read: MemoryRead) =
+    readFinished(read)?.let { "${read.source} · ${it.format(DateTimeFormatter.ofPattern("d MMM"))}" } ?: read.source
+private fun readDate(read: MemoryRead): String {
+    val day = readFinished(read) ?: return "earlier"
+    return if (day == LocalDate.now()) "today" else "on ${day.format(DateTimeFormatter.ofPattern("d MMMM"))}"
 }

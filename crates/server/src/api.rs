@@ -108,6 +108,7 @@ pub fn router() -> Router {
         .call(delete_place)
         .call(update_place)
         .call(cross_place)
+        .call(list_memory_reads)
         .call(get_session_images)
         .call(get_group_images)
 }
@@ -1108,6 +1109,10 @@ async fn pin_session(cx: Cx, PinSession { id, pinned }: PinSession) -> Reply<()>
 
 async fn list_memories(cx: Cx, _: ListMemories) -> Reply<Vec<Memory>> {
     Ok(cx.user.list_memories().await?)
+}
+
+async fn list_memory_reads(cx: Cx, _: ListMemoryReads) -> Reply<Vec<MemoryRead>> {
+    Ok(profile::memory_reads(&cx.user.memory_rows().await?))
 }
 
 async fn delete_memory(cx: Cx, DeleteMemory { id }: DeleteMemory) -> Reply<()> {

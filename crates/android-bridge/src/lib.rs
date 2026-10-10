@@ -14,13 +14,14 @@ use beep_proto::{
     GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRun, GetSession, GetSessionImages,
     GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder,
     Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons,
-    ListDevices, ListGroupReminders, ListGroups, ListMemories, ListPlaces, ListSessions, Memory,
-    Models, Notice, PeekGroup, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing,
-    Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run,
-    RunCron, SearchSessions, SendToGroup, SentImages, Session, SessionMatch, SetAppPermissions,
-    SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
-    SharedSession, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice,
-    UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
+    ListDevices, ListGroupReminders, ListGroups, ListMemories, ListMemoryReads, ListPlaces,
+    ListSessions, Memory, MemoryRead, Models, Notice, PeekGroup, PermissionLevel, PinGroup,
+    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup, SentImages, Session,
+    SessionMatch, SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone,
+    ShareGroupApps, ShareSession, SharedLink, SharedSession, StartAppAuth, Stream, SuggestPrompts,
+    ToggleCron, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
+    UpdatePlace,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -604,6 +605,11 @@ impl BeepClient {
 
     pub async fn list_memories(&self) -> Result<Vec<Memory>, BeepError> {
         self.call(ListMemories {}).await
+    }
+
+    /// The reads of mail and calendars that found memories, newest first.
+    pub async fn list_memory_reads(&self) -> Result<Vec<MemoryRead>, BeepError> {
+        self.call(ListMemoryReads {}).await
     }
 
     pub async fn delete_memory(&self, id: String) -> Result<(), BeepError> {
