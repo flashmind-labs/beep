@@ -99,6 +99,7 @@ function newId() {
 function fit() {
   let height = 2;
   for (const el of bar.children) {
+    if (el.id === "latest") continue;
     height += el.classList.contains("dbody") || el.classList.contains("dlist") ? el.scrollHeight : el.offsetHeight;
   }
   invoke("resize_bar", { height }).catch(() => {});
@@ -136,6 +137,9 @@ function renderChat() {
     <div class="dbody" id="body"></div>${chatHints()}`;
   const kept = here()?.body;
   if (kept) $("#body").replaceWith(kept);
+  const b = body();
+  b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; drawLatest(); };
+  drawLatest();
   const ask = $("#ask");
   let multi = false;
   ask.addEventListener("input", () => {
@@ -151,7 +155,20 @@ function grow(ask) {
 }
 function focusAsk() { const ask = $("#ask"); if (ask) ask.focus(); }
 function body() { return $("#body"); }
-function scrollDown() { const b = body(); if (b) b.scrollTop = b.scrollHeight; }
+function scrollDown() { const b = body(); if (b) { b.stuck = true; b.scrollTop = b.scrollHeight; } }
+/// Follows a streaming reply down, unless the user scrolled up to read.
+function keepDown() { const b = body(); if (b?.stuck !== false) scrollDown(); }
+
+/// While the user reads back, a button that jumps to the newest text.
+function drawLatest() {
+  const b = body(), want = S.view === "chat" && b?.stuck === false;
+  const btn = $("#latest");
+  if (!want) return btn?.remove();
+  if (btn) return;
+  const el = h(`<button class="dbtn dlatest" id="latest"><span class="down">${ICON.chev}</span>Latest</button>`);
+  el.addEventListener("click", () => { scrollDown(); drawLatest(); focusAsk(); });
+  bar.append(el);
+}
 
 function newTurn(question, images) {
   const turn = h(`<div class="turn">${question ? `<div class="ask">${esc(question)}</div>` : ""}${picRow(images)}</div>`);
@@ -242,6 +259,7 @@ function failed(turn, message) {
 }
 
 function finish(id, turn) {
+  touch(id);
   turn.done = true;
   turn.querySelector(".caret")?.remove();
   for (const s of turn.steps) if (s.state === "run") s.state = "stop";
@@ -253,7 +271,7 @@ function finish(id, turn) {
     if (!e.approval) live.delete(id);
   }
   if (id === S.session) refreshHints();
-  else if (S.view === "chats") drawChats();
+  else if (S.view === "chats") S.chats.mode === "list" ? loadChats(S.chats.query) : drawChats();
 }
 
 /// A channel that draws one run's events into `turn`, which stays in its
@@ -301,7 +319,7 @@ function follow(id, turn) {
         finish(id, turn);
         break;
     }
-    if (turn.isConnected) scrollDown();
+    if (turn.isConnected) keepDown();
   };
   return channel;
 }
@@ -320,6 +338,7 @@ async function send(message) {
   const e = entry(id);
   e.body = body();
   e.run = { id: null };
+  touch(id, message);
   refreshHints();
   scrollDown();
   try {
@@ -381,6 +400,16 @@ async function openSession(id) {
   }
 }
 
+/// Redraws the open chat from the server's copy without rebuilding the bar,
+/// so a draft stays and a user reading back is not sent to the bottom.
+async function refreshSession(id) {
+  const b = body(), stuck = b?.stuck !== false, top = b?.scrollTop;
+  const turns = await invoke("open_session", { id }).catch(() => null);
+  if (!turns || S.session !== id || S.view !== "chat" || live.has(id) || body() !== b) return;
+  drawHistory(id, turns);
+  if (!stuck) { b.scrollTop = top; b.stuck = false; drawLatest(); }
+}
+
 function drawHistory(id, turns) {
   body().innerHTML = "";
   let turn = null, last = null;
@@ -422,12 +451,23 @@ function when(ms) {
 }
 
 // Chats and groups share the list: pinned first, then the latest.
+const byRecent = (a, b) => (b.pinned - a.pinned) || (b.updated_at - a.updated_at);
 function rows(sessions, groups) {
   const all = [
     ...sessions.map(s => ({ kind: "chat", id: s.id, title: s.title || "New chat", pinned: s.pinned, updated_at: s.updated_at, snippet: s.snippet })),
     ...groups.map(g => ({ kind: "group", id: g.id, title: g.name, pinned: g.pinned, updated_at: g.updated_at, typing: g.beep_typing, snippet: g.last ? `${authorName(g.last.author)}: ${g.last.text}` : "" })),
   ];
-  return all.sort((a, b) => (b.pinned - a.pinned) || (b.updated_at - a.updated_at)).slice(0, 50);
+  return all.sort(byRecent).slice(0, 50);
+}
+
+/// Moves chat `id` to the top of the cached list now, so ⌘K shows it there
+/// before the server's list comes back. A new chat is titled by its first message.
+function touch(id, message) {
+  const old = S.cache.find(c => c.id === id);
+  if (!old && !message) return;
+  // A new array: the open list may be drawing the old one.
+  const c = { ...(old ?? { kind: "chat", id, title: message.slice(0, 80), pinned: false }), updated_at: Date.now() };
+  S.cache = [c, ...S.cache.filter(x => x.id !== id)].sort(byRecent);
 }
 
 function renderChats() {
@@ -1241,9 +1281,11 @@ listen("link-state", async e => {
     renderRevoked();
   }
 });
+// Outside the list, a reload only refreshes the cache it opens with.
+const listIdle = () => S.view !== "chats" || (!S.chats.query && S.chats.mode === "list");
 listen("group-changed", e => {
   if (G.id === e.payload && (S.view === "group" || S.view === "ginfo")) loadGroup();
-  else if (S.view === "chats" && !S.chats.query && S.chats.mode === "list") loadChats("");
+  else if (listIdle()) loadChats("");
 });
 listen("group-approval", e => {
   const a = e.payload;
@@ -1252,8 +1294,8 @@ listen("group-approval", e => {
   if (G.id === a.group_id && S.view === "group") drawGroup();
 });
 listen("sessions-changed", e => {
-  if (S.view === "chats" && !S.chats.query && S.chats.mode === "list") loadChats("");
-  else if (S.view === "chat" && !here()?.run && e.payload && e.payload === S.session) openSession(S.session);
+  if (S.view === "chat" && !here()?.run && e.payload && e.payload === S.session) refreshSession(S.session);
+  if (listIdle()) loadChats("");
 });
 
 // ---------- Keys ----------
