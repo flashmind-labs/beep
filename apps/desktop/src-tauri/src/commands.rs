@@ -17,7 +17,8 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, process::Command, sync::Arc};
-use tauri::{AppHandle, Manager, State, ipc::Channel};
+use tauri::{AppHandle, Emitter, Manager, State, ipc::Channel};
+use tauri_plugin_autostart::ManagerExt;
 use tokio::join;
 use uuid::Uuid;
 
@@ -396,8 +397,38 @@ fn file_name(name: &str) -> String {
 }
 
 #[tauri::command]
-pub async fn unlink(beep: Service<'_>) -> Result<()> {
-    beep.unlink().await
+pub async fn unlink(app: AppHandle, beep: Service<'_>) -> Result<()> {
+    beep.unlink().await?;
+    let _ = app.emit("link-state", beep.link_state());
+    crate::refresh_tray(&app);
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct Settings {
+    name: String,
+    version: String,
+    autostart: bool,
+}
+
+#[tauri::command]
+pub fn settings(app: AppHandle) -> Settings {
+    Settings {
+        name: crate::computer_name(),
+        version: app.package_info().version.to_string(),
+        autostart: app.autolaunch().is_enabled().unwrap_or(false),
+    }
+}
+
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<()> {
+    let manager = app.autolaunch();
+    let result = if enabled {
+        manager.enable()
+    } else {
+        manager.disable()
+    };
+    result.map_err(|e| DesktopError::Other(e.into()))
 }
 
 /// Forgets this computer's key and starts again with a new one, the only
