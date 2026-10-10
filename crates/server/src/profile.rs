@@ -890,13 +890,16 @@ async fn outlook_events(user: &User, window: Window) -> Result<Vec<Event>> {
             "end_datetime": rfc3339(window.before.unwrap_or_else(Utc::now)),
             "top": TOP,
             "skip": page * TOP,
-            "orderby": ["start/dateTime"],
+            "orderby": "start/dateTime asc",
         });
         let response = client
             .execute_tool("OUTLOOK_GET_CALENDAR_VIEW", arguments)
             .await?;
         if response.successful == Some(false) {
-            bail!("Outlook calendar listing failed");
+            bail!(
+                "Outlook calendar listing failed: {}",
+                response.error.as_deref().unwrap_or("no error given")
+            );
         }
         let listed = event_list(&response.data);
         events.extend(listed.iter().filter_map(parse_event));
