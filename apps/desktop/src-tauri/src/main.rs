@@ -84,6 +84,8 @@ fn main() {
             commands::leave_group,
             commands::pin_group,
             commands::share_group_apps,
+            commands::list_group_reminders,
+            commands::delete_group_reminder,
             commands::answer_group_approval,
             commands::open_file,
             commands::unlink,
