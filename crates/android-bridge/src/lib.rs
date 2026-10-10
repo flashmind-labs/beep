@@ -15,9 +15,9 @@ use beep_proto::{
     GroupPreview, GroupReminder, Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice,
     LinkedDevice, ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMemories,
     ListSessions, Memory, Models, Notice, PeekGroup, PermissionLevel, PinGroup, PinSession,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron,
-    SearchSessions, SendToGroup, Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel,
-    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession,
+    Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run,
+    RunCron, SearchSessions, SendToGroup, Session, SessionMatch, SetAppPermissions, SetAutoModel,
+    SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession,
     StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron,
     UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
@@ -40,6 +40,12 @@ use tokio::{
     time::timeout,
 };
 use uuid::Uuid;
+
+/// The app this bridge is built into: the iOS app links the same crate.
+#[cfg(target_os = "ios")]
+const PLATFORM: Platform = Platform::Ios {};
+#[cfg(not(target_os = "ios"))]
+const PLATFORM: Platform = Platform::Android {};
 
 uniffi::setup_scaffolding!();
 uniffi::use_remote_type!(beep_proto::ReasoningLevel);
@@ -337,6 +343,7 @@ impl BeepClient {
             images,
             model: rerun.as_ref().map(|rerun| rerun.model.clone()),
             thinking: rerun.and_then(|rerun| rerun.thinking),
+            platform: Some(PLATFORM),
         };
         let replies = self.stream(chat).await?;
         Ok(Arc::new(EventStream(AsyncMutex::new(replies))))

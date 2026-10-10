@@ -198,6 +198,7 @@ pub async fn wake(app: &Arc<App>, user: &Arc<User>, event: Event) -> Result<Opti
         model: None,
         thinking: None,
         origin: DeviceKind::Phone {},
+        platform: None,
     };
     match app.submit(user, message).await? {
         CreateRun::Created(run) => {

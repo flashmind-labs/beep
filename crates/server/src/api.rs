@@ -139,6 +139,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         model,
         thinking: req.thinking,
         origin: cx.device,
+        platform: req.platform,
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
@@ -946,6 +947,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         model: None,
         thinking: None,
         origin: cx.device,
+        platform: None,
     };
     let session = session_id.to_string();
     let conversation = match cx.user.context(&session).await? {

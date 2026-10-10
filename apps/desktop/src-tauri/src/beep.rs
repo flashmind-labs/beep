@@ -10,7 +10,7 @@ use crate::{
 use beep_proto::{
     AnswerApproval, ApprovalDecision, Call, CancelRun, Chat, DeviceAnswer, DeviceQuery,
     DeviceResult, Event, GetEvents, GetFile, GetSession, HistoryEntry, ListSessions, Notice,
-    RemoveDevice, RunEvent, SearchSessions, Session, SessionMatch, Stream,
+    Platform, RemoveDevice, RunEvent, SearchSessions, Session, SessionMatch, Stream,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
 };
@@ -341,6 +341,7 @@ impl Beep {
                 images: Vec::new(),
                 model: None,
                 thinking: None,
+                platform: Some(Platform::Macos {}),
             })
             .await?;
         self.follow(replies, channel).await;
