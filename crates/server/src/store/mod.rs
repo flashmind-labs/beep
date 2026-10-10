@@ -20,6 +20,7 @@ mod groups;
 mod habits;
 mod location;
 mod memories;
+mod places;
 mod profile;
 mod runs;
 mod sessions;
@@ -41,6 +42,7 @@ pub use files::NewFile;
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
+pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
 pub use runs::{CreateRun, FinishedTurn, RunStatus};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
@@ -169,6 +171,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         26,
         "group reminders",
         include_str!("../../migrations/0026_group_reminders.sql"),
+    ),
+    (
+        27,
+        "places",
+        include_str!("../../migrations/0027_places.sql"),
     ),
 ];
 

@@ -26,6 +26,7 @@ use crate::{
         parse_curation, parse_learn_ops, plan_curation, profile, reading_prompt, settle,
     },
     permissions::{self, Rules, ToolSlug},
+    places::PlaceEvent,
     protocol::{
         ApiError, AppIntegration, AppKind, ConnectLink, Cron, FilePart, Memory, MemorySource,
         Notice, PromptSuggestion, PromptSuggestions, Run, Session,
@@ -36,10 +37,10 @@ use crate::{
     },
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
-        DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Join, JoinedGroup, LinkKey, Location,
-        MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewFile, NewKey, NewMessage, Origin, Posted,
-        ProfileNote, ProfileRead, PushDevice, RunStatus, Share, Store, StoredContext, TurnModel,
-        TurnsToDelete,
+        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Join, JoinedGroup, LinkKey,
+        Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewFile, NewKey, NewMessage,
+        NewPlace, NewPlaceRoutine, Origin, PlaceRoutine, Posted, ProfileNote, ProfileRead,
+        PushDevice, RunStatus, SavedPlace, Share, Store, StoredContext, TurnModel, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -857,6 +858,68 @@ impl User {
     /// The phone's latest location, if it sent one.
     pub async fn get_location(&self) -> Result<Option<Location>> {
         self.store.get_location(&self.key).await
+    }
+
+    /// The user's saved places, by name.
+    pub async fn list_places(&self) -> Result<Vec<SavedPlace>> {
+        self.store.list_places(&self.key).await
+    }
+
+    /// The place called `name`, ignoring case.
+    pub async fn place_named(&self, name: &str) -> Result<Option<SavedPlace>> {
+        self.store.place_named(&self.key, name).await
+    }
+
+    /// Saves a place, or moves the one with its name.
+    pub async fn save_place(&self, place: &NewPlace<'_>) -> Result<SavedPlace> {
+        self.store.save_place(&self.key, place).await
+    }
+
+    /// Renames a place or changes its radius; `None` when there is no such place.
+    pub async fn update_place(
+        &self,
+        id: Uuid,
+        name: Option<&str>,
+        radius: Option<u32>,
+    ) -> Result<Option<SavedPlace>> {
+        self.store.update_place(&self.key, id, name, radius).await
+    }
+
+    /// Forgets a place and its routines; `false` when there is no such place.
+    pub async fn delete_place(&self, id: Uuid) -> Result<bool> {
+        self.store.delete_place(&self.key, id).await
+    }
+
+    /// Records which places `fix` is at, and returns the ones it arrived at
+    /// or left.
+    pub async fn cross_places(&self, fix: &Location) -> Result<Vec<Crossed>> {
+        self.store.cross_places(&self.key, fix).await
+    }
+
+    /// Saves a routine that starts at a place and returns its id.
+    pub async fn create_place_routine(&self, routine: &NewPlaceRoutine<'_>) -> Result<Uuid> {
+        let id = self.store.create_place_routine(&self.key, routine).await?;
+        self.changed("");
+        Ok(id)
+    }
+
+    /// The enabled routines that start on `event` at `place`.
+    pub async fn place_routines(
+        &self,
+        place: Uuid,
+        event: PlaceEvent,
+    ) -> Result<Vec<PlaceRoutine>> {
+        self.store.place_routines(&self.key, place, event).await
+    }
+
+    /// Records that routine `id` runs now, unless it ran at or after `since`.
+    pub async fn claim_place_run(
+        &self,
+        id: Uuid,
+        now: DateTime<Utc>,
+        since: Option<DateTime<Utc>>,
+    ) -> Result<bool> {
+        self.store.claim_place_run(&self.key, id, now, since).await
     }
 
     /// Saves the timezone the phone is set to.

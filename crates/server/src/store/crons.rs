@@ -49,6 +49,7 @@ impl Store {
         if schedule.is_empty() || schedule.len() > 100 {
             bail!("cron schedule must be 1–100 characters");
         }
+        self.check_place_schedule(user, schedule).await?;
         let id = Uuid::new_v4().to_string();
         sqlx::query(
             "INSERT INTO crons (user_id, id, label, prompt, schedule)
@@ -73,6 +74,9 @@ impl Store {
         label: Option<&str>,
         schedule: Option<&str>,
     ) -> Result<bool> {
+        if let Some(schedule) = schedule {
+            self.check_place_schedule(user, schedule).await?;
+        }
         let changed = sqlx::query(
             "UPDATE crons SET enabled=COALESCE($1, enabled), label=COALESCE($2, label),
                  schedule=COALESCE($3, schedule)
