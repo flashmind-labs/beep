@@ -10,18 +10,18 @@ use beep_proto::{
     ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare,
     CreateCron, CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory,
     DeletePlace, DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
-    DeviceResult, DisconnectApp, Event, ExistingSessions, FinishAppAuth, GetAppPermissions,
-    GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRun, GetSession, GetSessionImages,
-    GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder,
-    Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons,
-    ListDevices, ListGroupReminders, ListGroups, ListMemories, ListMemoryReads, ListPlaces,
-    ListSessions, Memory, MemoryRead, Models, Notice, PeekGroup, PermissionLevel, PinGroup,
-    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
-    RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup, SentImages, Session,
-    SessionMatch, SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone,
-    ShareGroupApps, ShareSession, SharedLink, SharedSession, StartAppAuth, Stream, SuggestPrompts,
-    ToggleCron, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
-    UpdatePlace,
+    DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
+    GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRun, GetSession,
+    GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
+    GroupPreview, GroupReminder, Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice,
+    LinkedDevice, ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMemories,
+    ListMemoryReads, ListPlaces, ListSessions, Memory, MemoryRead, Models, Notice, PeekGroup,
+    PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform, PromptSuggestions,
+    ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron, SearchSessions,
+    SendToGroup, SentImages, Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel,
+    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession,
+    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron,
+    UpdateLocation, UpdateMemory, UpdatePlace,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -35,13 +35,10 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
-use tokio::{
-    fs,
-    io::AsyncWriteExt,
-    sync::{Mutex as AsyncMutex, OnceCell},
-    time::timeout,
-};
+use tokio::{fs, io::AsyncWriteExt, sync::OnceCell, time::timeout};
 use uuid::Uuid;
+
+pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
 /// The app this bridge is built into: the iOS app links the same crate.
 #[cfg(target_os = "ios")]
@@ -120,6 +117,48 @@ async fn timed<T>(
     }
 }
 
+fn uuid(text: &str) -> Result<Uuid, BeepError> {
+    Uuid::parse_str(text).map_err(|_| bad_request("invalid UUID"))
+}
+
+/// Writes the file `fetch` returns from each offset to `path`. It lands
+/// under a temporary name first, so `path` never holds half a file, and the
+/// temporary file is removed when anything fails.
+async fn download<F, Fut>(path: &str, fetch: F) -> Result<u64, BeepError>
+where
+    F: FnMut(u64) -> Fut,
+    Fut: Future<Output = Result<FilePart, BeepError>>,
+{
+    let partial = format!("{path}.part");
+    let result = download_to(&partial, path, fetch).await;
+    if result.is_err() {
+        // It may never have been created, and the first error matters more.
+        let _ = fs::remove_file(&partial).await;
+    }
+    result
+}
+
+async fn download_to<F, Fut>(partial: &str, path: &str, mut fetch: F) -> Result<u64, BeepError>
+where
+    F: FnMut(u64) -> Fut,
+    Fut: Future<Output = Result<FilePart, BeepError>>,
+{
+    let mut file = fs::File::create(partial).await.map_err(io_error)?;
+    let mut offset = 0;
+    loop {
+        let part = fetch(offset).await?;
+        file.write_all(&part.data).await.map_err(io_error)?;
+        offset += part.data.len() as u64;
+        if offset >= part.size || part.data.is_empty() {
+            break;
+        }
+    }
+    file.flush().await.map_err(io_error)?;
+    drop(file);
+    fs::rename(partial, path).await.map_err(io_error)?;
+    Ok(offset)
+}
+
 fn secret_key(bytes: &[u8]) -> Result<SecretKey, BeepError> {
     let bytes: &[u8; 32] = bytes
         .try_into()
@@ -190,13 +229,15 @@ pub fn link_preview(offer_uri: String) -> Result<LinkPreview, BeepError> {
     })
 }
 
-/// The token of a `beep://share/` link, or None for any other text.
+/// The token of a share link (`https://` or the legacy `beep://share/`),
+/// or None for any other text.
 #[uniffi::export]
 pub fn share_token(url: String) -> Option<String> {
     beep_proto::share_token(&url).map(str::to_owned)
 }
 
-/// The token of a `beep://group/` invite link, or None for any other text.
+/// The token of a group invite link (`https://` or the legacy
+/// `beep://group/`), or None for any other text.
 #[uniffi::export]
 pub fn group_token(url: String) -> Option<String> {
     beep_proto::group_token(&url).map(str::to_owned)
@@ -346,18 +387,21 @@ impl BeepClient {
         images: Vec<String>,
         rerun: Option<Rerun>,
     ) -> Result<Arc<EventStream>, BeepError> {
-        let uuid = |s: &str| Uuid::parse_str(s).map_err(|_| bad_request("invalid UUID"));
+        let (model, thinking) = match rerun {
+            Some(Rerun { model, thinking }) => (Some(model), thinking),
+            None => (None, None),
+        };
         let chat = Chat {
             session_id: uuid(&session_id)?,
             request_id: uuid(&request_id)?,
             message,
             images,
-            model: rerun.as_ref().map(|rerun| rerun.model.clone()),
-            thinking: rerun.and_then(|rerun| rerun.thinking),
+            model,
+            thinking,
             platform: Some(PLATFORM),
         };
         let replies = self.stream(chat).await?;
-        Ok(Arc::new(EventStream(AsyncMutex::new(replies))))
+        Ok(EventStream::new(replies))
     }
 
     pub async fn get_run(&self, id: String) -> Result<Run, BeepError> {
@@ -372,7 +416,7 @@ impl BeepClient {
     /// the stream ends when the run finishes or the server's window closes.
     pub async fn events(&self, run_id: String, after: i64) -> Result<Arc<EventStream>, BeepError> {
         let replies = self.stream(GetEvents { run_id, after }).await?;
-        Ok(Arc::new(EventStream(AsyncMutex::new(replies))))
+        Ok(EventStream::new(replies))
     }
 
     pub async fn device_result(
@@ -479,7 +523,7 @@ impl BeepClient {
         token: String,
         session_id: String,
     ) -> Result<Session, BeepError> {
-        let session_id = Uuid::parse_str(&session_id).map_err(|_| bad_request("invalid UUID"))?;
+        let session_id = uuid(&session_id)?;
         self.call(CopyShare { token, session_id }).await
     }
 
@@ -490,7 +534,7 @@ impl BeepClient {
         name: String,
         member_name: String,
     ) -> Result<Group, BeepError> {
-        let id = Uuid::parse_str(&id).map_err(|_| bad_request("invalid UUID"))?;
+        let id = uuid(&id)?;
         self.call(CreateGroup {
             id,
             name,
@@ -517,7 +561,7 @@ impl BeepClient {
         message: String,
         images: Vec<String>,
     ) -> Result<GroupMessage, BeepError> {
-        let request_id = Uuid::parse_str(&request_id).map_err(|_| bad_request("invalid UUID"))?;
+        let request_id = uuid(&request_id)?;
         self.call(SendToGroup {
             group_id,
             request_id,
@@ -568,26 +612,13 @@ impl BeepClient {
     /// replacing what is there. Returns its size. It lands under a temporary
     /// name first, so `path` never holds half a file.
     pub async fn save_file(&self, id: String, path: String) -> Result<u64, BeepError> {
-        let partial = format!("{path}.part");
-        let mut file = fs::File::create(&partial).await.map_err(io_error)?;
-        let mut offset = 0;
-        loop {
-            let part = self
-                .call(GetFile {
-                    id: id.clone(),
-                    offset,
-                })
-                .await?;
-            file.write_all(&part.data).await.map_err(io_error)?;
-            offset += part.data.len() as u64;
-            if offset >= part.size || part.data.is_empty() {
-                break;
-            }
-        }
-        file.flush().await.map_err(io_error)?;
-        drop(file);
-        fs::rename(&partial, &path).await.map_err(io_error)?;
-        Ok(offset)
+        download(&path, |offset| {
+            self.call(GetFile {
+                id: id.clone(),
+                offset,
+            })
+        })
+        .await
     }
 
     /// Allows or denies an app action Beep asked to take for the user from a group.
@@ -820,7 +851,7 @@ impl BeepClient {
         query_id: String,
         decision: ApprovalDecision,
     ) -> Result<Run, BeepError> {
-        let session_id = Uuid::parse_str(&session_id).map_err(|_| bad_request("invalid UUID"))?;
+        let session_id = uuid(&session_id)?;
         self.call(AnswerApproval {
             session_id,
             query_id,
@@ -866,6 +897,12 @@ impl BeepClient {
 #[derive(uniffi::Object)]
 pub struct EventStream(AsyncMutex<Replies<Event>>);
 
+impl EventStream {
+    fn new(replies: Replies<Event>) -> Arc<Self> {
+        Arc::new(Self(AsyncMutex::new(replies)))
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl EventStream {
     /// Next event, `null` once the stream ends.
@@ -877,6 +914,7 @@ impl EventStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn list_cache_round_trips_and_forgets_what_it_cannot_read() {
@@ -897,5 +935,56 @@ mod tests {
         );
         assert!(decoded.memories.is_none());
         assert!(decode_list_cache(vec![0xc1]).models.is_none());
+    }
+
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a test runtime builds")
+    }
+
+    fn scratch(name: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("beep-bridge-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the temp dir is writable");
+        dir.join("file").to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_failed_download_leaves_no_partial_file() {
+        let path = scratch("failed");
+        let result = runtime().block_on(download(&path, |offset| async move {
+            if offset == 0 {
+                Ok(FilePart {
+                    data: vec![1; 4],
+                    size: 8,
+                })
+            } else {
+                Err(BeepError::Connection {
+                    reason: "dropped".into(),
+                })
+            }
+        }));
+        assert!(matches!(result, Err(BeepError::Connection { .. })));
+        assert!(!Path::new(&format!("{path}.part")).exists());
+        assert!(!Path::new(&path).exists());
+    }
+
+    #[test]
+    fn a_download_lands_whole() {
+        let path = scratch("whole");
+        let size = runtime().block_on(download(&path, |offset| async move {
+            Ok(FilePart {
+                data: vec![offset as u8; 4],
+                size: 8,
+            })
+        }));
+        assert_eq!(size.expect("the download succeeds"), 8);
+        assert_eq!(
+            std::fs::read(&path).expect("the file landed"),
+            [0, 0, 0, 0, 4, 4, 4, 4]
+        );
+        assert!(!Path::new(&format!("{path}.part")).exists());
     }
 }
