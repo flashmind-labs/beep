@@ -44,6 +44,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.OffsetDateTime
+import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.time.temporal.ChronoUnit
+import java.util.Locale
 import java.time.ZonedDateTime
 import com.flashmind.beep.proto.Place as ProtoPlace
 
@@ -310,5 +315,18 @@ private fun ExplainLine(icon: ImageVector, text: String) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Icon(icon, null, Modifier.size(18.dp), tint = Beep.colors.muted)
         Text(text, fontSize = 13.sp, lineHeight = 19.sp)
+    }
+}
+
+/** When something last changed: "09:41" today, then "Yesterday", "Thu" this week, "3 Oct". */
+internal fun listTime(millis: Long, now: ZonedDateTime = ZonedDateTime.now()): String {
+    val at = Instant.ofEpochMilli(millis).atZone(now.zone)
+    val days = ChronoUnit.DAYS.between(at.toLocalDate(), now.toLocalDate())
+    return when {
+        days <= 0L -> at.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
+        days == 1L -> "Yesterday"
+        days < 7L -> at.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault()))
+        at.year == now.year -> at.format(DateTimeFormatter.ofPattern("d MMM"))
+        else -> at.format(DateTimeFormatter.ofPattern("d MMM yyyy"))
     }
 }

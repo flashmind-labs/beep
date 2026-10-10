@@ -643,7 +643,7 @@ private fun ContactsCard(card: ToolCard.Contacts) {
             if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(t.colors.softLine))
             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(36.dp).background(t.colors.tints[i % t.colors.tints.size], CircleShape), contentAlignment = Alignment.Center) {
-                    Text(person.name.take(1).uppercase(), fontWeight = FontWeight.Bold, color = t.colors.ink)
+                    Text(initial(person.name), fontWeight = FontWeight.Bold, color = t.colors.ink)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {

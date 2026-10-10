@@ -89,7 +89,7 @@ object ChatNotifications {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFF10201A.toInt(); textSize = 40f; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
         }
-        val letter = name.trim().take(1).uppercase().ifEmpty { "?" }
+        val letter = initial(name).ifEmpty { "?" }
         canvas.drawText(letter, size / 2f, size / 2f - (paint.descent() + paint.ascent()) / 2, paint)
         return bitmap
     }

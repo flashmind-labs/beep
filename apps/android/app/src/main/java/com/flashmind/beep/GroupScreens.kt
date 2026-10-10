@@ -1,5 +1,6 @@
 package com.flashmind.beep
 
+import java.text.BreakIterator
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -110,6 +111,17 @@ private fun authorName(author: GroupAuthor) = when (author) {
 /** Bolds each @beep, so a mention stands out in the bubble. */
 private fun withMentions(text: String) = Regex("(?i)(?<![\\w*])@beep\\b").replace(text) { "**${it.value}**" }
 
+/** The first character a reader sees, so an emoji or an accented letter is never cut in half. */
+internal fun initial(text: String): String {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return ""
+    val breaks = BreakIterator.getCharacterInstance().apply { setText(trimmed) }
+    return trimmed.substring(0, breaks.next()).uppercase()
+}
+
+/** "Tokyo trip" as "TT", from the first two words. */
+internal fun groupInitials(name: String) = name.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { initial(it) }
+
 @Composable
 internal fun GroupAvatar(initial: String, color: Color, size: Dp = 28.dp, beep: Boolean = false) {
     Box(Modifier.size(size).background(color, CircleShape).border(1.5.dp, Beep.colors.page, CircleShape), contentAlignment = Alignment.Center) {
@@ -154,13 +166,35 @@ private fun sameAuthor(a: GroupAuthor, b: GroupAuthor) = when {
 /** Who a reply is to and the words it quotes. */
 private data class ReplyTo(val name: String, val text: String)
 
+/** A group row in the drawer's chat list. [selected] is null outside selection mode. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun GroupRow(group: Group, highlighted: Boolean, selected: Boolean?, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Row(Modifier.padding(horizontal = 12.dp, vertical = 2.dp).fillMaxWidth().heightIn(min = 56.dp)
+        .clip(RoundedCornerShape(Beep.shapes.smallRadius))
+        .background(if (highlighted) Beep.colors.user else Color.Transparent)
+        .combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (selected != null) Icon(if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+            null, Modifier.size(18.dp), tint = if (selected) Beep.colors.error else Beep.colors.muted)
+        Column(Modifier.weight(1f)) {
+            Text(group.name, maxLines = 1, fontSize = 14.sp, overflow = TextOverflow.Ellipsis,
+                color = if (highlighted) Beep.colors.onUser else Color.Unspecified)
+            Text(groupSummary(group), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (highlighted) Beep.colors.onUser.copy(alpha = 0.7f) else Beep.colors.muted)
+        }
+        if (group.pinned && selected == null) Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(16.dp), tint = Beep.colors.brand)
+        Icon(Icons.Outlined.Groups, "Group", Modifier.size(16.dp), tint = Beep.colors.brand)
+    }
+}
+
 /** A message being sent, shown until the server has it. */
 private data class Outgoing(val requestId: String, val text: String)
 
 /** A group chat: members' messages, Beep's replies and a composer that can @mention. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun GroupChatPane(repository: ChatRepository, groupId: String, onBack: () -> Unit, onInfo: () -> Unit,
+internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: () -> Unit, onInfo: () -> Unit,
                            onInvite: (Group) -> Unit, onGone: () -> Unit, onNewChat: () -> Unit, onPrevious: () -> Unit,
                            onExpand: (() -> Unit)? = null) {
     val context = LocalContext.current
@@ -229,7 +263,7 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onBack: 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
                             it.members.sortedByDescending { m -> m.you }.take(4).forEach { m ->
-                                GroupAvatar(m.name.take(1).uppercase(), memberTint(memberIndex(it, m.name)), 18.dp)
+                                GroupAvatar(initial(m.name), memberTint(memberIndex(it, m.name)), 18.dp)
                             }
                             GroupAvatar("b", Beep.colors.brand, 18.dp, beep = true)
                         }
@@ -239,7 +273,10 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onBack: 
                 }
             }
         }, navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Chats") }
+            ChunkyButton(onClick = onMenu, shape = RoundedCornerShape(Beep.shapes.smallRadius),
+                modifier = Modifier.padding(start = 12.dp, end = 10.dp).size(42.dp), contentPadding = PaddingValues(0.dp)) {
+                Icon(Icons.Outlined.Menu, "Conversations", Modifier.size(20.dp))
+            }
         }, actions = {
             IconButton(onClick = { group?.let(onInvite) }, enabled = group != null, modifier = Modifier.padding(end = 6.dp)) {
                 Icon(Icons.Outlined.Link, "Invite", tint = Beep.colors.muted)
@@ -434,7 +471,7 @@ private fun MentionPicker(group: Group, field: TextFieldValue, onPick: (TextFiel
                 val text = field.text.replaceRange(range.first, range.last + 1, "@${choice.name} ")
                 onPick(TextFieldValue(text, TextRange(range.first + choice.name.length + 2)))
             }.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                GroupAvatar(if (choice.beep) "b" else choice.name.take(1).uppercase(),
+                GroupAvatar(if (choice.beep) "b" else initial(choice.name),
                     if (choice.beep) Beep.colors.brand else memberTint(memberIndex(group, choice.name)), 30.dp, beep = choice.beep)
                 Spacer(Modifier.width(12.dp))
                 Column {
@@ -718,7 +755,7 @@ internal fun GroupJoinScreen(repository: ChatRepository, token: String, onJoined
             group == null -> CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).size(22.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
             else -> {
                 Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy((-14).dp)) {
-                    group.members.take(4).forEachIndexed { i, m -> GroupAvatar(m.take(1).uppercase(), memberTint(i), 56.dp) }
+                    group.members.take(4).forEachIndexed { i, m -> GroupAvatar(initial(m), memberTint(i), 56.dp) }
                     GroupAvatar("b", Beep.colors.brand, 56.dp, beep = true)
                 }
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -790,7 +827,7 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
             }
             Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                val initials = group.name.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1).uppercase() }
+                val initials = groupInitials(group.name)
                 GroupAvatar(initials.ifEmpty { "?" }, Beep.colors.tints[group.id.hashCode().mod(Beep.colors.tints.size)], 84.dp)
                 Text(displayText(group.name), style = displayStyle(28.sp), textAlign = TextAlign.Center)
                 Text("Group · ${group.members.size} member${if (group.members.size == 1) "" else "s"}", fontSize = 13.sp, color = Beep.colors.muted)
@@ -800,7 +837,7 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 group.members.forEachIndexed { i, m ->
                     val joined = Instant.ofEpochMilli(m.joinedAt).atZone(ZoneId.systemDefault()).format(joinedFormat)
-                    MemberLine({ GroupAvatar(m.name.take(1).uppercase(), memberTint(i), 36.dp) },
+                    MemberLine({ GroupAvatar(initial(m.name), memberTint(i), 36.dp) },
                         if (m.you) "You" else m.name, if (m.you) "${m.name} · " + (if (m.creator) "made the group" else "joined $joined")
                             else if (m.creator) "Made the group" else "Joined $joined",
                         made = m.creator, onClick = if (m.you) null else { { member = i } })
@@ -852,7 +889,7 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
         val day = Instant.ofEpochMilli(shown.joinedAt).atZone(ZoneId.systemDefault()).format(joinedFormat)
         Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                GroupAvatar(shown.name.take(1).uppercase(), memberTint(i), 56.dp)
+                GroupAvatar(initial(shown.name), memberTint(i), 56.dp)
                 Column {
                     Text(shown.name, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     Text(if (shown.creator) "Made the group on $day" else "Joined $day", fontSize = 13.sp, color = Beep.colors.muted)
