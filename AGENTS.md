@@ -2,15 +2,28 @@
 
 ## Getting the app onto the phone
 
-Releases always go to Play internal testing. Every push to main runs the `apk`
-workflow, which signs the bundle with the upload key and uploads it to the
-internal track, and the phone updates from Play. `just android-release 1.2.3`
-sets the version and tags `android-v1.2.3`; pushing the tag sends a patch
-release to the beta track and a minor or major one (`1.3.0`) to production.
-Do not hand-install APKs on the phone: a locally built APK is signed with another key and will not install
-over the Play build.
+The Android workflow (`.forgejo/workflows/android.yml`) builds the signed
+bundle and uploads it to Play, and the phone updates from Play:
 
-Use the debug APK on an emulator (`./gradlew assembleDebug`).
+- Every push to main goes to the internal track.
+- `just android-release 1.2.3` sets `versionName`, commits and tags
+  `android-v1.2.3` (it needs a clean tree on main). Push it with
+  `git push origin main android-v1.2.3`.
+- A patch tag (`1.2.3`) goes to the `beta` track, or to the track in the
+  repository variable `PLAY_BETA_TRACK`. A minor or major tag (`1.3.0`,
+  `2.0.0`) goes to production. A tag that does not match `versionName` fails.
+- Releases stay drafts until the repository variable `PLAY_RELEASE_STATUS` is
+  `completed`.
+
+Do not hand-install APKs on the phone: a locally built APK is signed with
+another key and will not install over the Play build. Use the debug APK on an
+emulator (`./gradlew assembleDebug`).
+
+## Deploying the server
+
+Push to main, then `just deploy-server`. It waits for the image CI builds for
+HEAD, copies the dev config and key to the remote host and restarts the
+container.
 
 ## UI changes
 
