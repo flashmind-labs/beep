@@ -2,7 +2,7 @@ import CoreLocation
 import Observation
 
 /// Sends the phone's location to the server when the user allowed it, and
-/// watches saved places so arriving or leaving sends a fresh fix.
+/// watches saved places so arriving or leaving is reported to the server.
 @MainActor
 @Observable
 final class LocationReporter: NSObject, CLLocationManagerDelegate {
@@ -14,6 +14,8 @@ final class LocationReporter: NSObject, CLLocationManagerDelegate {
     }
 
     @ObservationIgnored var onUpdate: ((Fix) -> Void)?
+    /// A saved place's id and whether the phone arrived or left.
+    @ObservationIgnored var onCross: ((String, PlaceCrossing) -> Void)?
     private(set) var status = CLAuthorizationStatus.notDetermined
     @ObservationIgnored private let manager = CLLocationManager()
     @ObservationIgnored private let geocoder = CLGeocoder()
@@ -72,13 +74,16 @@ final class LocationReporter: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    /// Crossing a place's edge sends a fix; the server decides what arriving or leaving starts.
+    /// Crossing a place's edge goes to the server as is. A fix taken now can sit
+    /// inside the radius on leaving, so the region event is the answer.
     nonisolated func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
-        Task { @MainActor in self.refresh() }
+        let id = region.identifier
+        Task { @MainActor in self.onCross?(id, .arrive) }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
-        Task { @MainActor in self.refresh() }
+        let id = region.identifier
+        Task { @MainActor in self.onCross?(id, .leave) }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
