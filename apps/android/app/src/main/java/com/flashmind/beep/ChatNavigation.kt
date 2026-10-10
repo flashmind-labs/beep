@@ -1,5 +1,6 @@
 package com.flashmind.beep
 
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -95,6 +96,19 @@ private fun SwipeHint(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
         }
         Spacer(Modifier.height(6.dp))
         Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
+    }
+}
+
+@Composable
+internal fun DrawerTile(label: String, icon: ImageVector, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    ChunkyButton(onClick = onClick, modifier = modifier.padding(end = 3.dp, bottom = 3.dp), color = tint,
+        shape = RoundedCornerShape(Beep.shapes.smallRadius), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 12.dp)) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, null, tint = TextPrimary, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.height(6.dp))
+            Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
