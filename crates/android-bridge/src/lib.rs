@@ -8,19 +8,19 @@
 use beep_proto::{
     AnswerApproval, AnswerGroupApproval, ApiError, AppIntegration, AppPermissions,
     ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare,
-    CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession,
-    DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult, DisconnectApp, Event,
-    ExistingSessions, FinishAppAuth, GetAppPermissions, GetEvents, GetFile, GetGroup,
-    GetGroupImages, GetModels, GetRun, GetSession, GetSessionImages, GetShare, Group, GroupChat,
-    GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry,
-    JoinGroup, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices,
-    ListGroupReminders, ListGroups, ListMemories, ListSessions, Memory, Models, Notice, PeekGroup,
-    PermissionLevel, PinGroup, PinSession, Platform, PromptSuggestions, ReasoningLevel,
-    RegisterDevice, RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup,
-    SentImages, Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel, SetThinking,
-    SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, StartAppAuth, Stream,
-    SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation,
-    UpdateMemory,
+    CreateCron, CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory,
+    DeletePlace, DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
+    DeviceResult, DisconnectApp, Event, ExistingSessions, FinishAppAuth, GetAppPermissions,
+    GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRun, GetSession, GetSessionImages,
+    GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder,
+    Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons,
+    ListDevices, ListGroupReminders, ListGroups, ListMemories, ListPlaces, ListSessions, Memory,
+    Models, Notice, PeekGroup, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing,
+    Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run,
+    RunCron, SearchSessions, SendToGroup, SentImages, Session, SessionMatch, SetAppPermissions,
+    SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
+    SharedSession, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice,
+    UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -704,6 +704,36 @@ impl BeepClient {
             place,
         })
         .await
+    }
+
+    /// The user's saved places, by name.
+    pub async fn list_places(&self) -> Result<Vec<Place>, BeepError> {
+        self.call(ListPlaces {}).await
+    }
+
+    /// Forgets a place and the routines that start there.
+    pub async fn delete_place(&self, id: String) -> Result<(), BeepError> {
+        self.call(DeletePlace { id }).await
+    }
+
+    /// Renames a place or changes its radius in metres, 25 to 1000.
+    pub async fn update_place(
+        &self,
+        id: String,
+        name: Option<String>,
+        radius: Option<u32>,
+    ) -> Result<Place, BeepError> {
+        self.call(UpdatePlace { id, name, radius }).await
+    }
+
+    /// Tells the server the phone's geofencing saw it arrive at or leave
+    /// place `id`. Returns whether that changed where the server had it.
+    pub async fn cross_place(
+        &self,
+        id: String,
+        crossing: PlaceCrossing,
+    ) -> Result<bool, BeepError> {
+        self.call(CrossPlace { id, crossing }).await
     }
 
     /// Tells the server the phone's timezone, such as "Europe/Madrid".
