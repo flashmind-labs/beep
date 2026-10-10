@@ -248,20 +248,26 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             val dayBreaks = remember(chat.messages) { dayBreaks(chat.messages) }
             // The "Latest reply" button floats over the list, so showing it does not resize the list.
             Box(Modifier.weight(1f).fillMaxWidth()) {
-            LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp)) {
                 itemsIndexed(chat.messages, key = { _, it -> it.id }) { index, message ->
                     val isUser = message.role == "user"
+                    // A reply sits close under its own prompt; turns keep the full gap.
+                    val gap = when {
+                        index == 0 -> 0.dp
+                        !isUser && chat.messages[index - 1].role == "user" -> if (compact) 4.dp else 6.dp
+                        else -> if (compact) 12.dp else 18.dp
+                    }
                     val fresh = message.id !in settled
                     SideEffect { settled.add(message.id) }
                     val newDay = dayBreaks[message.id]
                     if (message.role == "scheduled") {
-                        Column(Modifier.animateItem(fadeOutSpec = null)) {
+                        Column(Modifier.padding(top = gap).animateItem(fadeOutSpec = null)) {
                             newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
                             ScheduledMarker(message.text)
                         }
                         return@itemsIndexed
                     }
-                    Column(Modifier.fillMaxWidth().animateItem(fadeOutSpec = null)
+                    Column(Modifier.padding(top = gap).fillMaxWidth().animateItem(fadeOutSpec = null)
                         .popIn(message.id, play = fresh, origin = TransformOrigin(if (isUser) 1f else 0f, 1f)),
                         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
                         newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
@@ -422,7 +428,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     }
                 }
                 if (workingInline) item(key = "working") {
-                    Column(Modifier.fillMaxWidth().animateItem(fadeOutSpec = null).popIn("working-${chat.id}", origin = TransformOrigin(0f, 1f))) {
+                    Column(Modifier.padding(top = if (compact) 4.dp else 6.dp).fillMaxWidth().animateItem(fadeOutSpec = null).popIn("working-${chat.id}", origin = TransformOrigin(0f, 1f))) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)
                             .animateContentSize(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))) {
                             PulsingDots()
