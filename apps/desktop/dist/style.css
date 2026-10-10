@@ -189,3 +189,24 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dsec.flat { padding: 0; border: 0 }
 .dshare { display: grid; gap: 8px; padding: 10px 12px; margin: 2px 2px 6px }
 .dshare .code { font-size: 12.5px; letter-spacing: 0; overflow-wrap: anywhere }
+
+/* Product cards: a row that scrolls sideways. */
+.dprods { flex: none; display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; margin: 2px 0 8px; user-select: none }
+.dprods::-webkit-scrollbar { display: none }
+.dprod { flex: none; width: 208px; position: relative }
+.dbody a.dprod-card, .dprod-card { display: grid; grid-template-rows: auto 1fr; height: 100%; color: #E8EEEA; text-decoration: none; border: 1.5px solid #34413A; border-radius: 16px;
+  overflow: hidden; background: #1C2420; box-shadow: 0 3px 0 #34413A; cursor: pointer }
+.dprod-card:hover { border-color: #46564D }
+.dprod-img { display: block; height: 116px; background: #26302B }
+.dprod-img img { display: block; width: 100%; height: 100%; object-fit: contain; background: #fff; opacity: 0 }
+.dprod-img img.on { opacity: 1 }
+.dprod-info { display: grid; gap: 5px; align-content: start; padding: 10px 12px 12px }
+.dprod-store { font-size: 11px; letter-spacing: .02em; color: #93A39A }
+.dprod-title { font-size: 13.5px; line-height: 18px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 36px }
+.dprod-price { display: flex; align-items: baseline; gap: 6px }
+.dprod-price b { font-size: 17px; font-weight: 600 }
+.dprod-price s, .dprod-meta { font-size: 12px; color: #93A39A }
+.dprod-copy { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; padding: 0;
+  background: #1C2420; color: #E8EEEA; border: 1.5px solid #34413A; cursor: pointer }
+.dprod-copy:hover { border-color: var(--emerald) }
+.dprod.pending .dprod-card { min-height: 220px; cursor: default }
