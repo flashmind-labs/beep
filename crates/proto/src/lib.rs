@@ -169,7 +169,9 @@ requests! {
     12 ListMemories {} => Call<Vec<Memory>>
     13 DeleteMemory { id: String } => Call<()>
     14 ListCrons {} => Call<Vec<Cron>>
-    /// Returns the new cron's id.
+    /// Returns the new cron's id. A `schedule` of `arrive:<place id>` or
+    /// `leave:<place id>` starts it on arriving at or leaving a saved place
+    /// instead of at a time; `arrive:<place id>:daily` runs once a day at most.
     15 CreateCron { label: String, prompt: String, schedule: String } => Call<String>
     /// Returns whether the cron is now enabled.
     16 ToggleCron { id: String } => Call<bool>
@@ -293,6 +295,13 @@ requests! {
     70 ListGroupReminders { group_id: String } => Call<Vec<GroupReminder>>
     /// Deletes one of a group's reminders. Any member may.
     71 DeleteGroupReminder { group_id: String, id: String } => Call<()>
+    /// The caller's saved places, by name.
+    74 ListPlaces {} => Call<Vec<Place>>
+    /// Forgets a place, and the routines that start there with it.
+    75 DeletePlace { id: String } => Call<()>
+    /// Renames a place or changes how near counts as being there.
+    /// `radius` is in metres, 25 to 1000.
+    76 UpdatePlace { id: String, name: Option<String>, radius: Option<u32> } => Call<Place>
 }
 
 /// The most of a file one `GetFile` returns, well under a frame.
@@ -859,12 +868,36 @@ pub struct GroupReminder {
     pub set_by: String,
 }
 
+/// A place the user saved by name, such as Home or Gym, that routines can
+/// start on arriving at or leaving.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Place {
+    pub id: String,
+    pub name: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    /// Within this many metres counts as being there.
+    pub radius: u32,
+    /// A street address or area name, when known.
+    pub address: Option<String>,
+    pub created_at: String,
+    /// Whether the phone's last location was there.
+    pub here: bool,
+    /// When the phone was last there.
+    pub last_here_at: Option<String>,
+    /// How many routines start on arriving at or leaving it.
+    pub routines: u32,
+}
+
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Cron {
     pub id: String,
     pub label: String,
     pub prompt: String,
+    /// RFC 3339 for a one-off, a place trigger as `CreateCron` describes,
+    /// else a cron expression.
     pub schedule: String,
     pub enabled: bool,
     pub created_at: String,

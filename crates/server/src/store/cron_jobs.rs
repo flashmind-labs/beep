@@ -1,6 +1,7 @@
 //! The `crons` table as flashmind cron jobs, for the scheduler and the
 //! cron tools. `user` limits a call to one user's own jobs; `None` sees
-//! all, group reminders too.
+//! all the scheduler runs, group reminders too but not routines that start
+//! at a place.
 
 use super::Store;
 use anyhow::Result;
@@ -10,14 +11,14 @@ use serde_json::json;
 use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
 
-const COLUMNS: &str = "id, user_id, label, prompt, schedule, enabled, run_once, created_at, \
+pub(super) const COLUMNS: &str = "id, user_id, label, prompt, schedule, enabled, run_once, created_at, \
     last_run_at, session_id, kind, group_id";
 
 /// A routine that wakes the agent with its prompt; the other kind is
 /// [`crate::digest::DIGEST_KIND`]. A routine's kind never changes.
 const PROMPT_KIND: &str = "prompt";
 
-fn job_from(row: &PgRow) -> Result<CronJob> {
+pub(super) fn job_from(row: &PgRow) -> Result<CronJob> {
     let id: String = row.try_get("id")?;
     let user_id: String = row.try_get("user_id")?;
     let label: String = row.try_get("label")?;
@@ -61,7 +62,8 @@ fn meta<'a>(job: &'a CronJob, key: &str) -> Option<&'a str> {
 impl Store {
     pub(crate) async fn cron_jobs(&self, user: Option<&str>) -> Result<Vec<CronJob>> {
         let rows = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM crons WHERE $1::text IS NULL OR (user_id=$1 AND group_id IS NULL)
+            "SELECT {COLUMNS} FROM crons
+             WHERE ($1::text IS NULL AND place_id IS NULL) OR (user_id=$1 AND group_id IS NULL)
              ORDER BY created_at DESC LIMIT 500"
         ))
         .bind(user)

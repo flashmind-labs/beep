@@ -4,14 +4,15 @@ use beep_server::{
     client::{Client, Node, OnNotice, Replies},
     models::ModelChoices,
     protocol::{
-        ApiError, AppKind, CancelRun, Chat, ConnectApp, DeviceKind, Event, ExistingSessions,
-        GetEvents, GetRun, GetSession, Health, HistoryEntry, LinkDevice, ListApps, ListDevices,
-        ListSessions, MemorySource, Notice, RemoveDevice, RunEvent, StartAppAuth, SuggestPrompts,
+        ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace, DeviceKind, Event,
+        ExistingSessions, GetEvents, GetRun, GetSession, Health, HistoryEntry, LinkDevice,
+        ListApps, ListCrons, ListDevices, ListPlaces, ListSessions, MemorySource, Notice,
+        RemoveDevice, RunEvent, StartAppAuth, SuggestPrompts, UpdateLocation, UpdatePlace,
         link::{LinkOffer, OFFER_TTL},
     },
     push::Pusher,
     starters,
-    store::{CreateRun, Fact, SignIn, TestDb},
+    store::{CreateRun, Fact, NewPlace, SignIn, TestDb},
     transport,
     user::User,
     wake::{self, Event as WakeEvent},
@@ -721,6 +722,95 @@ async fn a_woken_agent_reaches_the_phone_only_when_it_asks_to() {
     let sessions = user.sessions().await.unwrap();
     let session = sessions.iter().find(|s| s.id == told.session_id).unwrap();
     assert_eq!(session.title, "Arrived in Singapore");
+}
+
+#[tokio::test]
+async fn arriving_at_a_place_starts_its_routine_once() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let user = h.app.user(&h.alice_id).unwrap();
+    let fix = |metres_north: f64, accuracy: f64| UpdateLocation {
+        latitude: 41.4 + metres_north / 111_195.0,
+        longitude: 2.2,
+        accuracy,
+        timezone: "Europe/Madrid".into(),
+        place: None,
+    };
+    c.call(&fix(2000.0, 10.0)).await.unwrap();
+    let gym = user
+        .save_place(&NewPlace {
+            name: "Gym",
+            latitude: 41.4,
+            longitude: 2.2,
+            radius: 100,
+            address: None,
+            inside: false,
+        })
+        .await
+        .unwrap();
+    let id = gym.id.to_string();
+    c.call(&CreateCron {
+        label: "Log my weights".into(),
+        prompt: "Remind me to log weights".into(),
+        schedule: format!("arrive:{id}:daily"),
+    })
+    .await
+    .unwrap();
+    let places = c.call(&ListPlaces {}).await.unwrap();
+    assert_eq!(places.len(), 1);
+    assert_eq!((places[0].routines, places[0].here), (1, false));
+    let last_run = async || {
+        let crons = c.call(&ListCrons {}).await.unwrap();
+        crons[0].last_run_at.clone()
+    };
+
+    // A blurry fix inside does not count; a sharp one starts the routine.
+    c.call(&fix(20.0, 400.0)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(last_run().await, None);
+    c.call(&fix(20.0, 15.0)).await.unwrap();
+    let ran = timeout(Duration::from_secs(20), async {
+        loop {
+            if let Some(at) = last_run().await {
+                return at;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the routine starts");
+    assert!(c.call(&ListPlaces {}).await.unwrap()[0].here);
+
+    // Jitter at the edge, then leaving and coming back the same day, run nothing more.
+    for metres in [110.0, 90.0, 400.0, 10.0] {
+        c.call(&fix(metres, 15.0)).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(last_run().await, Some(ran));
+
+    let renamed = c
+        .call(&UpdatePlace {
+            id: id.clone(),
+            name: Some("Climbing gym".into()),
+            radius: Some(250),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        (renamed.name.as_str(), renamed.radius),
+        ("Climbing gym", 250)
+    );
+    let too_wide = c
+        .call(&UpdatePlace {
+            id: id.clone(),
+            name: None,
+            radius: Some(5000),
+        })
+        .await;
+    assert!(too_wide.is_err());
+    c.call(&DeletePlace { id }).await.unwrap();
+    assert!(c.call(&ListPlaces {}).await.unwrap().is_empty());
+    assert!(c.call(&ListCrons {}).await.unwrap().is_empty());
 }
 
 /// The computer Alice links to her account.
