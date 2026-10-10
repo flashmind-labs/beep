@@ -305,7 +305,6 @@ impl Store {
             "turn_models",
             "session_titles",
             "shares",
-            "files",
         ] {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE user_id=$1 AND session_id = ANY($2)"
@@ -315,6 +314,14 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         }
+        let files: Vec<String> = sqlx::query_scalar(
+            "DELETE FROM files WHERE user_id=$1 AND session_id = ANY($2) AND group_seq IS NULL
+             RETURNING id",
+        )
+        .bind(user.as_str())
+        .bind(&ids)
+        .fetch_all(&mut *tx)
+        .await?;
         let deleted = sqlx::query("DELETE FROM sessions WHERE user_id=$1 AND id = ANY($2)")
             .bind(user.as_str())
             .bind(&ids)
@@ -322,6 +329,7 @@ impl Store {
             .await?
             .rows_affected();
         tx.commit().await?;
+        self.blobs.delete(&files).await?;
         Ok(deleted)
     }
 
@@ -397,7 +405,16 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         }
+        let pictures: Vec<String> = sqlx::query_scalar(&format!(
+            "DELETE FROM files WHERE user_id=$1 AND session_id=$2 AND turn_at{at}$3 RETURNING id"
+        ))
+        .bind(user.as_str())
+        .bind(session_id)
+        .bind(timestamp)
+        .fetch_all(&mut *tx)
+        .await?;
         tx.commit().await?;
+        self.blobs.delete(&pictures).await?;
         Ok(DeletedTurn::Deleted)
     }
 

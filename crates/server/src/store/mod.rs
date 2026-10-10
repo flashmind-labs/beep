@@ -10,6 +10,7 @@ use tokio::sync::Notify;
 
 mod actions;
 mod apps;
+mod blobs;
 mod cron_jobs;
 mod crons;
 mod devices;
@@ -33,11 +34,12 @@ mod users;
 pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::McpServerRow;
+pub use blobs::{Blobs, PgBlobs};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::PushDevice;
 pub use digest::AttentionItem;
 pub use feeds::Feed;
-pub use files::NewFile;
+pub use files::{NewFile, NewPicture, PicturesOf};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
@@ -170,6 +172,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "group reminders",
         include_str!("../../migrations/0026_group_reminders.sql"),
     ),
+    (
+        27,
+        "pictures",
+        include_str!("../../migrations/0027_pictures.sql"),
+    ),
 ];
 
 fn migrator() -> Migrator {
@@ -201,6 +208,8 @@ pub struct Store {
     memories: MemoryStore,
     /// Woken after any write to `crons`, so the scheduler picks the change up.
     crons_changed: Arc<Notify>,
+    /// The bytes of kept files and pictures.
+    blobs: Arc<dyn Blobs>,
 }
 
 /// The categories Jev files a memory under, with what each holds.
@@ -297,6 +306,7 @@ impl Store {
         migrator().run(&pool).await?;
         let memories = MemoryStore::connect_postgres(pool.clone(), embedder).await?;
         Ok(Self {
+            blobs: Arc::new(PgBlobs::new(pool.clone())),
             pool,
             memories,
             crons_changed: Arc::new(Notify::new()),
