@@ -69,6 +69,8 @@ const TOP_COUNT: usize = 15;
 const CALENDAR_BACK_DAYS: i64 = 5 * 365;
 const CALENDAR_AHEAD_DAYS: i64 = 183;
 const CALENDAR_PAGES: usize = 200;
+/// How much of the calendar one Fastmail search covers.
+const FASTMAIL_SPAN_DAYS: i64 = 90;
 /// Notes per condensing call, and the facts it may end with.
 const CONDENSE_CHARS: usize = 60_000;
 const MAX_FACTS: usize = 80;
@@ -880,22 +882,18 @@ async fn outlook_events(user: &User, window: Window) -> Result<Vec<Event>> {
     let client = user
         .composio_client()
         .context("Composio is not configured")?;
-    let local = |time: DateTime<Utc>| time.format("%Y-%m-%dT%H:%M:%S").to_string();
-    let filter = format!(
-        "start/dateTime ge '{}' and start/dateTime lt '{}'",
-        local(window.after),
-        local(window.before.unwrap_or_else(Utc::now))
-    );
     let mut events = Vec::new();
     for page in 0..CALENDAR_PAGES {
+        // The calendar view expands repeating events into each time they happen.
         let arguments = json!({
+            "start_datetime": rfc3339(window.after),
+            "end_datetime": rfc3339(window.before.unwrap_or_else(Utc::now)),
             "top": TOP,
             "skip": page * TOP,
-            "filter": filter,
             "orderby": ["start/dateTime"],
         });
         let response = client
-            .execute_tool("OUTLOOK_OUTLOOK_LIST_EVENTS", arguments)
+            .execute_tool("OUTLOOK_GET_CALENDAR_VIEW", arguments)
             .await?;
         if response.successful == Some(false) {
             bail!("Outlook calendar listing failed");
@@ -910,10 +908,10 @@ async fn outlook_events(user: &User, window: Window) -> Result<Vec<Event>> {
 }
 
 /// Fastmail's tool is read from its own schema, since its arguments are not
-/// known ahead.
+/// known ahead. It refuses to expand repeating events over a long window, so
+/// the window is read a season at a time.
 async fn fastmail_events(user: &User, window: Window) -> Result<Vec<Event>> {
     const TOOL: &str = "search_events";
-    const LIMIT: usize = 100;
     let mut schema = user.mcp_tool_schema(FASTMAIL, TOOL).await;
     if schema.is_none() {
         // Any call connects the server, which lists its tools.
@@ -922,6 +920,29 @@ async fn fastmail_events(user: &User, window: Window) -> Result<Vec<Event>> {
     }
     let schema = schema.context("Fastmail has no search_events tool")?;
     let arguments = EventArguments::from_schema(&schema)?;
+    let end = window.before.unwrap_or_else(Utc::now);
+    let mut events = Vec::new();
+    let mut after = window.after;
+    while after < end {
+        let before = (after + Days::days(FASTMAIL_SPAN_DAYS)).min(end);
+        let span = Window {
+            after,
+            before: Some(before),
+        };
+        events.extend(fastmail_span(user, &arguments, span).await?);
+        after = before;
+    }
+    Ok(events)
+}
+
+/// Fastmail's events in one span of at most `FASTMAIL_SPAN_DAYS`.
+async fn fastmail_span(
+    user: &User,
+    arguments: &EventArguments,
+    window: Window,
+) -> Result<Vec<Event>> {
+    const TOOL: &str = "search_events";
+    const LIMIT: usize = 100;
     let mut events = Vec::new();
     let mut cursor: Option<String> = None;
     let mut offset = 0;
