@@ -41,6 +41,7 @@ pub(crate) struct PlaceTool {
 
 fn place_json(place: &SavedPlace, here: Option<&Location>) -> Value {
     json!({
+        "id": place.id,
         "name": place.name,
         "address": place.address,
         "radius_m": place.radius,

@@ -107,6 +107,7 @@ pub fn router() -> Router {
         .call(list_places)
         .call(delete_place)
         .call(update_place)
+        .call(cross_place)
         .call(get_session_images)
         .call(get_group_images)
 }
@@ -1348,6 +1349,15 @@ async fn update_place(cx: Cx, req: UpdatePlace) -> Reply<Place> {
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
     place.map(place_info).ok_or(ApiError::NotFound {})
+}
+
+async fn cross_place(cx: Cx, CrossPlace { id, crossing }: CrossPlace) -> Reply<bool> {
+    let id: Uuid = id.parse().map_err(|_| ApiError::NotFound {})?;
+    let changed = places::cross(&cx.app, &cx.user, id, crossing.into()).await?;
+    if changed {
+        cx.user.changed("");
+    }
+    Ok(changed)
 }
 
 async fn set_timezone(cx: Cx, SetTimezone { timezone }: SetTimezone) -> Reply<()> {

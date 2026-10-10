@@ -9,6 +9,7 @@
 use crate::{
     app::App,
     cron,
+    protocol::PlaceCrossing,
     store::{Crossed, Location, SavedPlace},
     user::User,
 };
@@ -59,6 +60,15 @@ impl PlaceEvent {
         match self {
             Self::Arrive => format!("arrived at {place}"),
             Self::Leave => format!("left {place}"),
+        }
+    }
+}
+
+impl From<PlaceCrossing> for PlaceEvent {
+    fn from(crossing: PlaceCrossing) -> Self {
+        match crossing {
+            PlaceCrossing::Arrive {} => Self::Arrive,
+            PlaceCrossing::Leave {} => Self::Leave,
         }
     }
 }
@@ -192,21 +202,35 @@ fn start_of_day(now: DateTime<Utc>, timezone: &str) -> DateTime<Utc> {
 /// Checks `fix` against the user's places, and starts the routines of
 /// every place it arrived at or left. Called with each fix the phone sends.
 pub async fn track(app: &Arc<App>, user: &Arc<User>, fix: &Location) -> Result<()> {
-    let crossed = user.cross_places(fix).await?;
-    for crossing in crossed {
-        log::info!(
-            "places: {}; place_id={} user={user}",
-            crossing.event.as_str(),
-            crossing.place.id
-        );
-        let (app, user) = (app.clone(), user.clone());
-        tokio::spawn(async move {
-            if let Err(error) = start_routines(&app, &user, &crossing).await {
-                log::warn!("places: unable to start a routine: {error:#}; user={user}");
-            }
-        });
+    for crossing in user.cross_places(fix).await? {
+        spawn_routines(app, user, crossing);
     }
     Ok(())
+}
+
+/// Starts the routines of place `id` when the phone's own geofencing saw it
+/// arrive or leave. Returns whether that changed where the phone was.
+pub async fn cross(app: &Arc<App>, user: &Arc<User>, id: Uuid, event: PlaceEvent) -> Result<bool> {
+    let Some(crossing) = user.cross_place(id, event).await? else {
+        return Ok(false);
+    };
+    spawn_routines(app, user, crossing);
+    Ok(true)
+}
+
+/// Starts `crossing`'s routines in the background.
+fn spawn_routines(app: &Arc<App>, user: &Arc<User>, crossing: Crossed) {
+    log::info!(
+        "places: {}; place_id={} user={user}",
+        crossing.event.as_str(),
+        crossing.place.id
+    );
+    let (app, user) = (app.clone(), user.clone());
+    tokio::spawn(async move {
+        if let Err(error) = start_routines(&app, &user, &crossing).await {
+            log::warn!("places: unable to start a routine: {error:#}; user={user}");
+        }
+    });
 }
 
 /// Starts the routines that run on `crossing`, and returns how many did.
