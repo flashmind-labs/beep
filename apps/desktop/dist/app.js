@@ -873,7 +873,44 @@ function renderGroupInfo(leave = false) {
   G.mention = null;
   bar.innerHTML = `${groupHead()}<div class="dbody" id="ginfobody" style="padding-left:18px;padding-top:12px;gap:14px"></div>${hints([["esc", "back to the chat"], ["⌘K", "chats"]])}`;
   wireHead();
+  G.reminders = null;
   drawGroupInfo();
+  const id = G.id;
+  invoke("list_group_reminders", { groupId: id })
+    .then(list => { if (G.id === id) { G.reminders = list; drawGroupInfo(); } })
+    .catch(() => { if (G.id === id) { G.reminders = []; drawGroupInfo(); } });
+}
+
+// "Every day at 9:00" for the cron shapes Beep writes, "Tomorrow 10:00" for a one-off.
+function describeSchedule(schedule) {
+  const clock = (h, m) => new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const at = new Date(schedule);
+  if (/^\d{4}-\d\d-\d\dT/.test(schedule) && !isNaN(at)) {
+    const days = Math.round((new Date(at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 864e5);
+    const day = days === 0 ? "Today" : days === 1 ? "Tomorrow" : days > 1 && days < 7
+      ? at.toLocaleDateString(undefined, { weekday: "short" }) : at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    return `${day} ${clock(at.getHours(), at.getMinutes())}`;
+  }
+  const [min, hour, dom, mon, dow] = schedule.trim().split(/\s+/);
+  const m = Number(min), h = Number(hour);
+  if (dom !== "*" || mon !== "*" || !Number.isInteger(m) || !Number.isInteger(h)) return schedule;
+  const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  if (dow === "*") return `Every day at ${clock(h, m)}`;
+  if (dow === "1-5") return `Weekdays at ${clock(h, m)}`;
+  if (dow.split(",").every(d => /^[0-6]$/.test(d))) return `${dow.split(",").map(d => names[d]).join(", ")} at ${clock(h, m)}`;
+  return schedule;
+}
+
+function groupReminders(g) {
+  const ask = 'Ask Beep in the chat to add one, like "remind us at 10 to check out".';
+  const list = G.reminders;
+  if (!list) return '<div class="dmuted"><span class="dspin"></span>Loading…</div>';
+  if (!list.length) return `<div class="dinfo" style="color:var(--muted)">No reminders yet. ${esc(ask)}</div>`;
+  const you = g.members.find(m => m.you)?.name;
+  return `<div class="dinfo">${list.map(r => `<div class="member" style="align-items:flex-start">
+    <span style="flex:1;min-width:0"><b style="font-weight:500">${esc(r.label)}</b><small>${esc(r.message)}</small><small>${esc(describeSchedule(r.schedule))} · set by ${esc(r.set_by === you ? "you" : r.set_by)}</small></span>
+    <button class="dbtn" data-rem="${esc(r.id)}" aria-label="Delete reminder">Delete</button></div>`).join("")}
+    <div style="font-size:12px;color:var(--muted)">${esc(ask)}</div></div>`;
 }
 
 function drawGroupInfo() {
@@ -887,6 +924,8 @@ function drawGroupInfo() {
     : member(m.name, m.name, m.creator ? "Created the group" : `Joined ${date(m.joined_at)}`)).join("");
   b.innerHTML = `<div class="dsec flat">Members</div>
     <div class="dinfo">${members}${member("Beep", "Beep", "Joins in when it can help, or when someone writes @beep")}</div>
+    <div class="dsec flat">Reminders</div>
+    ${groupReminders(g)}
     <div class="dsec flat">Your apps</div>
     <div class="dtoggle"><span><b>Share my apps with Beep here</b><small>${g.apps_shared
       ? "Beep can read your calendar, mail, files and tasks to plan for the group, and never shows them here. Creating or sending anything asks you first."
@@ -901,6 +940,11 @@ function drawGroupInfo() {
     try { await invoke("share_group_apps", { id: g.id, shared }); g.apps_shared = shared; } catch (e) { b.insertAdjacentHTML("afterbegin", `<div class="derr">${esc(e)}</div>`); return; }
     drawGroupInfo();
   });
+  b.querySelectorAll("[data-rem]").forEach(btn => btn.addEventListener("click", async () => {
+    try { await invoke("delete_group_reminder", { groupId: g.id, id: btn.dataset.rem }); } catch (e) { b.insertAdjacentHTML("afterbegin", `<div class="derr">${esc(e)}</div>`); return; }
+    G.reminders = (G.reminders || []).filter(r => r.id !== btn.dataset.rem);
+    drawGroupInfo();
+  }));
   $("#gaskleave")?.addEventListener("click", () => { G.leave = true; drawGroupInfo(); });
   $("#gstay")?.addEventListener("click", () => { G.leave = false; drawGroupInfo(); });
   $("#gleave")?.addEventListener("click", async () => {

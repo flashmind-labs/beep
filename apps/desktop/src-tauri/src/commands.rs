@@ -8,10 +8,11 @@ use crate::{
     state::LinkState,
 };
 use beep_proto::{
-    AnswerGroupApproval, ApiError, ApprovalDecision, CreateGroup, DeleteSession, GetGroup,
-    GroupInvite, GroupPreview, JoinGroup, LeaveGroup, ListGroups, PeekGroup, PinGroup, PinSession,
-    RenameSession, SendToGroup, Session, SessionMatch, ShareGroupApps, ShareSession, SharedLink,
-    UnshareSession, format_group_code, group_code,
+    AnswerGroupApproval, ApiError, ApprovalDecision, CreateGroup, DeleteGroupReminder,
+    DeleteSession, GetGroup, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup,
+    ListGroupReminders, ListGroups, PeekGroup, PinGroup, PinSession, RenameSession, SendToGroup,
+    Session, SessionMatch, ShareGroupApps, ShareSession, SharedLink, UnshareSession,
+    format_group_code, group_code,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, process::Command, sync::Arc};
@@ -266,6 +267,19 @@ pub async fn pin_group(beep: Service<'_>, id: String, pinned: bool) -> Result<()
 #[tauri::command]
 pub async fn share_group_apps(beep: Service<'_>, id: String, shared: bool) -> Result<()> {
     beep.call(ShareGroupApps { id, shared }).await
+}
+
+#[tauri::command]
+pub async fn list_group_reminders(
+    beep: Service<'_>,
+    group_id: String,
+) -> Result<Vec<GroupReminder>> {
+    beep.call(ListGroupReminders { group_id }).await
+}
+
+#[tauri::command]
+pub async fn delete_group_reminder(beep: Service<'_>, group_id: String, id: String) -> Result<()> {
+    beep.call(DeleteGroupReminder { group_id, id }).await
 }
 
 #[tauri::command]
