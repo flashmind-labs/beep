@@ -13,6 +13,9 @@ func toolLabel(_ name: String) -> String {
     return text.prefix(1).uppercased() + text.dropFirst()
 }
 
+/// Tools that get no chip: what they do is already on screen, or is bookkeeping.
+let quietTools: Set<String> = ["suggest_replies", "show_products", "notify_user", "task_progress"]
+
 private let toolLabels: [String: String] = [
     "web_search": "Searching the web",
     "decision": "Weighing the options",

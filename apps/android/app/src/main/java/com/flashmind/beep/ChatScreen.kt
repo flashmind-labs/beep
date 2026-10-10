@@ -283,7 +283,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         }
                         // A finished tool that has something to show becomes a card; the rest stay chips.
                         val toolCards = remember(message.toolCalls) { message.toolCalls.map { it to cardFor(it) } }
-                        val chips = toolCards.filter { (call, card) -> card == null && call.name != "suggest_replies" }
+                        val chips = toolCards.filter { (call, card) -> card == null && call.name !in QUIET_TOOLS }
                         if (!isUser && message.reasoning.isNotBlank()) ReasoningRow(message.reasoning, Modifier.padding(bottom = 4.dp))
                         if (chips.isNotEmpty()) {
                             // While the reply runs only the latest few chips show and the earlier ones fold into one

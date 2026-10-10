@@ -401,7 +401,7 @@ struct MessageView: View {
     /// While a reply runs only the latest three chips show and the earlier ones fold
     /// into one line; once it is done a long run folds away entirely.
     @ViewBuilder private var tools: some View {
-        let calls = message.tools.filter { $0.name != "suggest_replies" }
+        let calls = message.tools.filter { !quietTools.contains($0.name) }
         if !calls.isEmpty {
             let finished = !live && calls.allSatisfy(\.done)
             let folded = finished && calls.count > 3 ? calls.count : max(0, calls.count - 3)
