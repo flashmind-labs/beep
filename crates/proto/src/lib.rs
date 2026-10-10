@@ -29,6 +29,14 @@ use std::{fmt, time::SystemTime};
 use uuid::Uuid;
 pub use version::{ClientInfo, Feature, WIRE};
 
+// Kotlin and Swift see ids as their text.
+#[cfg(feature = "uniffi")]
+uniffi::custom_type!(Uuid, String, {
+    remote,
+    try_lift: |text| Ok(Uuid::parse_str(&text)?),
+    lower: |id| id.to_string(),
+});
+
 macro_rules! one {
     ($x:tt) => {
         1
@@ -354,6 +362,13 @@ requests! {
     /// memories, newest first. A notice with no `session_id`, `app` or
     /// `approval` is one finishing, so tapping it opens the newest here.
     78 ListMemoryReads {} => Call<Vec<MemoryRead>>
+    /// The caller's updates after `after`, the last update id the client
+    /// holds, oldest first. A client starts from 0 and calls again with
+    /// `UpdatePage::last` while `more` is set.
+    79 GetUpdates { after: i64 } => Call<UpdatePage>
+    /// The caller's newest update id now and whenever it changes, so a
+    /// client knows when to call `GetUpdates`.
+    80 StreamUpdates {} => Stream<i64>
 }
 
 /// A picture someone sent, kept on the server as long as its chat. Read its
@@ -1160,6 +1175,103 @@ pub struct GroupPreview {
     pub members: Vec<String>,
     /// The caller is in it already.
     pub joined: bool,
+}
+
+wire_enum! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ChatKind {
+        0 Session {}
+        1 Group {}
+    }
+}
+
+/// A chat as `GetUpdates` sends it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatInfo {
+    pub id: Uuid,
+    pub kind: ChatKind,
+    /// A session's title or a group's name.
+    pub title: String,
+    /// Pinned to the top of the caller's list.
+    pub pinned: bool,
+    /// A group's members, oldest first; empty for a session.
+    pub members: Vec<GroupMember>,
+    /// Beep may use the caller's apps in this group when others ask.
+    pub apps_shared: bool,
+}
+
+/// One step of a chat: a message, a tool call, an approval card.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatMessage {
+    /// Grows with each message on the server, across chats.
+    pub id: i64,
+    /// The message that opened its turn, its own id for that one. `None` in
+    /// groups.
+    pub turn_id: Option<i64>,
+    /// In milliseconds since the Unix epoch.
+    pub timestamp: i64,
+    pub body: MessageBody,
+}
+
+/// What a turn ran with. It sits on the message that opened the turn and
+/// changes as the turn goes on, which sends that message again.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TurnInfo {
+    /// The model that answered, empty when not recorded.
+    pub model: String,
+    /// What Jev picked, when it did.
+    pub auto: Option<AutoPick>,
+    /// The model's reasoning over the whole turn.
+    pub reasoning: String,
+    pub memory_score: Option<f64>,
+}
+
+wire_enum! {
+    /// `User` and `Scheduled` open a turn and carry it. `Member` and `Beep`
+    /// are group messages; `you` marks the caller's own.
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum MessageBody {
+        0 User { content: String, images: Vec<ImageRef>, turn: TurnInfo }
+        1 Scheduled { label: String, turn: TurnInfo }
+        2 Assistant { content: String }
+        3 Tool { call_id: String, name: String, output: String, success: bool }
+        4 Approval { query_id: String, approval: Approval }
+        5 Member { name: String, you: bool, content: String, images: Vec<ImageRef> }
+        6 Beep { content: String }
+    }
+}
+
+wire_enum! {
+    /// One entry of the caller's log. A message that changes comes again
+    /// under a newer id; `Deleted` and `ChatDeleted` tell the client to drop
+    /// its copy.
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum Update {
+        0 Message { update_id: i64, chat_id: Uuid, message: ChatMessage }
+        1 Deleted { update_id: i64, chat_id: Uuid, message_id: i64 }
+        2 Chat { update_id: i64, chat: ChatInfo }
+        3 ChatDeleted { update_id: i64, chat_id: Uuid }
+    }
+}
+
+/// A page of the caller's updates.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdatePage {
+    pub updates: Vec<Update>,
+    /// The update id to send as `after` next.
+    pub last: i64,
+    /// More updates follow; call again.
+    pub more: bool,
+    /// The server no longer has every update after `after`: drop every
+    /// chat and start over from `updates`.
+    pub reset: bool,
 }
 
 /// A message the server pushes to the user's open notification streams.

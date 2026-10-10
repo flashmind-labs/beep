@@ -87,7 +87,7 @@ Leave them out and try again, or do without.";
 /// One group run, as its tools need it.
 pub(super) struct GroupRun {
     pub app: Arc<App>,
-    pub group_id: String,
+    pub group_id: Uuid,
     pub group_name: String,
     /// Who sent the message Beep is answering.
     pub actor: Member,
@@ -118,7 +118,7 @@ impl GroupRun {
 pub(super) struct GroupAction {
     owner: String,
     owner_name: String,
-    group_id: String,
+    group_id: Uuid,
     app: &'static str,
     action: String,
     tool: Arc<dyn Tool>,
@@ -372,7 +372,7 @@ impl App {
                 GroupAction {
                     owner: owner_id.clone(),
                     owner_name: owner.member.name.clone(),
-                    group_id: run.group_id.clone(),
+                    group_id: run.group_id,
                     app: owner.app.name,
                     action: approval.action.clone(),
                     tool: owner.tool.clone(),
@@ -391,7 +391,7 @@ impl App {
             notice: Notice {
                 title: format!("Allow {}: {}?", approval.app, approval.action),
                 body: format!("{asker} asked Beep in {}", run.group_name),
-                session_id: run.group_id.clone(),
+                session_id: run.group_id.to_string(),
                 app: None,
                 approval: Some(PendingApproval {
                     run_id: String::new(),
@@ -455,8 +455,8 @@ impl App {
         } else {
             format!("{owner_name} didn't allow {action} in {app}.")
         };
-        self.store.post_beep(&group_id, &text).await?;
-        if let Some(joined) = user.group(&group_id).await? {
+        self.store.post_beep(group_id, &text).await?;
+        if let Some(joined) = user.group(group_id).await? {
             self.group_notice(&joined.members, &joined, None, &format!("Beep: {text}"));
         }
         Ok(true)

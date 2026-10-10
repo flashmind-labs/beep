@@ -10,7 +10,9 @@ use tokio::sync::Notify;
 
 mod actions;
 mod apps;
+mod backfill;
 mod blobs;
+mod chats;
 mod cron_jobs;
 mod crons;
 mod devices;
@@ -21,13 +23,14 @@ mod groups;
 mod habits;
 mod location;
 mod memories;
+mod messages;
 mod places;
 mod profile;
 mod runs;
 mod sessions;
 mod shares;
 mod test_db;
-mod turns;
+mod updates;
 mod usage;
 mod user_keys;
 mod users;
@@ -44,13 +47,14 @@ pub use files::{NewFile, NewPicture, PicturesOf};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
+pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnRecord};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
-pub use runs::{CreateRun, FinishedTurn, RunStatus};
+pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
 pub use shares::{CopiedShare, Share};
-pub use test_db::TestDb;
-pub use turns::TurnModel;
+pub use test_db::{TestDb, test_chat, test_steps, test_turn};
+pub use updates::{Bumped, UpdateHub, start_pruning};
 pub use user_keys::{Account, AccountKey, LinkKey, NewKey, SignIn};
 
 /// The schema, oldest first. Embedded by hand because `sqlx::migrate!`
@@ -184,11 +188,27 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "pictures",
         include_str!("../../migrations/0028_pictures.sql"),
     ),
+    (
+        29,
+        "messages",
+        include_str!("../../migrations/0029_messages.sql"),
+    ),
+    (
+        30,
+        "drop transcripts",
+        include_str!("../../migrations/0030_drop_transcripts.sql"),
+    ),
 ];
 
-fn migrator() -> Migrator {
+/// The last migration before the transcripts go. The backfill reads them
+/// into message rows between this one and the next.
+const BEFORE_BACKFILL: i64 = 29;
+
+/// The migrations up to `last`.
+fn migrator(last: i64) -> Migrator {
     let migrations = MIGRATIONS
         .iter()
+        .filter(|&&(version, ..)| version <= last)
         .map(|&(version, description, sql)| {
             Migration::new(
                 version,
@@ -201,6 +221,8 @@ fn migrator() -> Migrator {
         .collect();
     Migrator {
         migrations: Cow::Owned(migrations),
+        // A database already past `last` has migrations this one leaves out.
+        ignore_missing: true,
         ..Migrator::DEFAULT
     }
 }
@@ -217,6 +239,8 @@ pub struct Store {
     crons_changed: Arc<Notify>,
     /// The bytes of kept files and pictures.
     blobs: Arc<dyn Blobs>,
+    /// Wakes the update streams when a user's log moves.
+    updates: Arc<UpdateHub>,
 }
 
 /// The categories Jev files a memory under, with what each holds.
@@ -310,13 +334,16 @@ impl Store {
 
     /// Runs the migrations on `pool` and opens the store on it.
     pub async fn with_pool(pool: PgPool, embedder: Arc<dyn EmbeddingProvider>) -> Result<Self> {
-        migrator().run(&pool).await?;
+        migrator(BEFORE_BACKFILL).run(&pool).await?;
+        backfill::run(&pool).await?;
+        migrator(i64::MAX).run(&pool).await?;
         let memories = MemoryStore::connect_postgres(pool.clone(), embedder).await?;
         Ok(Self {
             blobs: Arc::new(PgBlobs::new(pool.clone())),
             pool,
             memories,
             crons_changed: Arc::new(Notify::new()),
+            updates: Arc::default(),
         })
     }
 

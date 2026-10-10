@@ -31,6 +31,7 @@ use crate::{
     protocol::{
         ApiError, AppIntegration, AppKind, ConnectLink, Cron, FilePart, ImageRef, Memory,
         MemorySource, Notice, PromptSuggestion, PromptSuggestions, Run, SentImages, Session,
+        UpdatePage,
     },
     starters::{
         Cached, FALLBACK_FRESH, FRESH, Generator, STARTER_REFRESH_WINDOW, STARTER_REFRESHES,
@@ -41,8 +42,8 @@ use crate::{
         Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Join, JoinedGroup, LinkKey,
         Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewFile, NewKey, NewMessage,
         NewPicture, NewPlace, NewPlaceRoutine, Origin, PicturesOf, PlaceRoutine, Posted,
-        ProfileNote, ProfileRead, PushDevice, RunStatus, SavedPlace, Share, Store, StoredContext,
-        TurnModel, TurnsToDelete,
+        ProfileNote, ProfileRead, PushDevice, RunStatus, SavedPlace, SavedTurn, Share, Store,
+        StoredContext, StoredMessage, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -67,7 +68,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{
-    sync::{OnceCell, broadcast},
+    sync::{OnceCell, broadcast, watch},
     time::{MissedTickBehavior, interval},
 };
 use uuid::Uuid;
@@ -229,7 +230,7 @@ impl User {
     /// its existing run.
     pub async fn create_run(
         &self,
-        session: &str,
+        session: Uuid,
         request: &str,
         message: &str,
     ) -> Result<CreateRun> {
@@ -241,7 +242,7 @@ impl User {
     /// The run already started for `request`, without starting one.
     pub async fn existing_run(
         &self,
-        session: &str,
+        session: Uuid,
         request: &str,
         message: &str,
     ) -> Result<Option<CreateRun>> {
@@ -260,13 +261,13 @@ impl User {
         self.store.sessions(&self.key).await
     }
 
-    /// Up to `limit` sessions whose transcript holds `query`, ignoring case.
+    /// Up to `limit` sessions with a message that holds `query`, ignoring case.
     pub async fn search_sessions(&self, query: &str, limit: i64) -> Result<Vec<FoundSession>> {
         self.store.search_sessions(&self.key, query, limit).await
     }
 
     /// Renames a session; `false` when the user has no such session.
-    pub async fn rename_session(&self, session_id: &str, title: &str) -> Result<bool> {
+    pub async fn rename_session(&self, session_id: Uuid, title: &str) -> Result<bool> {
         let renamed = self
             .store
             .rename_session(&self.key, session_id, title)
@@ -276,14 +277,14 @@ impl User {
     }
 
     /// Deletes a session with its runs; `false` when the user has no such session.
-    pub async fn delete_session(&self, session_id: &str) -> Result<bool> {
+    pub async fn delete_session(&self, session_id: Uuid) -> Result<bool> {
         let deleted = self.store.delete_session(&self.key, session_id).await?;
         self.changed("");
         Ok(deleted)
     }
 
     /// Deletes sessions with their runs and returns how many existed.
-    pub async fn delete_sessions(&self, ids: Vec<String>) -> Result<u64> {
+    pub async fn delete_sessions(&self, ids: &[Uuid]) -> Result<u64> {
         let deleted = self.store.delete_sessions(&self.key, ids).await?;
         self.changed("");
         Ok(deleted)
@@ -294,7 +295,7 @@ impl User {
     /// ones after it.
     pub async fn delete_turn(
         &self,
-        session_id: &str,
+        session_id: Uuid,
         timestamp: i64,
         which: TurnsToDelete,
     ) -> Result<DeletedTurn> {
@@ -303,18 +304,18 @@ impl User {
             .delete_turn(&self.key, session_id, timestamp, which)
             .await?;
         if deleted == DeletedTurn::Deleted {
-            self.changed(session_id);
+            self.changed(&session_id.to_string());
         }
         Ok(deleted)
     }
 
     /// The ones of `ids` the user still has.
-    pub async fn existing_sessions(&self, ids: Vec<String>) -> Result<Vec<String>> {
+    pub async fn existing_sessions(&self, ids: &[Uuid]) -> Result<Vec<Uuid>> {
         self.store.existing_sessions(&self.key, ids).await
     }
 
     /// Pins or unpins a session; `false` when the user has no such session.
-    pub async fn pin_session(&self, session_id: &str, pinned: bool) -> Result<bool> {
+    pub async fn pin_session(&self, session_id: Uuid, pinned: bool) -> Result<bool> {
         let pinned = self
             .store
             .pin_session(&self.key, session_id, pinned)
@@ -326,13 +327,13 @@ impl User {
     /// Keeps a file Beep sends in `session_id` and returns its id.
     pub(crate) async fn save_file(
         &self,
-        session_id: &str,
+        chat: Uuid,
         name: &str,
         mime: &str,
         data: &[u8],
     ) -> Result<String> {
         let file = NewFile {
-            session_id,
+            chat,
             name,
             mime,
             data,
@@ -343,7 +344,7 @@ impl User {
     /// Keeps the pictures the user sent with a message.
     pub(crate) async fn save_pictures(
         &self,
-        of: PicturesOf<'_>,
+        of: PicturesOf,
         pictures: &[Picture],
     ) -> Result<Vec<ImageRef>> {
         let pictures: Vec<NewPicture> = pictures
@@ -359,7 +360,7 @@ impl User {
     }
 
     /// The pictures the user sent in a session, by turn.
-    pub(crate) async fn session_pictures(&self, session_id: &str) -> Result<Vec<SentImages>> {
+    pub(crate) async fn session_pictures(&self, session_id: Uuid) -> Result<Vec<SentImages>> {
         self.store.session_pictures(&self.key, session_id).await
     }
 
@@ -378,7 +379,7 @@ impl User {
     /// such session.
     pub async fn share_session(
         &self,
-        session_id: &str,
+        session_id: Uuid,
         conversation: &Conversation,
     ) -> Result<Option<Share>> {
         self.store
@@ -387,12 +388,12 @@ impl User {
     }
 
     /// Stops sharing `session_id`; `false` when it was not shared.
-    pub async fn unshare_session(&self, session_id: &str) -> Result<bool> {
+    pub async fn unshare_session(&self, session_id: Uuid) -> Result<bool> {
         self.store.unshare_session(&self.key, session_id).await
     }
 
     /// Copies the share with `token` into the user's chats as `session_id`.
-    pub async fn copy_share(&self, token: &str, session_id: &str) -> Result<CopiedShare> {
+    pub async fn copy_share(&self, token: &str, session_id: Uuid) -> Result<CopiedShare> {
         let copied = self.store.copy_share(&self.key, token, session_id).await?;
         if copied == CopiedShare::Copied {
             self.changed("");
@@ -401,7 +402,7 @@ impl User {
     }
 
     /// Makes the group `id` with the user in it; `false` when the id is taken.
-    pub async fn create_group(&self, id: &str, name: &str, member_name: &str) -> Result<bool> {
+    pub async fn create_group(&self, id: Uuid, name: &str, member_name: &str) -> Result<bool> {
         self.store
             .create_group(&self.key, id, name, member_name)
             .await
@@ -413,7 +414,7 @@ impl User {
     }
 
     /// The group `id`, if the user is in it.
-    pub async fn group(&self, id: &str) -> Result<Option<JoinedGroup>> {
+    pub async fn group(&self, id: Uuid) -> Result<Option<JoinedGroup>> {
         self.store.group(&self.key, id).await
     }
 
@@ -423,7 +424,7 @@ impl User {
     }
 
     /// The invite token of a group the user is in, a new one with `reset`.
-    pub async fn group_invite(&self, id: &str, reset: bool) -> Result<Option<String>> {
+    pub async fn group_invite(&self, id: Uuid, reset: bool) -> Result<Option<String>> {
         self.store.group_invite(&self.key, id, reset).await
     }
 
@@ -433,18 +434,18 @@ impl User {
     }
 
     /// Pins or unpins a group; `false` when the user is not in it.
-    pub async fn pin_group(&self, id: &str, pinned: bool) -> Result<bool> {
+    pub async fn pin_group(&self, id: Uuid, pinned: bool) -> Result<bool> {
         self.store.pin_group(&self.key, id, pinned).await
     }
 
     /// Lets Beep use the user's apps in a group when others ask, or stops
     /// it; `false` when the user is not in it.
-    pub async fn share_group_apps(&self, id: &str, shared: bool) -> Result<bool> {
+    pub async fn share_group_apps(&self, id: Uuid, shared: bool) -> Result<bool> {
         self.store.share_group_apps(&self.key, id, shared).await
     }
 
     /// Leaves a group; `false` when the user was not in it.
-    pub async fn leave_group(&self, id: &str) -> Result<bool> {
+    pub async fn leave_group(&self, id: Uuid) -> Result<bool> {
         self.store.leave_group(&self.key, id).await
     }
 
@@ -457,79 +458,53 @@ impl User {
             .send(UserNotice::changed(self.id(), session_id));
     }
 
-    /// The full transcript of a session, as the phone shows it.
-    pub async fn conversation(&self, session: &str) -> Result<Option<Conversation>> {
-        self.store.conversation(&self.key, session).await
+    /// The messages of a session the user owns, oldest first. `None` when
+    /// they have no such session.
+    pub async fn session_messages(&self, session: Uuid) -> Result<Option<Vec<StoredMessage>>> {
+        if !self.store.owns_session(&self.key, session).await? {
+            return Ok(None);
+        }
+        Ok(Some(self.store.chat_messages(session).await?))
     }
 
-    /// What the model sees for a session: the compacted context, or the
-    /// transcript when the session was never compacted.
-    pub async fn context(&self, session: &str) -> Result<Option<StoredContext>> {
+    /// What the newest turn of a session ran with.
+    pub async fn last_turn(&self, session: Uuid) -> Result<Option<TurnRecord>> {
+        self.store.last_turn(session).await
+    }
+
+    /// What the model sees for a session.
+    pub async fn context(&self, session: Uuid) -> Result<Option<StoredContext>> {
         self.store.context(&self.key, session).await
     }
 
-    /// Ends a run with `status`, saving its turn when there is one. Returns
-    /// the session's new `updated_at`, `None` when no turn was saved.
+    /// Whether the user is in chat `id`.
+    pub async fn in_chat(&self, id: Uuid) -> Result<bool> {
+        self.store.in_chat(&self.key, id).await
+    }
+
+    /// The user's updates after `after`, a page at a time.
+    pub async fn updates_page(&self, after: i64) -> Result<UpdatePage> {
+        self.store.updates_page(&self.key, after).await
+    }
+
+    /// The user's newest update id, now and as it moves.
+    pub async fn watch_updates(&self) -> Result<watch::Receiver<i64>> {
+        self.store.watch_updates(self.key.as_str()).await
+    }
+
+    /// Ends a run with `status`, saving its turn when there is one. `None`
+    /// when no turn was saved.
     pub async fn finish(
         &self,
         run: &Run,
         turn: Option<FinishedTurn<'_>>,
         status: RunStatus,
-    ) -> Result<Option<DateTime<Utc>>> {
-        let saved = turn.is_some();
-        let updated_at = self.store.finish(&self.key, run, turn, status).await?;
-        if saved {
+    ) -> Result<Option<SavedTurn>> {
+        let saved = self.store.finish(&self.key, run, turn, status).await?;
+        if saved.is_some() {
             self.changed(&run.session_id);
         }
-        Ok(updated_at)
-    }
-
-    /// Records tool calls that failed, since the conversation keeps only their output.
-    pub async fn record_tool_failures(&self, session: &str, call_ids: Vec<String>) -> Result<()> {
-        self.store
-            .record_tool_failures(&self.key, session, call_ids)
-            .await
-    }
-
-    /// Ids of the session's tool calls that failed.
-    pub async fn tool_failures(&self, session: &str) -> Result<HashSet<String>> {
-        self.store.tool_failures(&self.key, session).await
-    }
-
-    /// Records Jev's memory score for the turn whose user message was sent at
-    /// `turn_at`, in milliseconds since the epoch.
-    pub async fn record_memory_score(
-        &self,
-        session: &str,
-        turn_at: i64,
-        probability: f64,
-    ) -> Result<()> {
-        self.store
-            .record_memory_score(&self.key, session, turn_at, probability)
-            .await
-    }
-
-    /// Records the model that answered the turn whose user message was sent
-    /// at `turn_at`, in milliseconds since the epoch.
-    pub async fn record_turn_model(
-        &self,
-        session: &str,
-        turn_at: i64,
-        model: &TurnModel,
-    ) -> Result<()> {
-        self.store
-            .record_turn_model(&self.key, session, turn_at, model)
-            .await
-    }
-
-    /// The session's models by the time of each turn's user message.
-    pub async fn turn_models(&self, session: &str) -> Result<HashMap<i64, TurnModel>> {
-        self.store.turn_models(&self.key, session).await
-    }
-
-    /// The session's memory scores by the time of each turn's user message.
-    pub async fn memory_scores(&self, session: &str) -> Result<HashMap<i64, f64>> {
-        self.store.memory_scores(&self.key, session).await
+        Ok(saved)
     }
 
     /// Stores a new memory, filed by Jev, and returns its id.

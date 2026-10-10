@@ -221,13 +221,16 @@ pub(crate) struct Finished<'a> {
 /// Sends a woken run's reply and keeps its chat when the model asked to,
 /// and otherwise deletes the chat without a word.
 pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished<'_>) {
+    let Ok(chat) = Uuid::parse_str(&run.session_id) else {
+        return;
+    };
     match finished.status {
         // The approval notice asks the user; the chat holds the question.
         RunStatus::Waiting => {}
         RunStatus::Completed if finished.notified => {
             let session = SessionRef {
                 user: user.id().to_owned(),
-                id: run.session_id.clone(),
+                id: chat,
             };
             match app
                 .store
@@ -249,7 +252,7 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
                 run.id,
                 status.as_str()
             );
-            if let Err(error) = user.delete_session(&run.session_id).await {
+            if let Err(error) = user.delete_session(chat).await {
                 log::warn!(
                     "wake: unable to delete the chat: {error}; run_id={}",
                     run.id

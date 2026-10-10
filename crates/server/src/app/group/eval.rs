@@ -18,6 +18,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream};
 use secrecy::SecretString;
+use uuid::Uuid;
 
 /// A chat and what should happen after its last message.
 struct Case {
@@ -417,7 +418,7 @@ fn joined(chat: &[(&str, &str)]) -> JoinedGroup {
     names.dedup();
     JoinedGroup {
         group: GroupRow {
-            id: "g".into(),
+            id: Uuid::nil(),
             name: "Japan".into(),
             updated_at: at,
         },
@@ -439,8 +440,8 @@ fn joined(chat: &[(&str, &str)]) -> JoinedGroup {
 fn history(chat: &[(&str, &str)]) -> Vec<MessageRow> {
     chat.iter()
         .zip(1..)
-        .map(|((author, text), seq)| MessageRow {
-            seq,
+        .map(|((author, text), id)| MessageRow {
+            id,
             author_id: (*author != "Beep").then(|| author.to_lowercase()),
             author_name: (*author).into(),
             content: (*text).into(),

@@ -5,9 +5,10 @@ use beep_server::{
     models::ModelChoices,
     protocol::{
         ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace, DeviceKind, Event,
-        ExistingSessions, GetEvents, GetRun, GetSession, Health, HistoryEntry, LinkDevice,
-        ListApps, ListCrons, ListDevices, ListPlaces, ListSessions, MemorySource, Notice,
-        RemoveDevice, RunEvent, Session, StartAppAuth, SuggestPrompts, UpdateLocation, UpdatePlace,
+        ExistingSessions, GetEvents, GetRun, GetSession, GetUpdates, Health, HistoryEntry,
+        LinkDevice, ListApps, ListCrons, ListDevices, ListPlaces, ListSessions, MemorySource,
+        MessageBody, Notice, RemoveDevice, RunEvent, Session, StartAppAuth, StreamUpdates,
+        SuggestPrompts, Update, UpdateLocation, UpdatePlace,
         link::{LinkOffer, OFFER_TTL},
         wire::framed,
     },
@@ -368,7 +369,7 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     );
     assert!(
         User::for_test(reopened.clone(), &alice_id)
-            .conversation(&session.to_string())
+            .session_messages(session)
             .await
             .unwrap()
             .is_some()
@@ -458,8 +459,9 @@ async fn cancellation_busy_session_and_invalid_input() {
 async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
     let db = TestDb::new().await.unwrap();
     let store = db.store().await.unwrap();
+    let session = Uuid::new_v4();
     let run = match User::for_test(store.clone(), "alice")
-        .create_run("session", "request", "hello")
+        .create_run(session, "request", "hello")
         .await
         .unwrap()
     {
@@ -534,7 +536,7 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
     );
     assert!(matches!(
         User::for_test(store.clone(), "alice")
-            .create_run("session", "new-request", "hello")
+            .create_run(session, "new-request", "hello")
             .await
             .unwrap(),
         CreateRun::Created(_)
@@ -933,4 +935,91 @@ async fn a_phone_from_before_hello_is_still_served() {
             .expect("a reply frame");
         assert!(sessions.is_empty());
     }
+}
+
+#[tokio::test]
+async fn a_client_follows_its_log_and_fetches_only_what_is_new() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let mut newest = c.stream(&StreamUpdates {}).await.unwrap();
+    let start = newest.next().await.unwrap().unwrap();
+    let empty = c.call(&GetUpdates { after: start }).await.unwrap();
+    assert!(empty.updates.is_empty() && !empty.more);
+
+    let session = Uuid::new_v4();
+    let mut replies = c
+        .stream(&Chat {
+            session_id: session,
+            request_id: Uuid::new_v4(),
+            message: "Remember I prefer tea".into(),
+            images: Vec::new(),
+            model: None,
+            thinking: None,
+            platform: None,
+        })
+        .await
+        .unwrap();
+    drain(&mut replies).await;
+
+    // Each time the stream says the log moved, the client asks for what it
+    // lacks, until the reply is saved.
+    let replied = |updates: &[Update]| {
+        updates.iter().any(|update| {
+            matches!(update, Update::Message { message, .. }
+                if matches!(message.body, MessageBody::Assistant { .. }))
+        })
+    };
+    let page = loop {
+        let page = c.call(&GetUpdates { after: start }).await.unwrap();
+        if replied(&page.updates) {
+            break page;
+        }
+        timeout(Duration::from_secs(10), newest.next())
+            .await
+            .expect("the log moves")
+            .unwrap()
+            .expect("the stream stays open");
+    };
+    let last = page.last;
+    let Some(Update::Chat { chat, .. }) = page.updates.first() else {
+        panic!("no chat first: {page:?}");
+    };
+    assert_eq!(chat.id, session);
+    let texts: Vec<&str> = page
+        .updates
+        .iter()
+        .filter_map(|update| match update {
+            Update::Message {
+                message, chat_id, ..
+            } if *chat_id == session => match &message.body {
+                MessageBody::User { content, .. } | MessageBody::Assistant { content } => {
+                    Some(content.as_str())
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        ["Remember I prefer tea", "I remember your preference."]
+    );
+    assert!(
+        c.call(&GetUpdates { after: last })
+            .await
+            .unwrap()
+            .updates
+            .is_empty()
+    );
+
+    // Older apps still read the same chat the old way.
+    let history = c
+        .call(&GetSession {
+            id: session.to_string(),
+        })
+        .await
+        .unwrap();
+    assert!(
+        matches!(history.first(), Some(HistoryEntry::User { content, .. }) if content == "Remember I prefer tea")
+    );
 }

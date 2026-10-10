@@ -1,7 +1,7 @@
 //! Auto: Jev picks the model and thinking of each of an admin's prompts.
 
 use super::{App, learning::earlier_turns};
-use crate::{memories::clip, models::AutoModel, user::User};
+use crate::{memories::clip, models::AutoModel, store::TurnRecord, user::User};
 use chrono::Utc;
 use flashmind::{
     core::Conversation,
@@ -9,6 +9,7 @@ use flashmind::{
 };
 use std::{slice, time::Duration};
 use tokio::time::Instant;
+use uuid::Uuid;
 
 /// Characters of the prompt Jev reads.
 const MAX_PROMPT_CHARS: usize = 4_000;
@@ -27,7 +28,7 @@ pub(super) struct Prompt<'a> {
     pub message: &'a str,
     pub images: usize,
     pub conversation: &'a Conversation,
-    pub session: &'a str,
+    pub session: Uuid,
 }
 
 impl App {
@@ -87,40 +88,31 @@ impl App {
         if age > CACHE_WINDOW {
             return None;
         }
-        let asked = entries.iter().rev().find(|e| e.is_user())?;
-        let models = user
-            .turn_models(prompt.session)
-            .await
-            .inspect_err(|error| log::warn!("reading turn models failed: {error:#}"))
-            .ok()?;
-        let turn = models.get(&asked.timestamp.timestamp_millis())?;
+        let turn = last_turn(user, prompt.session).await?;
         self.models
             .auto()
             .iter()
             .find(|auto| auto.model.to_string() == turn.model)
     }
 
-    /// What Jev picked for the turn a resumed session stopped in, found by
-    /// its last user message in `transcript`, so the turn ends on the same
-    /// model.
-    pub(super) async fn resumed_pick(
-        &self,
-        user: &User,
-        session: &str,
-        transcript: &Conversation,
-    ) -> Option<AutoChoice> {
-        let asked = transcript.entries().iter().rev().find(|e| e.is_user())?;
-        let models = user
-            .turn_models(session)
-            .await
-            .inspect_err(|error| log::warn!("reading turn models failed: {error:#}"))
-            .ok()?;
-        let turn = models.get(&asked.timestamp.timestamp_millis())?;
+    /// What Jev picked for the turn a resumed session stopped in, so the
+    /// turn ends on the same model.
+    pub(super) async fn resumed_pick(&self, user: &User, session: Uuid) -> Option<AutoChoice> {
+        let turn = last_turn(user, session).await?;
         Some(AutoChoice {
             thinking: turn.auto_thinking?,
             model: self.models.find(&turn.model)?.clone(),
         })
     }
+}
+
+/// What the newest turn of `session` ran with, when it is known.
+async fn last_turn(user: &User, session: Uuid) -> Option<TurnRecord> {
+    user.last_turn(session)
+        .await
+        .inspect_err(|error| log::warn!("reading the last turn failed: {error:#}"))
+        .ok()
+        .flatten()
 }
 
 /// The latest message and the turn before it, as Jev reads them.

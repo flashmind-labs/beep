@@ -10,6 +10,7 @@ mod identity;
 mod markdown;
 mod products;
 mod state;
+mod sync;
 
 use anyhow::Context;
 use beep::{Beep, Notices};
@@ -116,11 +117,14 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         .context("built without a server node id; set BEEP_NODE_ID")?;
     let identity = identity::load_or_create(&dir.join("identity.key"))?;
     let file = StateFile::new(dir.join("state.json"));
-    let (beep, notices) = tauri::async_runtime::block_on(Beep::start(identity, server, file))?;
+    let chats = sync::Chats::load(dir.join("sync"));
+    let (beep, notices) =
+        tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
     app.manage(beep.clone());
     app.manage(Recent::default());
 
     tauri::async_runtime::spawn(serve_notices(handle.clone(), beep.clone(), notices));
+    tauri::async_runtime::spawn(sync::follow(handle.clone(), beep.clone()));
     let toggle = handle.clone();
     hotkey::start(move || bar::toggle(&toggle));
 

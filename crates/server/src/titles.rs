@@ -5,13 +5,10 @@
 use crate::{
     app::App,
     starters::Generator,
-    store::{SessionRef, Store},
+    store::{SessionRef, Store, StoredBody, StoredMessage},
 };
 use anyhow::{Result, bail};
-use flashmind::{
-    core::Conversation,
-    types::{AgentLlmConfig, LlmProvider},
-};
+use flashmind::types::{AgentLlmConfig, LlmProvider};
 use std::{sync::Arc, time::Duration};
 
 /// A session is retitled once nobody has used it for this long.
@@ -92,9 +89,7 @@ pub async fn retitle_idle(
 
 /// Returns whether the session got the new title.
 async fn retitle(store: &Store, generator: Generator<'_>, session: &SessionRef) -> Result<bool> {
-    let Some(chat) = store.session_conversation(session).await? else {
-        return Ok(false);
-    };
+    let chat = store.chat_messages(session.id).await?;
     let text = render(&chat);
     if text.is_empty() {
         return Ok(false);
@@ -111,17 +106,15 @@ async fn ask(generator: &Generator<'_>, prompt: String) -> Result<String> {
 }
 
 /// The chat's user messages and replies, oldest first, cut to fit.
-fn render(chat: &Conversation) -> String {
+fn render(chat: &[StoredMessage]) -> String {
     let mut text = String::new();
-    for entry in chat.entries() {
-        let speaker = if entry.is_user() {
-            "User"
-        } else if entry.is_assistant() && !entry.content().is_empty() {
-            "Beep"
-        } else {
-            continue;
+    for message in chat {
+        let (speaker, said) = match &message.body {
+            StoredBody::User { content, .. } => ("User", content),
+            StoredBody::Assistant { content } => ("Beep", content),
+            _ => continue,
         };
-        let line = format!("{speaker}: {}\n", clip(entry.content(), MAX_MESSAGE_CHARS));
+        let line = format!("{speaker}: {}\n", clip(said, MAX_MESSAGE_CHARS));
         if text.len() + line.len() > MAX_CHAT_CHARS {
             break;
         }
@@ -156,9 +149,9 @@ fn clip(text: &str, chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{CreateRun, FinishedTurn, RunStatus, TestDb};
-    use crate::user::User;
-    use flashmind::core::ConversationEntry;
+    use crate::store::{TestDb, test_chat, test_turn};
+    use crate::user::{User, UserKey};
+    use uuid::Uuid;
 
     #[test]
     fn cleans_the_answer() {
@@ -173,33 +166,19 @@ mod tests {
         assert_eq!(clean("  \n "), None);
     }
 
-    async fn chat(store: &Store, session: &str) -> SessionRef {
-        let CreateRun::Created(run) = User::for_test(store.clone(), "alice")
-            .create_run(session, &format!("req-{session}"), "hi")
-            .await
-            .unwrap()
-        else {
-            panic!("run was not created");
-        };
-        let mut chat = Conversation::new();
-        chat.add(ConversationEntry::user("hi"));
-        let turn = FinishedTurn {
-            transcript: &chat,
-            context: &chat,
-            prompt_tokens: 10,
-        };
-        User::for_test(store.clone(), "alice")
-            .finish(&run, Some(turn), RunStatus::Completed)
+    async fn chat(store: &Store, name: &str) -> SessionRef {
+        let session = test_chat(name);
+        test_turn(store, &UserKey::for_test("alice"), session, "hi", 1000)
             .await
             .unwrap();
         SessionRef {
             user: "alice".into(),
-            id: session.into(),
+            id: session,
         }
     }
 
-    async fn set_updated(store: &Store, session: &str, ago: &str) {
-        sqlx::query("UPDATE sessions SET updated_at = now() - $1::interval WHERE id = $2")
+    async fn set_updated(store: &Store, session: Uuid, ago: &str) {
+        sqlx::query("UPDATE chats SET updated_at = now() - $1::interval WHERE id = $2")
             .bind(ago)
             .bind(session)
             .execute(store.pool())
@@ -215,12 +194,12 @@ mod tests {
         let busy = chat(&store, "busy").await;
         let renamed = chat(&store, "renamed").await;
         let old = chat(&store, "old").await;
-        set_updated(&store, &quiet.id, "5 minutes").await;
-        set_updated(&store, &renamed.id, "5 minutes").await;
-        set_updated(&store, &old.id, "2 days").await;
+        set_updated(&store, quiet.id, "5 minutes").await;
+        set_updated(&store, renamed.id, "5 minutes").await;
+        set_updated(&store, old.id, "2 days").await;
         assert!(
             User::for_test(store.clone(), "alice")
-                .rename_session(&renamed.id, "Mine")
+                .rename_session(renamed.id, "Mine")
                 .await
                 .unwrap()
         );
@@ -229,13 +208,11 @@ mod tests {
         assert_eq!(picked, vec![quiet.clone()]);
 
         // A title written after the last change is current until the next one.
-        sqlx::query(
-            "INSERT INTO session_titles (user_id, session_id, title, titled_at)
-             VALUES ('alice', 'quiet', 'Greeting', now())",
-        )
-        .execute(store.pool())
-        .await
-        .unwrap();
+        sqlx::query("UPDATE chats SET title = 'Greeting', titled_at = now() WHERE id = $1")
+            .bind(quiet.id)
+            .execute(store.pool())
+            .await
+            .unwrap();
         assert!(
             store
                 .sessions_to_title(IDLE_BEFORE_RETITLE)
@@ -258,10 +235,10 @@ mod tests {
             .into_iter()
             .map(|s| (s.id, s.title))
             .collect();
-        assert!(titles.contains(&("renamed".into(), "Mine".into())));
-        assert!(titles.contains(&("busy".into(), "Busy one".into())));
-        assert!(titles.contains(&("quiet".into(), "Greeting".into())));
-        assert!(titles.contains(&("old".into(), "hi".into())));
+        assert!(titles.contains(&(renamed.id.to_string(), "Mine".into())));
+        assert!(titles.contains(&(busy.id.to_string(), "Busy one".into())));
+        assert!(titles.contains(&(quiet.id.to_string(), "Greeting".into())));
+        assert!(titles.contains(&(old.id.to_string(), "hi".into())));
     }
 
     #[tokio::test]
@@ -272,7 +249,7 @@ mod tests {
             chat(&store, id).await;
         }
         let deleted = User::for_test(store.clone(), "alice")
-            .delete_sessions(vec!["a".into(), "c".into(), "missing".into()])
+            .delete_sessions(&[test_chat("a"), test_chat("c"), test_chat("missing")])
             .await
             .unwrap();
         assert_eq!(deleted, 2);
@@ -283,6 +260,6 @@ mod tests {
             .into_iter()
             .map(|s| s.id)
             .collect();
-        assert_eq!(left, vec!["b".to_owned()]);
+        assert_eq!(left, vec![test_chat("b").to_string()]);
     }
 }

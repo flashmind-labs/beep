@@ -8,12 +8,13 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use uuid::Uuid;
 
 pub(crate) const NAME: &str = "send_file";
 
 pub(crate) struct SendFileTool {
     pub(crate) user: Arc<User>,
-    pub(crate) session_id: String,
+    pub(crate) session_id: Uuid,
     pub(crate) sandbox: Option<Arc<Sandbox>>,
 }
 
@@ -98,7 +99,7 @@ impl Tool for SendFileTool {
             .unwrap_or_else(|| mime_for(&name, &loaded.data).to_owned());
         let id = self
             .user
-            .save_file(&self.session_id, &name, &mime, &loaded.data)
+            .save_file(self.session_id, &name, &mime, &loaded.data)
             .await?;
         let output = json!({
             "action": NAME,

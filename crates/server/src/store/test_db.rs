@@ -1,14 +1,27 @@
 //! A throwaway schema in the test database, so tests run in parallel
 //! without seeing each other's rows.
 
-use super::{Store, WordEmbedder};
-use anyhow::{Context, Result};
-use flashmind::memory::EmbeddingProvider;
+use super::{
+    CreateRun, FinishedTurn, RunStatus, Store, WordEmbedder,
+    messages::{Step, TurnRecord},
+};
+use crate::{steps, user::UserKey};
+use anyhow::{Context, Result, bail};
+use chrono::DateTime;
+use flashmind::{
+    core::{Conversation, ConversationEntry},
+    memory::EmbeddingProvider,
+};
 use sqlx::{
-    Connection, Executor, PgConnection,
+    Connection, Executor, PgConnection, PgPool,
     postgres::{PgConnectOptions, PgPoolOptions},
 };
-use std::{str::FromStr, sync::Arc, thread};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+    sync::Arc,
+    thread,
+};
 use uuid::Uuid;
 
 /// Names the database tests run against, such as
@@ -17,6 +30,77 @@ const URL_VAR: &str = "BEEP_TEST_DATABASE_URL";
 
 /// Accounts every test store has, since rows need an account to belong to.
 const TEST_USERS: &[&str] = &["alice", "bob", "user"];
+
+/// The same id for the same `name`, so a test can name its chats.
+#[doc(hidden)]
+pub fn test_chat(name: &str) -> Uuid {
+    let mut hash: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
+    for byte in name.bytes() {
+        hash ^= u128::from(byte);
+        hash = hash.wrapping_mul(0x0000_0000_0100_0000_0000_0000_0000_013b);
+    }
+    Uuid::from_u128(hash)
+}
+
+/// What the apps show of `conversation`, as a finished run saves it.
+#[doc(hidden)]
+pub fn test_steps(conversation: &Conversation) -> Vec<Step> {
+    steps::steps(
+        conversation.entries(),
+        None,
+        &HashSet::new(),
+        &HashMap::new(),
+    )
+    .steps
+}
+
+/// Runs one turn in session `chat` of `user`: `prompt` sent at `at`
+/// milliseconds and a reply a millisecond later. Returns the id of the
+/// message that opened it.
+#[doc(hidden)]
+pub async fn test_turn(
+    store: &Store,
+    user: &UserKey,
+    chat: Uuid,
+    prompt: &str,
+    at: i64,
+) -> Result<i64> {
+    let CreateRun::Created(run) = store
+        .create_run(user, chat, &format!("req-{chat}-{at}"), prompt)
+        .await?
+    else {
+        bail!("the run in {chat} was not created");
+    };
+    let mut turn = Conversation::new();
+    turn.add(ConversationEntry::user(prompt));
+    turn.add(ConversationEntry::assistant(format!("re: {prompt}")));
+    for (i, entry) in turn.entries_mut().iter_mut().enumerate() {
+        entry.timestamp =
+            DateTime::from_timestamp_millis(at + i as i64).context("time out of range")?;
+    }
+    let mut context = match store.context(user, chat).await? {
+        Some(stored) => stored.conversation,
+        None => Conversation::new(),
+    };
+    context.entries_mut().extend(turn.entries().iter().cloned());
+    let steps = test_steps(&turn);
+    let saved = store
+        .finish(
+            user,
+            &run,
+            Some(FinishedTurn {
+                context: &context,
+                prompt_tokens: 0,
+                steps: &steps,
+                carried: TurnRecord::default(),
+            }),
+            RunStatus::Completed,
+        )
+        .await?;
+    saved
+        .and_then(|saved| saved.opened)
+        .context("the turn opened no message")
+}
 
 /// A schema of its own in the test database, dropped with this value.
 #[doc(hidden)]
@@ -33,19 +117,25 @@ impl TestDb {
             .with_context(|| format!("{URL_VAR} is not set; run `just test-db` for one"))?;
         let schema = format!("test_{}", Uuid::new_v4().simple());
         let mut admin = PgConnection::connect(&url).await?;
-        // The vector type lives in `public` so every test schema sees it.
-        // Tests starting together may race to create it.
-        if let Err(error) = admin
-            .execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
-            .await
-        {
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')",
-            )
-            .fetch_one(&mut admin)
-            .await?;
-            if !exists {
-                return Err(error.into());
+        // Extensions live in `public` so every test schema sees them. Tests
+        // starting together may race to create them.
+        for extension in ["vector", "pg_trgm"] {
+            if let Err(error) = admin
+                .execute(
+                    format!("CREATE EXTENSION IF NOT EXISTS {extension} WITH SCHEMA public")
+                        .as_str(),
+                )
+                .await
+            {
+                let exists: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = $1)",
+                )
+                .bind(extension)
+                .fetch_one(&mut admin)
+                .await?;
+                if !exists {
+                    return Err(error.into());
+                }
             }
         }
         admin
@@ -60,25 +150,46 @@ impl TestDb {
         self.store_with(Arc::new(WordEmbedder)).await
     }
 
+    /// A pool on this schema as it was before chats had message rows, with
+    /// the accounts tests use. [`Self::store`] then migrates it the rest of
+    /// the way.
+    #[cfg(test)]
+    pub(crate) async fn legacy_pool(&self) -> Result<PgPool> {
+        let pool = self.pool().await?;
+        super::migrator(super::BEFORE_BACKFILL - 1)
+            .run(&pool)
+            .await?;
+        add_users(&pool).await?;
+        Ok(pool)
+    }
+
+    async fn pool(&self) -> Result<PgPool> {
+        let options = PgConnectOptions::from_str(&self.url)?
+            .options([("search_path", format!("{},public", self.schema))]);
+        Ok(PgPoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await?)
+    }
+
     /// [`Self::store`] with a real embedder, for evals that need memory
     /// search by meaning.
     pub async fn store_with(&self, embedder: Arc<dyn EmbeddingProvider>) -> Result<Store> {
-        let options = PgConnectOptions::from_str(&self.url)?
-            .options([("search_path", format!("{},public", self.schema))]);
-        let pool = PgPoolOptions::new()
-            .max_connections(4)
-            .connect_with(options)
-            .await?;
-        let store = Store::with_pool(pool, embedder).await?;
-        sqlx::query(
-            "INSERT INTO users (id, name, external_id) SELECT id, id, id FROM unnest($1::text[]) id \
-             ON CONFLICT (id) DO NOTHING",
-        )
-        .bind(TEST_USERS)
-        .execute(&store.pool)
-        .await?;
+        let store = Store::with_pool(self.pool().await?, embedder).await?;
+        add_users(&store.pool).await?;
         Ok(store)
     }
+}
+
+async fn add_users(pool: &PgPool) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO users (id, name, external_id) SELECT id, id, id FROM unnest($1::text[]) id \
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(TEST_USERS)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 impl Drop for TestDb {

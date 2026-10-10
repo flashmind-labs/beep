@@ -168,13 +168,14 @@ fn estimated_tokens(conversation: &Conversation) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{CreateRun, FinishedTurn, RunStatus, TestDb};
+    use crate::store::{CreateRun, FinishedTurn, RunStatus, TestDb, test_chat, test_steps};
     use crate::user::User;
     use async_trait::async_trait;
     use flashmind::{
         core::{Conversation, ConversationEntry},
         types::{CompletionRequest, CompletionStream, FinishReason, Provider, StreamEvent},
     };
+    use uuid::Uuid;
 
     struct SummaryStub;
 
@@ -206,19 +207,22 @@ mod tests {
         chat
     }
 
-    async fn save(store: &Store, session: &str, tokens: u32) -> SessionRef {
+    async fn save(store: &Store, name: &str, tokens: u32) -> SessionRef {
+        let session = test_chat(name);
         let CreateRun::Created(run) = User::for_test(store.clone(), "alice")
-            .create_run(session, &format!("req-{session}"), "hi")
+            .create_run(session, &format!("req-{name}"), "hi")
             .await
             .unwrap()
         else {
             panic!("run was not created");
         };
         let chat = long_chat();
+        let steps = test_steps(&chat);
         let turn = FinishedTurn {
-            transcript: &chat,
             context: &chat,
             prompt_tokens: tokens,
+            steps: &steps,
+            carried: Default::default(),
         };
         User::for_test(store.clone(), "alice")
             .finish(&run, Some(turn), RunStatus::Completed)
@@ -226,12 +230,12 @@ mod tests {
             .unwrap();
         SessionRef {
             user: "alice".into(),
-            id: session.into(),
+            id: session,
         }
     }
 
-    async fn make_idle(store: &Store, session: &str) {
-        sqlx::query("UPDATE sessions SET updated_at='2000-01-01T00:00:00Z' WHERE id=$1")
+    async fn make_idle(store: &Store, session: Uuid) {
+        sqlx::query("UPDATE chats SET updated_at='2000-01-01T00:00:00Z' WHERE id=$1")
             .bind(session)
             .execute(store.pool())
             .await
@@ -266,7 +270,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn compacts_only_long_idle_sessions_and_keeps_the_transcript() {
+    async fn compacts_only_long_idle_sessions_and_keeps_the_messages() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let model: Model = "openai:test".parse().unwrap();
@@ -278,8 +282,8 @@ mod tests {
         let long_idle = save(&store, "long-idle", 150_000).await;
         let long_active = save(&store, "long-active", 150_000).await;
         let short_idle = save(&store, "short-idle", 50_000).await;
-        make_idle(&store, &long_idle.id).await;
-        make_idle(&store, &short_idle.id).await;
+        make_idle(&store, long_idle.id).await;
+        make_idle(&store, short_idle.id).await;
 
         compact_idle(&store, summarizer(), compact_at(None)).await;
 
@@ -287,7 +291,7 @@ mod tests {
             let store = store.clone();
             async move {
                 User::for_test(store.clone(), &s.user)
-                    .context(&s.id)
+                    .context(s.id)
                     .await
                     .unwrap()
                     .unwrap()
@@ -300,12 +304,9 @@ mod tests {
         // The two newest turns are kept verbatim after the summary.
         assert_eq!(compacted.entries().last().unwrap().content(), "reply 3");
 
-        let transcript = User::for_test(store.clone(), &long_idle.user)
-            .conversation(&long_idle.id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(transcript.entries().len(), long_chat().entries().len());
+        // The apps still get every message.
+        let messages = store.chat_messages(long_idle.id).await.unwrap();
+        assert_eq!(messages.len(), test_steps(&long_chat()).len());
 
         for untouched in [long_active, short_idle] {
             let context = context(untouched).await;
@@ -326,7 +327,7 @@ mod tests {
         let store = db.store().await.unwrap();
         let session = save(&store, "busy", 40_000).await;
         let before = User::for_test(store.clone(), &session.user)
-            .context(&session.id)
+            .context(session.id)
             .await
             .unwrap()
             .unwrap();
@@ -335,16 +336,18 @@ mod tests {
         let mut newer = long_chat();
         newer.add(ConversationEntry::user("one more"));
         let CreateRun::Created(run) = User::for_test(store.clone(), "alice")
-            .create_run("busy", "req-busy-2", "one more")
+            .create_run(session.id, "req-busy-2", "one more")
             .await
             .unwrap()
         else {
             panic!("run was not created");
         };
+        let steps = test_steps(&newer);
         let turn = FinishedTurn {
-            transcript: &newer,
             context: &newer,
             prompt_tokens: 40_000,
+            steps: &steps[steps.len() - 1..],
+            carried: Default::default(),
         };
         User::for_test(store.clone(), "alice")
             .finish(&run, Some(turn), RunStatus::Completed)
@@ -357,7 +360,7 @@ mod tests {
             .unwrap();
         assert!(!replaced);
         let context = User::for_test(store.clone(), "alice")
-            .context("busy")
+            .context(session.id)
             .await
             .unwrap()
             .unwrap();

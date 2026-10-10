@@ -93,7 +93,7 @@ fn millis(time: DateTime<Utc>) -> i64 {
 /// `row` as `user_id` sees it.
 pub(crate) fn group_message(row: &MessageRow, user_id: &str) -> GroupMessage {
     GroupMessage {
-        seq: row.seq,
+        seq: row.id,
         author: match &row.author_id {
             Some(author) => GroupAuthor::Member {
                 name: row.author_name.clone(),
@@ -119,12 +119,12 @@ fn group_member(row: &MemberRow, user_id: &str) -> GroupMember {
 /// panics still lets Beep be asked again.
 struct Typing {
     app: Arc<App>,
-    group_id: String,
+    group_id: Uuid,
 }
 
 impl Drop for Typing {
     fn drop(&mut self) {
-        self.app.stop_typing(&self.group_id);
+        self.app.stop_typing(self.group_id);
     }
 }
 
@@ -184,7 +184,7 @@ impl App {
     /// `joined` as `user_id` sees it.
     pub(crate) fn group_view(&self, joined: &JoinedGroup, user_id: &str) -> Group {
         Group {
-            id: joined.group.id.clone(),
+            id: joined.group.id.to_string(),
             name: joined.group.name.clone(),
             members: joined
                 .members
@@ -193,7 +193,7 @@ impl App {
                 .collect(),
             last: joined.last.as_ref().map(|row| group_message(row, user_id)),
             updated_at: millis(joined.group.updated_at),
-            beep_typing: self.beep_typing(&joined.group.id),
+            beep_typing: self.beep_typing(joined.group.id),
             pinned: joined
                 .members
                 .iter()
@@ -206,34 +206,34 @@ impl App {
     }
 
     /// Beep is writing in group `id`.
-    pub(crate) fn beep_typing(&self, id: &str) -> bool {
+    pub(crate) fn beep_typing(&self, id: Uuid) -> bool {
         self.groups_busy
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .contains(id)
+            .contains(&id)
     }
 
     /// Marks group `id` busy; `false` when Beep is already answering there.
-    fn start_typing(&self, id: &str) -> bool {
+    fn start_typing(&self, id: Uuid) -> bool {
         self.groups_busy
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(id.to_owned())
+            .insert(id)
     }
 
-    fn stop_typing(&self, id: &str) {
+    fn stop_typing(&self, id: Uuid) {
         self.groups_busy
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .remove(id);
+            .remove(&id);
     }
 
     /// Tells every member that group `id` changed.
-    fn group_changed(&self, members: &[MemberRow], id: &str) {
+    fn group_changed(&self, members: &[MemberRow], id: Uuid) {
         for member in members {
             let _ = self
                 .notifications
-                .send(UserNotice::group_changed(&member.user_id, id));
+                .send(UserNotice::group_changed(&member.user_id, &id.to_string()));
         }
     }
 
@@ -247,9 +247,10 @@ impl App {
     ) {
         for member in members {
             if except == Some(member.user_id.as_str()) {
-                let _ = self
-                    .notifications
-                    .send(UserNotice::group_changed(&member.user_id, &joined.group.id));
+                let _ = self.notifications.send(UserNotice::group_changed(
+                    &member.user_id,
+                    &joined.group.id.to_string(),
+                ));
                 continue;
             }
             let _ = self.notifications.send(UserNotice {
@@ -257,7 +258,7 @@ impl App {
                 notice: Notice {
                     title: joined.group.name.clone(),
                     body: body.to_owned(),
-                    session_id: joined.group.id.clone(),
+                    session_id: joined.group.id.to_string(),
                     app: None,
                     approval: None,
                     changed: false,
@@ -273,16 +274,15 @@ impl App {
     pub async fn send_to_group(
         self: &Arc<Self>,
         user: &Arc<User>,
-        group_id: &str,
+        group_id: Uuid,
         request_id: Uuid,
         text: &str,
         pictures: &[Picture],
     ) -> Result<Option<GroupMessage>> {
-        let request_id = request_id.to_string();
         let posted = user
             .post_to_group(NewMessage {
                 group_id,
-                request_id: &request_id,
+                request_id,
                 content: text,
             })
             .await?;
@@ -295,9 +295,9 @@ impl App {
         }
         // Kept before anyone hears of the message, so they find its pictures.
         if !pictures.is_empty() {
-            let of = PicturesOf::Group {
-                group_id,
-                seq: posted.message.seq,
+            let of = PicturesOf {
+                chat: group_id,
+                message: posted.message.id,
             };
             if let Err(error) = user.save_pictures(of, pictures).await {
                 log::warn!(
@@ -317,7 +317,7 @@ impl App {
         if self.decision().is_some() {
             let app = self.clone();
             let joined = joined.clone();
-            let seq = posted.message.seq;
+            let seq = posted.message.id;
             tokio::spawn(async move { app.learn_from_group(&joined, seq).await });
         }
         let mentioned = mentions_beep(text);
@@ -326,19 +326,19 @@ impl App {
         }
         let app = self.clone();
         let actor = user.clone();
-        let mention = posted.message.seq;
+        let mention = posted.message.id;
         tokio::spawn(async move {
-            let group_id = joined.group.id.clone();
+            let group_id = joined.group.id;
             if !mentioned && !app.called_without_mention(&joined, mention).await {
                 return;
             }
-            if !app.start_typing(&group_id) {
+            if !app.start_typing(group_id) {
                 return;
             }
-            app.group_changed(&joined.members, &group_id);
+            app.group_changed(&joined.members, group_id);
             let typing = Typing {
                 app: app.clone(),
-                group_id: group_id.clone(),
+                group_id,
             };
             let reply = match app.answer_group(&actor, &joined, mention).await {
                 Ok(reply) => reply,
@@ -347,10 +347,10 @@ impl App {
                     FAILED.to_owned()
                 }
             };
-            let posted = app.store.post_beep(&group_id, &reply).await;
+            let posted = app.store.post_beep(group_id, &reply).await;
             drop(typing);
             // Someone may have left or joined during the run.
-            let members = match app.store.group_members(&group_id).await {
+            let members = match app.store.group_members(group_id).await {
                 Ok(members) => members,
                 Err(error) => {
                     log::warn!("unable to load members; group={group_id}: {error:#}");
@@ -361,7 +361,7 @@ impl App {
                 Ok(_) => app.group_notice(&members, &joined, None, &said("Beep", &reply)),
                 Err(error) => {
                     log::warn!("unable to post Beep's reply; group={group_id}: {error:#}");
-                    app.group_changed(&members, &group_id);
+                    app.group_changed(&members, group_id);
                 }
             }
         });
@@ -373,7 +373,7 @@ impl App {
     pub(crate) async fn post_group_reminder(
         &self,
         user: &User,
-        group_id: &str,
+        group_id: Uuid,
         message: &str,
     ) -> Result<()> {
         let Some(joined) = user.group(group_id).await? else {
@@ -392,7 +392,7 @@ impl App {
             return false;
         };
         tokio::time::sleep(SETTLE).await;
-        let group_id = &joined.group.id;
+        let group_id = joined.group.id;
         let history = match self.store.group_messages(group_id, CALL_CONTEXT).await {
             Ok(history) => history,
             Err(error) => {
@@ -400,7 +400,7 @@ impl App {
                 return false;
             }
         };
-        if history.last().is_none_or(|last| last.seq != seq) {
+        if history.last().is_none_or(|last| last.id != seq) {
             return false;
         }
         let state = call_state(joined, &history);
@@ -425,7 +425,7 @@ impl App {
         let Some(decision) = self.decision() else {
             return;
         };
-        let group_id = &joined.group.id;
+        let group_id = joined.group.id;
         let history = match self
             .store
             .group_messages_until(group_id, seq, LEARN_CONTEXT)
@@ -437,7 +437,7 @@ impl App {
                 return;
             }
         };
-        let Some(latest) = history.last().filter(|last| last.seq == seq) else {
+        let Some(latest) = history.last().filter(|last| last.id == seq) else {
             return;
         };
         let state = call_state(joined, &history);
@@ -485,7 +485,7 @@ impl App {
         joined: &JoinedGroup,
         mention: i64,
     ) -> Result<String> {
-        let group_id = &joined.group.id;
+        let group_id = joined.group.id;
         let history = self
             .store
             .group_messages_until(group_id, mention, HISTORY + 1)
@@ -586,7 +586,7 @@ impl App {
                     .collect();
                 let run = Arc::new(GroupRun {
                     app: self.clone(),
-                    group_id: group_id.clone(),
+                    group_id,
                     group_name: joined.group.name.clone(),
                     actor: actor_member.clone(),
                     secrets: secrets.clone(),
@@ -722,8 +722,8 @@ mod tests {
             pinned: false,
             shares_apps: true,
         };
-        let row = |seq, author: &str, content: &str| MessageRow {
-            seq,
+        let row = |id, author: &str, content: &str| MessageRow {
+            id,
             author_id: Some(author.to_lowercase()),
             author_name: author.into(),
             content: content.into(),
@@ -731,7 +731,7 @@ mod tests {
         };
         let joined = JoinedGroup {
             group: GroupRow {
-                id: "g1".into(),
+                id: Uuid::nil(),
                 name: "Tokyo trip".into(),
                 updated_at: at,
             },

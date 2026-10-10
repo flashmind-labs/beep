@@ -129,6 +129,9 @@ pub async fn pin_session(beep: Service<'_>, id: String, pinned: bool) -> Result<
 #[tauri::command]
 pub async fn delete_session(beep: Service<'_>, id: String) -> Result<()> {
     beep.call(DeleteSession { id: id.clone() }).await?;
+    if let Ok(chat) = Uuid::parse_str(&id) {
+        beep.chats().forget(chat);
+    }
     if beep.session().as_deref() == Some(id.as_str()) {
         beep.set_session(None);
     }
@@ -158,6 +161,13 @@ pub async fn list_groups(beep: Service<'_>) -> Result<Vec<GroupView>> {
 
 #[tauri::command]
 pub async fn open_group(beep: Service<'_>, id: String) -> Result<GroupChatView> {
+    if let Some(view) = Uuid::parse_str(&id)
+        .ok()
+        .and_then(|g| beep.chats().group(g))
+    {
+        beep.set_group(Some(id));
+        return Ok(view);
+    }
     let (chat, images) = join!(
         beep.call(GetGroup { id: id.clone() }),
         beep.call(GetGroupImages {
@@ -267,7 +277,10 @@ pub async fn join_group(
 
 #[tauri::command]
 pub async fn leave_group(beep: Service<'_>, id: String) -> Result<()> {
-    beep.call(LeaveGroup { id }).await?;
+    beep.call(LeaveGroup { id: id.clone() }).await?;
+    if let Ok(group) = Uuid::parse_str(&id) {
+        beep.chats().forget(group);
+    }
     beep.set_group(None);
     Ok(())
 }
@@ -390,7 +403,8 @@ pub async fn unlink(beep: Service<'_>) -> Result<()> {
 /// Forgets this computer's key and starts again with a new one, the only
 /// way back after the phone removed it.
 #[tauri::command]
-pub fn start_over(app: AppHandle) -> Result<()> {
+pub fn start_over(app: AppHandle, beep: Service<'_>) -> Result<()> {
+    beep.chats().clear();
     crate::forget_identity(&app)?;
     app.restart()
 }

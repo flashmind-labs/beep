@@ -73,7 +73,7 @@ pub struct App {
     /// Questions sent to a phone, keyed by query id, waiting for its answer.
     device_queries: Mutex<HashMap<String, oneshot::Sender<DeviceAnswer>>>,
     /// Groups Beep is writing a reply in.
-    groups_busy: StdMutex<HashSet<String>>,
+    groups_busy: StdMutex<HashSet<Uuid>>,
     /// Actions Beep asked a group member to allow, keyed by query id.
     group_actions: StdMutex<HashMap<String, group_tools::GroupAction>>,
     /// Set once the server starts stopping.
@@ -315,11 +315,7 @@ impl App {
         // Serialize registration with cancellation so a newly created run can always be stopped.
         let mut runs = self.runs.lock().await;
         let result = user
-            .create_run(
-                &message.session_id.to_string(),
-                &message.request(),
-                &message.message,
-            )
+            .create_run(message.session_id, &message.request(), &message.message)
             .await?;
         if let CreateRun::Created(run) = &result {
             let live = Arc::new(LiveRun::new(CancellationToken::new()));
@@ -332,7 +328,7 @@ impl App {
             let (app, user, run) = (self.clone(), user.clone(), run.clone());
             let session = SessionRef {
                 user: user.id().to_owned(),
-                id: run.session_id.clone(),
+                id: message.session_id,
             };
             // A woken chat is named after its event, and only if it is kept.
             match self.store.needs_first_title(&session).await {
