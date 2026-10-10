@@ -1,5 +1,6 @@
 //! What the app remembers between launches, in `state.json`.
 
+use crate::sync;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
@@ -41,7 +42,7 @@ impl StateFile {
     pub fn save(&self, saved: &Saved) {
         let result = serde_json::to_vec_pretty(saved)
             .map_err(anyhow::Error::from)
-            .and_then(|bytes| Ok(fs::write(&self.0, bytes)?));
+            .and_then(|bytes| sync::write(&self.0, &bytes));
         if let Err(e) = result {
             log::warn!("saving {}: {e:#}", self.0.display());
         }

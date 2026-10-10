@@ -13,7 +13,7 @@ mod state;
 mod sync;
 
 use anyhow::Context;
-use beep::{Beep, Notices};
+use beep::{Beep, Field, Notices};
 use beep_proto::{Notice, Session, link::MAX_NAME};
 use groups::GroupApproval;
 use iroh::EndpointId;
@@ -21,9 +21,10 @@ use state::{LinkState, StateFile};
 use std::{
     cmp::Reverse,
     fs,
+    io::ErrorKind,
     path::PathBuf,
     process::Command,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, PoisonError},
 };
 use tauri::{
     ActivationPolicy, App, AppHandle, Emitter, Manager, WindowEvent,
@@ -182,11 +183,7 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, mut notices: Notices) {
             tauri::async_runtime::spawn(refresh_recent(app.clone()));
             continue;
         }
-        let bar_open = app
-            .get_webview_window("bar")
-            .and_then(|w| w.is_visible().ok())
-            .unwrap_or(false);
-        if bar_open && beep.session().as_deref() == Some(notice.session_id.as_str()) {
+        if bar::is_open(&app) && beep.session().as_deref() == Some(notice.session_id.as_str()) {
             continue;
         }
         notify(&app, &notice);
@@ -206,19 +203,24 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
                 query_id: pending.query_id.clone(),
                 app: pending.approval.app.clone(),
                 action: pending.approval.action.clone(),
-                fields: beep::fields(pending.approval.fields.clone()),
+                fields: pending
+                    .approval
+                    .fields
+                    .iter()
+                    .cloned()
+                    .map(Field::from)
+                    .collect(),
             },
         );
     }
     if notice.changed || notice.title.is_empty() {
         return;
     }
-    let bar_open = app
-        .get_webview_window("bar")
-        .and_then(|w| w.is_visible().ok())
-        .unwrap_or(false);
     // An approval still notifies: the bar may be on another chat by then.
-    if bar_open && beep.group().as_deref() == Some(id.as_str()) && notice.approval.is_none() {
+    if bar::is_open(app)
+        && beep.group().as_deref() == Some(id.as_str())
+        && notice.approval.is_none()
+    {
         return;
     }
     notify(app, &notice);
@@ -264,8 +266,8 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         .state::<Recent>()
         .0
         .lock()
-        .map(|c| c.clone())
-        .unwrap_or_default();
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
     let recent = Submenu::with_id(app, "recent", "Recent", linked && !chats.is_empty())?;
     for chat in &chats {
         let title = if chat.title.is_empty() {
@@ -340,9 +342,10 @@ async fn refresh_recent(app: AppHandle) {
             // The server lists pinned chats first; Recent is by time.
             chats.sort_by_key(|c| Reverse(c.updated_at));
             chats.truncate(RECENT);
-            if let Ok(mut recent) = app.state::<Recent>().0.lock() {
-                *recent = chats;
-            }
+            *app.state::<Recent>()
+                .0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = chats;
             refresh_tray(&app);
         }
         Err(e) => log::warn!("listing chats for the tray: {e}"),
@@ -368,7 +371,7 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
 
 /// The name the phone shows for this Mac.
 pub fn computer_name() -> String {
-    let name = Command::new("scutil")
+    let mut name = Command::new("scutil")
         .args(["--get", "ComputerName"])
         .output()
         .ok()
@@ -376,11 +379,8 @@ pub fn computer_name() -> String {
         .map(|name| name.trim().to_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "Mac".into());
-    let mut end = name.len().min(MAX_NAME);
-    while !name.is_char_boundary(end) {
-        end -= 1;
-    }
-    name[..end].to_owned()
+    name.truncate(name.floor_char_boundary(MAX_NAME));
+    name
 }
 
 /// Deletes this computer's key and state, so the next launch makes new ones.
@@ -389,7 +389,7 @@ pub fn forget_identity(app: &AppHandle) -> anyhow::Result<()> {
     for file in ["identity.key", "state.json"] {
         match fs::remove_file(dir.join(file)) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }
     }

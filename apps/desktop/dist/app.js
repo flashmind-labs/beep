@@ -487,8 +487,10 @@ function when(ms) {
   const mins = Math.round((now - d) / 60000);
   if (mins < 1) return "now";
   if (mins < 60) return `${mins} min ago`;
-  if (mins < 24 * 60 && d.getDate() === now.getDate()) return `${Math.round(mins / 60)} h ago`;
-  if (mins < 48 * 60) return "Yesterday";
+  const start = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((start(now) - start(d)) / 86400000);
+  if (days === 0) return `${Math.round(mins / 60)} h ago`;
+  if (days === 1) return "Yesterday";
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
@@ -550,10 +552,11 @@ async function loadChats(query) {
 }
 
 function mark(text, query) {
-  const safe = esc(text);
-  if (!query) return safe;
-  const re = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").split(/\s+/).map(esc).join("|")})`, "gi");
-  return safe.replace(re, "<mark>$1</mark>");
+  const words = (query ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").split(/\s+/).filter(Boolean);
+  if (!words.length) return esc(text);
+  // Split the raw text, so a match never lands inside an escaped entity.
+  const re = new RegExp(`(${words.join("|")})`, "gi");
+  return text.split(re).map((part, i) => i % 2 ? `<mark>${esc(part)}</mark>` : esc(part)).join("");
 }
 
 function rowActions(c) {
@@ -734,7 +737,7 @@ function fileCard(turn, file) {
       sz.textContent = about;
       go.innerHTML = ICON.chev;
     } catch (e) {
-      const gone = String(e) === "No longer available";
+      const gone = String(e) === GONE;
       sz.textContent = gone ? String(e) : `${about}. ${e}`;
       if (gone) { card.classList.add("gone"); go.remove(); } else go.innerHTML = ICON.chev;
     }
@@ -744,6 +747,9 @@ function fileCard(turn, file) {
 }
 
 // ---------- Pictures ----------
+
+/// What Rust says for a file or picture the server no longer has.
+const GONE = "No longer available";
 
 /// Pictures people sent, by id: a data URL once fetched, `null` once the
 /// server said it no longer has it, a promise while it loads.
@@ -781,7 +787,7 @@ function loadPic(id, mime) {
       return url;
     }, e => {
       // Only a picture the server dropped stays gone; anything else tries again next time.
-      if (String(e) === "No longer available") pictures.set(id, null);
+      if (String(e) === GONE) pictures.set(id, null);
       else pictures.delete(id);
       return null;
     });
@@ -884,6 +890,13 @@ async function loadGroup() {
     G.chat = chat;
     if (S.view === "group") { redrawHead(); drawGroup(); $("#gask").placeholder = `Message ${chat.group.name}, @beep to ask Beep`; }
     else if (S.view === "ginfo") drawGroupInfo();
+    // The local copy does not know whether Beep is typing, so ask the server.
+    if (!chat.group.beep_typing) {
+      const typing = await invoke("group_typing", { groupId: id }).catch(() => false);
+      if (G.chat !== chat || !typing) return;
+      chat.group.beep_typing = true;
+      if (S.view === "group") drawGroup();
+    }
     // No notice comes while Beep types, so look again until it is done.
     if (chat.group.beep_typing) G.poll = setTimeout(() => { if (G.id === id && GROUP_VIEWS.has(S.view)) loadGroup(); }, 5000);
   } catch (e) {
@@ -1044,7 +1057,9 @@ function describeSchedule(schedule) {
       ? at.toLocaleDateString(undefined, { weekday: "short" }) : at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
     return `${day} ${clock(at.getHours(), at.getMinutes())}`;
   }
-  const [min, hour, dom, mon, dow] = schedule.trim().split(/\s+/);
+  const fields = schedule.trim().split(/\s+/);
+  if (fields.length !== 5) return schedule;
+  const [min, hour, dom, mon, dow] = fields;
   const m = Number(min), h = Number(hour);
   if (dom !== "*" || mon !== "*" || !Number.isInteger(m) || !Number.isInteger(h)) return schedule;
   const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1733,8 +1748,6 @@ async function createRoutine() {
     NR.error = String(e);
     NR.busy = false;
     if (S.view === "rnew") drawRoutineNew();
-  } finally {
-    NR.busy = false;
   }
 }
 
@@ -1748,7 +1761,7 @@ async function refreshStatus() {
 }
 
 async function show(view) {
-  await refreshStatus();
+  const st = await refreshStatus();
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
   if (S.link === "unlinked" || view === "link") return S.link === "linked" ? renderChat() : renderLink();
@@ -1756,10 +1769,7 @@ async function show(view) {
   if (view === "memories") return renderMemories();
   if (view === "routines") return renderRoutines();
   // A chat picked from the tray's Recent menu, already made current in Rust.
-  if (view === "open") {
-    const { session } = await invoke("status");
-    if (session) return openSession(session);
-  }
+  if (view === "open" && st.session) return openSession(st.session);
   // A group stays up between showings, fetched again for what came in.
   if (GROUP_VIEWS.has(S.view)) {
     if (S.view === "group") { loadGroup(); $("#gask")?.focus(); }

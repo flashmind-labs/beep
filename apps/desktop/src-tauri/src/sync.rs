@@ -4,7 +4,7 @@
 //! the copy, so it shows at once.
 
 use crate::{
-    beep::{self, Beep, Turn},
+    beep::{self, Beep, Field, Turn},
     error::Result,
     groups::{Author, GroupChatView, GroupView, MessageView},
     markdown,
@@ -339,7 +339,7 @@ fn chat_file(dir: &Path, id: Uuid) -> PathBuf {
 
 /// Writes `bytes` to `path` through a temporary file, so a reader never
 /// sees half of it.
-fn write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+pub fn write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let mut partial = path.as_os_str().to_owned();
     partial.push(".part");
     fs::write(&partial, bytes)?;
@@ -378,22 +378,23 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
                     replies: Vec::new(),
                 });
             }
+            MessageBody::Tool { name, output, .. } if name == beep::SUGGEST_REPLIES => {
+                if let Some(replies) = beep::suggested_replies(output) {
+                    open.replies = replies;
+                }
+            }
             MessageBody::Tool {
                 name,
                 output,
                 success,
                 ..
-            } => match beep::suggested(name, output) {
-                Some(replies) => open.replies = replies,
-                None if name == beep::SUGGEST_REPLIES => {}
-                None => open.tools.push(beep::tool_step(name, output, *success)),
-            },
+            } => open.tools.push(beep::tool_step(name, output, *success)),
             MessageBody::Approval { query_id, approval } => {
                 open.approvals.push(Turn::Approval {
                     query_id: query_id.clone(),
                     app: approval.app.clone(),
                     action: approval.action.clone(),
-                    fields: beep::fields(approval.fields.clone()),
+                    fields: approval.fields.iter().cloned().map(Field::from).collect(),
                 });
             }
             MessageBody::Member { .. } | MessageBody::Beep { .. } => {}
