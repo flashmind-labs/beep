@@ -9,18 +9,53 @@ import android.app.RemoteInput
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
 import com.flashmind.beep.proto.PendingApproval
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
-/** A notification per chat with Beep's reply, answerable from the shade. */
+/** A chat a notification belongs to: a chat with Beep (routines included) or a group. */
+data class ChatKey(val id: String, val group: Boolean) {
+    /** Names the notification, its shortcut and its bubble. */
+    val tag get() = if (group) "group:$id" else id
+    val notificationId get() = tag.hashCode()
+    fun extras(intent: Intent): Intent = intent.putExtra(if (group) "group_id" else "conversation_id", id)
+
+    companion object {
+        fun from(intent: Intent): ChatKey? =
+            intent.getStringExtra("group_id")?.let { ChatKey(it, true) }
+                ?: intent.getStringExtra("conversation_id")?.let { ChatKey(it, false) }
+    }
+}
+
+/** One message in a notification. [sender] is null for the user, "Beep" for Beep, else a member's name. */
+data class ChatLine(val sender: String?, val text: String, val time: Long = System.currentTimeMillis())
+
+/**
+ * Every chat as a conversation notification: who said what, a shortcut of its own so it
+ * can float as a bubble, and Reply and Mark as read in the shade.
+ */
 object ChatNotifications {
     const val CHANNEL = "beep_messages"
     private const val REPLY_KEY = "reply"
-    private const val SHOWN_MESSAGES = 4
+    private const val SHOWN_MESSAGES = 6
+    const val BEEP = "Beep"
+
+    /** What each chat's notification shows, so a new notice adds to it rather than replacing it. */
+    private val shown = ConcurrentHashMap<String, List<ChatLine>>()
 
     fun ensureChannel(context: Context) {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -28,88 +63,202 @@ object ChatNotifications {
                 description = "Incoming notifications from your assistant"
                 enableLights(true)
                 lightColor = 0xFF3B9B7A.toInt()
+                setAllowBubbles(true)
             })
     }
 
     fun beepPerson(context: Context): Person {
         Avatars.load(context)
-        return Person.Builder().setName("Beep").setBot(true).setImportant(true)
+        return Person.Builder().setName(BEEP).setKey(BEEP).setBot(true).setImportant(true)
             .setIcon(Icon.createWithResource(context, Avatars.current.bubbleIcon)).build()
     }
 
-    fun open(context: Context, conversationId: String): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            if (conversationId.isNotEmpty()) putExtra("conversation_id", conversationId)
+    private fun you() = Person.Builder().setName("You").setKey("self").build()
+
+    private fun member(name: String) = Person.Builder().setName(name).setKey("member:$name")
+        .setIcon(Icon.createWithAdaptiveBitmap(initials(name))).build()
+
+    private val tints = intArrayOf(0xFFCDE8DA.toInt(), 0xFFF9D9D2.toInt(), 0xFFE6DDF7.toInt(), 0xFFF6E7C1.toInt())
+
+    /** A round avatar with the name's first letter, sized for an adaptive icon. */
+    private fun initials(name: String): Bitmap {
+        val size = 108
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(tints[name.hashCode().mod(tints.size)])
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF10201A.toInt(); textSize = 40f; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
         }
-        return PendingIntent.getActivity(context, conversationId.hashCode(), intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val letter = name.trim().take(1).uppercase().ifEmpty { "?" }
+        canvas.drawText(letter, size / 2f, size / 2f - (paint.descent() + paint.ascent()) / 2, paint)
+        return bitmap
     }
 
+    private fun chatIntent(context: Context, key: ChatKey) = key.extras(Intent(context, MainActivity::class.java)
+        .setAction(Intent.ACTION_VIEW).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+
+    fun open(context: Context, key: ChatKey): PendingIntent = PendingIntent.getActivity(context, key.notificationId,
+        chatIntent(context, key), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+    fun open(context: Context, conversationId: String) = open(context, ChatKey(conversationId, false))
+
     /** The inline reply field. Mutable because Android writes the typed text into it. */
-    fun replyAction(context: Context, conversationId: String): Notification.Action {
-        val intent = Intent(context, ReplyReceiver::class.java).putExtra("conversation_id", conversationId)
-        val pending = PendingIntent.getBroadcast(context, conversationId.hashCode(), intent,
+    private fun replyAction(context: Context, key: ChatKey): Notification.Action {
+        val intent = key.extras(Intent(context, ReplyReceiver::class.java))
+        val pending = PendingIntent.getBroadcast(context, key.notificationId, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
         return Notification.Action.Builder(Icon.createWithResource(context, android.R.drawable.ic_menu_send), "Reply", pending)
-            .addRemoteInput(RemoteInput.Builder(REPLY_KEY).setLabel("Reply to Beep").build())
+            .addRemoteInput(RemoteInput.Builder(REPLY_KEY).setLabel(if (key.group) "Message" else "Reply to Beep").build())
             .setSemanticAction(Notification.Action.SEMANTIC_ACTION_REPLY)
             .setAllowGeneratedReplies(true)
             .build()
     }
 
-    /** Posts or refreshes the chat's notification with its latest turns. */
-    fun show(context: Context, chat: Conversation) {
+    private fun markReadAction(context: Context, key: ChatKey): Notification.Action {
+        val intent = key.extras(Intent(context, MarkReadReceiver::class.java))
+        val pending = PendingIntent.getBroadcast(context, key.notificationId, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        return Notification.Action.Builder(null as Icon?, "Mark as read", pending)
+            .setSemanticAction(Notification.Action.SEMANTIC_ACTION_MARK_AS_READ)
+            .build()
+    }
+
+    /** The chat's long-lived shortcut, which conversation notifications and bubbles hang off. */
+    private fun pushShortcut(context: Context, key: ChatKey, title: String, icon: Icon, people: List<Person>) {
+        val shortcut = ShortcutInfo.Builder(context, key.tag)
+            .setShortLabel(title.take(24).ifBlank { BEEP })
+            .setLongLabel(title.ifBlank { BEEP })
+            .setIcon(icon)
+            .setPersons(people.toTypedArray())
+            .setLongLived(true)
+            .setCategories(setOf("com.flashmind.beep.category.CHAT"))
+            .setIntent(chatIntent(context, key))
+            .build()
+        runCatching { context.getSystemService(ShortcutManager::class.java).pushDynamicShortcut(shortcut) }
+    }
+
+    /** Opens the chat in a bubble. Unique data keeps each chat's bubble apart. */
+    private fun bubble(context: Context, key: ChatKey, icon: Icon, expand: Boolean): Notification.BubbleMetadata {
+        val intent = key.extras(Intent(context, BubbleActivity::class.java).setAction(Intent.ACTION_VIEW)
+            .setData(Uri.parse("beep://chat/${Uri.encode(key.tag)}")))
+        val pending = PendingIntent.getActivity(context, key.notificationId, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+        return Notification.BubbleMetadata.Builder(pending, icon).setDesiredHeight(440)
+            .setAutoExpandBubble(expand).setSuppressNotification(expand).build()
+    }
+
+    /** How a post should behave beyond showing the messages. */
+    data class Post(val quiet: Boolean = false, val expand: Boolean = false)
+
+    /**
+     * Posts the chat's conversation notification with [lines], the latest last. A group's
+     * icon is its first letter; a chat with Beep shows Beep.
+     */
+    fun post(context: Context, key: ChatKey, title: String, lines: List<ChatLine>, options: Post = Post()) {
         ensureChannel(context)
         val beep = beepPerson(context)
-        val style = Notification.MessagingStyle(Person.Builder().setName("You").setKey("self").build())
-            .setConversationTitle(chat.title.takeIf { it != NEW_CHAT_TITLE })
-        val now = System.currentTimeMillis()
-        val recent = chat.messages.filter { it.role != "scheduled" && (it.text.isNotBlank() || it.role == "assistant") }.takeLast(SHOWN_MESSAGES)
-        recent.forEachIndexed { i, message ->
-            val time = now - (recent.size - i)
-            if (message.role == "user") style.addMessage(message.text, time, null as Person?)
-            else style.addMessage(message.text.ifBlank { "Done" }, time, beep)
+        val members = lines.mapNotNull { it.sender }.filter { it != BEEP }.distinct().associateWith(::member)
+        val style = Notification.MessagingStyle(you())
+            .setConversationTitle(title.takeIf { key.group || it.isNotBlank() && it != NEW_CHAT_TITLE })
+            .setGroupConversation(key.group)
+        val kept = lines.takeLast(SHOWN_MESSAGES)
+        kept.forEach { line ->
+            val sender = when (line.sender) { null -> null; BEEP -> beep; else -> members.getValue(line.sender) }
+            style.addMessage(line.text, line.time, sender)
         }
-        if (chat.error.isNotEmpty() && !chat.busy) style.addMessage(chat.error, now, beep)
-        if (chat.busy) style.addMessage("Thinking…", now, beep)
-
-        val notification = Notification.Builder(context, CHANNEL)
+        shown[key.tag] = kept
+        val icon = if (key.group) Icon.createWithAdaptiveBitmap(initials(title)) else Icon.createWithResource(context, Avatars.current.bubbleIcon)
+        pushShortcut(context, key, title.takeIf { it != NEW_CHAT_TITLE } ?: BEEP, icon, listOf(beep) + members.values)
+        val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setStyle(style)
-            .setContentIntent(open(context, chat.id))
-            .addAction(replyAction(context, chat.id))
+            .setShortcutId(key.tag)
+            .setContentIntent(open(context, key))
+            .addAction(replyAction(context, key))
+            .addAction(markReadAction(context, key))
             .setCategory(Notification.CATEGORY_MESSAGE)
             .setColor(0xFF3B9B7A.toInt())
             .setAutoCancel(true)
-            // The echo of the user's own reply should not buzz again.
-            .setOnlyAlertOnce(chat.busy)
-            .build()
-        context.getSystemService(NotificationManager::class.java).notify(chat.id.hashCode(), notification)
+            .setOnlyAlertOnce(options.quiet)
+            .setBubbleMetadata(bubble(context, key, icon, options.expand))
+        context.getSystemService(NotificationManager::class.java).notify(key.notificationId, builder.build())
     }
 
-    fun cancel(context: Context, conversationId: String) =
-        context.getSystemService(NotificationManager::class.java).cancel(conversationId.hashCode())
+    /** Adds [line] under what the chat's notification already shows. */
+    fun append(context: Context, key: ChatKey, title: String, line: ChatLine, options: Post = Post()) =
+        post(context, key, title, (if (isShown(context, key)) shown[key.tag].orEmpty() else emptyList()) + line, options)
 
-    /** The id of a group's notification: one per group, replaced by each new message. */
-    fun groupId(groupId: String) = "group:$groupId".hashCode()
+    private fun isShown(context: Context, key: ChatKey) =
+        context.getSystemService(NotificationManager::class.java).activeNotifications.any { it.id == key.notificationId }
 
-    fun cancelGroup(context: Context, groupId: String) =
-        context.getSystemService(NotificationManager::class.java).cancel(groupId(groupId))
+    /** The lines of a chat with Beep, from its saved turns. */
+    private fun lines(chat: Conversation): List<ChatLine> {
+        val now = System.currentTimeMillis()
+        val recent = chat.messages.filter { it.role != "scheduled" && (it.text.isNotBlank() || it.role == "assistant") }.takeLast(SHOWN_MESSAGES)
+        val lines = recent.mapIndexed { i, message ->
+            ChatLine(if (message.role == "user") null else BEEP, message.text.ifBlank { "Done" }, now - (recent.size - i))
+        }.toMutableList()
+        if (chat.error.isNotEmpty() && !chat.busy) lines += ChatLine(BEEP, chat.error, now)
+        if (chat.busy) lines += ChatLine(BEEP, "Thinking\u2026", now)
+        return lines
+    }
+
+    /** Posts or refreshes the chat's notification with its latest turns. */
+    fun show(context: Context, chat: Conversation, expand: Boolean = false) =
+        // The echo of the user's own reply should not buzz again.
+        post(context, ChatKey(chat.id, false), chat.title, lines(chat), Post(quiet = chat.busy || expand, expand = expand))
+
+    /** Takes the chat's notification down. A chat floating as a bubble stays unless [bubble] says to drop it too. */
+    fun cancel(context: Context, key: ChatKey, bubble: Boolean = false) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val floating = manager.activeNotifications.any { it.id == key.notificationId && it.notification.flags and Notification.FLAG_BUBBLE != 0 }
+        if (floating && !bubble) return
+        shown.remove(key.tag)
+        manager.cancel(key.notificationId)
+    }
+
+    fun cancel(context: Context, conversationId: String) = cancel(context, ChatKey(conversationId, false))
+
+    fun cancelGroup(context: Context, groupId: String) = cancel(context, ChatKey(groupId, true))
+
+    /** A group's notice body is "Name: text"; the name is who said it. */
+    fun groupLine(body: String): ChatLine {
+        val name = body.substringBefore(": ", "")
+        return if (name.isNotBlank() && name.length <= 40 && '\n' !in name) ChatLine(name, body.substringAfter(": "))
+        else ChatLine(BEEP, body)
+    }
 
     fun replyText(intent: Intent): String? =
         RemoteInput.getResultsFromIntent(intent)?.getCharSequence(REPLY_KEY)?.toString()?.trim()?.takeIf { it.isNotEmpty() }
 }
 
-/** Sends what the user typed into a notification's reply field to that chat. */
+/** Sends what the user typed into a notification's reply field to that chat or group. */
 class ReplyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val id = intent.getStringExtra("conversation_id") ?: return
+        val key = ChatKey.from(intent) ?: return
         val text = ChatNotifications.replyText(intent) ?: return
         val repository = (context.applicationContext as BeepApplication).repository
-        repository.send(text, conversationId = id)
-        // Reposting stops the reply spinner and shows the message that was sent.
-        repository.state.value.conversations.find { it.id == id }?.let { ChatNotifications.show(context, it) }
+        if (!key.group) {
+            repository.send(text, conversationId = key.id)
+            // Reposting stops the reply spinner and shows the message that was sent.
+            repository.state.value.conversations.find { it.id == key.id }?.let { ChatNotifications.show(context, it) }
+            return
+        }
+        val title = repository.groups.value.find { it.id == key.id }?.name ?: "Group"
+        val done = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            val sent = runCatching { repository.sendToGroup(key.id, UUID.randomUUID().toString(), text) }.isSuccess
+            val line = if (sent) ChatLine(null, text) else ChatLine(null, "Not sent: $text")
+            ChatNotifications.append(context, key, title, line, ChatNotifications.Post(quiet = true))
+            done.finish()
+        }
+    }
+}
+
+/** Takes a chat's notification down without opening it. */
+class MarkReadReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        ChatKey.from(intent)?.let { ChatNotifications.cancel(context, it, bubble = true) }
     }
 }
 
