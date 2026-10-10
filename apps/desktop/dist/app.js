@@ -35,6 +35,7 @@ const TOOL_LABELS = {
   query_contacts: "Looking up contacts",
   suggest_replies: "Suggesting replies",
   send_file: "Sending a file",
+  show_products: "Showing products",
   task_progress: "Updating progress",
   memory_store: "Remembering",
   memory_recall: "Recalling memories",
@@ -282,6 +283,7 @@ function follow(id, turn) {
         if (step) step.state = ev.success ? "ok" : "bad";
         drawSteps(turn, false);
         if (ev.file) fileCard(turn, ev.file);
+        if (ev.products) productRow(turn, ev.products);
         break;
       }
       case "replies":
@@ -389,7 +391,10 @@ function drawHistory(id, turns) {
       turn ??= newTurn("");
       turn.steps.push(...t.tools.map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
       if (t.html) reply(turn).innerHTML += t.html;
-      for (const x of t.tools) if (x.file) fileCard(turn, x.file);
+      for (const x of t.tools) {
+        if (x.file) fileCard(turn, x.file);
+        if (x.products) productRow(turn, x.products);
+      }
       last = t.replies.length ? { turn, replies: t.replies } : null;
       turn.done = true;
       drawSteps(turn, true);
@@ -612,14 +617,27 @@ function fileSize(n) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/// A file Beep sent. Opening it downloads it once, then hands it to its app.
-function fileCard(turn, file) {
+/// What Beep sent with its reply: files and product cards, under the text
+/// and above the suggested replies.
+function sentBox(turn) {
   let box = turn.querySelector(".files");
   if (!box) {
     box = h('<div class="files" style="display:grid;gap:6px"></div>');
     const after = turn.querySelector(".dreplies");
     after ? turn.insertBefore(box, after) : turn.append(box);
   }
+  return box;
+}
+
+/// A `show_products` row, built from escaped fields on the Rust side. The
+/// bar's click handler opens and copies its links.
+function productRow(turn, html) {
+  sentBox(turn).append(h(html));
+}
+
+/// A file Beep sent. Opening it downloads it once, then hands it to its app.
+function fileCard(turn, file) {
+  const box = sentBox(turn);
   const about = [fileKind(file), fileSize(file.size)].filter(Boolean).join(", ");
   const card = h(`<button class="dfile"><span class="ic">${ICON.doc}</span><span style="flex:1;min-width:0;display:grid"><span class="nm">${esc(file.name)}</span><span class="sz">${esc(about)}</span></span><span class="go" style="color:var(--muted);display:grid">${ICON.chev}</span></button>`);
   const sz = card.querySelector(".sz"), go = card.querySelector(".go");

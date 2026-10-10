@@ -60,6 +60,46 @@ struct Product: Decodable, Hashable {
     }
 }
 
+extension Product {
+    /// The cards in a `show_products` result. Entries that do not make a card are skipped.
+    static func shown(toolOutput: String) -> [Product] {
+        guard let data = toolOutput.data(using: .utf8),
+              let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entries = result["products"] as? [Any] else { return [] }
+        return entries.compactMap { ($0 as? [String: Any]).flatMap(Product.init(shown:)) }
+    }
+
+    /// One entry of a `show_products` result, with its prices formatted for this phone.
+    init?(shown entry: [String: Any]) {
+        guard let title = entry["title"] as? String, !title.isEmpty,
+              let link = entry["url"] as? String, let url = URL(string: link), url.host() != nil,
+              ["http", "https"].contains(url.scheme?.lowercased()) else { return nil }
+        self.title = title
+        self.url = url
+        let currency = entry["currency"] as? String
+        let amount = entry["price"] as? Double
+        price = amount.map { Product.money($0, currency: currency) }
+        was = (entry["was"] as? Double).flatMap { was in
+            amount.flatMap { was > $0 ? Product.money(was, currency: currency) : nil }
+        }
+        store = entry["store"] as? String
+        image = (entry["image"] as? String).flatMap(URL.init(string:))
+            .flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
+        rating = entry["rating"] as? Double
+        reviews = entry["reviews"] as? Int
+        note = entry["note"] as? String
+    }
+
+    /// "€249" or "€249.99", in the phone's locale.
+    private static func money(_ amount: Double, currency: String?) -> String {
+        let digits = amount.rounded() == amount ? 0 : 2
+        guard let currency, !currency.isEmpty else {
+            return amount.formatted(.number.precision(.fractionLength(digits)))
+        }
+        return amount.formatted(.currency(code: currency).precision(.fractionLength(digits)))
+    }
+}
+
 /// Consecutive product blocks: a row of cards that scrolls sideways, or one card at full width.
 struct ProductRow: View {
     let products: [Product]

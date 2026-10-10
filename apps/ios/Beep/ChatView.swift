@@ -347,6 +347,10 @@ struct MessageView: View {
                         .card()
                         .padding(.top, 10)
                 }
+                ForEach(message.tools.filter { $0.name == "show_products" }) { call in
+                    let products = call.products
+                    if !products.isEmpty { ProductRow(products: products).padding(.top, 10) }
+                }
                 if !message.text.isEmpty, !live { actions }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

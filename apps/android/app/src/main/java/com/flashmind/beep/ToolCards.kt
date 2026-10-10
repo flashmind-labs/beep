@@ -116,6 +116,7 @@ sealed class ToolCard {
     data class Alarm(val alarm: AlarmRequest) : ToolCard()
     data class Replies(val replies: List<String>, val choice: Boolean) : ToolCard()
     data class Images(val images: List<SentImage>) : ToolCard()
+    data class Products(val products: List<Product>) : ToolCard()
     /** A file Beep sent, fetched from the server by [id] when first opened. */
     data class File(val id: String, val name: String, val mime: String, val size: Long) : ToolCard()
     /** A place Beep saved by name, which routines can start on arriving at or leaving. */
@@ -164,6 +165,7 @@ fun cardFor(call: ToolCall): ToolCard? {
             }
             if (images.isEmpty()) null else ToolCard.Images(images)
         }
+        "show_products" -> shownProducts(json).takeIf { it.isNotEmpty() }?.let { ToolCard.Products(it) }
         "place_save" -> savedPlaceOf(json)
         "send_file" -> json.optJSONObject("file")?.let { f ->
             val id = f.text("id") ?: return null
@@ -835,6 +837,7 @@ fun ToolCards(cards: List<ToolCard>, compact: Boolean, repository: ChatRepositor
                         if (image.caption.isNotBlank()) Text(image.caption, fontSize = 13.sp, color = LocalBeep.current.colors.muted)
                     }
                 }
+                is ToolCard.Products -> ProductRow(card.products, loading = false)
                 is ToolCard.File -> FileCard(card)
                 is ToolCard.SavedPlace -> SavedPlaceCard(card, compact, repository)
                 is ToolCard.Replies -> Unit

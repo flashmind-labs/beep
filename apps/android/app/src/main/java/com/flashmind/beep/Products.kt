@@ -43,9 +43,10 @@ import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 import java.net.URI
 import java.text.NumberFormat
+import java.util.Currency
 
 /** A product Beep put in a reply as a ```product block. */
-internal data class Product(
+data class Product(
     val title: String,
     val url: String,
     val price: String? = null,
@@ -87,6 +88,29 @@ internal fun parseProduct(json: String): Product? = runCatching {
         reviews = o.optInt("reviews", -1).takeIf { it >= 0 },
         note = text("note"),
     )
+}.getOrNull()
+
+/**
+ * The products a show_products result lists. The server has checked them; an entry that
+ * still does not read is skipped.
+ */
+internal fun shownProducts(json: JSONObject): List<Product> {
+    val list = json.optJSONArray("products") ?: return emptyList()
+    return (0 until list.length()).mapNotNull { i ->
+        val o = list.optJSONObject(i) ?: return@mapNotNull null
+        val currency = o.optString("currency", "")
+        fun amount(key: String) = o.optDouble(key).takeIf { !it.isNaN() && it > 0 }?.let { price(it, currency) }
+        val product = parseProduct(o.toString()) ?: return@mapNotNull null
+        val price = amount("price")
+        product.copy(price = price, was = if (price != null) amount("was") else null)
+    }
+}
+
+/** [amount] in [currency] the way this phone writes money, without cents when there are none. */
+internal fun price(amount: Double, currency: String): String? = runCatching {
+    val format = NumberFormat.getCurrencyInstance().apply { this.currency = Currency.getInstance(currency) }
+    if (amount % 1.0 == 0.0) format.maximumFractionDigits = 0
+    format.format(amount)
 }.getOrNull()
 
 /** What a tap on a card does: the built-in browser when the app gives one, else the phone's browser. */

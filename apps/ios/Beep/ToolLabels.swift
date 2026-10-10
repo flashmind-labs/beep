@@ -31,6 +31,7 @@ private let toolLabels: [String: String] = [
     "place_routine": "Setting up a place routine",
     "query_contacts": "Looking up contacts",
     "suggest_replies": "Suggesting replies",
+    "show_products": "Showing products",
     "task_progress": "Updating progress",
     "memory_store": "Remembering",
     "memory_recall": "Recalling memories",
@@ -70,5 +71,5 @@ private let pastTense: [String: String] = [
     "sending": "Sent", "setting": "Set", "using": "Used", "remembering": "Remembered",
     "loading": "Loaded", "browsing": "Browsed", "scheduling": "Scheduled", "running": "Ran",
     "weighing": "Weighed", "recalling": "Recalled", "forgetting": "Forgot", "changing": "Changed",
-    "logging": "Logged", "suggesting": "Suggested",
+    "logging": "Logged", "suggesting": "Suggested", "showing": "Showed",
 ]
