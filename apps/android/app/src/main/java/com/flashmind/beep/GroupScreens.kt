@@ -17,12 +17,16 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -95,7 +99,7 @@ internal fun groupPeople(group: Group): String {
 /** The last message as the chat list shows it: "Sam: text", or that Beep is typing. */
 internal fun groupSummary(group: Group): String = when {
     group.beepTyping -> "Beep is typing…"
-    else -> group.last?.let { "${authorName(it.author)}: ${it.content}" } ?: groupPeople(group)
+    else -> group.last?.let { "${authorName(it.author)}: ${splitQuote(it.content).body}" } ?: groupPeople(group)
 }
 
 private fun authorName(author: GroupAuthor) = when (author) {
@@ -120,27 +124,35 @@ private fun memberTint(index: Int) = Beep.colors.tints[index.mod(Beep.colors.tin
 private fun memberIndex(group: Group, name: String): Int =
     group.members.indexOfFirst { it.name.equals(name, ignoreCase = true) }.takeIf { it >= 0 } ?: name.hashCode()
 
-/** A group row in the drawer's chat list. [selected] is null outside selection mode. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun GroupRow(group: Group, highlighted: Boolean, selected: Boolean?, onClick: () -> Unit, onLongClick: () -> Unit) {
-    Row(Modifier.padding(horizontal = 12.dp, vertical = 2.dp).fillMaxWidth().heightIn(min = 56.dp)
-        .clip(RoundedCornerShape(Beep.shapes.smallRadius))
-        .background(if (highlighted) Beep.colors.user else Color.Transparent)
-        .combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (selected != null) Icon(if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-            null, Modifier.size(18.dp), tint = if (selected) Beep.colors.error else Beep.colors.muted)
-        Column(Modifier.weight(1f)) {
-            Text(group.name, maxLines = 1, fontSize = 14.sp, overflow = TextOverflow.Ellipsis,
-                color = if (highlighted) Beep.colors.onUser else Color.Unspecified)
-            Text(groupSummary(group), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (highlighted) Beep.colors.onUser.copy(alpha = 0.7f) else Beep.colors.muted)
-        }
-        if (group.pinned && selected == null) Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(16.dp), tint = Beep.colors.brand)
-        Icon(Icons.Outlined.Groups, "Group", Modifier.size(16.dp), tint = Beep.colors.brand)
-    }
+/** A message that opens with "> " lines: what it quotes, and what it says. */
+internal data class Quoted(val quote: String?, val body: String)
+
+internal fun splitQuote(content: String): Quoted {
+    val lines = content.trim().lines()
+    val quoted = lines.takeWhile { it.startsWith(">") }
+    val body = lines.drop(quoted.size).joinToString("\n").trim()
+    if (quoted.isEmpty() || body.isEmpty()) return Quoted(null, content)
+    return Quoted(quoted.joinToString("\n") { it.removePrefix(">").trimStart() }.trim(), body)
 }
+
+/** The newest message before [before] whose text holds the quote's first line, so a tap on the quote can go there. */
+internal fun quotedIndex(contents: List<String>, before: Int, quote: String): Int? {
+    val first = quote.lines().first().trim()
+    if (first.isEmpty()) return null
+    return (before - 1 downTo 0).firstOrNull { contents[it].contains(first) }
+}
+
+/** Puts [quote] above [text] as "> " lines, the way a reply is sent. */
+internal fun withQuote(quote: String, text: String) = quote.trim().lines().joinToString("\n") { "> $it" } + "\n\n" + text
+
+private fun sameAuthor(a: GroupAuthor, b: GroupAuthor) = when {
+    a is GroupAuthor.Beep && b is GroupAuthor.Beep -> true
+    a is GroupAuthor.Member && b is GroupAuthor.Member -> a.you == b.you && a.name == b.name
+    else -> false
+}
+
+/** Who a reply is to and the words it quotes. */
+private data class ReplyTo(val name: String, val text: String)
 
 /** A message being sent, shown until the server has it. */
 private data class Outgoing(val requestId: String, val text: String)
@@ -148,7 +160,7 @@ private data class Outgoing(val requestId: String, val text: String)
 /** A group chat: members' messages, Beep's replies and a composer that can @mention. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: () -> Unit, onInfo: () -> Unit,
+internal fun GroupChatPane(repository: ChatRepository, groupId: String, onBack: () -> Unit, onInfo: () -> Unit,
                            onInvite: (Group) -> Unit, onGone: () -> Unit, onNewChat: () -> Unit, onPrevious: () -> Unit,
                            onExpand: (() -> Unit)? = null) {
     val context = LocalContext.current
@@ -185,19 +197,26 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
         if (count > 0) listState.animateScrollToItem(count - 1)
     }
     var field by remember(groupId) { mutableStateOf(TextFieldValue(repository.draft("group:$groupId").text)) }
+    var replyTo by remember(groupId) { mutableStateOf<ReplyTo?>(null) }
+    // The message a tapped quote jumped to, lit up for a moment.
+    var flashing by remember(groupId) { mutableStateOf<Long?>(null) }
+    LaunchedEffect(flashing) { if (flashing != null) { delay(1800); flashing = null } }
     LaunchedEffect(field.text) { repository.setDraft("group:$groupId", repository.draft("group:$groupId").copy(text = field.text)) }
     fun send() {
-        val text = field.text.trim()
-        if (text.isEmpty()) return
+        val typed = field.text.trim()
+        if (typed.isEmpty()) return
+        val reply = replyTo
+        val text = reply?.let { withQuote(it.text, typed) } ?: typed
         val out = Outgoing(UUID.randomUUID().toString(), text)
         outgoing = outgoing + out
         field = TextFieldValue("")
+        replyTo = null
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { repository.sendToGroup(groupId, out.requestId, text) } }
                 .onSuccess { load() }
                 .onFailure {
                     Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show()
-                    if (field.text.isEmpty()) field = TextFieldValue(text, TextRange(text.length))
+                    if (field.text.isEmpty()) { field = TextFieldValue(typed, TextRange(typed.length)); replyTo = reply }
                 }
             outgoing = outgoing - out
         }
@@ -220,10 +239,7 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
                 }
             }
         }, navigationIcon = {
-            ChunkyButton(onClick = onMenu, shape = RoundedCornerShape(Beep.shapes.smallRadius),
-                modifier = Modifier.padding(start = 12.dp, end = 10.dp).size(42.dp), contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Outlined.Menu, "Conversations", Modifier.size(20.dp))
-            }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Chats") }
         }, actions = {
             IconButton(onClick = { group?.let(onInvite) }, enabled = group != null, modifier = Modifier.padding(end = 6.dp)) {
                 Icon(Icons.Outlined.Link, "Invite", tint = Beep.colors.muted)
@@ -242,28 +258,43 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
                         Modifier.align(Alignment.Center).padding(32.dp), textAlign = TextAlign.Center, color = Beep.colors.muted, lineHeight = 22.sp)
                     else -> {
                         val days = remember(messages) { groupDays(messages) }
-                        // Quotes go above whatever is already typed, as in a one to one chat.
-                        val quote: (String) -> Unit = { text ->
-                            val quoted = text.trim().lines().joinToString("\n") { "> $it" } + "\n\n"
-                            val rest = field.text.trimStart()
-                            field = TextFieldValue(quoted + rest, TextRange(quoted.length))
+                        // Quoting a message or a selection makes the next message a reply to it.
+                        fun quote(author: GroupAuthor): (String) -> Unit = { text ->
+                            val you = author is GroupAuthor.Member && author.you
+                            replyTo = ReplyTo(if (you) "yourself" else authorName(author), text)
                         }
-                        LazyColumn(Modifier.fillMaxSize(), state = listState,
-                            verticalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(18.dp)) {
-                            items(messages, key = { it.seq }) { message ->
-                                Column {
-                                    days[message.seq]?.let {
+                        val contents = remember(messages) { messages.map { it.content } }
+                        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(18.dp)) {
+                            itemsIndexed(messages, key = { _, m -> m.seq }) { i, message ->
+                                // Messages in a row from one person form a run: one name, tighter gaps and corners.
+                                val day = days[message.seq]
+                                val joinsAbove = i > 0 && day == null && sameAuthor(messages[i - 1].author, message.author)
+                                val joinsBelow = i + 1 < messages.size && days[messages[i + 1].seq] == null &&
+                                    sameAuthor(messages[i + 1].author, message.author)
+                                Column(Modifier.padding(top = if (i == 0) 0.dp else if (joinsAbove) 3.dp else 16.dp)) {
+                                    day?.let {
                                         Text(it, Modifier.fillMaxWidth().padding(bottom = 12.dp), fontSize = 11.sp,
                                             color = Beep.colors.dim, textAlign = TextAlign.Center)
                                     }
-                                    GroupBubble(loaded.group, message.author, message.content, quote, pictures[message.seq].orEmpty())
+                                    val split = remember(message.content) { splitQuote(message.content) }
+                                    val target = split.quote?.let { quotedIndex(contents, i, it) }
+                                    GroupBubble(loaded.group, message.author, split, quote(message.author),
+                                        first = !joinsAbove, last = !joinsBelow, flash = flashing == message.seq,
+                                        pictures = pictures[message.seq].orEmpty(),
+                                        quotedAuthor = target?.let { messages[it].author },
+                                        onQuoteTap = target?.let { t -> {
+                                            scope.launch { listState.animateScrollToItem(t) }
+                                            flashing = messages[t].seq
+                                        } })
                                 }
                             }
                             items(outgoing, key = { it.requestId }) { out ->
-                                Box(Modifier.alpha(0.6f)) { GroupBubble(loaded.group, GroupAuthor.Member("", you = true), out.text, quote) }
+                                Box(Modifier.padding(top = 16.dp).alpha(0.6f)) {
+                                    GroupBubble(loaded.group, GroupAuthor.Member("", you = true), splitQuote(out.text), {}, first = true, last = true)
+                                }
                             }
                             if (typing) item(key = "typing") {
-                                Row(Modifier.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.padding(start = 4.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                                     PulsingDots()
                                     Spacer(Modifier.width(10.dp))
                                     Text("Beep is typing", fontSize = 13.sp, color = Beep.colors.muted)
@@ -275,6 +306,21 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
             }
             }
             group?.let { MentionPicker(it, field) { field = it } }
+            replyTo?.let { reply ->
+                Row(Modifier.padding(start = 14.dp, end = 16.dp, top = 6.dp).fillMaxWidth()
+                    .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Beep.colors.surface)
+                    .padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(3.dp).height(34.dp).background(Beep.colors.brand, RoundedCornerShape(2.dp)))
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text("Replying to ${reply.name}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                            color = if (reply.name == "Beep") Beep.colors.brand else nameColors[(group?.let { memberIndex(it, reply.name) } ?: 0).mod(nameColors.size)])
+                        Text(reply.text.lines().joinToString(" "), fontSize = 13.sp, color = Beep.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    IconButton(onClick = { replyTo = null }, Modifier.size(32.dp)) {
+                        Icon(Icons.Outlined.Close, "Cancel reply", Modifier.size(16.dp), tint = Beep.colors.muted)
+                    }
+                }
+            }
             GroupComposer(field, onChange = { if (it.text.toByteArray().size <= 8192) field = it }, onSend = ::send, onExpand = onExpand)
         }
     }
@@ -295,14 +341,20 @@ private fun groupDays(messages: List<GroupMessage>): Map<Long, String> {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GroupBubble(group: Group, author: GroupAuthor, content: String, onQuote: (String) -> Unit,
+private fun GroupBubble(group: Group, author: GroupAuthor, message: Quoted, onQuote: (String) -> Unit,
+                        first: Boolean, last: Boolean, flash: Boolean = false,
+                        quotedAuthor: GroupAuthor? = null, onQuoteTap: (() -> Unit)? = null,
                         pictures: List<ImageRef> = emptyList()) {
     val radius = Beep.shapes.radius
     val you = author is GroupAuthor.Member && author.you
     val beep = author is GroupAuthor.Beep
     val name = if (author is GroupAuthor.Member) author.name else "Beep"
+    val content = message.body
     var menuOpen by remember { mutableStateOf(false) }
-    val shape = if (you) RoundedCornerShape(radius, radius, 6.dp, radius) else RoundedCornerShape(6.dp, radius, radius, radius)
+    // The corners on the run's side stay tight between messages of one run.
+    val shape = if (you) RoundedCornerShape(radius, if (first) radius else 6.dp, 6.dp, radius)
+        else RoundedCornerShape(6.dp, radius, radius, if (last) radius else 6.dp)
+    val glow by animateFloatAsState(if (flash) 1f else 0f, tween(if (flash) 200 else 1600), label = "quoted-flash")
     // The same bubbles as a one to one chat: yours on the right, Beep's reply as Beep writes it there,
     // and other members on the left with their name on top.
     val frame = when {
@@ -311,8 +363,9 @@ private fun GroupBubble(group: Group, author: GroupAuthor, content: String, onQu
         beep && !Beep.shapes.botBubble -> Modifier.fillMaxWidth()
         else -> Modifier.padding(end = if (beep) 24.dp else 48.dp).beepFrame(shape, Beep.colors.surface)
     }
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (you) Alignment.End else Alignment.Start) {
-        if (beep) Text("Beep", Modifier.padding(start = 4.dp, bottom = 4.dp), fontSize = 12.sp,
+    Column(Modifier.fillMaxWidth().background(Beep.colors.tints[2].copy(alpha = glow * 0.8f), RoundedCornerShape(radius)),
+        horizontalAlignment = if (you) Alignment.End else Alignment.Start) {
+        if (beep && first) Text("Beep", Modifier.padding(start = 4.dp, bottom = 4.dp), fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold, color = Beep.colors.brand)
         SelectableMessage(onQuote) { picker -> Box {
             // Long press and double tap select text, so a tap opens the menu.
@@ -320,15 +373,37 @@ private fun GroupBubble(group: Group, author: GroupAuthor, content: String, onQu
                 interactionSource = remember { MutableInteractionSource() }, onDoubleClick = picker::selectWord) {
                 if (!picker.picking) menuOpen = true
             }) {
-                if (!you && !beep) Text(name, Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp), fontSize = 12.sp,
+                if (!you && !beep && first) Text(name, Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp), fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold, color = nameColors[memberIndex(group, name).mod(nameColors.size)])
                 SentPictureRow(pictures)
+                message.quote?.let { QuoteChip(group, quotedAuthor, it, padded = !beep || Beep.shapes.botBubble, onClick = onQuoteTap) }
                 MessageContent(withMentions(content), if (you) "user" else "assistant", compact = false,
                     padded = !beep || Beep.shapes.botBubble)
             }
             MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = content,
                 onQuote = { onQuote(content.trim().lines().take(4).joinToString("\n")) })
         } }
+    }
+}
+
+/** The quoted message at the top of a reply. A tap goes to it when it is still in the chat. */
+@Composable
+private fun QuoteChip(group: Group, author: GroupAuthor?, text: String, padded: Boolean, onClick: (() -> Unit)?) {
+    val name = author?.let { authorName(it) }
+    val color = when {
+        author is GroupAuthor.Beep -> Beep.colors.brand
+        author is GroupAuthor.Member && !author.you -> nameColors[memberIndex(group, author.name).mod(nameColors.size)]
+        else -> Beep.colors.ink
+    }
+    Row(Modifier.padding(start = if (padded) 10.dp else 0.dp, end = if (padded) 10.dp else 0.dp, top = if (padded) 8.dp else 0.dp)
+        .clip(RoundedCornerShape(10.dp)).background(Beep.colors.page.copy(alpha = 0.6f))
+        .then(if (onClick != null) Modifier.clickable(onClickLabel = "Go to the quoted message", onClick = onClick) else Modifier)
+        .height(IntrinsicSize.Min)) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(color))
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+            name?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color) }
+            Text(text.lines().joinToString(" "), fontSize = 13.sp, lineHeight = 17.sp, color = Beep.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -696,6 +771,8 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
     }
     val group = fetched ?: groups.firstOrNull { it.id == groupId }
     var confirmLeave by remember { mutableStateOf(false) }
+    // The member whose sheet is open, by index.
+    var member by remember { mutableStateOf<Int?>(null) }
     var reminders by remember(groupId) { mutableStateOf<List<GroupReminder>?>(null) }
     LaunchedEffect(groupId) {
         runCatching { withContext(Dispatchers.IO) { repository.groupReminders(groupId) } }.onSuccess { reminders = it }
@@ -711,13 +788,22 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(top = 40.dp).size(22.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
                 return@Column
             }
+            Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val initials = group.name.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1).uppercase() }
+                GroupAvatar(initials.ifEmpty { "?" }, Beep.colors.tints[group.id.hashCode().mod(Beep.colors.tints.size)], 84.dp)
+                Text(displayText(group.name), style = displayStyle(28.sp), textAlign = TextAlign.Center)
+                Text("Group · ${group.members.size} member${if (group.members.size == 1) "" else "s"}", fontSize = 13.sp, color = Beep.colors.muted)
+            }
             Text("Members", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted, modifier = Modifier.padding(start = 4.dp, top = 4.dp))
             Column(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface).padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 group.members.forEachIndexed { i, m ->
                     val joined = Instant.ofEpochMilli(m.joinedAt).atZone(ZoneId.systemDefault()).format(joinedFormat)
                     MemberLine({ GroupAvatar(m.name.take(1).uppercase(), memberTint(i), 36.dp) },
-                        if (m.you) "${m.name} (you)" else m.name, if (m.creator) "Created the group" else "Joined $joined")
+                        if (m.you) "You" else m.name, if (m.you) "${m.name} · " + (if (m.creator) "made the group" else "joined $joined")
+                            else if (m.creator) "Made the group" else "Joined $joined",
+                        made = m.creator, onClick = if (m.you) null else { { member = i } })
                 }
                 MemberLine({ GroupAvatar("b", Beep.colors.brand, 36.dp, beep = true) }, "Beep", "Joins in when it can help, or when someone writes @beep")
                 ChunkyButton(onClick = { onInvite(group) }, modifier = Modifier.fillMaxWidth()) {
@@ -758,6 +844,35 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
                 PrivacyLine(Icons.Outlined.Shield, "Beep's thinking and tool calls are hidden in groups. Members only see its replies.")
             }
             TextButton(onClick = { confirmLeave = true }) { Text("Leave group", color = Beep.colors.error) }
+        }
+    }
+    val shown = member?.let { group?.members?.getOrNull(it) }
+    if (group != null && shown != null) ModalBottomSheet(onDismissRequest = { member = null }, containerColor = Beep.colors.page) {
+        val i = group.members.indexOf(shown)
+        val day = Instant.ofEpochMilli(shown.joinedAt).atZone(ZoneId.systemDefault()).format(joinedFormat)
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                GroupAvatar(shown.name.take(1).uppercase(), memberTint(i), 56.dp)
+                Column {
+                    Text(shown.name, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (shown.creator) "Made the group on $day" else "Joined $day", fontSize = 13.sp, color = Beep.colors.muted)
+                }
+            }
+            reminders?.let { all ->
+                Row(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface).padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Schedule, null, Modifier.size(18.dp), tint = Beep.colors.muted)
+                    Text("Reminders set", Modifier.weight(1f).padding(start = 10.dp), fontSize = 13.sp)
+                    Text("${all.count { it.setBy == shown.name }}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            ChunkyButton(onClick = {
+                val key = "group:${group.id}"
+                val draft = repository.draft(key)
+                repository.setDraft(key, draft.copy(text = "@${shown.name} " + draft.text.trimStart()))
+                member = null
+                onBack()
+            }, modifier = Modifier.fillMaxWidth()) { Text("@ Mention ${shown.name}", fontWeight = FontWeight.SemiBold) }
         }
     }
     if (confirmLeave) group?.let { g ->
@@ -814,13 +929,19 @@ private fun GroupReminders(reminders: List<GroupReminder>?, you: String?, onDele
 }
 
 @Composable
-private fun MemberLine(avatar: @Composable () -> Unit, name: String, note: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun MemberLine(avatar: @Composable () -> Unit, name: String, note: String, made: Boolean = false, onClick: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick) else Modifier),
+        verticalAlignment = Alignment.CenterVertically) {
         avatar()
         Spacer(Modifier.width(12.dp))
-        Column {
-            Text(name, fontWeight = FontWeight.Medium)
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(name, fontWeight = FontWeight.Medium)
+                if (made) Text("Made it", Modifier.background(Beep.colors.tints[1], RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
+                    fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.ink)
+            }
             Text(note, fontSize = 12.sp, color = Beep.colors.muted)
         }
+        if (onClick != null) Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(20.dp), tint = Beep.colors.dim)
     }
 }
