@@ -141,7 +141,8 @@ requests! {
     1 Health {} => Call<()>
     /// Starts a run and streams its events, starting with `RunStarted`. Resending
     /// the same `request_id` follows the existing run instead of starting another.
-    /// `images` are `data:image/...;base64,` URIs. `model` is a `ModelChoice::id` to run this
+    /// `images` are `data:image/...;base64,` URIs; the server keeps them with
+    /// the chat, and `GetSessionImages` lists them. `model` is a `ModelChoice::id` to run this
     /// one turn on instead of the picked model, and `thinking` how long it
     /// reasons; only admins may set either. `platform` is the app sending it,
     /// missing from apps older than the field.
@@ -268,8 +269,9 @@ requests! {
     59 GetGroup { id: String } => Call<GroupChat>
     /// Posts to a group. A message that mentions `@beep` asks Beep to
     /// reply, running as the sender. Sending the same `request_id` twice
-    /// posts once.
-    60 SendToGroup { group_id: String, request_id: Uuid, message: String } => Call<GroupMessage>
+    /// posts once. `images` are `data:image/...;base64,` URIs, kept with the
+    /// group and listed by `GetGroupImages`; older clients send none.
+    60 SendToGroup { group_id: String, request_id: Uuid, message: String, #[serde(default)] images: Vec<String> } => Call<GroupMessage>
     /// The group's invite link. `reset` makes a new one, so the old link
     /// stops working.
     61 GroupInvite { id: String, reset: bool } => Call<GroupLink>
@@ -295,6 +297,12 @@ requests! {
     70 ListGroupReminders { group_id: String } => Call<Vec<GroupReminder>>
     /// Deletes one of a group's reminders. Any member may.
     71 DeleteGroupReminder { group_id: String, id: String } => Call<()>
+    /// The pictures the user sent in a session, by the `timestamp` of the
+    /// `HistoryEntry::User` they came with. `GetFile` reads each one.
+    72 GetSessionImages { session_id: String } => Call<Vec<SentImages>>
+    /// The pictures members sent in a group, by the `seq` of their
+    /// `GroupMessage`. Members only.
+    73 GetGroupImages { group_id: String } => Call<Vec<SentImages>>
     /// The caller's saved places, by name.
     74 ListPlaces {} => Call<Vec<Place>>
     /// Forgets a place, and the routines that start there with it.
@@ -302,6 +310,27 @@ requests! {
     /// Renames a place or changes how near counts as being there.
     /// `radius` is in metres, 25 to 1000.
     76 UpdatePlace { id: String, name: Option<String>, radius: Option<u32> } => Call<Place>
+}
+
+/// A picture someone sent, kept on the server as long as its chat. Read its
+/// bytes with `GetFile`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImageRef {
+    pub id: String,
+    pub mime: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The pictures one message carried, in the order they were sent.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SentImages {
+    /// The `HistoryEntry::User` `timestamp` in a session, the `GroupMessage`
+    /// `seq` in a group.
+    pub message: i64,
+    pub images: Vec<ImageRef>,
 }
 
 /// The most of a file one `GetFile` returns, well under a frame.
@@ -1123,6 +1152,25 @@ mod tests {
         );
         let buf = rmp_serde::to_vec(&old).unwrap();
         assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap().platform, None);
+    }
+
+    #[test]
+    fn a_group_message_from_before_images_still_decodes() {
+        #[derive(Serialize)]
+        struct Old {
+            group_id: String,
+            request_id: Uuid,
+            message: String,
+        }
+        let old = Old {
+            group_id: "g1".into(),
+            request_id: Uuid::new_v4(),
+            message: "hi".into(),
+        };
+        let buf = rmp_serde::to_vec(&old).unwrap();
+        let decoded: SendToGroup = rmp_serde::from_slice(&buf).unwrap();
+        assert_eq!(decoded.message, "hi");
+        assert!(decoded.images.is_empty());
     }
 
     #[test]

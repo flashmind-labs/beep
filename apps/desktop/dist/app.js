@@ -152,8 +152,9 @@ function focusAsk() { const ask = $("#ask"); if (ask) ask.focus(); }
 function body() { return $("#body"); }
 function scrollDown() { const b = body(); if (b) b.scrollTop = b.scrollHeight; }
 
-function newTurn(question) {
-  const turn = h(`<div class="turn">${question ? `<div class="ask">${esc(question)}</div>` : ""}</div>`);
+function newTurn(question, images) {
+  const turn = h(`<div class="turn">${question ? `<div class="ask">${esc(question)}</div>` : ""}${picRow(images)}</div>`);
+  fillPics(turn);
   turn.steps = [];
   turn.folded = true;
   body().append(turn);
@@ -206,7 +207,7 @@ function thinking(turn, delta) {
     row = h(`<div class="thinkrow" style="display:grid;gap:6px"><button class="drow" aria-expanded="false"><span class="chev">${ICON.chev}</span>Thinking</button><div class="think" hidden></div></div>`);
     const btn = row.querySelector("button"), text = row.querySelector(".think");
     btn.addEventListener("click", () => { text.hidden = !text.hidden; btn.setAttribute("aria-expanded", String(!text.hidden)); });
-    const ask = turn.querySelector(".ask");
+    const ask = turn.querySelector(".dpics") ?? turn.querySelector(".ask");
     ask ? ask.after(row) : turn.prepend(row);
   }
   row.querySelector(".think").textContent += delta;
@@ -383,7 +384,7 @@ function drawHistory(id, turns) {
   let turn = null, last = null;
   for (const t of turns) {
     if (t.role === "user" || t.role === "scheduled") {
-      turn = newTurn(t.role === "user" ? t.text : t.label || "Routine");
+      turn = t.role === "user" ? newTurn(t.text, t.images) : newTurn(t.label || "Routine");
     } else if (t.role === "assistant") {
       turn ??= newTurn("");
       turn.steps.push(...t.tools.map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
@@ -642,6 +643,53 @@ function fileCard(turn, file) {
   box.append(card);
 }
 
+// ---------- Pictures ----------
+
+/// Pictures people sent, by id: a data URL once fetched, `null` once the
+/// server said it no longer has it, a promise while it loads.
+const pictures = new Map();
+
+/// The pictures a message carried, as a row of tiles under its text.
+function picRow(images) {
+  if (!images?.length) return "";
+  return `<div class="dpics">${images.map(picTile).join("")}</div>`;
+}
+
+function picTile(p) {
+  const got = pictures.get(p.id);
+  if (typeof got === "string") return `<img class="dpic" src="${got}" alt="">`;
+  if (got === null) return goneTile();
+  return `<span class="dpic wait" data-id="${esc(p.id)}" data-mime="${esc(p.mime)}"></span>`;
+}
+
+function goneTile() { return '<span class="dpic gone">Picture no longer available</span>'; }
+
+/// Fetches the pictures still loading under `root` and swaps each in.
+function fillPics(root) {
+  for (const el of root.querySelectorAll(".dpic.wait")) {
+    loadPic(el.dataset.id, el.dataset.mime).then(url => {
+      if (el.isConnected) el.replaceWith(h(url ? `<img class="dpic" src="${url}" alt="">` : goneTile()));
+    });
+  }
+}
+
+function loadPic(id, mime) {
+  let got = pictures.get(id);
+  if (got === undefined) {
+    got = invoke("picture", { id, mime }).then(url => {
+      pictures.set(id, url);
+      return url;
+    }, e => {
+      // Only a picture the server dropped stays gone; anything else tries again next time.
+      if (String(e) === "No longer available") pictures.set(id, null);
+      else pictures.delete(id);
+      return null;
+    });
+    pictures.set(id, got);
+  }
+  return Promise.resolve(got);
+}
+
 // ---------- Groups ----------
 
 /// The group on screen. Drafts and approvals are kept per group.
@@ -764,16 +812,20 @@ function drawGroup(jump) {
   if (G.chat.group.beep_typing) html += '<div class="dmuted"><span class="dtyping"><i></i><i></i><i></i></span>Beep is typing</div>';
   if (G.error) html += `<div class="derr">${esc(G.error)}</div>`;
   b.innerHTML = html;
+  fillPics(b);
   for (const a of G.approvals.get(G.id)?.values() ?? []) b.append(groupApproval(a));
   if (near) b.scrollTop = b.scrollHeight;
 }
 
 function groupMessage(m) {
   const a = m.author;
-  if (a.kind === "member" && a.you) return `<div class="dg me"><div class="b">${mentions(m.text)}</div></div>`;
+  const pics = picRow(m.images);
+  // A message of pictures alone shows no empty bubble.
+  const bubble = content => m.text || !pics ? `<div class="b">${content}</div>` : "";
+  if (a.kind === "member" && a.you) return `<div class="dg me">${bubble(mentions(m.text))}${pics}</div>`;
   const who = authorName(a);
   const content = a.kind === "beep" ? m.html : mentions(m.text);
-  return `<div class="dg${a.kind === "beep" ? " beep" : ""}"><span class="who" style="color:${avColor(who)}">${esc(who)}</span><div class="b">${content}</div></div>`;
+  return `<div class="dg${a.kind === "beep" ? " beep" : ""}"><span class="who" style="color:${avColor(who)}">${esc(who)}</span>${bubble(content)}${pics}</div>`;
 }
 
 /// Beep asks the member whose apps it would use. The card waits on the group.

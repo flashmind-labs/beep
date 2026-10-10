@@ -18,6 +18,7 @@ use crate::{
     },
     decision::DecisionTool,
     feeds::{self, SYNC_SWEEP, mail::Mailbox},
+    images::Picture,
     memories::{
         CURATE_EVERY, CURATE_SWEEP, CURATE_SYSTEM, CURATE_TIMEOUT, Change, DUPLICATE, Exchange,
         FILE_CONCURRENCY, FILE_QUESTION, FILING, Hit, LEARN_RULES, LEARN_SYSTEM, LEARN_TIMEOUT,
@@ -28,8 +29,8 @@ use crate::{
     permissions::{self, Rules, ToolSlug},
     places::PlaceEvent,
     protocol::{
-        ApiError, AppIntegration, AppKind, ConnectLink, Cron, FilePart, Memory, MemorySource,
-        Notice, PromptSuggestion, PromptSuggestions, Run, Session,
+        ApiError, AppIntegration, AppKind, ConnectLink, Cron, FilePart, ImageRef, Memory,
+        MemorySource, Notice, PromptSuggestion, PromptSuggestions, Run, SentImages, Session,
     },
     starters::{
         Cached, FALLBACK_FRESH, FRESH, Generator, STARTER_REFRESH_WINDOW, STARTER_REFRESHES,
@@ -39,8 +40,9 @@ use crate::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
         Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Join, JoinedGroup, LinkKey,
         Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewFile, NewKey, NewMessage,
-        NewPlace, NewPlaceRoutine, Origin, PlaceRoutine, Posted, ProfileNote, ProfileRead,
-        PushDevice, RunStatus, SavedPlace, Share, Store, StoredContext, TurnModel, TurnsToDelete,
+        NewPicture, NewPlace, NewPlaceRoutine, Origin, PicturesOf, PlaceRoutine, Posted,
+        ProfileNote, ProfileRead, PushDevice, RunStatus, SavedPlace, Share, Store, StoredContext,
+        TurnModel, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -338,8 +340,31 @@ impl User {
         self.store.save_file(&self.key, file).await
     }
 
-    /// Up to `len` bytes of a sent file from `offset` on, or `None` when it
-    /// is gone.
+    /// Keeps the pictures the user sent with a message.
+    pub(crate) async fn save_pictures(
+        &self,
+        of: PicturesOf<'_>,
+        pictures: &[Picture],
+    ) -> Result<Vec<ImageRef>> {
+        let pictures: Vec<NewPicture> = pictures
+            .iter()
+            .map(|picture| NewPicture {
+                mime: &picture.mime,
+                data: &picture.data,
+                width: picture.width,
+                height: picture.height,
+            })
+            .collect();
+        self.store.save_pictures(&self.key, of, &pictures).await
+    }
+
+    /// The pictures the user sent in a session, by turn.
+    pub(crate) async fn session_pictures(&self, session_id: &str) -> Result<Vec<SentImages>> {
+        self.store.session_pictures(&self.key, session_id).await
+    }
+
+    /// Up to `len` bytes of a sent file or picture from `offset` on, or
+    /// `None` when it is gone or not the user's to read.
     pub(crate) async fn file_part(
         &self,
         id: &str,

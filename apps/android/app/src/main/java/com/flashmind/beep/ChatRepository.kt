@@ -22,6 +22,7 @@ import com.flashmind.beep.ffi.identityName
 import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.ApprovalDecision
 import com.flashmind.beep.proto.BrowserCommand
+import com.flashmind.beep.proto.ImageRef
 import com.flashmind.beep.proto.LinkedDevice
 import com.flashmind.beep.proto.DeviceAnswer
 import com.flashmind.beep.proto.AppPermissions
@@ -216,10 +217,14 @@ class ChatRepository(private val storage: LocalStorage) {
         // reply, so its tools and reasoning move onto the next reply that has text.
         var pending = emptyList<ToolCall>()
         var pendingReasoning = ""
-        val messages = api(config).getSession(id).mapIndexedNotNull { i, entry ->
+        val history = api(config).getSession(id)
+        // A server from before it kept pictures has none to list.
+        val pictures = picturesByMessage(runCatching { api(config).getSessionImages(id) }.getOrDefault(emptyList()))
+        val messages = history.mapIndexedNotNull { i, entry ->
             when (entry) {
                 is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp,
-                    autoModel = entry.auto?.model.orEmpty(), autoThinking = entry.auto?.thinking?.name?.lowercase().orEmpty()) }
+                    autoModel = entry.auto?.model.orEmpty(), autoThinking = entry.auto?.thinking?.name?.lowercase().orEmpty(),
+                    pictures = pictures[entry.timestamp].orEmpty()) }
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
@@ -245,10 +250,9 @@ class ChatRepository(private val storage: LocalStorage) {
         // Turns from before the server kept Jev scores only have the one the phone saw live.
         val scores = before.messages.filter { it.memoryScore != null }.associate { it.text to it.memoryScore }
         // Messages already on screen keep their ids, or the list drops and re-adds every row while it is drawn.
-        // They keep their images too: the server swaps them for descriptions and never sends them back.
         val kept = before.messages.groupBy { it.role to it.text }.mapValues { ArrayDeque(it.value) }
         val scored = messages.map { m -> if (m.memoryScore != null) m else scores[m.text]?.let { m.copy(memoryScore = it) } ?: m }
-            .map { m -> kept[m.role to m.text]?.removeFirstOrNull()?.let { m.copy(id = it.id, images = it.images) } ?: m }
+            .map { m -> kept[m.role to m.text]?.removeFirstOrNull()?.let { m.copy(id = it.id) } ?: m }
         updateChat(id) { current -> if (current == before) current.copy(messages = scored, version = version) else current }
     }
     fun refreshHistory() { syncRequests.trySend(Unit) }
@@ -638,7 +642,10 @@ class ChatRepository(private val storage: LocalStorage) {
         api().createGroup(UUID.randomUUID().toString(), name, memberName).also { refreshGroups() }
     /** Posts to a group; the same [requestId] sent twice posts once. */
     suspend fun sendToGroup(id: String, requestId: String, text: String): GroupMessage =
-        api().sendToGroup(id, requestId, text)
+        api().sendToGroup(id, requestId, text, emptyList())
+    /** The pictures sent in a group, by message seq; none from a server that does not keep them. */
+    suspend fun groupPictures(id: String): Map<Long, List<ImageRef>> =
+        picturesByMessage(runCatching { api().getGroupImages(id) }.getOrDefault(emptyList()))
     suspend fun groupInvite(id: String, reset: Boolean = false): GroupLink = api().groupInvite(id, reset)
     suspend fun peekGroup(token: String): GroupPreview = api().peekGroup(token)
     suspend fun joinGroup(token: String, memberName: String): Group =

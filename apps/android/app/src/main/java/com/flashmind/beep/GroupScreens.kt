@@ -59,6 +59,7 @@ import com.flashmind.beep.proto.GroupLink
 import com.flashmind.beep.proto.GroupMessage
 import com.flashmind.beep.proto.GroupPreview
 import com.flashmind.beep.proto.GroupReminder
+import com.flashmind.beep.proto.ImageRef
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -154,11 +155,13 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
     val scope = rememberCoroutineScope()
     var chat by remember(groupId) { mutableStateOf<GroupChat?>(null) }
     var outgoing by remember(groupId) { mutableStateOf(listOf<Outgoing>()) }
+    var pictures by remember(groupId) { mutableStateOf(mapOf<Long, List<ImageRef>>()) }
     val listed by repository.groups.collectAsState()
     suspend fun load() {
         runCatching { withContext(Dispatchers.IO) { repository.group(groupId) } }
             .onSuccess { chat = it }
             .onFailure { if (it is BeepException.NotFound) onGone() }
+        pictures = withContext(Dispatchers.IO) { repository.groupPictures(groupId) }
     }
     DisposableEffect(groupId) {
         repository.groupShown(groupId)
@@ -253,7 +256,7 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
                                         Text(it, Modifier.fillMaxWidth().padding(bottom = 12.dp), fontSize = 11.sp,
                                             color = Beep.colors.dim, textAlign = TextAlign.Center)
                                     }
-                                    GroupBubble(loaded.group, message.author, message.content, quote)
+                                    GroupBubble(loaded.group, message.author, message.content, quote, pictures[message.seq].orEmpty())
                                 }
                             }
                             items(outgoing, key = { it.requestId }) { out ->
@@ -292,7 +295,8 @@ private fun groupDays(messages: List<GroupMessage>): Map<Long, String> {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GroupBubble(group: Group, author: GroupAuthor, content: String, onQuote: (String) -> Unit) {
+private fun GroupBubble(group: Group, author: GroupAuthor, content: String, onQuote: (String) -> Unit,
+                        pictures: List<ImageRef> = emptyList()) {
     val radius = Beep.shapes.radius
     val you = author is GroupAuthor.Member && author.you
     val beep = author is GroupAuthor.Beep
@@ -318,6 +322,7 @@ private fun GroupBubble(group: Group, author: GroupAuthor, content: String, onQu
             }) {
                 if (!you && !beep) Text(name, Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp), fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold, color = nameColors[memberIndex(group, name).mod(nameColors.size)])
+                SentPictureRow(pictures)
                 MessageContent(withMentions(content), if (you) "user" else "assistant", compact = false,
                     padded = !beep || Beep.shapes.botBubble)
             }

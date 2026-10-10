@@ -4,9 +4,11 @@
 //! "Image 2" when there are several. Each image is also described once by a
 //! vision model; a model without vision gets those descriptions instead, and
 //! once the turn is saved they replace the images in the conversation so later
-//! turns do not resend the image data.
+//! turns do not resend the image data. The pictures themselves are kept with
+//! the chat, so every device can show them.
 
 use anyhow::{Result, bail};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
 use flashmind::core::{Conversation, EntryKind};
 use flashmind::types::{
@@ -39,6 +41,33 @@ pub fn parse_data_uri(uri: &str) -> Option<ContentPart> {
     Some(ContentPart::Image {
         media_type: media_type.to_owned(),
         data: data.to_owned(),
+    })
+}
+
+/// A picture as it is kept: its type, bytes and size in pixels.
+pub struct Picture {
+    pub mime: String,
+    pub data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Decodes the pictures in `uris`, skipping any that are not a readable image.
+pub fn pictures(uris: &[String]) -> Vec<Picture> {
+    uris.iter().filter_map(|uri| picture(uri)).collect()
+}
+
+fn picture(uri: &str) -> Option<Picture> {
+    let ContentPart::Image { media_type, data } = parse_data_uri(uri)? else {
+        return None;
+    };
+    let data = STANDARD.decode(data).ok()?;
+    let size = imagesize::blob_size(&data).ok()?;
+    Some(Picture {
+        mime: media_type,
+        width: u32::try_from(size.width).ok()?,
+        height: u32::try_from(size.height).ok()?,
+        data,
     })
 }
 
@@ -213,6 +242,22 @@ mod tests {
         ));
         assert!(parse_data_uri("data:text/plain;base64,AAAA").is_none());
         assert!(parse_data_uri("https://example.com/a.png").is_none());
+    }
+
+    #[test]
+    fn pictures_keep_their_size_and_skip_what_is_not_an_image() {
+        // A 1x1 PNG.
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+        let kept = pictures(&[
+            png.to_owned(),
+            "data:image/png;base64,AAAA".to_owned(),
+            "data:image/png;base64,not base64".to_owned(),
+        ]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            (kept[0].mime.as_str(), kept[0].width, kept[0].height),
+            ("image/png", 1, 1)
+        );
     }
 
     #[test]

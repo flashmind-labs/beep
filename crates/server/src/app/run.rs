@@ -16,7 +16,7 @@ use crate::{
     repeat::{self, RepeatGuard},
     sandbox,
     starters::Generator,
-    store::{FinishedTurn, RunStatus, SessionRef, TurnModel},
+    store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, TurnModel},
     timing::{Output, TurnTimer},
     tools,
     user::User,
@@ -616,6 +616,25 @@ impl App {
             .entries()
             .iter()
             .find(|entry| entry.timestamp >= turn_started && entry.is_user());
+        // The pictures stay with the turn, so every device shows them after
+        // the model only keeps their descriptions.
+        if let Some(asked) = asked
+            && !message.images.is_empty()
+        {
+            let of = PicturesOf::Turn {
+                session_id: &run.session_id,
+                at: asked.timestamp.timestamp_millis(),
+            };
+            if let Err(error) = user
+                .save_pictures(of, &images::pictures(&message.images))
+                .await
+            {
+                log::warn!(
+                    "unable to keep the turn's pictures: {error}; run_id={}",
+                    run.id
+                );
+            }
+        }
         if let Some(asked) = asked
             && let Err(error) = user
                 .record_turn_model(
