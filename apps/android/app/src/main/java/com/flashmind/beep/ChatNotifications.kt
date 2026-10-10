@@ -125,11 +125,14 @@ object ChatNotifications {
 
     /** The chat's long-lived shortcut, which conversation notifications and bubbles hang off. */
     private fun pushShortcut(context: Context, key: ChatKey, title: String, icon: Icon, people: List<Person>) {
+        // Android does not count a shortcut whose people are all bots as a conversation,
+        // and then drops the bubble, so Beep stays off it. A chat with only Beep has none.
+        val humans = people.filterNot { it.isBot }
         val shortcut = ShortcutInfo.Builder(context, key.tag)
             .setShortLabel(title.take(24).ifBlank { BEEP })
             .setLongLabel(title.ifBlank { BEEP })
             .setIcon(icon)
-            .setPersons(people.toTypedArray())
+            .apply { if (humans.isNotEmpty()) setPersons(humans.toTypedArray()) }
             .setLongLived(true)
             .setCategories(setOf("com.flashmind.beep.category.CHAT"))
             .setIntent(chatIntent(context, key))
