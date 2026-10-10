@@ -297,17 +297,17 @@ private struct NewRoutineView: View {
 /// Cron weekday numbers, Sunday being 0, in the order the picker shows them.
 private let cronDays = [1, 2, 3, 4, 5, 6, 0]
 
-private func cronDayName(_ day: Int, full: Bool = false) -> String {
+func cronDayName(_ day: Int, full: Bool = false) -> String {
     let names = full ? Calendar.current.weekdaySymbols : Calendar.current.shortWeekdaySymbols
     return names[day % 7]
 }
 
-private func clockTime(hour: Int, minute: Int) -> String {
+func clockTime(hour: Int, minute: Int) -> String {
     let date = Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: .now) ?? .now
     return date.formatted(date: .omitted, time: .shortened)
 }
 
-private func parseInstant(_ text: String) -> Date? {
+func parseInstant(_ text: String) -> Date? {
     let plain = ISO8601DateFormatter()
     let fractional = ISO8601DateFormatter()
     fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -316,7 +316,7 @@ private func parseInstant(_ text: String) -> Date? {
 }
 
 /// Reads the cron shapes the sheet writes as words, the same as Android. Anything else shows as written.
-private func describeSchedule(_ expression: String) -> String {
+func describeSchedule(_ expression: String) -> String {
     if let once = parseInstant(expression) { return "Once, " + describeDay(once) }
     let parts = expression.split(separator: " ").map(String.init)
     guard parts.count == 5, parts[2] == "*", parts[3] == "*",
@@ -339,7 +339,7 @@ private func describeSchedule(_ expression: String) -> String {
 }
 
 /// "today 9:00", "tomorrow 9:00", "Mon 9:00" or, further out, "12 Oct 9:00".
-private func describeDay(_ at: Date) -> String {
+func describeDay(_ at: Date) -> String {
     let calendar = Calendar.current
     let today = calendar.startOfDay(for: .now)
     let day = calendar.startOfDay(for: at)
