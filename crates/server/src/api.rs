@@ -4,7 +4,7 @@ use crate::{
     app::{Answer, Message, UserNotice, group_message},
     apps::catalog_app,
     cron, feeds,
-    images::{MAX_IMAGE_BYTES, MAX_IMAGES},
+    images::{self, MAX_IMAGE_BYTES, MAX_IMAGES},
     live::Subscription,
     models::Picked,
     permissions, profile,
@@ -102,6 +102,8 @@ pub fn router() -> Router {
         .call(get_file)
         .call(list_group_reminders)
         .call(delete_group_reminder)
+        .call(get_session_images)
+        .call(get_group_images)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -114,12 +116,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
     if req.message.trim().is_empty() || req.message.len() > 32768 {
         return Err(ApiError::bad_request("message must be 1-32768 bytes"));
     }
-    if req.images.len() > MAX_IMAGES {
-        return Err(ApiError::bad_request("at most 8 images per message"));
-    }
-    if req.images.iter().any(|image| image.len() > MAX_IMAGE_BYTES) {
-        return Err(ApiError::bad_request("each image must be at most 2 MiB"));
-    }
+    check_images(&req.images)?;
     if (req.model.is_some() || req.thinking.is_some()) && !cx.app.models.is_admin(cx.user.id()) {
         return Err(ApiError::Unauthorized {});
     }
@@ -146,6 +143,17 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
             message: "session busy".into(),
         }),
     }
+}
+
+/// Refuses too many images, or one too large.
+fn check_images(images: &[String]) -> Reply<()> {
+    if images.len() > MAX_IMAGES {
+        return Err(ApiError::bad_request("at most 8 images per message"));
+    }
+    if images.iter().any(|image| image.len() > MAX_IMAGE_BYTES) {
+        return Err(ApiError::bad_request("each image must be at most 2 MiB"));
+    }
+    Ok(())
 }
 
 async fn get_run(cx: Cx, GetRun { id }: GetRun) -> Reply<Run> {
@@ -374,15 +382,35 @@ async fn send_to_group(
         group_id,
         request_id,
         message,
+        images,
     }: SendToGroup,
 ) -> Reply<GroupMessage> {
     if message.trim().is_empty() || message.len() > 8192 {
         return Err(ApiError::bad_request("message must be 1-8192 bytes"));
     }
+    check_images(&images)?;
+    let pictures = images::pictures(&images);
     cx.app
-        .send_to_group(&cx.user, &group_id, request_id, message.trim())
+        .send_to_group(&cx.user, &group_id, request_id, message.trim(), &pictures)
         .await?
         .ok_or(ApiError::NotFound {})
+}
+
+async fn get_session_images(
+    cx: Cx,
+    GetSessionImages { session_id }: GetSessionImages,
+) -> Reply<Vec<SentImages>> {
+    Ok(cx.user.session_pictures(&session_id).await?)
+}
+
+async fn get_group_images(
+    cx: Cx,
+    GetGroupImages { group_id }: GetGroupImages,
+) -> Reply<Vec<SentImages>> {
+    if cx.user.group(&group_id).await?.is_none() {
+        return Err(ApiError::NotFound {});
+    }
+    Ok(cx.app.store.group_pictures(&group_id).await?)
 }
 
 async fn group_invite(cx: Cx, GroupInvite { id, reset }: GroupInvite) -> Reply<GroupLink> {

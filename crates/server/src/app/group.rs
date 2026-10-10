@@ -12,11 +12,12 @@ use super::{
 use crate::{
     apps::markdown,
     decision::Criteria,
+    images::Picture,
     leak::{Gate, Said, Secret},
     memories::{Reading, ReadingKind, profile_facts},
     permissions::{self, Approved, Rules},
     protocol::{Group, GroupAuthor, GroupMember, GroupMessage, Notice},
-    store::{JoinedGroup, MemberRow, MessageRow, NewMessage},
+    store::{JoinedGroup, MemberRow, MessageRow, NewMessage, PicturesOf},
     tools::group_memory::{self, Member, Secrets, shareable},
     user::User,
 };
@@ -266,14 +267,16 @@ impl App {
         }
     }
 
-    /// Posts `user`'s message to a group and, when it mentions @beep,
-    /// starts Beep's reply. `None` when the user is not in the group.
+    /// Posts `user`'s message, with its pictures, to a group and, when it
+    /// mentions @beep, starts Beep's reply. `None` when the user is not in
+    /// the group.
     pub async fn send_to_group(
         self: &Arc<Self>,
         user: &Arc<User>,
         group_id: &str,
         request_id: Uuid,
         text: &str,
+        pictures: &[Picture],
     ) -> Result<Option<GroupMessage>> {
         let request_id = request_id.to_string();
         let posted = user
@@ -289,6 +292,18 @@ impl App {
         let message = group_message(&posted.message, user.id());
         if !posted.new {
             return Ok(Some(message));
+        }
+        // Kept before anyone hears of the message, so they find its pictures.
+        if !pictures.is_empty() {
+            let of = PicturesOf::Group {
+                group_id,
+                seq: posted.message.seq,
+            };
+            if let Err(error) = user.save_pictures(of, pictures).await {
+                log::warn!(
+                    "unable to keep a group message's pictures; group={group_id}: {error:#}"
+                );
+            }
         }
         let Some(joined) = user.group(group_id).await? else {
             return Ok(Some(message));

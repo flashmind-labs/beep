@@ -10,16 +10,16 @@ use beep_proto::{
     ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare,
     CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession,
     DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult, DisconnectApp, Event,
-    ExistingSessions, FinishAppAuth, GetAppPermissions, GetEvents, GetFile, GetGroup, GetModels,
-    GetRun, GetSession, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
-    GroupPreview, GroupReminder, Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice,
-    LinkedDevice, ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMemories,
-    ListSessions, Memory, Models, Notice, PeekGroup, PermissionLevel, PinGroup, PinSession,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron,
-    SearchSessions, SendToGroup, Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel,
-    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession,
-    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron,
-    UpdateLocation, UpdateMemory,
+    ExistingSessions, FinishAppAuth, GetAppPermissions, GetEvents, GetFile, GetGroup,
+    GetGroupImages, GetModels, GetRun, GetSession, GetSessionImages, GetShare, Group, GroupChat,
+    GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry,
+    JoinGroup, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices,
+    ListGroupReminders, ListGroups, ListMemories, ListSessions, Memory, Models, Notice, PeekGroup,
+    PermissionLevel, PinGroup, PinSession, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup, SentImages, Session,
+    SessionMatch, SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone,
+    ShareGroupApps, ShareSession, SharedLink, SharedSession, StartAppAuth, Stream, SuggestPrompts,
+    ToggleCron, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -413,6 +413,17 @@ impl BeepClient {
         self.call(GetSession { id }).await
     }
 
+    /// The pictures the user sent in a session, by their message's timestamp.
+    /// Read each with `save_file`.
+    pub async fn get_session_images(&self, id: String) -> Result<Vec<SentImages>, BeepError> {
+        self.call(GetSessionImages { session_id: id }).await
+    }
+
+    /// The pictures sent in a group, by their message's `seq`.
+    pub async fn get_group_images(&self, id: String) -> Result<Vec<SentImages>, BeepError> {
+        self.call(GetGroupImages { group_id: id }).await
+    }
+
     pub async fn rename_session(&self, id: String, title: String) -> Result<(), BeepError> {
         self.call(RenameSession { id, title }).await
     }
@@ -479,18 +490,21 @@ impl BeepClient {
     }
 
     /// Posts to a group. Mentioning @beep starts its reply, which arrives
-    /// as a notice. `request_id` is a UUID, so a retry posts once.
+    /// as a notice. `request_id` is a UUID, so a retry posts once. `images`
+    /// are `data:image/...;base64,` URIs.
     pub async fn send_to_group(
         &self,
         group_id: String,
         request_id: String,
         message: String,
+        images: Vec<String>,
     ) -> Result<GroupMessage, BeepError> {
         let request_id = Uuid::parse_str(&request_id).map_err(|_| bad_request("invalid UUID"))?;
         self.call(SendToGroup {
             group_id,
             request_id,
             message,
+            images,
         })
         .await
     }
@@ -531,7 +545,8 @@ impl BeepClient {
         self.call(DeleteGroupReminder { group_id, id }).await
     }
 
-    /// Downloads a file Beep sent, named by its `send_file` id, to `path`,
+    /// Downloads a file Beep sent, named by its `send_file` id, or a sent
+    /// picture by its `ImageRef` id, to `path`,
     /// replacing what is there. Returns its size. It lands under a temporary
     /// name first, so `path` never holds half a file.
     pub async fn save_file(&self, id: String, path: String) -> Result<u64, BeepError> {
