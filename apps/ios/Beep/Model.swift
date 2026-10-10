@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Observation
+import UIKit
 
 /// One tool call shown as a chip.
 struct ToolCall: Identifiable, Equatable {
@@ -41,6 +42,8 @@ struct Chat: Equatable {
     var cursor: Int64 = 0
     var requestId = ""
     var pendingText = ""
+    /// Data URIs of the pictures going out with `pendingText`.
+    var pendingImages: [String] = []
     var thinking = ""
     var error = ""
     var stopRequested = false
@@ -62,8 +65,21 @@ final class AppModel {
     var chat = Chat()
     private(set) var sessions: [Session] = []
     private(set) var groups: [Group] = []
-    /// The group on screen in place of the chat, or nil.
+    /// The last group opened.
     private(set) var openGroupId: String?
+    /// The chat or group id on screen, so its notices are not shown.
+    var onScreen: String? {
+        didSet { if let onScreen { notifier.clear(onScreen) } }
+    }
+    /// Where a tapped notification wants to go; the root view follows it and clears it.
+    var destination: Destination?
+    /// A member to @mention when the group chat shows again, from the member sheet.
+    var pendingMention: String?
+    /// The last line of each chat for the list, cached by the chat's update time.
+    private(set) var previews: [String: ChatPreview] = ChatPreview.load()
+    /// Saved places, from the server once it can list them.
+    private(set) var places: [SavedPlace] = []
+    var placesStore: any PlacesStore = PendingPlaces()
     private(set) var starters: [PromptSuggestion] = []
     private(set) var models: Models?
 
@@ -72,6 +88,8 @@ final class AppModel {
     private var connectTask: Task<Void, Never>?
     private let pathMonitor = NWPathMonitor()
     let location = LocationReporter()
+    let notifier = ChatNotifier()
+    private var previewLoads: Set<String> = []
     private var reportedTimezone: String?
     private let pictureCache = PictureCache()
 
@@ -81,6 +99,7 @@ final class AppModel {
         accountName = Identity.name(key)
         onboarded = UserDefaults.standard.bool(forKey: "onboarded")
         location.onUpdate = { [weak self] fix in self?.sendLocation(fix) }
+        notifier.model = self
         pathMonitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
             Task { @MainActor in await self?.client?.networkChanged() }
@@ -99,6 +118,7 @@ final class AppModel {
                 attempt += 1
                 do {
                     let fresh = try client ?? BeepClient(nodeId: BeepConfig.nodeId, identity: identity)
+                    if client == nil { fresh.setListener(listener: notifier) }
                     client = fresh
                     try await fresh.health()
                     connected = true
@@ -122,6 +142,7 @@ final class AppModel {
         models = try? await client?.getModels()
         await reportTimezone()
         location.refresh()
+        await refreshPlaces()
         if chat.busy { launchRun() }
     }
 
@@ -149,6 +170,28 @@ final class AppModel {
         stopStreaming()
         chat = Chat(id: session.id, title: session.title)
         Task { await loadHistory() }
+    }
+
+    func search(_ query: String) async -> [SessionMatch] {
+        (try? await api().searchSessions(query: query)) ?? []
+    }
+
+    /// Opens a chat by id, as from a notification.
+    func openChat(_ id: String) {
+        if let session = sessions.first(where: { $0.id == id }) {
+            open(session)
+        } else if id != chat.id {
+            openGroupId = nil
+            stopStreaming()
+            chat = Chat(id: id)
+            Task { await loadHistory() }
+        }
+    }
+
+    /// The chat's title as the list shows it.
+    func title(of id: String) -> String {
+        let title = sessions.first { $0.id == id }?.title ?? (id == chat.id ? chat.title : "")
+        return title.isEmpty ? "Beep" : title
     }
 
     func rename(_ session: Session, to title: String) async {
@@ -209,6 +252,7 @@ final class AppModel {
             }
         }
         chat.messages = keepingLocalPictures(messages)
+        if let session = sessions.first(where: { $0.id == id }) { remember(preview(entries), for: session) }
     }
 
     /// Carries pictures sent from this phone over to the reloaded history, matching user
@@ -228,6 +272,36 @@ final class AppModel {
     /// The cached file for a picture kept on the server, fetched when missing.
     func pictureFile(_ id: String) async -> URL? {
         await pictureCache.file(id, client: client)
+    }
+
+    // MARK: Previews
+
+    /// Fetches a chat's last line for the list when the cached one is older than the chat.
+    func loadPreview(_ session: Session) async {
+        if let cached = previews[session.id], cached.updatedAt >= session.updatedAt { return }
+        guard !previewLoads.contains(session.id) else { return }
+        previewLoads.insert(session.id)
+        defer { previewLoads.remove(session.id) }
+        guard let entries = try? await api().getSession(id: session.id) else { return }
+        remember(preview(entries), for: session)
+    }
+
+    private func remember(_ text: String, for session: Session) {
+        previews[session.id] = ChatPreview(text: text, updatedAt: session.updatedAt)
+        ChatPreview.save(previews)
+    }
+
+    private func preview(_ entries: [HistoryEntry]) -> String {
+        for entry in entries.reversed() {
+            switch entry {
+            case .user(let content, _, _): return "You: " + plainLine(content)
+            case .assistant(let content, _, _, _, _, _):
+                let line = plainLine(content)
+                if !line.isEmpty { return line }
+            case .scheduled, .approval: continue
+            }
+        }
+        return ""
     }
 
     // MARK: Groups
@@ -275,7 +349,7 @@ final class AppModel {
     func leaveGroup(_ id: String) async throws {
         try await api().leaveGroup(id: id)
         groups.removeAll { $0.id == id }
-        if openGroupId == id { newChat() }
+        if openGroupId == id { openGroupId = nil }
     }
 
     /// Pins at once; the list is fetched again if the server refuses.
@@ -306,13 +380,16 @@ final class AppModel {
 
     // MARK: Runs
 
-    func send(_ text: String) {
+    /// Sends a message, with up to eight pictures as JPEGs.
+    func send(_ text: String, images: [Data] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !chat.busy else { return }
-        if chat.messages.isEmpty { chat.title = String(trimmed.prefix(44)) }
-        chat.messages.append(Message(id: UUID().uuidString, role: .user, text: trimmed))
+        guard !trimmed.isEmpty || !images.isEmpty, !chat.busy else { return }
+        if chat.messages.isEmpty { chat.title = String((trimmed.isEmpty ? "Photo" : trimmed).prefix(44)) }
+        chat.messages.append(Message(id: UUID().uuidString, role: .user, text: trimmed,
+                                     pictures: images.map { Picture(dataUri: dataURI($0)) }))
         chat.requestId = UUID().uuidString.lowercased()
         chat.pendingText = trimmed
+        chat.pendingImages = images.map(dataURI)
         chat.error = ""
         chat.stopRequested = false
         launchRun()
@@ -323,6 +400,7 @@ final class AppModel {
         guard !chat.busy, let last = chat.messages.last(where: { $0.role == .user }) else { return }
         chat.requestId = UUID().uuidString.lowercased()
         chat.pendingText = last.text
+        chat.pendingImages = last.pictures.compactMap(\.dataUri)
         chat.error = ""
         launchRun()
     }
@@ -379,7 +457,7 @@ final class AppModel {
                         await reportTimezone()
                         stream = try await api.chat(
                             sessionId: chatId, requestId: chat.requestId, message: chat.pendingText,
-                            images: [], rerun: nil)
+                            images: chat.pendingImages, rerun: nil)
                     } else {
                         stream = try await api.events(runId: chat.runId, after: chat.cursor)
                     }
@@ -390,6 +468,7 @@ final class AppModel {
                             // A resent message whose run already finished: its reply is in the history.
                             chat.requestId = ""
                             chat.pendingText = ""
+                            chat.pendingImages = []
                             chat.error = runEndError(status)
                             await loadHistory()
                             break
@@ -424,6 +503,7 @@ final class AppModel {
             chat.cursor = 0
             chat.requestId = ""
             chat.pendingText = ""
+            chat.pendingImages = []
             if chat.stopRequested { stop() }
         }
         guard received.seq > chat.cursor else { return }
@@ -461,6 +541,7 @@ final class AppModel {
             chat.thinking = ""
             chat.stopRequested = false
             chat.error = runEndError(status, current: chat.error)
+            finished(chat)
             Task { await refreshSessions() }
         case .runStarted, .usage, .memoryScore, .autoPicked:
             break
@@ -496,6 +577,81 @@ final class AppModel {
         }
     }
 
+    /// Keeps the list's preview current, and when the app is in the background
+    /// shows the reply as a notification, since only routines get notices.
+    private func finished(_ chat: Chat) {
+        guard let reply = chat.messages.last(where: { $0.role == .assistant && !$0.text.isEmpty }) else { return }
+        if let session = sessions.first(where: { $0.id == chat.id }) {
+            previews[chat.id] = ChatPreview(text: plainLine(reply.text), updatedAt: max(session.updatedAt, nowMillis()))
+            ChatPreview.save(previews)
+        }
+        if UIApplication.shared.applicationState != .active {
+            notifier.show(chatId: chat.id, title: title(of: chat.id), lines: [.init(sender: nil, text: plainLine(reply.text))])
+        }
+    }
+
+    /// Answers a chat from its notification. The app may be in the background, so
+    /// this runs the turn itself and shows the reply as the next notification.
+    func reply(toChat id: String, text: String) async {
+        if id == chat.id {
+            send(text)
+            return
+        }
+        guard let api = try? api(),
+            let stream = try? await api.chat(
+                sessionId: id, requestId: UUID().uuidString.lowercased(), message: text, images: [], rerun: nil)
+        else { return }
+        var reply = ""
+        while let received = try? await stream.next() {
+            if case .textDelta(let delta) = received.event { reply += delta }
+            if case .runFinished = received.event { break }
+        }
+        await refreshSessions()
+        let line = plainLine(reply)
+        guard !line.isEmpty else { return }
+        if let session = sessions.first(where: { $0.id == id }) { remember(line, for: session) }
+        notifier.show(chatId: id, title: title(of: id), lines: [.init(sender: "You", text: text), .init(sender: nil, text: line)])
+    }
+
+    /// A tool call allowed or denied from its notification.
+    func answerFromNotice(sessionId: String, queryId: String, group: Bool, allow: Bool) async {
+        if group {
+            try? await api().answerGroupApproval(queryId: queryId, allow: allow)
+        } else if sessionId == chat.id, let prompt = chat.messages.flatMap(\.approvals).first(where: { $0.queryId == queryId }) {
+            answer(prompt, allow ? .allow : .deny)
+        } else {
+            _ = try? await api().answerApproval(sessionId: sessionId, queryId: queryId, decision: allow ? .allow : .deny)
+        }
+    }
+
+    /// Something changed on the server that a notice says nothing more about.
+    func noticeChanged(_ notice: Notice) {
+        Task {
+            if notice.group { await refreshGroups() } else { await refreshSessions() }
+            if !notice.group, notice.sessionId == chat.id, !chat.busy { await loadHistory() }
+        }
+    }
+
+    // MARK: Places
+
+    func refreshPlaces() async {
+        guard let list = try? await placesStore.list() else { return }
+        places = list
+        location.watch(list)
+    }
+
+    func deletePlace(_ id: String) async throws {
+        try await placesStore.delete(id: id)
+        places.removeAll { $0.id == id }
+        location.watch(places)
+    }
+
+    func updatePlace(_ id: String, name: String?, radius: Int?) async throws {
+        let place = try await placesStore.update(id: id, name: name, radius: radius)
+        if let index = places.firstIndex(where: { $0.id == id }) { places[index] = place }
+        location.watch(places)
+    }
+
     // MARK: Account
 
     /// Signs in as the account in a key file, after checking the server accepts it.
@@ -503,6 +659,7 @@ final class AppModel {
         guard let key = Identity.parse(text) else { throw BeepError.BadRequest(reason: "This file has no key") }
         if key == identity { return }
         let trial = try BeepClient(nodeId: BeepConfig.nodeId, identity: key)
+        trial.setListener(listener: notifier)
         try await trial.health()
         Identity.save(key)
         identity = key
@@ -512,6 +669,8 @@ final class AppModel {
         sessions = []
         groups = []
         starters = []
+        previews = [:]
+        ChatPreview.save(previews)
         await refreshAfterConnect()
     }
 
@@ -569,6 +728,51 @@ final class AppModel {
         }
     }
 }
+
+/// The chat list's last line of a chat, with the time the chat had then.
+struct ChatPreview: Codable {
+    var text: String
+    var updatedAt: Int64
+
+    static func load() -> [String: ChatPreview] {
+        guard let data = UserDefaults.standard.data(forKey: "chat_previews") else { return [:] }
+        return (try? JSONDecoder().decode([String: ChatPreview].self, from: data)) ?? [:]
+    }
+
+    static func save(_ previews: [String: ChatPreview]) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(previews), forKey: "chat_previews")
+    }
+}
+
+/// A screen the app opens from outside, such as a notification.
+enum Destination: Equatable {
+    case chat(String)
+    case group(String)
+}
+
+func nowMillis() -> Int64 { Int64(Date.now.timeIntervalSince1970 * 1000) }
+
+/// A reply as one line: markdown marks, code and product blocks taken out.
+func plainLine(_ text: String) -> String {
+    var out: [String] = []
+    var fenced = false
+    for raw in text.components(separatedBy: "\n") {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        if line.hasPrefix("```") {
+            fenced.toggle()
+            continue
+        }
+        if fenced || line.isEmpty || line.hasPrefix("|") { continue }
+        var clean = line
+        while let mark = clean.first, "#>-*".contains(mark) { clean = clean.dropFirst().trimmingCharacters(in: .whitespaces) }
+        clean = clean.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+        if !clean.isEmpty { out.append(clean) }
+    }
+    return out.joined(separator: " ")
+}
+
+/// A picture for `chat`, as the data URI the server takes.
+func dataURI(_ jpeg: Data) -> String { "data:image/jpeg;base64," + jpeg.base64EncodedString() }
 
 func runEndError(_ status: String, current: String = "") -> String {
     switch status {

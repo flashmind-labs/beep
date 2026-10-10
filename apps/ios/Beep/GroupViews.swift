@@ -74,11 +74,12 @@ struct GroupAvatar: View {
 
 /// The open group sheet, shown over whatever is on screen.
 enum GroupSheet: Identifiable {
-    case new, code
+    case start, new, code
     case invite(id: String, name: String)
 
     var id: String {
         switch self {
+        case .start: "start"
         case .new: "new"
         case .code: "code"
         case .invite(let id, _): "invite-\(id)"
@@ -98,7 +99,7 @@ private struct Outgoing: Identifiable {
 struct GroupChatView: View {
     @Environment(AppModel.self) private var model
     let groupId: String
-    @Binding var drawer: Bool
+    let back: () -> Void
     let info: () -> Void
     let invite: (Group) -> Void
     @State private var chat: GroupChat?
@@ -108,6 +109,8 @@ struct GroupChatView: View {
     @State private var outgoing: [Outgoing] = []
     @State private var draft = ""
     @State private var error = ""
+    @State private var replying: GroupMessage?
+    @State private var flashing: Int64?
     @FocusState private var typing: Bool
 
     private var group: Group? { chat?.group ?? model.groups.first { $0.id == groupId } }
@@ -117,11 +120,11 @@ struct GroupChatView: View {
             topBar
             ScrollViewReader { scroller in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
-                        messages
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        messages(scroller)
                         Color.clear.frame(height: 1).id("end")
                     }
-                    .padding(18)
+                    .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 16)
                 }
                 .overlay { placeholder }
                 .scrollDismissesKeyboard(.interactively)
@@ -135,10 +138,20 @@ struct GroupChatView: View {
                     .padding(.horizontal, 20)
             }
             if let group { MentionPicker(group: group, draft: $draft) }
+            if let replying, let group { replyBar(replying, group) }
             composer
         }
         .background(Mint.page)
         .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            model.onScreen = groupId
+            if let name = model.pendingMention {
+                model.pendingMention = nil
+                draft = "@\(name) " + draft
+                typing = true
+            }
+        }
+        .onDisappear { if model.onScreen == groupId { model.onScreen = nil } }
         // A notice would say when something changed; until the iPhone gets them, this polls.
         .task(id: groupId) {
             while !Task.isCancelled {
@@ -158,7 +171,7 @@ struct GroupChatView: View {
                 picturesSeq = last
             }
         } catch BeepError.NotFound {
-            model.newChat()
+            back()
         } catch {}
     }
 
@@ -172,21 +185,46 @@ struct GroupChatView: View {
         }
     }
 
-    @ViewBuilder private var messages: some View {
+    /// Messages in a row from one author, broken by a new day.
+    private struct Run: Identifiable {
+        var day: String?
+        var author: GroupAuthor
+        var messages: [GroupMessage]
+        var id: Int64 { messages[0].seq }
+    }
+
+    private func runs(_ messages: [GroupMessage]) -> [Run] {
+        var out: [Run] = []
+        var current: Date?
+        for message in messages {
+            let day = Calendar.current.startOfDay(for: date(message.timestamp))
+            let newDay = day != current
+            current = day
+            if !newDay, let last = out.last, last.author == message.author {
+                out[out.count - 1].messages.append(message)
+            } else {
+                out.append(Run(day: newDay ? dayLabel(day) : nil, author: message.author, messages: [message]))
+            }
+        }
+        return out
+    }
+
+    @ViewBuilder private func messages(_ scroller: ScrollViewProxy) -> some View {
         if let chat {
-            let days = dayStarts(chat.messages)
-            ForEach(chat.messages, id: \.seq) { message in
-                VStack(spacing: 12) {
-                    if let day = days[message.seq] {
+            let all = runs(chat.messages)
+            ForEach(Array(all.enumerated()), id: \.element.id) { index, run in
+                // Pending messages join the last run when it is yours.
+                let pending = index == all.count - 1 && run.author.isYou ? outgoing : []
+                VStack(spacing: 14) {
+                    if let day = run.day {
                         Text(day).font(.body(11)).foregroundStyle(Mint.dim).frame(maxWidth: .infinity)
                     }
-                    GroupBubble(group: chat.group, author: message.author, content: message.content,
-                                pictures: pictures[message.seq] ?? [], quote: quote)
+                    runView(run, pending: pending, group: chat.group, scroller: scroller)
                 }
             }
-            ForEach(outgoing) { out in
-                GroupBubble(group: chat.group, author: .member(name: "", you: true), content: out.text, quote: quote)
-                    .opacity(0.6)
+            if !(all.last?.author.isYou ?? false), !outgoing.isEmpty {
+                runView(Run(author: .member(name: "", you: true), messages: []), pending: outgoing, group: chat.group,
+                        scroller: scroller)
             }
             if chat.group.beepTyping {
                 HStack(spacing: 10) {
@@ -198,29 +236,55 @@ struct GroupChatView: View {
         }
     }
 
-    /// The first message of each day, with that day's label.
-    private func dayStarts(_ messages: [GroupMessage]) -> [Int64: String] {
-        var labels: [Int64: String] = [:]
-        var current: Date?
-        for message in messages {
-            let day = Calendar.current.startOfDay(for: date(message.timestamp))
-            if day != current { labels[message.seq] = dayLabel(day) }
-            current = day
+    private func runView(_ run: Run, pending: [Outgoing], group: Group, scroller: ScrollViewProxy) -> some View {
+        let total = run.messages.count + pending.count
+        return VStack(alignment: run.author.isYou ? .trailing : .leading, spacing: 3) {
+            ForEach(Array(run.messages.enumerated()), id: \.element.seq) { index, message in
+                GroupBubble(group: group, author: message.author, content: message.content,
+                            pictures: pictures[message.seq] ?? [],
+                            first: index == 0, last: index == total - 1, flash: flashing == message.seq,
+                            quoteAuthor: { source(of: $0)?.author }, quoted: { jump(to: $0, scroller: scroller) }, reply: { reply(to: message) })
+                    .id(message.seq)
+            }
+            ForEach(Array(pending.enumerated()), id: \.element.id) { index, out in
+                GroupBubble(group: group, author: .member(name: "", you: true), content: out.text,
+                            first: run.messages.isEmpty && index == 0, last: run.messages.count + index == total - 1,
+                            flash: false, quoteAuthor: { source(of: $0)?.author }, quoted: { _ in }, reply: {})
+                    .opacity(0.6)
+            }
         }
-        return labels
+        .frame(maxWidth: .infinity, alignment: run.author.isYou ? .trailing : .leading)
+    }
+
+    /// Scrolls to the message a quote came from and flashes it.
+    private func jump(to quote: String, scroller: ScrollViewProxy) {
+        guard let target = source(of: quote) else { return }
+        withAnimation(.snappy) { scroller.scrollTo(target.seq, anchor: .center) }
+        flashing = target.seq
+        Task {
+            try? await Task.sleep(for: .seconds(1.8))
+            if flashing == target.seq { withAnimation(.easeOut) { flashing = nil } }
+        }
+    }
+
+    private func source(of quote: String) -> GroupMessage? {
+        chat?.messages.last { plainLine(quoteBody($0.content).body).contains(quote) }
     }
 
     private var topBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Button {
                 typing = false
-                withAnimation(.snappy) { drawer = true }
-            } label: { Image(systemName: "line.3.horizontal") }
-                .buttonStyle(ChunkyButton())
-                .accessibilityLabel("Conversations")
+                back()
+            } label: {
+                Image(systemName: "arrow.left").font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Mint.ink).frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Chats")
             Button(action: info) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(group?.name ?? "Group").font(.display(24)).foregroundStyle(Mint.ink).lineLimit(1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(group?.name ?? "Group").font(.display(22)).foregroundStyle(Mint.ink).lineLimit(1)
                     if let group {
                         HStack(spacing: 6) {
                             HStack(spacing: -6) {
@@ -233,20 +297,43 @@ struct GroupChatView: View {
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(group == nil)
-            Spacer(minLength: 0)
             Button { if let group { invite(group) } } label: {
-                Image(systemName: "link").font(.system(size: 18)).foregroundStyle(Mint.muted).frame(width: 40, height: 40)
+                Image(systemName: "link").font(.system(size: 18)).foregroundStyle(Mint.muted).frame(width: 44, height: 44)
             }
             .disabled(group == nil)
             .accessibilityLabel("Invite")
         }
-        .padding(.leading, 12)
+        .padding(.leading, 6)
         .padding(.trailing, 8)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(Mint.page)
+    }
+
+    private func replyBar(_ message: GroupMessage, _ group: Group) -> some View {
+        let name = authorName(message.author)
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Replying to \(name == "You" ? "yourself" : name)").font(.body(12, .semibold))
+                    .foregroundStyle(authorColor(message.author, group))
+                Text(plainLine(quoteBody(message.content).body)).font(.body(13)).foregroundStyle(Mint.muted).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button { replying = nil } label: {
+                Image(systemName: "xmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(Mint.muted)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cancel reply")
+        }
+        .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Mint.surface))
+        .overlay(alignment: .leading) { UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10).fill(Mint.brand).frame(width: 3) }
+        .padding(.horizontal, 14).padding(.top, 4)
     }
 
     private var composer: some View {
@@ -262,11 +349,11 @@ struct GroupChatView: View {
                 .padding(.vertical, 14)
                 .frame(minHeight: 50)
                 .chunky()
-            Button(action: send) { Image(systemName: "paperplane") }
-                .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.accent, size: 50, radius: 18))
+            Button(action: send) { Image(systemName: "arrow.up").foregroundStyle(empty ? Mint.ink : .white) }
+                .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.brand, size: 50, radius: 25))
                 .opacity(empty ? 0.5 : 1)
                 .disabled(empty)
-                .accessibilityLabel("Send message")
+                .accessibilityLabel("Send")
         }
         .padding(.leading, 14)
         .padding(.trailing, 16)
@@ -276,11 +363,15 @@ struct GroupChatView: View {
     }
 
     private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        if let replying {
+            text = "> " + plainLine(quoteBody(replying.content).body).prefix(140) + "\n\n" + text
+        }
         let out = Outgoing(text: text)
         outgoing.append(out)
         draft = ""
+        replying = nil
         error = ""
         Task {
             do {
@@ -294,65 +385,109 @@ struct GroupChatView: View {
         }
     }
 
-    /// Puts the quoted text above whatever is already typed.
-    private func quote(_ text: String) {
-        let lines = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: "\n", omittingEmptySubsequences: false).prefix(4)
-        draft = lines.map { "> " + $0 }.joined(separator: "\n") + "\n\n" + draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func reply(to message: GroupMessage) {
+        replying = message
         typing = true
     }
 }
 
-/// The same bubbles as a one to one chat: yours on the right, Beep's reply as Beep writes
-/// it there, and other members on the left with their name on top.
+extension GroupAuthor {
+    var isYou: Bool {
+        if case .member(_, true) = self { return true }
+        return false
+    }
+}
+
+/// A reply's quote: the "> " lines at the top, then the message.
+private func quoteBody(_ content: String) -> (quote: String?, body: String) {
+    var lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+    var quoted: [String] = []
+    while let first = lines.first, first.hasPrefix(">") {
+        quoted.append(String(first.dropFirst()).trimmingCharacters(in: .whitespaces))
+        lines.removeFirst()
+    }
+    guard !quoted.isEmpty else { return (nil, content) }
+    let body = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    return (quoted.joined(separator: " "), body)
+}
+
+private func authorColor(_ author: GroupAuthor, _ group: Group) -> Color {
+    switch author {
+    case .beep: Mint.brand
+    case .member(_, true): Mint.muted
+    case .member(let name, false): nameColors[memberIndex(group, name) % nameColors.count]
+    }
+}
+
+/// Bubbles in a run share a name and tighter corners on the side they hang from:
+/// yours on the right, Beep's reply as Beep writes it there, and other members on the left.
 private struct GroupBubble: View {
     let group: Group
     let author: GroupAuthor
     let content: String
     var pictures: [Picture] = []
-    let quote: (String) -> Void
+    let first: Bool
+    let last: Bool
+    let flash: Bool
+    /// Who wrote a quoted text, found among the loaded messages.
+    let quoteAuthor: (String) -> GroupAuthor?
+    let quoted: (String) -> Void
+    let reply: () -> Void
 
     var body: some View {
+        let parts = quoteBody(content)
         switch author {
         case .member(_, true):
-            ownBody
-                .chunky(Mint.user, shape: UnevenRoundedRectangle(
-                    topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18))
-                .contextMenu { menu }
-                .padding(.leading, 48)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            ownBody(parts)
+            .chunky(Mint.user, shape: UnevenRoundedRectangle(
+                topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: last ? 4 : 6,
+                topTrailingRadius: first ? 18 : 6), drop: 0)
+            .contextMenu { menu }
+            .padding(.leading, 48)
         case .beep:
             VStack(alignment: .leading, spacing: 4) {
-                Text("Beep").font(.body(12, .semibold)).foregroundStyle(Mint.brand).padding(.leading, 4)
-                MarkdownText(text: withMentions(content))
-                    .contextMenu { menu }
+                if first { Text("Beep").font(.body(12, .semibold)).foregroundStyle(Mint.brand).padding(.leading, 4) }
+                if let quote = parts.quote { chip(quote) }
+                MarkdownText(text: withMentions(parts.body))
             }
+            .padding(4)
+            .background(RoundedRectangle(cornerRadius: 12).fill(flash ? Mint.tints[2] : .clear))
+            .padding(-4)
+            .contextMenu { menu }
             .frame(maxWidth: .infinity, alignment: .leading)
         case .member(let name, false):
-            VStack(alignment: .leading, spacing: 4) {
-                Text(name).font(.body(12, .semibold))
-                    .foregroundStyle(nameColors[memberIndex(group, name) % nameColors.count])
+            VStack(alignment: .leading, spacing: 2) {
+                if first {
+                    Text(name).font(.body(12, .semibold))
+                        .foregroundStyle(nameColors[memberIndex(group, name) % nameColors.count])
+                }
+                if let quote = parts.quote { chip(quote) }
                 if !pictures.isEmpty { PictureGrid(pictures: pictures).frame(width: 212) }
-                if !content.isEmpty { MarkdownText(text: withMentions(content)) }
+                if !parts.body.isEmpty { MarkdownText(text: withMentions(parts.body)) }
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .chunky(shape: UnevenRoundedRectangle(
-                topLeadingRadius: 6, bottomLeadingRadius: 18, bottomTrailingRadius: 18, topTrailingRadius: 18))
+            .padding(.horizontal, 12).padding(.top, 7).padding(.bottom, 9)
+            .chunky(flash ? Mint.tints[2] : Mint.surface, shape: UnevenRoundedRectangle(
+                topLeadingRadius: first ? 18 : 6, bottomLeadingRadius: last ? 4 : 6, bottomTrailingRadius: 18,
+                topTrailingRadius: 18), drop: 0)
             .contextMenu { menu }
             .padding(.trailing, 48)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    /// Your text, with any pictures above it as in a one to one chat.
-    @ViewBuilder private var ownBody: some View {
+    /// Your text under any quote, with any pictures above it as in a one to one chat.
+    @ViewBuilder private func ownBody(_ parts: (quote: String?, body: String)) -> some View {
         if pictures.isEmpty {
-            MarkdownText(text: withMentions(content)).padding(.horizontal, 14).padding(.vertical, 10)
+            VStack(alignment: .leading, spacing: 0) {
+                if let quote = parts.quote { chip(quote) }
+                MarkdownText(text: withMentions(parts.body))
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 PictureGrid(pictures: pictures)
-                if !content.isEmpty {
-                    MarkdownText(text: withMentions(content))
+                if let quote = parts.quote { chip(quote).padding(.horizontal, 6) }
+                if !parts.body.isEmpty {
+                    MarkdownText(text: withMentions(parts.body))
                         .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -362,9 +497,31 @@ private struct GroupBubble: View {
         }
     }
 
+    /// The quoted message: who said it and its first line. Tapping jumps to it.
+    private func chip(_ quote: String) -> some View {
+        let source = quoteAuthor(quote)
+        return Button { quoted(quote) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                if let source {
+                    Text(authorName(source)).font(.body(12, .semibold)).foregroundStyle(authorColor(source, group))
+                }
+                Text(quote).font(.body(12.5)).foregroundStyle(Mint.muted).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 9).padding(.trailing, 9).padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Mint.page))
+            .overlay(alignment: .leading) {
+                UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8).fill(Mint.brand).frame(width: 3)
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 2).padding(.bottom, 6)
+        .accessibilityLabel("Go to the quoted message")
+    }
+
     @ViewBuilder private var menu: some View {
+        Button(action: reply) { Label("Reply", systemImage: "arrowshape.turn.up.left") }
         Button { UIPasteboard.general.string = content } label: { Label("Copy", systemImage: "doc.on.doc") }
-        Button { quote(content) } label: { Label("Quote", systemImage: "quote.opening") }
     }
 }
 
@@ -825,17 +982,28 @@ struct GroupInfoView: View {
     @Environment(AppModel.self) private var model
     let groupId: String
     let back: () -> Void
+    /// After leaving: back to the list.
+    let left: () -> Void
+    let mention: (String) -> Void
     let invite: (Group) -> Void
     @State private var fetched: Group?
     @State private var reminders: [GroupReminder]?
     @State private var confirmLeave = false
+    @State private var member: GroupMember?
     @State private var error = ""
 
     private var group: Group? { model.groups.first { $0.id == groupId } ?? fetched }
 
     var body: some View {
         VStack(spacing: 0) {
-            BackBar(title: "Group info", back: back)
+            BackBar(title: "Group info", back: back) {
+                if let group {
+                    Button { invite(group) } label: {
+                        Image(systemName: "link").font(.system(size: 18)).foregroundStyle(Mint.muted).frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Invite")
+                }
+            }
             ScrollView {
                 if let group {
                     VStack(alignment: .leading, spacing: 10) { content(group) }
@@ -856,23 +1024,93 @@ struct GroupInfoView: View {
         } message: {
             Text((group?.members.count ?? 0) <= 1
                 ? "You are the last member, so the group and its messages are deleted."
-                : "You stop getting its messages. Someone in it can invite you again.")
+                : "You stop getting its messages. To come back, someone has to send you the code again.")
+        }
+        .sheet(item: $member) { member in
+            if let group { memberSheet(member, group) }
         }
     }
 
+    private func memberSheet(_ member: GroupMember, _ group: Group) -> some View {
+        let mine = reminders?.filter { $0.setBy == member.name }.count ?? 0
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                GroupAvatar(letter: initial(member.name), color: memberTint(memberIndex(group, member.name)), size: 56)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(member.name).font(.display(24)).foregroundStyle(Mint.ink)
+                    Text(joined(member)).font(.body(13)).foregroundStyle(Mint.muted)
+                }
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("Reminders set", systemImage: "clock").font(.body(13)).foregroundStyle(Mint.ink)
+                    Spacer()
+                    Text("\(mine)").font(.body(13, .semibold)).foregroundStyle(Mint.ink)
+                }
+            }
+            .padding(14)
+            .chunky()
+            Button {
+                self.member = nil
+                mention(member.name)
+            } label: {
+                Text("@ Mention \(member.name)").font(.body(14, .semibold)).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PillButton())
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18).padding(.top, 28)
+        .background(Mint.page)
+        .presentationDetents([.height(300)])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
+    }
+
+    private func joined(_ member: GroupMember) -> String {
+        let day = date(member.joinedAt).formatted(.dateTime.day().month(.abbreviated))
+        return member.creator ? "Made the group on \(day)" : "Joined \(day)"
+    }
+
     @ViewBuilder private func content(_ group: Group) -> some View {
+        VStack(spacing: 6) {
+            ChatAvatar(text: groupInitials(group.name), fill: groupTint(group.id), size: 84)
+                .background(Circle().fill(Mint.ledge).offset(y: 3))
+            Text(group.name).font(.display(28)).foregroundStyle(Mint.ink).multilineTextAlignment(.center)
+            Text("Group · \(group.members.count + 1) members").font(.body(13)).foregroundStyle(Mint.muted)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 6).padding(.bottom, 4)
         section("Members")
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(group.members.enumerated()), id: \.offset) { index, member in
-                memberLine(GroupAvatar(letter: initial(member.name), color: memberTint(index), size: 36),
-                           member.you ? "\(member.name) (you)" : member.name,
-                           member.creator ? "Created the group"
-                               : "Joined " + date(member.joinedAt).formatted(.dateTime.day().month(.abbreviated)))
+            ForEach(group.members.sorted { $0.you && !$1.you }, id: \.name) { member in
+                Button { if !member.you { self.member = member } } label: {
+                    HStack(spacing: 12) {
+                        GroupAvatar(letter: initial(member.name), color: memberTint(memberIndex(group, member.name)), size: 36)
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Text(member.you ? "You" : member.name).font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                                if member.creator {
+                                    Text("Made it").font(.body(10, .semibold)).foregroundStyle(Mint.ink)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Capsule().fill(Mint.tints[1]))
+                                }
+                            }
+                            Text(member.you ? "\(member.name) · \(joined(member))" : joined(member))
+                                .font(.body(12)).foregroundStyle(Mint.muted)
+                        }
+                        Spacer(minLength: 0)
+                        if !member.you {
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Mint.dim)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             memberLine(GroupAvatar(letter: "b", color: Mint.brand, size: 36, beep: true),
                        "Beep", "Joins in when it can help, or when someone writes @beep")
             Button { invite(group) } label: {
-                Label("Invite with a link", systemImage: "link").frame(maxWidth: .infinity)
+                Label("Invite with a code", systemImage: "link").frame(maxWidth: .infinity)
             }
             .buttonStyle(PillButton())
         }
@@ -904,9 +1142,14 @@ struct GroupInfoView: View {
         }
         .padding(14)
         .chunky()
-        Button("Leave group") { confirmLeave = true }
-            .buttonStyle(TextAction(color: Mint.error))
-            .padding(.top, 4)
+        Button { confirmLeave = true } label: {
+            Label("Leave group", systemImage: "rectangle.portrait.and.arrow.right")
+                .font(.body(15, .semibold)).foregroundStyle(Mint.error)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Mint.error, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 12)
     }
 
     private func section(_ title: String) -> some View {
@@ -941,7 +1184,7 @@ struct GroupInfoView: View {
         Task {
             do {
                 try await model.leaveGroup(groupId)
-                back()
+                left()
             } catch {
                 self.error = describe(error)
             }
@@ -999,3 +1242,7 @@ private struct GroupRemindersCard: View {
 private func capitalized(_ text: String) -> String { text.prefix(1).uppercased() + text.dropFirst() }
 private func trim(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 private func blank(_ text: String) -> Bool { trim(text).isEmpty }
+
+extension GroupMember: Identifiable {
+    public var id: String { name }
+}
