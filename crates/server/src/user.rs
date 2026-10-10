@@ -921,6 +921,14 @@ impl User {
         self.store.cross_places(&self.key, fix).await
     }
 
+    /// Records that the phone saw itself arrive at or leave place `id`, and
+    /// returns the crossing when that changed where it was.
+    pub async fn cross_place(&self, id: Uuid, event: PlaceEvent) -> Result<Option<Crossed>> {
+        self.store
+            .cross_place(&self.key, id, event, Utc::now())
+            .await
+    }
+
     /// Saves a routine that starts at a place and returns its id.
     pub async fn create_place_routine(&self, routine: &NewPlaceRoutine<'_>) -> Result<Uuid> {
         let id = self.store.create_place_routine(&self.key, routine).await?;
