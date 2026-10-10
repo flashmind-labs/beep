@@ -134,7 +134,7 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
             speakableGroupName: INSpeakableString(spokenPhrase: title), conversationIdentifier: threadId,
             serviceName: nil, sender: from, attachments: nil)
         let initials = group ? groupInitials(title) : "b"
-        intent.setImage(avatar(initials, fill: group ? UIColor(groupTint(threadId)) : UIColor(Mint.brand), light: !group),
+        intent.setImage(avatar(initials, fill: group ? UIColor(Mint.tint(for: threadId)) : UIColor(Mint.brand), light: !group),
                         forParameterNamed: \.speakableGroupName)
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
@@ -144,7 +144,7 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
 
     @MainActor private func person(_ name: String, id: String, beep: Bool) -> INPerson {
         let image = beep ? avatar("b", fill: UIColor(Mint.brand), light: true)
-            : avatar(initial(name), fill: UIColor(Mint.tints[abs(name.unicodeScalars.reduce(0) { $0 + Int($1.value) }) % 3]), light: false)
+            : avatar(initial(name), fill: UIColor(Mint.tint(for: name)), light: false)
         return INPerson(personHandle: INPersonHandle(value: id, type: .unknown), nameComponents: nil,
                         displayName: name, image: image, contactIdentifier: nil, customIdentifier: id)
     }

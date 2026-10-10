@@ -372,11 +372,9 @@ func clockTime(hour: Int, minute: Int) -> String {
 }
 
 func parseInstant(_ text: String) -> Date? {
-    let plain = ISO8601DateFormatter()
-    let fractional = ISO8601DateFormatter()
-    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let trimmed = text.trimmingCharacters(in: .whitespaces)
-    return plain.date(from: trimmed) ?? fractional.date(from: trimmed)
+    return (try? Date(trimmed, strategy: .iso8601))
+        ?? (try? Date(trimmed, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
 }
 
 /// Reads the cron shapes the sheet writes as words, the same as Android. Anything else shows as written.

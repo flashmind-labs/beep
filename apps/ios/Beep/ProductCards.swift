@@ -20,7 +20,8 @@ struct Product: Decodable, Hashable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         title = try c.decode(String.self, forKey: .title)
-        guard let url = URL(string: try c.decode(String.self, forKey: .url)), url.host() != nil else {
+        guard let url = URL(string: try c.decode(String.self, forKey: .url)), url.host() != nil,
+              ["http", "https"].contains(url.scheme?.lowercased()) else {
             throw DecodingError.dataCorruptedError(forKey: .url, in: c, debugDescription: "not a link")
         }
         self.url = url

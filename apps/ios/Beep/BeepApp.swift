@@ -147,7 +147,6 @@ struct RootView: View {
     }
 
     private func openGroup(_ id: String) {
-        model.openGroup(id)
         path = [.group(id)]
     }
 
