@@ -7,6 +7,8 @@ struct RoutinesView: View {
     @State private var loaded = false
     @State private var error = ""
     @State private var creating = false
+    /// Opens the new routine sheet set to arrive at this place, from the places screen.
+    var startAt: SavedPlace?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,11 +50,17 @@ struct RoutinesView: View {
         .background(Mint.page)
         .task(id: model.connected) { if model.connected { await load() } }
         .sheet(isPresented: $creating) {
-            NewRoutineView { label, prompt, schedule in
+            NewRoutineView(places: model.places, place: startAt) { label, prompt, schedule in
                 try await model.createCron(label: label, prompt: prompt, schedule: schedule)
                 await load()
+                // Arriving only reaches Beep with the app closed when location is Always.
+                if PlaceTrigger(schedule: schedule) != nil, !model.location.always {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    path.append(.locationAlways)
+                }
             }
         }
+        .onAppear { if startAt != nil, !loaded { creating = true } }
     }
 
     private func load() async {
@@ -84,7 +92,7 @@ struct RoutinesView: View {
         Task {
             do {
                 try await model.runCron(cron.id)
-                path.removeAll()
+                path = [.chat]
             } catch {
                 self.error = describe(error)
             }
@@ -94,6 +102,7 @@ struct RoutinesView: View {
 
 /// A routine card that runs when swiped right and is deleted when swiped left.
 private struct RoutineCard: View {
+    @Environment(AppModel.self) private var model
     let cron: Cron
     let toggle: (Bool) -> Void
     let run: () -> Void
@@ -125,7 +134,7 @@ private struct RoutineCard: View {
                         .font(.body(13, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                     Text(cron.prompt).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(2).lineSpacing(4)
                         .padding(.top, 3)
-                    Text(describeSchedule(cron.schedule)).font(.body(11)).foregroundStyle(Mint.dim)
+                    Text(describeSchedule(cron.schedule, places: model.places)).font(.body(11)).foregroundStyle(Mint.dim)
                         .padding(.top, 4)
                     if cron.enabled, parseInstant(cron.schedule) == nil,
                        let next = cron.nextRunAt.flatMap(parseInstant) {
@@ -166,7 +175,12 @@ private enum Repeat: String, CaseIterable {
 /// The Android "New routine" dialog, as a sheet.
 private struct NewRoutineView: View {
     @Environment(\.dismiss) private var dismiss
+    let places: [SavedPlace]
+    var place: SavedPlace?
     let create: (String, String, String) async throws -> Void
+    @State private var when: PlaceTrigger.Kind?
+    @State private var placeId = ""
+    @State private var daily = true
     @State private var label = ""
     @State private var prompt = ""
     @State private var repeatMode = Repeat.daily
@@ -180,14 +194,26 @@ private struct NewRoutineView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Text("New routine").font(.display(22)).foregroundStyle(Mint.ink)
                 field("Name", text: $label, placeholder: "Morning briefing")
-                ScrollView(.horizontal, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("When").font(.body(12, .medium)).foregroundStyle(Mint.muted)
                     HStack(spacing: 8) {
-                        ForEach(Repeat.allCases, id: \.self) { mode in
-                            FilterChip(label: mode.rawValue, selected: repeatMode == mode) { repeatMode = mode }
+                        FilterChip(label: "At a time", selected: when == nil) { when = nil }
+                        FilterChip(label: "I arrive", selected: when == .arrive) { when = .arrive }
+                        FilterChip(label: "I leave", selected: when == .leave) { when = .leave }
+                    }
+                }
+                if when != nil {
+                    placeChoice
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Repeat.allCases, id: \.self) { mode in
+                                FilterChip(label: mode.rawValue, selected: repeatMode == mode) { repeatMode = mode }
+                            }
                         }
                     }
                 }
-                if repeatMode == .weekly {
+                if when == nil, repeatMode == .weekly {
                     HStack(spacing: 6) {
                         ForEach(cronDays, id: \.self) { day in
                             FilterChip(label: String(cronDayName(day).prefix(2)), selected: days.contains(day)) {
@@ -196,7 +222,7 @@ private struct NewRoutineView: View {
                         }
                     }
                 }
-                timePicker
+                if when == nil { timePicker }
                 field("What should Beep do?", text: $prompt, placeholder: "Give me a summary of...", lines: 2...4)
                 if !error.isEmpty {
                     Text(error).font(.body(12)).foregroundStyle(Mint.error)
@@ -221,6 +247,36 @@ private struct NewRoutineView: View {
         .presentationDetents([.medium, .large])
         .presentationBackground(Mint.page)
         .presentationCornerRadius(28)
+        .onAppear {
+            if let place {
+                when = .arrive
+                placeId = place.id
+            } else if let first = places.first {
+                placeId = first.id
+            }
+        }
+    }
+
+    @ViewBuilder private var placeChoice: some View {
+        if places.isEmpty {
+            Text("No saved places yet. Tell Beep \"save this place as Gym\" while you're there.")
+                .font(.body(13)).foregroundStyle(Mint.muted).lineSpacing(3)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(places) { place in
+                        FilterChip(label: place.name, selected: placeId == place.id) { placeId = place.id }
+                    }
+                }
+            }
+            Toggle(isOn: $daily) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Once a day at most").font(.body(14, .medium)).foregroundStyle(Mint.ink)
+                    Text("Skips it if you come back the same day").font(.body(12)).foregroundStyle(Mint.muted)
+                }
+            }
+            .tint(Mint.ok)
+        }
     }
 
     @ViewBuilder private var timePicker: some View {
@@ -265,6 +321,9 @@ private struct NewRoutineView: View {
     }
 
     private var schedule: String {
+        if let when {
+            return places.contains { $0.id == placeId } ? PlaceTrigger(kind: when, placeId: placeId, daily: daily).schedule : ""
+        }
         let parts = Calendar.current.dateComponents([.hour, .minute], from: time)
         let hour = parts.hour ?? 9
         let minute = parts.minute ?? 0
@@ -316,7 +375,12 @@ func parseInstant(_ text: String) -> Date? {
 }
 
 /// Reads the cron shapes the sheet writes as words, the same as Android. Anything else shows as written.
-func describeSchedule(_ expression: String) -> String {
+func describeSchedule(_ expression: String, places: [SavedPlace] = []) -> String {
+    if let trigger = PlaceTrigger(schedule: expression) {
+        let name = places.first { $0.id == trigger.placeId }?.name ?? "a saved place"
+        return (trigger.kind == .arrive ? "When you arrive at " : "When you leave ") + name
+            + (trigger.daily ? " · once a day at most" : "")
+    }
     if let once = parseInstant(expression) { return "Once, " + describeDay(once) }
     let parts = expression.split(separator: " ").map(String.init)
     guard parts.count == 5, parts[2] == "*", parts[3] == "*",
