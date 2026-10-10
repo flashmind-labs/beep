@@ -161,7 +161,9 @@ object ChatNotifications {
         val style = Notification.MessagingStyle(you())
             .setConversationTitle(title.takeIf { key.group || it.isNotBlank() && it != NEW_CHAT_TITLE })
             .setGroupConversation(key.group)
-        val kept = lines.takeLast(SHOWN_MESSAGES)
+        // A chat with Beep shows only its latest line, so a long reply is not buried under
+        // the turns before it. A group keeps who said what.
+        val kept = lines.takeLast(if (key.group) SHOWN_MESSAGES else 1)
         kept.forEach { line ->
             val sender = when (line.sender) { null -> null; BEEP -> beep; else -> members.getValue(line.sender) }
             style.addMessage(line.text, line.time, sender)

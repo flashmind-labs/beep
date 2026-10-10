@@ -91,8 +91,10 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
         guard let last = lines.last else { return }
         let content = UNMutableNotificationContent()
         content.title = title
-        content.body = lines.map { line in
-            lines.count > 1 ? "\(line.sender ?? "Beep"): \(line.text)" : line.text
+        // A chat with Beep shows only its latest reply; a group keeps who said what.
+        let shown = group ? lines : [last]
+        content.body = shown.map { line in
+            shown.count > 1 ? "\(line.sender ?? "Beep"): \(line.text)" : line.text
         }.joined(separator: "\n")
         content.threadIdentifier = threadId
         content.sound = .default
