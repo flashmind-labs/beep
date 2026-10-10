@@ -2,21 +2,23 @@
 
 use crate::{
     bar,
-    beep::{Answer, BarEvent, Beep, LinkView, Turn, qr_svg},
+    beep::{Answer, BarEvent, Beep, LinkView, Pictures, Turn, qr_svg},
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
     state::LinkState,
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     AnswerGroupApproval, ApiError, ApprovalDecision, CreateGroup, DeleteGroupReminder,
-    DeleteSession, GetGroup, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup,
-    ListGroupReminders, ListGroups, PeekGroup, PinGroup, PinSession, RenameSession, SendToGroup,
-    Session, SessionMatch, ShareGroupApps, ShareSession, SharedLink, UnshareSession,
+    DeleteSession, GetGroup, GetGroupImages, GroupInvite, GroupPreview, GroupReminder, JoinGroup,
+    LeaveGroup, ListGroupReminders, ListGroups, PeekGroup, PinGroup, PinSession, RenameSession,
+    SendToGroup, Session, SessionMatch, ShareGroupApps, ShareSession, SharedLink, UnshareSession,
     format_group_code, group_code,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, process::Command, sync::Arc};
 use tauri::{AppHandle, Manager, State, ipc::Channel};
+use tokio::join;
 use uuid::Uuid;
 
 type Service<'a> = State<'a, Arc<Beep>>;
@@ -156,9 +158,19 @@ pub async fn list_groups(beep: Service<'_>) -> Result<Vec<GroupView>> {
 
 #[tauri::command]
 pub async fn open_group(beep: Service<'_>, id: String) -> Result<GroupChatView> {
-    let chat = beep.call(GetGroup { id: id.clone() }).await?;
+    let (chat, images) = join!(
+        beep.call(GetGroup { id: id.clone() }),
+        beep.call(GetGroupImages {
+            group_id: id.clone()
+        }),
+    );
+    let mut view = GroupChatView::from(chat?);
+    let mut pictures = Pictures::new(images);
+    for message in &mut view.messages {
+        message.images = pictures.take(message.seq);
+    }
     beep.set_group(Some(id));
-    Ok(chat.into())
+    Ok(view)
 }
 
 /// The bar left the group, so its messages notify again.
@@ -178,6 +190,7 @@ pub async fn send_to_group(
             group_id,
             request_id: Uuid::new_v4(),
             message,
+            images: Vec::new(),
         })
         .await?;
     Ok(sent.into())
@@ -289,29 +302,70 @@ pub async fn answer_group_approval(beep: Service<'_>, query_id: String, allow: b
 
 // ---------- Files ----------
 
+/// What the bar shows for a file or picture the server no longer has.
+const GONE: &str = "No longer available";
+
+/// Whether `id` names a file and nothing else, so it is safe in a path.
+fn file_id(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// Downloads file `id` to `path` unless an earlier download left it there.
+async fn cached(beep: &Beep, id: &str, path: &Path) -> Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    match beep.download(id, path).await {
+        Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
+        other => other,
+    }
+}
+
 /// Opens a file Beep sent, downloading it into the cache the first time.
 #[tauri::command]
 pub async fn open_file(app: AppHandle, beep: Service<'_>, id: String, name: String) -> Result<()> {
-    if !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') || id.is_empty() {
+    if !file_id(&id) {
         return Err(DesktopError::BadRequest("bad file".into()));
     }
     let dir = app.path().app_cache_dir()?.join("files").join(&id);
     fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
     let path = dir.join(file_name(&name));
-    if !path.exists() {
-        match beep.download(&id, &path).await {
-            Ok(()) => {}
-            Err(DesktopError::Api(ApiError::NotFound {})) => {
-                return Err(DesktopError::BadRequest("No longer available".into()));
-            }
-            Err(e) => return Err(e),
-        }
-    }
+    cached(&beep, &id, &path).await?;
     Command::new("open")
         .arg(&path)
         .spawn()
         .map_err(anyhow::Error::from)?;
     Ok(())
+}
+
+/// A picture someone sent, as a data URL the bar can draw. Its bytes are
+/// kept in the cache, so each one downloads once.
+#[tauri::command]
+pub async fn picture(
+    app: AppHandle,
+    beep: Service<'_>,
+    id: String,
+    mime: String,
+) -> Result<String> {
+    if !file_id(&id) || !image_mime(&mime) {
+        return Err(DesktopError::BadRequest("bad picture".into()));
+    }
+    let dir = app.path().app_cache_dir()?.join("pictures");
+    fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
+    let path = dir.join(&id);
+    cached(&beep, &id, &path).await?;
+    let bytes = fs::read(&path).map_err(anyhow::Error::from)?;
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+}
+
+/// Whether `mime` is a picture type plain enough to put in a data URL.
+fn image_mime(mime: &str) -> bool {
+    mime.strip_prefix("image/").is_some_and(|sub| {
+        !sub.is_empty()
+            && sub
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"+-.".contains(&b))
+    })
 }
 
 /// `name` without anything that would leave the file's folder.
@@ -372,7 +426,16 @@ pub fn open_url(url: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::file_name;
+    use super::{file_name, image_mime};
+
+    #[test]
+    fn image_mime_takes_picture_types_only() {
+        assert!(image_mime("image/jpeg"));
+        assert!(image_mime("image/svg+xml"));
+        assert!(!image_mime("image/"));
+        assert!(!image_mime("text/html"));
+        assert!(!image_mime("image/png;base64,x"));
+    }
 
     #[test]
     fn file_name_stays_in_its_folder() {

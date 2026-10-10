@@ -9,8 +9,9 @@ use crate::{
 };
 use beep_proto::{
     AnswerApproval, ApprovalDecision, Call, CancelRun, Chat, DeviceAnswer, DeviceQuery,
-    DeviceResult, Event, GetEvents, GetFile, GetSession, HistoryEntry, ListSessions, Notice,
-    Platform, RemoveDevice, RunEvent, SearchSessions, Session, SessionMatch, Stream,
+    DeviceResult, Event, GetEvents, GetFile, GetSession, GetSessionImages, HistoryEntry, ImageRef,
+    ListSessions, Notice, Platform, RemoveDevice, RunEvent, SearchSessions, SentImages, Session,
+    SessionMatch, Stream,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
 };
@@ -18,6 +19,7 @@ use iroh::EndpointId;
 use qrcode::{QrCode, render::svg::Color};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
@@ -25,7 +27,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tauri::ipc::Channel;
-use tokio::{sync::mpsc, time::timeout};
+use tokio::{join, sync::mpsc, time::timeout};
 use uuid::Uuid;
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
@@ -93,6 +95,8 @@ pub struct Field {
 pub enum Turn {
     User {
         text: String,
+        /// The pictures sent with it, read with the `picture` command.
+        images: Vec<ImageRef>,
     },
     Assistant {
         html: String,
@@ -124,6 +128,27 @@ pub struct SentFile {
     pub name: String,
     pub mime: String,
     pub size: u64,
+}
+
+/// The pictures a chat's messages carried, by the message they came with:
+/// the user entry's timestamp in a session, the message's seq in a group.
+pub struct Pictures(HashMap<i64, Vec<ImageRef>>);
+
+impl Pictures {
+    /// The pictures listed in `reply`. A server too old to keep pictures
+    /// fails the call, which only means there are none.
+    pub fn new(reply: Result<Vec<SentImages>>) -> Self {
+        let sent = reply.unwrap_or_else(|e| {
+            log::info!("listing pictures: {e}");
+            Vec::new()
+        });
+        Self(sent.into_iter().map(|s| (s.message, s.images)).collect())
+    }
+
+    /// The pictures `message` carried, if any.
+    pub fn take(&mut self, message: i64) -> Vec<ImageRef> {
+        self.0.remove(&message).unwrap_or_default()
+    }
 }
 
 /// A code for the phone to scan.
@@ -316,8 +341,15 @@ impl Beep {
     }
 
     pub async fn history(&self, id: String) -> Result<Vec<Turn>> {
-        let entries = self.call(GetSession { id }).await?;
-        Ok(entries.into_iter().map(turn).collect())
+        let (entries, images) = join!(
+            self.call(GetSession { id: id.clone() }),
+            self.call(GetSessionImages { session_id: id }),
+        );
+        let mut pictures = Pictures::new(images);
+        Ok(entries?
+            .into_iter()
+            .map(|entry| turn(entry, &mut pictures))
+            .collect())
     }
 
     /// Sends `message` and streams the run into `channel`. Returns the
@@ -551,9 +583,14 @@ pub fn qr_svg(data: &str) -> Result<String> {
         .build())
 }
 
-fn turn(entry: HistoryEntry) -> Turn {
+fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
     match entry {
-        HistoryEntry::User { content, .. } => Turn::User { text: content },
+        HistoryEntry::User {
+            content, timestamp, ..
+        } => Turn::User {
+            text: content,
+            images: pictures.take(timestamp),
+        },
         HistoryEntry::Assistant { content, tools, .. } => {
             let (suggest, tools): (Vec<_>, Vec<_>) =
                 tools.into_iter().partition(|t| t.name == SUGGEST_REPLIES);

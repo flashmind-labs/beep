@@ -403,7 +403,8 @@ impl Store {
         Ok(changed > 0)
     }
 
-    /// Takes `user` out of group `id`, deleting it when nobody is left.
+    /// Takes `user` out of group `id`, deleting it and its pictures when
+    /// nobody is left.
     /// `false` when they were not in it.
     pub(crate) async fn leave_group(&self, user: &UserKey, id: &str) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
@@ -413,14 +414,26 @@ impl Store {
             .execute(&mut *tx)
             .await?
             .rows_affected();
-        sqlx::query(
+        let emptied = sqlx::query(
             "DELETE FROM groups WHERE id = $1
              AND NOT EXISTS(SELECT 1 FROM group_members WHERE group_id = $1)",
         )
         .bind(id)
         .execute(&mut *tx)
-        .await?;
+        .await?
+        .rows_affected();
+        let pictures: Vec<String> = if emptied > 0 {
+            sqlx::query_scalar(
+                "DELETE FROM files WHERE session_id = $1 AND group_seq IS NOT NULL RETURNING id",
+            )
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await?
+        } else {
+            Vec::new()
+        };
         tx.commit().await?;
+        self.blobs.delete(&pictures).await?;
         Ok(left > 0)
     }
 }
