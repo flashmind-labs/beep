@@ -2,7 +2,7 @@
 //! so these name its parts for the page.
 
 use crate::{beep::Field, markdown};
-use beep_proto::{Group, GroupAuthor, GroupChat, GroupMember, GroupMessage};
+use beep_proto::{Group, GroupAuthor, GroupChat, GroupMember, GroupMessage, ImageRef};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,6 +33,8 @@ pub struct MessageView {
     /// Beep's replies as sanitized HTML, empty for people's.
     pub html: String,
     pub timestamp: i64,
+    /// The pictures sent with it, filled in from `GetGroupImages`.
+    pub images: Vec<ImageRef>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,6 +63,7 @@ impl From<GroupMessage> for MessageView {
             text: m.content,
             html,
             timestamp: m.timestamp,
+            images: Vec::new(),
         }
     }
 }

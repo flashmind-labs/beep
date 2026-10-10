@@ -88,6 +88,7 @@ fn main() {
             commands::delete_group_reminder,
             commands::answer_group_approval,
             commands::open_file,
+            commands::picture,
             commands::unlink,
             commands::start_over,
             commands::resize_bar,
