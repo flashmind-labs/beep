@@ -14,6 +14,7 @@ const ICON = {
   doc: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
   phone: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></svg>',
 };
+const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/></svg>';
 /// Tool steps shown while a run works; older ones fold into "+N tools".
 const VISIBLE_STEPS = 3;
 
@@ -1272,12 +1273,27 @@ document.addEventListener("keydown", e => {
   if (S.view === "gnew" && e.key === "Enter" && !e.isComposing && e.target.tagName === "INPUT") { e.preventDefault(); return groupFormGo(); }
 });
 
-// Links in replies open in the browser.
+// Links in replies open in the browser. A product card's corner button
+// copies its link instead.
 bar.addEventListener("click", e => {
+  const c = e.target.closest("[data-copy]");
+  if (c) {
+    e.preventDefault();
+    copy(c.dataset.copy);
+    c.innerHTML = ICON.check;
+    clearTimeout(c.undo);
+    c.undo = setTimeout(() => { c.innerHTML = COPY_ICON; }, 1200);
+    return;
+  }
   const a = e.target.closest("a[href]");
   if (!a) return;
   e.preventDefault();
   invoke("open_url", { url: a.href }).catch(() => {});
 });
+
+// Product pictures show over their placeholder once loaded; a broken one
+// leaves the placeholder.
+bar.addEventListener("load", e => { if (e.target.matches?.(".dprod-img img")) e.target.classList.add("on"); }, true);
+bar.addEventListener("error", e => { if (e.target.matches?.(".dprod-img img")) e.target.remove(); }, true);
 
 show(null);
