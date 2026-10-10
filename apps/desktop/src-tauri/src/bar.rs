@@ -34,6 +34,13 @@ pub fn show<R: Runtime>(app: &AppHandle<R>, view: Option<&str>) {
     let _ = app.emit_to("bar", "bar-shown", view);
 }
 
+/// Whether the bar is on screen.
+pub fn is_open<R: Runtime>(app: &AppHandle<R>) -> bool {
+    window(app)
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
+}
+
 pub fn hide<R: Runtime>(app: &AppHandle<R>) {
     if let Some(bar) = window(app) {
         let _ = bar.hide();

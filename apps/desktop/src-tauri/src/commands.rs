@@ -9,13 +9,13 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AnswerGroupApproval, ApiError, ApprovalDecision, ClearMemories, CreateCron, CreateGroup, Cron,
-    DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession, GetGroup, GetGroupImages,
-    GetModels, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons,
-    ListGroupReminders, ListGroups, ListMemories, Memory, Models, PeekGroup, PinGroup, PinSession,
-    ReasoningLevel, RenameSession, RunCron, SendToGroup, Session, SessionMatch, SetAutoModel,
-    SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink, ToggleCron, UnshareSession,
-    UpdateMemory, format_group_code, group_code,
+    AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, ClearMemories, CreateCron,
+    CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession, GetGroup,
+    GetGroupImages, GetModels, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup,
+    ListCrons, ListGroupReminders, ListGroups, ListMemories, Memory, Models, PeekGroup, PinGroup,
+    PinSession, ReasoningLevel, RenameSession, RunCron, SendToGroup, Session, SessionMatch,
+    SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink, ToggleCron,
+    UnshareSession, UpdateMemory, format_group_code, group_code,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, process::Command, sync::Arc};
@@ -93,7 +93,7 @@ pub async fn answer_approval(
 
 #[tauri::command]
 pub async fn cancel_run(beep: Service<'_>, run_id: String) -> Result<()> {
-    beep.cancel(run_id).await
+    beep.call(CancelRun { id: run_id }).await
 }
 
 #[tauri::command]
@@ -108,10 +108,10 @@ pub async fn search_sessions(beep: Service<'_>, query: String) -> Result<Vec<Ses
 
 #[tauri::command]
 pub async fn open_session(beep: Service<'_>, id: String) -> Result<Vec<Turn>> {
-    let turns = beep.history(id.clone()).await?;
-    beep.set_session(Some(id));
+    // Made current before loading, so leaving the chat meanwhile is not undone.
+    beep.set_session(Some(id.clone()));
     beep.set_group(None);
-    Ok(turns)
+    beep.history(id).await
 }
 
 #[tauri::command]
@@ -165,11 +165,12 @@ pub async fn list_groups(beep: Service<'_>) -> Result<Vec<GroupView>> {
 
 #[tauri::command]
 pub async fn open_group(beep: Service<'_>, id: String) -> Result<GroupChatView> {
+    // Made current before loading, so closing the group meanwhile is not undone.
+    beep.set_group(Some(id.clone()));
     if let Some(view) = Uuid::parse_str(&id)
         .ok()
         .and_then(|g| beep.chats().group(g))
     {
-        beep.set_group(Some(id));
         return Ok(view);
     }
     let (chat, images) = join!(
@@ -183,7 +184,6 @@ pub async fn open_group(beep: Service<'_>, id: String) -> Result<GroupChatView> 
     for message in &mut view.messages {
         message.images = pictures.take(message.seq);
     }
-    beep.set_group(Some(id));
     Ok(view)
 }
 

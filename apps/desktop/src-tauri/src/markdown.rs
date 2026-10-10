@@ -182,12 +182,66 @@ fn product_rows<'a>(
 
 /// Whether a fenced block's source ends with its closing fence.
 fn closed(block: &str) -> bool {
-    let fence = &block.trim_start()[..3.min(block.trim_start().len())];
     let mut lines = block.trim_end().lines();
-    lines.next();
-    lines
-        .last()
-        .is_some_and(|last| last.trim_start().starts_with(fence))
+    let Some(open) = lines.next().and_then(Fence::open) else {
+        return false;
+    };
+    lines.last().is_some_and(|last| open.closed_by(last))
+}
+
+/// The line that opens a fenced code block.
+struct Fence<'a> {
+    /// The fence's character, a backtick or a tilde.
+    mark: u8,
+    /// How many of it, at least three.
+    len: usize,
+    /// What follows the fence on its line.
+    info: &'a str,
+}
+
+impl<'a> Fence<'a> {
+    /// The fence `line` opens with, past any indent or blockquote markers.
+    fn open(line: &'a str) -> Option<Self> {
+        let line = line.trim_start_matches([' ', '\t', '>']);
+        let mark = *line.as_bytes().first()?;
+        if mark != b'`' && mark != b'~' {
+            return None;
+        }
+        let len = line.bytes().take_while(|&b| b == mark).count();
+        let info = &line[len..];
+        // A backtick fence's info string may not hold a backtick.
+        if len < 3 || (mark == b'`' && info.contains('`')) {
+            return None;
+        }
+        Some(Self { mark, len, info })
+    }
+
+    /// Whether `line` closes this fence: as many of the same character or
+    /// more, and nothing after them.
+    fn closed_by(&self, line: &str) -> bool {
+        Fence::open(line).is_some_and(|close| {
+            close.mark == self.mark && close.len >= self.len && close.info.trim().is_empty()
+        })
+    }
+}
+
+/// Where the code span closed by a run of exactly `ticks` backticks ends in
+/// `text`, or `None` when no such run follows.
+fn code_span_end(text: &str, ticks: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'`' {
+            i += 1;
+            continue;
+        }
+        let run = bytes[i..].iter().take_while(|&&b| b == b'`').count();
+        i += run;
+        if run == ticks {
+            return Some(i);
+        }
+    }
+    None
 }
 
 fn safe_style(style: &str) -> bool {
@@ -236,14 +290,21 @@ fn dollar_delimiters(markdown: &str) -> String {
         return markdown.to_owned();
     }
     let mut out = String::with_capacity(markdown.len());
-    let mut fenced = false;
+    let mut fenced: Option<Fence> = None;
     // Display math may span lines, so the open delimiter carries over.
     let mut open: Option<&str> = None;
     for line in markdown.split_inclusive('\n') {
-        if open.is_none() && line.trim_start().starts_with("```") {
-            fenced = !fenced;
+        if let Some(fence) = &fenced {
+            if fence.closed_by(line) {
+                fenced = None;
+            }
+            out.push_str(line);
+            continue;
         }
-        if fenced {
+        if open.is_none()
+            && let Some(fence) = Fence::open(line)
+        {
+            fenced = Some(fence);
             out.push_str(line);
             continue;
         }
@@ -264,7 +325,11 @@ fn dollar_delimiters(markdown: &str) -> String {
             rest = &rest[i + token.len()..];
             match token {
                 "`" => {
-                    let end = rest.find('`').map_or(rest.len(), |end| end + 1);
+                    // A span opened by N backticks closes at the next run of
+                    // exactly N; without one the backticks are plain text.
+                    let ticks = 1 + rest.bytes().take_while(|&b| b == b'`').count();
+                    let end = code_span_end(&rest[ticks - 1..], ticks)
+                        .map_or(ticks - 1, |end| end + ticks - 1);
                     out.push('`');
                     out.push_str(&rest[..end]);
                     rest = &rest[end..];
@@ -383,6 +448,23 @@ mod tests {
     }
 
     #[test]
+    fn leaves_every_kind_of_code_alone() {
+        for code in [
+            "~~~\n\\[x\\] costs $5\n~~~\n",
+            "````\n```\n\\[x\\] costs $5\n```\n````\n",
+            "> ```\n> \\[x\\] costs $5\n> ```\n",
+            "``a ` \\(x\\) costs $5``\n",
+        ] {
+            assert_eq!(dollar_delimiters(code), code);
+        }
+        // Text after a closed fence is still read.
+        assert!(to_html("~~~\ncode\n~~~\n\\(x\\)").contains("<math"));
+        assert!(to_html("````\n```\n````\n\\(x\\)").contains("<math"));
+        // A lone backtick is text, so the math after it still renders.
+        assert!(to_html(r"a ` then \(x\)").contains("<math"));
+    }
+
+    #[test]
     fn latex_spaces_are_spaces() {
         let html = to_html(r"$m > 0,\ n = 0$ and $a~b$");
         assert!(!html.contains("&amp;"), "{html}");
@@ -428,6 +510,10 @@ mod tests {
         let streaming = to_html("Picks:\n\n```product\n{\"title\":\"Ket");
         assert!(streaming.contains("dprod pending"), "{streaming}");
         assert!(!streaming.contains("<pre>"), "{streaming}");
+
+        let quoted = to_html("> ```product\n> {\"title\": oops}\n> ```");
+        assert!(quoted.contains("<pre>"), "{quoted}");
+        assert!(!quoted.contains("dprod"), "{quoted}");
     }
 
     #[test]

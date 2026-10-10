@@ -9,7 +9,7 @@ use crate::{
     sync::Chats,
 };
 use beep_proto::{
-    AnswerApproval, ApprovalDecision, Call, CancelRun, Chat, DeviceAnswer, DeviceQuery,
+    AnswerApproval, ApprovalDecision, ApprovalField, Call, Chat, DeviceAnswer, DeviceQuery,
     DeviceResult, Event, GetEvents, GetFile, GetSession, GetSessionImages, HistoryEntry, ImageRef,
     ListSessions, Notice, Platform, ReasoningLevel, RemoveDevice, RunEvent, SearchSessions,
     SentImages, Session, SessionMatch, Stream,
@@ -24,7 +24,7 @@ use std::{
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::{Duration, SystemTime},
 };
 use tauri::ipc::Channel;
@@ -126,6 +126,15 @@ pub fn image_uris(images: Vec<DataImage>) -> Result<Vec<String>> {
 pub struct Field {
     pub label: String,
     pub value: String,
+}
+
+impl From<ApprovalField> for Field {
+    fn from(f: ApprovalField) -> Self {
+        Self {
+            label: f.label,
+            value: f.value,
+        }
+    }
 }
 
 /// One message of a chat, as the bar shows it.
@@ -262,27 +271,31 @@ impl Beep {
         &self.chats
     }
 
-    fn with_saved<T>(&self, f: impl FnOnce(&mut Saved) -> T) -> T {
-        let mut saved = self.saved.lock().unwrap_or_else(PoisonError::into_inner);
-        let out = f(&mut saved);
+    fn saved(&self) -> MutexGuard<'_, Saved> {
+        self.saved.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Changes the saved state and writes it to disk.
+    fn update_saved(&self, f: impl FnOnce(&mut Saved)) {
+        let mut saved = self.saved();
+        f(&mut saved);
         self.file.save(&saved);
-        out
     }
 
     pub fn link_state(&self) -> LinkState {
-        self.with_saved(|s| s.link)
+        self.saved().link
     }
 
     pub fn set_link_state(&self, link: LinkState) {
-        self.with_saved(|s| s.link = link);
+        self.update_saved(|s| s.link = link);
     }
 
     pub fn session(&self) -> Option<String> {
-        self.with_saved(|s| s.session.clone())
+        self.saved().session.clone()
     }
 
     pub fn set_session(&self, session: Option<String>) {
-        self.with_saved(|s| s.session = session);
+        self.update_saved(|s| s.session = session);
     }
 
     pub fn group(&self) -> Option<String> {
@@ -479,7 +492,19 @@ impl Beep {
         let mut partial = dest.as_os_str().to_owned();
         partial.push(".part");
         let partial = PathBuf::from(partial);
-        let mut out = File::create(&partial).map_err(anyhow::Error::from)?;
+        let mut result = self.download_to(id, &partial).await;
+        if result.is_ok() {
+            result = fs::rename(&partial, dest).map_err(|e| anyhow::Error::from(e).into());
+        }
+        if result.is_err() {
+            let _ = fs::remove_file(&partial);
+        }
+        result
+    }
+
+    /// Writes every part of file `id` to `path`.
+    async fn download_to(&self, id: &str, path: &Path) -> Result<()> {
+        let mut out = File::create(path).map_err(anyhow::Error::from)?;
         let mut offset = 0;
         loop {
             let part = self
@@ -488,19 +513,18 @@ impl Beep {
                     offset,
                 })
                 .await?;
+            if part.data.is_empty() && offset < part.size {
+                return Err(DesktopError::Other(anyhow::anyhow!(
+                    "the download stopped at {offset} of {} bytes",
+                    part.size
+                )));
+            }
             out.write_all(&part.data).map_err(anyhow::Error::from)?;
             offset += part.data.len() as u64;
-            if part.data.is_empty() || offset >= part.size {
-                break;
+            if offset >= part.size {
+                return Ok(());
             }
         }
-        drop(out);
-        fs::rename(&partial, dest).map_err(anyhow::Error::from)?;
-        Ok(())
-    }
-
-    pub async fn cancel(&self, run_id: String) -> Result<()> {
-        self.call(CancelRun { id: run_id }).await
     }
 
     async fn follow(&self, mut replies: Replies<Event>, channel: Channel<BarEvent>) {
@@ -567,7 +591,7 @@ impl Beep {
                         query_id,
                         app: approval.app,
                         action: approval.action,
-                        fields: fields(approval.fields),
+                        fields: approval.fields.into_iter().map(Field::from).collect(),
                     },
                     // The server leaves phone tools out of desktop runs; this
                     // answers any that slip through.
@@ -600,23 +624,13 @@ impl Beep {
     }
 }
 
-pub fn fields(fields: Vec<beep_proto::ApprovalField>) -> Vec<Field> {
-    fields
-        .into_iter()
-        .map(|f| Field {
-            label: f.label,
-            value: f.value,
-        })
-        .collect()
-}
-
 #[derive(Deserialize)]
 struct Suggestions {
     replies: Vec<String>,
 }
 
 /// The replies in a `suggest_replies` result, or `None` when it has none.
-fn suggested_replies(output: &str) -> Option<Vec<String>> {
+pub fn suggested_replies(output: &str) -> Option<Vec<String>> {
     let suggestions: Suggestions = serde_json::from_str(output).ok()?;
     let replies: Vec<String> = suggestions
         .replies
@@ -624,15 +638,6 @@ fn suggested_replies(output: &str) -> Option<Vec<String>> {
         .filter(|reply| !reply.trim().is_empty())
         .collect();
     (!replies.is_empty()).then_some(replies)
-}
-
-/// The replies a tool result suggests, when it is `suggest_replies` and
-/// has some.
-pub fn suggested(name: &str, output: &str) -> Option<Vec<String>> {
-    if name != SUGGEST_REPLIES {
-        return None;
-    }
-    suggested_replies(output)
 }
 
 /// A tool result as a step of a reply.
@@ -698,7 +703,7 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
                     .collect(),
                 replies: suggest
                     .iter()
-                    .find_map(|t| suggested(&t.name, &t.output))
+                    .find_map(|t| suggested_replies(&t.output))
                     .unwrap_or_default(),
             }
         }
@@ -707,7 +712,7 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
             query_id,
             app: approval.app,
             action: approval.action,
-            fields: fields(approval.fields),
+            fields: approval.fields.into_iter().map(Field::from).collect(),
         },
     }
 }
