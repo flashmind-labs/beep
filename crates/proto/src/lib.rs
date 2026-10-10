@@ -12,6 +12,7 @@ pub mod client;
 pub mod link;
 pub mod names;
 pub mod seal;
+pub mod search;
 pub mod version;
 pub mod wire;
 
