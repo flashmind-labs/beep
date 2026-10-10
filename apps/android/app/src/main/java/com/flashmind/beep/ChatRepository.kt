@@ -35,6 +35,7 @@ import com.flashmind.beep.proto.GroupChat
 import com.flashmind.beep.proto.GroupLink
 import com.flashmind.beep.proto.GroupMessage
 import com.flashmind.beep.proto.GroupPreview
+import com.flashmind.beep.proto.GroupReminder
 import com.flashmind.beep.proto.HistoryEntry
 import com.flashmind.beep.proto.MemorySource
 import com.flashmind.beep.proto.Cron as ProtoCron
@@ -655,6 +656,8 @@ class ChatRepository(private val storage: LocalStorage) {
         groups.value = groups.value.map { if (it.id == id) it.copy(appsShared = shared) else it }
         scope.launch { runCatching { api().shareGroupApps(id, shared) }.onFailure { refreshGroups() } }
     }
+    suspend fun groupReminders(id: String): List<GroupReminder> = api().listGroupReminders(id)
+    suspend fun deleteGroupReminder(groupId: String, id: String) = api().deleteGroupReminder(groupId, id)
     /** Answers an app action Beep asked to take for the user from a group. */
     fun answerGroupApproval(queryId: String, allow: Boolean) {
         ApprovalNotifications.cancel(storage.context, queryId)

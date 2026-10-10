@@ -12,7 +12,7 @@ use crate::{
     router::{Cx, Router, Sink},
     store::{
         AccountKey, CopiedShare, CreateRun, DeletedTurn, Feed, FoundSession, Join, LinkKey,
-        Location, NewKey, PushDevice, TurnModel, TurnsToDelete, decode_schedule,
+        Location, NewKey, PushDevice, TurnModel, TurnsToDelete, decode_schedule, encode_schedule,
     },
     wake,
 };
@@ -101,6 +101,8 @@ pub fn router() -> Router {
         .call(answer_group_approval)
         .call(get_file)
         .call(read_profiles)
+        .call(list_group_reminders)
+        .call(delete_group_reminder)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -482,6 +484,69 @@ async fn get_file(cx: Cx, GetFile { id, offset }: GetFile) -> Reply<FilePart> {
 
 async fn share_group_apps(cx: Cx, ShareGroupApps { id, shared }: ShareGroupApps) -> Reply<()> {
     found(cx.user.share_group_apps(&id, shared).await?)
+}
+
+async fn list_group_reminders(
+    cx: Cx,
+    ListGroupReminders { group_id }: ListGroupReminders,
+) -> Reply<Vec<GroupReminder>> {
+    let joined = cx
+        .user
+        .group(&group_id)
+        .await?
+        .ok_or(ApiError::NotFound {})?;
+    let fallback = cx
+        .user
+        .get_timezone()
+        .await
+        .unwrap_or_else(|_| "UTC".into());
+    let mut reminders = Vec::new();
+    for job in cx.app.store.group_reminders(&group_id).await? {
+        if !job.enabled {
+            continue;
+        }
+        let setter = job.metadata.get("user_id").and_then(|v| v.as_str());
+        let member = joined
+            .members
+            .iter()
+            .find(|m| Some(m.user_id.as_str()) == setter);
+        // A cron expression is in the setter's time, as the runner reads it.
+        let tz = match setter.and_then(|id| cx.app.user(id)) {
+            Some(user) => user
+                .get_timezone()
+                .await
+                .unwrap_or_else(|_| fallback.clone()),
+            None => fallback.clone(),
+        };
+        let schedule = encode_schedule(&job.schedule);
+        let next = next_run_at(&schedule, &tz);
+        reminders.push((
+            next,
+            GroupReminder {
+                id: job.id.to_string(),
+                label: (job.metadata.get("label").and_then(|v| v.as_str()))
+                    .unwrap_or("Reminder")
+                    .to_owned(),
+                message: job.task,
+                schedule,
+                next_run_at: next.map(|t| t.to_rfc3339()),
+                set_by: member.map_or_else(|| "A former member".to_owned(), |m| m.name.clone()),
+            },
+        ));
+    }
+    reminders.sort_by_key(|(next, _)| (next.is_none(), *next));
+    Ok(reminders.into_iter().map(|(_, r)| r).collect())
+}
+
+async fn delete_group_reminder(
+    cx: Cx,
+    DeleteGroupReminder { group_id, id }: DeleteGroupReminder,
+) -> Reply<()> {
+    if cx.user.group(&group_id).await?.is_none() {
+        return Err(ApiError::NotFound {});
+    }
+    let id: Uuid = id.parse().map_err(|_| ApiError::NotFound {})?;
+    found(cx.app.store.delete_group_reminder(&group_id, id).await?)
 }
 
 async fn answer_group_approval(

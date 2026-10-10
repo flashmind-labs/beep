@@ -33,7 +33,7 @@ mod users;
 pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::McpServerRow;
-pub(crate) use cron_jobs::decode_schedule;
+pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::PushDevice;
 pub use digest::AttentionItem;
 pub use feeds::Feed;
@@ -165,6 +165,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         include_str!("../../migrations/0024_group_shared_apps.sql"),
     ),
     (25, "files", include_str!("../../migrations/0025_files.sql")),
+    (
+        26,
+        "group reminders",
+        include_str!("../../migrations/0026_group_reminders.sql"),
+    ),
 ];
 
 fn migrator() -> Migrator {

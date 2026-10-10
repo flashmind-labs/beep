@@ -8,17 +8,18 @@
 use beep_proto::{
     AnswerApproval, AnswerGroupApproval, ApiError, AppIntegration, AppPermissions,
     ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare,
-    CreateCron, CreateGroup, Cron, DeleteCron, DeleteMemory, DeleteSession, DeleteSessions,
-    DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult, DisconnectApp, Event,
+    CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession,
+    DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult, DisconnectApp, Event,
     ExistingSessions, FinishAppAuth, GetAppPermissions, GetEvents, GetFile, GetGroup, GetModels,
     GetRun, GetSession, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
-    GroupPreview, Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice, LinkedDevice, ListApps,
-    ListCrons, ListDevices, ListGroups, ListMemories, ListSessions, Memory, Models, Notice,
-    PeekGroup, PermissionLevel, PinGroup, PinSession, PromptSuggestions, ReasoningLevel,
-    RegisterDevice, RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup,
-    Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone,
-    ShareGroupApps, ShareSession, SharedLink, SharedSession, StartAppAuth, Stream, SuggestPrompts,
-    ToggleCron, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
+    GroupPreview, GroupReminder, Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice,
+    LinkedDevice, ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMemories,
+    ListSessions, Memory, Models, Notice, PeekGroup, PermissionLevel, PinGroup, PinSession,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron,
+    SearchSessions, SendToGroup, Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel,
+    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession,
+    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron,
+    UpdateLocation, UpdateMemory,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -513,6 +514,21 @@ impl BeepClient {
 
     pub async fn share_group_apps(&self, id: String, shared: bool) -> Result<(), BeepError> {
         self.call(ShareGroupApps { id, shared }).await
+    }
+
+    pub async fn list_group_reminders(
+        &self,
+        group_id: String,
+    ) -> Result<Vec<GroupReminder>, BeepError> {
+        self.call(ListGroupReminders { group_id }).await
+    }
+
+    pub async fn delete_group_reminder(
+        &self,
+        group_id: String,
+        id: String,
+    ) -> Result<(), BeepError> {
+        self.call(DeleteGroupReminder { group_id, id }).await
     }
 
     /// Downloads a file Beep sent, named by its `send_file` id, to `path`,
