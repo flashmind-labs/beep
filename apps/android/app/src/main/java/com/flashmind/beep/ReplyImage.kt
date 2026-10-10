@@ -179,7 +179,7 @@ private fun ImageViewer(images: List<Shown>, start: Int, onClose: () -> Unit) {
     }
 }
 
-private object ReplyImages {
+internal object ReplyImages {
     private const val MAX_BYTES = 10 * 1024 * 1024
     private const val MAX_SIDE = 1600
 
