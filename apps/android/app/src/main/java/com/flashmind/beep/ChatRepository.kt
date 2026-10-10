@@ -245,9 +245,10 @@ class ChatRepository(private val storage: LocalStorage) {
         // Turns from before the server kept Jev scores only have the one the phone saw live.
         val scores = before.messages.filter { it.memoryScore != null }.associate { it.text to it.memoryScore }
         // Messages already on screen keep their ids, or the list drops and re-adds every row while it is drawn.
-        val ids = before.messages.groupBy({ it.role to it.text }, { it.id }).mapValues { ArrayDeque(it.value) }
+        // They keep their images too: the server swaps them for descriptions and never sends them back.
+        val kept = before.messages.groupBy { it.role to it.text }.mapValues { ArrayDeque(it.value) }
         val scored = messages.map { m -> if (m.memoryScore != null) m else scores[m.text]?.let { m.copy(memoryScore = it) } ?: m }
-            .map { m -> ids[m.role to m.text]?.removeFirstOrNull()?.let { m.copy(id = it) } ?: m }
+            .map { m -> kept[m.role to m.text]?.removeFirstOrNull()?.let { m.copy(id = it.id, images = it.images) } ?: m }
         updateChat(id) { current -> if (current == before) current.copy(messages = scored, version = version) else current }
     }
     fun refreshHistory() { syncRequests.trySend(Unit) }
