@@ -223,7 +223,9 @@ fn mathml(latex: &str, display_mode: DisplayMode) -> Option<String> {
         config,
     )
     .ok()?;
-    Some(out)
+    // pulldown-latex writes `\ ` and `~` as an escaped `&nbsp;`, which would
+    // show as text.
+    Some(out.replace("&amp;nbsp;", "\u{a0}"))
 }
 
 /// Rewrites `\(x\)` as `$x$` and `\[x\]` as `$$x$$`, which is all the
@@ -319,6 +321,13 @@ mod tests {
         assert!(!to_html("it costs $5 and $10").contains("<math"));
         assert!(!to_html(r"`\(x\)` and `$y$`").contains("<math"));
         assert!(!to_html("```\n\\[x\\]\n```").contains("<math"));
+    }
+
+    #[test]
+    fn latex_spaces_are_spaces() {
+        let html = to_html(r"$m > 0,\ n = 0$ and $a~b$");
+        assert!(!html.contains("&amp;"), "{html}");
+        assert_eq!(html.matches("<mtext>&nbsp;</mtext>").count(), 2, "{html}");
     }
 
     #[test]
