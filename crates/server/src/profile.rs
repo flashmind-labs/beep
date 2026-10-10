@@ -219,56 +219,86 @@ fn others_running(user: &User) -> bool {
     running().iter().any(|(id, _)| id == user.id())
 }
 
-/// Reads, in the background, each source behind the connected apps `slugs`
-/// that has not been read yet.
-pub fn spawn(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) {
-    let sources: Vec<Source> = slugs
+/// The sources behind the connected apps `slugs`.
+fn sources(slugs: &[String]) -> Vec<Source> {
+    slugs
         .iter()
         .flat_map(|slug| Source::from_slug(slug))
         .copied()
-        .collect();
-    for source in sources {
+        .collect()
+}
+
+/// Reads, in the background, each source behind the connected apps `slugs`
+/// that has not been read yet.
+pub fn spawn(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) {
+    for source in sources(slugs) {
         let Some(claim) = Claim::take(user, source) else {
             continue;
         };
-        let (app, user) = (app.clone(), user.clone());
-        tokio::spawn(async move {
-            match user.profile_read(source.key()).await {
-                Ok(read) if read.finished => return,
-                Ok(_) => {}
-                Err(error) => {
-                    log::warn!("profile: unable to read state: {error:#}; user={user}");
-                    return;
-                }
-            }
-            log::info!("profile: reading {source}; user={user}");
-            let generator = app.generator(user.id());
-            let read = match source {
-                Source::Mail(mailbox) => read_mail(generator, app.decision(), &user, mailbox).await,
-                Source::Calendar(calendar) => read_calendar(generator, &user, calendar).await,
-            };
-            let summary = match read {
-                Ok(summary) => summary,
-                // Not finished, so the next listing of apps resumes it.
-                Err(error) => {
-                    log::warn!("profile: read of {source} stopped: {error:#}; user={user}");
-                    return;
-                }
-            };
-            if let Err(error) = user.finish_profile_read(source.key()).await {
-                log::warn!("profile: unable to save state: {error:#}; user={user}");
-                return;
-            }
-            log::info!("profile: read {source}; user={user} {summary}");
-            drop(claim);
-            if others_running(&user) {
-                return;
-            }
+        tokio::spawn(read(app.clone(), user.clone(), source, claim));
+    }
+}
+
+/// Reads each source behind the connected apps `slugs` again from the
+/// start, dropping its earlier notes. Memories already made stay. Returns
+/// the sources started; one being read right now is left alone.
+pub async fn reread(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) -> Result<Vec<Source>> {
+    let mut started = Vec::new();
+    for source in sources(slugs) {
+        let Some(claim) = Claim::take(user, source) else {
+            continue;
+        };
+        user.reset_profile_read(source.key()).await?;
+        tokio::spawn(read(app.clone(), user.clone(), source, claim));
+        started.push(source);
+    }
+    Ok(started)
+}
+
+async fn read(app: Arc<App>, user: Arc<User>, source: Source, claim: Claim) {
+    match user.profile_read(source.key()).await {
+        Ok(read) if read.finished => return,
+        Ok(_) => {}
+        Err(error) => {
+            log::warn!("profile: unable to read state: {error:#}; user={user}");
+            return;
+        }
+    }
+    log::info!("profile: reading {source}; user={user}");
+    let generator = app.generator(user.id());
+    let mut summary = Summary::default();
+    let read = match source {
+        Source::Mail(mailbox) => {
+            read_mail(generator, app.decision(), &user, mailbox, &mut summary).await
+        }
+        Source::Calendar(calendar) => read_calendar(generator, &user, calendar, &mut summary).await,
+    };
+    if let Err(error) = read {
+        // Not finished, so the next listing of apps resumes it. What it noted
+        // so far is condensed now, or it would wait for a read that may keep
+        // stopping.
+        log::warn!("profile: read of {source} stopped: {error:#}; user={user} {summary}");
+        drop(claim);
+        if summary.notes > 0 && !others_running(&user) {
             match condense(generator, &user).await {
-                Ok(learned) => notify(&user, source, &summary, learned),
+                Ok(learned) => log::info!("profile: condensed; user={user} learned={learned}"),
                 Err(error) => log::warn!("profile: condensing stopped: {error:#}; user={user}"),
             }
-        });
+        }
+        return;
+    }
+    if let Err(error) = user.finish_profile_read(source.key()).await {
+        log::warn!("profile: unable to save state: {error:#}; user={user}");
+        return;
+    }
+    log::info!("profile: read {source}; user={user} {summary}");
+    drop(claim);
+    if others_running(&user) {
+        return;
+    }
+    match condense(generator, &user).await {
+        Ok(learned) => notify(&user, source, &summary, learned),
+        Err(error) => log::warn!("profile: condensing stopped: {error:#}; user={user}"),
     }
 }
 
@@ -319,7 +349,8 @@ async fn read_mail(
     decision: Option<&DecisionTool>,
     user: &User,
     mailbox: Mailbox,
-) -> Result<Summary> {
+    summary: &mut Summary,
+) -> Result<()> {
     let source = MailSource::new(user, mailbox).await?;
     let key = Source::Mail(mailbox).key();
     let mut before = user
@@ -327,7 +358,6 @@ async fn read_mail(
         .await?
         .read_before
         .unwrap_or_else(Utc::now);
-    let mut summary = Summary::default();
     let mut empty = 0;
     while empty < EMPTY_YEARS && before.year() > OLDEST_YEAR {
         let after = before - Days::days(365);
@@ -342,10 +372,10 @@ async fn read_mail(
             empty = 0;
             summary.years += 1;
         }
-        summary.items += year.emails;
-        summary.notes += year.notes.len();
         user.add_profile_notes(key, &year.notes, Some(after))
             .await?;
+        summary.items += year.emails;
+        summary.notes += year.notes.len();
         log::debug!(
             "profile: read mail before {before}; emails={} notes={}",
             year.emails,
@@ -353,7 +383,7 @@ async fn read_mail(
         );
         before = after;
     }
-    Ok(summary)
+    Ok(())
 }
 
 /// What a year of mail gave.
@@ -706,7 +736,8 @@ async fn read_calendar(
     generator: Generator<'_>,
     user: &User,
     calendar: Calendar,
-) -> Result<Summary> {
+    summary: &mut Summary,
+) -> Result<()> {
     let now = Utc::now();
     let window = Window {
         after: now - Days::days(CALENDAR_BACK_DAYS),
@@ -718,13 +749,9 @@ async fn read_calendar(
         Calendar::Fastmail => fastmail_events(user, window).await?,
     };
     let key = Source::Calendar(calendar).key();
-    let mut summary = Summary {
-        years: 0,
-        items: events.len(),
-        notes: 0,
-    };
+    summary.items = events.len();
     if events.is_empty() {
-        return Ok(summary);
+        return Ok(());
     }
     let mut notes = vec![calendar_counts(&events)];
     let texts = render_events(events);
@@ -735,9 +762,9 @@ async fn read_calendar(
         now.format("%Y-%m-%d")
     );
     notes.extend(extract(generator, CALENDAR_SYSTEM, &header, &texts).await?);
-    summary.notes = notes.len();
     user.add_profile_notes(key, &notes, None).await?;
-    Ok(summary)
+    summary.notes = notes.len();
+    Ok(())
 }
 
 /// Each title once, with how often and when it happened, where and with whom.

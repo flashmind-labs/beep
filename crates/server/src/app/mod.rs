@@ -1,3 +1,4 @@
+pub mod admin;
 mod auto;
 mod context;
 mod device;

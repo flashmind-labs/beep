@@ -279,10 +279,6 @@ requests! {
     /// Up to `FILE_PART` bytes of a file Beep sent, from `offset` on, as a
     /// `send_file` tool result names it by `id`.
     68 GetFile { id: String, offset: u64 } => Call<FilePart>
-    /// Starts the profile pass of every user on the connected mailboxes and
-    /// calendars it has not finished. Returns how many users it looked at.
-    /// Admins only.
-    69 ReadProfiles {} => Call<u32>
     /// The reminders set in a group, soonest first. Members only.
     70 ListGroupReminders { group_id: String } => Call<Vec<GroupReminder>>
     /// Deletes one of a group's reminders. Any member may.
