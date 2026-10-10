@@ -110,6 +110,10 @@ sample_struct! {
     GroupLink { token, url }
     GroupPreview { id, name, members, joined }
     Notice { title, body, session_id, app, approval, changed, group }
+    ChatInfo { id, kind, title, pinned, members, apps_shared }
+    ChatMessage { id, turn_id, timestamp, body }
+    TurnInfo { model, auto, reasoning, memory_score }
+    UpdatePage { updates, last, more, reset }
 }
 
 macro_rules! sample_values {

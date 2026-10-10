@@ -1,11 +1,17 @@
 //! Shared sessions: frozen copies other users open by token.
 
-use super::Store;
-use crate::user::UserKey;
+use super::{
+    Store,
+    chats::SESSION_TITLE,
+    messages::insert_steps,
+    updates::{Readers, UpdateOp, log_chat, log_messages},
+};
+use crate::{steps, user::UserKey};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use flashmind::core::Conversation;
 use sqlx::Row;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// A shared copy of a session.
@@ -27,27 +33,26 @@ pub enum CopiedShare {
 }
 
 impl Store {
-    /// Shares `session_id` as `conversation`, replacing an earlier copy of it
-    /// and keeping its token. `None` when the user has no such session.
+    /// Shares session `chat` as `conversation`, replacing an earlier copy
+    /// of it and keeping its token. `None` when the user has no such session.
     pub(crate) async fn share_session(
         &self,
         user: &UserKey,
-        session_id: &str,
+        chat: Uuid,
         conversation: &Conversation,
     ) -> Result<Option<Share>> {
-        let row = sqlx::query(
-            "INSERT INTO shares (token, user_id, session_id, title, conversation)
-             SELECT $1, s.user_id, s.id, COALESCE(t.title, (SELECT substr(message, 1, 80) FROM runs r
-                 WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.seq LIMIT 1), 'Conversation'), $4
-             FROM sessions s LEFT JOIN session_titles t ON t.user_id=s.user_id AND t.session_id=s.id
-             WHERE s.user_id=$2 AND s.id=$3
-             ON CONFLICT (user_id, session_id) DO UPDATE SET title=excluded.title,
+        let row = sqlx::query(&format!(
+            "INSERT INTO shares (token, user_id, chat_id, title, conversation)
+             SELECT $1, m.user_id, c.id, {SESSION_TITLE}, $4
+             FROM chats c JOIN chat_members m ON m.chat_id = c.id
+             WHERE m.user_id = $2 AND c.id = $3 AND c.kind = 'session'
+             ON CONFLICT (chat_id) DO UPDATE SET title=excluded.title,
                  conversation=excluded.conversation, shared_at=now()
-             RETURNING token, title, shared_at",
-        )
+             RETURNING token, title, shared_at"
+        ))
         .bind(Uuid::new_v4().simple().to_string())
         .bind(user.as_str())
-        .bind(session_id)
+        .bind(chat)
         .bind(serde_json::to_string(conversation)?)
         .fetch_optional(&self.pool)
         .await?;
@@ -62,11 +67,11 @@ impl Store {
         .transpose()
     }
 
-    /// Stops sharing `session_id`; `false` when it was not shared.
-    pub(crate) async fn unshare_session(&self, user: &UserKey, session_id: &str) -> Result<bool> {
-        let deleted = sqlx::query("DELETE FROM shares WHERE user_id=$1 AND session_id=$2")
+    /// Stops sharing session `chat`; `false` when it was not shared.
+    pub(crate) async fn unshare_session(&self, user: &UserKey, chat: Uuid) -> Result<bool> {
+        let deleted = sqlx::query("DELETE FROM shares WHERE user_id=$1 AND chat_id=$2")
             .bind(user.as_str())
-            .bind(session_id)
+            .bind(chat)
             .execute(&self.pool)
             .await?
             .rows_affected();
@@ -91,13 +96,13 @@ impl Store {
         .transpose()
     }
 
-    /// Copies the share with `token` into a new session `session_id` of the
-    /// user, under the share's title.
+    /// Copies the share with `token` into a new session `chat` of the user,
+    /// under the share's title.
     pub(crate) async fn copy_share(
         &self,
         user: &UserKey,
         token: &str,
-        session_id: &str,
+        chat: Uuid,
     ) -> Result<CopiedShare> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query("SELECT title, conversation FROM shares WHERE token=$1")
@@ -105,35 +110,47 @@ impl Store {
             .fetch_optional(&mut *tx)
             .await?;
         let Some(row) = row else {
+            tx.rollback().await?;
             return Ok(CopiedShare::NotFound);
         };
         let title: String = row.try_get(0)?;
-        let conversation: String = row.try_get(1)?;
+        let raw: String = row.try_get(1)?;
+        let conversation: Conversation = serde_json::from_str(&raw)?;
         let inserted = sqlx::query(
-            "INSERT INTO sessions (user_id, id, conversation, updated_at)
-             VALUES ($1, $2, $3, now()) ON CONFLICT DO NOTHING",
+            "INSERT INTO chats (id, kind, title, titled_at) VALUES ($1, 'session', $2, now())
+             ON CONFLICT DO NOTHING",
         )
-        .bind(user.as_str())
-        .bind(session_id)
-        .bind(conversation)
+        .bind(chat)
+        .bind(title)
         .execute(&mut *tx)
         .await?
         .rows_affected();
         if inserted == 0 {
+            tx.rollback().await?;
             return Ok(CopiedShare::Taken);
         }
-        sqlx::query(
-            "INSERT INTO session_titles (user_id, session_id, title, titled_at)
-             VALUES ($1, $2, $3, now())
-             ON CONFLICT (user_id, session_id) DO UPDATE SET title=excluded.title,
-                 titled_at=excluded.titled_at",
-        )
-        .bind(user.as_str())
-        .bind(session_id)
-        .bind(title)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("INSERT INTO chat_members (chat_id, user_id) VALUES ($1, $2)")
+            .bind(chat)
+            .bind(user.as_str())
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO sessions (chat_id, context) VALUES ($1, $2)")
+            .bind(chat)
+            .bind(raw)
+            .execute(&mut *tx)
+            .await?;
+        let copied = steps::steps(
+            conversation.entries(),
+            None,
+            &HashSet::new(),
+            &HashMap::new(),
+        );
+        let ids = insert_steps(&mut tx, chat, user.as_str(), &copied.steps, None).await?;
+        let readers = Readers::User(user.as_str());
+        let mut bumped = log_chat(&mut tx, chat, UpdateOp::Chat, readers).await?;
+        bumped.extend(log_messages(&mut tx, chat, &ids, UpdateOp::Message, readers).await?);
         tx.commit().await?;
+        self.announce(&bumped);
         Ok(CopiedShare::Copied)
     }
 }
@@ -141,32 +158,23 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{CreateRun, FinishedTurn, RunStatus, TestDb};
-    use crate::user::User;
+    use crate::store::{StoredMessage, TestDb, test_chat, test_turn};
+    use crate::user::{User, UserKey};
     use flashmind::core::ConversationEntry;
-
-    async fn chat(user: &User, session: &str, text: &str) {
-        let CreateRun::Created(run) = user
-            .create_run(session, &format!("req-{session}"), text)
-            .await
-            .unwrap()
-        else {
-            panic!("run was not created");
-        };
-        let mut chat = Conversation::new();
-        chat.add(ConversationEntry::user(text));
-        let turn = FinishedTurn {
-            transcript: &chat,
-            context: &chat,
-            prompt_tokens: 10,
-        };
-        user.finish(&run, Some(turn), RunStatus::Completed)
-            .await
-            .unwrap();
-    }
 
     fn texts(conversation: &Conversation) -> Vec<&str> {
         conversation.entries().iter().map(|e| e.content()).collect()
+    }
+
+    async fn messages(user: &User, chat: Uuid) -> Option<Vec<String>> {
+        let messages = user.session_messages(chat).await.unwrap()?;
+        Some(
+            messages
+                .iter()
+                .map(StoredMessage::text)
+                .map(str::to_owned)
+                .collect(),
+        )
     }
 
     #[tokio::test]
@@ -175,40 +183,42 @@ mod tests {
         let store = db.store().await.unwrap();
         let alice = User::for_test(store.clone(), "alice");
         let bob = User::for_test(store.clone(), "bob");
-        chat(&alice, "s1", "hello").await;
+        let (s1, b1, b2) = (test_chat("s1"), test_chat("b1"), test_chat("b2"));
+        test_turn(&store, &UserKey::for_test("alice"), s1, "hello", 1000)
+            .await
+            .unwrap();
 
         let mut copy = Conversation::new();
         copy.add(ConversationEntry::user("first"));
-        assert!(bob.share_session("s1", &copy).await.unwrap().is_none());
-        let first = alice.share_session("s1", &copy).await.unwrap().unwrap();
+        assert!(bob.share_session(s1, &copy).await.unwrap().is_none());
+        let first = alice.share_session(s1, &copy).await.unwrap().unwrap();
         assert_eq!(first.title, "hello");
         copy.add(ConversationEntry::assistant("second"));
-        let again = alice.share_session("s1", &copy).await.unwrap().unwrap();
+        let again = alice.share_session(s1, &copy).await.unwrap().unwrap();
         assert_eq!(again.token, first.token);
         let shared = store.share(&first.token).await.unwrap().unwrap();
         assert_eq!(texts(&shared.conversation), ["first", "second"]);
 
         assert_eq!(
-            bob.copy_share(&first.token, "b1").await.unwrap(),
+            bob.copy_share(&first.token, b1).await.unwrap(),
             CopiedShare::Copied
         );
         assert_eq!(
-            bob.copy_share(&first.token, "b1").await.unwrap(),
+            bob.copy_share(&first.token, b1).await.unwrap(),
             CopiedShare::Taken
         );
         assert_eq!(
-            bob.copy_share("missing", "b2").await.unwrap(),
+            bob.copy_share("missing", b2).await.unwrap(),
             CopiedShare::NotFound
         );
-        let copied = bob.conversation("b1").await.unwrap().unwrap();
-        assert_eq!(texts(&copied), ["first", "second"]);
+        assert_eq!(messages(&bob, b1).await.unwrap(), ["first", "second"]);
         let sessions = bob.sessions().await.unwrap();
         assert_eq!(sessions[0].title, "hello");
-        assert!(bob.rename_session("b1", "mine").await.unwrap());
+        assert!(bob.rename_session(b1, "mine").await.unwrap());
 
-        alice.delete_session("s1").await.unwrap();
+        alice.delete_session(s1).await.unwrap();
         assert!(store.share(&first.token).await.unwrap().is_none());
-        assert!(bob.conversation("b1").await.unwrap().is_some());
+        assert!(messages(&bob, b1).await.is_some());
     }
 
     #[tokio::test]
@@ -216,14 +226,17 @@ mod tests {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let alice = User::for_test(store.clone(), "alice");
-        chat(&alice, "s1", "hello").await;
+        let s1 = test_chat("s1");
+        test_turn(&store, &UserKey::for_test("alice"), s1, "hello", 1000)
+            .await
+            .unwrap();
         let share = alice
-            .share_session("s1", &Conversation::new())
+            .share_session(s1, &Conversation::new())
             .await
             .unwrap()
             .unwrap();
-        assert!(alice.unshare_session("s1").await.unwrap());
-        assert!(!alice.unshare_session("s1").await.unwrap());
+        assert!(alice.unshare_session(s1).await.unwrap());
+        assert!(!alice.unshare_session(s1).await.unwrap());
         assert!(store.share(&share.token).await.unwrap().is_none());
     }
 }

@@ -10,10 +10,10 @@ use crate::{
     permissions, places, profile,
     protocol::*,
     router::{Cx, Router, Sink},
+    steps,
     store::{
         AccountKey, CopiedShare, CreateRun, DeletedTurn, Feed, FoundSession, Join, LinkKey,
-        Location, NewKey, PushDevice, SavedPlace, TurnModel, TurnsToDelete, decode_schedule,
-        encode_schedule,
+        Location, NewKey, PushDevice, SavedPlace, TurnsToDelete, decode_schedule, encode_schedule,
     },
     wake,
 };
@@ -25,8 +25,7 @@ use flashmind::{
 };
 use iroh::EndpointId;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    mem,
+    collections::VecDeque,
     ops::Range,
     time::{Duration, SystemTime},
 };
@@ -111,6 +110,8 @@ pub fn router() -> Router {
         .call(list_memory_reads)
         .call(get_session_images)
         .call(get_group_images)
+        .call(get_updates)
+        .stream(stream_updates)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -250,34 +251,25 @@ async fn list_sessions(cx: Cx, _: ListSessions) -> Reply<Vec<Session>> {
 }
 
 async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<HistoryEntry>> {
-    let conv = cx
+    let messages = cx
         .user
-        .conversation(&id)
+        .session_messages(chat_id(&id)?)
         .await?
         .ok_or(ApiError::NotFound {})?;
-    let failures = cx.user.tool_failures(&id).await?;
-    let scores = cx.user.memory_scores(&id).await?;
-    let models = cx.user.turn_models(&id).await?;
-    let mut entries = history(conv.entries(), &failures, &scores, &models);
-    entries.extend(permissions::waiting_approval(&conv));
-    Ok(entries)
+    Ok(steps::history(&messages))
 }
 
 async fn share_session(cx: Cx, ShareSession { id }: ShareSession) -> Reply<SharedLink> {
-    let conv = cx
+    let id = chat_id(&id)?;
+    let messages = cx
         .user
-        .conversation(&id)
+        .session_messages(id)
         .await?
         .ok_or(ApiError::NotFound {})?;
-    let entries = history(
-        conv.entries(),
-        &HashSet::new(),
-        &HashMap::new(),
-        &HashMap::new(),
-    );
+    let entries = steps::history(&messages);
     let share = cx
         .user
-        .share_session(&id, &shared_conversation(&entries))
+        .share_session(id, &shared_conversation(&entries))
         .await?
         .ok_or(ApiError::NotFound {})?;
     Ok(SharedLink {
@@ -289,7 +281,7 @@ async fn share_session(cx: Cx, ShareSession { id }: ShareSession) -> Reply<Share
 }
 
 async fn unshare_session(cx: Cx, UnshareSession { id }: UnshareSession) -> Reply<()> {
-    cx.user.unshare_session(&id).await?;
+    cx.user.unshare_session(chat_id(&id)?).await?;
     Ok(())
 }
 
@@ -301,12 +293,7 @@ async fn get_share(cx: Cx, GetShare { token }: GetShare) -> Reply<SharedSession>
         .await?
         .ok_or(ApiError::NotFound {})?;
     Ok(SharedSession {
-        entries: history(
-            share.conversation.entries(),
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashMap::new(),
-        ),
+        entries: share_history(&share.conversation),
         title: share.title,
         shared_at: share.shared_at.timestamp_millis(),
     })
@@ -314,7 +301,7 @@ async fn get_share(cx: Cx, GetShare { token }: GetShare) -> Reply<SharedSession>
 
 async fn copy_share(cx: Cx, CopyShare { token, session_id }: CopyShare) -> Reply<Session> {
     let id = session_id.to_string();
-    match cx.user.copy_share(&token, &id).await? {
+    match cx.user.copy_share(&token, session_id).await? {
         CopiedShare::Copied => {}
         CopiedShare::NotFound => return Err(ApiError::NotFound {}),
         CopiedShare::Taken => {
@@ -358,13 +345,12 @@ async fn create_group(
 ) -> Reply<Group> {
     let name = group_name(&name, "group name", 60)?;
     let member_name = group_name(&member_name, "member name", 30)?;
-    let id = id.to_string();
-    if !cx.user.create_group(&id, &name, &member_name).await? {
+    if !cx.user.create_group(id, &name, &member_name).await? {
         return Err(ApiError::Conflict {
             message: "group id is taken".into(),
         });
     }
-    let joined = cx.user.group(&id).await?.ok_or(ApiError::Internal {})?;
+    let joined = cx.user.group(id).await?.ok_or(ApiError::Internal {})?;
     Ok(cx.app.group_view(&joined, cx.user.id()))
 }
 
@@ -379,8 +365,9 @@ async fn list_groups(cx: Cx, _: ListGroups) -> Reply<Vec<Group>> {
 }
 
 async fn get_group(cx: Cx, GetGroup { id }: GetGroup) -> Reply<GroupChat> {
-    let joined = cx.user.group(&id).await?.ok_or(ApiError::NotFound {})?;
-    let messages = cx.app.store.group_messages(&id, GROUP_MESSAGES).await?;
+    let id = chat_id(&id)?;
+    let joined = cx.user.group(id).await?.ok_or(ApiError::NotFound {})?;
+    let messages = cx.app.store.group_messages(id, GROUP_MESSAGES).await?;
     Ok(GroupChat {
         group: cx.app.group_view(&joined, cx.user.id()),
         messages: messages
@@ -405,7 +392,13 @@ async fn send_to_group(
     check_images(&images)?;
     let pictures = images::pictures(&images);
     cx.app
-        .send_to_group(&cx.user, &group_id, request_id, message.trim(), &pictures)
+        .send_to_group(
+            &cx.user,
+            chat_id(&group_id)?,
+            request_id,
+            message.trim(),
+            &pictures,
+        )
         .await?
         .ok_or(ApiError::NotFound {})
 }
@@ -414,23 +407,24 @@ async fn get_session_images(
     cx: Cx,
     GetSessionImages { session_id }: GetSessionImages,
 ) -> Reply<Vec<SentImages>> {
-    Ok(cx.user.session_pictures(&session_id).await?)
+    Ok(cx.user.session_pictures(chat_id(&session_id)?).await?)
 }
 
 async fn get_group_images(
     cx: Cx,
     GetGroupImages { group_id }: GetGroupImages,
 ) -> Reply<Vec<SentImages>> {
-    if cx.user.group(&group_id).await?.is_none() {
+    let group_id = chat_id(&group_id)?;
+    if cx.user.group(group_id).await?.is_none() {
         return Err(ApiError::NotFound {});
     }
-    Ok(cx.app.store.group_pictures(&group_id).await?)
+    Ok(cx.app.store.group_pictures(group_id).await?)
 }
 
 async fn group_invite(cx: Cx, GroupInvite { id, reset }: GroupInvite) -> Reply<GroupLink> {
     let token = cx
         .user
-        .group_invite(&id, reset)
+        .group_invite(chat_id(&id)?, reset)
         .await?
         .ok_or(ApiError::NotFound {})?;
     Ok(GroupLink {
@@ -450,7 +444,7 @@ async fn peek_group(cx: Cx, PeekGroup { token }: PeekGroup) -> Reply<GroupPrevie
     Ok(GroupPreview {
         joined: joined.members.iter().any(|m| m.user_id == cx.user.id()),
         members: joined.members.into_iter().map(|m| m.name).collect(),
-        id: joined.group.id,
+        id: joined.group.id.to_string(),
         name: joined.group.name,
     })
 }
@@ -483,18 +477,18 @@ async fn join_group(cx: Cx, JoinGroup { token, member_name }: JoinGroup) -> Repl
         }
         Join::UnknownInvite => return Err(ApiError::NotFound {}),
     };
-    let joined = cx.user.group(&id).await?.ok_or(ApiError::Internal {})?;
+    let joined = cx.user.group(id).await?.ok_or(ApiError::Internal {})?;
     for member in &joined.members {
         let _ = cx
             .app
             .notifications
-            .send(UserNotice::group_changed(&member.user_id, &id));
+            .send(UserNotice::group_changed(&member.user_id, &id.to_string()));
     }
     Ok(cx.app.group_view(&joined, cx.user.id()))
 }
 
 async fn pin_group(cx: Cx, PinGroup { id, pinned }: PinGroup) -> Reply<()> {
-    found(cx.user.pin_group(&id, pinned).await?)
+    found(cx.user.pin_group(chat_id(&id)?, pinned).await?)
 }
 
 async fn get_file(cx: Cx, GetFile { id, offset }: GetFile) -> Reply<FilePart> {
@@ -505,16 +499,17 @@ async fn get_file(cx: Cx, GetFile { id, offset }: GetFile) -> Reply<FilePart> {
 }
 
 async fn share_group_apps(cx: Cx, ShareGroupApps { id, shared }: ShareGroupApps) -> Reply<()> {
-    found(cx.user.share_group_apps(&id, shared).await?)
+    found(cx.user.share_group_apps(chat_id(&id)?, shared).await?)
 }
 
 async fn list_group_reminders(
     cx: Cx,
     ListGroupReminders { group_id }: ListGroupReminders,
 ) -> Reply<Vec<GroupReminder>> {
+    let group_id = chat_id(&group_id)?;
     let joined = cx
         .user
-        .group(&group_id)
+        .group(group_id)
         .await?
         .ok_or(ApiError::NotFound {})?;
     let fallback = cx
@@ -523,7 +518,7 @@ async fn list_group_reminders(
         .await
         .unwrap_or_else(|_| "UTC".into());
     let mut reminders = Vec::new();
-    for job in cx.app.store.group_reminders(&group_id).await? {
+    for job in cx.app.store.group_reminders(group_id).await? {
         if !job.enabled {
             continue;
         }
@@ -564,11 +559,12 @@ async fn delete_group_reminder(
     cx: Cx,
     DeleteGroupReminder { group_id, id }: DeleteGroupReminder,
 ) -> Reply<()> {
-    if cx.user.group(&group_id).await?.is_none() {
+    let group_id = chat_id(&group_id)?;
+    if cx.user.group(group_id).await?.is_none() {
         return Err(ApiError::NotFound {});
     }
     let id: Uuid = id.parse().map_err(|_| ApiError::NotFound {})?;
-    found(cx.app.store.delete_group_reminder(&group_id, id).await?)
+    found(cx.app.store.delete_group_reminder(group_id, id).await?)
 }
 
 async fn answer_group_approval(
@@ -583,11 +579,12 @@ async fn answer_group_approval(
 }
 
 async fn leave_group(cx: Cx, LeaveGroup { id }: LeaveGroup) -> Reply<()> {
-    let members = match cx.user.group(&id).await? {
+    let group_id = chat_id(&id)?;
+    let members = match cx.user.group(group_id).await? {
         Some(joined) => joined.members,
         None => return Err(ApiError::NotFound {}),
     };
-    cx.user.leave_group(&id).await?;
+    cx.user.leave_group(group_id).await?;
     for member in &members {
         let _ = cx
             .app
@@ -623,6 +620,35 @@ fn shared_conversation(entries: &[HistoryEntry]) -> Conversation {
     conversation
 }
 
+/// A share's messages as history: it keeps only user messages and replies.
+fn share_history(conversation: &Conversation) -> Vec<HistoryEntry> {
+    conversation
+        .entries()
+        .iter()
+        .filter_map(|entry| {
+            let timestamp = entry.timestamp.timestamp_millis();
+            match &entry.kind {
+                EntryKind::User { content, .. } => Some(HistoryEntry::User {
+                    content: content.clone(),
+                    timestamp,
+                    auto: None,
+                }),
+                EntryKind::Assistant { content, .. } if !content.is_empty() => {
+                    Some(HistoryEntry::Assistant {
+                        content: content.clone(),
+                        timestamp,
+                        tools: Vec::new(),
+                        memory_score: None,
+                        reasoning: String::new(),
+                        model: String::new(),
+                    })
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 /// Sessions the database may hand over for a search. Matches only in tool
 /// calls or prompts are dropped after, so a search can show fewer.
 const SEARCH_CANDIDATES: i64 = 100;
@@ -652,27 +678,13 @@ async fn search_sessions(
         .collect())
 }
 
-/// The latest message the user or Beep wrote in `found` that holds `query`,
-/// as the phone shows it: a routine's prompt counts by its label only.
+/// The latest message the user or Beep wrote in `found` that holds `query`.
 fn session_match(found: FoundSession, query: &str) -> Option<SessionMatch> {
-    let entries = history(
-        found.conversation.entries(),
-        &HashSet::new(),
-        &HashMap::new(),
-        &HashMap::new(),
-    );
-    entries.iter().rev().find_map(|entry| {
-        let (text, from_user) = match entry {
-            HistoryEntry::User { content, .. } => (content, true),
-            HistoryEntry::Assistant { content, .. } => (content, false),
-            HistoryEntry::Scheduled { .. } | HistoryEntry::Approval { .. } => return None,
-        };
-        let at = find_ignoring_case(text, query)?;
-        Some(SessionMatch {
-            session: found.session.clone(),
-            snippet: snippet(text, at),
-            from_user,
-        })
+    let at = find_ignoring_case(&found.text, query)?;
+    Some(SessionMatch {
+        snippet: snippet(&found.text, at),
+        session: found.session,
+        from_user: found.from_user,
     })
 }
 
@@ -711,163 +723,6 @@ fn snippet(text: &str, at: Range<usize>) -> String {
         snippet.push_str("...");
     }
     snippet
-}
-
-/// Tool outputs in history are cut to this many bytes.
-const MAX_HISTORY_TOOL_OUTPUT: usize = 16 * 1024;
-/// A turn's reasoning in history keeps its last this many bytes.
-const MAX_HISTORY_REASONING: usize = 16 * 1024;
-
-/// User and assistant messages, with each turn's tool results attached to the
-/// assistant message that ends the turn. A turn with tools but no text gets an
-/// empty assistant message to carry them. `scores` holds Jev's memory scores
-/// by the millisecond timestamp of the user message that started the turn,
-/// and `models` the model that answered it, keyed the same way.
-fn history(
-    entries: &[ConversationEntry],
-    failures: &HashSet<String>,
-    scores: &HashMap<i64, f64>,
-    models: &HashMap<i64, TurnModel>,
-) -> Vec<HistoryEntry> {
-    let mut history = Vec::new();
-    let mut turn = Turn::default();
-    // A routine's or an event's label, from the context saved just before
-    // its message.
-    let mut scheduled = None;
-    for entry in entries {
-        let timestamp = entry.timestamp.timestamp_millis();
-        match &entry.kind {
-            EntryKind::User { content, .. } => {
-                turn.finish(&mut history);
-                turn.score = scores.get(&timestamp).copied();
-                let recorded = models.get(&timestamp);
-                turn.model = recorded.map(|m| m.model.clone()).unwrap_or_default();
-                let auto = recorded.and_then(|m| {
-                    m.auto_thinking.map(|thinking| AutoPick {
-                        model: m.model.clone(),
-                        thinking,
-                    })
-                });
-                let label = scheduled
-                    .take()
-                    .or_else(|| cron::legacy_scheduled_label(content));
-                history.push(match label {
-                    Some(label) => HistoryEntry::Scheduled {
-                        label: label.to_owned(),
-                        timestamp,
-                    },
-                    None => HistoryEntry::User {
-                        content: content.clone(),
-                        timestamp,
-                        auto,
-                    },
-                });
-            }
-            EntryKind::Assistant {
-                content,
-                tool_calls,
-                reasoning,
-            } => {
-                if let Some(reasoning) = reasoning.as_deref().map(str::trim)
-                    && !reasoning.is_empty()
-                {
-                    if !turn.reasoning.is_empty() {
-                        turn.reasoning.push_str("\n\n");
-                    }
-                    turn.reasoning.push_str(reasoning);
-                }
-                for call in tool_calls.iter().flatten() {
-                    turn.names.insert(call.id.clone(), call.name.clone());
-                }
-                if !content.is_empty() {
-                    turn.last_reply = Some(history.len());
-                    history.push(HistoryEntry::Assistant {
-                        content: content.clone(),
-                        timestamp,
-                        tools: Vec::new(),
-                        memory_score: None,
-                        reasoning: String::new(),
-                        model: String::new(),
-                    });
-                }
-            }
-            EntryKind::Tool { call_id, output } => {
-                turn.last_tool = timestamp;
-                turn.tools.push(HistoryTool {
-                    name: turn.names.get(call_id).cloned().unwrap_or_default(),
-                    call_id: call_id.clone(),
-                    output: cap(output, MAX_HISTORY_TOOL_OUTPUT),
-                    success: !failures.contains(call_id),
-                });
-            }
-            EntryKind::Developer { content, .. } => {
-                scheduled = cron::scheduled_label(content).or_else(|| wake::woken_label(content));
-            }
-            _ => {}
-        }
-    }
-    turn.finish(&mut history);
-    history
-}
-
-#[derive(Default)]
-struct Turn {
-    names: HashMap<String, String>,
-    tools: Vec<HistoryTool>,
-    /// Index in the history of this turn's latest assistant message.
-    last_reply: Option<usize>,
-    last_tool: i64,
-    score: Option<f64>,
-    model: String,
-    /// Every step's reasoning, oldest first.
-    reasoning: String,
-}
-
-impl Turn {
-    fn finish(&mut self, history: &mut Vec<HistoryEntry>) {
-        let turn = mem::take(self);
-        match turn.last_reply.and_then(|index| history.get_mut(index)) {
-            Some(HistoryEntry::Assistant {
-                tools,
-                memory_score,
-                reasoning,
-                model,
-                ..
-            }) => {
-                *tools = turn.tools;
-                *model = turn.model;
-                *memory_score = turn.score;
-                *reasoning = cap_tail(&turn.reasoning, MAX_HISTORY_REASONING);
-            }
-            _ if turn.tools.is_empty() => {}
-            _ => history.push(HistoryEntry::Assistant {
-                content: String::new(),
-                timestamp: turn.last_tool,
-                tools: turn.tools,
-                memory_score: turn.score,
-                reasoning: cap_tail(&turn.reasoning, MAX_HISTORY_REASONING),
-                model: turn.model,
-            }),
-        }
-    }
-}
-
-/// The end of `text`, at most `max` bytes on a character boundary.
-fn cap_tail(text: &str, max: usize) -> String {
-    let mut start = text.len().saturating_sub(max);
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    text[start..].to_owned()
-}
-
-/// `text` cut to at most `max` bytes on a character boundary.
-fn cap(text: &str, max: usize) -> String {
-    let mut end = text.len().min(max);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_owned()
 }
 
 async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {
@@ -990,12 +845,8 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         origin: cx.device,
         platform: None,
     };
-    let session = session_id.to_string();
-    let conversation = match cx.user.context(&session).await? {
-        Some(context) => Some(context.conversation),
-        None => cx.user.conversation(&session).await?,
-    };
-    let open = conversation.as_ref().map(permissions::open_calls);
+    let conversation = cx.user.context(session_id).await?;
+    let open = conversation.map(|context| permissions::open_calls(&context.conversation));
     let waiting = open
         .and_then(|open| open.into_iter().next())
         .is_some_and(|call| call.id == query_id);
@@ -1003,7 +854,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         cx.app.submit(&cx.user, message).await?
     } else {
         cx.user
-            .existing_run(&session, &message.request(), &message.message)
+            .existing_run(session_id, &message.request(), &message.message)
             .await?
             .ok_or_else(|| ApiError::Conflict {
                 message: "nothing is waiting for this answer".into(),
@@ -1041,18 +892,19 @@ async fn rename_session(cx: Cx, RenameSession { id, title }: RenameSession) -> R
     if title.is_empty() {
         return Err(ApiError::bad_request("title required"));
     }
-    found(cx.user.rename_session(&id, &title).await?)
+    found(cx.user.rename_session(chat_id(&id)?, &title).await?)
 }
 
 async fn delete_session(cx: Cx, DeleteSession { id }: DeleteSession) -> Reply<()> {
-    found(cx.user.delete_session(&id).await?)
+    found(cx.user.delete_session(chat_id(&id)?).await?)
 }
 
 async fn delete_sessions(cx: Cx, DeleteSessions { ids }: DeleteSessions) -> Reply<u64> {
     if ids.len() > 200 {
         return Err(ApiError::bad_request("at most 200 sessions at once"));
     }
-    Ok(cx.user.delete_sessions(ids).await?)
+    let ids: Vec<Uuid> = ids.iter().filter_map(|id| chat_id(id).ok()).collect();
+    Ok(cx.user.delete_sessions(&ids).await?)
 }
 
 async fn existing_sessions(
@@ -1062,7 +914,13 @@ async fn existing_sessions(
     if ids.len() > 1000 {
         return Err(ApiError::bad_request("at most 1000 sessions at once"));
     }
-    Ok(cx.user.existing_sessions(ids).await?)
+    let parsed: Vec<Uuid> = ids.iter().filter_map(|id| chat_id(id).ok()).collect();
+    let existing = cx.user.existing_sessions(&parsed).await?;
+    // Answered in the caller's own spelling of each id.
+    Ok(ids
+        .into_iter()
+        .filter(|id| chat_id(id).is_ok_and(|id| existing.contains(&id)))
+        .collect())
 }
 
 async fn delete_turn(
@@ -1074,7 +932,7 @@ async fn delete_turn(
 ) -> Reply<()> {
     deleted_turn(
         cx.user
-            .delete_turn(&session_id, timestamp, TurnsToDelete::One)
+            .delete_turn(chat_id(&session_id)?, timestamp, TurnsToDelete::One)
             .await?,
     )
 }
@@ -1088,7 +946,7 @@ async fn delete_turns_from(
 ) -> Reply<()> {
     deleted_turn(
         cx.user
-            .delete_turn(&session_id, timestamp, TurnsToDelete::Onward)
+            .delete_turn(chat_id(&session_id)?, timestamp, TurnsToDelete::Onward)
             .await?,
     )
 }
@@ -1104,7 +962,7 @@ fn deleted_turn(deleted: DeletedTurn) -> Reply<()> {
 }
 
 async fn pin_session(cx: Cx, PinSession { id, pinned }: PinSession) -> Reply<()> {
-    found(cx.user.pin_session(&id, pinned).await?)
+    found(cx.user.pin_session(chat_id(&id)?, pinned).await?)
 }
 
 async fn list_memories(cx: Cx, _: ListMemories) -> Reply<Vec<Memory>> {
@@ -1393,6 +1251,35 @@ async fn stream_notifications(cx: Cx, _: StreamNotifications, sink: Sink<Notice>
     }
 }
 
+/// The caller's updates after `after`, a page at a time.
+async fn get_updates(cx: Cx, GetUpdates { after }: GetUpdates) -> Reply<UpdatePage> {
+    Ok(cx.user.updates_page(after).await?)
+}
+
+/// Sends the caller's newest update id now and each time it moves, until
+/// the connection closes. The client then asks `GetUpdates` for what is new.
+async fn stream_updates(cx: Cx, _: StreamUpdates, sink: Sink<i64>) -> Reply<()> {
+    let mut last = cx.user.watch_updates().await?;
+    loop {
+        let newest = *last.borrow_and_update();
+        match timeout(SEND_TIMEOUT, sink.send(&newest)).await {
+            Ok(sent) => sent?,
+            Err(_) => return Ok(()),
+        }
+        tokio::select! {
+            _ = cx.connection.closed() => return Ok(()),
+            changed = last.changed() => if changed.is_err() {
+                return Ok(());
+            },
+        }
+    }
+}
+
+/// A chat id from a request. One that is not a UUID names no chat.
+fn chat_id(id: &str) -> Reply<Uuid> {
+    Uuid::parse_str(id).map_err(|_| ApiError::NotFound {})
+}
+
 /// The run, if it belongs to the caller.
 async fn owned_run(cx: &Cx, id: &str) -> Reply<Run> {
     let run = cx.user.run(id).await?;
@@ -1450,13 +1337,7 @@ mod tests {
             "Two new emails.",
             Some("more thinking".into()),
         ));
-        let entries = history(
-            chat.entries(),
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashMap::new(),
-        );
-        let shared = shared_conversation(&entries);
+        let shared = shared_conversation(&share_history(&chat));
         let json = serde_json::to_string(&shared).unwrap();
         for private in ["home", "secret", "thinking", "c1"] {
             assert!(!json.contains(private), "{private} leaked into {json}");
@@ -1467,27 +1348,26 @@ mod tests {
 
     #[test]
     fn search_matches_messages_ignoring_case() {
-        let found = || {
-            let mut conversation = Conversation::new();
-            conversation.add(ConversationEntry::user("Any news from the hotel?"));
-            conversation.add(ConversationEntry::assistant(
-                "The **Kimpton** offers a free transfer.",
-            ));
-            FoundSession {
-                session: Session {
-                    id: "s".into(),
-                    title: "Emails".into(),
-                    pinned: false,
-                    updated_at: 0,
-                },
-                conversation,
-            }
+        let found = |text: &str, from_user| FoundSession {
+            session: Session {
+                id: "s".into(),
+                title: "Emails".into(),
+                pinned: false,
+                updated_at: 0,
+            },
+            text: text.to_owned(),
+            from_user,
         };
-        let hit = session_match(found(), "kimpton").unwrap();
+        let reply = || found("The **Kimpton** offers a free transfer.", false);
+        let hit = session_match(reply(), "kimpton").unwrap();
         assert_eq!(hit.snippet, "The Kimpton offers a free transfer.");
         assert!(!hit.from_user);
-        assert!(session_match(found(), "HOTEL").unwrap().from_user);
-        assert!(session_match(found(), "boiler").is_none());
+        assert!(
+            session_match(found("Any news from the hotel?", true), "HOTEL")
+                .unwrap()
+                .from_user
+        );
+        assert!(session_match(reply(), "boiler").is_none());
     }
 
     #[test]
@@ -1500,112 +1380,5 @@ mod tests {
         assert!(snippet.ends_with("b b..."));
         assert!(snippet.contains("Kimpton"));
         assert_eq!(find_ignoring_case("ÉCOLE", "école"), Some(0..6));
-    }
-
-    #[test]
-    fn history_attaches_tools_to_the_turn() {
-        let call = |id: &str, name: &str| ToolCall {
-            id: id.into(),
-            name: name.into(),
-            arguments: json!({}),
-        };
-        let mut entries = [
-            ConversationEntry::user("Where is lunch?"),
-            ConversationEntry::assistant_with_tool_calls(
-                "",
-                vec![call("a", "open_maps")],
-                Some("Look it up.".into()),
-            ),
-            ConversationEntry::tool("a", "é".repeat(MAX_HISTORY_TOOL_OUTPUT)),
-            ConversationEntry::assistant_with_reasoning("Here it is.", Some("Found one.".into())),
-            ConversationEntry::user("Remind me"),
-            ConversationEntry::assistant_with_tool_calls("", vec![call("b", "cron_create")], None),
-            ConversationEntry::tool("b", "failed"),
-        ];
-        // Each turn's score is found by its user message's time, so they must differ.
-        entries[4].timestamp = entries[0].timestamp + chrono::Duration::seconds(1);
-        let asked = entries[0].timestamp.timestamp_millis();
-        let history = history(
-            &entries,
-            &HashSet::from(["b".to_owned()]),
-            &HashMap::from([(asked, 0.8)]),
-            &HashMap::from([(
-                asked,
-                TurnModel {
-                    model: "z-ai/glm-5.3-flash".to_owned(),
-                    auto_thinking: Some(ReasoningLevel::High),
-                },
-            )]),
-        );
-        let [
-            HistoryEntry::User {
-                auto: first_auto, ..
-            },
-            HistoryEntry::Assistant {
-                content: first,
-                tools: first_tools,
-                memory_score: first_score,
-                reasoning: first_reasoning,
-                model: first_model,
-                ..
-            },
-            HistoryEntry::User {
-                auto: second_auto, ..
-            },
-            HistoryEntry::Assistant {
-                content: second,
-                tools: second_tools,
-                memory_score: second_score,
-                reasoning: second_reasoning,
-                model: second_model,
-                ..
-            },
-        ] = history.as_slice()
-        else {
-            panic!("unexpected history: {history:?}");
-        };
-        assert_eq!(first, "Here it is.");
-        assert_eq!(*first_score, Some(0.8));
-        assert_eq!(*second_score, None);
-        assert_eq!(first_model, "z-ai/glm-5.3-flash");
-        assert!(second_model.is_empty());
-        assert_eq!(
-            first_auto.as_ref().map(|pick| pick.thinking),
-            Some(ReasoningLevel::High)
-        );
-        assert!(second_auto.is_none());
-        assert_eq!(first_reasoning, "Look it up.\n\nFound one.");
-        assert!(second_reasoning.is_empty());
-        assert_eq!(first_tools[0].name, "open_maps");
-        assert!(first_tools[0].success);
-        assert_eq!(first_tools[0].output.len(), MAX_HISTORY_TOOL_OUTPUT);
-        assert!(second.is_empty());
-        assert_eq!(second_tools[0].call_id, "b");
-        assert!(!second_tools[0].success);
-    }
-
-    #[test]
-    fn history_marks_a_routine_turn_as_scheduled() {
-        let entries = [
-            ConversationEntry::system_message(cron::scheduled_context("Plants")),
-            ConversationEntry::user("Remind the user to water the plants"),
-            ConversationEntry::assistant("Time to water the plants."),
-            ConversationEntry::system_message("Time: Monday 2026-10-05 09:00 +04"),
-            ConversationEntry::user("Thanks"),
-            ConversationEntry::user("[Scheduled: Old] Remind me to stretch"),
-        ];
-        let history = history(&entries, &HashSet::new(), &HashMap::new(), &HashMap::new());
-        let [
-            HistoryEntry::Scheduled { label, .. },
-            HistoryEntry::Assistant { .. },
-            HistoryEntry::User { content, .. },
-            HistoryEntry::Scheduled { label: old, .. },
-        ] = history.as_slice()
-        else {
-            panic!("unexpected history: {history:?}");
-        };
-        assert_eq!(label, "Plants");
-        assert_eq!(content, "Thanks");
-        assert_eq!(old, "Old");
     }
 }

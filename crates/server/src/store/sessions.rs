@@ -1,12 +1,18 @@
-//! Chat sessions: the list, titles, transcripts and model contexts.
+//! Chat sessions: the list, titles, turns and model contexts.
 
-use super::{Store, seconds};
+use super::{
+    Store,
+    chats::{SESSION_TITLE, delete_chat, touch},
+    seconds,
+    updates::{Readers, UpdateOp, log_chat, log_messages},
+};
 use crate::{protocol::Session, user::UserKey};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use flashmind::core::{Conversation, EntryKind};
 use sqlx::{Row, postgres::PgRow};
 use std::time::Duration;
+use uuid::Uuid;
 
 /// Which turns `Store::delete_turn` removes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,17 +33,20 @@ pub enum DeletedTurn {
     Busy,
 }
 
-/// A session `Store::search_sessions` found, with its transcript.
+/// A session `Store::search_sessions` found, with its latest message that
+/// matched.
 pub struct FoundSession {
     pub session: Session,
-    pub conversation: Conversation,
+    pub text: String,
+    /// The user wrote it, rather than Beep.
+    pub from_user: bool,
 }
 
 /// One user's session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRef {
     pub user: String,
-    pub id: String,
+    pub id: Uuid,
 }
 
 /// A session's model context with the stored text it was read from, so a
@@ -54,28 +63,11 @@ fn session_ref(row: &PgRow) -> Result<SessionRef> {
     })
 }
 
-/// The times a removed turn spanned, in milliseconds since the epoch. `end`
-/// is the next turn's user message, if there is one.
-struct TurnSpan {
-    start: i64,
-    end: Option<i64>,
-}
-
-impl TurnSpan {
-    fn contains(&self, millis: i64) -> bool {
-        millis >= self.start && self.end.is_none_or(|end| millis < end)
-    }
-}
-
 /// Removes the user message sent at `timestamp` and every entry up to the
-/// next turn: the reply, its tool calls and their results, and the context
+/// next turn from a model context: the reply, its tool calls and their results, and the context
 /// entries placed just before the message. With `TurnsToDelete::Onward` it
-/// removes everything from there to the end.
-fn remove_turn(
-    conversation: &mut Conversation,
-    timestamp: i64,
-    which: TurnsToDelete,
-) -> Option<TurnSpan> {
+/// removes everything from there to the end. Says whether it found the turn.
+fn remove_turn(conversation: &mut Conversation, timestamp: i64, which: TurnsToDelete) -> bool {
     let is_user = |kind: &EntryKind| matches!(kind, EntryKind::User { .. });
     // Each turn opens with developer context (time, place, apps). A
     // compaction summary is not part of any turn and stays.
@@ -83,7 +75,10 @@ fn remove_turn(
     let entries = conversation.entries_mut();
     let asked = entries
         .iter()
-        .position(|e| is_user(&e.kind) && e.timestamp.timestamp_millis() == timestamp)?;
+        .position(|e| is_user(&e.kind) && e.timestamp.timestamp_millis() == timestamp);
+    let Some(asked) = asked else {
+        return false;
+    };
     let context_before = |at: usize| {
         entries[..at]
             .iter()
@@ -102,35 +97,32 @@ fn remove_turn(
     let end = next.map_or(entries.len(), |next| {
         next - context_before(next).min(next - asked - 1)
     });
-    let span = TurnSpan {
-        start: entries[start].timestamp.timestamp_millis(),
-        end: entries.get(end).map(|e| e.timestamp.timestamp_millis()),
-    };
     entries.drain(start..end);
-    Some(span)
+    true
+}
+
+/// The columns id, title, pinned and updated_at of a session, reading
+/// `chats c` and `chat_members m`.
+const SESSION_COLUMNS: &str = "c.id, {title}, m.pinned, c.updated_at";
+
+fn session_columns() -> String {
+    SESSION_COLUMNS.replace("{title}", SESSION_TITLE)
 }
 
 /// A session from the columns id, title, pinned and updated_at.
 fn session(r: &PgRow) -> Result<Session> {
     Ok(Session {
-        id: r.try_get(0)?,
+        id: r.try_get::<Uuid, _>(0)?.to_string(),
         title: r.try_get(1)?,
         pinned: r.try_get(2)?,
-        updated_at: r
-            .try_get::<Option<DateTime<Utc>>, _>(3)?
-            .map_or(0, |at| at.timestamp_millis()),
+        updated_at: r.try_get::<DateTime<Utc>, _>(3)?.timestamp_millis(),
     })
 }
 
-/// `query` as it appears inside the stored JSON, with LIKE's wildcards
-/// escaped, so a quote or a percent sign matches itself.
+/// `query` with LIKE's wildcards escaped, so a percent sign matches itself.
 fn like_pattern(query: &str) -> String {
-    let json = serde_json::to_string(query).unwrap_or_default();
-    let inner = json
-        .get(1..json.len().saturating_sub(1))
-        .unwrap_or_default();
-    let mut pattern = String::with_capacity(inner.len());
-    for c in inner.chars() {
+    let mut pattern = String::with_capacity(query.len());
+    for c in query.chars() {
         if matches!(c, '\\' | '%' | '_') {
             pattern.push('\\');
         }
@@ -141,36 +133,39 @@ fn like_pattern(query: &str) -> String {
 
 impl Store {
     pub(crate) async fn sessions(&self, user: &UserKey) -> Result<Vec<Session>> {
-        let rows = sqlx::query(
-            "SELECT s.id, COALESCE(t.title, (SELECT substr(message, 1, 80) FROM runs r
-                 WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.seq LIMIT 1), 'Conversation'),
-                 s.pinned, s.updated_at
-             FROM sessions s LEFT JOIN session_titles t ON t.user_id=s.user_id AND t.session_id=s.id
-             WHERE s.user_id=$1 ORDER BY s.pinned DESC, s.seq DESC LIMIT 200",
-        )
+        let rows = sqlx::query(&format!(
+            "SELECT {} FROM chats c
+             JOIN chat_members m ON m.chat_id = c.id
+             JOIN sessions s ON s.chat_id = c.id
+             WHERE m.user_id = $1 AND c.kind = 'session'
+             ORDER BY m.pinned DESC, c.seq DESC LIMIT 200",
+            session_columns()
+        ))
         .bind(user.as_str())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(session).collect()
     }
 
-    /// Up to `limit` sessions whose transcript holds `query` anywhere,
-    /// ignoring case, most recently changed first. Tool calls and prompts
-    /// count too, so the caller checks the messages.
+    /// Up to `limit` sessions with a message from the user or a reply that
+    /// holds `query`, ignoring case, most recently changed first, each with
+    /// its latest such message.
     pub(crate) async fn search_sessions(
         &self,
         user: &UserKey,
         query: &str,
         limit: i64,
     ) -> Result<Vec<FoundSession>> {
-        let rows = sqlx::query(
-            "SELECT s.id, COALESCE(t.title, (SELECT substr(message, 1, 80) FROM runs r
-                 WHERE r.user_id=s.user_id AND r.session_id=s.id ORDER BY r.seq LIMIT 1), 'Conversation'),
-                 s.pinned, s.updated_at, s.conversation
-             FROM sessions s LEFT JOIN session_titles t ON t.user_id=s.user_id AND t.session_id=s.id
-             WHERE s.user_id=$1 AND s.conversation ILIKE $2 ESCAPE '\\'
-             ORDER BY s.updated_at DESC NULLS LAST LIMIT $3",
-        )
+        let rows = sqlx::query(&format!(
+            "SELECT DISTINCT ON (c.updated_at, c.id) {}, msg.content, msg.role = 'user'
+             FROM chats c
+             JOIN chat_members m ON m.chat_id = c.id
+             JOIN messages msg ON msg.chat_id = c.id
+             WHERE m.user_id = $1 AND c.kind = 'session'
+               AND msg.role IN ('user', 'assistant') AND msg.content ILIKE $2 ESCAPE '\\'
+             ORDER BY c.updated_at DESC, c.id, msg.id DESC LIMIT $3",
+            session_columns()
+        ))
         .bind(user.as_str())
         .bind(format!("%{}%", like_pattern(query)))
         .bind(limit)
@@ -180,7 +175,8 @@ impl Store {
             .map(|r| {
                 Ok(FoundSession {
                     session: session(r)?,
-                    conversation: serde_json::from_str(&r.try_get::<String, _>(4)?)?,
+                    text: r.try_get(4)?,
+                    from_user: r.try_get(5)?,
                 })
             })
             .collect()
@@ -189,64 +185,60 @@ impl Store {
     pub(crate) async fn rename_session(
         &self,
         user: &UserKey,
-        session_id: &str,
+        chat: Uuid,
         title: &str,
     ) -> Result<bool> {
         if title.is_empty() || title.len() > 200 {
             bail!("session title must be 1-200 characters");
         }
-        // A session copied from a share has no runs yet.
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM runs WHERE user_id=$1 AND session_id=$2)
-                 OR EXISTS(SELECT 1 FROM sessions WHERE user_id=$1 AND id=$2)",
-        )
-        .bind(user.as_str())
-        .bind(session_id)
-        .fetch_one(&self.pool)
-        .await?;
-        if exists {
-            // A title the user chose is never replaced by a generated one.
-            sqlx::query(
-                "INSERT INTO session_titles (user_id, session_id, title, manual, titled_at)
-                 VALUES ($1, $2, $3, TRUE, now())
-                 ON CONFLICT (user_id, session_id) DO UPDATE SET title=excluded.title,
-                     manual=TRUE, titled_at=excluded.titled_at",
-            )
-            .bind(user.as_str())
-            .bind(session_id)
-            .bind(title)
-            .execute(&self.pool)
-            .await?;
+        if !self.owns_session(user, chat).await? {
+            return Ok(false);
         }
-        Ok(exists)
+        // A title the user chose is never replaced by a generated one.
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "UPDATE chats SET title = $2, title_manual = TRUE, titled_at = now() WHERE id = $1",
+        )
+        .bind(chat)
+        .bind(title)
+        .execute(&mut *tx)
+        .await?;
+        let bumped = log_chat(&mut tx, chat, UpdateOp::Chat, Readers::Members).await?;
+        tx.commit().await?;
+        self.announce(&bumped);
+        Ok(true)
     }
 
     /// Stores a generated title, unless the user named the session. Returns
     /// whether it was stored.
     pub async fn set_generated_title(&self, session: &SessionRef, title: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let stored = sqlx::query(
-            "INSERT INTO session_titles (user_id, session_id, title, titled_at)
-             VALUES ($1, $2, $3, now())
-             ON CONFLICT (user_id, session_id) DO UPDATE SET title=excluded.title,
-                 titled_at=excluded.titled_at WHERE NOT session_titles.manual",
+            "UPDATE chats SET title = $2, titled_at = now()
+             WHERE id = $1 AND kind = 'session' AND NOT title_manual",
         )
-        .bind(&session.user)
-        .bind(&session.id)
+        .bind(session.id)
         .bind(title)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
+        let bumped = if stored == 1 {
+            log_chat(&mut tx, session.id, UpdateOp::Chat, Readers::Members).await?
+        } else {
+            Vec::new()
+        };
+        tx.commit().await?;
+        self.announce(&bumped);
         Ok(stored == 1)
     }
 
     /// Whether `session` has only its first run and no title yet.
     pub async fn needs_first_title(&self, session: &SessionRef) -> Result<bool> {
         Ok(sqlx::query_scalar(
-            "SELECT (SELECT COUNT(*) FROM runs WHERE user_id=$1 AND session_id=$2) = 1
-                AND NOT EXISTS(SELECT 1 FROM session_titles WHERE user_id=$1 AND session_id=$2)",
+            "SELECT (SELECT COUNT(*) FROM runs WHERE chat_id = $1) = 1
+                AND EXISTS(SELECT 1 FROM chats WHERE id = $1 AND title IS NULL)",
         )
-        .bind(&session.user)
-        .bind(&session.id)
+        .bind(session.id)
         .fetch_one(&self.pool)
         .await?)
     }
@@ -257,14 +249,15 @@ impl Store {
     /// at once.
     pub async fn sessions_to_title(&self, idle: Duration) -> Result<Vec<SessionRef>> {
         let rows = sqlx::query(
-            "SELECT s.user_id, s.id FROM sessions s
-             LEFT JOIN session_titles t ON t.user_id = s.user_id AND t.session_id = s.id
-             WHERE s.updated_at <= now() - make_interval(secs => $1)
-               AND s.updated_at >= now() - interval '1 day'
-               AND (t.titled_at IS NULL OR t.titled_at < s.updated_at)
-               AND NOT COALESCE(t.manual, FALSE)
-               AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.user_id = s.user_id
-                   AND r.session_id = s.id AND r.status = 'running')
+            "SELECT m.user_id, c.id FROM chats c
+             JOIN chat_members m ON m.chat_id = c.id
+             JOIN sessions s ON s.chat_id = c.id
+             WHERE c.kind = 'session'
+               AND c.updated_at <= now() - make_interval(secs => $1)
+               AND c.updated_at >= now() - interval '1 day'
+               AND (c.titled_at IS NULL OR c.titled_at < c.updated_at)
+               AND NOT c.title_manual
+               AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.chat_id = c.id AND r.status = 'running')
              LIMIT 20",
         )
         .bind(seconds(idle))
@@ -277,143 +270,143 @@ impl Store {
     pub(crate) async fn existing_sessions(
         &self,
         user: &UserKey,
-        ids: Vec<String>,
-    ) -> Result<Vec<String>> {
-        Ok(
-            sqlx::query_scalar("SELECT id FROM sessions WHERE user_id=$1 AND id = ANY($2)")
-                .bind(user.as_str())
-                .bind(&ids)
-                .fetch_all(&self.pool)
-                .await?,
-        )
-    }
-
-    pub(crate) async fn delete_session(&self, user: &UserKey, session_id: &str) -> Result<bool> {
-        Ok(self
-            .delete_sessions(user, vec![session_id.to_owned()])
-            .await?
-            > 0)
-    }
-
-    /// Deletes sessions with their runs and returns how many existed.
-    pub(crate) async fn delete_sessions(&self, user: &UserKey, ids: Vec<String>) -> Result<u64> {
-        let mut tx = self.pool.begin().await?;
-        for table in [
-            "runs",
-            "tool_failures",
-            "memory_scores",
-            "turn_models",
-            "session_titles",
-            "shares",
-        ] {
-            sqlx::query(&format!(
-                "DELETE FROM {table} WHERE user_id=$1 AND session_id = ANY($2)"
-            ))
-            .bind(user.as_str())
-            .bind(&ids)
-            .execute(&mut *tx)
-            .await?;
-        }
-        let files: Vec<String> = sqlx::query_scalar(
-            "DELETE FROM files WHERE user_id=$1 AND session_id = ANY($2) AND group_seq IS NULL
-             RETURNING id",
+        ids: &[Uuid],
+    ) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_scalar(
+            "SELECT c.id FROM chats c JOIN chat_members m ON m.chat_id = c.id
+             JOIN sessions s ON s.chat_id = c.id
+             WHERE m.user_id = $1 AND c.kind = 'session' AND c.id = ANY($2)",
         )
         .bind(user.as_str())
-        .bind(&ids)
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub(crate) async fn delete_session(&self, user: &UserKey, chat: Uuid) -> Result<bool> {
+        Ok(self.delete_sessions(user, &[chat]).await? > 0)
+    }
+
+    /// Deletes sessions with their runs, messages and files and returns how
+    /// many existed.
+    pub(crate) async fn delete_sessions(&self, user: &UserKey, ids: &[Uuid]) -> Result<u64> {
+        let mut tx = self.pool.begin().await?;
+        let owned: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT c.id FROM chats c JOIN chat_members m ON m.chat_id = c.id
+             WHERE m.user_id = $1 AND c.kind = 'session' AND c.id = ANY($2)
+             ORDER BY c.id FOR UPDATE OF c",
+        )
+        .bind(user.as_str())
+        .bind(ids)
         .fetch_all(&mut *tx)
         .await?;
-        let deleted = sqlx::query("DELETE FROM sessions WHERE user_id=$1 AND id = ANY($2)")
-            .bind(user.as_str())
-            .bind(&ids)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
+        let mut files = Vec::new();
+        let mut bumped = Vec::new();
+        let mut deleted = 0;
+        for chat in owned {
+            let saved: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sessions WHERE chat_id = $1)")
+                    .bind(chat)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if saved {
+                deleted += 1;
+            }
+            let gone = delete_chat(&mut tx, chat).await?;
+            files.extend(gone.files);
+            bumped.extend(gone.bumped);
+        }
         tx.commit().await?;
+        self.announce(&bumped);
         self.blobs.delete(&files).await?;
         Ok(deleted)
     }
 
-    /// Removes the turn that starts at the user message sent at `timestamp`,
-    /// in milliseconds since the epoch, from the transcript and the context,
-    /// and with `TurnsToDelete::Onward` every turn after it too.
+    /// Removes the turn whose opening message was sent at `timestamp`, in
+    /// milliseconds since the epoch, from the messages and the context, and
+    /// with `TurnsToDelete::Onward` every turn after it too.
     pub(crate) async fn delete_turn(
         &self,
         user: &UserKey,
-        session_id: &str,
+        chat: Uuid,
         timestamp: i64,
         which: TurnsToDelete,
     ) -> Result<DeletedTurn> {
         let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            "SELECT conversation, context FROM sessions WHERE user_id=$1 AND id=$2 FOR UPDATE",
+        let raw: Option<String> = sqlx::query_scalar(
+            "SELECT s.context FROM sessions s JOIN chat_members m ON m.chat_id = s.chat_id
+             WHERE s.chat_id = $1 AND m.user_id = $2 FOR UPDATE OF s",
         )
+        .bind(chat)
         .bind(user.as_str())
-        .bind(session_id)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some(row) = row else {
+        let Some(raw) = raw else {
+            tx.rollback().await?;
             return Ok(DeletedTurn::NotFound);
         };
         let busy: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM runs WHERE user_id=$1 AND session_id=$2 AND status='running')",
+            "SELECT EXISTS(SELECT 1 FROM runs WHERE chat_id = $1 AND status = 'running')",
         )
-        .bind(user.as_str())
-        .bind(session_id)
+        .bind(chat)
         .fetch_one(&mut *tx)
         .await?;
         if busy {
+            tx.rollback().await?;
             return Ok(DeletedTurn::Busy);
         }
-        let mut transcript: Conversation = serde_json::from_str(row.try_get("conversation")?)?;
-        let Some(turn) = remove_turn(&mut transcript, timestamp, which) else {
-            return Ok(DeletedTurn::NotFound);
-        };
-        // A context that was never compacted is the transcript itself.
-        let context: Option<String> = row.try_get("context")?;
-        let context = match context {
-            Some(raw) => {
-                let mut context: Conversation = serde_json::from_str(&raw)?;
-                // A summary may hold part of the turn; it stays.
-                context.entries_mut().retain(|entry| {
-                    entry.is_summary() || !turn.contains(entry.timestamp.timestamp_millis())
-                });
-                Some(serde_json::to_string(&context)?)
-            }
-            None => None,
-        };
-        sqlx::query(
-            "UPDATE sessions SET conversation=$1, context=$2, updated_at=now()
-             WHERE user_id=$3 AND id=$4",
+        let openers = sqlx::query(
+            "SELECT id, sent_at FROM messages WHERE chat_id = $1 AND turn_id = id ORDER BY id",
         )
-        .bind(serde_json::to_string(&transcript)?)
-        .bind(context)
-        .bind(user.as_str())
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await?;
-        let at = match which {
-            TurnsToDelete::One => "=",
-            TurnsToDelete::Onward => ">=",
-        };
-        for table in ["memory_scores", "turn_models"] {
-            sqlx::query(&format!(
-                "DELETE FROM {table} WHERE user_id=$1 AND session_id=$2 AND turn_at{at}$3"
-            ))
-            .bind(user.as_str())
-            .bind(session_id)
-            .bind(timestamp)
-            .execute(&mut *tx)
-            .await?;
-        }
-        let pictures: Vec<String> = sqlx::query_scalar(&format!(
-            "DELETE FROM files WHERE user_id=$1 AND session_id=$2 AND turn_at{at}$3 RETURNING id"
-        ))
-        .bind(user.as_str())
-        .bind(session_id)
-        .bind(timestamp)
+        .bind(chat)
         .fetch_all(&mut *tx)
         .await?;
+        let mut opener = None;
+        for row in &openers {
+            let sent_at: DateTime<Utc> = row.try_get(1)?;
+            if sent_at.timestamp_millis() == timestamp {
+                opener = Some(row.try_get::<i64, _>(0)?);
+            }
+        }
+        let Some(opener) = opener else {
+            tx.rollback().await?;
+            return Ok(DeletedTurn::NotFound);
+        };
+        // The context may no longer hold the turn when it was compacted; a
+        // summary of it stays.
+        let mut context: Conversation = serde_json::from_str(&raw)?;
+        if remove_turn(&mut context, timestamp, which) {
+            sqlx::query("UPDATE sessions SET context = $2 WHERE chat_id = $1")
+                .bind(chat)
+                .bind(serde_json::to_string(&context)?)
+                .execute(&mut *tx)
+                .await?;
+        }
+        let which_messages = match which {
+            TurnsToDelete::One => "turn_id = $2 OR id = $2",
+            TurnsToDelete::Onward => "id >= $2",
+        };
+        let gone: Vec<i64> = sqlx::query_scalar(&format!(
+            "SELECT id FROM messages WHERE chat_id = $1 AND ({which_messages}) ORDER BY id"
+        ))
+        .bind(chat)
+        .bind(opener)
+        .fetch_all(&mut *tx)
+        .await?;
+        let pictures: Vec<String> =
+            sqlx::query_scalar("DELETE FROM files WHERE message_id = ANY($1) RETURNING id")
+                .bind(&gone)
+                .fetch_all(&mut *tx)
+                .await?;
+        sqlx::query("DELETE FROM messages WHERE id = ANY($1)")
+            .bind(&gone)
+            .execute(&mut *tx)
+            .await?;
+        let bumped =
+            log_messages(&mut tx, chat, &gone, UpdateOp::Deleted, Readers::Members).await?;
+        touch(&mut tx, chat).await?;
         tx.commit().await?;
+        self.announce(&bumped);
         self.blobs.delete(&pictures).await?;
         Ok(DeletedTurn::Deleted)
     }
@@ -421,64 +414,36 @@ impl Store {
     pub(crate) async fn pin_session(
         &self,
         user: &UserKey,
-        session_id: &str,
+        chat: Uuid,
         pinned: bool,
     ) -> Result<bool> {
-        let changed = sqlx::query("UPDATE sessions SET pinned=$1 WHERE user_id=$2 AND id=$3")
-            .bind(pinned)
-            .bind(user.as_str())
-            .bind(session_id)
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
-        Ok(changed > 0)
+        if !self.owns_session(user, chat).await? {
+            return Ok(false);
+        }
+        self.set_member_flag(user, chat, "pinned", pinned).await
     }
 
-    pub(crate) async fn conversation(
-        &self,
-        user: &UserKey,
-        session: &str,
-    ) -> Result<Option<Conversation>> {
-        self.conversation_of(user.as_str(), session).await
-    }
-
-    /// The conversation of a session the store picked for a sweep.
-    pub async fn session_conversation(&self, session: &SessionRef) -> Result<Option<Conversation>> {
-        self.conversation_of(&session.user, &session.id).await
-    }
-
-    async fn conversation_of(&self, user: &str, session: &str) -> Result<Option<Conversation>> {
-        let raw: Option<String> =
-            sqlx::query_scalar("SELECT conversation FROM sessions WHERE user_id=$1 AND id=$2")
-                .bind(user)
-                .bind(session)
-                .fetch_optional(&self.pool)
-                .await?;
-        raw.map(|s| serde_json::from_str(&s).map_err(Into::into))
-            .transpose()
-    }
-
-    /// What the model sees for a session: the compacted context, or the
-    /// transcript when the session was never compacted.
+    /// What the model sees for a session.
     pub(crate) async fn context(
         &self,
         user: &UserKey,
-        session: &str,
+        chat: Uuid,
     ) -> Result<Option<StoredContext>> {
-        self.context_of(user.as_str(), session).await
+        self.context_of(user.as_str(), chat).await
     }
 
     /// The context of a session the store picked for a sweep.
     pub async fn session_context(&self, session: &SessionRef) -> Result<Option<StoredContext>> {
-        self.context_of(&session.user, &session.id).await
+        self.context_of(&session.user, session.id).await
     }
 
-    async fn context_of(&self, user: &str, session: &str) -> Result<Option<StoredContext>> {
+    async fn context_of(&self, user: &str, chat: Uuid) -> Result<Option<StoredContext>> {
         let raw: Option<String> = sqlx::query_scalar(
-            "SELECT COALESCE(context, conversation) FROM sessions WHERE user_id=$1 AND id=$2",
+            "SELECT s.context FROM sessions s JOIN chat_members m ON m.chat_id = s.chat_id
+             WHERE s.chat_id = $1 AND m.user_id = $2",
         )
+        .bind(chat)
         .bind(user)
-        .bind(session)
         .fetch_optional(&self.pool)
         .await?;
         raw.map(|raw| {
@@ -498,12 +463,11 @@ impl Store {
     ) -> Result<bool> {
         let compacted = serde_json::to_string(compacted)?;
         let changed = sqlx::query(
-            "UPDATE sessions SET context=$1, context_tokens=0
-             WHERE user_id=$2 AND id=$3 AND COALESCE(context, conversation)=$4",
+            "UPDATE sessions SET context = $1, context_tokens = 0
+             WHERE chat_id = $2 AND context = $3",
         )
         .bind(compacted)
-        .bind(&session.user)
-        .bind(&session.id)
+        .bind(session.id)
         .bind(&before.raw)
         .execute(&self.pool)
         .await?
@@ -519,11 +483,12 @@ impl Store {
         idle: Duration,
     ) -> Result<Vec<SessionRef>> {
         let rows = sqlx::query(
-            "SELECT user_id, id FROM sessions s
-             WHERE context_tokens >= $1
-               AND updated_at <= now() - make_interval(secs => $2)
-               AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.user_id = s.user_id
-                   AND r.session_id = s.id AND r.status = 'running')",
+            "SELECT m.user_id, c.id FROM sessions s
+             JOIN chats c ON c.id = s.chat_id
+             JOIN chat_members m ON m.chat_id = c.id
+             WHERE s.context_tokens >= $1
+               AND c.updated_at <= now() - make_interval(secs => $2)
+               AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.chat_id = c.id AND r.status = 'running')",
         )
         .bind(i64::from(min_tokens))
         .bind(seconds(idle))
@@ -560,8 +525,7 @@ mod tests {
         turn(&mut chat, 2000, "two");
         turn(&mut chat, 3000, "three");
 
-        let span = remove_turn(&mut chat, 2001, TurnsToDelete::One).unwrap();
-        assert_eq!((span.start, span.end), (2000, Some(3000)));
+        assert!(remove_turn(&mut chat, 2001, TurnsToDelete::One));
         let times: Vec<_> = chat
             .entries()
             .iter()
@@ -572,10 +536,9 @@ mod tests {
             [1000, 1001, 1002, 1003, 1004, 3000, 3001, 3002, 3003, 3004]
         );
 
-        let span = remove_turn(&mut chat, 3001, TurnsToDelete::One).unwrap();
-        assert_eq!((span.start, span.end), (3000, None));
+        assert!(remove_turn(&mut chat, 3001, TurnsToDelete::One));
         assert_eq!(chat.entries().len(), 5);
-        assert!(remove_turn(&mut chat, 1002, TurnsToDelete::One).is_none());
+        assert!(!remove_turn(&mut chat, 1002, TurnsToDelete::One));
     }
 
     #[test]
@@ -585,44 +548,39 @@ mod tests {
         turn(&mut chat, 2000, "two");
         turn(&mut chat, 3000, "three");
 
-        let span = remove_turn(&mut chat, 1001, TurnsToDelete::Onward).unwrap();
-        assert_eq!((span.start, span.end), (1000, None));
+        assert!(remove_turn(&mut chat, 1001, TurnsToDelete::Onward));
         assert!(chat.entries().is_empty());
     }
 
     #[tokio::test]
-    async fn search_finds_words_inside_the_stored_json() {
-        use crate::store::{CreateRun, FinishedTurn, RunStatus, TestDb};
+    async fn search_finds_words_inside_messages() {
+        use crate::store::{TestDb, test_chat, test_turn};
         use crate::user::User;
 
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let alice = User::for_test(store.clone(), "alice");
-        let CreateRun::Created(run) = alice.create_run("s1", "req-1", "hi").await.unwrap() else {
-            panic!("run was not created");
-        };
-        let mut chat = Conversation::new();
-        chat.add(ConversationEntry::user("Book the \"Kimpton\" for 100%"));
-        let turn = FinishedTurn {
-            transcript: &chat,
-            context: &chat,
-            prompt_tokens: 10,
-        };
-        alice
-            .finish(&run, Some(turn), RunStatus::Completed)
-            .await
-            .unwrap();
+        let s1 = test_chat("s1");
+        test_turn(
+            &store,
+            &UserKey::for_test("alice"),
+            s1,
+            "Book the \"Kimpton\" for 100%",
+            1000,
+        )
+        .await
+        .unwrap();
 
         let ids = |found: Vec<FoundSession>| -> Vec<String> {
             found.into_iter().map(|f| f.session.id).collect()
         };
         assert_eq!(
             ids(alice.search_sessions("\"kimpton\"", 10).await.unwrap()),
-            ["s1"]
+            [s1.to_string()]
         );
         assert_eq!(
             ids(alice.search_sessions("100%", 10).await.unwrap()),
-            ["s1"]
+            [s1.to_string()]
         );
         assert!(alice.search_sessions("10_%", 10).await.unwrap().is_empty());
         let bob = User::for_test(store.clone(), "bob");

@@ -145,7 +145,7 @@ pub(crate) async fn submit(
             if claimed.is_some() {
                 app.store.notify_crons_changed();
             }
-            claimed.and_then(|v| v.parse().ok())
+            claimed
         }
     };
     let msg = |session_id| Message {
@@ -200,7 +200,12 @@ impl CronHandler for BeepCronHandler {
             log::warn!("cron job for an unknown user; job_id={}", job.id);
             return Ok(None);
         };
-        if let Some(group_id) = job.metadata.get("group_id").and_then(|v| v.as_str()) {
+        if let Some(group_id) = job
+            .metadata
+            .get("group_id")
+            .and_then(|v| v.as_str())
+            .and_then(|v| v.parse::<Uuid>().ok())
+        {
             self.app
                 .post_group_reminder(&user, group_id, &job.task)
                 .await?;
@@ -392,7 +397,8 @@ mod tests {
         let db = TestDb::new().await.expect("test database");
         let store = db.store().await.expect("store opens");
         let mut registry = flashmind::types::ToolRegistry::new();
-        register_tools(&mut registry, store.clone(), "user", "chat-1", None, None);
+        let chat = Uuid::new_v4().to_string();
+        register_tools(&mut registry, store.clone(), "user", &chat, None, None);
         let tool = registry
             .get("schedule_once")
             .expect("schedule_once registered");
@@ -405,7 +411,7 @@ mod tests {
 
         let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
         assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].metadata["session_id"], "chat-1");
+        assert_eq!(jobs[0].metadata["session_id"], chat.as_str());
     }
     #[tokio::test]
     async fn a_routine_made_outside_a_chat_keeps_its_first_chat() {
@@ -431,8 +437,8 @@ mod tests {
             .claim_cron_session(job.id, Uuid::new_v4())
             .await
             .expect("claim runs");
-        assert_eq!(second.as_deref(), Some(first.as_str()));
+        assert_eq!(second, Some(first));
         let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
-        assert_eq!(jobs[0].metadata["session_id"], first.as_str());
+        assert_eq!(jobs[0].metadata["session_id"], first.to_string());
     }
 }

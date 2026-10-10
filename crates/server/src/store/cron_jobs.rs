@@ -12,7 +12,7 @@ use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
 
 pub(super) const COLUMNS: &str = "id, user_id, label, prompt, schedule, enabled, run_once, created_at, \
-    last_run_at, session_id, kind, group_id";
+    last_run_at, chat_id::text AS session_id, kind, group_id::text AS group_id";
 
 /// A routine that wakes the agent with its prompt; the other kind is
 /// [`crate::digest::DIGEST_KIND`]. A routine's kind never changes.
@@ -59,6 +59,11 @@ fn meta<'a>(job: &'a CronJob, key: &str) -> Option<&'a str> {
     job.metadata.get(key).and_then(|v| v.as_str())
 }
 
+/// A chat id kept in a job's metadata.
+fn meta_chat(job: &CronJob, key: &str) -> Option<Uuid> {
+    meta(job, key).and_then(|id| Uuid::parse_str(id).ok())
+}
+
 impl Store {
     pub(crate) async fn cron_jobs(&self, user: Option<&str>) -> Result<Vec<CronJob>> {
         let rows = sqlx::query(&format!(
@@ -88,11 +93,11 @@ impl Store {
         let schedule = encode_schedule(&job.schedule);
         sqlx::query(
             "INSERT INTO crons (user_id, id, label, prompt, schedule, enabled, run_once,
-                 created_at, last_run_at, session_id, kind, group_id)
+                 created_at, last_run_at, chat_id, kind, group_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
              ON CONFLICT (user_id, id) DO UPDATE SET label=$3, prompt=$4, schedule=$5,
                  enabled=$6, run_once=$7, last_run_at=$9,
-                 session_id=COALESCE($10, crons.session_id)",
+                 chat_id=COALESCE($10, crons.chat_id)",
         )
         .bind(meta(job, "user_id").unwrap_or("unknown"))
         .bind(job.id.to_string())
@@ -103,9 +108,9 @@ impl Store {
         .bind(job.once)
         .bind(job.created_at)
         .bind(job.last_run)
-        .bind(meta(job, "session_id"))
+        .bind(meta_chat(job, "session_id"))
         .bind(meta(job, "kind").unwrap_or(PROMPT_KIND))
-        .bind(meta(job, "group_id"))
+        .bind(meta_chat(job, "group_id"))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -113,19 +118,15 @@ impl Store {
 
     /// The chat `id`'s runs reply in: the one it already has, or `session`,
     /// which it keeps from then on. `None` when the job is gone.
-    pub(crate) async fn claim_cron_session(
-        &self,
-        id: Uuid,
-        session: Uuid,
-    ) -> Result<Option<String>> {
-        let row = sqlx::query(
-            "UPDATE crons SET session_id=COALESCE(session_id, $2) WHERE id=$1 RETURNING session_id",
+    pub(crate) async fn claim_cron_session(&self, id: Uuid, session: Uuid) -> Result<Option<Uuid>> {
+        Ok(sqlx::query_scalar(
+            "UPDATE crons SET chat_id=COALESCE(chat_id, $2) WHERE id=$1 RETURNING chat_id",
         )
         .bind(id.to_string())
-        .bind(session.to_string())
+        .bind(session)
         .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.map(|r| r.try_get("session_id")).transpose()?)
+        .await?
+        .flatten())
     }
 
     pub(crate) async fn delete_cron_job(&self, id: Uuid, user: Option<&str>) -> Result<bool> {
@@ -142,7 +143,7 @@ impl Store {
     }
 
     /// The reminders set in group `group`, oldest first.
-    pub(crate) async fn group_reminders(&self, group: &str) -> Result<Vec<CronJob>> {
+    pub(crate) async fn group_reminders(&self, group: Uuid) -> Result<Vec<CronJob>> {
         let rows = sqlx::query(&format!(
             "SELECT {COLUMNS} FROM crons WHERE group_id=$1 ORDER BY created_at LIMIT 100"
         ))
@@ -153,7 +154,7 @@ impl Store {
     }
 
     /// Deletes reminder `id` from group `group`; false when it is not there.
-    pub(crate) async fn delete_group_reminder(&self, group: &str, id: Uuid) -> Result<bool> {
+    pub(crate) async fn delete_group_reminder(&self, group: Uuid, id: Uuid) -> Result<bool> {
         let deleted = sqlx::query("DELETE FROM crons WHERE id=$1 AND group_id=$2")
             .bind(id.to_string())
             .bind(group)
@@ -167,7 +168,10 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-    use crate::{store::TestDb, user::UserKey};
+    use crate::{
+        store::{TestDb, test_chat},
+        user::UserKey,
+    };
     use chrono::Utc;
     use flashmind::cron::{CronJob, JobSchedule};
     use serde_json::json;
@@ -191,12 +195,13 @@ mod tests {
         let db = TestDb::new().await.expect("test database");
         let store = db.store().await.expect("store opens");
         let alice = UserKey::for_test("alice");
+        let g1 = test_chat("g1");
         store
-            .create_group(&alice, "g1", "Trip", "Ali")
+            .create_group(&alice, g1, "Trip", "Ali")
             .await
             .expect("group made");
         let own = job(json!({"user_id": "alice", "label": "Own"}));
-        let group = job(json!({"user_id": "alice", "label": "Trip", "group_id": "g1"}));
+        let group = job(json!({"user_id": "alice", "label": "Trip", "group_id": g1.to_string()}));
         store.upsert_cron_job(&own).await.expect("routine saved");
         store.upsert_cron_job(&group).await.expect("reminder saved");
 
@@ -218,10 +223,10 @@ mod tests {
             .iter()
             .find(|j| j.id == group.id)
             .expect("scheduler sees it");
-        assert_eq!(fired.metadata["group_id"], "g1");
+        assert_eq!(fired.metadata["group_id"], g1.to_string());
         assert_eq!(
             store
-                .group_reminders("g1")
+                .group_reminders(g1)
                 .await
                 .expect("reminders load")
                 .len(),
@@ -230,19 +235,19 @@ mod tests {
 
         assert!(
             !store
-                .delete_group_reminder("g2", group.id)
+                .delete_group_reminder(test_chat("g2"), group.id)
                 .await
                 .expect("delete runs")
         );
         assert!(
             store
-                .delete_group_reminder("g1", group.id)
+                .delete_group_reminder(g1, group.id)
                 .await
                 .expect("delete runs")
         );
         assert!(
             store
-                .group_reminders("g1")
+                .group_reminders(g1)
                 .await
                 .expect("reminders load")
                 .is_empty()

@@ -16,7 +16,8 @@ use crate::{
     repeat::{self, RepeatGuard},
     sandbox,
     starters::Generator,
-    store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, TurnModel},
+    steps::{self, TurnsByTime},
+    store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, Step, StepBody, TurnRecord},
     timing::{Output, TurnTimer},
     tools,
     user::User,
@@ -39,6 +40,7 @@ use flashmind::{
 use futures::StreamExt;
 use secrecy::ExposeSecret;
 use std::{
+    collections::HashSet,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -46,6 +48,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::{sync::RwLock, time::Instant};
+use uuid::Uuid;
 
 /// The longest any run may take. A model stuck repeating itself is stopped
 /// sooner by the repeat guards.
@@ -73,21 +76,17 @@ impl App {
             user.forget_used_starter(&message.message).await;
         }
 
-        // The model runs on the context, which may be compacted; the transcript
-        // keeps every message for the phone and gets this turn's entries appended.
-        let mut transcript = user
-            .conversation(&run.session_id)
-            .await?
-            .unwrap_or_else(Conversation::new);
+        let chat = Uuid::parse_str(&run.session_id)?;
+        // The model runs on the context, which may be compacted. The apps
+        // read the turn's steps, saved as messages when it ends.
         let mut conversation = user
-            .context(&run.session_id)
+            .context(chat)
             .await?
-            .map_or_else(|| transcript.clone(), |context| context.conversation);
+            .map_or_else(Conversation::new, |context| context.conversation);
 
         // Always set the server-owned prompt, including when loading an older conversation.
         // It stays static so the provider can cache it.
         conversation.set_system(include_str!("../../prompts/assistant.md"));
-        transcript.set_system(include_str!("../../prompts/assistant.md"));
         let answer = message.answer.as_ref();
         // An admin's one-off model or thinking wins over Auto; a resumed turn
         // keeps the pick it started with. Auto picks for chats only: a routine
@@ -95,14 +94,14 @@ impl App {
         let one_off = message.model.is_some() || message.thinking.is_some();
         let auto = match (one_off, answer) {
             (true, _) => None,
-            (false, Some(_)) => self.resumed_pick(user, &run.session_id, &transcript).await,
+            (false, Some(_)) => self.resumed_pick(user, chat).await,
             (false, None) if background => None,
             (false, None) => {
                 let prompt = Prompt {
                     message: &message.message,
                     images: message.images.len(),
-                    conversation: &transcript,
-                    session: &run.session_id,
+                    conversation: &conversation,
+                    session: chat,
                 };
                 self.auto_pick(user, &prompt).await
             }
@@ -154,7 +153,7 @@ impl App {
         }
         registry.register(Arc::new(tools::SendFileTool {
             user: user.clone(),
-            session_id: run.session_id.clone(),
+            session_id: chat,
             sandbox: self.tools.sandbox.clone(),
         }));
         let notify = Arc::new(AtomicBool::new(false));
@@ -197,8 +196,8 @@ impl App {
         // Entries from here on belong to this turn. Matching by time rather than
         // index survives the agent compacting mid-run.
         let turn_started = Utc::now();
-        // Conversation entries do not record whether a tool failed; history needs it.
-        let mut failed_tools = Vec::new();
+        // Conversation entries do not record whether a tool failed; the apps need it.
+        let mut failed_tools = HashSet::new();
         // The guarded call the run stops on to ask the user, if any.
         let mut parked = None;
 
@@ -230,7 +229,7 @@ impl App {
             conversation.add(ConversationEntry::tool(&call.id, result.output()));
             if answer.is_some() {
                 if !result.is_success() {
-                    failed_tools.push(call.id.clone());
+                    failed_tools.insert(call.id.clone());
                 }
                 live.push(RunEvent::ToolResult {
                     name: call.name,
@@ -375,7 +374,7 @@ impl App {
                             timer.tools_done();
                         }
                         if !success {
-                            failed_tools.push(id.clone());
+                            failed_tools.insert(id.clone());
                         }
                         RunEvent::ToolResult {
                             name,
@@ -475,6 +474,8 @@ impl App {
         // Learn from the turn while the run is still open, so what was saved shows
         // as memory tool chips under the reply. Scheduled prompts are written by
         // the user once, not said in conversation.
+        // Jev's memory score for the turn, kept with it.
+        let mut memory_score = None;
         if status == RunStatus::Completed && !background {
             let generator = Generator {
                 provider: self.provider.as_ref(),
@@ -526,23 +527,6 @@ impl App {
                 let score = self.memory_score(memory_state(&known, &exchange)).await;
                 if let Some(probability) = score {
                     live.push(RunEvent::MemoryScore { probability });
-                    // Kept by the time of the turn's user message, so history can show it
-                    // to a phone that was not watching the run.
-                    let asked = conversation
-                        .entries()
-                        .iter()
-                        .find(|entry| entry.timestamp >= turn_from && entry.is_user());
-                    if let Some(asked) = asked
-                        && let Err(error) = user
-                            .record_memory_score(
-                                &run.session_id,
-                                asked.timestamp.timestamp_millis(),
-                                probability,
-                            )
-                            .await
-                    {
-                        log::warn!("unable to record memory score: {error}; run_id={}", run.id);
-                    }
                 }
                 // Without a score (Jev not configured or failing) every turn is read,
                 // and so is one that acted, since it may finish what a memory plans.
@@ -558,9 +542,10 @@ impl App {
                         run.id
                     );
                 }
-                learned
+                (learned, score)
             };
-            let (learned, follow_up) = tokio::join!(learning, follow_up);
+            let ((learned, score), follow_up) = tokio::join!(learning, follow_up);
+            memory_score = score;
             let mut calls: Vec<ServerCall> = learned
                 .iter()
                 .map(|change| ServerCall {
@@ -582,13 +567,6 @@ impl App {
         }
 
         // Save the turn before clients see the run finish, so they can load it.
-        if !failed_tools.is_empty()
-            && let Err(error) = user
-                .record_tool_failures(&run.session_id, failed_tools)
-                .await
-        {
-            log::warn!("unable to record tool failures: {error}; run_id={}", run.id);
-        }
         if let Some(task) = describing {
             match task.await {
                 Ok(descriptions) => images::replace_with_descriptions(
@@ -601,67 +579,83 @@ impl App {
                 }
             }
         }
-        if !silent {
-            transcript.entries_mut().extend(
-                conversation
-                    .entries()
-                    .iter()
-                    .filter(|entry| entry.timestamp >= turn_started && !entry.is_summary())
-                    .cloned(),
-            );
-        }
-        // Kept before the turn is saved, so the history the phone reloads on
-        // the change notice already names the model.
-        let asked = transcript
+        // What the turn ran with sits on its opening message; a resumed turn
+        // adds to the one it carries on.
+        let record = TurnRecord {
+            model: model.to_string(),
+            auto_thinking: auto.as_ref().map(|auto| auto.thinking),
+            reasoning: String::new(),
+            memory_score: if answer.is_none() { memory_score } else { None },
+        };
+        let mut turns = TurnsByTime::new();
+        if let Some(asked) = conversation
             .entries()
             .iter()
-            .find(|entry| entry.timestamp >= turn_started && entry.is_user());
-        // The pictures stay with the turn, so every device shows them after
-        // the model only keeps their descriptions.
-        if let Some(asked) = asked
+            .find(|entry| entry.timestamp >= turn_started && entry.is_user())
+        {
+            turns.insert(asked.timestamp.timestamp_millis(), record);
+        }
+        // A routine that found nothing to say shows nothing.
+        let mut saved = if silent {
+            steps::Steps::default()
+        } else {
+            steps::steps(
+                conversation.entries(),
+                Some(turn_started),
+                &failed_tools,
+                &turns,
+            )
+        };
+        // A call that only names its records, such as a message ID, says what
+        // they are from earlier results, so the user knows what it acts on.
+        if let Some(parked) = &mut parked {
+            parked.approval.fields.extend(permissions::describe_records(
+                &parked.call_id,
+                &conversation,
+            ));
+            saved.steps.push(Step {
+                sent_at: Utc::now(),
+                body: StepBody::Approval {
+                    query_id: parked.call_id.clone(),
+                    approval: parked.approval.clone(),
+                },
+            });
+        }
+        let turn = FinishedTurn {
+            context: &conversation,
+            prompt_tokens,
+            steps: &saved.steps,
+            carried: TurnRecord {
+                reasoning: saved.carried_reasoning.clone(),
+                memory_score: if answer.is_some() { memory_score } else { None },
+                ..TurnRecord::default()
+            },
+        };
+        let finished = user.finish(run, Some(turn), status).await?;
+        // The pictures stay with the message they came with, so every device
+        // shows them after the model only keeps their descriptions.
+        if let Some(opened) = finished.and_then(|saved| saved.opened)
             && !message.images.is_empty()
         {
-            let of = PicturesOf::Turn {
-                session_id: &run.session_id,
-                at: asked.timestamp.timestamp_millis(),
+            let of = PicturesOf {
+                chat,
+                message: opened,
             };
-            if let Err(error) = user
+            match user
                 .save_pictures(of, &images::pictures(&message.images))
                 .await
             {
-                log::warn!(
+                Ok(_) => user.changed(&run.session_id),
+                Err(error) => log::warn!(
                     "unable to keep the turn's pictures: {error}; run_id={}",
                     run.id
-                );
+                ),
             }
         }
-        if let Some(asked) = asked
-            && let Err(error) = user
-                .record_turn_model(
-                    &run.session_id,
-                    asked.timestamp.timestamp_millis(),
-                    &TurnModel {
-                        model: model.to_string(),
-                        auto_thinking: auto.as_ref().map(|auto| auto.thinking),
-                    },
-                )
-                .await
-        {
-            log::warn!(
-                "unable to record the turn's model: {error}; run_id={}",
-                run.id
-            );
-        }
-        let turn = FinishedTurn {
-            transcript: &transcript,
-            context: &conversation,
-            prompt_tokens,
-        };
-        let updated_at = user.finish(run, Some(turn), status).await?;
         self.compact_after_turn(
             SessionRef {
                 user: user.id().to_owned(),
-                id: run.session_id.clone(),
+                id: chat,
             },
             model.clone(),
             prompt_tokens,
@@ -672,18 +666,12 @@ impl App {
             status.as_str()
         );
         // Asked only once the turn is saved, so the answer finds the open call.
-        if let Some(mut parked) = parked {
-            // A call that only names its records, such as a message ID, says
-            // what they are from earlier results, so the user knows what it acts on.
-            parked
-                .approval
-                .fields
-                .extend(permissions::describe_records(&parked.call_id, &transcript));
+        if let Some(parked) = parked {
             self.park(user, run, live, parked);
         }
         live.push(RunEvent::RunFinished {
             status: status.as_str().to_owned(),
-            updated_at: updated_at.map(SystemTime::from),
+            updated_at: finished.map(|saved| SystemTime::from(saved.updated_at)),
         });
         if let Some(label) = &message.woken {
             let finished = wake::Finished {

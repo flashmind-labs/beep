@@ -24,6 +24,7 @@ pub mod router;
 pub mod sandbox;
 pub mod search;
 pub mod starters;
+pub mod steps;
 pub mod store;
 pub mod timing;
 pub mod titles;

@@ -132,7 +132,7 @@ impl Tool for SetTool {
             _ => return failure(&ctx, "Give exactly one of `at` or `repeat`."),
         };
         let store = &self.run.app.store;
-        if store.group_reminders(&self.run.group_id).await?.len() >= MAX_REMINDERS {
+        if store.group_reminders(self.run.group_id).await?.len() >= MAX_REMINDERS {
             return failure(&ctx, "The group has too many reminders. Delete one first.");
         }
         if self.run.leaks(message).await {
@@ -181,7 +181,7 @@ impl Tool for ListTool {
             .run
             .app
             .store
-            .group_reminders(&self.run.group_id)
+            .group_reminders(self.run.group_id)
             .await?;
         let list: Vec<Value> = jobs
             .iter()
@@ -220,7 +220,7 @@ impl Tool for DeleteTool {
             .run
             .app
             .store
-            .delete_group_reminder(&self.run.group_id, id)
+            .delete_group_reminder(self.run.group_id, id)
             .await?;
         if !deleted {
             return failure(&ctx, "No reminder in this group has that id.");

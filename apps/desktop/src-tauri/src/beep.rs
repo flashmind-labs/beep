@@ -6,6 +6,7 @@ use crate::{
     identity::{Identity, secret_key},
     markdown, products,
     state::{LinkState, Saved, StateFile},
+    sync::Chats,
 };
 use beep_proto::{
     AnswerApproval, ApprovalDecision, Call, CancelRun, Chat, DeviceAnswer, DeviceQuery,
@@ -35,7 +36,7 @@ pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 const NOT_HERE: &str = "not available on desktop";
 /// The server saves follow-up replies as this tool's result.
-const SUGGEST_REPLIES: &str = "suggest_replies";
+pub const SUGGEST_REPLIES: &str = "suggest_replies";
 /// Its result names a file Beep sent, which shows as a card.
 const SEND_FILE: &str = "send_file";
 /// Its result lists products, which show as a row of cards.
@@ -184,6 +185,7 @@ pub struct Beep {
     file: StateFile,
     /// The group the bar shows, so its messages do not also notify.
     group: Mutex<Option<String>>,
+    chats: Chats,
 }
 
 /// The notices the server pushes, for the app to show.
@@ -194,6 +196,7 @@ impl Beep {
         identity: Identity,
         server: EndpointId,
         file: StateFile,
+        chats: Chats,
     ) -> anyhow::Result<(Arc<Self>, Notices)> {
         let (tx, rx) = mpsc::unbounded_channel();
         let on_notice: OnNotice = Arc::new(move |notice| tx.send(notice).is_ok());
@@ -210,6 +213,7 @@ impl Beep {
                 saved: Mutex::new(saved),
                 file,
                 group: Mutex::new(None),
+                chats,
             }),
             rx,
         ))
@@ -217,6 +221,11 @@ impl Beep {
 
     pub fn id(&self) -> EndpointId {
         self.node.id()
+    }
+
+    /// The chats copied from the server.
+    pub fn chats(&self) -> &Chats {
+        &self.chats
     }
 
     fn with_saved<T>(&self, f: impl FnOnce(&mut Saved) -> T) -> T {
@@ -324,7 +333,7 @@ impl Beep {
         }
     }
 
-    async fn stream<R: Stream>(&self, request: R) -> Result<Replies<R::Reply>> {
+    pub async fn stream<R: Stream>(&self, request: R) -> Result<Replies<R::Reply>> {
         let client = self.client().await?;
         match client.stream(&request).await {
             Ok(replies) => Ok(replies),
@@ -341,7 +350,10 @@ impl Beep {
     }
 
     pub async fn sessions(&self) -> Result<Vec<Session>> {
-        self.call(ListSessions {}).await
+        match self.chats.sessions() {
+            Some(sessions) => Ok(sessions),
+            None => self.call(ListSessions {}).await,
+        }
     }
 
     pub async fn search(&self, query: String) -> Result<Vec<SessionMatch>> {
@@ -349,6 +361,12 @@ impl Beep {
     }
 
     pub async fn history(&self, id: String) -> Result<Vec<Turn>> {
+        if let Some(turns) = Uuid::parse_str(&id)
+            .ok()
+            .and_then(|id| self.chats.session(id))
+        {
+            return Ok(turns);
+        }
         let (entries, images) = join!(
             self.call(GetSession { id: id.clone() }),
             self.call(GetSessionImages { session_id: id }),
@@ -566,6 +584,25 @@ fn suggested_replies(output: &str) -> Option<Vec<String>> {
     (!replies.is_empty()).then_some(replies)
 }
 
+/// The replies a tool result suggests, when it is `suggest_replies` and
+/// has some.
+pub fn suggested(name: &str, output: &str) -> Option<Vec<String>> {
+    if name != SUGGEST_REPLIES {
+        return None;
+    }
+    suggested_replies(output)
+}
+
+/// A tool result as a step of a reply.
+pub fn tool_step(name: &str, output: &str, success: bool) -> ToolStep {
+    ToolStep {
+        name: name.to_owned(),
+        success,
+        file: sent_file(name, output),
+        products: shown_products(name, output),
+    }
+}
+
 #[derive(Deserialize)]
 struct FileOutput {
     file: SentFile,
@@ -614,17 +651,12 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
             Turn::Assistant {
                 html: markdown::to_html(&content),
                 tools: tools
-                    .into_iter()
-                    .map(|t| ToolStep {
-                        file: sent_file(&t.name, &t.output),
-                        products: shown_products(&t.name, &t.output),
-                        name: t.name,
-                        success: t.success,
-                    })
+                    .iter()
+                    .map(|t| tool_step(&t.name, &t.output, t.success))
                     .collect(),
                 replies: suggest
                     .iter()
-                    .find_map(|t| suggested_replies(&t.output))
+                    .find_map(|t| suggested(&t.name, &t.output))
                     .unwrap_or_default(),
             }
         }

@@ -1,11 +1,16 @@
 //! Agent runs: creating them once per request and saving how they ended.
 
-use super::Store;
+use super::{
+    Store,
+    chats::{SessionChat, ensure_session, touch},
+    messages::{Step, TurnRecord, drop_approvals, insert_steps, latest_turn, patch_turn},
+    updates::{Readers, UpdateOp, log_chat, log_messages},
+};
 use crate::{protocol::Run, user::UserKey};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use flashmind::core::Conversation;
-use sqlx::Row;
+use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
 
 pub enum CreateRun {
@@ -16,12 +21,25 @@ pub enum CreateRun {
 
 /// What a finished run saves for its session.
 pub struct FinishedTurn<'a> {
-    /// The full history, shown to the user.
-    pub transcript: &'a Conversation,
     /// What the model sees next turn.
     pub context: &'a Conversation,
     /// Prompt size of the run's last model call.
     pub prompt_tokens: u32,
+    /// What the apps show of the turn, in order. Steps before the first that
+    /// opens a turn carry on the latest one, as when an approval resumes it.
+    pub steps: &'a [Step],
+    /// Added to the turn the steps carry on: its reasoning, and the memory
+    /// score of a resumed turn.
+    pub carried: TurnRecord,
+}
+
+/// What `Store::finish` saved of a turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SavedTurn {
+    /// The session's new `updated_at`.
+    pub updated_at: DateTime<Utc>,
+    /// The message the saved steps opened their turn with, if they did.
+    pub opened: Option<i64>,
 }
 
 /// How an agent run ended.
@@ -55,6 +73,14 @@ impl RunStatus {
     }
 }
 
+fn run(row: &PgRow) -> Result<Run> {
+    Ok(Run {
+        id: row.try_get(0)?,
+        session_id: row.try_get::<Uuid, _>(1)?.to_string(),
+        status: row.try_get(2)?,
+    })
+}
+
 impl Store {
     // Called once before accepting requests. A server restart never silently repeats tools.
     pub async fn recover(&self) -> Result<()> {
@@ -64,62 +90,75 @@ impl Store {
         Ok(())
     }
 
+    /// Starts a run in session `chat`, making the session on its first run.
+    /// A conflict when the session is someone else's or busy.
     pub(crate) async fn create_run(
         &self,
         user: &UserKey,
-        session: &str,
+        chat: Uuid,
         request: &str,
         message: &str,
     ) -> Result<CreateRun> {
         let user = user.as_str();
-        if let Some(found) = self
-            .run_for_request(user, session, request, message)
-            .await?
-        {
+        if let Some(found) = self.run_for_request(user, chat, request, message).await? {
             return Ok(found);
         }
         let mut tx = self.pool.begin().await?;
+        let session = ensure_session(&mut tx, user, chat).await?;
+        if session == SessionChat::Taken {
+            tx.rollback().await?;
+            return Ok(CreateRun::Conflict);
+        }
         let busy: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM runs WHERE user_id=$1 AND session_id=$2 AND status='running')",
+            "SELECT EXISTS(SELECT 1 FROM runs WHERE chat_id=$1 AND status='running')",
         )
-        .bind(user)
-        .bind(session)
+        .bind(chat)
         .fetch_one(&mut *tx)
         .await?;
         if busy {
+            tx.rollback().await?;
             return Ok(CreateRun::Conflict);
         }
         let active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM runs WHERE status='running'")
             .fetch_one(&mut *tx)
             .await?;
         if active >= 16 {
+            tx.rollback().await?;
             return Ok(CreateRun::Conflict);
         }
         let run = Run {
             id: Uuid::new_v4().to_string(),
-            session_id: session.to_owned(),
+            session_id: chat.to_string(),
             status: "running".into(),
         };
         // A concurrent run for the same request or session wins the race
         // through the unique indexes; this one then reports what it lost to.
         let inserted = sqlx::query(
-            "INSERT INTO runs (id, user_id, session_id, request_id, message, status)
+            "INSERT INTO runs (id, user_id, chat_id, request_id, message, status)
              VALUES ($1, $2, $3, $4, $5, 'running') ON CONFLICT DO NOTHING",
         )
         .bind(&run.id)
         .bind(user)
-        .bind(session)
+        .bind(chat)
         .bind(request)
         .bind(message)
         .execute(&mut *tx)
         .await?
         .rows_affected();
+        // A new session shows up in the user's list right away, titled by
+        // this first message.
+        let bumped = if inserted == 1 && session == SessionChat::New {
+            log_chat(&mut tx, chat, UpdateOp::Chat, Readers::User(user)).await?
+        } else {
+            Vec::new()
+        };
         tx.commit().await?;
+        self.announce(&bumped);
         if inserted == 1 {
             return Ok(CreateRun::Created(run));
         }
         Ok(self
-            .run_for_request(user, session, request, message)
+            .run_for_request(user, chat, request, message)
             .await?
             .unwrap_or(CreateRun::Conflict))
     }
@@ -129,12 +168,12 @@ impl Store {
     pub(crate) async fn run_for_request(
         &self,
         user: &str,
-        session: &str,
+        chat: Uuid,
         request: &str,
         message: &str,
     ) -> Result<Option<CreateRun>> {
         let row = sqlx::query(
-            "SELECT id, session_id, status, message FROM runs WHERE user_id=$1 AND request_id=$2",
+            "SELECT id, chat_id, status, message FROM runs WHERE user_id=$1 AND request_id=$2",
         )
         .bind(user)
         .bind(request)
@@ -143,13 +182,10 @@ impl Store {
         let Some(row) = row else {
             return Ok(None);
         };
-        let run = Run {
-            id: row.try_get(0)?,
-            session_id: row.try_get(1)?,
-            status: row.try_get(2)?,
-        };
         let original: String = row.try_get(3)?;
-        Ok(Some(if run.session_id == session && original == message {
+        let same = row.try_get::<Uuid, _>(1)? == chat && original == message;
+        let run = run(&row)?;
+        Ok(Some(if same {
             CreateRun::Existing(run)
         } else {
             CreateRun::Conflict
@@ -157,49 +193,71 @@ impl Store {
     }
 
     pub(crate) async fn run(&self, user: &UserKey, id: &str) -> Result<Option<Run>> {
-        let row = sqlx::query("SELECT id, session_id, status FROM runs WHERE user_id=$1 AND id=$2")
+        let row = sqlx::query("SELECT id, chat_id, status FROM runs WHERE user_id=$1 AND id=$2")
             .bind(user.as_str())
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
-        row.map(|r| {
-            Ok(Run {
-                id: r.try_get(0)?,
-                session_id: r.try_get(1)?,
-                status: r.try_get(2)?,
-            })
-        })
-        .transpose()
+        row.as_ref().map(run).transpose()
     }
 
-    /// Ends `run` with `status`, saving `turn` when there is one. Returns the
-    /// session's new `updated_at`, `None` when no turn was saved.
+    /// Ends `run` with `status`, saving `turn` when there is one. `None`
+    /// when no turn was saved.
     pub(crate) async fn finish(
         &self,
         user: &UserKey,
         run: &Run,
         turn: Option<FinishedTurn<'_>>,
         status: RunStatus,
-    ) -> Result<Option<DateTime<Utc>>> {
+    ) -> Result<Option<SavedTurn>> {
+        let chat = Uuid::parse_str(&run.session_id)?;
         let mut tx = self.pool.begin().await?;
-        let mut updated_at = None;
+        let mut saved = None;
+        let mut bumped = Vec::new();
         if let Some(turn) = turn {
-            let saved: DateTime<Utc> = sqlx::query_scalar(
-                "INSERT INTO sessions (user_id, id, conversation, context, context_tokens, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, now())
-                 ON CONFLICT (user_id, id) DO UPDATE SET conversation=excluded.conversation,
-                     context=excluded.context, context_tokens=excluded.context_tokens,
-                     updated_at=excluded.updated_at
-                 RETURNING updated_at",
+            sqlx::query(
+                "INSERT INTO sessions (chat_id, context, context_tokens) VALUES ($1, $2, $3)
+                 ON CONFLICT (chat_id) DO UPDATE SET context=excluded.context,
+                     context_tokens=excluded.context_tokens",
             )
-            .bind(user.as_str())
-            .bind(&run.session_id)
-            .bind(serde_json::to_string(turn.transcript)?)
+            .bind(chat)
             .bind(serde_json::to_string(turn.context)?)
             .bind(i64::from(turn.prompt_tokens))
-            .fetch_one(&mut *tx)
+            .execute(&mut *tx)
             .await?;
-            updated_at = Some(saved);
+            // Whatever the turn did answered or skipped the cards still asking.
+            bumped.extend(drop_approvals(&mut tx, chat).await?);
+            let opens = turn
+                .steps
+                .first()
+                .is_some_and(|step| step.body.opens_turn());
+            let carried = if opens {
+                None
+            } else {
+                latest_turn(&mut tx, chat).await?
+            };
+            let ids = insert_steps(&mut tx, chat, user.as_str(), turn.steps, carried).await?;
+            let opened = turn
+                .steps
+                .iter()
+                .zip(&ids)
+                .find(|(step, _)| step.body.opens_turn())
+                .map(|(_, id)| *id);
+            bumped.extend(
+                log_messages(&mut tx, chat, &ids, UpdateOp::Message, Readers::Members).await?,
+            );
+            if let Some(carried) = carried
+                && turn.carried != TurnRecord::default()
+            {
+                bumped.extend(patch_turn(&mut tx, chat, carried, &turn.carried).await?);
+            }
+            touch(&mut tx, chat).await?;
+            let updated_at: DateTime<Utc> =
+                sqlx::query_scalar("SELECT updated_at FROM chats WHERE id = $1")
+                    .bind(chat)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            saved = Some(SavedTurn { updated_at, opened });
         }
         sqlx::query("UPDATE runs SET status=$1 WHERE id=$2 AND user_id=$3")
             .bind(status.as_str())
@@ -208,6 +266,7 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(updated_at)
+        self.announce(&bumped);
+        Ok(saved)
     }
 }
