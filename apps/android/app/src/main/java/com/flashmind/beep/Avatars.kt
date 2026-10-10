@@ -4,10 +4,12 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.annotation.DrawableRes
+import androidx.annotation.RawRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,8 +36,26 @@ import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import java.time.Month
 
-/** Beep's look, as the launcher icon and the bubble. Each one is an activity-alias in the manifest; only one is enabled at a time. */
-enum class Avatar(val key: String, val label: String, val alias: String, @DrawableRes val foreground: Int, @DrawableRes val bubbleIcon: Int) {
+private val IconGround = Color(0xFF2F8A69)
+private val InkGround = Color(0xFF0A0E0C)
+
+/** A rendered avatar's bubble loops, one per mood. */
+class Clips(@RawRes val idle: Int, @RawRes val thinking: Int, @RawRes val talking: Int)
+
+/**
+ * Beep's look, as the launcher icon and the bubble. Each one is an activity-alias in the manifest;
+ * only one is enabled at a time. An avatar with [clips] plays them in the bubble instead of a drawn face.
+ */
+enum class Avatar(
+    val key: String, val label: String, val alias: String, @DrawableRes val foreground: Int, @DrawableRes val bubbleIcon: Int,
+    val ground: Color = IconGround, val clips: Clips? = null,
+) {
+    Pager("pager", "Pager", ".LauncherPager", R.drawable.ic_launcher_pager_foreground, R.mipmap.ic_launcher_pager,
+        clips = Clips(R.raw.avatar_pager_idle, R.raw.avatar_pager_thinking, R.raw.avatar_pager_talking)),
+    Clay("clay", "Clay", ".LauncherClay", R.drawable.ic_launcher_clay_foreground, R.mipmap.ic_launcher_clay, InkGround,
+        Clips(R.raw.avatar_clay_idle, R.raw.avatar_clay_thinking, R.raw.avatar_clay_talking)),
+    Jelly("jelly", "Jelly", ".LauncherJelly", R.drawable.ic_launcher_jelly_foreground, R.mipmap.ic_launcher_jelly, InkGround,
+        Clips(R.raw.avatar_jelly_idle, R.raw.avatar_jelly_thinking, R.raw.avatar_jelly_talking)),
     Beep("beep", "Beep", ".LauncherBeep", R.drawable.ic_launcher_foreground, R.drawable.ic_beep),
     Bubble("bubble", "Bubble", ".LauncherBubble", R.drawable.ic_launcher_bubble_foreground, R.mipmap.ic_launcher_bubble),
     Spark("spark", "Spark", ".LauncherSpark", R.drawable.ic_launcher_spark_foreground, R.mipmap.ic_launcher_spark),
@@ -48,9 +69,9 @@ enum class Avatar(val key: String, val label: String, val alias: String, @Drawab
 object Avatars {
     private const val PREFS = "appearance"
     private const val KEY = "app_icon"
-    private val ManifestDefault = Avatar.Beep
+    private val ManifestDefault = Avatar.Pager
 
-    /** The user's pick, or null for automatic (the ghost in October, Beep otherwise). */
+    /** The user's pick, or null for automatic (the ghost in October, the pager otherwise). */
     val choice = mutableStateOf<Avatar?>(null)
     private var loaded = false
 
@@ -58,7 +79,7 @@ object Avatars {
     val current: Avatar get() = choice.value ?: seasonal()
 
     fun seasonal(today: LocalDate = LocalDate.now()): Avatar =
-        if (today.month == Month.OCTOBER) Avatar.Ghost else Avatar.Beep
+        if (today.month == Month.OCTOBER) Avatar.Ghost else Avatar.Pager
 
     fun load(context: Context) {
         if (loaded) return
@@ -96,8 +117,6 @@ object Avatars {
     }
 }
 
-private val IconGround = Color(0xFF2F8A69)
-
 /** Row of avatars. Auto follows the season; the others pin one icon. */
 @Composable
 fun AvatarPicker(modifier: Modifier = Modifier) {
@@ -107,14 +126,14 @@ fun AvatarPicker(modifier: Modifier = Modifier) {
     Column(modifier) {
         Text("Avatar", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             IconOption("Auto", Avatars.seasonal(), choice == null) { Avatars.set(context, null) }
             Avatar.entries.forEach { icon ->
                 IconOption(icon.label, icon, choice == icon) { Avatars.set(context, icon) }
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text("How Beep looks on your home screen and in the bubble. Auto uses the ghost in October. The home screen may take a moment to update.",
+        Text("How Beep looks on your home screen and in the bubble. Pager, Clay and Jelly move in the bubble. Auto uses the ghost in October. The home screen may take a moment to update.",
             fontSize = 11.sp, color = Beep.colors.muted)
     }
 }
@@ -126,7 +145,7 @@ private fun IconOption(label: String, icon: Avatar, selected: Boolean, onClick: 
         Box(Modifier.size(44.dp)
             .border(if (selected) 2.dp else 0.dp, if (selected) Beep.colors.ink else Color.Transparent, CircleShape)
             .clip(CircleShape)
-            .background(IconGround),
+            .background(icon.ground),
             contentAlignment = Alignment.Center) {
             // The foreground is a 108dp adaptive layer; launchers show the middle 72dp of it.
             Image(painterResource(icon.foreground), null, Modifier.requiredSize(66.dp))
