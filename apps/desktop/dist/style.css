@@ -14,7 +14,7 @@ html, body { margin: 0; height: 100%; background: transparent; overflow: hidden 
 body { font-family: var(--body); color: var(--fg); -webkit-font-smoothing: antialiased; user-select: none; cursor: default }
 button { font: inherit; color: inherit; cursor: default }
 
-.dbar { height: 100vh; display: flex; flex-direction: column; background: rgba(18, 25, 22, .97); border: 1px solid var(--border);
+.dbar { position: relative; height: 100vh; display: flex; flex-direction: column; background: rgba(18, 25, 22, .97); border: 1px solid var(--border);
   border-radius: 18px; box-shadow: inset 0 1px 0 rgba(228, 238, 232, .07); overflow: hidden }
 
 .dinput { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px 16px; font-size: 19px; line-height: 26px; min-width: 0 }
@@ -85,6 +85,9 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dbtn.pri kbd { background: rgba(10, 14, 12, .18); border-color: transparent; color: var(--ink) }
 .dbtn.warn { color: var(--err) }
 .dbtn:disabled { opacity: .5 }
+/* Shown while the user reads back; it jumps to the newest text. */
+.dlatest { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 2; border-radius: 999px; box-shadow: 0 6px 18px rgba(0, 0, 0, .45) }
+.dlatest .down { display: grid; transform: rotate(90deg) }
 .dmuted { font-size: 12.5px; color: var(--muted); display: flex; gap: 8px; align-items: center; line-height: 18px }
 .derr { font-size: 12.5px; color: var(--err) }
 
