@@ -40,7 +40,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -79,6 +78,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -120,14 +120,14 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         draftField = TextFieldValue(draft, TextRange((draftCursor ?: draft.length).coerceIn(0, draft.length)))
         draftCursor = null
     }
-    val list = rememberLazyListState()
+    // Each chat gets its own list that opens at the latest message.
+    val list = remember(chat.id) { LazyListState(chat.messages.lastIndex.coerceAtLeast(0)) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val imageContext = androidx.compose.ui.platform.LocalContext.current
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_IMAGES)) { uris ->
         if (uris.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
-                val encoded = uris.mapNotNull { encodeImageUri(imageContext, it) }
+                val encoded = uris.mapNotNull { encodeImageUri(context, it) }
                 attachedImages = (attachedImages + encoded).take(MAX_IMAGES)
             }
         }
@@ -157,9 +157,14 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             if (!canForward) followLatest = true else if (dragging) followLatest = false
         }
     }
-    LaunchedEffect(chat.id) { if (chat.messages.isNotEmpty()) list.scrollToEnd(animated = false) }
-    LaunchedEffect(chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status) {
-        if (chat.messages.isNotEmpty() && followLatest) list.scrollToEnd(animated = true)
+    // The first scroll of a chat jumps to the end, after the list has laid its messages out;
+    // only what arrives later animates, so opening a chat does not scroll down from the top.
+    var anchored by remember(chat.id) { mutableStateOf(false) }
+    LaunchedEffect(chat.id, chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status) {
+        if (chat.messages.isEmpty() || !followLatest) return@LaunchedEffect
+        list.awaitItems(chat.messages.size)
+        list.scrollToEnd(animated = anchored)
+        anchored = true
     }
     // The keyboard and a growing input resize the list every frame, so stay at the bottom without animating.
     LaunchedEffect(list, chat.id) {
@@ -178,7 +183,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         val hasContent = draft.isNotBlank() || attachedImages.isNotEmpty()
         if (hasContent && !chat.busy) {
             followLatest = true
-            val text = draft.ifBlank { if (attachedImages.size > 1) "What are these?" else "What is this?" }
+            val text = draft.ifBlank { imagePrompt(attachedImages.size) }
             repository.send(text, attachedImages)
             draft = ""
             attachedImages = emptyList()
@@ -482,28 +487,25 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
         }
         // Voice input state
-        val voiceContext = androidx.compose.ui.platform.LocalContext.current
         var listening by remember { mutableStateOf(false) }
-        val speechAvailable = remember { SpeechRecognizer.isRecognitionAvailable(voiceContext) }
-        val recognizer = remember { if (speechAvailable) SpeechRecognizer.createSpeechRecognizer(voiceContext) else null }
+        val speechAvailable = remember { SpeechRecognizer.isRecognitionAvailable(context) }
+        val recognizer = remember { if (speechAvailable) SpeechRecognizer.createSpeechRecognizer(context) else null }
+        fun listen(speech: SpeechRecognizer) {
+            listening = true
+            startListening(speech, onPartial = { partial -> draft = partial },
+                onResult = { result -> draft = result; listening = false },
+                onError = { listening = false })
+        }
         val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted && recognizer != null) {
-                listening = true
-                startListening(recognizer, onPartial = { partial -> draft = partial },
-                    onResult = { result -> draft = result; listening = false },
-                    onError = { listening = false })
-            }
+            if (granted && recognizer != null) listen(recognizer)
         }
         DisposableEffect(recognizer) { onDispose { recognizer?.destroy() } }
 
         fun startVoice() {
             if (!speechAvailable) return
             if (listening) { recognizer?.stopListening(); listening = false; return }
-            if (ContextCompat.checkSelfPermission(voiceContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                listening = true
-                startListening(recognizer!!, onPartial = { partial -> draft = partial },
-                    onResult = { result -> draft = result; listening = false },
-                    onError = { listening = false })
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                listen(recognizer!!)
             } else {
                 micPermission.launch(Manifest.permission.RECORD_AUDIO)
             }
@@ -870,12 +872,17 @@ private fun ScheduledMarker(label: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** Wait until the list has laid out at least [count] items, so a scroll right after they arrive lands. */
+internal suspend fun LazyListState.awaitItems(count: Int) {
+    snapshotFlow { layoutInfo.totalItemsCount }.first { it >= count }
+}
+
 /**
  * Scroll to the very bottom, including the tail of a last item taller than the screen.
  * When the last item is already on screen it only scrolls by what is left of it, since
  * scrolling to the item first would line up its top and bounce a long reply up then down.
  */
-private suspend fun LazyListState.scrollToEnd(animated: Boolean) {
+internal suspend fun LazyListState.scrollToEnd(animated: Boolean) {
     val last = layoutInfo.totalItemsCount - 1
     if (last < 0) return
     if (layoutInfo.visibleItemsInfo.lastOrNull()?.index != last) scrollToItem(last)

@@ -237,10 +237,6 @@ class LocalStorage(internal val context: Context) {
         prefs.edit().putString("drafts", JSONObject(drafts).toString()).apply()
     }
 
-    var onboardingDone: Boolean
-        get() = prefs.getBoolean("onboarding_done", false)
-        set(value) { prefs.edit().putBoolean("onboarding_done", value).apply() }
-
     fun deviceId(): String {
         val existing = prefs.getString("device_id", null)
         if (existing != null) return existing

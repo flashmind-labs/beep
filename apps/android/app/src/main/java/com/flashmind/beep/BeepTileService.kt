@@ -19,7 +19,7 @@ class BeepTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val intent = Intent(this, MainActivity::class.java).setAction("com.flashmind.beep.TILE").apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("focus_input", true)
         }

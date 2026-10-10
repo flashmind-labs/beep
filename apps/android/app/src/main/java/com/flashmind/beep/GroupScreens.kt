@@ -21,7 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -225,12 +225,20 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
     val group = chat?.group ?: listed.firstOrNull { it.id == groupId }
     val messages = chat?.messages.orEmpty()
     val sent = messages.size
-    val listState = rememberLazyListState()
-    LaunchedEffect(sent, outgoing.size, typing) {
+    // Each group gets its own list that opens at the latest message; only later messages scroll in.
+    val listState = remember(groupId) { LazyListState(messages.lastIndex.coerceAtLeast(0)) }
+    var anchored by remember(groupId) { mutableStateOf(false) }
+    LaunchedEffect(groupId, sent, outgoing.size, typing) {
         val count = messages.size + outgoing.size + if (typing) 1 else 0
-        if (count > 0) listState.animateScrollToItem(count - 1)
+        if (count == 0) return@LaunchedEffect
+        listState.awaitItems(count)
+        listState.scrollToEnd(animated = anchored)
+        anchored = true
     }
-    var field by remember(groupId) { mutableStateOf(TextFieldValue(repository.draft("group:$groupId").text)) }
+    var field by remember(groupId) {
+        val draft = repository.draft("group:$groupId").text
+        mutableStateOf(TextFieldValue(draft, TextRange(draft.length)))
+    }
     var replyTo by remember(groupId) { mutableStateOf<ReplyTo?>(null) }
     // The message a tapped quote jumped to, lit up for a moment.
     var flashing by remember(groupId) { mutableStateOf<Long?>(null) }

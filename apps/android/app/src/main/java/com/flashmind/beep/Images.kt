@@ -12,6 +12,9 @@ import androidx.compose.ui.draw.scale
 /** Most images one message may carry; the server refuses more. */
 const val MAX_IMAGES = 8
 
+/** The prompt sent with [count] images and no text. */
+internal fun imagePrompt(count: Int) = if (count > 1) "What are these?" else "What is this?"
+
 /** Load, resize to at most [maxSize] px on the longest side, and JPEG-encode as a base64 data URI. */
 internal fun encodeImageUri(context: Context, uri: Uri, maxSize: Int = 1024): String? {
     return try {

@@ -32,6 +32,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ShareReceiveActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,15 +47,16 @@ class ShareReceiveActivity : ComponentActivity() {
             return
         }
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
-        val sharedImages = if (intent.type?.startsWith("image/") == true) {
-            sharedUris(intent).take(MAX_IMAGES).mapNotNull { encodeImageUri(this, it) }
-        } else emptyList()
-
-        if (sharedText.isBlank() && sharedImages.isEmpty()) {
-            finish()
-            return
+        val imageUris = if (intent.type?.startsWith("image/") == true) sharedUris(intent).take(MAX_IMAGES) else emptyList()
+        // Decoding and scaling the images is too slow for the main thread.
+        lifecycleScope.launch {
+            val sharedImages = withContext(Dispatchers.IO) { imageUris.mapNotNull { encodeImageUri(this@ShareReceiveActivity, it) } }
+            if (sharedText.isBlank() && sharedImages.isEmpty()) finish()
+            else show(sharedText, sharedImages)
         }
+    }
 
+    private fun show(sharedText: String, sharedImages: List<String>) {
         val repository = (application as BeepApplication).repository
 
         setContent {
