@@ -102,6 +102,9 @@ struct GroupChatView: View {
     let info: () -> Void
     let invite: (Group) -> Void
     @State private var chat: GroupChat?
+    @State private var pictures: [Int64: [Picture]] = [:]
+    /// The last seq the pictures were fetched for, so polling only asks again after new messages.
+    @State private var picturesSeq: Int64?
     @State private var outgoing: [Outgoing] = []
     @State private var draft = ""
     @State private var error = ""
@@ -147,7 +150,13 @@ struct GroupChatView: View {
 
     private func load() async {
         do {
-            chat = try await model.group(groupId)
+            let fresh = try await model.group(groupId)
+            chat = fresh
+            let last = fresh.messages.last?.seq ?? 0
+            if last != picturesSeq {
+                pictures = await model.groupPictures(groupId)
+                picturesSeq = last
+            }
         } catch BeepError.NotFound {
             model.newChat()
         } catch {}
@@ -171,7 +180,8 @@ struct GroupChatView: View {
                     if let day = days[message.seq] {
                         Text(day).font(.body(11)).foregroundStyle(Mint.dim).frame(maxWidth: .infinity)
                     }
-                    GroupBubble(group: chat.group, author: message.author, content: message.content, quote: quote)
+                    GroupBubble(group: chat.group, author: message.author, content: message.content,
+                                pictures: pictures[message.seq] ?? [], quote: quote)
                 }
             }
             ForEach(outgoing) { out in
@@ -299,13 +309,13 @@ private struct GroupBubble: View {
     let group: Group
     let author: GroupAuthor
     let content: String
+    var pictures: [Picture] = []
     let quote: (String) -> Void
 
     var body: some View {
         switch author {
         case .member(_, true):
-            MarkdownText(text: withMentions(content))
-                .padding(.horizontal, 14).padding(.vertical, 10)
+            ownBody
                 .chunky(Mint.user, shape: UnevenRoundedRectangle(
                     topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18))
                 .contextMenu { menu }
@@ -322,7 +332,8 @@ private struct GroupBubble: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(name).font(.body(12, .semibold))
                     .foregroundStyle(nameColors[memberIndex(group, name) % nameColors.count])
-                MarkdownText(text: withMentions(content))
+                if !pictures.isEmpty { PictureGrid(pictures: pictures).frame(width: 212) }
+                if !content.isEmpty { MarkdownText(text: withMentions(content)) }
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .chunky(shape: UnevenRoundedRectangle(
@@ -330,6 +341,24 @@ private struct GroupBubble: View {
             .contextMenu { menu }
             .padding(.trailing, 48)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Your text, with any pictures above it as in a one to one chat.
+    @ViewBuilder private var ownBody: some View {
+        if pictures.isEmpty {
+            MarkdownText(text: withMentions(content)).padding(.horizontal, 14).padding(.vertical, 10)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                PictureGrid(pictures: pictures)
+                if !content.isEmpty {
+                    MarkdownText(text: withMentions(content))
+                        .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(4)
+            .frame(width: 220)
         }
     }
 

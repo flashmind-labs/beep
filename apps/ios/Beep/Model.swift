@@ -28,6 +28,8 @@ struct Message: Identifiable, Equatable {
     var tools: [ToolCall] = []
     var reasoning = ""
     var approvals: [ApprovalPrompt] = []
+    /// Pictures a user message carries.
+    var pictures: [Picture] = []
 }
 
 /// The open chat and the run streaming into it.
@@ -71,6 +73,7 @@ final class AppModel {
     private let pathMonitor = NWPathMonitor()
     let location = LocationReporter()
     private var reportedTimezone: String?
+    private let pictureCache = PictureCache()
 
     init() {
         let key = Identity.loadOrCreate()
@@ -169,16 +172,19 @@ final class AppModel {
     func loadHistory() async {
         let id = chat.id
         guard let entries = try? await api().getSession(id: id), chat.id == id, !chat.busy else { return }
+        // An older server has no pictures to give, which just means none show.
+        let pictures = picturesByMessage((try? await api().getSessionImages(id: id)) ?? [])
+        guard chat.id == id, !chat.busy else { return }
         var pendingTools: [ToolCall] = []
         var pendingReasoning = ""
         var messages: [Message] = []
         for (index, entry) in entries.enumerated() {
             let mid = "history-\(id)-\(index)"
             switch entry {
-            case .user(let content, _, _):
+            case .user(let content, let timestamp, _):
                 pendingTools = []
                 pendingReasoning = ""
-                messages.append(Message(id: mid, role: .user, text: content))
+                messages.append(Message(id: mid, role: .user, text: content, pictures: pictures[timestamp] ?? []))
             case .scheduled(let label, _):
                 pendingTools = []
                 pendingReasoning = ""
@@ -202,7 +208,26 @@ final class AppModel {
                 pendingReasoning = ""
             }
         }
-        chat.messages = messages
+        chat.messages = keepingLocalPictures(messages)
+    }
+
+    /// Carries pictures sent from this phone over to the reloaded history, matching user
+    /// messages by text in order, where the server gave none for that message.
+    private func keepingLocalPictures(_ fresh: [Message]) -> [Message] {
+        var local = chat.messages.filter { $0.role == .user && $0.pictures.contains { $0.dataUri != nil } }
+        guard !local.isEmpty else { return fresh }
+        var out = fresh
+        for index in out.indices where out[index].role == .user {
+            guard let match = local.firstIndex(where: { $0.text == out[index].text }) else { continue }
+            if out[index].pictures.isEmpty { out[index].pictures = local[match].pictures }
+            local.remove(at: match)
+        }
+        return out
+    }
+
+    /// The cached file for a picture kept on the server, fetched when missing.
+    func pictureFile(_ id: String) async -> URL? {
+        await pictureCache.file(id, client: client)
     }
 
     // MARK: Groups
@@ -218,6 +243,11 @@ final class AppModel {
 
     func group(_ id: String) async throws -> GroupChat { try await api().getGroup(id: id) }
 
+    /// A group's pictures by message seq; empty when the server has none or is too old.
+    func groupPictures(_ id: String) async -> [Int64: [Picture]] {
+        picturesByMessage((try? await api().getGroupImages(id: id)) ?? [])
+    }
+
     func createGroup(name: String, memberName: String) async throws -> Group {
         let group = try await api().createGroup(id: UUID().uuidString.lowercased(), name: name, memberName: memberName)
         await refreshGroups()
@@ -226,7 +256,7 @@ final class AppModel {
 
     /// Posts to a group; the same `requestId` sent twice posts once.
     func sendToGroup(_ id: String, requestId: String, text: String) async throws {
-        _ = try await api().sendToGroup(groupId: id, requestId: requestId, message: text)
+        _ = try await api().sendToGroup(groupId: id, requestId: requestId, message: text, images: [])
         await refreshGroups()
     }
 

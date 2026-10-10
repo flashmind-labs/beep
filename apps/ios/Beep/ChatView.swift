@@ -237,10 +237,7 @@ struct MessageView: View {
     var body: some View {
         switch message.role {
         case .user:
-            Text(message.text)
-                .font(.body(15)).foregroundStyle(Mint.ink)
-                .textSelection(.enabled)
-                .padding(.horizontal, 14).padding(.vertical, 10)
+            userBubble
                 .chunky(Mint.user, shape: UnevenRoundedRectangle(
                     topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18))
                 .padding(.leading, 48)
@@ -265,6 +262,24 @@ struct MessageView: View {
                 if !message.text.isEmpty, !live { actions }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// The text, with any pictures above it in a 220 point wide block as in the mock.
+    @ViewBuilder private var userBubble: some View {
+        let text = Text(message.text).font(.body(15)).foregroundStyle(Mint.ink).textSelection(.enabled)
+        if message.pictures.isEmpty {
+            text.padding(.horizontal, 14).padding(.vertical, 10)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                PictureGrid(pictures: message.pictures)
+                if !message.text.isEmpty {
+                    text.padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(4)
+            .frame(width: 220)
         }
     }
 
