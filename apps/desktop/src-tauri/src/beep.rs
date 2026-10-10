@@ -11,8 +11,8 @@ use crate::{
 use beep_proto::{
     AnswerApproval, ApprovalDecision, Call, CancelRun, Chat, DeviceAnswer, DeviceQuery,
     DeviceResult, Event, GetEvents, GetFile, GetSession, GetSessionImages, HistoryEntry, ImageRef,
-    ListSessions, Notice, Platform, RemoveDevice, RunEvent, SearchSessions, SentImages, Session,
-    SessionMatch, Stream,
+    ListSessions, Notice, Platform, ReasoningLevel, RemoveDevice, RunEvent, SearchSessions,
+    SentImages, Session, SessionMatch, Stream,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
 };
@@ -35,6 +35,8 @@ pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 const NOT_HERE: &str = "not available on desktop";
+/// Images one message may carry, as many as the server takes.
+pub const MAX_IMAGES: usize = 8;
 /// The server saves follow-up replies as this tool's result.
 pub const SUGGEST_REPLIES: &str = "suggest_replies";
 /// Its result names a file Beep sent, which shows as a card.
@@ -80,12 +82,44 @@ pub enum BarEvent {
         action: String,
         fields: Vec<Field>,
     },
+    /// Jev picked the model and thinking for this prompt.
+    AutoPicked {
+        model: String,
+        thinking: ReasoningLevel,
+    },
     Error {
         message: String,
     },
     Finished {
         status: String,
     },
+}
+
+/// An image the bar attaches to a message, as a `data:image/...;base64,`
+/// URI.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(try_from = "String")]
+pub struct DataImage(String);
+
+impl TryFrom<String> for DataImage {
+    type Error = DesktopError;
+
+    fn try_from(uri: String) -> Result<Self> {
+        if !uri.starts_with("data:image/") || !uri.contains(";base64,") {
+            return Err(DesktopError::BadRequest("not an image".into()));
+        }
+        Ok(Self(uri))
+    }
+}
+
+/// The URIs `Chat` and `SendToGroup` take, or an error past `MAX_IMAGES`.
+pub fn image_uris(images: Vec<DataImage>) -> Result<Vec<String>> {
+    if images.len() > MAX_IMAGES {
+        return Err(DesktopError::BadRequest(format!(
+            "up to {MAX_IMAGES} images in one message"
+        )));
+    }
+    Ok(images.into_iter().map(|image| image.0).collect())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -356,7 +390,11 @@ impl Beep {
         }
     }
 
+    /// Searches the local copy, or the server before the copy is ready.
     pub async fn search(&self, query: String) -> Result<Vec<SessionMatch>> {
+        if let Some(found) = self.chats.search(&query) {
+            return Ok(found);
+        }
         self.call(SearchSessions { query }).await
     }
 
@@ -384,8 +422,10 @@ impl Beep {
         &self,
         session: Option<String>,
         message: String,
+        images: Vec<DataImage>,
         channel: Channel<BarEvent>,
     ) -> Result<String> {
+        let images = image_uris(images)?;
         let session_id = match session.as_deref().map(Uuid::parse_str) {
             Some(Ok(id)) => id,
             _ => Uuid::new_v4(),
@@ -396,7 +436,7 @@ impl Beep {
                 session_id,
                 request_id: Uuid::new_v4(),
                 message,
-                images: Vec::new(),
+                images,
                 model: None,
                 thinking: None,
                 platform: Some(Platform::Macos {}),
@@ -547,9 +587,11 @@ impl Beep {
                 },
                 RunEvent::Error { message } => BarEvent::Error { message },
                 RunEvent::RunFinished { status, .. } => BarEvent::Finished { status },
-                RunEvent::Usage { .. }
-                | RunEvent::MemoryScore { .. }
-                | RunEvent::AutoPicked { .. } => continue,
+                RunEvent::AutoPicked { pick } => BarEvent::AutoPicked {
+                    model: pick.model,
+                    thinking: pick.thinking,
+                },
+                RunEvent::Usage { .. } | RunEvent::MemoryScore { .. } => continue,
             };
             if channel.send(out).is_err() {
                 break;

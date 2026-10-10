@@ -99,6 +99,20 @@ fn main() {
             commands::hide_bar,
             commands::quit,
             commands::open_url,
+            commands::group_typing,
+            commands::list_memories,
+            commands::update_memory,
+            commands::delete_memory,
+            commands::clear_memories,
+            commands::list_crons,
+            commands::create_cron,
+            commands::toggle_cron,
+            commands::delete_cron,
+            commands::run_cron,
+            commands::get_models,
+            commands::set_model,
+            commands::set_thinking,
+            commands::set_auto_model,
         ])
         .run(tauri::generate_context!())
         .expect("the app failed to start");
@@ -268,6 +282,12 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         )?)?;
     }
     menu.append(&recent)?;
+    for (id, title, keys) in [
+        ("memories", "Memories", "cmd+m"),
+        ("routines", "Routines", "cmd+j"),
+    ] {
+        menu.append(&MenuItem::with_id(app, id, title, linked, Some(keys))?)?;
+    }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     if link != LinkState::Linked {
         menu.append(&MenuItem::with_id(
@@ -340,8 +360,7 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));
         }
-        "link" => bar::show(app, Some("link")),
-        "settings" => bar::show(app, Some("settings")),
+        view @ ("link" | "memories" | "routines" | "settings") => bar::show(app, Some(view)),
         "quit" => app.exit(0),
         _ => {}
     }
