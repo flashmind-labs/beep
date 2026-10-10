@@ -2,18 +2,20 @@
 
 use crate::{
     bar,
-    beep::{Answer, BarEvent, Beep, LinkView, Pictures, Turn, qr_svg},
+    beep::{Answer, BarEvent, Beep, DataImage, LinkView, Pictures, Turn, image_uris, qr_svg},
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
     state::LinkState,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AnswerGroupApproval, ApiError, ApprovalDecision, CreateGroup, DeleteGroupReminder,
-    DeleteSession, GetGroup, GetGroupImages, GroupInvite, GroupPreview, GroupReminder, JoinGroup,
-    LeaveGroup, ListGroupReminders, ListGroups, PeekGroup, PinGroup, PinSession, RenameSession,
-    SendToGroup, Session, SessionMatch, ShareGroupApps, ShareSession, SharedLink, UnshareSession,
-    format_group_code, group_code,
+    AnswerGroupApproval, ApiError, ApprovalDecision, ClearMemories, CreateCron, CreateGroup, Cron,
+    DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession, GetGroup, GetGroupImages,
+    GetModels, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons,
+    ListGroupReminders, ListGroups, ListMemories, Memory, Models, PeekGroup, PinGroup, PinSession,
+    ReasoningLevel, RenameSession, RunCron, SendToGroup, Session, SessionMatch, SetAutoModel,
+    SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink, ToggleCron, UnshareSession,
+    UpdateMemory, format_group_code, group_code,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, process::Command, sync::Arc};
@@ -48,9 +50,10 @@ pub async fn send_prompt(
     beep: Service<'_>,
     session: Option<String>,
     message: String,
+    images: Vec<DataImage>,
     on_event: Channel<BarEvent>,
 ) -> Result<String> {
-    beep.send(session, message, on_event).await
+    beep.send(session, message, images, on_event).await
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -195,13 +198,15 @@ pub async fn send_to_group(
     beep: Service<'_>,
     group_id: String,
     message: String,
+    images: Vec<DataImage>,
 ) -> Result<MessageView> {
+    let images = image_uris(images)?;
     let sent = beep
         .call(SendToGroup {
             group_id,
             request_id: Uuid::new_v4(),
             message,
-            images: Vec::new(),
+            images,
         })
         .await?;
     Ok(sent.into())
@@ -490,4 +495,121 @@ mod tests {
         assert_eq!(file_name(".."), "file");
         assert_eq!(file_name(""), "file");
     }
+}
+
+/// Whether Beep is writing in group `group_id`, which the local copy does
+/// not know. The bar asks while it waits for Beep, instead of reloading
+/// the whole group.
+#[tauri::command]
+pub async fn group_typing(beep: Service<'_>, group_id: String) -> Result<bool> {
+    let groups = beep.call(ListGroups {}).await?;
+    Ok(groups
+        .into_iter()
+        .any(|group| group.id == group_id && group.beep_typing))
+}
+
+/// A memory as the bar shows it.
+#[derive(Serialize)]
+pub struct MemoryView {
+    id: String,
+    content: String,
+    category: String,
+    /// `user`, `learned`, `email` or `slack`.
+    source: &'static str,
+    updated: String,
+    valid_from: Option<String>,
+    valid_until: Option<String>,
+}
+
+impl From<Memory> for MemoryView {
+    fn from(m: Memory) -> Self {
+        Self {
+            id: m.id,
+            content: m.content,
+            category: m.category,
+            source: m.source.as_str(),
+            updated: m.updated,
+            valid_from: m.valid_from,
+            valid_until: m.valid_until,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn list_memories(beep: Service<'_>) -> Result<Vec<MemoryView>> {
+    let memories = beep.call(ListMemories {}).await?;
+    Ok(memories.into_iter().map(MemoryView::from).collect())
+}
+
+#[tauri::command]
+pub async fn update_memory(beep: Service<'_>, id: String, content: String) -> Result<()> {
+    beep.call(UpdateMemory { id, content }).await
+}
+
+#[tauri::command]
+pub async fn delete_memory(beep: Service<'_>, id: String) -> Result<()> {
+    beep.call(DeleteMemory { id }).await
+}
+
+#[tauri::command]
+pub async fn clear_memories(beep: Service<'_>) -> Result<u64> {
+    beep.call(ClearMemories {}).await
+}
+
+#[tauri::command]
+pub async fn list_crons(beep: Service<'_>) -> Result<Vec<Cron>> {
+    beep.call(ListCrons {}).await
+}
+
+#[tauri::command]
+pub async fn create_cron(
+    beep: Service<'_>,
+    label: String,
+    prompt: String,
+    schedule: String,
+) -> Result<String> {
+    beep.call(CreateCron {
+        label,
+        prompt,
+        schedule,
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn toggle_cron(beep: Service<'_>, id: String) -> Result<bool> {
+    beep.call(ToggleCron { id }).await
+}
+
+#[tauri::command]
+pub async fn delete_cron(beep: Service<'_>, id: String) -> Result<()> {
+    beep.call(DeleteCron { id }).await
+}
+
+/// Runs routine `id` now and returns the session it runs in.
+#[tauri::command]
+pub async fn run_cron(beep: Service<'_>, id: String) -> Result<String> {
+    beep.call(RunCron { id }).await
+}
+
+/// The caller's model settings. `choices` is empty unless they are an
+/// admin, and the bar shows the picker only when it is not.
+#[tauri::command]
+pub async fn get_models(beep: Service<'_>) -> Result<Models> {
+    beep.call(GetModels {}).await
+}
+
+#[tauri::command]
+pub async fn set_model(beep: Service<'_>, id: String) -> Result<Models> {
+    beep.call(SetModel { id }).await
+}
+
+#[tauri::command]
+pub async fn set_thinking(beep: Service<'_>, level: ReasoningLevel) -> Result<Models> {
+    beep.call(SetThinking { level }).await
+}
+
+#[tauri::command]
+pub async fn set_auto_model(beep: Service<'_>, enabled: bool) -> Result<Models> {
+    beep.call(SetAutoModel { enabled }).await
 }
