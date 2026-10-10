@@ -90,6 +90,7 @@ private val toolLabels = mapOf(
     "mcp_search" to "Finding the right app tool",
     "mcp" to "Using a connected app",
     "open_maps" to "Looking up a place",
+    "show_products" to "Showing products",
     "place_save" to "Saving a place",
     "place_list" to "Checking your places",
     "place_delete" to "Forgetting a place",

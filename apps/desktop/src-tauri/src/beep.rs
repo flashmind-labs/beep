@@ -4,7 +4,7 @@
 use crate::{
     error::{DesktopError, Result},
     identity::{Identity, secret_key},
-    markdown,
+    markdown, products,
     state::{LinkState, Saved, StateFile},
 };
 use beep_proto::{
@@ -38,6 +38,8 @@ const NOT_HERE: &str = "not available on desktop";
 const SUGGEST_REPLIES: &str = "suggest_replies";
 /// Its result names a file Beep sent, which shows as a card.
 const SEND_FILE: &str = "send_file";
+/// Its result lists products, which show as a row of cards.
+const SHOW_PRODUCTS: &str = "show_products";
 
 /// What the bar draws while a run streams.
 #[derive(Debug, Clone, Serialize)]
@@ -64,6 +66,8 @@ pub enum BarEvent {
         name: String,
         success: bool,
         file: Option<SentFile>,
+        /// A `show_products` result's cards, as HTML.
+        products: Option<String>,
     },
     /// Follow-ups to offer under the reply.
     Replies {
@@ -119,6 +123,8 @@ pub struct ToolStep {
     pub name: String,
     pub success: bool,
     pub file: Option<SentFile>,
+    /// A `show_products` result's cards, as HTML.
+    pub products: Option<String>,
 }
 
 /// A file Beep sent in the chat, fetched with `GetFile` when opened.
@@ -493,6 +499,7 @@ impl Beep {
                     output,
                 } => BarEvent::ToolResult {
                     file: sent_file(&name, &output),
+                    products: shown_products(&name, &output),
                     call_id,
                     name,
                     success,
@@ -574,6 +581,14 @@ fn sent_file(name: &str, output: &str) -> Option<SentFile> {
         .map(|o| o.file)
 }
 
+/// The cards a `show_products` result lists, or `None` for any other tool.
+fn shown_products(name: &str, output: &str) -> Option<String> {
+    if name != SHOW_PRODUCTS {
+        return None;
+    }
+    products::shown(output)
+}
+
 /// `data` as a QR code the bar can draw.
 pub fn qr_svg(data: &str) -> Result<String> {
     let qr = QrCode::new(data.as_bytes()).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
@@ -602,6 +617,7 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
                     .into_iter()
                     .map(|t| ToolStep {
                         file: sent_file(&t.name, &t.output),
+                        products: shown_products(&t.name, &t.output),
                         name: t.name,
                         success: t.success,
                     })
@@ -634,5 +650,14 @@ mod tests {
         assert_eq!(file.size, 26000);
         assert!(sent_file("web_search", output).is_none());
         assert!(sent_file(SEND_FILE, "failed").is_none());
+    }
+
+    #[test]
+    fn shown_products_reads_show_products_results_only() {
+        let output = r#"{"action":"show_products","products":[{"title":"Kettle","url":"https://shop.example/k","store":"shop.example","price":19.5,"currency":"USD"}]}"#;
+        let row = shown_products(SHOW_PRODUCTS, output).expect("a show_products result has cards");
+        assert!(row.contains("<b>$19.50</b>"), "{row}");
+        assert!(shown_products(SEND_FILE, output).is_none());
+        assert!(shown_products(SHOW_PRODUCTS, "failed").is_none());
     }
 }

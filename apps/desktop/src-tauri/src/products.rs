@@ -1,6 +1,7 @@
 //! Product cards. Beep writes one ```product block of JSON per item, and
 //! blocks in a row show as a row of cards that scrolls sideways. Clicking a
 //! card opens the shop in the browser; the corner button copies the link.
+//! The `show_products` tool sends the same cards with typed fields.
 
 use serde::Deserialize;
 
@@ -26,6 +27,103 @@ pub struct Product {
     note: Option<String>,
 }
 
+/// One entry of a `show_products` result.
+#[derive(Debug, Deserialize)]
+struct Listing {
+    title: String,
+    url: String,
+    #[serde(default)]
+    store: Option<String>,
+    #[serde(default)]
+    price: Option<f64>,
+    #[serde(default)]
+    was: Option<f64>,
+    #[serde(default)]
+    currency: Option<String>,
+    #[serde(default)]
+    image: Option<String>,
+    #[serde(default)]
+    rating: Option<f64>,
+    #[serde(default)]
+    reviews: Option<u64>,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Shown {
+    products: Vec<serde_json::Value>,
+}
+
+impl From<Listing> for Product {
+    fn from(l: Listing) -> Self {
+        let currency = l.currency.as_deref();
+        Product {
+            title: l.title,
+            url: l.url,
+            price: l.price.map(|p| price(p, currency)),
+            was: l.was.map(|w| price(w, currency)),
+            store: l.store,
+            image: l.image,
+            rating: l.rating.map(Number::Float),
+            reviews: l.reviews.map(|r| Number::Float(r as f64)),
+            note: l.note,
+        }
+    }
+}
+
+/// The row of cards a `show_products` result lists, or None when it has
+/// none. An entry that does not parse is left out.
+pub fn shown(output: &str) -> Option<String> {
+    let shown: Shown = serde_json::from_str(output).ok()?;
+    let cards: Vec<String> = shown
+        .products
+        .into_iter()
+        .filter_map(|entry| serde_json::from_value::<Listing>(entry).ok())
+        .map(Product::from)
+        .filter(Product::valid)
+        .map(|p| p.card())
+        .collect();
+    (!cards.is_empty()).then(|| row(&cards))
+}
+
+/// `amount` in `currency`, as in `€249`, `€249.99` or `249 CHF`.
+fn price(amount: f64, currency: Option<&str>) -> String {
+    let whole = currency == Some("JPY") || (amount * 100.0).round() % 100.0 == 0.0;
+    let number = if whole {
+        grouped(&format!("{:.0}", amount.round()))
+    } else {
+        let fixed = format!("{amount:.2}");
+        let (int, cents) = fixed.split_once('.').unwrap_or((&fixed, "00"));
+        format!("{}.{cents}", grouped(int))
+    };
+    let symbol = match currency {
+        Some("EUR") => "€",
+        Some("USD") => "$",
+        Some("GBP") => "£",
+        Some("JPY") => "¥",
+        Some(code) => return format!("{number} {code}"),
+        None => "",
+    };
+    format!("{symbol}{number}")
+}
+
+/// Digits with a comma every three places, `1,204` for `1204`.
+fn grouped(digits: &str) -> String {
+    let (sign, digits) = match digits.strip_prefix('-') {
+        Some(rest) => ("-", rest),
+        None => ("", digits),
+    };
+    let mut out = String::from(sign);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Ratings and review counts as the model writes them, `4.6` or `"4.6"`.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -39,7 +137,11 @@ impl Product {
     /// with a title and a web link.
     pub fn parse(json: &str) -> Option<Self> {
         let product: Self = serde_json::from_str(json.trim()).ok()?;
-        (!product.title.trim().is_empty() && web_link(&product.url)).then_some(product)
+        product.valid().then_some(product)
+    }
+
+    fn valid(&self) -> bool {
+        !self.title.trim().is_empty() && web_link(&self.url)
     }
 
     pub fn card(&self) -> String {
@@ -115,17 +217,7 @@ impl Number {
     /// A review count with thousands separators, as in `1,204`.
     fn count(&self) -> String {
         match self {
-            Number::Float(n) if n.fract() == 0.0 && *n >= 0.0 => {
-                let digits = format!("{n:.0}");
-                let mut out = String::new();
-                for (i, c) in digits.chars().enumerate() {
-                    if i > 0 && (digits.len() - i) % 3 == 0 {
-                        out.push(',');
-                    }
-                    out.push(c);
-                }
-                out
-            }
+            Number::Float(n) if n.fract() == 0.0 && *n >= 0.0 => grouped(&format!("{n:.0}")),
             Number::Float(n) => n.to_string(),
             Number::Text(s) => escape(s.trim()),
         }
@@ -212,6 +304,49 @@ mod tests {
             "{bare}"
         );
         assert!(!bare.contains("&#9733;"), "{bare}");
+    }
+
+    #[test]
+    fn price_formats_by_currency() {
+        assert_eq!(price(249.0, Some("EUR")), "€249");
+        assert_eq!(price(249.99, Some("EUR")), "€249.99");
+        assert_eq!(price(249.5, Some("USD")), "$249.50");
+        assert_eq!(price(1234567.0, Some("GBP")), "£1,234,567");
+        assert_eq!(price(12345.6, Some("JPY")), "¥12,346");
+        assert_eq!(price(1249.0, Some("CHF")), "1,249 CHF");
+        assert_eq!(price(19.999, Some("USD")), "$20");
+        assert_eq!(price(5.0, None), "5");
+    }
+
+    #[test]
+    fn shown_builds_a_row_from_the_tool_result() {
+        let output = r#"{"action":"show_products","products":[
+            {"title":"Dreame <Z30>","url":"https://shop.example/item","store":"shop.example","price":249,"was":329,"currency":"EUR","image":"https://shop.example/img.jpg","rating":4.6,"reviews":1204,"note":"Quietest \"one\""},
+            {"title":"Kettle","url":"https://other.example/k","store":"other.example"},
+            {"title":"Bad","url":"javascript:alert(1)","store":"x"},
+            {"title":"","url":"https://shop.example/e","store":"x"},
+            {"url":"https://shop.example/no-title"},
+            "not an object"
+        ],"dropped":["x"]}"#;
+        let row = shown(output).expect("two valid entries");
+        assert!(row.starts_with(r#"<div class="dprods">"#), "{row}");
+        assert_eq!(row.matches(r#"<div class="dprod">"#).count(), 2, "{row}");
+        assert!(row.contains("Dreame &lt;Z30&gt;"), "{row}");
+        assert!(row.contains("<b>€249</b><s>€329</s>"), "{row}");
+        assert!(
+            row.contains("4.6 &#9733; (1,204) &middot; Quietest &quot;one&quot;"),
+            "{row}"
+        );
+        assert!(
+            row.contains(r#"<img src="https://shop.example/img.jpg""#),
+            "{row}"
+        );
+        assert!(row.contains("See price on the site"), "{row}");
+        assert!(!row.contains("javascript"), "{row}");
+
+        assert!(shown(r#"{"products":[]}"#).is_none());
+        assert!(shown(r#"{"products":[{"title":"Bad","url":"ftp://x"}]}"#).is_none());
+        assert!(shown("failed").is_none());
     }
 
     #[test]

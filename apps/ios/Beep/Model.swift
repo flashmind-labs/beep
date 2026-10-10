@@ -19,6 +19,12 @@ struct ToolCall: Identifiable, Equatable {
         guard name == "place_save", done, success else { return nil }
         return SavedPlace(toolOutput: output)
     }
+
+    /// The products a `show_products` call picked, for a row of cards.
+    var products: [Product] {
+        guard name == "show_products", done, success else { return [] }
+        return Product.shown(toolOutput: output)
+    }
 }
 
 /// An approval card: a call that waits for the user.

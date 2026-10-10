@@ -105,7 +105,7 @@ impl Tool for SendImageTool {
 }
 
 /// Checks that `url` is a public https address serving an image.
-async fn check(url: &str) -> Result<(), &'static str> {
+pub(super) async fn check(url: &str) -> Result<(), &'static str> {
     let parsed = Url::parse(url).map_err(|_| "not a valid URL")?;
     if parsed.scheme() != "https" || url.len() > 2048 {
         return Err("only https URLs up to 2048 bytes are allowed");

@@ -11,6 +11,7 @@ mod memory;
 mod notify_user;
 mod open_app;
 mod places;
+mod products;
 mod progress;
 mod suggest;
 
@@ -49,6 +50,7 @@ pub fn registry(
     );
     registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));
     registry.register(Arc::new(image::SendImageTool));
+    registry.register(Arc::new(products::ShowProductsTool));
     for variant in ["habit_create", "habit_log", "habit_status", "habit_delete"] {
         registry.register(Arc::new(habits::HabitTool {
             user: user.clone(),
