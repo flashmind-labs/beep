@@ -27,7 +27,7 @@ button { font: inherit; color: inherit; cursor: default }
 .dlogo { width: 28px; height: 28px; border-radius: 8px; background: var(--coral); color: var(--ink); display: grid; place-items: center; flex: none;
   font-family: var(--display); font-weight: 800; font-size: 16px }
 
-.dbody { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 2px 18px 16px 56px; display: flex; flex-direction: column; gap: 10px;
+.dbody { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 2px 26px 16px 16px; display: flex; flex-direction: column; gap: 10px;
   font-size: 14px; line-height: 21px; scrollbar-width: none; user-select: text; cursor: auto }
 .dbody::-webkit-scrollbar { display: none }
 .dbody:empty { display: none }
@@ -88,6 +88,16 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 /* Shown while the user reads back; it jumps to the newest text. */
 .dlatest { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 2; border-radius: 999px; box-shadow: 0 6px 18px rgba(0, 0, 0, .45) }
 .dlatest .down { display: grid; transform: rotate(90deg) }
+/* Prompt map: one tick per question on the right edge; hover shows the prompt, click jumps to it. */
+.dmap { position: absolute; right: 4px; width: 18px; z-index: 2; opacity: .6; transition: opacity .15s }
+.dmap:hover { opacity: 1 }
+.dmap .tk { position: absolute; right: 0; width: 18px; height: 12px; margin-top: -6px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; justify-content: flex-end }
+.dmap .tk i { display: block; width: 8px; height: 2px; border-radius: 2px; background: var(--muted); transition: width .15s, background .15s }
+.dmap .tk.on i { background: var(--fg); width: 12px }
+.dmap .tk:hover i { background: var(--emerald); width: 14px }
+.dmap .tip { position: absolute; right: 22px; top: 50%; transform: translateY(-50%); max-width: 300px; padding: 5px 9px; border-radius: 8px; background: var(--elev); border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .45); font-size: 12.5px; line-height: 17px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; display: none }
+.dmap .tk:hover .tip { display: block }
 .dmuted { font-size: 12.5px; color: var(--muted); display: flex; gap: 8px; align-items: center; line-height: 18px }
 .derr { font-size: 12.5px; color: var(--err) }
 
