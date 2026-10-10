@@ -18,9 +18,12 @@ struct ChatView: View {
                         if model.chat.messages.isEmpty {
                             EmptyChat { model.send($0) } fill: { draft = $0; typing = true }
                         }
-                        ForEach(model.chat.messages) { message in
+                        ForEach(Array(model.chat.messages.enumerated()), id: \.element.id) { index, message in
                             MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
                                         quote: quote)
+                                // A reply sits close under its own prompt; turns keep the full gap.
+                                .padding(.top, index > 0 && message.role == .assistant
+                                         && model.chat.messages[index - 1].role == .user ? -12 : 0)
                         }
                         if model.chat.busy, !model.chat.thinking.isEmpty {
                             ThinkingPreview(text: model.chat.thinking)

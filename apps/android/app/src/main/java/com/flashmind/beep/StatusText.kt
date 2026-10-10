@@ -170,7 +170,7 @@ fun ReasoningRow(reasoning: String, modifier: Modifier = Modifier) {
     Column(modifier) {
         Row(Modifier.clip(RoundedCornerShape(Beep.shapes.smallRadius))
             .clickable(onClickLabel = if (open) "Hide thoughts" else "Show thoughts") { open = !open }
-            .heightIn(min = 40.dp).padding(horizontal = 4.dp),
+            .heightIn(min = 32.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text("Thoughts", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = muted)
             Icon(Icons.Outlined.KeyboardArrowDown, null,
