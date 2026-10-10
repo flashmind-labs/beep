@@ -23,6 +23,25 @@ screen or state, then change the app to match.
 `just test` starts the local Postgres and runs the server tests. A plain
 `cargo test -p beep-server` fails without `BEEP_TEST_DATABASE_URL`.
 
+## Wire compatibility
+
+Phones update from Play on their own schedule, so the server must keep
+answering every released app. rmp_serde encodes structs as arrays and refuses
+an element it does not expect, so:
+
+- Requests may only gain trailing `#[serde(default)]` fields.
+- Replies, pushed `Notice`s and streamed enums never change shape. A new field
+  or variant goes behind a new request, or behind a `Feature` the server checks
+  with `cx.supports(...)` (mark a `wire_enum!` variant `since FEATURE`).
+- Request numbers are never reused or removed.
+- Fixtures in `crates/proto/tests/wire/` are append-only. A new request gets
+  them with `BEEP_WIRE_BLESS=1 cargo test -p beep-proto compat`; never edit or
+  delete one to make the test pass.
+
+Every connection opens with `Hello`, which carries the app's `WIRE`; apps from
+before it are wire 1. To ship a new shape, add a `Feature`, raise `WIRE` in
+`crates/proto/src/version.rs`, and bless the new `tests/wire/<n>` directory.
+
 ## Desktop app
 
 `apps/desktop` is the macOS tray app (Tauri 2, its own Cargo workspace). Run

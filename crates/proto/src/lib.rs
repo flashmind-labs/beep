@@ -12,7 +12,12 @@ pub mod client;
 pub mod link;
 pub mod names;
 pub mod seal;
+pub mod version;
 pub mod wire;
+
+#[cfg(test)]
+#[macro_use]
+mod compat;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
@@ -22,6 +27,7 @@ use link::LinkOffer;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{fmt, time::SystemTime};
 use uuid::Uuid;
+pub use version::{ClientInfo, Feature, WIRE};
 
 macro_rules! one {
     ($x:tt) => {
@@ -30,9 +36,11 @@ macro_rules! one {
 }
 
 /// Enum serialized as `[op, field...]` instead of serde's `{"Variant": ...}`.
+/// A variant only newer clients read ends in `since X`, naming `Feature::X`,
+/// and the server sends it only where `ClientInfo::supports` says so.
 macro_rules! wire_enum {
     ($(#[$meta:meta])* pub enum $enum:ident {
-        $($op:literal $name:ident { $($field:ident: $ty:ty),* $(,)? })*
+        $($op:literal $name:ident { $($field:ident: $ty:ty),* $(,)? } $(since $since:ident)?)*
     }) => {
         $(#[$meta])*
         pub enum $enum {
@@ -77,6 +85,19 @@ macro_rules! wire_enum {
                 d.deserialize_seq(V)
             }
         }
+
+        #[cfg(test)]
+        impl compat::Sample for $enum {
+            fn samples(wire: u32) -> Vec<Self> {
+                let mut out = Vec::new();
+                $(
+                    if true $(&& wire >= Feature::$since.wire())? {
+                        sample_each!(out, wire, [Self::$name] { $($field),* });
+                    }
+                )*
+                out
+            }
+        }
     };
 }
 
@@ -108,6 +129,12 @@ macro_rules! requests {
             pub const ALL: &[Op] = &[$(Op::$name),*];
         }
 
+        /// Hands `visit` every request type with its reply type, in op order.
+        #[cfg(test)]
+        fn each_request(visit: &mut impl compat::Visit) {
+            $(visit.request::<$name, $reply>();)*
+        }
+
         impl TryFrom<u8> for Op {
             type Error = ApiError;
 
@@ -133,11 +160,19 @@ macro_rules! requests {
             impl $kind for $name {
                 type Reply = $reply;
             }
+
+            #[cfg(test)]
+            sample_struct!($name { $($field),* });
         )*
     };
 }
 
 requests! {
+    /// Opens every connection: the server reads it before any other stream,
+    /// and sends nothing newer than `wire` on the connection. Clients from
+    /// before it never send it and read wire 1. A `Hello` later in a
+    /// connection changes nothing.
+    0 Hello { wire: u32, platform: Option<Platform>, version: Option<String> } => Call<()>
     1 Health {} => Call<()>
     /// Starts a run and streams its events, starting with `RunStarted`. Resending
     /// the same `request_id` follows the existing run instead of starting another.
@@ -1234,6 +1269,25 @@ mod tests {
         assert_eq!(group_code(&share_url("cd34ef")), None);
         assert_eq!(format_group_code("K7QM4X9TRP"), "K7QM4-X9TRP");
         assert_eq!(format_group_code("7A2D5F90BE13"), "7A2D5F90BE13");
+    }
+
+    impl Feature {
+        const LATER: Feature = Feature(u32::MAX);
+    }
+
+    wire_enum! {
+        #[derive(Debug, Clone, PartialEq)]
+        pub enum Shape {
+            0 Old { size: u32 }
+            1 New {} since LATER
+        }
+    }
+
+    #[test]
+    fn a_gated_variant_is_left_out_of_older_samples() {
+        use compat::Sample;
+        assert_eq!(Shape::samples(1), [Shape::Old { size: 42 }]);
+        assert_eq!(Shape::samples(u32::MAX).len(), 2);
     }
 
     #[test]

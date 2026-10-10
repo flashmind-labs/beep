@@ -109,6 +109,14 @@ final class AppModel {
 
     // MARK: Connection
 
+    /// The app's version as the server logs it, such as "0.1.0 (1)".
+    static let appVersion: String = {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }()
+
     /// Connects to the server, retrying with backoff until it answers.
     func connect() {
         connectTask?.cancel()
@@ -117,7 +125,7 @@ final class AppModel {
             while !Task.isCancelled {
                 attempt += 1
                 do {
-                    let fresh = try client ?? BeepClient(nodeId: BeepConfig.nodeId, identity: identity)
+                    let fresh = try client ?? BeepClient(nodeId: BeepConfig.nodeId, identity: identity, appVersion: Self.appVersion)
                     if client == nil { fresh.setListener(listener: notifier) }
                     client = fresh
                     try await fresh.health()
@@ -658,7 +666,7 @@ final class AppModel {
     func importKey(_ text: String) async throws {
         guard let key = Identity.parse(text) else { throw BeepError.BadRequest(reason: "This file has no key") }
         if key == identity { return }
-        let trial = try BeepClient(nodeId: BeepConfig.nodeId, identity: key)
+        let trial = try BeepClient(nodeId: BeepConfig.nodeId, identity: key, appVersion: Self.appVersion)
         trial.setListener(listener: notifier)
         try await trial.health()
         Identity.save(key)

@@ -191,7 +191,9 @@ impl Beep {
     ) -> anyhow::Result<(Arc<Self>, Notices)> {
         let (tx, rx) = mpsc::unbounded_channel();
         let on_notice: OnNotice = Arc::new(move |notice| tx.send(notice).is_ok());
-        let node = Node::bind(secret_key(&identity), server, on_notice).await?;
+        let node = Node::bind(secret_key(&identity), server, on_notice)
+            .await?
+            .with_app(Platform::Macos {}, env!("CARGO_PKG_VERSION"));
         let saved = file.load();
         Ok((
             Arc::new(Self {

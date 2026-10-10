@@ -4,8 +4,8 @@ use crate::{
     AsyncMutex,
     app::App,
     protocol::{
-        ApiError, Call, DeviceKind, Op, Stream,
-        wire::{Frame, Tx, framed},
+        ApiError, Call, ClientInfo, DeviceKind, Feature, Op, Stream,
+        wire::{Frame, Rx, Tx, framed},
     },
     push::Pusher,
     transport::READ_TIMEOUT,
@@ -29,6 +29,17 @@ pub struct Cx {
     pub primary: bool,
     pub connection: Connection,
     pub pusher: Arc<Pusher>,
+    /// What the app on this connection said it reads.
+    pub client: Arc<ClientInfo>,
+}
+
+impl Cx {
+    /// Whether the client reads `feature`. Check it before sending a reply
+    /// shape or a streamed variant newer than the fixtures in
+    /// `crates/proto/tests/wire`.
+    pub fn supports(&self, feature: Feature) -> bool {
+        self.client.supports(feature)
+    }
 }
 
 type Handler = Box<dyn Fn(Cx, Frame, Tx) -> BoxFuture<'static, Result<()>> + Send + Sync>;
@@ -122,11 +133,13 @@ impl Router {
 
     /// Reads the request on one bi stream and runs its handler.
     pub async fn serve(&self, cx: Cx, send: SendStream, recv: RecvStream) -> Result<()> {
-        let (mut tx, mut rx) = framed(send, recv);
-        let frame = timeout(READ_TIMEOUT, rx.frame())
-            .await
-            .context("request timed out")??
-            .context("empty stream")?;
+        let (tx, mut rx) = framed(send, recv);
+        let frame = read_request(&mut rx).await?;
+        self.dispatch(cx, frame, tx).await
+    }
+
+    /// Runs the handler for a request already read.
+    pub async fn dispatch(&self, cx: Cx, frame: Frame, mut tx: Tx) -> Result<()> {
         let handler = Op::try_from(frame.tag).and_then(|op| {
             self.routes
                 .get(&op)
@@ -140,6 +153,14 @@ impl Router {
             }
         }
     }
+}
+
+/// The one request frame a stream opens with.
+pub async fn read_request(rx: &mut Rx) -> Result<Frame> {
+    timeout(READ_TIMEOUT, rx.frame())
+        .await
+        .context("request timed out")??
+        .context("empty stream")
 }
 
 /// Where a stream handler sends its replies.
