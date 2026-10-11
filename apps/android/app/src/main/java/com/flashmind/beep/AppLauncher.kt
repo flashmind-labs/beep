@@ -1,10 +1,12 @@
 package com.flashmind.beep
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.CalendarContract
+import androidx.compose.ui.platform.UriHandler
 
 object AppLauncher {
     private val appPackages = mapOf(
@@ -64,7 +66,25 @@ object AppLauncher {
     }
 
     private fun tryStart(context: Context, intent: Intent): Boolean = try {
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent); true
+        start(context, intent); true
     } catch (_: Exception) { false }
+
+    /**
+     * Starts another app's screen in a task of its own. Started from the bubble
+     * without this, the app opens inside the bubble's small window.
+     */
+    fun start(context: Context, intent: Intent) {
+        context.applicationContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
+
+/** Opens links in replies with [AppLauncher.start], so the bubble never hosts the app a link opens. */
+class OutsideUriHandler(private val context: Context) : UriHandler {
+    override fun openUri(uri: String) {
+        try {
+            AppLauncher.start(context, Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
+        } catch (e: ActivityNotFoundException) {
+            throw IllegalArgumentException("Can't open $uri.", e)
+        }
+    }
 }

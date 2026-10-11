@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -199,7 +200,7 @@ open class MainActivity : ComponentActivity() {
         }
         takeIntent(intent)
         setContent {
-            BeepTheme { CompositionLocalProvider(LocalOpenLink provides { url: String ->
+            BeepTheme { CompositionLocalProvider(LocalUriHandler provides OutsideUriHandler(this), LocalOpenLink provides { url: String ->
                 // The bubble has no room for the browser, so its links go to the phone's own.
                 if (bubble) ExternalBrowser.open(this, url) else repository.openBrowser(url)
             }) {

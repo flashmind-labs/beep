@@ -658,15 +658,15 @@ private fun ContactsCard(card: ToolCard.Contacts) {
                 }
                 if (person.phone.isNotBlank()) {
                     RoundAction(Icons.Outlined.Call, "Call ${person.name}") {
-                        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${person.phone}")))
+                        AppLauncher.start(context, Intent(Intent.ACTION_DIAL, Uri.parse("tel:${person.phone}")))
                     }
                     Spacer(Modifier.width(8.dp))
                     RoundAction(Icons.Outlined.Sms, "Message ${person.name}") {
-                        context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${person.phone}")))
+                        AppLauncher.start(context, Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${person.phone}")))
                     }
                 } else if (person.email.isNotBlank()) {
                     RoundAction(Icons.Outlined.Email, "Email ${person.name}") {
-                        context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${person.email}")))
+                        AppLauncher.start(context, Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${person.email}")))
                     }
                 }
             }

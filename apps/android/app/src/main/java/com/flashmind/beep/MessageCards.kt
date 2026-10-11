@@ -74,7 +74,7 @@ private fun PlaceCard(data: org.json.JSONObject, compact: Boolean) {
                 onClick = {
                     val uri = if (lat != 0.0 && lng != 0.0) "geo:$lat,$lng?q=${Uri.encode(name)}"
                     else "geo:0,0?q=${Uri.encode(name)}"
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
+                    AppLauncher.start(context, Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
                 },
                 color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
                 shape = RoundedCornerShape(Beep.shapes.smallRadius),
@@ -136,7 +136,7 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
                         "open_browser" -> openLink(button.optString("url", ""))
                         "open_maps" -> {
                             val query = button.optString("query", label)
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}")))
+                            AppLauncher.start(context, Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}")))
                         }
                         "open_app" -> repository.pendingIntent.value = AppIntent(
                             app = button.optString("app", ""),
