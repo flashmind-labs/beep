@@ -73,6 +73,13 @@ the tag runs the same workflow, which refuses to build without the Developer ID
 and notary secrets, then attaches a signed, notarized `Beep-0.2.0.dmg` to the
 tag's Forgejo release.
 
+The same run uploads the DMG to the R2 bucket in the `CF_*` secrets, served
+at https://releases.flashmind.com/beep/macos/ (`Beep-latest.dmg` is the
+fixed download link). Installed apps check `latest.json` there every six
+hours and update themselves. The update signing key is the
+`TAURI_SIGNING_PRIVATE_KEY` secret, with its public half in `tauri.conf.json`;
+losing it means installed apps can no longer update.
+
 ## iOS app
 
 `apps/ios` is the SwiftUI port. `just ios-run` builds the Rust bridge for the
