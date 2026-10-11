@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sized for the Galaxy Z Flip's Flex Window. Samsung lists it there through samsung_cover_widget. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="352dp"
+    android:minHeight="339dp"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="keyguard"
+    android:initialLayout="@layout/cover_widget"
+    android:previewLayout="@layout/cover_widget"
+    android:description="@string/cover_widget_description" />

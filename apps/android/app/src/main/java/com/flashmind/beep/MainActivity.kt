@@ -31,6 +31,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,6 +62,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowInsets
+import androidx.compose.foundation.layout.WindowInsets as ComposeInsets
 import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -309,6 +311,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val browserOpen by repository.browserOpen.collectAsStateWithLifecycle()
     var drawerOpen by remember { mutableStateOf(false) }
     var bubbleMenu by remember { mutableStateOf(false) }
+    // The outside screen of a flip phone, about 350 dp square, gets the bubble's slim chat.
+    val cover = !bubble && LocalConfiguration.current.let { it.screenWidthDp < 480 && it.screenHeightDp < 480 }
     var historyQuery by rememberSaveable { mutableStateOf("") }
     var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
     val places = remember(repository) { ServerPlaces(repository) }
@@ -684,7 +688,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                         leave?.let { "You stop getting the groups' messages." }).joinToString(" ")) },
                     containerColor = Surface)
             }
-            if (!bubble) {
+            if (!bubble && !cover) {
                 HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = Border)
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Memories; drawerOpen = false }
@@ -718,8 +722,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             onNewChat = { startNewChat() }, onPrevious = { openGroup = null },
             onExpand = if (bubble) { { onExpand(group) } } else null)
         else Scaffold(containerColor = Ink, topBar = {
-            if (bubble) {
-                Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (bubble || cover) {
+                // On the cover screen the cameras sit in the top corner, so the row keeps clear of the cutout.
+                Row(Modifier.fillMaxWidth().then(if (cover) Modifier.windowInsetsPadding(ComposeInsets.safeDrawing
+                    .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)) else Modifier)
+                    .height(48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(displayText("Beep"), style = displayStyle(18.sp))
                     Spacer(Modifier.width(8.dp))
                     ConnectionDot(connected, status)
@@ -760,7 +767,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 onNew = { startNewChat() }, onBack = { goBack() }, modifier = Modifier.padding(padding).fillMaxSize()) {
                 // Each chat gets its own list, so rows of the chat being left never animate under the next one.
                 key(state.current.id) {
-                    ChatScreen(state.current, repository, Modifier.fillMaxSize(), compact = bubble, focusInput = focusInput, clipboardContent = clipboardContent,
+                    ChatScreen(state.current, repository, Modifier.fillMaxSize(), compact = bubble || cover, focusInput = focusInput, clipboardContent = clipboardContent,
                         onExpand = if (bubble) { { onExpand(null) } } else null)
                 }
             }
