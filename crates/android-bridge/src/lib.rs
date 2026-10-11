@@ -6,19 +6,19 @@
 //! the server dials the endpoint to deliver notices.
 
 use beep_proto::{
-    AnswerApproval, AnswerGroupApproval, ApiError, AppIntegration, AppPermissions,
+    Agents, AnswerApproval, AnswerGroupApproval, ApiError, AppIntegration, AppPermissions,
     ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare,
     CreateCron, CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory,
     DeletePlace, DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom,
     DeviceAnswer, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
-    GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRun, GetSession,
-    GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
+    GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRun,
+    GetSession, GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
     GroupPreview, GroupReminder, Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice,
     LinkedDevice, ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMemories,
     ListMemoryReads, ListPlaces, ListSessions, ListSkills, Memory, MemoryRead, Models, Notice,
     PeekGroup, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
     PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron,
-    SearchSessions, SendToGroup, SentImages, Session, SessionMatch, SetAppPermissions,
+    SearchSessions, SendToGroup, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions,
     SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
     SharedSession, Skill, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UndoSkill,
     UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
@@ -862,6 +862,17 @@ impl BeepClient {
     /// Admins only.
     pub async fn set_auto_model(&self, enabled: bool) -> Result<Models, BeepError> {
         self.call(SetAutoModel { enabled }).await
+    }
+
+    /// Whether agents are on for everyone, and the agents Jev picks from.
+    /// Admins only.
+    pub async fn get_agents(&self) -> Result<Agents, BeepError> {
+        self.call(GetAgents {}).await
+    }
+
+    /// Turns agents on or off for everyone. Admins only.
+    pub async fn set_agents(&self, enabled: bool) -> Result<Agents, BeepError> {
+        self.call(SetAgents { enabled }).await
     }
 
     /// `allowed` names, by tool, the actions that run without asking.

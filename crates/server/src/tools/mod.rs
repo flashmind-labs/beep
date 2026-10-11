@@ -13,11 +13,14 @@ mod open_app;
 mod places;
 mod products;
 mod progress;
+mod route;
 pub(crate) mod skills;
 mod suggest;
 
 pub(crate) use file::SendFileTool;
 pub(crate) use notify_user::NotifyUserTool;
+pub(crate) use route::GetRouteTool;
+pub use route::Transitous;
 pub(crate) use suggest::{
     NAME as SUGGEST_REPLIES, SUGGESTING as SUGGESTING_REPLIES, choice_output, replies_output,
 };

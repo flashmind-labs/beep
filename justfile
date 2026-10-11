@@ -200,6 +200,10 @@ eval-leak filter="":
 eval-gates filter="":
     BEEP_EVAL="{{filter}}" cargo test -p beep-server --test gates -- --ignored --nocapture
 
+# Jev's agent pick for fixed prompts and follow-ups: just eval-agents [filter]
+eval-agents filter="":
+    BEEP_EVAL="{{filter}}" cargo test -p beep-server --test agents -- --ignored --nocapture
+
 # List the OpenRouter models Beep could use, newest first: just models [max-output-price] [filter]
 models *args:
     cargo run -q --package beep-server --bin beep-models -- {{args}}

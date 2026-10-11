@@ -363,6 +363,7 @@ dependencies = [
  "sqlx",
  "sqlx-core",
  "sqlx-postgres",
+ "strum",
  "tempfile",
  "tokio",
  "tokio-util",

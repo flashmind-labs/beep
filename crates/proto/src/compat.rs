@@ -82,6 +82,8 @@ sample_struct! {
     PendingApproval { run_id, query_id, approval }
     Models { choices, selected, thinking, auto, auto_available }
     AutoPick { model, thinking }
+    Agents { enabled, agents }
+    AgentInfo { id, name, when, model, thinking }
     ModelChoice { id, name, input_price, output_price, sees_images, default }
     AppPermissions { level, actions }
     AppAction { tool, label, allowed }

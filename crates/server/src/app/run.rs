@@ -2,11 +2,12 @@
 
 use super::{
     App, Message,
-    auto::Prompt,
+    auto::{AgentTurn, Prompt},
     device::Parked,
     learning::{MEMORY_THRESHOLD, ServerCall, add_server_calls, earlier_turns, memory_state},
 };
 use crate::{
+    agents::AgentId,
     apps::markdown,
     followups, gates, images,
     live::LiveRun,
@@ -87,28 +88,48 @@ impl App {
             .await?
             .map_or_else(Conversation::new, |context| context.conversation);
 
-        // Always set the server-owned prompt, including when loading an older conversation.
-        // It stays static so the provider can cache it.
-        conversation.set_system(include_str!("../../prompts/assistant.md"));
         let answer = message.answer.as_ref();
-        // An admin's one-off model or thinking wins over Auto; a resumed turn
-        // keeps the pick it started with. Auto picks for chats only: a routine
-        // runs on the admin's selected model.
-        let one_off = message.model.is_some() || message.thinking.is_some();
-        let auto = match (one_off, answer) {
-            (true, _) => None,
-            (false, Some(_)) => self.resumed_pick(user, chat).await,
-            (false, None) if background => None,
-            (false, None) => {
-                let prompt = Prompt {
-                    message: &message.message,
-                    images: message.images.len(),
-                    conversation: &conversation,
-                    session: chat,
-                };
-                self.auto_pick(user, &prompt).await
-            }
+        let prompt = Prompt {
+            message: &message.message,
+            images: message.images.len(),
+            conversation: &conversation,
+            session: chat,
         };
+        // With agents on, every chat turn runs as one: Jev picks it, and a
+        // resumed turn keeps the one it started as. Routines run as General.
+        let turn_agent = match answer {
+            _ if background || !self.agents_on().await => None,
+            Some(_) => self.resumed_agent(user, chat).await.map(|agent| AgentTurn {
+                wanted: agent.thinking,
+                agent,
+            }),
+            None => Some(self.agent_pick(user, &prompt).await),
+        };
+        // An admin's one-off model or thinking wins over Auto and the agent;
+        // a resumed turn keeps the pick it started with. Auto picks for chats
+        // only: a routine runs on the admin's selected model.
+        let one_off = message.model.is_some() || message.thinking.is_some();
+        let auto = match (one_off, answer, &turn_agent) {
+            (true, ..) => None,
+            (false, Some(_), _) => self.resumed_pick(user, chat).await,
+            (false, None, _) if background => None,
+            (false, None, Some(agent)) => {
+                if self.agent_picks_model(user).await {
+                    Some(agent.choice())
+                } else {
+                    None
+                }
+            }
+            (false, None, None) => self.auto_pick(user, &prompt).await,
+        };
+        // Always set the server-owned prompt, including when loading an older
+        // conversation. It stays static per agent so the provider can cache it.
+        conversation.set_system(
+            turn_agent
+                .as_ref()
+                .map_or(AgentId::General, |turn| turn.agent.id)
+                .prompt(),
+        );
         let (model, thinking) = match &auto {
             Some(auto) => (auto.model.clone(), auto.thinking),
             None => (
@@ -150,6 +171,12 @@ impl App {
         }
         if let Some(decision) = &self.tools.decision {
             registry.register(decision.clone());
+        }
+        if let Some(transitous) = &self.tools.transitous {
+            registry.register(Arc::new(tools::GetRouteTool {
+                user: user.clone(),
+                transitous: transitous.clone(),
+            }));
         }
         if let Some(sandbox) = &self.tools.sandbox {
             sandbox::register(&mut registry, sandbox, user);
@@ -620,6 +647,7 @@ impl App {
         let record = TurnRecord {
             model: model.to_string(),
             auto_thinking: auto.as_ref().map(|auto| auto.thinking),
+            agent: turn_agent.as_ref().map(|turn| turn.agent.id),
             reasoning: String::new(),
             memory_score: if answer.is_none() { memory_score } else { None },
         };

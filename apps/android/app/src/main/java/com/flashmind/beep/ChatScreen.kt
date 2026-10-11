@@ -421,7 +421,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             message.memoryScore?.let { score ->
                                 val saved = message.toolCalls.any { it.name in MEMORY_TOOLS }
                                 val note = if (score >= MEMORY_THRESHOLD && !saved) " · nothing new" else ""
-                                Text("Memory ${(score * 100).roundToInt()}%$note", fontSize = 11.sp, color = TextDim,
+                                Text("${(score * 100).roundToInt()}%$note", fontSize = 11.sp, color = TextDim,
                                     modifier = Modifier.padding(start = 8.dp))
                             }
                         }

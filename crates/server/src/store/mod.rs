@@ -28,6 +28,7 @@ mod places;
 mod profile;
 mod runs;
 mod sessions;
+mod settings;
 mod shares;
 mod skills;
 mod test_db;
@@ -205,6 +206,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         31,
         "skills",
         include_str!("../../migrations/0031_skills.sql"),
+    ),
+    (
+        33,
+        "agents",
+        include_str!("../../migrations/0033_agents.sql"),
     ),
 ];
 

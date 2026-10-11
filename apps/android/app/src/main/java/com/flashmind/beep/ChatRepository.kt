@@ -27,6 +27,7 @@ import com.flashmind.beep.proto.ImageRef
 import com.flashmind.beep.proto.LinkedDevice
 import com.flashmind.beep.proto.DeviceAnswer
 import com.flashmind.beep.proto.AppPermissions
+import com.flashmind.beep.proto.Agents
 import com.flashmind.beep.proto.Models
 import com.flashmind.beep.proto.ReasoningLevel
 import com.flashmind.beep.proto.DeviceQuery
@@ -793,6 +794,8 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun setModel(id: String): Models = api().setModel(id).also(::keepModels)
     suspend fun setThinking(level: ReasoningLevel): Models = api().setThinking(level).also(::keepModels)
     suspend fun setAutoModel(enabled: Boolean): Models = api().setAutoModel(enabled).also(::keepModels)
+    suspend fun agents(): Agents = api().getAgents()
+    suspend fun setAgents(enabled: Boolean): Agents = api().setAgents(enabled)
     private fun keepModels(fresh: Models) {
         modelChoices.value = fresh
         saveLists { it.copy(models = fresh) }
