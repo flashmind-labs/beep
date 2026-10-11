@@ -216,7 +216,8 @@ requests! {
     14 ListCrons {} => Call<Vec<Cron>>
     /// Returns the new cron's id. A `schedule` of `arrive:<place id>` or
     /// `leave:<place id>` starts it on arriving at or leaving a saved place
-    /// instead of at a time; `arrive:<place id>:daily` runs once a day at most.
+    /// instead of at a time; ending it in `:daily` runs it once a day at most,
+    /// and in `:once` only the next time.
     15 CreateCron { label: String, prompt: String, schedule: String } => Call<String>
     /// Returns whether the cron is now enabled.
     16 ToggleCron { id: String } => Call<bool>

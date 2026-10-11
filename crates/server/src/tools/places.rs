@@ -1,5 +1,5 @@
 use crate::{
-    places::{self, PlaceEvent, PlaceTrigger, Point},
+    places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger, Point},
     store::{Location, NewPlace, NewPlaceRoutine, SavedPlace},
     user::User,
 };
@@ -82,7 +82,7 @@ impl Tool for PlaceTool {
                 "Forget a saved place by name. The routines that start there are deleted with it."
             }
             PlaceToolKind::Routine => {
-                "Create a routine that starts when the user arrives at or leaves a saved place, such as \"when I get to the gym, remind me to log my weights\". Write the task as a note to yourself, as for other routines. List, pause or delete it with the cron tools."
+                "Create a routine that starts when the user arrives at or leaves a saved place, such as \"when I get to the gym, remind me to log my weights\". Write the task as a note to yourself, as for other routines. A routine set to run once is deleted after it runs, so check the cron tools before telling the user one is still set. List, pause or delete it with the cron tools."
             }
         }
     }
@@ -120,10 +120,9 @@ impl Tool for PlaceTool {
                     "when": { "type": "string", "enum": ["arrive", "leave"] },
                     "label": { "type": "string", "description": "A few words naming the routine, e.g. 'Log my weights'" },
                     "task": { "type": "string", "description": "What to do when it starts, as a note to yourself" },
-                    "daily": { "type": "boolean", "description": "At most once a day, skipping a second visit the same day. Default true" },
-                    "once": { "type": "boolean", "description": "Only the next time, then delete it. Default false" }
+                    "repeat": { "type": "string", "enum": ["once", "daily", "always"], "description": "once: only the next time, then it is deleted, as for \"remind me when I leave\". daily: at most once a day, skipping a second visit the same day, as for a habit. always: every time, as for \"every time I get home\"" }
                 },
-                "required": ["place", "when", "label", "task"],
+                "required": ["place", "when", "label", "task", "repeat"],
                 "additionalProperties": false
             }),
         }
@@ -279,17 +278,17 @@ impl PlaceTool {
                 "no place named '{name}'. Save it first with place_save, or check place_list."
             )));
         };
-        let daily = args.get("daily").and_then(Value::as_bool).unwrap_or(true);
-        let once = args.get("once").and_then(Value::as_bool).unwrap_or(false);
+        let Some(repeat) = text(args, "repeat").and_then(PlaceRepeat::parse) else {
+            return Ok(Err("repeat is once, daily or always".into()));
+        };
         let routine = NewPlaceRoutine {
             label,
             task,
             trigger: PlaceTrigger {
                 event,
                 place: place.id,
-                daily,
+                repeat,
             },
-            once,
             chat: self.chat,
         };
         let id = match self.user.create_place_routine(&routine).await {
@@ -302,8 +301,7 @@ impl PlaceTool {
             "label": label,
             "place": place.name,
             "when": event.as_str(),
-            "daily": daily,
-            "once": once,
+            "repeat": repeat.as_str(),
         })))
     }
 }
@@ -374,7 +372,7 @@ mod tests {
         let routine = call(
             &user,
             PlaceToolKind::Routine,
-            json!({"place": "gym", "when": "arrive", "label": "Log my weights", "task": "Remind me to log weights"}),
+            json!({"place": "gym", "when": "arrive", "label": "Log my weights", "task": "Remind me to log weights", "repeat": "daily"}),
         )
         .await;
         assert!(routine.is_success(), "{}", routine.output());
@@ -385,7 +383,7 @@ mod tests {
             Some(PlaceTrigger {
                 event: PlaceEvent::Arrive,
                 place: place.id,
-                daily: true
+                repeat: PlaceRepeat::Daily,
             })
         );
 

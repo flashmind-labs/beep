@@ -1,7 +1,11 @@
 //! The user's routines as the phone lists and edits them.
 
 use super::{Store, format_time};
-use crate::{protocol::Cron, user::UserKey};
+use crate::{
+    places::{PlaceRepeat, PlaceTrigger},
+    protocol::Cron,
+    user::UserKey,
+};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use sqlx::Row;
@@ -31,6 +35,12 @@ fn check_schedule(schedule: &str) -> Result<()> {
         bail!("cron schedule must be 1-100 characters");
     }
     Ok(())
+}
+
+/// Whether a place schedule runs only the next time, or `None` for any
+/// other schedule.
+fn place_once(schedule: &str) -> Option<bool> {
+    PlaceTrigger::parse(schedule).map(|trigger| trigger.repeat == PlaceRepeat::Once)
 }
 
 impl Store {
@@ -72,14 +82,15 @@ impl Store {
         self.check_place_schedule(user, schedule).await?;
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO crons (user_id, id, label, prompt, schedule)
-             VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once)
+             VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(user.as_str())
         .bind(&id)
         .bind(label)
         .bind(prompt)
         .bind(schedule)
+        .bind(place_once(schedule).unwrap_or(false))
         .execute(&self.pool)
         .await?;
         self.notify_crons_changed();
@@ -103,7 +114,7 @@ impl Store {
         }
         let changed = sqlx::query(
             "UPDATE crons SET enabled=COALESCE($1, enabled), label=COALESCE($2, label),
-                 schedule=COALESCE($3, schedule)
+                 schedule=COALESCE($3, schedule), run_once=COALESCE($6, run_once)
              WHERE user_id=$4 AND id=$5 AND group_id IS NULL AND ($1 IS NOT NULL OR $2 IS NOT NULL OR $3 IS NOT NULL)",
         )
         .bind(enabled)
@@ -111,6 +122,7 @@ impl Store {
         .bind(schedule)
         .bind(user.as_str())
         .bind(id)
+        .bind(schedule.and_then(place_once))
         .execute(&self.pool)
         .await?
         .rows_affected();

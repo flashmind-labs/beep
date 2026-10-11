@@ -6,7 +6,7 @@ use super::{
     cron_jobs::{COLUMNS, job_from},
 };
 use crate::{
-    places::{self, PlaceEvent, PlaceTrigger},
+    places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger},
     user::UserKey,
 };
 use anyhow::{Result, bail};
@@ -22,8 +22,6 @@ pub struct NewPlaceRoutine<'a> {
     /// What the agent is told to do when it starts.
     pub task: &'a str,
     pub trigger: PlaceTrigger,
-    /// Deleted after its first run.
-    pub once: bool,
     /// The chat it was set up from, where its runs reply.
     pub chat: Option<Uuid>,
 }
@@ -393,7 +391,7 @@ impl Store {
         .bind(label)
         .bind(task)
         .bind(routine.trigger.to_string())
-        .bind(routine.once)
+        .bind(routine.trigger.repeat == PlaceRepeat::Once)
         .bind(routine.chat)
         .execute(&self.pool)
         .await?;
@@ -408,7 +406,7 @@ impl Store {
         }
         let Some(trigger) = PlaceTrigger::parse(schedule) else {
             bail!(
-                "a place schedule is arrive:<place id> or leave:<place id>, with :daily for once a day at most"
+                "a place schedule is arrive:<place id> or leave:<place id>, ending in :daily for once a day at most or :once for only the next time"
             );
         };
         if self.place(user, trigger.place).await?.is_none() {
@@ -421,7 +419,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::TestDb;
+    use crate::{protocol::Cron, store::TestDb};
 
     fn gym<'a>() -> NewPlace<'a> {
         NewPlace {
@@ -630,7 +628,6 @@ mod tests {
             label: &label,
             task: &task,
             trigger,
-            once: false,
             chat: None,
         };
         store.create_place_routine(&alice, &fits).await.unwrap();
@@ -651,8 +648,7 @@ mod tests {
         let routine = NewPlaceRoutine {
             label: "Shop",
             task: "Point the user to the shop",
-            trigger: PlaceTrigger::parse(&format!("leave:{}", place.id)).unwrap(),
-            once: true,
+            trigger: PlaceTrigger::parse(&format!("leave:{}:once", place.id)).unwrap(),
             chat: Some(chat),
         };
         store.create_place_routine(&alice, &routine).await.unwrap();
@@ -664,6 +660,26 @@ mod tests {
             routines[0].job.metadata["session_id"],
             chat.to_string().as_str()
         );
+    }
+
+    #[tokio::test]
+    async fn a_place_schedule_says_whether_it_runs_once() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let place = store.save_place(&alice, &gym()).await.unwrap();
+        let once = format!("leave:{}:once", place.id);
+        let id = store
+            .create_cron(&alice, "Shop", &once, "Point me to the shop")
+            .await
+            .unwrap();
+        let run_once = |crons: Vec<Cron>| crons.iter().find(|c| c.id == id).unwrap().run_once;
+        assert!(run_once(store.list_crons(&alice).await.unwrap()));
+
+        let always = format!("leave:{}", place.id);
+        let edited = store.update_cron(&alice, &id, None, None, Some(&always));
+        assert!(edited.await.unwrap());
+        assert!(!run_once(store.list_crons(&alice).await.unwrap()));
     }
 
     #[tokio::test]
@@ -708,7 +724,7 @@ mod tests {
             .unwrap();
         assert_eq!(arrivals.len(), 1);
         assert_eq!(arrivals[0].job.id.to_string(), weights);
-        assert!(arrivals[0].trigger.daily);
+        assert_eq!(arrivals[0].trigger.repeat, PlaceRepeat::Daily);
         let place_now = store.place(&alice, place.id).await.unwrap().unwrap();
         assert_eq!(place_now.routines, 2);
 

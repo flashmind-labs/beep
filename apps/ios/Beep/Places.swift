@@ -100,26 +100,65 @@ final class SamplePlaces: PlacesStore {
 #endif
 
 /// A routine's place trigger, written into its schedule as `arrive:<id>`,
-/// `leave:<id>`, either with `:daily` for once a day at most.
+/// `leave:<id>`, ending in `:daily` for once a day at most or `:once` for
+/// only the next time.
 struct PlaceTrigger: Equatable {
     enum Kind: String { case arrive, leave }
 
+    /// How often it starts; the raw value is the schedule's ending.
+    enum Repeat: String, CaseIterable {
+        case always = "", daily, once
+
+        var title: String {
+            switch self {
+            case .always: "Every time"
+            case .daily: "Once a day"
+            case .once: "Next time only"
+            }
+        }
+
+        var hint: String {
+            switch self {
+            case .always: "Runs on every visit"
+            case .daily: "Skips it if you come back the same day"
+            case .once: "Runs the next time, then deletes itself"
+            }
+        }
+
+        /// What the routine list adds after the place, if anything.
+        var note: String? {
+            switch self {
+            case .always: nil
+            case .daily: "once a day at most"
+            case .once: "next time only"
+            }
+        }
+    }
+
     var kind: Kind
     var placeId: String
-    var daily: Bool
+    var repeats: Repeat
 
-    var schedule: String { "\(kind.rawValue):\(placeId)" + (daily ? ":daily" : "") }
+    var schedule: String { "\(kind.rawValue):\(placeId)" + (repeats == .always ? "" : ":\(repeats.rawValue)") }
 
-    init(kind: Kind, placeId: String, daily: Bool) {
+    init(kind: Kind, placeId: String, repeats: Repeat) {
         self.kind = kind
         self.placeId = placeId
-        self.daily = daily
+        self.repeats = repeats
     }
 
     init?(schedule: String) {
-        let parts = schedule.split(separator: ":").map(String.init)
-        guard parts.count >= 2, let kind = Kind(rawValue: parts[0]) else { return nil }
-        self.init(kind: kind, placeId: parts[1], daily: parts.count > 2 && parts[2] == "daily")
+        let parts = schedule.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard (2...3).contains(parts.count), !parts[1].isEmpty, let kind = Kind(rawValue: parts[0]) else { return nil }
+        let repeats: Repeat
+        if parts.count == 2 {
+            repeats = .always
+        } else if let ending = Repeat(rawValue: parts[2]), ending != .always {
+            repeats = ending
+        } else {
+            return nil
+        }
+        self.init(kind: kind, placeId: parts[1], repeats: repeats)
     }
 }
 
