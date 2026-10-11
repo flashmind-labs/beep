@@ -494,7 +494,8 @@ hold for a while, their days. Source \"user\" means the user said it or asked Be
 means Beep picked it up from a chat; \"email\" means Beep read it in the user's email; \"slack\" means Beep \
 read it in the user's Slack.
 Clean it up:
-- Merge memories that say the same thing or are parts of one fact into one sentence, keeping every detail.
+- Merge memories that say the same thing or are parts of one fact into one sentence, keeping every detail. \
+Only merge memories with the same days: a flight and the stay it starts are separate facts.
 - When two memories contradict each other, keep the newer one, unless the older was said by the user and the \
 newer was only learned; then merge them into one sentence that keeps the user's version.
 - Forget memories that are trivial, a one-off task, general knowledge rather than about the user, or a secret \
@@ -738,6 +739,38 @@ pub(crate) enum Step {
     },
 }
 
+/// The days a merge of `rows` gets. While any of them still holds, the merge
+/// runs from the earliest start to the latest end, whatever days the model
+/// gave, so a merge never cuts a fact short. Once all are over (or none has
+/// days) the model's days stand, and none makes a lasting fact. `None` refuses
+/// to merge a lasting fact with one that still has days, since the result
+/// would either lose the end or end the lasting fact.
+fn merged_days(rows: &[&MemoryRow], asked: Option<Validity>, today: NaiveDate) -> Option<Validity> {
+    let dated: Vec<&Validity> = rows
+        .iter()
+        .map(|row| &row.valid)
+        .filter(|valid| valid.from.is_some() || valid.until.is_some())
+        .collect();
+    if dated.iter().all(|valid| valid.ended(today)) {
+        return Some(asked.unwrap_or_default());
+    }
+    if dated.len() < rows.len() {
+        return None;
+    }
+    let from = dated
+        .iter()
+        .map(|valid| valid.from)
+        .collect::<Option<Vec<_>>>();
+    let until = dated
+        .iter()
+        .map(|valid| valid.until)
+        .collect::<Option<Vec<_>>>();
+    Some(Validity {
+        from: from.and_then(|days| days.into_iter().min()),
+        until: until.and_then(|days| days.into_iter().max()),
+    })
+}
+
 /// Checks the model's ops against the memories it was shown: unknown and
 /// reused ids are dropped, and a memory the user stated is only forgotten
 /// once its days are over. A merge keeps a stated memory when it has one,
@@ -817,9 +850,11 @@ pub(crate) fn plan_curation(
                 let Some(fact) = text(new, source) else {
                     continue;
                 };
-                // A merge without days is a lasting fact.
+                let Some(valid) = merged_days(&found, fact.valid, today) else {
+                    continue;
+                };
                 let fact = NewText {
-                    valid: Some(fact.valid.unwrap_or_default()),
+                    valid: Some(valid),
                     ..fact
                 };
                 let drop = ids.into_iter().filter(|id| *id != keep).collect();
@@ -963,6 +998,39 @@ mod tests {
             })
             .collect();
         assert_eq!(valid, vec![Some(Validity::default()), None]);
+    }
+
+    #[test]
+    fn a_merge_never_cuts_a_fact_short() {
+        let mut flight = row("f", "Flies SQ012 to Tokyo.");
+        flight.valid = Validity {
+            from: Some(day("2026-10-09")),
+            until: Some(day("2026-10-09")),
+        };
+        let mut stay = row("s", "Is staying at a hotel in Tokyo.");
+        stay.valid = Validity {
+            from: Some(day("2026-10-09")),
+            until: Some(day("2026-11-06")),
+        };
+        let home = row("h", "Lives in Dubai.");
+        let rows: HashMap<&str, &MemoryRow> = [&flight, &stay, &home]
+            .into_iter()
+            .map(|r| (r.id.as_str(), r))
+            .collect();
+        let merge = |ids: &str| {
+            let ops = parse_curation(&format!(
+                r#"{{"ops":[{{"op":"merge","ids":{ids},"content":"Flies to Tokyo.",
+                "valid_from":"2026-10-09","valid_until":"2026-10-09"}}]}}"#
+            ))
+            .unwrap()
+            .ops;
+            plan_curation(ops, &rows, day("2026-10-08"))
+        };
+        let Step::Rewrite { fact, .. } = &merge(r#"["f","s"]"#)[0] else {
+            panic!("expected a rewrite");
+        };
+        assert_eq!(fact.valid, Some(stay.valid));
+        assert!(merge(r#"["s","h"]"#).is_empty());
     }
 
     #[test]
