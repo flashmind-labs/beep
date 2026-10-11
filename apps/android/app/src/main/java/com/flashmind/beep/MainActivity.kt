@@ -289,7 +289,7 @@ class PanelActivity : MainActivity() {
 
 internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Shared, GroupJoin, GroupInfo }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     locationPermission: androidx.activity.result.ActivityResultLauncher<Array<String>>?,
@@ -722,8 +722,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             onNewChat = { startNewChat() }, onPrevious = { openGroup = null },
             onExpand = if (bubble) { { onExpand(group) } } else null)
         else Scaffold(containerColor = Ink, topBar = {
-            if (bubble || cover) {
-                // On the cover screen the cameras sit in the top corner, so the row keeps clear of the cutout.
+            // With the keyboard up the cover screen has room for the input alone, so the header steps aside.
+            if (bubble || cover && !ComposeInsets.isImeVisible) {
                 Row(Modifier.fillMaxWidth().then(if (cover) Modifier.windowInsetsPadding(ComposeInsets.safeDrawing
                     .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)) else Modifier)
                     .height(48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -767,7 +767,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 onNew = { startNewChat() }, onBack = { goBack() }, modifier = Modifier.padding(padding).fillMaxSize()) {
                 // Each chat gets its own list, so rows of the chat being left never animate under the next one.
                 key(state.current.id) {
-                    ChatScreen(state.current, repository, Modifier.fillMaxSize(), compact = bubble || cover, focusInput = focusInput, clipboardContent = clipboardContent,
+                    // The cover screen's cameras cut into its bottom edge, so the input sits above them.
+                    ChatScreen(state.current, repository, Modifier.fillMaxSize().then(if (cover) Modifier.consumeWindowInsets(padding)
+                        .windowInsetsPadding(ComposeInsets.safeDrawing.only(WindowInsetsSides.Bottom)) else Modifier), compact = bubble || cover, focusInput = focusInput, clipboardContent = clipboardContent,
                         onExpand = if (bubble) { { onExpand(null) } } else null)
                 }
             }
