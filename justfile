@@ -177,6 +177,11 @@ test-db:
 test: test-db
     BEEP_TEST_DATABASE_URL={{test_db_url}} cargo test -p beep-server
 
+# Print app tools' arguments: `just tool-schema GMAIL_MOVE_TO_TRASH
+# FASTMAIL_DELETE_EMAIL`, or `just tool-schema --list outlook` for a toolkit.
+tool-schema *args:
+    uv run -q --with 'psycopg[binary]' --with httpx python -I scripts/tool-schema.py --config {{server_config}} {{args}}
+
 # Run the prompt evals against the real model in the dev config. They cost
 # money. `just eval search` runs the cases whose name contains "search".
 eval filter="": test-db
