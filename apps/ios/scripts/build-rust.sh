@@ -27,7 +27,9 @@ cat "$out"/*FFI.modulemap > "$out/module.modulemap"
 rm "$out"/*FFI.modulemap
 
 profile=".dev/android-assets/testing-profile.json"
-node_id=""
-if [ -f "$profile" ]; then node_id=$(sed -n 's/.*"node_id":"\([0-9a-f]*\)".*/\1/p' "$profile"); fi
+node_id="${BEEP_NODE_ID:-}"
+if [ -z "$node_id" ] && [ -f "$profile" ]; then
+  node_id=$(sed -n 's/.*"node_id":"\([0-9a-f]*\)".*/\1/p' "$profile")
+fi
 printf 'enum BeepConfig {\n    static let nodeId = "%s"\n}\n' "$node_id" > "$out/BeepConfig.swift"
 echo "Built $target, node ID ${node_id:0:12}..."

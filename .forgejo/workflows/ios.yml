@@ -1,0 +1,108 @@
+# Uploads each main build to TestFlight for invited beta testers.
+name: ios
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testflight:
+    runs-on: macos
+    env:
+      BEEP_NODE_ID: ${{ vars.BEEP_NODE_ID }}
+      IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check configuration
+        env:
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          for name in IOS_TEAM_ID APPLE_API_PRIVATE_KEY APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing $name" >&2
+              exit 1
+            fi
+          done
+          [[ "$BEEP_NODE_ID" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "BEEP_NODE_ID must be 64 lowercase hexadecimal characters" >&2
+            exit 1
+          }
+          [[ "$GITHUB_RUN_NUMBER" =~ ^[1-9][0-9]*$ ]] || {
+            echo "Missing numeric build number" >&2
+            exit 1
+          }
+
+      - name: Set up build tools
+        run: |
+          set -euo pipefail
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          command -v xcodegen >/dev/null || brew install xcodegen
+          rustup target add aarch64-apple-ios
+
+      - name: Prepare App Store Connect key
+        env:
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/ios-api-key.p8"
+          echo "IOS_API_KEY_PATH=$RUNNER_TEMP/ios-api-key.p8" >> "$GITHUB_ENV"
+
+      - name: Build and archive
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          bash apps/ios/scripts/build-rust.sh device
+          cd apps/ios
+          xcodegen generate --quiet
+          xcodebuild -project Beep.xcodeproj -scheme Beep -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Beep.xcarchive" \
+            -allowProvisioningUpdates -authenticationKeyPath "$IOS_API_KEY_PATH" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" -authenticationKeyIssuerID "$APPLE_API_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" archive
+
+      - name: Export and upload
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IOS_EXPORT_OPTIONS="$RUNNER_TEMP/ios-export-options.plist" python3 - <<'PY'
+          import os
+          import plistlib
+
+          options = {
+              "method": "app-store-connect",
+              "destination": "export",
+              "signingStyle": "automatic",
+              "teamID": os.environ["IOS_TEAM_ID"],
+              "manageAppVersionAndBuildNumber": False,
+          }
+          with open(os.environ["IOS_EXPORT_OPTIONS"], "wb") as output:
+              plistlib.dump(options, output)
+          PY
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Beep.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ios-export-options.plist" \
+            -exportPath "$RUNNER_TEMP/ios-export" \
+            -allowProvisioningUpdates -authenticationKeyPath "$IOS_API_KEY_PATH" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" -authenticationKeyIssuerID "$APPLE_API_ISSUER_ID"
+          xcrun altool --upload-app -f "$RUNNER_TEMP/ios-export/Beep.ipa" -t ios \
+            --api-key "$APPLE_API_KEY_ID" --api-issuer "$APPLE_API_ISSUER_ID" \
+            --p8-file-path "$IOS_API_KEY_PATH"
+
+      - name: Remove API key file
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/ios-api-key.p8" "$RUNNER_TEMP/ios-export-options.plist"
