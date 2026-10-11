@@ -55,6 +55,24 @@ cd apps/android && ./gradlew :app:testDebugUnitTest
 
 Bump `versionCode` on every release so updates install over old builds.
 
+## iOS TestFlight
+
+The `ios` Forgejo workflow uploads every push to `main` to TestFlight. The
+App Store Connect app uses bundle ID `com.flashmind.beep`. The Mac runner needs
+Xcode, Rust, Homebrew and access to the sibling Rust dependency repository.
+
+Set repository variables `BEEP_NODE_ID` (64 lowercase hex characters) and
+`IOS_TEAM_ID` (Apple Developer team ID). The workflow uses these repository
+secrets, also used by the desktop workflow:
+
+- `APPLE_API_PRIVATE_KEY`: App Store Connect API `.p8` contents
+- `APPLE_API_KEY_ID` and `APPLE_API_ISSUER_ID`: IDs for that API key
+
+Xcode uses the API key to manage signing. Create an internal TestFlight group,
+then a private external group after Apple processes the first upload. Invite
+external testers by email. Apple must approve the first build before they can
+install it.
+
 ## Wire protocol
 
 ALPN `beep/2`. Each request opens its own bi stream of length-delimited
