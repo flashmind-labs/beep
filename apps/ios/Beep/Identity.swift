@@ -2,13 +2,18 @@ import Foundation
 import Security
 
 /// The account key: 32 random bytes made by the Rust side, kept in the Keychain.
+/// The item is not tied to this device, so iCloud and encrypted backups, and
+/// moving to a new iPhone, carry the account over.
 enum Identity {
     private static let service = "com.flashmind.beep"
     private static let account = "identity"
 
     /// The stored key, or a new one saved on first use.
     static func loadOrCreate() -> Data {
-        if let key = load() { return key }
+        if let key = load() {
+            letBackupsCarry()
+            return key
+        }
         let key = newIdentity()
         save(key)
         return key
@@ -36,8 +41,20 @@ enum Identity {
         SecItemDelete(base as CFDictionary)
         var add = base
         add[kSecValueData as String] = key
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         SecItemAdd(add as CFDictionary, nil)
+    }
+
+    /// Earlier builds saved the key for this device only, which backups leave out.
+    private static func letBackupsCarry() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let change: [String: Any] = [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+        SecItemUpdate(query as CFDictionary, change as CFDictionary)
     }
 
     /// The key file the Android app also reads and writes: the server's node ID and the key as hex.
