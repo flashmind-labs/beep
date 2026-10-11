@@ -32,7 +32,8 @@ const CRITERIA: Criteria = Criteria {
 const SYSTEM: &str = "You write follow-ups, shown as tappable chips under an assistant's \
 reply. Answer with a Markdown list of 2 or 3 items, one per line starting with \"- \", and \
 nothing else. Write 3 only when each one is clearly worth tapping. Each item is a message the \
-user would send next, in the user's language, at most 40 characters, no quotes.
+user would send next, in the language the assistant's reply is written in (not the language \
+of the place, the sources or the tool results), at most 40 characters, no quotes.
 
 You read what the assistant knew (time, place, connected apps, what it remembers), the latest \
 exchange, and what its tools returned. A good follow-up is specific to this reply and is one of:
@@ -48,7 +49,8 @@ reply is a bad one.";
 const ANSWERS_SYSTEM: &str = "You write the answers to an assistant's question, shown as \
 buttons the user taps instead of typing. Answer with a Markdown list of 2 to 4 items, one per \
 line starting with \"- \", and nothing else. Each item is the user's whole reply, in the \
-user's language, at most 40 characters, no quotes.
+language the assistant's reply is written in (not the language of the place, the sources \
+or the tool results), at most 40 characters, no quotes.
 
 You read what the assistant knew (time, place, connected apps, what it remembers), the latest \
 exchange, and what its tools returned. Answer the question the reply ends on:
@@ -240,6 +242,9 @@ pub async fn draft(generator: Generator<'_>, state: String) -> Option<String> {
 
 /// The list items `generator` writes for `state` under `system`, unquoted.
 async fn items(generator: Generator<'_>, system: &str, state: String) -> Option<Vec<String>> {
+    // Said last, next to the reply: in the system prompt alone the model
+    // follows the place or the sources, like Japanese chips in Tokyo.
+    let state = format!("{state}\n\nWrite every item in the language of the Assistant line above.");
     let answer = match generator.text(system, state).await {
         Ok(answer) => answer,
         Err(error) => {

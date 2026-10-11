@@ -37,6 +37,9 @@ struct Case {
     results: &'static [(&'static str, &'static str)],
     /// At least one chip contains one of these, ignoring case.
     wants_any: &'static [&'static str],
+    /// Every chip is plain ASCII, for an English chat about a place or sources
+    /// in another script.
+    ascii: bool,
 }
 
 const CASES: &[Case] = &[
@@ -63,6 +66,7 @@ const CASES: &[Case] = &[
             ),
         ],
         wants_any: &["remind", "alarm", "leave", "directions", "traffic"],
+        ascii: false,
     },
     Case {
         name: "explains a topic",
@@ -75,6 +79,21 @@ const CASES: &[Case] = &[
                 your eyes and irritates the nerves there, so they water to wash it out.",
         results: &[],
         wants_any: &[],
+        ascii: false,
+    },
+    Case {
+        name: "english chat about japanese sources",
+        context: Some("Time: Monday 2026-03-16 09:30 +09\nLocation: Tokyo\nConnected apps: none."),
+        message: "I got a letter from the ward office about my residence tax, what is it?",
+        reply: "It's your **residence tax** bill for this year, from your ward office. It \
+                lists the total and four payment slips; the first is due **March 31**. You can \
+                pay at a convenience store, a bank or online with the QR code on each slip.",
+        results: &[(
+            "web_search",
+            "住民税の納付について: 納付書は年4回に分けて送付されます。第1期の納期限は3月31日です。コンビニエンスストア、金融機関、スマートフォン決済で納付できます。",
+        )],
+        wants_any: &[],
+        ascii: true,
     },
 ];
 
@@ -161,6 +180,14 @@ async fn follow_up_evals() {
                 .any(|chip| case.wants_any.iter().any(|word| chip.contains(word)))
         {
             failures.push(format!("no chip mentions any of {:?}", case.wants_any));
+        }
+        if case.ascii {
+            failures.extend(
+                chips
+                    .iter()
+                    .filter(|chip| !chip.is_ascii())
+                    .map(|chip| format!("not in the chat's language: {chip}")),
+            );
         }
         if !chips.is_empty() {
             let listed: String = chips.iter().map(|chip| format!("\n- {chip}")).collect();
