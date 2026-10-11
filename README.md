@@ -7,7 +7,7 @@ traversal), so there are no certificates or port forwarding.
 
 ```text
 crates/proto/           Wire types, framing and the iroh client
-crates/server/          Server, beep-probe/beep-models/beep-import, tests
+crates/server/          Server, beep-probe/beep-models, tests
   prompts/              Assistant prompt
   migrations/           Postgres schema
 crates/android-bridge/  UniFFI wrapper of the client for Kotlin

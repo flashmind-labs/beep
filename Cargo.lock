@@ -356,7 +356,6 @@ dependencies = [
  "reqwest 0.12.28",
  "rmcp",
  "rmp-serde",
- "rusqlite",
  "rust_decimal",
  "secrecy",
  "serde",
@@ -4162,7 +4161,6 @@ dependencies = [
  "fallible-streaming-iterator",
  "hashlink",
  "libsqlite3-sys",
- "serde_json",
  "smallvec",
 ]
 
