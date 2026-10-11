@@ -24,6 +24,8 @@ pub struct NewPlaceRoutine<'a> {
     pub trigger: PlaceTrigger,
     /// Deleted after its first run.
     pub once: bool,
+    /// The chat it was set up from, where its runs reply.
+    pub chat: Option<Uuid>,
 }
 
 /// A place as the store keeps it.
@@ -383,8 +385,8 @@ impl Store {
         }
         let id = Uuid::new_v4();
         sqlx::query(
-            "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once)
-             VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once, chat_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(user.as_str())
         .bind(id.to_string())
@@ -392,6 +394,7 @@ impl Store {
         .bind(task)
         .bind(routine.trigger.to_string())
         .bind(routine.once)
+        .bind(routine.chat)
         .execute(&self.pool)
         .await?;
         Ok(id)
@@ -628,6 +631,7 @@ mod tests {
             task: &task,
             trigger,
             once: false,
+            chat: None,
         };
         store.create_place_routine(&alice, &fits).await.unwrap();
         let too_long = NewPlaceRoutine {
@@ -635,6 +639,31 @@ mod tests {
             ..fits
         };
         assert!(store.create_place_routine(&alice, &too_long).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_place_routine_replies_in_the_chat_it_came_from() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let place = store.save_place(&alice, &gym()).await.unwrap();
+        let chat = Uuid::new_v4();
+        let routine = NewPlaceRoutine {
+            label: "Shop",
+            task: "Point the user to the shop",
+            trigger: PlaceTrigger::parse(&format!("leave:{}", place.id)).unwrap(),
+            once: true,
+            chat: Some(chat),
+        };
+        store.create_place_routine(&alice, &routine).await.unwrap();
+        let routines = store
+            .place_routines(&alice, place.id, PlaceEvent::Leave)
+            .await
+            .unwrap();
+        assert_eq!(
+            routines[0].job.metadata["session_id"],
+            chat.to_string().as_str()
+        );
     }
 
     #[tokio::test]

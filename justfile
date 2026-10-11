@@ -191,6 +191,10 @@ eval-followups filter="":
 eval-leak filter="":
     BEEP_EVAL="{{filter}}" cargo test -p beep-server --test leak -- --ignored --nocapture
 
+# The reply gates on fixed replies, judged by Jev: just eval-gates [filter]
+eval-gates filter="":
+    BEEP_EVAL="{{filter}}" cargo test -p beep-server --test gates -- --ignored --nocapture
+
 # List the OpenRouter models Beep could use, newest first: just models [max-output-price] [filter]
 models *args:
     cargo run -q --package beep-server --bin beep-models -- {{args}}
