@@ -44,6 +44,7 @@ jobs:
       - name: Set up build tools
         run: |
           set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           command -v xcodegen >/dev/null || brew install xcodegen
           rustup target add aarch64-apple-ios
