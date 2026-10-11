@@ -94,6 +94,35 @@ impl DecisionTool {
         self.judge(state, instructions, Some(criteria)).await
     }
 
+    /// Jev's probability of yes for each of `questions`, asked together in
+    /// one request and keyed as given. A question Jev left unanswered is
+    /// missing from the result.
+    pub async fn probabilities(
+        &self,
+        state: &str,
+        questions: &[(&str, &str, &Criteria)],
+    ) -> Result<BTreeMap<String, f64>> {
+        let asked = questions
+            .iter()
+            .map(|(key, instructions, criteria)| {
+                let question = JevQuestion::Noul {
+                    instructions: (*instructions).into(),
+                    criteria: Some(BTreeMap::from([
+                        ("true".to_owned(), criteria.yes.to_owned()),
+                        ("false".to_owned(), criteria.no.to_owned()),
+                    ])),
+                };
+                ((*key).to_owned(), question)
+            })
+            .collect();
+        let response = self.provider.decide(request(state, asked)).await?;
+        Ok(response
+            .answers
+            .iter()
+            .filter_map(|(key, answer)| Some((key.clone(), answer["noul"].as_f64()?)))
+            .collect())
+    }
+
     /// Jev's pick of one of `options`, each named with what it fits, for
     /// `instructions` about `state`.
     pub async fn choose(

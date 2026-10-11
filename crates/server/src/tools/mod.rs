@@ -77,6 +77,7 @@ pub fn registry(
         registry.register(Arc::new(places::PlaceTool {
             user: user.clone(),
             kind,
+            chat: run.session_id.parse().ok(),
         }));
     }
     registry.register(Arc::new(progress::TaskProgressTool));

@@ -9,6 +9,7 @@ pub mod digest;
 pub mod fcm;
 pub mod feeds;
 pub mod followups;
+pub mod gates;
 pub mod images;
 pub mod leak;
 pub mod live;

@@ -123,8 +123,10 @@ fn last_profile(chat: &Conversation) -> Option<&str> {
         })
 }
 
-/// `Location: Shinjuku, Tokyo, Japan (35.6938 N, 139.7034 E, 3 min ago)`.
+/// `Location: 35.6938 N, 139.7034 E (3 min ago)`.
 /// The age tells the model whether "nearby" still means where the user is.
+/// The phone's reverse-geocoded name is left out: it is often a nearby
+/// district rather than where the user is, and the model repeats it as fact.
 fn location_line(loc: &Location, now: DateTime<Utc>) -> String {
     let ns = if loc.latitude >= 0.0 { "N" } else { "S" };
     let ew = if loc.longitude >= 0.0 { "E" } else { "W" };
@@ -140,10 +142,7 @@ fn location_line(loc: &Location, now: DateTime<Utc>) -> String {
         60..2880 => format!("{} h ago", minutes / 60),
         _ => format!("{} days ago", minutes / 1440),
     };
-    match &loc.place {
-        Some(place) => format!("Location: {place} ({coords}, {age})"),
-        None => format!("Location: {coords} ({age})"),
-    }
+    format!("Location: {coords} ({age})")
 }
 
 /// Which apps are connected and which the user could connect, so the model
@@ -232,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn location_line_names_the_place_and_its_age() {
+    fn location_line_gives_only_coordinates_and_age() {
         let now = Utc::now();
         let loc = fix(
             Some("Shinjuku, Tokyo, Japan"),
@@ -240,7 +239,7 @@ mod tests {
         );
         assert_eq!(
             location_line(&loc, now),
-            "Location: Shinjuku, Tokyo, Japan (35.6938 N, 139.7034 E, 3 min ago)"
+            "Location: 35.6938 N, 139.7034 E (3 min ago)"
         );
     }
 

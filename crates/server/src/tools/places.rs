@@ -8,6 +8,7 @@ use chrono::{TimeDelta, Utc};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// How old the phone's location may be for "I'm here" to mean it.
 const FRESH_MINUTES: i64 = 15;
@@ -37,6 +38,8 @@ impl PlaceToolKind {
 pub(crate) struct PlaceTool {
     pub user: Arc<User>,
     pub kind: PlaceToolKind,
+    /// The chat the run is in, where a routine made here replies.
+    pub chat: Option<Uuid>,
 }
 
 fn place_json(place: &SavedPlace, here: Option<&Location>) -> Value {
@@ -287,6 +290,7 @@ impl PlaceTool {
                 daily,
             },
             once,
+            chat: self.chat,
         };
         let id = match self.user.create_place_routine(&routine).await {
             Ok(id) => id,
@@ -314,6 +318,7 @@ mod tests {
         let tool = PlaceTool {
             user: user.clone(),
             kind,
+            chat: None,
         };
         let cancel = CancellationToken::new();
         tool.execute(ToolContext::new("call", args, None, &cancel))

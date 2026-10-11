@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     apps::markdown,
-    followups, images,
+    followups, gates, images,
     live::LiveRun,
     memories::{Exchange, Turn},
     permissions::{self, ApprovalPayload, Approved, Rules},
@@ -40,6 +40,7 @@ use futures::StreamExt;
 use secrecy::ExposeSecret;
 use std::{
     collections::HashSet,
+    mem,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -303,142 +304,179 @@ impl App {
             RunStatus::Waiting
         } else {
             timer.prepared();
-            let stream = agent.start(&mut conversation, cancel.clone(), input, None);
-            tokio::pin!(stream);
-
             let hard_stop = sleep(MAX_RUN);
             tokio::pin!(hard_stop);
 
-            let mut tools_running = 0usize;
-            // A model repeating itself never stops on its own; end the run instead
-            // of streaming the same sentence until the deadline.
-            let mut text_guard = RepeatGuard::default();
-            let mut reasoning_guard = RepeatGuard::default();
+            let mut input = input;
+            // The turn's calls, which the gates read with the reply.
+            let mut calls = Vec::new();
+            let mut gated = false;
             loop {
-                let event = tokio::select! {
-                    biased;
-                    _ = cancel.cancelled() => break if self.shutting_down.load(Ordering::Relaxed) {
-                        RunStatus::Interrupted
-                    } else {
-                        RunStatus::Cancelled
-                    },
-                    _ = &mut hard_stop => { cancel.cancel(); break RunStatus::TimedOut; },
-                    event = timeout(
-                        if tools_running > 0 { TOOL_IDLE_TIMEOUT } else { IDLE_TIMEOUT },
-                        stream.next(),
-                    ) => match event {
-                        Ok(event) => event,
-                        // Nothing from the model or a tool for this long: the stream is stuck.
-                        Err(_) => { cancel.cancel(); break RunStatus::Stalled; }
-                    },
-                };
+                let status = {
+                    let stream = agent.start(
+                        &mut conversation,
+                        cancel.clone(),
+                        mem::take(&mut input),
+                        None,
+                    );
+                    tokio::pin!(stream);
 
-                let data = match event {
-                    Some(AgentEvent::TextDelta(delta)) => {
-                        if text_guard.push(&delta) {
-                            cancel.cancel();
-                            break RunStatus::Looped;
-                        }
-                        timer.output(Output::Text);
-                        reply.push_str(&delta);
-                        RunEvent::TextDelta { delta }
-                    }
-                    Some(AgentEvent::ReasoningDelta(delta)) => {
-                        if reasoning_guard.push(&delta) {
-                            cancel.cancel();
-                            break RunStatus::Looped;
-                        }
-                        timer.output(Output::Reasoning);
-                        RunEvent::ReasoningDelta { delta }
-                    }
-                    Some(AgentEvent::ToolStart {
-                        name,
-                        id,
-                        humanized,
-                    }) => {
-                        timer.output(Output::Tool);
-                        tools_running += 1;
-                        RunEvent::ToolStarted {
-                            name,
-                            call_id: id,
-                            description: humanized,
-                        }
-                    }
-                    Some(AgentEvent::ToolResult {
-                        name,
-                        id,
-                        output,
-                        success,
-                        ..
-                    }) => {
-                        tools_running = tools_running.saturating_sub(1);
-                        if tools_running == 0 {
-                            timer.tools_done();
-                        }
-                        if !success {
-                            failed_tools.insert(id.clone());
-                        }
-                        RunEvent::ToolResult {
-                            name,
-                            call_id: id,
-                            output,
-                            success,
-                        }
-                    }
-                    Some(AgentEvent::Usage(u)) => {
-                        timer.usage(&u);
-                        prompt_tokens = u.prompt_tokens;
-                        RunEvent::Usage {
-                            usage: Usage {
-                                prompt_tokens: u.prompt_tokens,
-                                completion_tokens: u.completion_tokens,
-                                total_tokens: u.total_tokens,
-                                cache_read_tokens: u.cache_read_tokens,
-                                cache_creation_tokens: u.cache_creation_tokens,
+                    let mut tools_running = 0usize;
+                    // A model repeating itself never stops on its own; end the run instead
+                    // of streaming the same sentence until the deadline.
+                    let mut text_guard = RepeatGuard::default();
+                    let mut reasoning_guard = RepeatGuard::default();
+                    loop {
+                        let event = tokio::select! {
+                            biased;
+                            _ = cancel.cancelled() => break if self.shutting_down.load(Ordering::Relaxed) {
+                                RunStatus::Interrupted
+                            } else {
+                                RunStatus::Cancelled
                             },
-                        }
-                    }
-                    Some(AgentEvent::Interrupted {
-                        tool_call_id,
-                        payload,
-                        ..
-                    }) => {
-                        tools_running = tools_running.saturating_sub(1);
-                        // A parallel batch can stop on several calls; ask
-                        // about the first; resuming reaches the others.
-                        if parked.is_some() {
-                            continue;
-                        }
-                        parked = payload
-                            .as_ref()
-                            .and_then(|payload| payload.as_any().downcast_ref::<ApprovalPayload>())
-                            .map(|payload| Parked {
-                                call_id: tool_call_id,
-                                approval: payload.approval.clone(),
-                            });
-                        continue;
-                    }
-                    Some(AgentEvent::Done(_)) => break RunStatus::Completed,
-                    Some(AgentEvent::Error(_)) => {
-                        // Provider errors can contain upstream response details. Keep them off the wire.
-                        let error = RunEvent::Error {
+                            _ = &mut hard_stop => { cancel.cancel(); break RunStatus::TimedOut; },
+                            event = timeout(
+                                if tools_running > 0 { TOOL_IDLE_TIMEOUT } else { IDLE_TIMEOUT },
+                                stream.next(),
+                            ) => match event {
+                                Ok(event) => event,
+                                // Nothing from the model or a tool for this long: the stream is stuck.
+                                Err(_) => { cancel.cancel(); break RunStatus::Stalled; }
+                            },
+                        };
+
+                        let data = match event {
+                            Some(AgentEvent::TextDelta(delta)) => {
+                                if text_guard.push(&delta) {
+                                    cancel.cancel();
+                                    break RunStatus::Looped;
+                                }
+                                timer.output(Output::Text);
+                                reply.push_str(&delta);
+                                RunEvent::TextDelta { delta }
+                            }
+                            Some(AgentEvent::ReasoningDelta(delta)) => {
+                                if reasoning_guard.push(&delta) {
+                                    cancel.cancel();
+                                    break RunStatus::Looped;
+                                }
+                                timer.output(Output::Reasoning);
+                                RunEvent::ReasoningDelta { delta }
+                            }
+                            Some(AgentEvent::ToolStart {
+                                name,
+                                id,
+                                humanized,
+                            }) => {
+                                timer.output(Output::Tool);
+                                tools_running += 1;
+                                RunEvent::ToolStarted {
+                                    name,
+                                    call_id: id,
+                                    description: humanized,
+                                }
+                            }
+                            Some(AgentEvent::ToolResult {
+                                name,
+                                id,
+                                output,
+                                success,
+                                ..
+                            }) => {
+                                tools_running = tools_running.saturating_sub(1);
+                                if tools_running == 0 {
+                                    timer.tools_done();
+                                }
+                                if !success {
+                                    failed_tools.insert(id.clone());
+                                }
+                                calls.push(gates::Call {
+                                    name: name.clone(),
+                                    success,
+                                });
+                                RunEvent::ToolResult {
+                                    name,
+                                    call_id: id,
+                                    output,
+                                    success,
+                                }
+                            }
+                            Some(AgentEvent::Usage(u)) => {
+                                timer.usage(&u);
+                                prompt_tokens = u.prompt_tokens;
+                                RunEvent::Usage {
+                                    usage: Usage {
+                                        prompt_tokens: u.prompt_tokens,
+                                        completion_tokens: u.completion_tokens,
+                                        total_tokens: u.total_tokens,
+                                        cache_read_tokens: u.cache_read_tokens,
+                                        cache_creation_tokens: u.cache_creation_tokens,
+                                    },
+                                }
+                            }
+                            Some(AgentEvent::Interrupted {
+                                tool_call_id,
+                                payload,
+                                ..
+                            }) => {
+                                tools_running = tools_running.saturating_sub(1);
+                                // A parallel batch can stop on several calls; ask
+                                // about the first; resuming reaches the others.
+                                if parked.is_some() {
+                                    continue;
+                                }
+                                parked = payload
+                                    .as_ref()
+                                    .and_then(|payload| {
+                                        payload.as_any().downcast_ref::<ApprovalPayload>()
+                                    })
+                                    .map(|payload| Parked {
+                                        call_id: tool_call_id,
+                                        approval: payload.approval.clone(),
+                                    });
+                                continue;
+                            }
+                            Some(AgentEvent::Done(_)) => break RunStatus::Completed,
+                            Some(AgentEvent::Error(_)) => {
+                                // Provider errors can contain upstream response details. Keep them off the wire.
+                                let error = RunEvent::Error {
                             message:
                                 "The model request failed. Check server provider configuration."
                                     .to_owned(),
                         };
-                        live.push(error);
-                        break RunStatus::Failed;
-                    }
-                    None => break RunStatus::Failed,
-                    _ => continue,
-                };
+                                live.push(error);
+                                break RunStatus::Failed;
+                            }
+                            None => break RunStatus::Failed,
+                            _ => continue,
+                        };
 
-                live.push(data);
-                // The model keeps repeating calls it was told will not work.
-                if refusals.exhausted() {
-                    cancel.cancel();
-                    break RunStatus::Looped;
+                        live.push(data);
+                        // The model keeps repeating calls it was told will not work.
+                        if refusals.exhausted() {
+                            cancel.cancel();
+                            break RunStatus::Looped;
+                        }
+                    }
+                };
+                // A finished reply is checked once; a failed check gets the
+                // agent one more pass to fix it.
+                if gated || status != RunStatus::Completed || parked.is_some() {
+                    break status;
                 }
+                gated = true;
+                let Some(decision) = &self.tools.decision else {
+                    break status;
+                };
+                let draft = gates::Draft {
+                    asked: &message.message,
+                    reply: &reply,
+                    calls: &calls,
+                };
+                let Some(verdict) = gates::review(decision, &draft).await else {
+                    break status;
+                };
+                conversation.add(ConversationEntry::system_message(verdict.note));
             }
         };
 
