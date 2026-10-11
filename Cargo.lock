@@ -802,15 +802,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam-channel"
-version = "0.5.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-deque"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1242,18 +1233,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fallible-iterator"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
-
-[[package]]
-name = "fallible-streaming-iterator"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
-
-[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1274,7 +1253,7 @@ checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 [[package]]
 name = "flashmind"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#19c97c27ca0df41c8960cf61c5c4a15924d53aa3"
+source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
 dependencies = [
  "anyhow",
  "flashmind-core",
@@ -1290,7 +1269,7 @@ dependencies = [
 [[package]]
 name = "flashmind-core"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#19c97c27ca0df41c8960cf61c5c4a15924d53aa3"
+source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1314,7 +1293,7 @@ dependencies = [
 [[package]]
 name = "flashmind-cron"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#19c97c27ca0df41c8960cf61c5c4a15924d53aa3"
+source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1335,7 +1314,7 @@ dependencies = [
 [[package]]
 name = "flashmind-llm"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#19c97c27ca0df41c8960cf61c5c4a15924d53aa3"
+source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1365,7 +1344,7 @@ dependencies = [
 [[package]]
 name = "flashmind-memory"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#19c97c27ca0df41c8960cf61c5c4a15924d53aa3"
+source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1375,16 +1354,13 @@ dependencies = [
  "metrics",
  "pgvector",
  "reqwest 0.13.5",
- "rusqlite",
  "rustls",
  "serde",
  "serde_json",
- "sqlite-vec",
  "sqlx",
  "strum",
  "thiserror 2.0.21",
  "tokio",
- "tokio-rusqlite",
  "tracing",
  "url",
  "uuid",
@@ -1394,7 +1370,7 @@ dependencies = [
 [[package]]
 name = "flashmind-skills"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#19c97c27ca0df41c8960cf61c5c4a15924d53aa3"
+source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1410,7 +1386,7 @@ dependencies = [
 [[package]]
 name = "flashmind-tools"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#19c97c27ca0df41c8960cf61c5c4a15924d53aa3"
+source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1434,7 +1410,6 @@ dependencies = [
  "reqwest 0.13.5",
  "ring",
  "rmcp",
- "rusqlite",
  "rust_decimal",
  "rust_decimal_macros",
  "rustls",
@@ -1455,7 +1430,7 @@ dependencies = [
 [[package]]
 name = "flashmind-types"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#19c97c27ca0df41c8960cf61c5c4a15924d53aa3"
+source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2597,17 +2572,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libsqlite3-sys"
-version = "0.35.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "133c182a6a2c87864fe97778797e46c7e999672690dc9fa3ee8e241aa4a9c13f"
-dependencies = [
- "cc",
- "pkg-config",
- "vcpkg",
-]
-
-[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3581,12 +3545,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pkg-config"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
-
-[[package]]
 name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4151,20 +4109,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rusqlite"
-version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "165ca6e57b20e1351573e3729b958bc62f0e48025386970b6e4d29e7a7e71f3f"
-dependencies = [
- "bitflags 2.13.2",
- "fallible-iterator",
- "fallible-streaming-iterator",
- "hashlink",
- "libsqlite3-sys",
- "smallvec",
-]
-
-[[package]]
 name = "rust_decimal"
 version = "1.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4706,15 +4650,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqlite-vec"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0ba424237a9a5db2f6071f193319e2b6a32f7f3961debb2fbbfe67067abce3f"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "sqlx"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5159,17 +5094,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
-]
-
-[[package]]
-name = "tokio-rusqlite"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "302563ae4a2127f3d2c105f4f2f0bd7cae3609371755600ebc148e0ccd8510d6"
-dependencies = [
- "crossbeam-channel",
- "rusqlite",
- "tokio",
 ]
 
 [[package]]
@@ -5638,12 +5562,6 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
-
-[[package]]
-name = "vcpkg"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version_check"

@@ -13,7 +13,7 @@ beep-proto = { path = "../proto" }
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", features = ["mcp", "composio", "cron", "memory", "memory-postgres"] }
+flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", default-features = false, features = ["core", "llm", "mcp", "composio", "cron", "memory-postgres"] }
 futures = "0.3"
 rmp-serde = "1"
 iroh = "1.3"
