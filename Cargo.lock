@@ -1253,7 +1253,7 @@ checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 [[package]]
 name = "flashmind"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
+source = "git+https://github.com/flashmind-labs/flashmind.git#6ce1c1efbdb987ad56e4ad25e77142d0b1f320e1"
 dependencies = [
  "anyhow",
  "flashmind-core",
@@ -1269,7 +1269,7 @@ dependencies = [
 [[package]]
 name = "flashmind-core"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
+source = "git+https://github.com/flashmind-labs/flashmind.git#6ce1c1efbdb987ad56e4ad25e77142d0b1f320e1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1293,7 +1293,7 @@ dependencies = [
 [[package]]
 name = "flashmind-cron"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
+source = "git+https://github.com/flashmind-labs/flashmind.git#6ce1c1efbdb987ad56e4ad25e77142d0b1f320e1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1314,7 +1314,7 @@ dependencies = [
 [[package]]
 name = "flashmind-llm"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
+source = "git+https://github.com/flashmind-labs/flashmind.git#6ce1c1efbdb987ad56e4ad25e77142d0b1f320e1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1344,7 +1344,7 @@ dependencies = [
 [[package]]
 name = "flashmind-memory"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
+source = "git+https://github.com/flashmind-labs/flashmind.git#6ce1c1efbdb987ad56e4ad25e77142d0b1f320e1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1370,7 +1370,7 @@ dependencies = [
 [[package]]
 name = "flashmind-skills"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
+source = "git+https://github.com/flashmind-labs/flashmind.git#6ce1c1efbdb987ad56e4ad25e77142d0b1f320e1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1386,7 +1386,7 @@ dependencies = [
 [[package]]
 name = "flashmind-tools"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
+source = "git+https://github.com/flashmind-labs/flashmind.git#6ce1c1efbdb987ad56e4ad25e77142d0b1f320e1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1430,7 +1430,7 @@ dependencies = [
 [[package]]
 name = "flashmind-types"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#0e7f796d84c627bd276a73c6fbd183aa01899e24"
+source = "git+https://github.com/flashmind-labs/flashmind.git#6ce1c1efbdb987ad56e4ad25e77142d0b1f320e1"
 dependencies = [
  "anyhow",
  "async-trait",
