@@ -103,7 +103,7 @@ private fun kindOf(card: ToolCard.File): String =
 private fun open(context: Context, uri: Uri, mime: String) {
     val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     try {
-        context.startActivity(view)
+        AppLauncher.start(context, view)
     } catch (_: ActivityNotFoundException) {
         share(context, uri, mime)
     }
@@ -113,7 +113,7 @@ private fun share(context: Context, uri: Uri, mime: String) {
     val send = Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     send.clipData = ClipData.newRawUri(null, uri)
-    context.startActivity(Intent.createChooser(send, null))
+    AppLauncher.start(context, Intent.createChooser(send, null))
 }
 
 /** Sent files, kept in the cache under their id so each downloads once. */
