@@ -1,10 +1,17 @@
 package com.flashmind.beep
 
 import android.Manifest
+import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.provider.MediaStore
+import android.util.Size
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -95,28 +102,92 @@ private fun ImageProxy.upright(): Bitmap {
     return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, Matrix().apply { postRotate(degrees.toFloat()) }, true)
 }
 
+/** Read access to the phone's photos, all of them or the ones the user chose (Android 14). */
+private fun photosAllowed(context: Context) = photoPermissions().any {
+    ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun photoPermissions() = when {
+    Build.VERSION.SDK_INT >= 34 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+    Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+    else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+}
+
+/** The newest [limit] photos on the phone, newest first. */
+private fun recentPhotos(context: Context, limit: Int): List<Uri> {
+    val images = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+    val args = Bundle().apply {
+        putStringArray(ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(MediaStore.Images.Media.DATE_ADDED))
+        putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+        putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
+    }
+    return runCatching {
+        context.contentResolver.query(images, arrayOf(MediaStore.Images.Media._ID), args, null)?.use { rows ->
+            buildList { while (rows.moveToNext()) add(ContentUris.withAppendedId(images, rows.getLong(0))) }
+        }
+    }.getOrNull().orEmpty()
+}
+
+/** A photo library thumbnail filling its tile. */
+@Composable
+private fun PhotoThumb(uri: Uri, modifier: Modifier) {
+    val context = LocalContext.current
+    val thumb by produceState<Bitmap?>(null, uri) {
+        value = withContext(Dispatchers.IO) { runCatching { context.contentResolver.loadThumbnail(uri, Size(300, 300), null) }.getOrNull() }
+    }
+    Box(modifier.background(Beep.colors.code)) {
+        thumb?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+    }
+}
+
 /**
- * The image button's sheet: the camera first, then the system photo picker. Without the camera
- * permission the tile asks for it. [room] is how many more images the message can take.
+ * The image button's sheet: the camera first, then the newest photos on the phone to pick from,
+ * and the system photo picker for the rest. Without the camera permission the tile asks for it;
+ * photo access is asked for once, the first time the sheet opens. [room] is how many more images
+ * the message can take.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Unit, onImages: (List<String>) -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var allowed by remember { mutableStateOf(cameraAllowed(context)) }
     var camera by remember { mutableStateOf(false) }
+    var recent by remember { mutableStateOf(listOf<Uri>()) }
+    var picked by remember { mutableStateOf(listOf<Uri>()) }
+    var adding by remember { mutableStateOf(false) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         allowed = granted
         if (granted) camera = true
+    }
+    suspend fun loadRecent() {
+        if (photosAllowed(context)) recent = withContext(Dispatchers.IO) { recentPhotos(context, MAX_IMAGES) }
+    }
+    val askPhotos = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        scope.launch { loadRecent() }
+    }
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("photos", Context.MODE_PRIVATE)
+        if (!photosAllowed(context) && !prefs.getBoolean("asked", false)) {
+            prefs.edit().putBoolean("asked", true).apply()
+            askPhotos.launch(photoPermissions())
+        } else loadRecent()
     }
     if (camera) {
         ChatCamera(room, onClose = { camera = false }, onDone = { onImages(it); onDismiss() })
         return
     }
+    fun addPicked() {
+        adding = true
+        scope.launch {
+            val encoded = withContext(Dispatchers.IO) { picked.mapNotNull { encodeImageUri(context, it) } }
+            onImages(encoded)
+            onDismiss()
+        }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Beep.colors.page) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                val tile = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp))
+            val cameraTile: @Composable (Modifier) -> Unit = { tile ->
                 if (allowed) Box(tile.clickable(onClickLabel = "Take a photo") { camera = true }) {
                     CameraFeed(CameraSelector.LENS_FACING_BACK, null, Modifier.fillMaxSize())
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
@@ -128,14 +199,43 @@ internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Un
                     Icon(Icons.Outlined.PhotoCamera, null, tint = Beep.colors.ink)
                     Text("Allow camera", fontSize = 11.sp, color = Beep.colors.ink, textAlign = TextAlign.Center)
                 }
-                Spacer(Modifier.weight(2f))
+            }
+            val tiles = listOf<Uri?>(null) + recent
+            tiles.chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { uri ->
+                        val tile = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp))
+                        if (uri == null) cameraTile(tile) else {
+                            val number = picked.indexOf(uri).takeIf { it >= 0 }?.plus(1)
+                            Box(tile.clickable(onClickLabel = if (number == null) "Pick photo" else "Unpick photo") {
+                                picked = if (number != null) picked - uri else if (picked.size < room) picked + uri else picked
+                            }) {
+                                PhotoThumb(uri, Modifier.fillMaxSize())
+                                if (number != null) {
+                                    Box(Modifier.fillMaxSize().border(3.dp, Beep.colors.brand, RoundedCornerShape(12.dp)))
+                                    Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp).background(Beep.colors.brand, CircleShape),
+                                        contentAlignment = Alignment.Center) {
+                                        Text("$number", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
             }
             if (!allowed) Text("Beep only uses the camera while it's open here. Photos you take are sent with your message and not saved to the phone.",
                 fontSize = 12.5.sp, lineHeight = 18.sp, color = Beep.colors.muted)
-            ChunkyButton(onClick = { onAllPhotos(); onDismiss() }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.Image, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("All photos", fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ChunkyButton(onClick = { onAllPhotos(); onDismiss() }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Outlined.Image, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("All photos", fontWeight = FontWeight.SemiBold)
+                }
+                if (picked.isNotEmpty()) ChunkyButton(onClick = { addPicked() }, modifier = Modifier.weight(1f),
+                    color = Beep.colors.accent, contentColor = Beep.colors.ink, enabled = !adding) {
+                    Text(if (adding) "Adding…" else "Add ${picked.size}", fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
