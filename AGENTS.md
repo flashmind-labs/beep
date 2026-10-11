@@ -76,7 +76,8 @@ tag's Forgejo release.
 The same run uploads the DMG to the R2 bucket in the `CF_*` secrets, served
 at https://releases.flashmind.com/beep/macos/ (`Beep-latest.dmg` is the
 fixed download link). Installed apps check `latest.json` there every six
-hours and update themselves. The update signing key is the
+hours, download an update quietly and offer "Restart to Update Beep" in the
+tray menu; quitting installs it too. The update signing key is the
 `TAURI_SIGNING_PRIVATE_KEY` secret, with its public half in `tauri.conf.json`;
 losing it means installed apps can no longer update.
 

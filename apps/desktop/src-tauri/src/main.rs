@@ -28,7 +28,7 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
 };
 use tauri::{
-    ActivationPolicy, App, AppHandle, Emitter, Manager, WindowEvent,
+    ActivationPolicy, App, AppHandle, Emitter, Manager, RunEvent, WindowEvent,
     image::Image,
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
@@ -117,8 +117,14 @@ fn main() {
             commands::set_thinking,
             commands::set_auto_model,
         ])
-        .run(tauri::generate_context!())
-        .expect("the app failed to start");
+        .build(tauri::generate_context!())
+        .expect("the app failed to start")
+        .run(|app, event| {
+            // However Beep quits, a downloaded update is installed for next time.
+            if let RunEvent::Exit = event {
+                update::install(app);
+            }
+        });
 }
 
 fn data_dir(app: &AppHandle) -> anyhow::Result<PathBuf> {
@@ -141,6 +147,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
     app.manage(beep.clone());
     app.manage(Recent::default());
+    app.manage(update::Updates::default());
 
     tauri::async_runtime::spawn(serve_notices(handle.clone(), beep.clone(), notices));
     tauri::async_runtime::spawn(sync::follow(handle.clone(), beep.clone()));
@@ -230,12 +237,11 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
 }
 
 fn notify(app: &AppHandle, notice: &Notice) {
-    let shown = app
-        .notification()
-        .builder()
-        .title(&notice.title)
-        .body(&notice.body)
-        .show();
+    notify_text(app, &notice.title, &notice.body);
+}
+
+fn notify_text(app: &AppHandle, title: &str, body: &str) {
+    let shown = app.notification().builder().title(title).body(body).show();
     if let Err(e) = shown {
         log::warn!("showing a notice: {e}");
     }
@@ -310,6 +316,11 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         Some("cmd+,"),
     )?)?;
+    let (id, title) = match update::ready(app) {
+        Some(_) => ("restart-update", "Restart to Update Beep"),
+        None => ("check-update", "Check for Updates…"),
+    };
+    menu.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
         app,
@@ -367,6 +378,11 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             bar::show(app, Some("new"));
         }
         view @ ("link" | "memories" | "routines" | "settings") => bar::show(app, Some(view)),
+        "check-update" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move { update::check(&app, true).await });
+        }
+        "restart-update" => update::restart(app),
         "quit" => app.exit(0),
         _ => {}
     }
