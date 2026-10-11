@@ -121,6 +121,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         draftCursor = null
     }
     // Each chat gets its own list that opens at the latest message.
+    val openLink = LocalOpenLink.current ?: repository::openBrowser
     val list = remember(chat.id) { LazyListState(chat.messages.lastIndex.coerceAtLeast(0)) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -307,7 +308,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                     key(tc.callId.ifEmpty { "$i" }) {
                                         AnimatedVisibility(i >= hidden, enter = expandVertically() + fadeIn(),
                                             exit = shrinkVertically() + fadeOut()) {
-                                            ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size], Modifier.padding(top = 6.dp)) { repository.openBrowser(it) }
+                                            ToolChip(tc, Beep.colors.tints[i % Beep.colors.tints.size], Modifier.padding(top = 6.dp), onOpen = openLink)
                                         }
                                     }
                                 }
@@ -380,12 +381,12 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             Text("$name · ${message.autoThinking}", fontSize = 11.sp, color = TextDim,
                                 modifier = Modifier.padding(top = 4.dp, end = 4.dp))
                         }
-                        if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact, repository) { repository.openBrowser(it) }
+                        if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact, repository, openLink)
                         if (!isUser && !isStreaming && message.text.isNotBlank()) {
                             val shownLinks = toolCards.mapNotNull { (it.second as? ToolCard.Link)?.url }.toSet()
                             val links = remember(message.text) { linksIn(message.text) }.filter { it !in shownLinks }
                             if (links.isNotEmpty()) Column(Modifier.padding(top = 8.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                links.forEach { LinkPreview(it) { url -> repository.openBrowser(url) } }
+                                links.forEach { LinkPreview(it, openLink) }
                             }
                         }
                         if (message.cards.isNotEmpty()) {

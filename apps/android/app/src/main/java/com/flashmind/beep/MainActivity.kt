@@ -199,7 +199,10 @@ open class MainActivity : ComponentActivity() {
         }
         takeIntent(intent)
         setContent {
-            BeepTheme { CompositionLocalProvider(LocalOpenLink provides { url: String -> repository.openBrowser(url) }) {
+            BeepTheme { CompositionLocalProvider(LocalOpenLink provides { url: String ->
+                // The bubble has no room for the browser, so its links go to the phone's own.
+                if (bubble) ExternalBrowser.open(this, url) else repository.openBrowser(url)
+            }) {
                 BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, openRead = pendingOpenRead, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, chatToOpen = pendingChat, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
@@ -777,8 +780,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     inviting?.let { invite ->
         GroupInviteSheet(repository, invite.id, invite.name, onDismiss = { inviting = null })
     }
-    // Browser overlay
-    AnimatedVisibility(visible = browserOpen,
+    // Browser overlay, never in the bubble
+    AnimatedVisibility(visible = browserOpen && !bubble,
         enter = fadeIn() + slideInVertically { it },
         exit = fadeOut() + slideOutVertically { it }) {
         BrowserScreen(onClose = { repository.closeBrowser() }) { modifier ->
