@@ -726,20 +726,17 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     }
                 }
             } else TopAppBar(title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GroupAvatar("b", Beep.colors.brand, 36.dp, beep = true)
-                    Column {
-                        Text(state.current.title.ifEmpty { "Beep" }, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            ConnectionDot(connected, status)
-                            Spacer(Modifier.width(6.dp))
-                            if (!connected) Text("Tap to reconnect", fontSize = 12.sp, color = TextMuted,
-                                fontFamily = Beep.fonts.body, fontWeight = FontWeight.Medium,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.clickable { repository.reconnect() })
-                            else Text(status, fontSize = 12.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
+                Column {
+                    Text(state.current.title.ifEmpty { "Beep" }, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ConnectionDot(connected, status)
+                        Spacer(Modifier.width(6.dp))
+                        if (!connected) Text("Tap to reconnect", fontSize = 12.sp, color = TextMuted,
+                            fontFamily = Beep.fonts.body, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.clickable { repository.reconnect() })
+                        else Text(status, fontSize = 12.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }, navigationIcon = {
