@@ -58,7 +58,8 @@ pub use updates::{Bumped, UpdateHub, start_pruning};
 pub use user_keys::{Account, AccountKey, LinkKey, NewKey, SignIn};
 
 /// The schema, oldest first. Embedded by hand because `sqlx::migrate!`
-/// needs sqlx's `migrate` feature, which clashes with rusqlite.
+/// needs sqlx's `migrate` feature, which clashes with
+/// flashmind's rusqlite.
 const MIGRATIONS: &[(i64, &str, &str)] = &[
     (1, "init", include_str!("../../migrations/0001_init.sql")),
     (2, "users", include_str!("../../migrations/0002_users.sql")),
