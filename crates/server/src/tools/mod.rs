@@ -18,6 +18,7 @@ pub(crate) mod skills;
 mod suggest;
 
 pub(crate) use file::SendFileTool;
+pub(crate) use image::SendImageTool;
 pub(crate) use notify_user::NotifyUserTool;
 pub(crate) use route::GetRouteTool;
 pub use route::Transitous;
@@ -68,7 +69,6 @@ pub fn registry(
         timezone,
     );
     registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));
-    registry.register(Arc::new(image::SendImageTool));
     registry.register(Arc::new(products::ShowProductsTool));
     for kind in habits::HabitToolKind::ALL {
         registry.register(Arc::new(habits::HabitTool {

@@ -49,6 +49,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -152,10 +154,12 @@ private fun ImageLink(picture: ReplyPicture, compact: Boolean) {
             .then(if (picture.web) Modifier.clickable { runCatching { uriHandler.openUri(picture.url) } } else Modifier))
 }
 
-/** Full screen images, swiped through in order, with Open for the page an image came from. */
+/** Full screen images, swiped through in order, with Open for the page an image came from and Share for one Beep sent. */
 @Composable
 private fun ImageViewer(images: List<Shown>, start: Int, onClose: () -> Unit) {
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val pager = rememberPagerState(initialPage = start) { images.size }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -170,6 +174,14 @@ private fun ImageViewer(images: List<Shown>, start: Int, onClose: () -> Unit) {
                 Spacer(Modifier.weight(1f))
                 if (current.web) TextButton(onClick = { runCatching { uriHandler.openUri(current.url) } }) {
                     Text("Open", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+                if (SentFiles.isImage(current.url)) TextButton(onClick = {
+                    scope.launch {
+                        runCatching { SentFiles.image(context, current.url) }
+                            .onSuccess { share(context, SentFiles.uriOf(context, it), "image/*") }
+                    }
+                }) {
+                    Text("Share", color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
             }
             if (current.alt.isNotBlank()) Text(current.alt, color = Color.White, fontSize = 14.sp, lineHeight = 20.sp,
@@ -193,6 +205,7 @@ internal object ReplyImages {
             val bytes = when {
                 url.startsWith("data:image/") -> android.util.Base64.decode(url.substringAfter(",", ""), android.util.Base64.DEFAULT)
                 url.startsWith("https://") -> download(url)
+                SentFiles.isImage(url) -> BeepApplication.instance?.let { SentFiles.image(it, url).readBytes() }
                 else -> null
             } ?: return@runCatching null
             decode(bytes)
