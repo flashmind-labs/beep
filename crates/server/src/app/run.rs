@@ -186,6 +186,11 @@ impl App {
             session_id: chat,
             sandbox: self.tools.sandbox.clone(),
         }));
+        registry.register(Arc::new(tools::SendImageTool {
+            user: user.clone(),
+            session_id: chat,
+            sandbox: self.tools.sandbox.clone(),
+        }));
         let notify = Arc::new(AtomicBool::new(false));
         if background {
             registry.register(Arc::new(tools::NotifyUserTool {

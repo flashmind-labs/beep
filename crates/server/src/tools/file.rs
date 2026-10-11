@@ -38,7 +38,7 @@ impl Tool for SendFileTool {
         NAME
     }
     fn description(&self) -> &str {
-        "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `url` for a file at an https URL, such as the s3url GMAIL_GET_ATTACHMENT or OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT returns; `path` for a file in the user's file folder; or `email_id` with `blob_id` for a Fastmail attachment, as FASTMAIL_READ_EMAIL lists it. Files up to 20 MiB."
+        "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `url` for a file at an https URL, such as the s3url GMAIL_GET_ATTACHMENT or OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT returns; `path` for a file in the user's file folder; or `email_id` with `blob_id` for a Fastmail attachment, as FASTMAIL_READ_EMAIL lists it. Files up to 20 MiB."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -212,7 +212,7 @@ fn quoted_after<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
 }
 
 /// A name safe to show and to save under on the phone.
-fn clean_name(name: &str) -> String {
+pub(super) fn clean_name(name: &str) -> String {
     let base = name.rsplit(['/', '\\']).next().unwrap_or("");
     let cleaned: String = base.chars().filter(|c| !c.is_control()).take(120).collect();
     let cleaned = cleaned.trim().trim_start_matches('.');

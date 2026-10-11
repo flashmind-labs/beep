@@ -1,18 +1,30 @@
-use crate::sandbox::{content_type, follow_public};
+use super::file::clean_name;
+use crate::{
+    sandbox::{Sandbox, content_type, follow_public},
+    user::User,
+};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
+use imagesize::ImageType;
 use reqwest::{StatusCode, Url};
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tokio::time::timeout;
+use uuid::Uuid;
 
 const MAX_IMAGES: usize = 6;
 /// How long checking one image may take, redirects included.
 const CHECK_TIME: Duration = Duration::from_secs(10);
 
-/// Shows images in the chat. Each URL is fetched first, so a made-up link
-/// fails here instead of showing as a broken image on the phone.
-pub(crate) struct SendImageTool;
+/// Shows images in the chat, from the web or from the user's file folder.
+/// Each URL is fetched first, so a made-up link fails here instead of
+/// showing as a broken image on the phone. A folder image is kept with the
+/// chat, as a sent file is, and the phone shows it as a picture.
+pub(crate) struct SendImageTool {
+    pub(crate) user: Arc<User>,
+    pub(crate) session_id: Uuid,
+    pub(crate) sandbox: Option<Arc<Sandbox>>,
+}
 
 #[async_trait]
 impl Tool for SendImageTool {
@@ -20,7 +32,7 @@ impl Tool for SendImageTool {
         "send_image"
     }
     fn description(&self) -> &str {
-        "Send images to the user; they show in the chat as pictures. Only use https image URLs you got from a tool, a page or the user, never one you made up. Each URL is checked, and ones that are not images are reported back."
+        "Send images to the user; they show in the chat as pictures. Give each one either `url`, an https image URL you got from a tool, a page or the user and never one you made up, or `path`, a PNG, JPEG, GIF or WebP in the user's file folder, such as a chart execute_code drew. Use this rather than send_file for images. Each one is checked, and ones that are not images are reported back."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -34,9 +46,9 @@ impl Tool for SendImageTool {
                         "type": "object",
                         "properties": {
                             "url": { "type": "string", "description": "https URL of the image file" },
+                            "path": { "type": "string", "description": "Image in the user's file folder, as execute_code or download_file named it" },
                             "caption": { "type": "string", "maxLength": 200 }
                         },
-                        "required": ["url"],
                         "additionalProperties": false
                     }
                 }
@@ -44,6 +56,9 @@ impl Tool for SendImageTool {
             "required": ["images"],
             "additionalProperties": false
         })
+    }
+    fn timeout_secs(&self) -> Option<u64> {
+        Some(60)
     }
     fn humanize(&self, _args: &Value) -> String {
         "Sending images…".into()
@@ -61,24 +76,7 @@ impl Tool for SendImageTool {
                 format!("Send between 1 and {MAX_IMAGES} images."),
             ));
         }
-        let checks = requested.iter().map(|image| async move {
-            let url = image
-                .get("url")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim();
-            let caption = image
-                .get("caption")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .chars()
-                .take(200)
-                .collect::<String>();
-            match check(url).await {
-                Ok(()) => Ok(json!({ "url": url, "caption": caption })),
-                Err(reason) => Err(format!("{url}: {reason}")),
-            }
-        });
+        let checks = requested.iter().map(|image| self.send_one(image));
         let mut images = Vec::new();
         let mut failed = Vec::new();
         for result in futures::future::join_all(checks).await {
@@ -95,6 +93,64 @@ impl Tool for SendImageTool {
         }
         let output = json!({ "action": "send_image", "images": images, "failed": failed });
         Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
+    }
+}
+
+impl SendImageTool {
+    /// Checks or saves one requested image, and returns it as the phone reads
+    /// it, or why it cannot be sent.
+    async fn send_one(&self, image: &Value) -> Result<Value, String> {
+        let field = |key| {
+            image
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+        };
+        let caption: String = field("caption").unwrap_or("").chars().take(200).collect();
+        match (field("url"), field("path")) {
+            (Some(url), None) => match check(url).await {
+                Ok(()) => Ok(json!({ "url": url, "caption": caption })),
+                Err(reason) => Err(format!("{url}: {reason}")),
+            },
+            (None, Some(path)) => match self.save(path).await {
+                Ok(file) => Ok(json!({ "file": file, "caption": caption })),
+                Err(reason) => Err(format!("{path}: {reason}")),
+            },
+            _ => Err("give each image either url or path".to_owned()),
+        }
+    }
+
+    /// Keeps the folder image at `path` with the chat, and returns it as a
+    /// sent file.
+    async fn save(&self, path: &str) -> Result<Value, String> {
+        let sandbox = self
+            .sandbox
+            .as_ref()
+            .ok_or("this server has no file folder")?;
+        let file = sandbox
+            .read(self.user.external_id(), path)
+            .await
+            .map_err(|error| format!("{error:#}"))?;
+        let mime = image_mime(&file.data).ok_or("it is not a PNG, JPEG, GIF or WebP image")?;
+        let name = clean_name(&file.name);
+        let id = self
+            .user
+            .save_file(self.session_id, &name, mime, &file.data)
+            .await
+            .map_err(|error| format!("could not keep it: {error:#}"))?;
+        Ok(json!({ "id": id, "name": name, "mime": mime, "size": file.data.len() }))
+    }
+}
+
+/// The MIME type of an image the phone can show, by its first bytes.
+fn image_mime(data: &[u8]) -> Option<&'static str> {
+    match imagesize::image_type(data).ok()? {
+        ImageType::Png => Some("image/png"),
+        ImageType::Jpeg => Some("image/jpeg"),
+        ImageType::Gif => Some("image/gif"),
+        ImageType::Webp => Some("image/webp"),
+        _ => None,
     }
 }
 
@@ -150,5 +206,13 @@ mod tests {
         ] {
             assert!(check(url).await.is_err(), "{url}");
         }
+    }
+
+    #[test]
+    fn folder_images_are_known_by_their_bytes() {
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0";
+        assert_eq!(image_mime(png), Some("image/png"));
+        assert_eq!(image_mime(b"%PDF-1.7"), None);
+        assert_eq!(image_mime(b""), None);
     }
 }

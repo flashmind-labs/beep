@@ -164,7 +164,10 @@ fun cardFor(call: ToolCall): ToolCard? {
             val list = json.optJSONArray("images") ?: return null
             val images = (0 until list.length()).mapNotNull { i ->
                 val image = list.optJSONObject(i) ?: return@mapNotNull null
-                image.text("url")?.let { SentImage(it, image.text("caption").orEmpty()) }
+                val url = image.text("url") ?: image.optJSONObject("file")?.let { f ->
+                    f.text("id")?.let { SentFiles.imageUrl(it, f.text("name") ?: "image") }
+                }
+                url?.let { SentImage(it, image.text("caption").orEmpty()) }
             }
             if (images.isEmpty()) null else ToolCard.Images(images)
         }
@@ -172,7 +175,11 @@ fun cardFor(call: ToolCall): ToolCard? {
         "place_save" -> savedPlaceOf(json)
         "send_file" -> json.optJSONObject("file")?.let { f ->
             val id = f.text("id") ?: return null
-            ToolCard.File(id, f.text("name") ?: "file", f.text("mime") ?: "application/octet-stream", f.optLong("size"))
+            val name = f.text("name") ?: "file"
+            val mime = f.text("mime") ?: "application/octet-stream"
+            // An image shows as a picture, as one from send_image does.
+            if (mime.startsWith("image/")) ToolCard.Images(listOf(SentImage(SentFiles.imageUrl(id, name), "")))
+            else ToolCard.File(id, name, mime, f.optLong("size"))
         }
         else -> null
     }

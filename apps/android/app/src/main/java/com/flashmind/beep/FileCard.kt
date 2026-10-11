@@ -109,7 +109,7 @@ private fun open(context: Context, uri: Uri, mime: String) {
     }
 }
 
-private fun share(context: Context, uri: Uri, mime: String) {
+internal fun share(context: Context, uri: Uri, mime: String) {
     val send = Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     send.clipData = ClipData.newRawUri(null, uri)
@@ -119,14 +119,30 @@ private fun share(context: Context, uri: Uri, mime: String) {
 /** Sent files, kept in the cache under their id so each downloads once. */
 object SentFiles {
     private const val FOLDER = "sent"
+    private const val SCHEME = "beep-file:"
 
-    suspend fun fetch(context: Context, card: ToolCard.File): Uri {
-        val dir = File(context.cacheDir, "$FOLDER/${card.id}").apply { mkdirs() }
-        val file = File(dir, card.name.replace('/', '_'))
+    /** A sent image named the way an image URL is, so the image views load it like any other. */
+    fun imageUrl(id: String, name: String) = "$SCHEME$id/${Uri.encode(name)}"
+
+    fun isImage(url: String) = url.startsWith(SCHEME)
+
+    suspend fun fetch(context: Context, card: ToolCard.File): Uri = uriOf(context, download(context, card.id, card.name))
+
+    /** The file behind an [imageUrl], downloaded on first use. */
+    suspend fun image(context: Context, url: String): File {
+        val (id, name) = url.removePrefix(SCHEME).split('/', limit = 2).let { it[0] to Uri.decode(it.getOrElse(1) { "image" }) }
+        return download(context, id, name)
+    }
+
+    fun uriOf(context: Context, file: File): Uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+
+    private suspend fun download(context: Context, id: String, name: String): File {
+        val dir = File(context.cacheDir, "$FOLDER/$id").apply { mkdirs() }
+        val file = File(dir, name.replace('/', '_'))
         if (!file.exists()) {
             val client = BeepClients.current() ?: throw BeepException.Connection("not connected to your server")
-            client.saveFile(card.id, file.path)
+            client.saveFile(id, file.path)
         }
-        return FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        return file
     }
 }
