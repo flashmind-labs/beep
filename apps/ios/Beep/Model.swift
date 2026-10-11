@@ -91,6 +91,8 @@ final class AppModel {
     private(set) var previews: [String: ChatPreview] = ChatPreview.load()
     /// Saved places, from the server.
     private(set) var places: [SavedPlace] = []
+    /// The user's skills and their groups', kept so the list and a skill's page show the same one.
+    private(set) var skills: [Skill] = []
     /// The server's places; `-places sample` swaps in made up ones.
     @ObservationIgnored lazy var placesStore: any PlacesStore = ServerPlaces { [unowned self] in try self.api() }
     private(set) var starters: [PromptSuggestion] = []
@@ -742,6 +744,23 @@ final class AppModel {
     func updateMemory(_ id: String, _ content: String) async throws { try await api().updateMemory(id: id, content: content) }
     func deleteMemory(_ id: String) async throws { try await api().deleteMemory(id: id) }
     func clearMemories() async throws { _ = try await api().clearMemories() }
+
+    func refreshSkills() async throws { skills = try await api().listSkills() }
+    /// Changes only the fields given; a name another skill has comes back as `Conflict`.
+    func updateSkill(_ id: String, name: String? = nil, description: String? = nil, body: String? = nil,
+                     enabled: Bool? = nil) async throws {
+        let skill = try await api().updateSkill(id: id, name: name, description: description, body: body, enabled: enabled)
+        replaceSkill(skill)
+    }
+    func undoSkill(_ id: String) async throws { replaceSkill(try await api().undoSkill(id: id)) }
+    func deleteSkill(_ id: String) async throws {
+        try await api().deleteSkill(id: id)
+        skills.removeAll { $0.id == id }
+    }
+
+    private func replaceSkill(_ skill: Skill) {
+        if let at = skills.firstIndex(where: { $0.id == skill.id }) { skills[at] = skill } else { skills.append(skill) }
+    }
 
     func crons() async throws -> [Cron] { try await api().listCrons() }
     func createCron(label: String, prompt: String, schedule: String) async throws {

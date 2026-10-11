@@ -100,6 +100,7 @@ sample_struct! {
     Memory { id, content, category, source, updated, valid_from, valid_until, quote }
     MemoryRead { id, source, finished_at, memories }
     GroupReminder { id, label, message, schedule, next_run_at, set_by }
+    Skill { id, name, description, body, group_id, group_name, enabled, uses, last_used, updated_at, edited, can_undo }
     Place { id, name, latitude, longitude, radius, address, created_at, here, last_here_at, routines }
     Cron { id, label, prompt, schedule, enabled, created_at, run_once, last_run_at, next_run_at }
     LinkedDevice { id, name, kind, primary, this_device, linked_at }

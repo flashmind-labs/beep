@@ -247,7 +247,7 @@ class LocalStorage(internal val context: Context) {
 
     /** The settings lists last fetched from the server. */
     fun loadLists(): ListCache =
-        runCatching { decodeListCache(listsFile.readFully()) }.getOrElse { ListCache(null, null, null, null) }
+        runCatching { decodeListCache(listsFile.readFully()) }.getOrElse { ListCache(null, null, null, null, null) }
 
     fun saveLists(lists: ListCache) {
         val out = listsFile.startWrite()

@@ -9,19 +9,20 @@ use beep_proto::{
     AnswerApproval, AnswerGroupApproval, ApiError, AppIntegration, AppPermissions,
     ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare,
     CreateCron, CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory,
-    DeletePlace, DeleteSession, DeleteSessions, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
-    DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
+    DeletePlace, DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom,
+    DeviceAnswer, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
     GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRun, GetSession,
     GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
     GroupPreview, GroupReminder, Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice,
     LinkedDevice, ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMemories,
-    ListMemoryReads, ListPlaces, ListSessions, Memory, MemoryRead, Models, Notice, PeekGroup,
-    PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform, PromptSuggestions,
-    ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron, SearchSessions,
-    SendToGroup, SentImages, Session, SessionMatch, SetAppPermissions, SetAutoModel, SetModel,
-    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession,
-    StartAppAuth, Stream, SuggestPrompts, ToggleCron, UnregisterDevice, UnshareSession, UpdateCron,
-    UpdateLocation, UpdateMemory, UpdatePlace,
+    ListMemoryReads, ListPlaces, ListSessions, ListSkills, Memory, MemoryRead, Models, Notice,
+    PeekGroup, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron,
+    SearchSessions, SendToGroup, SentImages, Session, SessionMatch, SetAppPermissions,
+    SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
+    SharedSession, Skill, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UndoSkill,
+    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
+    UpdateSkill,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -180,6 +181,9 @@ pub struct ListCache {
     pub crons: Option<Vec<Cron>>,
     pub apps: Option<Vec<AppIntegration>>,
     pub models: Option<Models>,
+    /// Last, with a default, so a cache saved before it still reads.
+    #[serde(default)]
+    pub skills: Option<Vec<Skill>>,
 }
 
 /// `cache` as bytes for the phone to save.
@@ -654,6 +658,38 @@ impl BeepClient {
     /// Returns how many memories were deleted.
     pub async fn clear_memories(&self) -> Result<u64, BeepError> {
         self.call(ClearMemories {}).await
+    }
+
+    /// The user's skills and their groups' skills.
+    pub async fn list_skills(&self) -> Result<Vec<Skill>, BeepError> {
+        self.call(ListSkills {}).await
+    }
+
+    pub async fn update_skill(
+        &self,
+        id: String,
+        name: Option<String>,
+        description: Option<String>,
+        body: Option<String>,
+        enabled: Option<bool>,
+    ) -> Result<Skill, BeepError> {
+        self.call(UpdateSkill {
+            id,
+            name,
+            description,
+            body,
+            enabled,
+        })
+        .await
+    }
+
+    pub async fn delete_skill(&self, id: String) -> Result<(), BeepError> {
+        self.call(DeleteSkill { id }).await
+    }
+
+    /// Puts back the version before the skill's last change.
+    pub async fn undo_skill(&self, id: String) -> Result<Skill, BeepError> {
+        self.call(UndoSkill { id }).await
     }
 
     pub async fn list_crons(&self) -> Result<Vec<Cron>, BeepError> {

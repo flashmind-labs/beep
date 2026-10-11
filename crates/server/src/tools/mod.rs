@@ -13,6 +13,7 @@ mod open_app;
 mod places;
 mod products;
 mod progress;
+pub(crate) mod skills;
 mod suggest;
 
 pub(crate) use file::SendFileTool;
@@ -51,6 +52,10 @@ pub fn registry(
     let run_id = run.id.as_str();
     let mut registry = ToolRegistry::new();
     memory::register(&mut registry, user, &run.session_id);
+    registry.register(Arc::new(skills::SkillViewTool {
+        store: app.store.clone(),
+        owner: user.skill_owner(),
+    }));
     registry.register(Arc::new(TimeTool));
     crate::cron::register_tools(
         &mut registry,

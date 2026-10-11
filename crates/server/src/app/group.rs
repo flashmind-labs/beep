@@ -17,8 +17,12 @@ use crate::{
     memories::{Reading, ReadingKind, profile_facts},
     permissions::{self, Approved, Rules},
     protocol::{Group, GroupAuthor, GroupMember, GroupMessage, Notice},
-    store::{JoinedGroup, MemberRow, MessageRow, NewMessage, PicturesOf},
-    tools::group_memory::{self, Member, Secrets, shareable},
+    skills::{self, GROUP_INDEX_HEADER},
+    store::{JoinedGroup, MemberRow, MessageRow, NewMessage, PicturesOf, SkillOwner},
+    tools::{
+        group_memory::{self, Member, Secrets, shareable},
+        skills::SkillViewTool,
+    },
     user::User,
 };
 use anyhow::Result;
@@ -358,7 +362,10 @@ impl App {
                 }
             };
             match posted {
-                Ok(_) => app.group_notice(&members, &joined, None, &said("Beep", &reply)),
+                Ok(_) => {
+                    app.group_notice(&members, &joined, None, &said("Beep", &reply));
+                    app.count_for_group_skills(&actor, &joined);
+                }
                 Err(error) => {
                     log::warn!("unable to post Beep's reply; group={group_id}: {error:#}");
                     app.group_changed(&members, group_id);
@@ -520,6 +527,14 @@ impl App {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
+        match self.store.owned_skills(&SkillOwner::Group(group_id)).await {
+            Ok(owned) => {
+                if let Some(index) = skills::index(GROUP_INDEX_HEADER, &owned) {
+                    let _ = write!(context, "\n\n{index}");
+                }
+            }
+            Err(error) => log::warn!("unable to list group skills: {error:#}; group={group_id}"),
+        }
         if decision.is_some() {
             let mut private = String::new();
             for member in members.iter() {
@@ -547,6 +562,10 @@ impl App {
 
         let mut registry = ToolRegistry::new();
         registry.register(Arc::new(TimeTool));
+        registry.register(Arc::new(SkillViewTool {
+            store: self.store.clone(),
+            owner: SkillOwner::Group(group_id),
+        }));
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }
