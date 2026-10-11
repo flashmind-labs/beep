@@ -30,7 +30,8 @@ enum Route: Hashable {
     case chat
     case group(String)
     case groupInfo(String)
-    case settings, memories, routines, places, locationAlways
+    case settings, memories, routines, skills, places, locationAlways
+    case skill(String)
     /// Memories, opened on the newest read.
     case latestRead
     /// Routines with the new routine sheet open on arriving at a place.
@@ -128,6 +129,8 @@ struct RootView: View {
         case .memories: MemoriesView(path: $path)
         case .latestRead: MemoriesView(path: $path, latestRead: true)
         case .routines: RoutinesView(path: $path)
+        case .skills: SkillsView(path: $path)
+        case .skill(let id): SkillView(id: id, back: { path.removeLast() })
         case .placeRoutine(let id):
             RoutinesView(path: $path, startAt: model.places.first { $0.id == id })
         case .places:
@@ -168,7 +171,7 @@ struct RootView: View {
     }
 
     #if DEBUG
-    /// Lets the simulator be driven without taps: `-open chat|settings|memories|routines|places`
+    /// Lets the simulator be driven without taps: `-open chat|settings|memories|routines|skills|places`
     /// opens a screen and `-send "text"` sends a message once connected. The list shows without
     /// `-open`. `group`, `groupinfo` and `invite` open the first group, `photos` the photo sheet in a
     /// new chat, `start`, `newgroup` and `joingroup` the sheets, `locationalways` the location ask. `-places sample` swaps the
@@ -200,6 +203,7 @@ struct RootView: View {
         case "settings": path = [.settings]
         case "memories": path = [.memories]
         case "routines": path = [.routines]
+        case "skills": path = [.skills]
         case "places": path = [.places]
         case "placeroutine":
             while model.places.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }

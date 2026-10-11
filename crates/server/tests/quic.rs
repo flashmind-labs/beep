@@ -4,17 +4,18 @@ use beep_server::{
     client::{Client, Node, OnNotice, Replies},
     models::ModelChoices,
     protocol::{
-        ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace, DeviceKind, Event,
-        ExistingSessions, GetEvents, GetRun, GetSession, GetUpdates, Health, HistoryEntry,
-        LinkDevice, ListApps, ListCrons, ListDevices, ListPlaces, ListSessions, MemorySource,
-        MessageBody, Notice, RemoveDevice, RunEvent, Session, StartAppAuth, StreamUpdates,
-        SuggestPrompts, Update, UpdateLocation, UpdatePlace,
+        ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace, DeleteSkill,
+        DeviceKind, Event, ExistingSessions, GetEvents, GetRun, GetSession, GetUpdates, Health,
+        HistoryEntry, LinkDevice, ListApps, ListCrons, ListDevices, ListPlaces, ListSessions,
+        ListSkills, MemorySource, MessageBody, Notice, RemoveDevice, RunEvent, Session,
+        StartAppAuth, StreamUpdates, SuggestPrompts, UndoSkill, Update, UpdateLocation,
+        UpdatePlace, UpdateSkill,
         link::{LinkOffer, OFFER_TTL},
         wire::framed,
     },
     push::Pusher,
     starters,
-    store::{CreateRun, Fact, NewPlace, SignIn, TestDb},
+    store::{CreateRun, Fact, NewPlace, NewSkill, SignIn, TestDb},
     transport,
     user::User,
     wake::{self, Event as WakeEvent},
@@ -814,6 +815,56 @@ async fn arriving_at_a_place_starts_its_routine_once() {
     c.call(&DeletePlace { id }).await.unwrap();
     assert!(c.call(&ListPlaces {}).await.unwrap().is_empty());
     assert!(c.call(&ListCrons {}).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_user_edits_pauses_undoes_and_deletes_a_skill() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let user = h.app.user(&h.alice_id).unwrap();
+    let skill = NewSkill {
+        name: "Book padel",
+        description: "Booking a padel court",
+        body: "1. Ask for 19:00.",
+    };
+    h.app
+        .store
+        .create_skill(&user.skill_owner(), skill)
+        .await
+        .unwrap()
+        .unwrap();
+    let listed = c.call(&ListSkills {}).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    let id = listed[0].id.clone();
+    assert!(listed[0].enabled && !listed[0].edited && !listed[0].can_undo);
+    assert_eq!(listed[0].group_id, None);
+
+    let edit = |body: Option<&str>, enabled: Option<bool>| UpdateSkill {
+        id: id.clone(),
+        name: None,
+        description: None,
+        body: body.map(Into::into),
+        enabled,
+    };
+    let edited = c
+        .call(&edit(Some("1. Ask for 20:00."), None))
+        .await
+        .unwrap();
+    assert!(edited.edited && edited.can_undo);
+    let paused = c.call(&edit(None, Some(false))).await.unwrap();
+    assert!(!paused.enabled);
+    assert!(c.call(&edit(Some("  "), None)).await.is_err());
+
+    let undone = c.call(&UndoSkill { id: id.clone() }).await.unwrap();
+    assert_eq!(undone.body, "1. Ask for 19:00.");
+    assert!(!undone.enabled && !undone.can_undo);
+
+    c.call(&DeleteSkill { id: id.clone() }).await.unwrap();
+    assert!(c.call(&ListSkills {}).await.unwrap().is_empty());
+    assert_eq!(
+        api_error(c.call(&DeleteSkill { id }).await.unwrap_err()),
+        ApiError::NotFound {}
+    );
 }
 
 /// The computer Alice links to her account.

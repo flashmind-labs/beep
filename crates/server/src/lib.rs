@@ -23,6 +23,7 @@ pub mod repeat;
 pub mod router;
 pub mod sandbox;
 pub mod search;
+pub mod skills;
 pub mod starters;
 pub mod steps;
 pub mod store;

@@ -284,7 +284,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Integrations, Settings, Devices, Shared, GroupJoin, GroupInfo }
+internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Shared, GroupJoin, GroupInfo }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -447,6 +447,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat },
                 onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat },
                 onOpenChat = { id -> repository.select(id); screen = Screen.Chat })
+            Screen.Skills -> SkillsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Chat },
                 onBubbleSettings = onBubbleSettings, onLinkedDevices = { screen = Screen.Devices })
@@ -687,8 +688,13 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Memories; drawerOpen = false }
                     DrawerTile("Routines", Icons.Outlined.Schedule, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Crons; drawerOpen = false }
-                    DrawerTile("Places", Icons.Outlined.Place, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Places; drawerOpen = false }
-                    DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
+                    DrawerTile("Skills", Icons.Outlined.AutoAwesome, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Skills; drawerOpen = false }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DrawerTile("Places", Icons.Outlined.Place, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Places; drawerOpen = false }
+                    DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
+                    Spacer(Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(8.dp))
             }

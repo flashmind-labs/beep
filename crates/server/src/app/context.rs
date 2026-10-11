@@ -5,6 +5,7 @@ use crate::{
     cron,
     memories::PROFILE_HEADER,
     protocol::{AppIntegration, DeviceKind},
+    skills::{self, INDEX_HEADER},
     store::Location,
     user::User,
     wake,
@@ -16,8 +17,8 @@ use std::fmt::Write;
 
 impl App {
     /// Time, location, which apps are connected,
-    /// for a routine or an event how to answer it, and the memory profile when `chat` has
-    /// not had this one yet, sent as a developer message. Other memories the
+    /// for a routine or an event how to answer it, and the skill list and the memory
+    /// profile when `chat` has not had these yet, sent as a developer message. Other memories the
     /// model looks up with `memory_recall`.
     pub(super) async fn build_context(
         &self,
@@ -67,6 +68,18 @@ impl App {
             let _ = writeln!(ctx, "{}", wake::woken_context(label));
         }
 
+        // Ends in a blank line, which is where `last_index` stops reading.
+        match self.store.owned_skills(&user.skill_owner()).await {
+            Ok(owned) => {
+                if let Some(index) = skills::index(INDEX_HEADER, &owned)
+                    && last_index(chat) != Some(index.as_str())
+                {
+                    let _ = writeln!(ctx, "{index}\n");
+                }
+            }
+            Err(error) => log::warn!("unable to list skills: {error}; user={user}"),
+        }
+
         // Last, so the profile a chat got runs to the end of its message.
         match user.memory_profile().await {
             Ok(Some(profile)) if last_profile(chat) != Some(profile.as_str()) => {
@@ -78,6 +91,23 @@ impl App {
 
         (!ctx.is_empty()).then_some(ctx)
     }
+}
+
+/// The skill list the chat's context last carried.
+fn last_index(chat: &Conversation) -> Option<&str> {
+    chat.entries()
+        .iter()
+        .rev()
+        .find_map(|entry| match &entry.kind {
+            EntryKind::Developer { content, .. } => content.find(INDEX_HEADER).map(|at| {
+                let index = &content[at..];
+                index
+                    .find("\n\n")
+                    .map_or(index, |end| &index[..end])
+                    .trim_end()
+            }),
+            _ => None,
+        })
 }
 
 /// The memory profile the chat's context last carried.

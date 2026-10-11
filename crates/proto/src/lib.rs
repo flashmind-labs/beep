@@ -370,6 +370,21 @@ requests! {
     /// The caller's newest update id now and whenever it changes, so a
     /// client knows when to call `GetUpdates`.
     80 StreamUpdates {} => Stream<i64>
+    /// The caller's skills and those of every group they are in, the
+    /// caller's own first, each most recently used first.
+    81 ListSkills {} => Call<Vec<Skill>>
+    /// Changes what is given; the old version stays for `UndoSkill`. A
+    /// group's skill may be changed by any member.
+    82 UpdateSkill {
+        id: String,
+        name: Option<String>,
+        description: Option<String>,
+        body: Option<String>,
+        enabled: Option<bool>,
+    } => Call<Skill>
+    83 DeleteSkill { id: String } => Call<()>
+    /// Puts back the version before the skill's last change.
+    84 UndoSkill { id: String } => Call<Skill>
 }
 
 /// A picture someone sent, kept on the server as long as its chat. Read its
@@ -969,6 +984,34 @@ pub struct GroupReminder {
     pub next_run_at: Option<String>,
     /// The member who asked for it, by their name in the group.
     pub set_by: String,
+}
+
+/// A way of doing something that Beep learned from how the user, or a
+/// group, asks for it. Beep writes and updates them on its own.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Skill {
+    pub id: String,
+    pub name: String,
+    /// One line on when it applies.
+    pub description: String,
+    /// The instructions, in Markdown.
+    pub body: String,
+    /// The group it belongs to; both `None` for the user's own.
+    pub group_id: Option<String>,
+    pub group_name: Option<String>,
+    /// A paused skill stays, but Beep does not use it.
+    pub enabled: bool,
+    /// How many times Beep used it.
+    pub uses: u32,
+    /// RFC 3339.
+    pub last_used: Option<String>,
+    /// RFC 3339 of the last change.
+    pub updated_at: String,
+    /// Whether the user changed it last, rather than Beep.
+    pub edited: bool,
+    /// Whether an earlier version is kept for `UndoSkill`.
+    pub can_undo: bool,
 }
 
 wire_enum! {

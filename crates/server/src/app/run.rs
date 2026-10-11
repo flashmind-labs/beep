@@ -650,6 +650,16 @@ impl App {
                 ),
             }
         }
+        // A routine's turns were written once, not asked, so they teach no skill.
+        if status == RunStatus::Completed && !background {
+            let calls = crate::skills::tool_calls(
+                conversation
+                    .entries()
+                    .iter()
+                    .filter(|entry| entry.timestamp >= turn_from),
+            );
+            self.count_for_skills(user, chat, calls);
+        }
         self.compact_after_turn(
             SessionRef {
                 user: user.id().to_owned(),

@@ -8,6 +8,7 @@ mod group_tools;
 mod learning;
 mod notify;
 mod run;
+mod skills;
 mod starters;
 
 pub(crate) use group::group_message;

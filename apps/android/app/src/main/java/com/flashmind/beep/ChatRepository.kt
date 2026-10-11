@@ -40,6 +40,7 @@ import com.flashmind.beep.proto.GroupPreview
 import com.flashmind.beep.proto.GroupReminder
 import com.flashmind.beep.proto.HistoryEntry
 import com.flashmind.beep.proto.MemorySource
+import com.flashmind.beep.proto.Skill
 import com.flashmind.beep.proto.Cron as ProtoCron
 import com.flashmind.beep.proto.PlaceCrossing
 import com.flashmind.beep.proto.Memory as ProtoMemory
@@ -343,7 +344,7 @@ class ChatRepository(private val storage: LocalStorage) {
         accountName.value = identityName(identity)
         synchronized(lock) { changes = emptyList(); storage.saveChanges(changes) }
         serverVersions.clear()
-        saveLists { ListCache(null, null, null, null) }
+        saveLists { ListCache(null, null, null, null, null) }
         modelChoices.value = null
         update { ChatState() }
         starters.value = emptyList()
@@ -706,6 +707,20 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun clearMemories() {
         api().clearMemories()
     }
+
+    fun cachedSkills(): List<Skill>? = lists.skills
+    /** The user's skills and their groups' skills. */
+    suspend fun listSkills(): List<Skill> = api().listSkills().also { fresh -> saveLists { it.copy(skills = fresh) } }
+    /** Changes the fields given; a name another skill has fails with [BeepException.Conflict]. */
+    suspend fun updateSkill(id: String, name: String? = null, description: String? = null, body: String? = null, enabled: Boolean? = null): Skill =
+        api().updateSkill(id, name, description, body, enabled).also(::keepSkill)
+    suspend fun deleteSkill(id: String) {
+        api().deleteSkill(id)
+        saveLists { it.copy(skills = it.skills?.filter { skill -> skill.id != id }) }
+    }
+    /** Puts back the version before the skill's last change. */
+    suspend fun undoSkill(id: String): Skill = api().undoSkill(id).also(::keepSkill)
+    private fun keepSkill(skill: Skill) = saveLists { it.copy(skills = it.skills?.map { old -> if (old.id == skill.id) skill else old }) }
 
     /** `nextRunAt` is an RFC 3339 time the server works out in the user's timezone. */
     data class Cron(val id: String, val label: String, val prompt: String, val schedule: String, val enabled: Boolean, val nextRunAt: String?)

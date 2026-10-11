@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The app opens on a list like a messenger: Beep's chats and the groups, pinned
-/// first, then the newest. Places, memories, routines and settings are in the menu.
+/// first, then the newest. Places, memories, routines, skills and settings are in the menu.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     let openChat: (Session?) -> Void
@@ -112,6 +112,7 @@ struct HomeView: View {
                 Button { go(.places) } label: { Label("Places", systemImage: "mappin.and.ellipse") }
                 Button { go(.memories) } label: { Label("Memories", systemImage: "brain") }
                 Button { go(.routines) } label: { Label("Routines", systemImage: "clock") }
+                Button { go(.skills) } label: { Label("Skills", systemImage: "wand.and.stars") }
                 Button { go(.settings) } label: { Label("Apps", systemImage: "square.grid.2x2") }
                 Button { go(.settings) } label: { Label("Settings", systemImage: "gearshape") }
             } label: {

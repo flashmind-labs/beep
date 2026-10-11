@@ -42,8 +42,8 @@ use crate::{
         Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Join, JoinedGroup, LinkKey,
         Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewFile, NewKey, NewMessage,
         NewPicture, NewPlace, NewPlaceRoutine, Origin, PicturesOf, PlaceRoutine, Posted,
-        ProfileNote, ProfileRead, PushDevice, RunStatus, SavedPlace, SavedTurn, Share, Store,
-        StoredContext, StoredMessage, TurnRecord, TurnsToDelete,
+        ProfileNote, ProfileRead, PushDevice, RunStatus, SavedPlace, SavedTurn, Share, SkillOwner,
+        SkillPatch, SkillRow, Store, StoredContext, StoredMessage, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -593,6 +593,31 @@ impl User {
     /// Deletes every memory of a user and returns how many there were.
     pub async fn forget_all(&self) -> Result<u64> {
         self.store.forget_all(&self.key).await
+    }
+
+    /// The user's own skills, as Beep reads and learns them.
+    pub fn skill_owner(&self) -> SkillOwner {
+        SkillOwner::User(self.key.clone())
+    }
+
+    /// The user's skills and their groups', for the Skills screen.
+    pub async fn visible_skills(&self) -> Result<Vec<SkillRow>> {
+        self.store.visible_skills(&self.key).await
+    }
+
+    /// Changes one of the skills the user can see; `None` when there is no
+    /// such skill for them.
+    pub async fn edit_skill(&self, id: Uuid, change: SkillPatch<'_>) -> Result<Option<SkillRow>> {
+        self.store.edit_skill(&self.key, id, change).await
+    }
+
+    pub async fn delete_skill(&self, id: Uuid) -> Result<bool> {
+        self.store.delete_skill(&self.key, id).await
+    }
+
+    /// Puts back the version before the skill's last change.
+    pub async fn undo_skill(&self, id: Uuid) -> Result<Option<SkillRow>> {
+        self.store.undo_skill(&self.key, id).await
     }
 
     /// Every memory for the Memories screen, most recently changed first.
