@@ -1,7 +1,7 @@
 use crate::sandbox::{content_type, follow_public};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
-use reqwest::Url;
+use reqwest::{StatusCode, Url};
 use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -112,6 +112,15 @@ pub(super) async fn check(url: &str) -> Result<(), &'static str> {
         .map_err(|_| "could not be fetched in time")?
         .map_err(|_| "could not be fetched from a public address")?
         .response;
+    // Shop CDNs such as Chanel's turn away datacenter addresses whatever the
+    // request looks like, while the phone gets the same image fine. A refusal
+    // says nothing about the image, so leave it to the phone.
+    if matches!(
+        response.status(),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS
+    ) {
+        return Ok(());
+    }
     if !response.status().is_success() {
         return Err("the server did not return it");
     }
