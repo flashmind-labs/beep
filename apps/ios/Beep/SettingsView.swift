@@ -17,7 +17,7 @@ struct SettingsView: View {
                         if let file = keyFile {
                             ShareLink(item: file) {
                                 row("key", model.accountName.isEmpty ? "Account" : model.accountName,
-                                    "Key not backed up · tap to save it to a file")
+                                    "Kept in your iPhone backups · tap to save it to a file")
                             }
                         }
                         divider
