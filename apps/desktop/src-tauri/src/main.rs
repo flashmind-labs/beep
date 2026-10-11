@@ -11,6 +11,7 @@ mod markdown;
 mod products;
 mod state;
 mod sync;
+mod update;
 
 use anyhow::Context;
 use beep::{Beep, Field, Notices};
@@ -51,6 +52,7 @@ struct Recent(Mutex<Vec<Session>>);
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             None,
@@ -142,6 +144,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
 
     tauri::async_runtime::spawn(serve_notices(handle.clone(), beep.clone(), notices));
     tauri::async_runtime::spawn(sync::follow(handle.clone(), beep.clone()));
+    tauri::async_runtime::spawn(update::follow(handle.clone()));
     let toggle = handle.clone();
     hotkey::start(move || bar::toggle(&toggle));
 
