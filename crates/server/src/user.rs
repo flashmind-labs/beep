@@ -866,6 +866,13 @@ impl User {
         self.store.set_user_auto_model(&self.key, enabled).await
     }
 
+    /// Turns agents on or off for every user, as this admin.
+    pub(crate) async fn set_agents_enabled(&self, enabled: bool) -> Result<()> {
+        self.store
+            .set_agents_enabled(enabled, self.key.as_str())
+            .await
+    }
+
     pub(crate) async fn save_app_permissions(&self, row: &AppPermissionRow) -> Result<()> {
         self.store.save_app_permissions(&self.key, row).await
     }

@@ -10,11 +10,12 @@ use beep_server::{
     decision::DecisionTool,
     memories,
     models::ModelChoices,
-    protocol::{Chat, MemorySource, RunEvent},
+    protocol::{Chat, GetEvents, MemorySource, RunEvent},
     push::Pusher,
     search::SearchTool,
     starters::Generator,
     store::{Fact, Location, TestDb, Validity},
+    tools::Transitous,
     transport,
     user::User,
     wake,
@@ -90,6 +91,45 @@ const CASES: &[Case] = &[
         name: "rides go to the map card",
         message: "Get me a taxi from Lisbon airport to Rossio square.",
         checks: &[Check::Calls("open_maps"), Check::Skips("open_app")],
+    },
+];
+
+/// Cases run with agents on, so each agent's own prompt answers them.
+const AGENT_CASES: &[Case] = &[
+    Case {
+        name: "agents: transit goes through get_route",
+        message: "How do I get from Tokyo Station to Asakusa Station by train?",
+        checks: &[Check::Calls("get_route")],
+    },
+    Case {
+        name: "agents: directions show the map",
+        message: "Directions by metro from Lisbon Oriente station to Rossio square",
+        checks: &[Check::Calls("get_route"), Check::Calls("open_maps")],
+    },
+    Case {
+        name: "agents: shopping shows products",
+        message: "Find me a good cordless stick vacuum under 300 euros",
+        checks: &[Check::Calls("show_products")],
+    },
+    Case {
+        name: "agents: going out shows a place",
+        message: "Where should I get dinner tonight near Rossio in Lisbon?",
+        checks: &[Check::Calls("web_search"), Check::Calls("open_maps")],
+    },
+    Case {
+        name: "agents: research searches",
+        message: "How does proposer-builder separation work on Ethereum today?",
+        checks: &[Check::Calls("web_search")],
+    },
+    Case {
+        name: "agents: general sets a reminder",
+        message: "Remind me tomorrow at 9 to call the dentist",
+        checks: &[Check::Calls("schedule_once"), Check::Skips("web_search")],
+    },
+    Case {
+        name: "agents: settled facts need no search",
+        message: "What is the capital of Australia?",
+        checks: &[Check::Skips("web_search")],
     },
 ];
 
@@ -189,7 +229,8 @@ struct Server {
 }
 
 impl Server {
-    async fn start(config: &Config) -> Self {
+    /// With `agents`, the config's agents are on, as an admin would turn them on.
+    async fn start(config: &Config, agents: bool) -> Self {
         let db = TestDb::new()
             .await
             .expect("BEEP_TEST_DATABASE_URL names a database");
@@ -215,7 +256,14 @@ impl Server {
             &config.admins,
         )
         .await
-        .with_routing(config.model_routing());
+        .with_routing(config.model_routing())
+        .with_agents(config.agents.clone());
+        if agents {
+            store
+                .set_agents_enabled(true, "eval")
+                .await
+                .expect("agents turn on");
+        }
         let search = config
             .firecrawl_key
             .as_ref()
@@ -225,6 +273,9 @@ impl Server {
             search,
             firecrawl_key: config.firecrawl_key.as_deref().map(SecretString::from),
             decision: Some(Arc::new(decision)),
+            transitous: Some(Arc::new(
+                Transitous::new().expect("the Transitous client builds"),
+            )),
             ..ServerTools::default()
         };
         let app = App::new(store, provider, llm, tools, models);
@@ -269,9 +320,29 @@ impl Server {
         };
         let mut replies = client.stream(&chat).await.expect("the chat starts");
         let mut events = Vec::new();
+        // The server ends each stream after a window, as it does for the app,
+        // so a long turn is followed with `GetEvents` until it finishes.
         let read = async {
-            while let Some(event) = replies.next().await.expect("the stream reads") {
-                events.push(event.event);
+            let mut run_id = None;
+            let mut after = 0;
+            loop {
+                while let Some(event) = replies.next().await.expect("the stream reads") {
+                    after = event.seq;
+                    if let RunEvent::RunStarted { run_id: id, .. } = &event.event {
+                        run_id = Some(id.clone());
+                    }
+                    events.push(event.event);
+                }
+                let finished = events
+                    .iter()
+                    .any(|e| matches!(e, RunEvent::RunFinished { .. }));
+                let Some(run_id) = run_id.clone().filter(|_| !finished) else {
+                    break;
+                };
+                replies = client
+                    .stream(&GetEvents { run_id, after })
+                    .await
+                    .expect("the events resume");
             }
         };
         if timeout(TURN_TIMEOUT, read).await.is_err() {
@@ -298,12 +369,27 @@ fn config() -> Config {
 #[ignore = "calls the real model; run with `just eval`"]
 async fn prompt_evals() {
     let config = config();
-    let server = Server::start(&config).await;
+    run_cases(&config, CASES, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "calls the real model; run with `just eval agents:`"]
+async fn agent_evals() {
+    let config = config();
+    run_cases(&config, AGENT_CASES, true).await;
+}
+
+/// Runs `cases` on a fresh server, with agents on or off.
+async fn run_cases(config: &Config, cases: &[Case], agents: bool) {
     let only = env::var("BEEP_EVAL").ok();
-    let cases: Vec<&Case> = CASES
+    let cases: Vec<&Case> = cases
         .iter()
         .filter(|case| only.as_deref().is_none_or(|only| case.name.contains(only)))
         .collect();
+    if cases.is_empty() {
+        return;
+    }
+    let server = Server::start(config, agents).await;
     let turns = join_all(cases.iter().map(|case| server.turn(case.message))).await;
 
     let mut failed = 0;
@@ -615,7 +701,7 @@ async fn wake_evals() {
     if cases.is_empty() {
         return;
     }
-    let server = Server::start(&config).await;
+    let server = Server::start(&config, false).await;
     let key = config
         .provider_key
         .as_deref()

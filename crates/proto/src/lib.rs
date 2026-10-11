@@ -386,6 +386,10 @@ requests! {
     83 DeleteSkill { id: String } => Call<()>
     /// Puts back the version before the skill's last change.
     84 UndoSkill { id: String } => Call<Skill>
+    /// Whether agents are on, and the agents Jev picks from. Admins only.
+    85 GetAgents {} => Call<Agents>
+    /// Turns agents on or off for every user. Admins only.
+    86 SetAgents { enabled: bool } => Call<Agents>
 }
 
 /// A picture someone sent, kept on the server as long as its chat. Read its
@@ -670,6 +674,31 @@ pub struct Models {
     /// The server has models for Auto to pick from.
     #[serde(default)]
     pub auto_available: bool,
+}
+
+/// Whether agents are on for everyone, and the agents Jev picks from.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Agents {
+    pub enabled: bool,
+    /// General first. Empty when the server has no agents set up, and then
+    /// they cannot be turned on.
+    pub agents: Vec<AgentInfo>,
+}
+
+/// An agent: a system prompt, a model and a thinking level for one kind of task.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInfo {
+    /// Such as `getting_around`.
+    pub id: String,
+    pub name: String,
+    /// What it handles.
+    pub when: String,
+    /// A `ModelChoice::id`.
+    pub model: String,
+    /// The least it thinks.
+    pub thinking: ReasoningLevel,
 }
 
 /// The model and thinking Jev picked for a prompt.

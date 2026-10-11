@@ -7,8 +7,9 @@ use super::{
     Store,
     updates::{Bumped, Readers, UpdateOp, log_messages},
 };
-use crate::protocol::{
-    Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, TurnInfo,
+use crate::{
+    agents::AgentId,
+    protocol::{Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, TurnInfo},
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
@@ -66,6 +67,8 @@ pub struct TurnRecord {
     /// Every step's reasoning, oldest first.
     pub reasoning: String,
     pub memory_score: Option<f64>,
+    /// The agent it ran as, when agents were on.
+    pub agent: Option<AgentId>,
 }
 
 impl TurnRecord {
@@ -289,7 +292,7 @@ impl StoredMessage {
 /// The columns `stored` reads, from `messages m` and its side tables.
 const COLUMNS: &str = "m.id, m.chat_id, m.turn_id, m.sent_at, m.author_id, m.author_name,
     m.role::text, m.content, t.model, t.auto_thinking::text, t.reasoning, t.memory_score,
-    c.call_id, c.name, c.output, c.success, a.query_id, a.app, a.action";
+    c.call_id, c.name, c.output, c.success, a.query_id, a.app, a.action, t.agent";
 
 const JOINS: &str = "messages m
     LEFT JOIN turns t ON t.message_id = m.id
@@ -303,7 +306,13 @@ fn turn_record(row: &PgRow) -> Result<TurnRecord> {
         auto_thinking: thinking.and_then(|level| level.parse().ok()),
         reasoning: row.try_get::<Option<String>, _>(10)?.unwrap_or_default(),
         memory_score: row.try_get(11)?,
+        agent: agent(row.try_get(19)?),
     })
+}
+
+/// The agent a stored id names; an id this server no longer knows reads as none.
+fn agent(id: Option<String>) -> Option<AgentId> {
+    id.and_then(|id| id.parse().ok())
 }
 
 fn stored(row: &PgRow) -> Result<StoredMessage> {
@@ -393,6 +402,15 @@ pub(super) async fn insert_steps(
                 .bind(turn.memory_score)
                 .execute(&mut *tx)
                 .await?;
+                // Set apart, since the backfill writes turns before the
+                // migration that adds the column, and never with an agent.
+                if let Some(agent) = turn.agent {
+                    sqlx::query("UPDATE turns SET agent = $2 WHERE message_id = $1")
+                        .bind(id)
+                        .bind(agent.as_str())
+                        .execute(&mut *tx)
+                        .await?;
+                }
             }
             StepBody::Tool {
                 call_id,
@@ -481,7 +499,8 @@ pub(super) async fn patch_turn(
              auto_thinking = COALESCE($3::reasoning_level, auto_thinking),
              reasoning = CASE WHEN reasoning = '' THEN $4
                  WHEN $4 = '' THEN reasoning ELSE reasoning || E'\\n\\n' || $4 END,
-             memory_score = COALESCE($5, memory_score)
+             memory_score = COALESCE($5, memory_score),
+             agent = COALESCE($6, agent)
          WHERE message_id = $1",
     )
     .bind(turn)
@@ -489,6 +508,7 @@ pub(super) async fn patch_turn(
     .bind(patch.auto_thinking.map(|level| level.to_string()))
     .bind(&patch.reasoning)
     .bind(patch.memory_score)
+    .bind(patch.agent.map(AgentId::as_str))
     .execute(&mut *tx)
     .await?;
     log_messages(tx, chat, &[turn], UpdateOp::Message, Readers::Members).await
@@ -498,7 +518,7 @@ impl Store {
     /// What the newest turn of `chat` ran with.
     pub(crate) async fn last_turn(&self, chat: Uuid) -> Result<Option<TurnRecord>> {
         let row = sqlx::query(
-            "SELECT t.model, t.auto_thinking::text, t.reasoning, t.memory_score
+            "SELECT t.model, t.auto_thinking::text, t.reasoning, t.memory_score, t.agent
              FROM turns t JOIN messages m ON m.id = t.message_id
              WHERE m.chat_id = $1 ORDER BY m.id DESC LIMIT 1",
         )
@@ -512,6 +532,7 @@ impl Store {
                 auto_thinking: thinking.and_then(|level| level.parse().ok()),
                 reasoning: row.try_get(2)?,
                 memory_score: row.try_get(3)?,
+                agent: agent(row.try_get(4)?),
             })
         })
         .transpose()

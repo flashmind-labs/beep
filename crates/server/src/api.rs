@@ -82,6 +82,8 @@ pub fn router() -> Router {
         .call(delete_turns_from)
         .call(search_sessions)
         .call(set_auto_model)
+        .call(get_agents)
+        .call(set_agents)
         .call(link_device)
         .call(list_devices)
         .call(remove_device)
@@ -777,6 +779,46 @@ async fn set_auto_model(cx: Cx, SetAutoModel { enabled }: SetAutoModel) -> Reply
     cx.user.set_auto_model(enabled).await?;
     log::info!("auto model set; user={} enabled={enabled}", cx.user.id());
     picker(&cx).await
+}
+
+async fn get_agents(cx: Cx, _: GetAgents) -> Reply<Agents> {
+    if !cx.app.models.is_admin(cx.user.id()) {
+        return Err(ApiError::Unauthorized {});
+    }
+    agents(&cx).await
+}
+
+async fn set_agents(cx: Cx, SetAgents { enabled }: SetAgents) -> Reply<Agents> {
+    if !cx.app.models.is_admin(cx.user.id()) {
+        return Err(ApiError::Unauthorized {});
+    }
+    if enabled && cx.app.models.agents().is_empty() {
+        return Err(ApiError::bad_request("the server has no agents set up"));
+    }
+    cx.user.set_agents_enabled(enabled).await?;
+    log::info!("agents set; user={} enabled={enabled}", cx.user.id());
+    agents(&cx).await
+}
+
+/// Whether agents are on, with the agents the server has.
+async fn agents(cx: &Cx) -> Reply<Agents> {
+    let agents = cx
+        .app
+        .models
+        .agents()
+        .iter()
+        .map(|agent| AgentInfo {
+            id: agent.id.as_str().to_owned(),
+            name: agent.name.clone(),
+            when: agent.when.clone(),
+            model: agent.model.to_string(),
+            thinking: agent.thinking,
+        })
+        .collect();
+    Ok(Agents {
+        enabled: cx.app.store.agents_enabled().await?,
+        agents,
+    })
 }
 
 async fn get_app_permissions(

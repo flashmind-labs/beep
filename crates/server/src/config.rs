@@ -8,6 +8,7 @@ use std::{
     path::PathBuf,
 };
 
+use crate::agents::{AgentConfig, AgentId};
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
 use iroh::{EndpointId, SecretKey};
@@ -29,6 +30,11 @@ pub struct Config {
     /// what it is good for. Only offered models take part.
     #[serde(default)]
     pub auto_models: HashMap<Model, String>,
+    /// The agents Jev picks from for every prompt once an admin turns
+    /// agents on, keyed by id (`general`, `getting_around`, ...). Each model
+    /// must be one of `model_choices`, and `general` is required.
+    #[serde(default)]
+    pub agents: HashMap<AgentId, AgentConfig>,
     /// Endpoint ids of the users who get admin features.
     #[serde(default)]
     pub admins: Vec<EndpointId>,

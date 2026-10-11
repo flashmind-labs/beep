@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Laptop
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import com.flashmind.beep.proto.Agents
 import com.flashmind.beep.proto.ModelChoice
 import com.flashmind.beep.proto.Models
 import com.flashmind.beep.proto.ReasoningLevel
@@ -82,6 +84,7 @@ fun SettingsScreen(
             AvatarPicker()
             BubblePicker(onBubbleSettings)
             ModelPicker(repository)
+            AgentsSwitch(repository)
             Column {
                 HorizontalDivider(color = Beep.colors.softLine)
                 AccountRow(repository)
@@ -244,6 +247,62 @@ private fun ModelPicker(repository: ChatRepository) {
         }
         Spacer(Modifier.height(6.dp))
         Text("Applies to your own turns. Everyone else stays on the default.", fontSize = 12.sp, color = Beep.colors.muted)
+    }
+}
+
+/**
+ * The server-wide agents switch, with the agents Jev picks from listed under it. Only admins
+ * get an answer from the server, so everyone else never sees this section.
+ */
+@Composable
+private fun AgentsSwitch(repository: ChatRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var agents by remember { mutableStateOf<Agents?>(null) }
+    val models by repository.modelChoices.collectAsState()
+    LaunchedEffect(models?.choices?.isNotEmpty()) {
+        if (models?.choices?.isNotEmpty() != true) return@LaunchedEffect
+        runCatching { withContext(Dispatchers.IO) { repository.agents() } }.onSuccess { agents = it }
+    }
+    val current = agents ?: return
+    if (current.agents.isEmpty()) return
+    fun toggle(enabled: Boolean) {
+        agents = current.copy(enabled = enabled)
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { repository.setAgents(enabled) } }
+                .onSuccess {
+                    agents = it
+                    Toast.makeText(context, if (it.enabled) "Agents on for everyone" else "Agents off", Toast.LENGTH_SHORT).show()
+                }
+                .onFailure { agents = current; Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
+        }
+    }
+    val choices = models?.choices.orEmpty()
+    Column {
+        Text("Agents (admin)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Agents", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
+                Text(if (current.enabled) "On for everyone: Jev picks an agent for each prompt"
+                    else "Off: everyone uses the general assistant", fontSize = 12.sp, color = Beep.colors.muted)
+            }
+            Switch(checked = current.enabled, onCheckedChange = ::toggle,
+                colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok))
+        }
+        Column(Modifier.alpha(if (current.enabled) 1f else 0.5f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            current.agents.forEach { agent ->
+                val model = choices.find { it.id == agent.model }?.name ?: agent.model.substringAfterLast('/')
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(agent.name, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
+                        Text(agent.`when`, fontSize = 12.sp, color = Beep.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text("$model, ${agent.thinking.name.lowercase()}", fontSize = 12.sp, color = Beep.colors.muted)
+                }
+            }
+        }
     }
 }
 

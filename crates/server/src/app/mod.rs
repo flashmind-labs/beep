@@ -27,6 +27,7 @@ use crate::{
     starters::Generator,
     store::{Account, CreateRun, RunStatus, SessionRef, SignIn, Store},
     titles,
+    tools::Transitous,
     user::{Shared, User},
 };
 use anyhow::Result;
@@ -100,6 +101,8 @@ pub struct ServerTools {
     pub compaction_model: Option<Model>,
     /// Per-user files and code execution; see `Config::sandbox_dir`.
     pub sandbox: Option<Arc<Sandbox>>,
+    /// Transit routes for `get_route`.
+    pub transitous: Option<Arc<Transitous>>,
 }
 
 /// The part of `ServerTools` a run registers itself.
@@ -108,6 +111,7 @@ struct RunTools {
     firecrawl_key: Option<SecretString>,
     decision: Option<Arc<DecisionTool>>,
     sandbox: Option<Arc<Sandbox>>,
+    transitous: Option<Arc<Transitous>>,
 }
 
 /// Who a connection signed in as.
@@ -207,8 +211,10 @@ impl App {
             vision_model,
             compaction_model,
             sandbox,
+            transitous,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
+
         let shared = Shared {
             store: store.clone(),
             notifications: notifications.clone(),
@@ -228,6 +234,7 @@ impl App {
                 firecrawl_key,
                 decision,
                 sandbox,
+                transitous,
             },
             shared,
             users: Mutex::new(HashMap::new()),

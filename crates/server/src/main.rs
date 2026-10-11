@@ -12,6 +12,7 @@ use beep_server::{
     sandbox::Sandbox,
     search::SearchTool,
     store::Store,
+    tools::Transitous,
     transport,
 };
 use flashmind::{
@@ -61,7 +62,8 @@ async fn main() -> Result<()> {
     )
     .await
     .with_routing(config.model_routing())
-    .with_auto(config.auto_models.clone());
+    .with_auto(config.auto_models.clone())
+    .with_agents(config.agents.clone());
 
     let search = config
         .firecrawl_key
@@ -98,6 +100,7 @@ async fn main() -> Result<()> {
             vision_model,
             compaction_model: config.compaction_model.clone(),
             sandbox,
+            transitous: Some(Arc::new(Transitous::new()?)),
         },
         models,
     );
