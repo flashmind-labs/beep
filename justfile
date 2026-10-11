@@ -148,7 +148,7 @@ push-server-config:
     sed -e 's|^secret_key = .*|secret_key = "/data/iroh-key"|' \
         -e 's|^log_dir = .*|log_dir = "/data/logs"|' -e '/^sandbox_dir = /d' \
         -e 's|^fcm_credentials = .*|fcm_credentials = "/data/fcm-service-account.json"|' {{server_config}} \
-        | { cat; echo 'sandbox_dir = "/data/sandboxes"'; } | write config.toml
+        | { echo 'sandbox_dir = "/data/sandboxes"'; cat; } | write config.toml
     write iroh-key < .dev/iroh-key
     if [ -f .dev/fcm-service-account.json ]; then write fcm-service-account.json < .dev/fcm-service-account.json; fi
 
