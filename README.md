@@ -63,15 +63,18 @@ Xcode, Rust, Homebrew and access to the sibling Rust dependency repository.
 
 Set repository variables `BEEP_NODE_ID` (64 lowercase hex characters) and
 `IOS_TEAM_ID` (Apple Developer team ID). The workflow uses these repository
-secrets, also used by the desktop workflow:
+secrets. The Apple API key secrets are also used by the desktop workflow:
 
 - `APPLE_API_PRIVATE_KEY`: App Store Connect API `.p8` contents
 - `APPLE_API_KEY_ID` and `APPLE_API_ISSUER_ID`: IDs for that API key
+- `IOS_DISTRIBUTION_P12`: base64-encoded Apple Distribution certificate and private key
+- `IOS_DISTRIBUTION_PASSWORD`: password for the `.p12` file
+- `IOS_PROVISIONING_PROFILE`: base64-encoded App Store Connect provisioning profile
 
-Xcode uses the API key to manage signing. Create an internal TestFlight group,
-then a private external group after Apple processes the first upload. Invite
-external testers by email. Apple must approve the first build before they can
-install it.
+Xcode uses the distribution certificate and profile to sign the upload. Create
+an internal TestFlight group, then a private external group after Apple processes
+the first upload. Invite external testers by email. Apple must approve the first
+build before they can install it.
 
 ## Wire protocol
 
