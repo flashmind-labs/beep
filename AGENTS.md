@@ -33,6 +33,33 @@ https://claude.ai/artifact/BwYePcE9BHvLcYSvkRwvxD
 Before changing the Android UI, update the mock first so it shows the new
 screen or state, then change the app to match.
 
+## App tools
+
+The agent's app tools come from two places:
+
+- Composio toolkits (Gmail, Google Calendar, Outlook, Notion, Linear,
+  Todoist, GitHub, Slack, ...), named by Composio slug (`GMAIL_MOVE_TO_TRASH`).
+  flashmind calls Composio's v3.1 API; some slugs are missing from v3, so
+  check against v3.1.
+- Fastmail's remote MCP server, exposed as one flat tool per entry in
+  `FASTMAIL_TOOLS` (`crates/server/src/apps/mcp.rs`) and named
+  `FASTMAIL_<TOOL>`. The server caches its schemas in `mcp_servers`.
+
+`CATALOG` in `crates/server/src/apps/mod.rs` lists the tools the agent gets
+and which of them act. An acting tool asks first when the app is set to Ask
+(`crates/server/src/permissions.rs`). The approval card shows the call's
+arguments, and for IDs it shows the record they name: from an earlier
+result in the chat, or read back through the tool in `LOOKUPS`. When adding
+an acting tool that takes an ID, add its read tool there.
+
+Check a tool's real arguments before writing code against them:
+
+    just tool-schema GMAIL_MOVE_TO_TRASH FASTMAIL_DELETE_EMAIL
+    just tool-schema --list googlecalendar
+    just tool-schema --json OUTLOOK_GET_EVENT
+
+It reads the Composio key and database URL from `.dev/android-server.toml`.
+
 ## Server tests
 
 `just test` starts the local Postgres and runs the server tests. A plain

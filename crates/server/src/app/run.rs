@@ -643,12 +643,12 @@ impl App {
             )
         };
         // A call that only names its records, such as a message ID, says what
-        // they are from earlier results, so the user knows what it acts on.
+        // they are, so the user knows what it acts on.
         if let Some(parked) = &mut parked {
-            parked.approval.fields.extend(permissions::describe_records(
-                &parked.call_id,
-                &conversation,
-            ));
+            parked
+                .approval
+                .fields
+                .extend(permissions::describe_call(user, &parked.call_id, &conversation).await);
             saved.steps.push(Step {
                 sent_at: Utc::now(),
                 body: StepBody::Approval {

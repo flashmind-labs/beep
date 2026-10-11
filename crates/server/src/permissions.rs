@@ -4,7 +4,10 @@
 //! open call, and the user's answer resumes the session from there.
 
 use crate::{
-    apps::{CATALOG, CatalogApp, catalog_app, mcp::FASTMAIL_TOOLS},
+    apps::{
+        CATALOG, CatalogApp, catalog_app,
+        mcp::{FASTMAIL, FASTMAIL_TOOLS},
+    },
     protocol::{AppAction, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel},
     store::AppPermissionRow,
     user::User,
@@ -19,7 +22,7 @@ use flashmind::{
         tool::{InterruptPayload, Tool, ToolContext, ToolResult},
     },
 };
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
@@ -386,7 +389,14 @@ pub(crate) fn waiting_approval(conversation: &Conversation) -> Option<HistoryEnt
 /// the email behind a message ID, read from earlier tool results in
 /// `conversation`. Empty when the call names none or nothing said more.
 pub(crate) fn describe_records(call_id: &str, conversation: &Conversation) -> Vec<ApprovalField> {
-    let call = conversation
+    find_call(call_id, conversation)
+        .map(|call| records(&call.arguments, conversation))
+        .unwrap_or_default()
+}
+
+/// The call `call_id` in `conversation`.
+fn find_call<'a>(call_id: &str, conversation: &'a Conversation) -> Option<&'a ToolCall> {
+    conversation
         .entries()
         .iter()
         .rev()
@@ -396,34 +406,22 @@ pub(crate) fn describe_records(call_id: &str, conversation: &Conversation) -> Ve
                 ..
             } => calls.iter().find(|call| call.id == call_id),
             _ => None,
-        });
-    call.map(|call| records(&call.arguments, conversation))
-        .unwrap_or_default()
+        })
 }
 
 /// The fields of a record that tell the user which one it is.
 const RECORD_KEYS: &[(&str, &str)] = &[
     ("subject", "Subject"),
     ("title", "Title"),
+    ("summary", "Title"),
+    ("content", "Task"),
     ("name", "Name"),
     ("from", "From"),
     ("sender", "From"),
 ];
 
 fn records(args: &Value, conversation: &Conversation) -> Vec<ApprovalField> {
-    let Value::Object(args) = args else {
-        return Vec::new();
-    };
-    let ids: Vec<&str> = args
-        .iter()
-        .filter(|(key, _)| is_id(key))
-        .flat_map(|(_, value)| match value {
-            Value::String(id) => vec![id.as_str()],
-            Value::Array(items) => items.iter().filter_map(Value::as_str).collect(),
-            _ => Vec::new(),
-        })
-        .filter(|id| !id.trim().is_empty())
-        .collect();
+    let ids = record_ids(args);
     if ids.is_empty() {
         return Vec::new();
     }
@@ -436,25 +434,250 @@ fn records(args: &Value, conversation: &Conversation) -> Vec<ApprovalField> {
             _ => None,
         })
         .collect();
+    ids.into_iter()
+        .filter_map(|id| results.iter().find_map(|result| find_record(result, id)))
+        .flat_map(record_fields)
+        .take(MAX_FIELDS)
+        .collect()
+}
+
+/// Most records a card reads for one call.
+const MAX_FETCHED: usize = 3;
+
+/// How to read what an acting call names, for a call that only gives IDs.
+struct Lookup {
+    /// The acting tools, as rules name them.
+    tools: &'static [&'static str],
+    /// The tool that reads one record, Fastmail's by their MCP name.
+    read: &'static str,
+    /// Arguments carried from the call to the read, as (call's, read's). A
+    /// list, such as Fastmail's `ids`, is read one item at a time.
+    args: &'static [(&'static str, &'static str)],
+}
+
+/// Every acting tool that names a record a tool can read back. Fastmail has
+/// no tool that reads one event or contact, and Slack, Teams and SharePoint
+/// calls name channels and lists rather than one record.
+const LOOKUPS: &[Lookup] = &[
+    Lookup {
+        tools: &[
+            "FASTMAIL_DELETE_EMAIL",
+            "FASTMAIL_ARCHIVE_EMAIL",
+            "FASTMAIL_UPDATE_EMAIL",
+        ],
+        read: "read_email",
+        args: &[("ids", "id")],
+    },
+    Lookup {
+        tools: &["FASTMAIL_SEND_EMAIL"],
+        read: "read_email",
+        args: &[("emailId", "id")],
+    },
+    Lookup {
+        tools: &["GMAIL_MOVE_TO_TRASH"],
+        read: "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+        args: &[("message_id", "message_id")],
+    },
+    Lookup {
+        tools: &["GMAIL_REPLY_TO_THREAD"],
+        read: "GMAIL_FETCH_MESSAGE_BY_THREAD_ID",
+        args: &[("thread_id", "thread_id")],
+    },
+    Lookup {
+        tools: &["GOOGLECALENDAR_PATCH_EVENT", "GOOGLECALENDAR_DELETE_EVENT"],
+        read: "GOOGLECALENDAR_EVENTS_GET",
+        args: &[("event_id", "event_id"), ("calendar_id", "calendar_id")],
+    },
+    Lookup {
+        tools: &["OUTLOOK_REPLY_EMAIL", "OUTLOOK_MOVE_MESSAGE"],
+        read: "OUTLOOK_GET_MESSAGE",
+        args: &[("message_id", "message_id")],
+    },
+    Lookup {
+        tools: &[
+            "OUTLOOK_ACCEPT_EVENT",
+            "OUTLOOK_DECLINE_EVENT",
+            "OUTLOOK_UPDATE_CALENDAR_EVENT",
+            "OUTLOOK_DELETE_CALENDAR_EVENT",
+        ],
+        read: "OUTLOOK_GET_EVENT",
+        args: &[("event_id", "event_id")],
+    },
+    Lookup {
+        tools: &["NOTION_UPDATE_PAGE"],
+        read: "NOTION_RETRIEVE_PAGE",
+        args: &[("page_id", "page_id")],
+    },
+    Lookup {
+        tools: &["NOTION_ADD_MULTIPLE_PAGE_CONTENT"],
+        read: "NOTION_RETRIEVE_PAGE",
+        args: &[("parent_block_id", "page_id")],
+    },
+    Lookup {
+        tools: &["LINEAR_UPDATE_ISSUE", "LINEAR_CREATE_LINEAR_COMMENT"],
+        read: "LINEAR_GET_LINEAR_ISSUE",
+        args: &[("issueId", "issue_id"), ("issue_id", "issue_id")],
+    },
+    Lookup {
+        tools: &["TODOIST_UPDATE_TASK", "TODOIST_CLOSE_TASK"],
+        read: "TODOIST_GET_TASK",
+        args: &[("task_id", "task_id")],
+    },
+    Lookup {
+        tools: &["GITHUB_CREATE_AN_ISSUE_COMMENT"],
+        read: "GITHUB_GET_AN_ISSUE",
+        args: &[
+            ("owner", "owner"),
+            ("repo", "repo"),
+            ("issue_number", "issue_number"),
+        ],
+    },
+];
+
+/// What the records of call `call_id` are: from earlier results in
+/// `conversation`, or else read back with the app's own tool, so a delete
+/// that only names an ID still says what it deletes.
+pub(crate) async fn describe_call(
+    user: &User,
+    call_id: &str,
+    conversation: &Conversation,
+) -> Vec<ApprovalField> {
+    let shown = describe_records(call_id, conversation);
+    if !shown.is_empty() {
+        return shown;
+    }
+    let Some(call) = find_call(call_id, conversation) else {
+        return Vec::new();
+    };
+    let tool = ToolSlug::new(&call.name);
+    let Some(lookup) = LOOKUPS
+        .iter()
+        .find(|lookup| lookup.tools.contains(&tool.as_str()))
+    else {
+        return Vec::new();
+    };
     let mut shown = Vec::new();
-    for id in ids {
-        let Some(record) = results.iter().find_map(|result| find_record(result, id)) else {
-            continue;
-        };
-        let mut labels = HashSet::new();
-        for (key, label) in RECORD_KEYS {
-            let Some(value) = record_value(record, key) else {
-                continue;
-            };
-            if labels.insert(*label) {
-                shown.push(ApprovalField {
-                    label: (*label).to_owned(),
-                    value: value.chars().take(MAX_VALUE_CHARS).collect(),
-                });
+    for args in read_args(lookup, &call.arguments) {
+        match read_record(user, lookup.read, args.clone()).await {
+            Ok(found) => {
+                // The record is the object holding the ID it was read by;
+                // a read that answers with the record alone is that object.
+                let id = args.values().find_map(Value::as_str).unwrap_or_default();
+                shown.extend(record_fields(find_record(&found, id).unwrap_or(&found)));
             }
+            Err(error) => log::debug!("approval: unable to read {}: {error:#}", lookup.read),
         }
     }
     shown.into_iter().take(MAX_FIELDS).collect()
+}
+
+/// The arguments for each read `lookup` makes for a call with `args`: one,
+/// or one per item when the call names a list. None when the call left out
+/// what the read needs.
+fn read_args(lookup: &Lookup, args: &Value) -> Vec<Map<String, Value>> {
+    let mut shared = Map::new();
+    let mut listed: Option<(&str, &Vec<Value>)> = None;
+    for &(from, to) in lookup.args {
+        match args.get(from) {
+            None | Some(Value::Null) => {}
+            Some(Value::Array(items)) => listed = Some((to, items)),
+            Some(value) => {
+                shared.insert(to.to_owned(), value.clone());
+            }
+        }
+    }
+    let Some((to, items)) = listed else {
+        return if shared.is_empty() {
+            Vec::new()
+        } else {
+            vec![shared]
+        };
+    };
+    items
+        .iter()
+        .filter(|item| item.as_str().is_some_and(|id| !id.trim().is_empty()))
+        .take(MAX_FETCHED)
+        .map(|item| {
+            let mut args = shared.clone();
+            args.insert(to.to_owned(), item.clone());
+            args
+        })
+        .collect()
+}
+
+/// Calls `read`, on Fastmail's MCP server for a lowercase name and on
+/// Composio otherwise, and returns what it found.
+async fn read_record(user: &User, read: &str, args: Map<String, Value>) -> Result<Value> {
+    if read.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+        return user.call_mcp(FASTMAIL, read, Value::Object(args)).await;
+    }
+    let client = user
+        .composio_client()
+        .ok_or_else(|| anyhow::anyhow!("Composio is not configured"))?;
+    let response = client.execute_tool(read, Value::Object(args)).await?;
+    if response.successful == Some(false) {
+        anyhow::bail!("{read} failed");
+    }
+    Ok(response.data)
+}
+
+/// The IDs `args` names, such as a message ID or a list of them.
+fn record_ids(args: &Value) -> Vec<&str> {
+    let Value::Object(args) = args else {
+        return Vec::new();
+    };
+    args.iter()
+        .filter(|(key, _)| is_id(key))
+        .flat_map(|(_, value)| match value {
+            Value::String(id) => vec![id.as_str()],
+            Value::Array(items) => items.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        })
+        .filter(|id| !id.trim().is_empty())
+        .collect()
+}
+
+/// The fields of `record` that tell the user which one it is.
+fn record_fields(record: &Value) -> Vec<ApprovalField> {
+    let mut labels = HashSet::new();
+    let mut shown: Vec<ApprovalField> = RECORD_KEYS
+        .iter()
+        .filter_map(|(key, label)| {
+            let value = record_value(record, key)?;
+            labels.insert(*label).then(|| ApprovalField {
+                label: (*label).to_owned(),
+                value: value.chars().take(MAX_VALUE_CHARS).collect(),
+            })
+        })
+        .collect();
+    if !labels.contains("Title")
+        && let Some(title) = notion_title(record)
+    {
+        shown.insert(
+            0,
+            ApprovalField {
+                label: "Title".to_owned(),
+                value: title.chars().take(MAX_VALUE_CHARS).collect(),
+            },
+        );
+    }
+    shown
+}
+
+/// A Notion page's title, kept in whichever property has the `title` type.
+fn notion_title(page: &Value) -> Option<String> {
+    let title = page
+        .get("properties")?
+        .as_object()?
+        .values()
+        .find(|property| property.get("type").and_then(Value::as_str) == Some("title"))?
+        .get("title")?
+        .as_array()?
+        .iter()
+        .filter_map(|part| part.get("plain_text").and_then(Value::as_str))
+        .collect::<String>();
+    let title = title.trim();
+    (!title.is_empty()).then(|| title.to_owned())
 }
 
 /// A tool result as JSON, skipping any text before it.
@@ -922,6 +1145,74 @@ mod tests {
             [("Subject", "New listings"), ("From", "alerts@example.com")]
         );
         assert_eq!(describe_records("trash", &conversation).len(), 2);
+    }
+
+    #[test]
+    fn a_fastmail_email_names_itself() {
+        let email = json!({
+            "id": "M1", "subject": "Your order shipped",
+            "from": [{"name": "Shop", "email": "orders@example.com"}],
+        });
+        assert_eq!(record_ids(&json!({"ids": ["M1", ""], "keep": "x"})), ["M1"]);
+        let shown: Vec<_> = record_fields(find_record(&email, "M1").unwrap())
+            .into_iter()
+            .map(|f| (f.label, f.value))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Subject".into(), "Your order shipped".into()),
+                ("From".into(), "Shop <orders@example.com>".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_read_takes_the_ids_a_call_names() {
+        let lookup = |tool| LOOKUPS.iter().find(|l| l.tools.contains(&tool)).unwrap();
+        let reads = read_args(
+            lookup("FASTMAIL_DELETE_EMAIL"),
+            &json!({"ids": ["M1", "", "M2"]}),
+        );
+        assert_eq!(
+            reads,
+            [json!({"id": "M1"}), json!({"id": "M2"})].map(|v| v.as_object().unwrap().clone())
+        );
+        let reads = read_args(
+            lookup("GOOGLECALENDAR_DELETE_EVENT"),
+            &json!({"event_id": "e1", "calendar_id": "primary", "send_updates": "all"}),
+        );
+        assert_eq!(
+            Value::Object(reads[0].clone()),
+            json!({"event_id": "e1", "calendar_id": "primary"})
+        );
+        let reads = read_args(
+            lookup("GITHUB_CREATE_AN_ISSUE_COMMENT"),
+            &json!({"owner": "o", "repo": "r", "issue_number": 7, "body": "hi"}),
+        );
+        assert_eq!(
+            Value::Object(reads[0].clone()),
+            json!({"owner": "o", "repo": "r", "issue_number": 7})
+        );
+        assert!(read_args(lookup("TODOIST_CLOSE_TASK"), &json!({})).is_empty());
+        // Every tool listed is one that asks, so a renamed slug fails here.
+        for tool in LOOKUPS.iter().flat_map(|l| l.tools) {
+            let acts = call_acts(tool, &json!({"folder": "x"})).is_some_and(|(_, acts)| acts);
+            assert!(acts, "{tool} is not an acting tool");
+        }
+    }
+
+    #[test]
+    fn a_notion_page_names_itself_by_its_title_property() {
+        let page = json!({"id": "p1", "properties": {
+            "Status": {"type": "select"},
+            "Name": {"type": "title", "title": [{"plain_text": "Trip "}, {"plain_text": "plan"}]},
+        }});
+        let shown = record_fields(&page);
+        assert_eq!(
+            (shown[0].label.as_str(), shown[0].value.as_str()),
+            ("Title", "Trip plan")
+        );
     }
 
     #[test]
