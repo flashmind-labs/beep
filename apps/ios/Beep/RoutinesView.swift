@@ -185,7 +185,7 @@ private struct NewRoutineView: View {
     let create: (String, String, String) async throws -> Void
     @State private var when: PlaceTrigger.Kind?
     @State private var placeId = ""
-    @State private var daily = true
+    @State private var placeRepeat = PlaceTrigger.Repeat.daily
     @State private var label = ""
     @State private var prompt = ""
     @State private var repeatMode = Repeat.daily
@@ -274,13 +274,15 @@ private struct NewRoutineView: View {
                     }
                 }
             }
-            Toggle(isOn: $daily) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Once a day at most").font(.body(14, .medium)).foregroundStyle(Mint.ink)
-                    Text("Skips it if you come back the same day").font(.body(12)).foregroundStyle(Mint.muted)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("How often").font(.body(12, .medium)).foregroundStyle(Mint.muted)
+                HStack(spacing: 8) {
+                    ForEach(PlaceTrigger.Repeat.allCases, id: \.self) { repeats in
+                        FilterChip(label: repeats.title, selected: placeRepeat == repeats) { placeRepeat = repeats }
+                    }
                 }
+                Text(placeRepeat.hint).font(.body(12)).foregroundStyle(Mint.muted)
             }
-            .tint(Mint.ok)
         }
     }
 
@@ -327,7 +329,7 @@ private struct NewRoutineView: View {
 
     private var schedule: String {
         if let when {
-            return places.contains { $0.id == placeId } ? PlaceTrigger(kind: when, placeId: placeId, daily: daily).schedule : ""
+            return places.contains { $0.id == placeId } ? PlaceTrigger(kind: when, placeId: placeId, repeats: placeRepeat).schedule : ""
         }
         let parts = Calendar.current.dateComponents([.hour, .minute], from: time)
         let hour = parts.hour ?? 9
@@ -382,7 +384,7 @@ func describeSchedule(_ expression: String, places: [SavedPlace] = []) -> String
     if let trigger = PlaceTrigger(schedule: expression) {
         let name = places.first { $0.id == trigger.placeId }?.name ?? "a saved place"
         return (trigger.kind == .arrive ? "When you arrive at " : "When you leave ") + name
-            + (trigger.daily ? " · once a day at most" : "")
+            + (trigger.repeats.note.map { " · " + $0 } ?? "")
     }
     if let once = parseInstant(expression) { return "Once, " + describeDay(once) }
     let parts = expression.split(separator: " ").map(String.init)

@@ -10,18 +10,21 @@ class PlacesTest {
 
     @Test
     fun readsPlaceSchedules() {
-        assertEquals(PlaceSchedule(PlaceEvent.Arrive, gym, false), placeSchedule("arrive:$gym"))
-        assertEquals(PlaceSchedule(PlaceEvent.Leave, gym, true), placeSchedule("leave:$gym:daily"))
+        assertEquals(PlaceSchedule(PlaceEvent.Arrive, gym, PlaceRepeat.Always), placeSchedule("arrive:$gym"))
+        assertEquals(PlaceSchedule(PlaceEvent.Leave, gym, PlaceRepeat.Daily), placeSchedule("leave:$gym:daily"))
+        assertEquals(PlaceSchedule(PlaceEvent.Leave, gym, PlaceRepeat.Once), placeSchedule("leave:$gym:once"))
         assertNull(placeSchedule("0 9 * * *"))
         assertNull(placeSchedule("2026-10-12T09:00:00+02:00"))
         assertNull(placeSchedule("arrive:"))
         assertNull(placeSchedule("arrive:$gym:weekly"))
+        assertNull(placeSchedule("arrive:$gym:once:daily"))
     }
 
     @Test
     fun writesPlaceSchedules() {
-        assertEquals("arrive:$gym:daily", PlaceSchedule(PlaceEvent.Arrive, gym, true).toString())
-        assertEquals("leave:$gym", PlaceSchedule(PlaceEvent.Leave, gym, false).toString())
+        assertEquals("arrive:$gym:daily", PlaceSchedule(PlaceEvent.Arrive, gym, PlaceRepeat.Daily).toString())
+        assertEquals("leave:$gym", PlaceSchedule(PlaceEvent.Leave, gym, PlaceRepeat.Always).toString())
+        assertEquals("leave:$gym:once", PlaceSchedule(PlaceEvent.Leave, gym, PlaceRepeat.Once).toString())
     }
 
     @Test
@@ -29,6 +32,7 @@ class PlacesTest {
         val names = mapOf(gym to "Gym")
         assertEquals("When you arrive at Gym · once a day at most", describePlaceSchedule(placeSchedule("arrive:$gym:daily")!!, names))
         assertEquals("When you leave Gym", describePlaceSchedule(placeSchedule("leave:$gym")!!, names))
+        assertEquals("When you leave Gym · next time only", describePlaceSchedule(placeSchedule("leave:$gym:once")!!, names))
         assertEquals("When you leave a saved place", describePlaceSchedule(placeSchedule("leave:other")!!, names))
     }
 

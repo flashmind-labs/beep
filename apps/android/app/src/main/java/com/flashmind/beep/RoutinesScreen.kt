@@ -258,14 +258,14 @@ internal fun CreateCronDialog(places: List<Place>, onDismiss: () -> Unit, onAskB
     var placeId by remember { mutableStateOf(preset?.placeId) }
     // Places can arrive after the dialog opens, so the first one is picked until the user picks.
     val chosen = placeId ?: places.firstOrNull()?.id
-    var daily by remember { mutableStateOf(preset?.daily ?: true) }
+    var placeRepeat by remember { mutableStateOf(preset?.repeat ?: PlaceRepeat.Daily) }
     var repeat by remember { mutableStateOf(Repeat.Daily) }
     var days by remember { mutableStateOf(setOf(1)) }
     var custom by remember { mutableStateOf("") }
     var pickingTime by remember { mutableStateOf(false) }
     val time = rememberTimePickerState(initialHour = 9, initialMinute = 0)
     val event = trigger.event
-    val schedule = if (event != null) chosen?.let { PlaceSchedule(event, it, daily).toString() }.orEmpty() else when (repeat) {
+    val schedule = if (event != null) chosen?.let { PlaceSchedule(event, it, placeRepeat).toString() }.orEmpty() else when (repeat) {
         Repeat.Daily -> "${time.minute} ${time.hour} * * *"
         Repeat.Weekdays -> "${time.minute} ${time.hour} * * 1-5"
         Repeat.Weekly -> if (days.isEmpty()) "" else "${time.minute} ${time.hour} * * ${cronDays.filter { it in days }.joinToString(",")}"
@@ -293,14 +293,11 @@ internal fun CreateCronDialog(places: List<Place>, onDismiss: () -> Unit, onAskB
                     places.forEach { p -> FilterChip(selected = chosen == p.id, onClick = { placeId = p.id }, label = { Text(p.name) },
                         leadingIcon = { Icon(Icons.Outlined.Place, null, Modifier.size(16.dp)) }) }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Once a day at most", fontSize = 14.sp)
-                        Text("Skips it if you come back the same day", fontSize = 12.sp, color = TextMuted)
-                    }
-                    Switch(checked = daily, onCheckedChange = { daily = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok, uncheckedTrackColor = Border))
+                Text("How often", fontSize = 12.sp, color = TextMuted)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PlaceRepeat.entries.forEach { r -> FilterChip(selected = placeRepeat == r, onClick = { placeRepeat = r }, label = { Text(r.title) }) }
                 }
+                Text(placeRepeat.hint, fontSize = 12.sp, color = TextMuted)
             }
             if (event == null) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Repeat.entries.forEach { r -> FilterChip(selected = repeat == r, onClick = { repeat = r }, label = { Text(r.title) }) }

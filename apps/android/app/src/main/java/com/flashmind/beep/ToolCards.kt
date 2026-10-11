@@ -580,7 +580,7 @@ private fun SavedPlaceCard(card: ToolCard.SavedPlace, compact: Boolean, reposito
                 ?.takeIf { list -> list.any { it.id == card.id } } ?: value
         }
         CreateCronDialog(places, onDismiss = { addingRoutine = false }, onAskBeep = null,
-            preset = PlaceSchedule(PlaceEvent.Arrive, card.id, true)) { label, prompt, schedule ->
+            preset = PlaceSchedule(PlaceEvent.Arrive, card.id, PlaceRepeat.Daily)) { label, prompt, schedule ->
             scope.launch {
                 runCatching { withContext(Dispatchers.IO) { repository.createCron(label, prompt, schedule) } }
                     .onSuccess { addingRoutine = false; note = "Routine saved" }.onFailure { note = userMessage(it) }

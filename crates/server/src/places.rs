@@ -73,19 +73,51 @@ impl From<PlaceCrossing> for PlaceEvent {
     }
 }
 
+/// How often a place routine starts, written as the end of its schedule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaceRepeat {
+    /// On every arrival or departure; the schedule has no ending.
+    Always,
+    /// At most once a day in the user's timezone: `:daily`.
+    Daily,
+    /// The next time only, then the routine is deleted: `:once`.
+    Once,
+}
+
+impl PlaceRepeat {
+    /// The schedule's ending, or `None` for [`Self::Always`].
+    fn suffix(self) -> Option<&'static str> {
+        match self {
+            Self::Always => None,
+            Self::Daily => Some("daily"),
+            Self::Once => Some("once"),
+        }
+    }
+
+    /// Reads the tool's word for it: `always`, `daily` or `once`.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "always" => Some(Self::Always),
+            "daily" => Some(Self::Daily),
+            "once" => Some(Self::Once),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        self.suffix().unwrap_or("always")
+    }
+}
+
 /// A routine's schedule when it starts at a place instead of at a time:
-/// `arrive:<place id>`, `leave:<place id>`, either with `:daily` for once a
-/// day at most.
+/// `arrive:<place id>` or `leave:<place id>`, ending in `:daily` for once a
+/// day at most or `:once` for only the next time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaceTrigger {
     pub event: PlaceEvent,
     pub place: Uuid,
-    /// Skips the routine when it already ran today in the user's timezone.
-    pub daily: bool,
+    pub repeat: PlaceRepeat,
 }
-
-/// Ends a place trigger that runs once a day at most.
-const DAILY: &str = "daily";
 
 impl PlaceTrigger {
     /// Reads a schedule; `None` for a time or anything else.
@@ -93,10 +125,10 @@ impl PlaceTrigger {
         let mut parts = schedule.trim().split(':');
         let event = PlaceEvent::parse(parts.next()?)?;
         let place = parts.next()?.parse().ok()?;
-        let daily = match parts.next() {
-            None => false,
-            Some(DAILY) => true,
-            Some(_) => return None,
+        let repeat = match parts.next() {
+            None => PlaceRepeat::Always,
+            Some("always") => return None,
+            Some(ending) => PlaceRepeat::parse(ending)?,
         };
         if parts.next().is_some() {
             return None;
@@ -104,7 +136,7 @@ impl PlaceTrigger {
         Some(Self {
             event,
             place,
-            daily,
+            repeat,
         })
     }
 
@@ -119,8 +151,8 @@ impl PlaceTrigger {
 impl fmt::Display for PlaceTrigger {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.event.as_str(), self.place)?;
-        if self.daily {
-            write!(f, ":{DAILY}")?;
+        if let Some(suffix) = self.repeat.suffix() {
+            write!(f, ":{suffix}")?;
         }
         Ok(())
     }
@@ -242,12 +274,12 @@ pub async fn start_routines(app: &Arc<App>, user: &Arc<User>, crossing: &Crossed
         .place_routines(crossing.place.id, crossing.event)
         .await?
     {
-        let since = routine.trigger.daily.then_some(today);
+        let since = (routine.trigger.repeat == PlaceRepeat::Daily).then_some(today);
         if !user.claim_place_run(routine.job.id, now, since).await? {
             log::debug!("places: ran today already; job_id={}", routine.job.id);
             continue;
         }
-        if routine.job.once {
+        if routine.trigger.repeat == PlaceRepeat::Once {
             user.delete_cron(&routine.job.id.to_string()).await?;
         }
         let task = format!(
@@ -367,12 +399,17 @@ mod tests {
             PlaceTrigger {
                 event: PlaceEvent::Arrive,
                 place,
-                daily: true,
+                repeat: PlaceRepeat::Daily,
             },
             PlaceTrigger {
                 event: PlaceEvent::Leave,
                 place,
-                daily: false,
+                repeat: PlaceRepeat::Always,
+            },
+            PlaceTrigger {
+                event: PlaceEvent::Leave,
+                place,
+                repeat: PlaceRepeat::Once,
             },
         ] {
             assert_eq!(PlaceTrigger::parse(&trigger.to_string()), Some(trigger));
@@ -381,6 +418,7 @@ mod tests {
         assert_eq!(PlaceTrigger::parse("2026-10-05T09:00:00+00:00"), None);
         assert_eq!(PlaceTrigger::parse("arrive:gym"), None);
         assert_eq!(PlaceTrigger::parse(&format!("arrive:{place}:weekly")), None);
+        assert_eq!(PlaceTrigger::parse(&format!("arrive:{place}:always")), None);
         assert!(PlaceTrigger::claims("arrive:gym"));
         assert!(!PlaceTrigger::claims("2026-10-05T09:00:00+00:00"));
         assert!(!PlaceTrigger::claims("0 9 * * *"));

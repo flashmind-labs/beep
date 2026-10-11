@@ -94,27 +94,33 @@ internal fun appPlace(place: ProtoPlace) = Place(
 /** Arriving at a place or leaving it, as a place routine's schedule says. */
 enum class PlaceEvent(val word: String) { Arrive("arrive"), Leave("leave") }
 
-/** A place routine's schedule: `arrive:<place id>` or `leave:<place id>`, ending in `:daily` for once a day at most. */
-data class PlaceSchedule(val event: PlaceEvent, val placeId: String, val daily: Boolean) {
-    override fun toString() = "${event.word}:$placeId" + if (daily) ":daily" else ""
+/** How often a place routine starts, as its schedule ends: nothing, `:daily` or `:once`. */
+enum class PlaceRepeat(val suffix: String?, val title: String, val hint: String, val note: String?) {
+    Always(null, "Every time", "Runs on every visit", null),
+    Daily("daily", "Once a day", "Skips it if you come back the same day", "once a day at most"),
+    Once("once", "Next time only", "Runs the next time, then deletes itself", "next time only"),
+}
+
+/** A place routine's schedule: `arrive:<place id>` or `leave:<place id>`, ending as [PlaceRepeat] says. */
+data class PlaceSchedule(val event: PlaceEvent, val placeId: String, val repeat: PlaceRepeat) {
+    override fun toString() = "${event.word}:$placeId" + (repeat.suffix?.let { ":$it" } ?: "")
 }
 
 /** Reads a place routine's schedule, or null for a time-based one. */
 internal fun placeSchedule(schedule: String): PlaceSchedule? {
     val parts = schedule.trim().split(":")
     val event = PlaceEvent.entries.firstOrNull { it.word == parts.first() } ?: return null
-    return when {
-        parts.size == 2 && parts[1].isNotBlank() -> PlaceSchedule(event, parts[1], false)
-        parts.size == 3 && parts[1].isNotBlank() && parts[2] == "daily" -> PlaceSchedule(event, parts[1], true)
-        else -> null
-    }
+    if (parts.size !in 2..3 || parts[1].isBlank()) return null
+    val repeat = if (parts.size == 2) PlaceRepeat.Always
+        else PlaceRepeat.entries.firstOrNull { it.suffix != null && it.suffix == parts[2] } ?: return null
+    return PlaceSchedule(event, parts[1], repeat)
 }
 
 /** "When you arrive at Gym · once a day at most", naming the place from [names] by id. */
 internal fun describePlaceSchedule(schedule: PlaceSchedule, names: Map<String, String>): String {
     val place = names[schedule.placeId] ?: "a saved place"
     val event = when (schedule.event) { PlaceEvent.Arrive -> "arrive at"; PlaceEvent.Leave -> "leave" }
-    return "When you $event $place" + if (schedule.daily) " · once a day at most" else ""
+    return "When you $event $place" + (schedule.repeat.note?.let { " · $it" } ?: "")
 }
 
 /** "Within 100 m · 1 routine · last here Thu", as a place's row says it. */

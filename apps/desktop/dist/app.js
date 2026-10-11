@@ -1530,8 +1530,9 @@ function describeDay(at) {
 
 /// Reads the cron shapes the form writes as words, the same as the phone. Anything else shows as written.
 function routineWhen(s) {
-  const place = /^(arrive|leave):[^:]+(:daily)?$/.exec(s);
-  if (place) return (place[1] === "arrive" ? "When you arrive at a saved place" : "When you leave a saved place") + (place[2] ? " · once a day at most" : "");
+  const place = /^(arrive|leave):[^:]+(?::(daily|once))?$/.exec(s);
+  if (place) return (place[1] === "arrive" ? "When you arrive at a saved place" : "When you leave a saved place")
+    + ({ daily: " · once a day at most", once: " · next time only" }[place[2]] ?? "");
   if (/^\d{4}-\d\d-\d\dT/.test(s)) {
     const at = new Date(s);
     if (!isNaN(at)) return "Once, " + describeDay(at);
