@@ -390,6 +390,117 @@ requests! {
     85 GetAgents {} => Call<Agents>
     /// Turns agents on or off for every user. Admins only.
     86 SetAgents { enabled: bool } => Call<Agents>
+    /// The price chart of `symbol` over `range`, as `show_stock_chart`
+    /// draws it, for a chart's range buttons.
+    87 StockChart { symbol: String, range: ChartRange } => Call<Chart>
+}
+
+/// A chart under a reply, as `show_chart` and `show_stock_chart` return it
+/// in their tool result and `StockChart` answers it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Chart {
+    pub title: String,
+    pub kind: ChartKind,
+    /// Whether `x` is a time in Unix milliseconds or an index into
+    /// `categories`.
+    pub x: ChartAxis,
+    /// The labels of a category axis, in order. Empty on a time axis.
+    pub categories: Vec<String>,
+    /// What the values measure, such as "USD" or "°C". Empty when unknown.
+    pub unit: String,
+    /// One to four series, each drawn in its own color.
+    pub series: Vec<ChartSeries>,
+    /// Set on a stock chart, so the app can offer the other ranges.
+    pub stock: Option<StockInfo>,
+    /// Where the numbers come from, such as "Yahoo Finance". Empty when
+    /// the model gave them.
+    pub source: String,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartSeries {
+    pub name: String,
+    pub points: Vec<ChartPoint>,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ChartPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// The quote a stock chart is drawn for.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StockInfo {
+    pub symbol: String,
+    /// The company or fund, such as "Apple Inc.". Empty when unknown.
+    pub name: String,
+    pub exchange: String,
+    pub currency: String,
+    pub range: ChartRange,
+    /// The latest price.
+    pub last: f64,
+    /// The close before the range started, which the change is against.
+    pub previous: f64,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChartKind {
+    Line,
+    Area,
+    Bar,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChartAxis {
+    Time,
+    Category,
+}
+
+/// How far back a stock chart reaches.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChartRange {
+    #[serde(rename = "1d")]
+    Day,
+    #[serde(rename = "5d")]
+    Week,
+    #[serde(rename = "1mo")]
+    Month,
+    #[serde(rename = "6mo")]
+    HalfYear,
+    #[serde(rename = "ytd")]
+    YearToDate,
+    #[serde(rename = "1y")]
+    Year,
+    #[serde(rename = "5y")]
+    FiveYears,
+    Max,
+}
+
+impl ChartRange {
+    /// The name it has in JSON and in Yahoo Finance's `range`, such as "1mo".
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Day => "1d",
+            Self::Week => "5d",
+            Self::Month => "1mo",
+            Self::HalfYear => "6mo",
+            Self::YearToDate => "ytd",
+            Self::Year => "1y",
+            Self::FiveYears => "5y",
+            Self::Max => "max",
+        }
+    }
 }
 
 /// A picture someone sent, kept on the server as long as its chat. Read its

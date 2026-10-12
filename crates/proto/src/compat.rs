@@ -117,6 +117,10 @@ sample_struct! {
     ChatMessage { id, turn_id, timestamp, body }
     TurnInfo { model, auto, reasoning, memory_score }
     UpdatePage { updates, last, more, reset }
+    Chart { title, kind, x, categories, unit, series, stock, source }
+    ChartSeries { name, points }
+    ChartPoint { x, y }
+    StockInfo { symbol, name, exchange, currency, range, last, previous }
 }
 
 macro_rules! sample_values {
@@ -145,6 +149,18 @@ sample_values! {
         ReasoningLevel::Low,
         ReasoningLevel::Medium,
         ReasoningLevel::High,
+    ]
+    ChartKind => [ChartKind::Line, ChartKind::Area, ChartKind::Bar]
+    ChartAxis => [ChartAxis::Time, ChartAxis::Category]
+    ChartRange => [
+        ChartRange::Day,
+        ChartRange::Week,
+        ChartRange::Month,
+        ChartRange::HalfYear,
+        ChartRange::YearToDate,
+        ChartRange::Year,
+        ChartRange::FiveYears,
+        ChartRange::Max,
     ]
 }
 

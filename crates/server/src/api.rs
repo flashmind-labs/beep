@@ -16,6 +16,7 @@ use crate::{
         Location, NewKey, PushDevice, SavedPlace, SkillPatch, SkillRow, TurnsToDelete,
         decode_schedule, encode_schedule,
     },
+    tools::stocks::{self, StockError, Symbol},
     wake,
 };
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -118,6 +119,7 @@ pub fn router() -> Router {
         .call(delete_skill)
         .call(undo_skill)
         .stream(stream_updates)
+        .call(stock_chart)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -157,12 +159,32 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         thinking: req.thinking,
         origin: cx.device,
         platform: req.platform,
+        charts: draws_charts(&cx),
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
         CreateRun::Conflict => Err(ApiError::Conflict {
             message: "session busy".into(),
         }),
+    }
+}
+
+/// Whether a run started on this connection gets the chart tools: only the
+/// macOS app draws them.
+fn draws_charts(cx: &Cx) -> bool {
+    cx.device == (DeviceKind::Desktop {}) && cx.supports(Feature::CHARTS)
+}
+
+/// One symbol's chart over another range, for a stock chart's range buttons.
+async fn stock_chart(_: Cx, req: StockChart) -> Reply<Chart> {
+    let symbol = Symbol::parse(&req.symbol).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    match stocks::fetch(&[symbol], req.range).await {
+        Ok(histories) => Ok(stocks::chart(req.range, &histories)),
+        Err(StockError::NotFound(_) | StockError::NoPrices(_)) => Err(ApiError::NotFound {}),
+        Err(e) => {
+            log::warn!("stock chart failed: {e}; symbol={}", req.symbol);
+            Err(ApiError::Internal {})
+        }
     }
 }
 
@@ -861,6 +883,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         thinking: None,
         origin: cx.device,
         platform: None,
+        charts: draws_charts(&cx),
     };
     let conversation = cx.user.context(session_id).await?;
     let open = conversation.map(|context| permissions::open_calls(&context.conversation));
