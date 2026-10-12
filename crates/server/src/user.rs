@@ -39,18 +39,19 @@ use crate::{
     },
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
-        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Join, JoinedGroup, LinkKey,
-        Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, NewFile, NewKey, NewMessage,
-        NewPicture, NewPlace, NewPlaceRoutine, Origin, PicturesOf, PlaceRoutine, Posted,
-        ProfileNote, ProfileRead, PushDevice, RunStatus, SavedPlace, SavedTurn, Share, SkillOwner,
-        SkillPatch, SkillRow, Store, StoredContext, StoredMessage, TurnRecord, TurnsToDelete,
+        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Invite, Join, JoinedGroup,
+        LinkKey, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge, MergeInto, NewFile,
+        NewKey, NewMessage, NewPicture, NewPlace, NewPlaceRoutine, Origin, PicturesOf,
+        PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice, RunStatus, SavedPlace,
+        SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, Store, StoredContext, StoredMessage,
+        TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 use flashmind::{
-    core::Conversation,
+    core::{CancellationToken, Conversation},
     cron::CronJob,
     tools::{
         composio::{ComposioClient, make_composio_tool_wrappers},
@@ -59,6 +60,7 @@ use flashmind::{
     types::{Model, ReasoningLevel, Tool},
 };
 use futures::{StreamExt, stream};
+use iroh::EndpointId;
 use secrecy::ExposeSecret;
 use serde_json::Value;
 use std::{
@@ -69,7 +71,7 @@ use std::{
 };
 use tokio::{
     sync::{OnceCell, broadcast, watch},
-    time::{MissedTickBehavior, interval},
+    time::{Interval, MissedTickBehavior, interval},
 };
 use uuid::Uuid;
 
@@ -111,6 +113,8 @@ pub struct User {
     /// Feeds being synced, so the hourly sweep and a new connection never
     /// read the same feed at once.
     syncing: Mutex<HashSet<Feed>>,
+    /// Ends the background loops `start` began, once the account is gone.
+    stopped: CancellationToken,
 }
 
 /// What every user is built from.
@@ -137,6 +141,7 @@ impl User {
             starters: AsyncMutex::new(None),
             starter_refreshes: Mutex::default(),
             syncing: Mutex::new(HashSet::new()),
+            stopped: CancellationToken::new(),
         })
     }
 
@@ -183,8 +188,7 @@ impl User {
             let mut ticks = interval(KEEP_ALIVE);
             // The first tick is immediate; the servers connect on first use.
             ticks.tick().await;
-            loop {
-                ticks.tick().await;
+            while user.tick(&mut ticks).await {
                 user.keep_mcp_alive().await;
             }
         });
@@ -193,8 +197,7 @@ impl User {
         tokio::spawn(async move {
             let mut ticks = interval(SYNC_SWEEP);
             ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
-            loop {
-                ticks.tick().await;
+            while user.tick(&mut ticks).await {
                 feeds::sync_user(&sync_app, &user, &user.feeds().await).await;
             }
         });
@@ -202,8 +205,7 @@ impl User {
         let (app, user) = (app.clone(), self.clone());
         tokio::spawn(async move {
             let mut ticks = interval(CURATE_SWEEP);
-            loop {
-                ticks.tick().await;
+            while user.tick(&mut ticks).await {
                 match user.file_memories().await {
                     Ok(0) => {}
                     Ok(filed) => log::info!("filed {filed} memories; user={user}"),
@@ -212,6 +214,19 @@ impl User {
                 user.curate_if_due(app.generator(user.id())).await;
             }
         });
+    }
+
+    /// Waits for the next tick; false once the user is stopped.
+    async fn tick(&self, ticks: &mut Interval) -> bool {
+        tokio::select! {
+            _ = self.stopped.cancelled() => false,
+            _ = ticks.tick() => true,
+        }
+    }
+
+    /// Ends the loops `start` began.
+    pub fn stop(&self) {
+        self.stopped.cancel();
     }
 
     /// Claims `feed` for one sync, or `None` while another sync has it.
@@ -688,6 +703,24 @@ impl User {
     /// The account's primary key, then the keys linked to it.
     pub async fn account_keys(&self) -> Result<Vec<AccountKey>> {
         self.store.account_keys(&self.key).await
+    }
+
+    /// A code another device joins this account with, shown by `endpoint`
+    /// under `name`.
+    pub async fn create_invite(
+        &self,
+        endpoint: &EndpointId,
+        name: &str,
+        ttl: Duration,
+    ) -> Result<Invite> {
+        self.store
+            .create_invite(&self.key, endpoint, name, ttl)
+            .await
+    }
+
+    /// Moves this account into the one that made the code.
+    pub async fn merge_into(&self, into: MergeInto<'_>) -> Result<Merge> {
+        self.store.merge_into(&self.key, into).await
     }
 
     /// Stops a linked key signing in; `false` when the account has no such key.
@@ -1520,6 +1553,19 @@ impl User {
             Err(_) => {
                 log::warn!("apps: listing Composio tools timed out");
                 AppTools::default()
+            }
+        }
+    }
+
+    /// Whether a Composio app is connected under the user's outside id.
+    /// `None` without Composio, or when it does not answer.
+    pub async fn composio_connected(&self) -> Option<bool> {
+        let client = self.composio_client()?;
+        match connected_slugs(&client, self.external_id()).await {
+            Ok(slugs) => Some(!slugs.is_empty()),
+            Err(error) => {
+                log::warn!("apps: unable to list connected accounts: {error:#}");
+                None
             }
         }
     }

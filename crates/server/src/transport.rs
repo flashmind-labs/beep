@@ -4,7 +4,7 @@ use crate::{
     api,
     app::App,
     protocol::{
-        ClientInfo, Hello, Rpc,
+        ClientInfo, DeviceKind, Hello, Platform, Rpc,
         wire::{Frame, Tx, framed},
     },
     push::{CLOSE_REVOKED, Pusher},
@@ -86,10 +86,23 @@ impl ProtocolHandler for BeepHandler {
             client.platform,
             client.version
         );
+        // A key makes its account as a phone; one the Mac app made it with
+        // is a computer.
+        let mut device = signed_in.device;
+        if signed_in.primary
+            && matches!(device, DeviceKind::Phone {})
+            && matches!(client.platform, Some(Platform::Macos {}))
+        {
+            device = DeviceKind::Desktop {};
+            let endpoint = connection.remote_id();
+            if let Err(e) = self.app.store.set_key_kind(&endpoint, device).await {
+                log::warn!("unable to mark a key as a computer: {e:#}");
+            }
+        }
         let cx = Cx {
             app: self.app.clone(),
             user: signed_in.user,
-            device: signed_in.device,
+            device,
             primary: signed_in.primary,
             connection: connection.clone(),
             pusher: self.pusher.clone(),

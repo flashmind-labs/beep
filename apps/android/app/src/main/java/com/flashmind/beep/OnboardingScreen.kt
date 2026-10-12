@@ -109,6 +109,8 @@ internal fun OnboardingScreen(
             }
 
             KeyCard(repository)
+            Spacer(Modifier.height(12.dp))
+            ComputerCard(repository)
             Spacer(Modifier.height(20.dp))
             ChunkyButton(
                 onClick = {
@@ -184,6 +186,47 @@ private fun KeyCard(repository: ChatRepository) {
             if (error.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(error, fontSize = 12.sp, color = Beep.colors.error)
+            }
+        }
+    }
+}
+
+/** What the computer card says once a code went through: a title and a line under it. */
+private class Done(val title: String, val text: String)
+
+/** Joins a computer's account, or links a computer to this one, from the code it shows. */
+@Composable
+private fun ComputerCard(repository: ChatRepository) {
+    var done by remember { mutableStateOf<Done?>(null) }
+    val codes = rememberLinkCodes(repository,
+        onLinked = { done = Done("Linked $it", "It sees the chats and memories on this phone.") },
+        onJoined = { done = Done("On $it's account", "This phone now shows $it's chats and memories.") })
+    LinkCodeSheets(codes)
+    BeepCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val finished = done
+                Icon(if (finished != null) Icons.Outlined.CheckCircle else Icons.Outlined.Laptop, null,
+                    tint = if (finished != null) Beep.colors.ok else TextMuted, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(finished?.title ?: "Using Beep on a computer?", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(finished?.text ?: "Scan the code Beep shows on your computer to use the same chats and memories here.",
+                        fontSize = 12.sp, color = TextMuted, lineHeight = 17.sp)
+                }
+            }
+            if (done == null) {
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ChunkyButton(onClick = { if (!codes.busy) codes.scan() }, color = Beep.colors.user, contentColor = Beep.colors.onUser,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text(if (codes.busy) "Working" else "Scan code", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = { codes.typing = true }, enabled = !codes.busy) {
+                        Text("Type code", fontSize = 13.sp, color = TextMuted)
+                    }
+                }
             }
         }
     }

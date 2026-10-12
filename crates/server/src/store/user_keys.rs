@@ -200,6 +200,16 @@ impl Store {
         Ok(revoked > 0)
     }
 
+    /// Records what kind of device `endpoint` is.
+    pub async fn set_key_kind(&self, endpoint: &EndpointId, kind: DeviceKind) -> Result<()> {
+        sqlx::query("UPDATE user_keys SET kind=$2 WHERE endpoint_id=$1")
+            .bind(endpoint.to_string())
+            .bind(kind.as_str())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Every key that signs into account `user`, for pushing notices.
     pub async fn live_keys(&self, user: &str) -> Result<Vec<String>> {
         Ok(sqlx::query_scalar(

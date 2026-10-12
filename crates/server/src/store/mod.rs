@@ -23,6 +23,7 @@ mod groups;
 mod habits;
 mod location;
 mod memories;
+mod merge;
 mod messages;
 mod places;
 mod profile;
@@ -49,6 +50,7 @@ pub use files::{NewFile, NewPicture, PicturesOf};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
+pub use merge::{Invite, Inviter, Merge, MergeInto};
 pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnRecord};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
@@ -216,6 +218,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         33,
         "agents",
         include_str!("../../migrations/0033_agents.sql"),
+    ),
+    (
+        34,
+        "account invites",
+        include_str!("../../migrations/0034_account_invites.sql"),
     ),
 ];
 

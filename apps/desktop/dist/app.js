@@ -1498,8 +1498,90 @@ function drawLink(state) {
     linked: `<h4>Linked</h4><p>This computer now sees your chats and memories.</p>${qr}`,
     expired: `<h4>Link to your phone</h4><p>Scan with Beep on your phone: Settings, Linked devices.</p>${qr}<button class="dbtn pri" id="again">New code</button><p style="font-size:12px">A code lasts ten minutes.</p>`,
   };
-  bar.innerHTML = `<div class="dwin">${parts[state]}</div>`;
+  const alone = state === "linked" ? "" : `<div class="dor"><span>or</span></div>
+    <button class="dbtn pri" id="here">Use Beep on this Mac</button>
+    <p style="font-size:12px">Starts an account on this Mac. You can link your phone to it later.</p>
+    <button class="dbtn quiet" id="havecode">Have a join code?</button>`;
+  bar.innerHTML = `<div class="dwin">${parts[state]}${alone}</div>`;
   $("#again")?.addEventListener("click", renderLink);
+  $("#here")?.addEventListener("click", useHere);
+  $("#havecode")?.addEventListener("click", () => renderJoinCode());
+}
+
+async function useHere(e) {
+  const button = e.currentTarget;
+  button.disabled = true;
+  clearInterval(S.timer);
+  // Not "link", so the link-state event does not show "Linked to your phone".
+  S.view = "starting";
+  try {
+    await invoke("use_here");
+    S.link = "linked";
+    loadModels();
+    renderSettings();
+  } catch (err) {
+    S.view = "link";
+    button.disabled = false;
+    button.insertAdjacentHTML("afterend", `<p class="derr">${esc(err)}</p>`);
+  }
+}
+
+/// Typing the code another computer shows, from the link view or Settings.
+function renderJoinCode(error = "", back = renderLink) {
+  clearInterval(S.timer);
+  S.view = "joincode";
+  bar.innerHTML = `<div class="dwin"><h4>Join an account</h4>
+    <label class="dfield${error ? " err" : ""}" style="width:100%;text-align:left">Join code<input id="jcode" class="mono" maxlength="20" autocomplete="off" spellcheck="false" placeholder="K7QM4-X9TRP">
+      <span class="note">${esc(error || "The code your other computer shows under Settings, Devices.")}</span></label>
+    <p style="font-size:12px">This Mac's chats and memories move to that account.</p>
+    <div class="row" style="display:flex;gap:8px"><button class="dbtn" id="jback">Back</button><button class="dbtn pri" id="jjoin">Join<kbd>${ICON.ret}</kbd></button></div></div>`;
+  $("#jback").addEventListener("click", back);
+  const go = async () => {
+    const code = $("#jcode").value;
+    $("#jjoin").disabled = true;
+    S.view = "joining";
+    try {
+      const name = await invoke("join_account", { code });
+      S.link = "linked";
+      bar.innerHTML = `<div class="dwin"><h4>Joined</h4><p>This Mac is now on ${esc(name)}'s account.</p></div>`;
+      setTimeout(renderChat, 1800);
+    } catch (err) {
+      renderJoinCode(/not found/i.test(err) ? "That code is used up or expired. Ask for a new one." : String(err), back);
+    }
+  };
+  $("#jjoin").addEventListener("click", go);
+  $("#jcode").addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  $("#jcode").focus();
+}
+
+/// A code for a phone to join this Mac's account with.
+async function renderInvitePhone() {
+  S.view = "invite-phone";
+  clearInterval(S.timer);
+  let inv;
+  try {
+    inv = await invoke("invite_phone");
+  } catch (e) {
+    bar.innerHTML = `<div class="dwin"><h4>Link a phone</h4><p class="derr">${esc(e)}</p></div>`;
+    return;
+  }
+  if (S.view !== "invite-phone") return;
+  const until = Date.now() + inv.expires_in * 1000;
+  bar.innerHTML = `<div class="dwin"><h4>Link a phone</h4>
+    <p>Scan with Beep on your phone: Settings, Linked devices. The phone's chats and memories move to this Mac's account.</p>
+    <div class="qr" id="iqr">${inv.qr_svg}</div><div class="code" style="font-size:22px;font-weight:600">${esc(inv.code)}</div>
+    <p style="font-size:12px" id="ileft">A code lasts ten minutes.</p>
+    <div style="display:flex;gap:8px"><button class="dbtn" id="iback">Back</button><button class="dbtn pri" id="icopy">Copy code</button></div></div>`;
+  $("#icopy").addEventListener("click", e => copy(inv.code, e.currentTarget));
+  $("#iback").addEventListener("click", () => { clearInterval(S.timer); renderSettings(); });
+  S.timer = setInterval(() => {
+    if (S.view !== "invite-phone") return clearInterval(S.timer);
+    if (Date.now() < until) return;
+    clearInterval(S.timer);
+    $("#iqr")?.classList.add("dim");
+    $("#ileft").innerHTML = 'Code expired. <button class="dbtn quiet" id="inew">New code</button>';
+    $("#inew").addEventListener("click", renderInvitePhone);
+  }, 1000);
 }
 
 function renderRevoked() {
@@ -1523,22 +1605,56 @@ async function renderSettings(confirm = false) {
   }
   if (S.view !== "settings") return;
   const linked = S.link === "linked";
-  const link = linked
-    ? `<div class="dtoggle"><span><b style="display:flex;gap:7px;align-items:center"><i class="ddot"></i>Linked to your phone</b><small>This Mac: ${esc(set.name)}</small></span>
-        ${confirm ? "" : '<button class="dbtn warn" id="unlink">Unlink this Mac</button>'}</div>`
-    : `<div class="dtoggle"><span><b>Not linked</b><small>Link to see your chats and memories here</small></span><button class="dbtn pri" id="link">Link to phone…</button></div>`;
+  let devices = [];
+  if (linked) {
+    try {
+      devices = await invoke("list_devices");
+    } catch (e) {
+      console.warn(e);
+    }
+    if (S.view !== "settings") return;
+    if (!A.apps) A.apps = await invoke("list_apps").catch(() => null);
+    if (S.view !== "settings") return;
+  }
+  // Whether this Mac made the account, and so links and removes devices.
+  const owner = devices.some(d => d.this_device && d.primary);
+  const row = d => {
+    const tags = [d.this_device ? "This Mac" : "", d.primary ? "Owner" : ""].filter(Boolean)
+      .map(t => `<span class="dtag">${t}</span>`).join("");
+    const remove = owner && !d.this_device ? `<button class="dbtn quiet" data-remove="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">${ICON.x}</button>` : "";
+    return `<div class="dtoggle"><span><b style="display:flex;gap:7px;align-items:center">${esc(d.name)}${tags}</b><small>${d.kind === "phone" ? "Phone" : "Computer"}</small></span>${remove}</div>`;
+  };
+  const link = !linked
+    ? `<div class="dtoggle"><span><b>Not linked</b><small>Link to see your chats and memories here</small></span><button class="dbtn pri" id="link">Link to phone…</button></div>`
+    : devices.map(row).join("") + (owner
+      ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'
+      : confirm ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`);
   const ask = linked && confirm ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px">
       <b style="font-size:13.5px">Unlink this Mac?</b><div class="dmuted" style="display:block">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
       <div style="display:flex;gap:8px"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn" id="unlinkNo">Cancel</button></div>
       <div class="derr" id="unlinkErr"></div></div></div>` : "";
+  const on = (A.apps ?? []).filter(a => a.connected).map(a => a.name);
+  const apps = linked ? `<div class="dsec flat" style="padding-top:6px">Apps</div>
+      <div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
     <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">
-      <div class="dsec flat">Phone</div>${link}${ask}
+      <div class="dsec flat">Devices</div>${link}${ask}${apps}
       <div class="dsec flat" style="padding-top:6px">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
     </div>${hints([["esc", "close"]])}`;
   $("#link")?.addEventListener("click", renderLink);
+  $("#invite")?.addEventListener("click", renderInvitePhone);
+  $("#apps")?.addEventListener("click", renderApps);
+  bar.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      await invoke("remove_device", { id: b.dataset.remove });
+    } catch (e) {
+      console.warn(e);
+    }
+    renderSettings();
+  }));
   $("#unlink")?.addEventListener("click", () => renderSettings(true));
   $("#unlinkNo")?.addEventListener("click", () => renderSettings());
   $("#unlinkYes")?.addEventListener("click", async () => {
@@ -1558,6 +1674,187 @@ async function renderSettings(confirm = false) {
       console.warn(err);
     }
   });
+}
+
+// ---------- Apps ----------
+
+/// The Apps view: every app, the one being connected and the one whose
+/// permissions are open.
+const A = { apps: null, error: "", connecting: null, poll: null, open: null, perms: null };
+
+const APP_LEVELS = [
+  ["ask", "Ask first", "Beep shows what it is about to do and waits for you."],
+  ["allow", "Always allow", "Beep sends, changes and deletes without asking."],
+  ["read", "Read only", "Beep can search and read, never change anything."],
+];
+
+function appLogo(app) {
+  const letter = esc(app.name.slice(0, 1).toUpperCase());
+  return app.logo_url ? `<img class="dalogo" src="${esc(app.logo_url)}" alt="" data-letter="${letter}">` : `<span class="dalogo">${letter}</span>`;
+}
+/// A logo that does not load becomes the app's first letter.
+function logoFallbacks(root) {
+  root.querySelectorAll("img.dalogo").forEach(img => img.addEventListener("error", () => img.replaceWith(h(`<span class="dalogo">${img.dataset.letter}</span>`)), { once: true }));
+}
+
+function renderApps() {
+  S.view = "apps";
+  A.open = null;
+  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Apps</b><small>Connect once, then just ask from any chat</small></span></div>
+    <div class="dlist dapps" id="alist"></div>${hints([["esc", "back"]])}`;
+  $("#alist").addEventListener("click", appsClick);
+  drawApps();
+  loadApps();
+}
+
+async function loadApps() {
+  try {
+    A.apps = await invoke("list_apps");
+    A.error = "";
+  } catch (e) {
+    A.error = String(e);
+  }
+  // A Composio sign-in ends on the web page; the app shows up connected here.
+  if (A.connecting && A.apps?.find(a => a.slug === A.connecting)?.connected) stopConnecting();
+  if (S.view === "apps") drawApps();
+}
+
+function drawApps() {
+  const list = $("#alist");
+  if (!list) return;
+  const apps = A.apps ?? [];
+  const row = app => {
+    let end;
+    if (A.connecting === app.slug) end = `<span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" data-cancel>Cancel</button>`;
+    else if (app.connected) end = `<span class="dtag">Connected</span><span class="dmuted">${ICON.chev}</span>`;
+    else if (!app.configured) end = '<span class="dmuted">Unavailable</span>';
+    else end = `<button class="dbtn pri" data-connect="${esc(app.slug)}"${A.connecting ? " disabled" : ""}>Connect</button>`;
+    return `<div class="dapp${app.connected ? " on" : ""}" ${app.connected ? `data-open="${esc(app.slug)}" role="button" tabindex="0"` : ""}>
+      ${appLogo(app)}<span class="tt"><b>${esc(app.name)}</b><small>${esc(app.description)}</small></span>${end}</div>`;
+  };
+  const connected = apps.filter(a => a.connected), more = apps.filter(a => !a.connected);
+  let html = A.error ? `<div class="derr" style="padding:8px 10px">${esc(A.error)}</div>` : "";
+  if (!A.apps && !A.error) html += '<div class="dmuted" style="padding:14px 10px"><span class="dspin"></span></div>';
+  if (connected.length) html += '<div class="dsec">Connected</div>' + connected.map(row).join("");
+  if (more.length) html += `<div class="dsec">${connected.length ? "More apps" : "Available"}</div>` + more.map(row).join("");
+  list.innerHTML = html;
+  logoFallbacks(list);
+}
+
+async function appsClick(e) {
+  if (e.target.closest("[data-cancel]")) {
+    invoke("cancel_app_sign_in").catch(() => {});
+    return stopConnecting();
+  }
+  const connect = e.target.closest("[data-connect]");
+  if (connect) return connectApp(A.apps.find(a => a.slug === connect.dataset.connect));
+  const open = e.target.closest("[data-open]");
+  if (open) return renderAppPermissions(A.apps.find(a => a.slug === open.dataset.open));
+}
+
+async function connectApp(app) {
+  if (!app || A.connecting) return;
+  A.connecting = app.slug;
+  A.error = "";
+  drawApps();
+  try {
+    await invoke("connect_app", { slug: app.slug, kind: app.kind });
+  } catch (e) {
+    if (A.connecting === app.slug && String(e) !== "cancelled") A.error = String(e);
+    stopConnecting();
+    return;
+  }
+  // Fastmail is connected once the call returns. A Composio app finishes on
+  // its web page, so look again until it shows up, for ten minutes at most.
+  if (app.kind === "fastmail") return stopConnecting();
+  const until = Date.now() + 10 * 60e3;
+  A.poll = setInterval(() => {
+    if (Date.now() > until || S.view !== "apps") return stopConnecting();
+    loadApps();
+  }, 3000);
+}
+
+function stopConnecting() {
+  clearInterval(A.poll);
+  A.poll = null;
+  A.connecting = null;
+  loadApps();
+}
+
+async function renderAppPermissions(app) {
+  if (!app) return;
+  S.view = "appperms";
+  A.open = app;
+  A.perms = null;
+  bar.innerHTML = `<div class="dhead">${appLogo(app)}<span class="tt"><b>${esc(app.name)}</b><small>What Beep may do here</small></span></div>
+    <div class="dlist dapps" id="plist"></div>${hints([["esc", "back"]])}`;
+  logoFallbacks(bar);
+  $("#plist").addEventListener("click", permsClick);
+  drawPerms();
+  try {
+    A.perms = await invoke("app_permissions", { slug: app.slug });
+    A.error = "";
+  } catch (e) {
+    A.error = String(e);
+  }
+  if (S.view === "appperms" && A.open === app) drawPerms();
+}
+
+function drawPerms() {
+  const list = $("#plist"), app = A.open, p = A.perms;
+  if (!list || !app) return;
+  let html = A.error ? `<div class="derr" style="padding:8px 10px">${esc(A.error)}</div>` : "";
+  if (!p && !A.error) html += '<div class="dmuted" style="padding:14px 10px"><span class="dspin"></span></div>';
+  if (p) {
+    html += `<div class="dsec">When Beep acts in ${esc(app.name)}</div>` + APP_LEVELS.map(([level, title, detail]) =>
+      `<button class="dlevel" role="radio" aria-checked="${p.level === level}" data-level="${level}"><span class="dradio"></span>
+        <span class="tt"><b>${title}</b><small>${detail}</small></span></button>`).join("");
+    if (p.actions.length) {
+      html += '<div class="dsec">Actions</div>' + p.actions.map(a => {
+        const [tag, cls] = p.level === "read" ? ["Off", ""] : p.level === "allow" || a.allowed ? ["Allowed", " ok"] : ["Asks", " ask"];
+        const sw = p.level === "ask" ? `<button class="dswitch" role="switch" aria-checked="${a.allowed}" data-tool="${esc(a.tool)}" aria-label="Always allow ${esc(a.label)}"></button>` : "";
+        return `<div class="daction"><span>${esc(a.label)}</span><span class="dtag${cls}">${tag}</span>${sw}</div>`;
+      }).join("");
+    }
+    html += '<div class="dmuted" style="padding:8px 10px;display:block">Searching and reading is always allowed.</div>';
+  }
+  html += `<div style="padding:6px 10px 2px"><button class="dbtn warn" id="disconnect">Disconnect ${esc(app.name)}</button></div>`;
+  list.innerHTML = html;
+}
+
+async function permsClick(e) {
+  const app = A.open, p = A.perms;
+  if (e.target.closest("#disconnect")) {
+    const b = e.target.closest("#disconnect");
+    b.disabled = true;
+    try {
+      await invoke("disconnect_app", { slug: app.slug });
+    } catch (err) {
+      A.error = String(err);
+      return drawPerms();
+    }
+    A.apps = null;
+    return renderApps();
+  }
+  if (!p) return;
+  const level = e.target.closest("[data-level]")?.dataset.level;
+  const tool = e.target.closest("[data-tool]")?.dataset.tool;
+  if (!level && !tool) return;
+  const next = {
+    level: level ?? p.level,
+    actions: p.actions.map(a => a.tool === tool ? { ...a, allowed: !a.allowed } : a),
+  };
+  if (next.level === p.level && !tool) return;
+  A.perms = next;
+  drawPerms();
+  try {
+    await invoke("set_app_permissions", { slug: app.slug, level: next.level, allowed: next.actions.filter(a => a.allowed).map(a => a.tool) });
+    A.error = "";
+  } catch (err) {
+    A.perms = p;
+    A.error = String(err);
+  }
+  if (S.view === "appperms") drawPerms();
 }
 
 // ---------- Charts ----------
@@ -2330,6 +2627,9 @@ async function show(view) {
   if (view === "new") return newChat();
   if (view === "memories") return renderMemories();
   if (view === "routines") return renderRoutines();
+  if (view === "apps") return renderApps();
+  // Back from the browser: look again at what is connected.
+  if (S.view === "apps") return loadApps();
   // A chat picked from the tray's Recent menu, already made current in Rust.
   if (view === "open" && st.session) return openSession(st.session);
   // A group stays up between showings, fetched again for what came in.
@@ -2386,6 +2686,8 @@ function back() {
   if (S.view === "memories" && M.mode !== "list") { M.mode = "list"; drawMemories(); return $("#mfind")?.focus(); }
   if (S.view === "routines" && R.mode !== "list") return routineAction("list");
   if (S.view === "rnew") return renderRoutines();
+  if (S.view === "appperms") return renderApps();
+  if (S.view === "apps") return renderSettings();
   if (S.view === "model") return S.session ? openSession(S.session) : renderChat();
   if ((S.view === "memories" || S.view === "routines" || S.view === "settings") && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
   if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id);

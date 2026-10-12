@@ -1,8 +1,10 @@
 //! Beep for macOS. A tray app whose bar opens on a double tap of Option.
 
+mod apps;
 mod bar;
 mod beep;
 mod commands;
+mod devices;
 mod error;
 mod groups;
 mod hotkey;
@@ -98,6 +100,17 @@ fn main() {
             commands::save_file,
             commands::reveal_file,
             commands::unlink,
+            apps::list_apps,
+            apps::connect_app,
+            apps::cancel_app_sign_in,
+            apps::disconnect_app,
+            apps::app_permissions,
+            apps::set_app_permissions,
+            devices::use_here,
+            devices::list_devices,
+            devices::invite_phone,
+            devices::remove_device,
+            devices::join_account,
             commands::settings,
             commands::set_autostart,
             commands::start_over,
@@ -151,6 +164,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
     app.manage(beep.clone());
     app.manage(Recent::default());
+    app.manage(apps::SignIn::default());
     app.manage(update::Updates::default());
 
     tauri::async_runtime::spawn(serve_notices(handle.clone(), beep.clone(), notices));
@@ -184,9 +198,7 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, mut notices: Notices) {
     while let Some(notice) = notices.recv().await {
         if beep.link_state() == LinkState::Unlinked {
             beep.set_link_state(LinkState::Linked);
-            let _ = app.emit("link-state", LinkState::Linked);
-            refresh_tray(&app);
-            tauri::async_runtime::spawn(refresh_recent(app.clone()));
+            became_linked(&app);
         }
         if notice.group {
             group_notice(&app, &beep, notice);
@@ -303,6 +315,13 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
     ] {
         menu.append(&MenuItem::with_id(app, id, title, linked, Some(keys))?)?;
     }
+    menu.append(&MenuItem::with_id(
+        app,
+        "apps",
+        "Apps",
+        linked,
+        None::<&str>,
+    )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     if link != LinkState::Linked {
         menu.append(&MenuItem::with_id(
@@ -349,6 +368,13 @@ fn refresh_tray(app: &AppHandle) {
     }
 }
 
+/// Tells the bar and the tray this Mac now signs into an account.
+pub fn became_linked(app: &AppHandle) {
+    let _ = app.emit("link-state", LinkState::Linked);
+    refresh_tray(app);
+    tauri::async_runtime::spawn(refresh_recent(app.clone()));
+}
+
 /// Fetches the latest chats for Recent and rebuilds the menu.
 async fn refresh_recent(app: AppHandle) {
     let beep = app.state::<Arc<Beep>>().inner().clone();
@@ -381,7 +407,9 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));
         }
-        view @ ("link" | "memories" | "routines" | "settings") => bar::show(app, Some(view)),
+        view @ ("apps" | "link" | "memories" | "routines" | "settings") => {
+            bar::show(app, Some(view))
+        }
         "check-update" => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move { update::check(&app, true).await });

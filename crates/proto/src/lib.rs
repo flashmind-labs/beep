@@ -285,11 +285,13 @@ requests! {
     /// thinking of each prompt from the server's Auto models. Admins only.
     48 SetAutoModel { enabled: bool } => Call<Models>
     /// Lets the device that made `offer` sign into the caller's account.
-    /// Only the account's phone may link, and only a key with no account.
+    /// Only the account's primary key may link, and only a key with no
+    /// account.
     49 LinkDevice { offer: LinkOffer } => Call<LinkedDevice>
-    /// The account's keys: the phone first, then linked devices.
+    /// The account's keys: the primary key first, then linked devices.
     50 ListDevices {} => Call<Vec<LinkedDevice>>
-    /// Unlinks a device. The phone may unlink any; a device only itself.
+    /// Unlinks a device. The primary key may unlink any; a device only
+    /// itself.
     51 RemoveDevice { id: String } => Call<()>
     /// Freezes a copy of the session that anyone with the link can open,
     /// replacing the copy an earlier share made and keeping its link. The
@@ -393,6 +395,18 @@ requests! {
     /// The price chart of `symbol` over `range`, as `show_stock_chart`
     /// draws it, for a chart's range buttons.
     87 StockChart { symbol: String, range: ChartRange } => Call<Chart>
+    /// A code another device scans or types to join the caller's account,
+    /// bringing its own account's chats, memories and devices along.
+    /// `name` is what the caller calls itself, such as "MacBook", and
+    /// becomes its name in the device list. Only the primary key may invite.
+    88 InviteDevice { name: String } => Call<DeviceInvite>
+    /// Who made the invite `code`, before joining.
+    89 PeekInvite { code: String } => Call<JoinPreview>
+    /// Moves the caller's account into the one that made `code`: its chats,
+    /// memories, routines, places and keys. Only an account's primary key
+    /// may, and not while one of its chats has a run. The server then
+    /// closes the moved keys' connections, so they sign in again.
+    90 JoinAccount { code: String } => Call<()>
 }
 
 /// A chart under a reply, as `show_chart` and `show_stock_chart` return it
@@ -1204,8 +1218,7 @@ pub struct Cron {
 }
 
 wire_enum! {
-    /// What kind of client a key belongs to. An account's own key is its
-    /// phone; linked keys are computers.
+    /// What kind of client a key belongs to.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum DeviceKind {
@@ -1272,6 +1285,25 @@ pub struct LinkedDevice {
     /// The key of the caller.
     pub this_device: bool,
     pub linked_at: SystemTime,
+}
+
+/// A code that lets another device join the account.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceInvite {
+    /// Ten letters and digits, as `link::format_join_code` shows them.
+    pub code: String,
+    /// The code as text for a QR code, as `link::join_uri` makes it.
+    pub uri: String,
+    pub expires_at: SystemTime,
+}
+
+/// The device behind an invite, shown before joining.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JoinPreview {
+    pub name: String,
+    pub kind: DeviceKind,
 }
 
 /// A group chat as its list row shows it.
