@@ -18,7 +18,12 @@ use beep_proto::{
     UnshareSession, UpdateMemory, format_group_code, group_code,
 };
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path, process::Command, sync::Arc};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::Arc,
+};
 use tauri::{AppHandle, Emitter, Manager, State, ipc::Channel};
 use tauri_plugin_autostart::ManagerExt;
 use tokio::join;
@@ -340,21 +345,74 @@ async fn cached(beep: &Beep, id: &str, path: &Path) -> Result<()> {
     }
 }
 
+/// File `id` in the cache, downloaded the first time it is asked for.
+async fn cached_file(app: &AppHandle, beep: &Beep, id: &str, name: &str) -> Result<PathBuf> {
+    if !file_id(id) {
+        return Err(DesktopError::BadRequest("bad file".into()));
+    }
+    let dir = app.path().app_cache_dir()?.join("files").join(id);
+    fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
+    let path = dir.join(file_name(name));
+    cached(beep, id, &path).await?;
+    Ok(path)
+}
+
 /// Opens a file Beep sent, downloading it into the cache the first time.
 #[tauri::command]
 pub async fn open_file(app: AppHandle, beep: Service<'_>, id: String, name: String) -> Result<()> {
-    if !file_id(&id) {
-        return Err(DesktopError::BadRequest("bad file".into()));
-    }
-    let dir = app.path().app_cache_dir()?.join("files").join(&id);
-    fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
-    let path = dir.join(file_name(&name));
-    cached(&beep, &id, &path).await?;
+    let path = cached_file(&app, &beep, &id, &name).await?;
     Command::new("open")
         .arg(&path)
         .spawn()
         .map_err(anyhow::Error::from)?;
     Ok(())
+}
+
+/// Saves a file Beep sent to Downloads, under a name not taken there yet,
+/// and returns where it went.
+#[tauri::command]
+pub async fn save_file(
+    app: AppHandle,
+    beep: Service<'_>,
+    id: String,
+    name: String,
+) -> Result<PathBuf> {
+    let from = cached_file(&app, &beep, &id, &name).await?;
+    let to = free_name(&app.path().download_dir()?, &file_name(&name));
+    fs::copy(&from, &to).map_err(anyhow::Error::from)?;
+    Ok(to)
+}
+
+/// Shows a file `save_file` put in Downloads in Finder.
+#[tauri::command]
+pub fn reveal_file(app: AppHandle, path: PathBuf) -> Result<()> {
+    let downloads = app.path().download_dir()?;
+    if path.parent() != Some(downloads.as_path()) || !path.is_file() {
+        return Err(DesktopError::BadRequest("not a saved file".into()));
+    }
+    Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .spawn()
+        .map_err(anyhow::Error::from)?;
+    Ok(())
+}
+
+/// `name` in `dir`, or the first of `name 2`, `name 3` and so on that is
+/// free, the way Finder numbers a copy.
+fn free_name(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join(name);
+    if !path.exists() {
+        return path;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
+        _ => (name, String::new()),
+    };
+    (2..1000)
+        .map(|n| dir.join(format!("{stem} {n}{ext}")))
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| dir.join(format!("{stem} {}{ext}", Uuid::new_v4())))
 }
 
 /// A picture someone sent, as a data URL the bar can draw. Its bytes are
@@ -476,7 +534,9 @@ pub fn open_url(url: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{file_name, image_mime};
+    use super::{file_name, free_name, image_mime};
+    use std::{env, fs};
+    use uuid::Uuid;
 
     #[test]
     fn image_mime_takes_picture_types_only() {
@@ -485,6 +545,18 @@ mod tests {
         assert!(!image_mime("image/"));
         assert!(!image_mime("text/html"));
         assert!(!image_mime("image/png;base64,x"));
+    }
+
+    #[test]
+    fn free_name_numbers_a_taken_name() {
+        let dir = env::temp_dir().join(format!("beep-free-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("the temp folder is writable");
+        assert_eq!(free_name(&dir, "chart.png"), dir.join("chart.png"));
+        fs::write(dir.join("chart.png"), b"x").expect("the temp folder is writable");
+        assert_eq!(free_name(&dir, "chart.png"), dir.join("chart 2.png"));
+        fs::write(dir.join("notes"), b"x").expect("the temp folder is writable");
+        assert_eq!(free_name(&dir, "notes"), dir.join("notes 2"));
+        fs::remove_dir_all(&dir).expect("the temp folder is removable");
     }
 
     #[test]

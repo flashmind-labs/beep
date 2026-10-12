@@ -41,6 +41,8 @@ pub const MAX_IMAGES: usize = 8;
 pub const SUGGEST_REPLIES: &str = "suggest_replies";
 /// Its result names a file Beep sent, which shows as a card.
 const SEND_FILE: &str = "send_file";
+/// Its result lists pictures, from the web or kept with the chat.
+const SEND_IMAGE: &str = "send_image";
 /// Its result lists products, which show as a row of cards.
 const SHOW_PRODUCTS: &str = "show_products";
 
@@ -69,6 +71,8 @@ pub enum BarEvent {
         name: String,
         success: bool,
         file: Option<SentFile>,
+        /// A `send_image` result's pictures.
+        images: Vec<SentImage>,
         /// A `show_products` result's cards, as HTML.
         products: Option<String>,
     },
@@ -167,6 +171,8 @@ pub struct ToolStep {
     pub name: String,
     pub success: bool,
     pub file: Option<SentFile>,
+    /// A `send_image` result's pictures.
+    pub images: Vec<SentImage>,
     /// A `show_products` result's cards, as HTML.
     pub products: Option<String>,
 }
@@ -178,6 +184,25 @@ pub struct SentFile {
     pub name: String,
     pub mime: String,
     pub size: u64,
+}
+
+/// A picture Beep sent with `send_image`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentImage {
+    #[serde(flatten)]
+    pub source: ImageSource,
+    #[serde(default)]
+    pub caption: String,
+}
+
+/// Where a sent picture comes from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageSource {
+    /// An https image on the web.
+    Url(String),
+    /// An image kept with the chat, fetched like a sent file.
+    File(SentFile),
 }
 
 /// The pictures a chat's messages carried, by the message they came with:
@@ -581,6 +606,7 @@ impl Beep {
                     output,
                 } => BarEvent::ToolResult {
                     file: sent_file(&name, &output),
+                    images: sent_images(&name, &output),
                     products: shown_products(&name, &output),
                     call_id,
                     name,
@@ -646,6 +672,7 @@ pub fn tool_step(name: &str, output: &str, success: bool) -> ToolStep {
         name: name.to_owned(),
         success,
         file: sent_file(name, output),
+        images: sent_images(name, output),
         products: shown_products(name, output),
     }
 }
@@ -663,6 +690,21 @@ fn sent_file(name: &str, output: &str) -> Option<SentFile> {
     serde_json::from_str::<FileOutput>(output)
         .ok()
         .map(|o| o.file)
+}
+
+#[derive(Deserialize)]
+struct ImagesOutput {
+    images: Vec<SentImage>,
+}
+
+/// The pictures a `send_image` result lists, or none for any other tool.
+fn sent_images(name: &str, output: &str) -> Vec<SentImage> {
+    if name != SEND_IMAGE {
+        return Vec::new();
+    }
+    serde_json::from_str::<ImagesOutput>(output)
+        .map(|o| o.images)
+        .unwrap_or_default()
 }
 
 /// The cards a `show_products` result lists, or `None` for any other tool.
@@ -729,6 +771,20 @@ mod tests {
         assert_eq!(file.size, 26000);
         assert!(sent_file("web_search", output).is_none());
         assert!(sent_file(SEND_FILE, "failed").is_none());
+    }
+
+    #[test]
+    fn sent_images_reads_urls_and_kept_files() {
+        let output = r#"{"action":"send_image","images":[{"url":"https://pics.example/a.jpg","caption":"A"},{"file":{"id":"f2","name":"chart.png","mime":"image/png","size":900},"caption":""}],"failed":[]}"#;
+        let images = sent_images(SEND_IMAGE, output);
+        assert_eq!(images.len(), 2);
+        assert!(
+            matches!(&images[0].source, ImageSource::Url(url) if url == "https://pics.example/a.jpg")
+        );
+        assert_eq!(images[0].caption, "A");
+        assert!(matches!(&images[1].source, ImageSource::File(file) if file.id == "f2"));
+        assert!(sent_images(SEND_FILE, output).is_empty());
+        assert!(sent_images(SEND_IMAGE, "failed").is_empty());
     }
 
     #[test]

@@ -23,7 +23,12 @@
         "skipTaskbar": true,
         "visibleOnAllWorkspaces": true,
         "acceptFirstMouse": true,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "windowEffects": {
+          "effects": ["hudWindow"],
+          "state": "active",
+          "radius": 18
+        }
       }
     ],
     "security": {

@@ -94,6 +94,8 @@ fn main() {
             commands::answer_group_approval,
             commands::open_file,
             commands::picture,
+            commands::save_file,
+            commands::reveal_file,
             commands::unlink,
             commands::settings,
             commands::set_autostart,
