@@ -375,13 +375,13 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dapps { padding-top: 4px }
 .dapps .dsec { border: 0; padding-left: 10px }
 .dalogo { width: 28px; height: 28px; border-radius: 8px; flex: none; object-fit: contain; background: var(--elev); display: grid; place-items: center; font-weight: 600; font-size: 13px; color: var(--muted) }
-.dapp, .dlevel, .daction { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border-radius: 9px; min-height: 42px }
-.dapp .tt, .dlevel .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
-.dapp .tt b, .dlevel .tt b { font-size: 13.5px; font-weight: 500 }
-.dapp .tt small, .dlevel .tt small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.dapp.on { cursor: pointer }
-.dapp.on:hover, .dlevel:hover { background: var(--elev) }
-.dapp .dmuted { display: inline-flex; gap: 6px; align-items: center; font-size: 12px }
+.dappr, .dlevel, .daction { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border-radius: 9px; min-height: 42px }
+.dappr .tt, .dlevel .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
+.dappr .tt b, .dlevel .tt b { font-size: 13.5px; font-weight: 500 }
+.dappr .tt small, .dlevel .tt small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dappr.on { cursor: pointer }
+.dappr.on:hover, .dlevel:hover { background: var(--elev) }
+.dappr .dmuted { display: inline-flex; gap: 6px; align-items: center; font-size: 12px }
 .dlevel { width: 100%; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer }
 .dradio { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); flex: none }
 .dlevel[aria-checked="true"] .dradio { border-color: var(--emerald); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 7px var(--emerald) }
