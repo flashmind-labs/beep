@@ -53,13 +53,16 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
     var confirmClear by remember { mutableStateOf(false) }
     var reads by remember { mutableStateOf(emptyList<MemoryRead>()) }
     var readId by rememberSaveable { mutableStateOf<String?>(null) }
+    // The latest read is picked once; choosing All afterwards sticks through edits.
+    var defaulted by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun refresh() { scope.launch {
         error = ""
         try {
             memories = withContext(Dispatchers.IO) { repository.listMemories() }
             reads = withContext(Dispatchers.IO) { repository.listMemoryReads() }
-            if (latestRead && readId == null) readId = reads.firstOrNull()?.id
+            if (latestRead && !defaulted) readId = reads.firstOrNull()?.id
+            defaulted = true
         }
         catch (e: Exception) { error = userMessage(e) }
         finally { loading = false }

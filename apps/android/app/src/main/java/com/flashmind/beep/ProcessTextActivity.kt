@@ -28,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class ProcessTextActivity : ComponentActivity() {
@@ -35,7 +37,7 @@ class ProcessTextActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
-        val readonly = intent.getBooleanExtra("android.intent.extra.PROCESS_TEXT_READONLY", true)
+        val readonly = intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
 
         if (text.isNullOrBlank()) {
             finish()
@@ -100,18 +102,23 @@ private fun TranslateScreen(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    var translateJob by remember { mutableStateOf<Job?>(null) }
 
+    // A new language replaces the running translation, so an older result cannot land last.
     fun doTranslate() {
         loading = true
         error = ""
         translatedText = null
-        scope.launch {
+        translateJob?.cancel()
+        translateJob = scope.launch {
             try {
                 val result = repository.translate(text, selectedLanguage)
                 translatedText = result
+                loading = false
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = e.message ?: "Translation failed"
-            } finally {
                 loading = false
             }
         }

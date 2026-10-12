@@ -168,9 +168,10 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         anchored = true
     }
     // The keyboard and a growing input resize the list every frame, so stay at the bottom without animating.
+    val latestChat by rememberUpdatedState(chat)
     LaunchedEffect(list, chat.id) {
         snapshotFlow { list.layoutInfo.viewportSize }.drop(1).collect {
-            if (followLatest && chat.messages.isNotEmpty()) list.scrollToEnd(animated = false)
+            if (followLatest && latestChat.messages.isNotEmpty()) list.scrollToEnd(animated = false)
         }
     }
     // Auto-dismiss clipboard banner after 10 seconds
@@ -365,7 +366,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                 padded = isUser || Beep.shapes.botBubble)
                         }
                         MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote,
-                            onDelete = if (message.role in setOf("user", "scheduled") && !chat.busy) {
+                            onDelete = if (message.role == "user" && !chat.busy) {
                                 { scope.launch { runCatching { repository.deleteTurn(message, chat.id) }.onFailure { showError(context, it) } } }
                             } else null)
                         } }

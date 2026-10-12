@@ -88,6 +88,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.Charset
 import java.net.URLEncoder
+import java.io.InputStream
+import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.floor
@@ -230,7 +232,7 @@ private object Places {
     @Suppress("DEPRECATION")
     /** Within about 20 km of [near] when given, so a search finds places close by. */
     suspend fun lookup(context: Context, query: String, near: LatLon? = null): LatLon? {
-        val key = near?.let { "$query@%.2f,%.2f".format(java.util.Locale.ROOT, it.latitude, it.longitude) } ?: query
+        val key = near?.let { "$query@%.2f,%.2f".format(Locale.ROOT, it.latitude, it.longitude) } ?: query
         return found.get(key) ?: withContext(Dispatchers.IO) {
             val system = if (Geocoder.isPresent()) {
                 runCatching {
@@ -632,7 +634,9 @@ private fun HereCard(card: ToolCard.Here, compact: Boolean) {
     val address by produceState("", card) { value = Places.addressAt(context, card.latitude, card.longitude) }
     val label = "%.5f, %.5f".format(card.latitude, card.longitude)
     BeepCard(Modifier.fillMaxWidth()) {
-        MapSnippet(point, if (compact) 100 else 130) { openMaps(context, label, point) }
+        MapSnippet(point, if (compact) 100 else 130) {
+            openMaps(context, "%.5f,%.5f".format(Locale.ROOT, card.latitude, card.longitude), point)
+        }
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.MyLocation, null, Modifier.size(18.dp), tint = t.colors.brand)
             Spacer(Modifier.width(10.dp))
@@ -692,7 +696,7 @@ private fun OpenedAppCard(card: ToolCard.OpenedApp) {
     val name = card.app.replaceFirstChar { it.uppercase() }
     BeepCard(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(34.dp).background(t.colors.tints[1 % t.colors.tints.size], RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(34.dp).background(t.colors.tints[1], RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                 Icon(toolIconFor(card.app).takeUnless { it == toolIconFor("") } ?: Icons.AutoMirrored.Outlined.Launch, null,
                     Modifier.size(18.dp), tint = t.colors.ink)
             }
@@ -713,7 +717,7 @@ private fun AlarmCard(alarm: AlarmRequest) {
     val days = alarm.days.joinToString(", ") { java.text.DateFormatSymbols().shortWeekdays[it] }
     BeepCard(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(34.dp).background(t.colors.tints[1 % t.colors.tints.size], RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(34.dp).background(t.colors.tints[1], RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Alarm, null, Modifier.size(18.dp), tint = t.colors.ink)
             }
             Spacer(Modifier.width(12.dp))
@@ -747,12 +751,24 @@ private object LinkInfos {
             val head = try {
                 val type = connection.contentType
                 if (type?.contains("html") != true) return@runCatching null
-                decode(connection.inputStream.use { it.readNBytes(64 * 1024) }, type)
+                decode(connection.inputStream.use { readUpTo(it, 64 * 1024) }, type)
             } finally { connection.disconnect() }
             val tags = meta.findAll(head).associate { it.groupValues[1].lowercase() to unescape(it.groupValues[2]) }
             val title = tags["og:title"] ?: titleTag.find(head)?.groupValues?.get(1)?.let(::unescape)?.trim().orEmpty()
             LinkInfo(title, tags["og:description"] ?: tags["description"].orEmpty())
         }.getOrNull()?.also { found.put(url, it) }
+    }
+
+    /** At most [limit] bytes; readNBytes needs API 33. */
+    private fun readUpTo(input: InputStream, limit: Int): ByteArray {
+        val buf = ByteArray(limit)
+        var size = 0
+        while (size < limit) {
+            val n = input.read(buf, size, limit - size)
+            if (n < 0) break
+            size += n
+        }
+        return buf.copyOf(size)
     }
 
     /** In the charset the header names, else the one the page declares, else UTF-8. Plenty of news sites still send Latin-1. */
