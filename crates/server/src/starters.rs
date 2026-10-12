@@ -312,6 +312,7 @@ impl Generator<'_> {
             image_config: None,
             user: Some(self.user.to_owned()),
             provider_preferences: self.llm.provider_preferences.clone(),
+            session_id: None,
         };
         let mut stream = self.provider.complete(request);
         let mut answer = String::new();
