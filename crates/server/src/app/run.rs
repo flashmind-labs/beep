@@ -155,7 +155,9 @@ impl App {
             .llm
             .with_model(model.clone())
             .with_user(user.id())
-            .with_reasoning(thinking);
+            .with_reasoning(thinking)
+            // One ID per chat keeps OpenRouter on the provider holding its cache.
+            .with_session_id(chat);
         if let Some(routing) = self.models.routing(&model) {
             llm.provider_preferences = Some(routing.clone());
         }

@@ -149,6 +149,7 @@ impl Describer {
             image_config: None,
             user: Some(self.user.clone()),
             provider_preferences: None,
+            session_id: None,
         };
         let mut stream = self.provider.complete(request);
         let mut text = String::new();
