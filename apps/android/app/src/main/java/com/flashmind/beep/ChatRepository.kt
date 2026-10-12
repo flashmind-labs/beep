@@ -479,8 +479,13 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun rerunPrompt(prompt: ChatMessage, model: String, thinking: String = "") {
         if (prompt.role != "user") return
         val chat = state.value.current
+        // A prompt loaded from the server holds its pictures there, so read them back first.
+        val images = prompt.images.ifEmpty {
+            try { prompt.pictures.map { SentPictures.dataUri(storage.context, it) } }
+            catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
+        }
         deleteTurn(prompt, chat.id, onward = true)
-        send(prompt.text, prompt.images, chat.id, model, thinking)
+        send(prompt.text, images, chat.id, model, thinking)
     }
     /**
      * Removes [prompt] with the reply and tool calls that followed it, here and on the server.

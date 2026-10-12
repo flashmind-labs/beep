@@ -3,6 +3,7 @@ package com.flashmind.beep
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,17 +49,27 @@ object SentPictures {
     private const val MAX_SIDE = 1280
 
     suspend fun load(context: Context, picture: ImageRef): Bitmap? = withContext(Dispatchers.IO) {
+        val file = fetch(context, picture)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
+        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+
+    /** [picture] as the data URI it was sent as, so a rerun can send it again. */
+    suspend fun dataUri(context: Context, picture: ImageRef): String = withContext(Dispatchers.IO) {
+        "data:${picture.mime};base64," + Base64.encodeToString(fetch(context, picture).readBytes(), Base64.NO_WRAP)
+    }
+
+    private suspend fun fetch(context: Context, picture: ImageRef): File {
         val dir = File(context.cacheDir, FOLDER).apply { mkdirs() }
         val file = File(dir, picture.id)
         if (!file.exists()) {
             val client = BeepClients.current() ?: throw BeepException.Connection("not connected to your server")
             client.saveFile(picture.id, file.path)
         }
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.path, bounds)
-        var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
-        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+        return file
     }
 }
 
