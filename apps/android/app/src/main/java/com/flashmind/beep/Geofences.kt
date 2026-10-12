@@ -23,10 +23,14 @@ import com.flashmind.beep.proto.Place as ProtoPlace
 
 /**
  * Watches the saved places with the phone's geofencing, so arriving or leaving reaches the server
- * even with the app closed. The phone allows 100 geofences per app.
+ * even with the app closed. Each place has two geofences: arriving at its radius, and leaving at
+ * a wider ring, as the server's own check does, so GPS drifting indoors does not count as leaving.
+ * The phone allows 100 geofences per app.
  */
 object Geofences {
-    private const val MAX = 100
+    private const val MAX = 50
+    /** Ends the request id of a place's leaving geofence. */
+    private const val LEAVE = ":leave"
     private const val TAG = "Geofences"
     private const val PREFS = "geofences"
     /** What was last registered, so an unchanged list is not registered again. */
@@ -45,24 +49,33 @@ object Geofences {
     /** Makes the next [sync] register again, as after a reboot or a new permission. */
     fun forget(context: Context) = prefs(context).edit().remove(KEY).apply()
 
-    /** Registers one geofence per place, entering and leaving, replacing what was there. */
+    /** How far from the middle of a place the phone must be to have left it, in metres. */
+    internal fun leaveRadius(radius: Float) = radius + maxOf(radius / 2, 50f)
+
+    /** The place a geofence's request id names. */
+    internal fun placeOf(requestId: String) = requestId.removeSuffix(LEAVE)
+
+    /** Registers the arriving and leaving geofences of each place, replacing what was there. */
     @SuppressLint("MissingPermission")
     suspend fun sync(context: Context, places: List<ProtoPlace>) {
         val watched = places.take(MAX)
-        val key = watched.joinToString(";") { "${it.id},${it.latitude},${it.longitude},${it.radius}" }
+        val key = "ring;" + watched.joinToString(";") { "${it.id},${it.latitude},${it.longitude},${it.radius}" }
         if (!allowed(context)) { forget(context); return }
         if (prefs(context).getString(KEY, null) == key) return
         val client = LocationServices.getGeofencingClient(context)
         try {
             client.removeGeofences(intent(context)).await()
             if (watched.isNotEmpty()) {
-                val fences = watched.map {
-                    Geofence.Builder()
-                        .setRequestId(it.id)
-                        .setCircularRegion(it.latitude, it.longitude, it.radius.toFloat())
-                        .setExpirationDuration(Geofence.NEVER_EXPIRE)
-                        .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
-                        .build()
+                fun fence(id: String, place: ProtoPlace, radius: Float, transition: Int) = Geofence.Builder()
+                    .setRequestId(id)
+                    .setCircularRegion(place.latitude, place.longitude, radius)
+                    .setExpirationDuration(Geofence.NEVER_EXPIRE)
+                    .setTransitionTypes(transition)
+                    .build()
+                val fences = watched.flatMap {
+                    val radius = it.radius.toFloat()
+                    listOf(fence(it.id, it, radius, Geofence.GEOFENCE_TRANSITION_ENTER),
+                        fence(it.id + LEAVE, it, leaveRadius(radius), Geofence.GEOFENCE_TRANSITION_EXIT))
                 }
                 // No initial trigger: the server already knows whether the phone is there.
                 val request = GeofencingRequest.Builder().setInitialTrigger(0).addGeofences(fences).build()
@@ -86,7 +99,7 @@ class GeofenceReceiver : BroadcastReceiver() {
             Geofence.GEOFENCE_TRANSITION_EXIT -> PlaceCrossing.LEAVE
             else -> return
         }
-        val ids = event.triggeringGeofences.orEmpty().map { it.requestId }
+        val ids = event.triggeringGeofences.orEmpty().map { Geofences.placeOf(it.requestId) }.distinct()
         if (ids.isEmpty()) return
         val repository = (context.applicationContext as BeepApplication).repository
         val pending = goAsync()
