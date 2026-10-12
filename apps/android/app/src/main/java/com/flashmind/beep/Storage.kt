@@ -83,7 +83,7 @@ data class Conversation(
     val pendingModel: String = "",
     val pendingThinking: String = "",
     val status: String = "", val error: String = "",
-    val tool: String = "", val cancelRequested: Boolean = false, val pinned: Boolean = false,
+    val tool: String = "", val pinned: Boolean = false,
     /** The model's reasoning for the current step, shown live and moved onto the reply once it moves on. Not saved. */
     val thinking: String = "",
     /** The server's `updated_at` of the turns in [messages], 0 when they did not come from the server. */
@@ -205,7 +205,7 @@ class LocalStorage(internal val context: Context) {
                     m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"), pictures = readPictures(m), agent = m.optString("agent"))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"),
-                status = c.optString("status"), error = c.optString("error"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
+                status = c.optString("status"), error = c.optString("error"), pinned = c.optBoolean("pinned"),
                 version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()),
                 updatedAt = c.optLong("updatedAt"), queuedText = c.optString("queuedText"),
                 queuedImages = readImages(c, "queuedImages", "queuedImage"))
@@ -336,7 +336,7 @@ class LocalStorage(internal val context: Context) {
                 .put("pendingText", c.pendingText).apply { if (c.pendingImages.isNotEmpty()) put("pendingImages", JSONArray(c.pendingImages)) }
                 .apply { if (c.pendingModel.isNotEmpty()) put("pendingModel", c.pendingModel) }
                 .apply { if (c.pendingThinking.isNotEmpty()) put("pendingThinking", c.pendingThinking) }
-                .put("status", c.status).apply { if (c.error.isNotEmpty()) put("error", c.error) }.put("cancelRequested", c.cancelRequested)
+                .put("status", c.status).apply { if (c.error.isNotEmpty()) put("error", c.error) }
                 .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt).put("updatedAt", c.updatedAt)
                 .apply { if (c.queuedText.isNotEmpty()) put("queuedText", c.queuedText) }
                 .apply { if (c.queuedImages.isNotEmpty()) put("queuedImages", JSONArray(c.queuedImages)) })
