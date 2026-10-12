@@ -1,4 +1,5 @@
 use crate::{
+    agents::AgentId,
     places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger, Point},
     store::{Location, NewPlace, NewPlaceRoutine, SavedPlace},
     user::User,
@@ -40,6 +41,8 @@ pub(crate) struct PlaceTool {
     pub kind: PlaceToolKind,
     /// The chat the run is in, where a routine made here replies.
     pub chat: Option<Uuid>,
+    /// The agent the run is, which a routine made here answers as.
+    pub agent: Option<AgentId>,
 }
 
 fn place_json(place: &SavedPlace, here: Option<&Location>) -> Value {
@@ -290,6 +293,7 @@ impl PlaceTool {
                 repeat,
             },
             chat: self.chat,
+            agent: self.agent,
         };
         let id = match self.user.create_place_routine(&routine).await {
             Ok(id) => id,
@@ -317,6 +321,7 @@ mod tests {
             user: user.clone(),
             kind,
             chat: None,
+            agent: None,
         };
         let cancel = CancellationToken::new();
         tool.execute(ToolContext::new("call", args, None, &cancel))
