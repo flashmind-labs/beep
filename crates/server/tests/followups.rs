@@ -157,7 +157,7 @@ async fn follow_up_evals() {
         }
         .to_string();
         let score = followups::score(&decision, &input).await;
-        let chips = followups::draft(generator, input.clone())
+        let chips = followups::draft(generator, input.clone(), &latest.reply)
             .await
             .and_then(|output| serde_json::from_str::<Suggestions>(&output).ok())
             .map(|s| s.replies)

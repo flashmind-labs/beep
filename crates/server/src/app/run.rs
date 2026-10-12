@@ -585,9 +585,10 @@ impl App {
                 )
             });
             let kind = followups::Kind::of(&exchange.latest.reply);
+            let replied = exchange.latest.reply.clone();
             let follow_up = async {
                 let (decision, state) = follow_up?;
-                followups::write(decision, generator, state, kind).await
+                followups::write(decision, generator, state, kind, &replied).await
             };
             let learning = async {
                 let known = user
