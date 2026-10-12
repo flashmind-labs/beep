@@ -20,7 +20,7 @@ const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" s
 const VISIBLE_STEPS = 3;
 
 /// Tools that get no step: what they do is already on screen, or is bookkeeping.
-const QUIET_TOOLS = new Set(["suggest_replies", "show_products", "notify_user", "task_progress"]);
+const QUIET_TOOLS = new Set(["suggest_replies", "show_products", "show_chart", "notify_user", "task_progress"]);
 
 /// What a tool is doing, in words, the same as the phone's toolLabel.
 /// Unknown tools fall back to their name: "GMAIL_SEND_EMAIL" becomes "Gmail: send email".
@@ -40,6 +40,8 @@ const TOOL_LABELS = {
   suggest_replies: "Suggesting replies",
   send_file: "Sending a file",
   show_products: "Showing products",
+  show_chart: "Drawing a chart",
+  show_stock_chart: "Looking up stocks",
   task_progress: "Updating progress",
   memory_store: "Remembering",
   memory_recall: "Recalling memories",
@@ -143,17 +145,18 @@ new MutationObserver(() => {
 
 // ---------- Hints ----------
 
-function hints(items) {
+function hints(items, extra = "") {
   const st = { unlinked: ["off", "Not linked"], revoked: ["bad", "Removed"] }[S.link];
   const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
-  return `<div class="dhints">${items.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}${link}</div>`;
+  return `<div class="dhints">${items.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}${extra}${link}</div>`;
 }
 function chatHints() {
   const e = here();
-  if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]]);
-  if (e?.run) return hints([["⌘.", "stop"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]]);
-  if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]]);
-  return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["⌘/", "shortcuts"], ["esc", "to hide"]]);
+  const chip = modelChip();
+  if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
+  if (e?.run) return hints([["⌘.", "stop"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
+  if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
+  return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
 }
 function refreshHints() {
   const old = $(".dhints");
@@ -333,6 +336,7 @@ function finish(id, turn) {
   for (const s of turn.steps) if (s.state === "run") s.state = "stop";
   turn.folded = true;
   drawSteps(turn, true);
+  replyActs(turn);
   const e = live.get(id);
   if (e) {
     e.run = null;
@@ -372,10 +376,15 @@ function follow(id, turn) {
         if (ev.file) sentFile(turn, ev.file);
         for (const p of ev.images ?? []) replyPic(turn, p);
         if (ev.products) productRow(turn, ev.products);
+        if (ev.chart) chartRow(turn, ev.chart);
         break;
       }
       case "replies":
         suggestions(turn, ev.replies);
+        break;
+      case "auto_picked":
+        turn.model = ev.model;
+        turn.querySelector(".ask")?.after(h(`<div class="drerunof">${esc(modelName(ev.model))} · ${esc(ev.thinking)}</div>`));
         break;
       case "approval":
         turn.querySelector(".caret")?.remove();
@@ -404,6 +413,7 @@ async function send(message) {
   ask.placeholder = "Ask a follow-up…";
   grow(ask);
   const turn = newTurn(message);
+  turn.user = true;
   reply(turn).innerHTML = '<span class="caret"></span>';
   const e = entry(id);
   e.body = body();
@@ -486,6 +496,7 @@ function drawHistory(id, turns) {
   for (const t of turns) {
     if (t.role === "user" || t.role === "scheduled") {
       turn = t.role === "user" ? newTurn(t.text, t.images) : newTurn(t.label || "Routine");
+      turn.user = t.role === "user";
     } else if (t.role === "assistant") {
       turn ??= newTurn("");
       turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
@@ -494,10 +505,13 @@ function drawHistory(id, turns) {
         if (x.file) sentFile(turn, x.file);
         for (const p of x.images ?? []) replyPic(turn, p);
         if (x.products) productRow(turn, x.products);
+        if (x.chart) chartRow(turn, x.chart);
       }
       last = t.replies.length ? { turn, replies: t.replies } : null;
       turn.done = true;
+      if (t.model) turn.model = t.model;
       drawSteps(turn, true);
+      replyActs(turn);
     } else if (t.role === "approval") {
       turn ??= newTurn("");
       approvalCard(id, turn, t);
@@ -983,7 +997,7 @@ function notice(text, { path, bad } = {}) {
 
 const SHORTCUTS = [
   ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines"], ["⌘,", "Settings"], ["⌘Q", "Quit"]]],
-  ["In a chat", [[ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
+  ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
 ];
 
@@ -1546,6 +1560,350 @@ async function renderSettings(confirm = false) {
   });
 }
 
+// ---------- Charts ----------
+
+/// show_chart and show_stock_chart results. The plot is drawn at the card's
+/// own width, so text never stretches, and again when the bar resizes.
+const CHART_COLORS = ["#3B9B7A", "#F07A6A", "#8FB3E8", "#E8C46A"];
+const CHART_RANGES = [["1d", "1D"], ["5d", "5D"], ["1mo", "1M"], ["6mo", "6M"], ["ytd", "YTD"], ["1y", "1Y"], ["5y", "5Y"], ["max", "Max"]];
+const CHART_H = 150, CHART_PAD = { top: 8, right: 52, bottom: 20 };
+const chartSizer = new ResizeObserver(entries => {
+  for (const { target } of entries) if (target.chart && target.clientWidth !== target.drawnWidth) drawPlot(target);
+});
+
+function chartRow(turn, chart) {
+  const card = h('<div class="dchart"></div>');
+  card.chart = chart;
+  card.off = new Set();
+  sentBox(turn).append(card);
+  drawChart(card);
+}
+
+/// A value in the chart's unit: a currency code as money, % with its sign,
+/// anything else after the number.
+/// `digits` fixes the decimals, as an axis needs; otherwise they follow the size.
+function chartValue(chart, v, signed = false, digits = null) {
+  const unit = chart.unit;
+  const sign = signed && v > 0 ? "+" : "";
+  const most = digits ?? (Math.abs(v) < 10 ? 2 : Math.abs(v) < 1000 ? 2 : 0);
+  const fixed = { minimumFractionDigits: digits ?? 0, maximumFractionDigits: most };
+  if (unit === "%") return sign + new Intl.NumberFormat(undefined, fixed).format(v) + "%";
+  if (/^[A-Z]{3}$/.test(unit)) {
+    try {
+      return sign + new Intl.NumberFormat(undefined, { style: "currency", currency: unit, ...fixed, ...(digits == null && Math.abs(v) < 1000 ? { minimumFractionDigits: 2 } : {}) }).format(v);
+    } catch {}
+  }
+  return sign + new Intl.NumberFormat(undefined, fixed).format(v) + (unit ? " " + unit : "");
+}
+/// Round values between `lo` and `hi` for the value axis, about `n` apart.
+function niceTicks(lo, hi, n) {
+  const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw || 1));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(st => st >= raw) ?? raw;
+  const ticks = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) ticks.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+  return { ticks, digits: Math.max(0, -Math.floor(Math.log10(step) + 1e-9)) };
+}
+/// An axis label for time `ms`, as fine as the chart's span needs.
+function chartTime(ms, span, full = false) {
+  const d = new Date(ms);
+  if (span < 2 * 86400e3) return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) + (full ? ", " + d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "");
+  if (span < 400 * 86400e3) return d.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(full ? { year: "numeric" } : {}) });
+  return d.toLocaleDateString(undefined, { month: "short", year: "numeric", ...(full ? { day: "numeric" } : {}) });
+}
+function xLabel(chart, x, span, full) {
+  return chart.x === "time" ? chartTime(x, span, full) : chart.categories[Math.round(x)] ?? "";
+}
+
+function drawChart(card) {
+  const c = card.chart, st = c.stock;
+  let head;
+  if (st) {
+    const change = st.last - st.previous, pct = st.previous ? change / st.previous * 100 : 0;
+    const range = CHART_RANGES.find(([r]) => r === st.range)?.[1] ?? "";
+    const meta = [st.name, st.exchange, st.currency].filter(Boolean).map(esc).join(" · ");
+    head = `<div class="ch"><span class="tt"><b>${esc(c.series.length > 1 ? c.title : st.symbol)}</b><small>${c.series.length > 1 ? esc("Change over the range, in %") : meta}</small></span>
+      ${c.series.length > 1 ? "" : `<span class="px"><b>${esc(chartValue({ unit: st.currency }, st.last))}</b><small class="${change >= 0 ? "up" : "down"}">${esc(chartValue({ unit: st.currency }, change, true))} (${pct > 0 ? "+" : ""}${pct.toFixed(2)}%) ${range}</small></span>`}</div>`;
+  } else {
+    head = `<div class="ch"><span class="tt"><b>${esc(c.title)}</b>${c.unit ? `<small>${esc(c.unit)}</small>` : ""}</span></div>`;
+  }
+  const legend = c.series.length > 1
+    ? `<span class="legend">${c.series.map((s, i) => `<button data-series="${i}" aria-pressed="${!card.off.has(i)}"><i style="background:${CHART_COLORS[i]}"></i>${esc(s.name)}</button>`).join("")}</span>`
+    : "";
+  // A comparison has no range buttons: StockChart answers one symbol.
+  const ranges = st && c.series.length === 1 ? `<span class="ranges">${CHART_RANGES.map(([r, l]) => `<button data-range="${r}" aria-pressed="${r === st.range}">${l}</button>`).join("")}</span>` : "";
+  const source = c.source ? `<span class="src">${esc(c.source)}</span>` : "";
+  card.innerHTML = `${head}<div class="plot" role="img" aria-label="${esc(c.title)}"></div><div class="derr"></div>${ranges || legend || source ? `<div class="foot">${ranges}${legend}${source}</div>` : ""}`;
+  const plot = card.querySelector(".plot");
+  plot.chart = c;
+  plot.card = card;
+  chartSizer.observe(plot);
+  drawPlot(plot);
+}
+
+/// The plot's geometry: what each axis spans and where a value lands.
+function plotScale(plot) {
+  const c = plot.chart, card = plot.card, W = plot.clientWidth || 600;
+  const shown = c.series.filter((_, i) => !card.off.has(i));
+  const xs = c.series.flatMap(s => s.points.map(p => p.x)), ys = shown.flatMap(s => s.points.map(p => p.y));
+  const bar = c.kind === "bar";
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (bar) { lo = Math.min(0, lo); hi = Math.max(0, hi); }
+  if (c.stock && !bar && shown.length === 1 && c.series.length === 1) { lo = Math.min(lo, c.stock.previous); hi = Math.max(hi, c.stock.previous); }
+  if (!isFinite(lo)) { lo = 0; hi = 1; }
+  const pad = (hi - lo) * .06 || Math.abs(hi) * .05 || 1;
+  if (!bar) { lo -= pad; hi += pad; } else hi += pad;
+  const x0 = bar ? -.5 : Math.min(...xs), x1 = bar ? c.categories.length - .5 : Math.max(...xs);
+  const plotW = W - CHART_PAD.right, plotH = CHART_H - CHART_PAD.bottom;
+  return {
+    W, plotW, plotH, lo, hi, x0, x1, span: x1 - x0,
+    X: x => (x1 === x0 ? plotW / 2 : (x - x0) / (x1 - x0) * plotW),
+    Y: y => CHART_PAD.top + (1 - (y - lo) / (hi - lo)) * (plotH - CHART_PAD.top),
+  };
+}
+
+function drawPlot(plot) {
+  const c = plot.chart, card = plot.card, g = plotScale(plot);
+  plot.drawnWidth = plot.clientWidth;
+  const { ticks, digits } = niceTicks(g.lo, g.hi, 3);
+  const grid = ticks.map(v => `<line x1="0" x2="${g.plotW}" y1="${g.Y(v)}" y2="${g.Y(v)}" class="gl"/><text x="${g.plotW + 6}" y="${g.Y(v) + 4}" class="ax">${esc(chartValue(c, v, false, digits))}</text>`).join("");
+  let xticks = "";
+  if (c.x === "category") {
+    const every = Math.ceil(c.categories.length / Math.max(1, Math.floor(g.plotW / 70)));
+    xticks = c.categories.map((l, i) => i % every ? "" : `<text x="${g.X(i)}" y="${CHART_H - 4}" class="ax" text-anchor="middle">${esc(l)}</text>`).join("");
+  } else {
+    const n = Math.max(2, Math.min(5, Math.floor(g.plotW / 110)));
+    xticks = Array.from({ length: n }, (_, i) => {
+      const x = g.x0 + g.span * i / (n - 1);
+      return `<text x="${g.X(x)}" y="${CHART_H - 4}" class="ax" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${esc(chartTime(x, g.span))}</text>`;
+    }).join("");
+  }
+  let marks = "";
+  const shown = c.series.map((s, i) => ({ s, i })).filter(({ i }) => !card.off.has(i));
+  if (c.kind === "bar") {
+    const slot = g.plotW / c.categories.length, bw = slot * .7 / Math.max(1, shown.length);
+    marks = shown.map(({ s, i }, k) => s.points.map(p => {
+      const x = g.X(p.x) - slot * .35 + k * bw, y = g.Y(Math.max(p.y, 0)), y0 = g.Y(Math.min(p.y, 0));
+      return `<rect x="${x}" y="${y}" width="${Math.max(1, bw - 2)}" height="${Math.max(1, y0 - y)}" rx="2.5" fill="${CHART_COLORS[i]}"/>`;
+    }).join("")).join("");
+  } else {
+    marks = shown.map(({ s, i }) => {
+      const d = s.points.map((p, j) => `${j ? "L" : "M"}${g.X(p.x).toFixed(1)},${g.Y(p.y).toFixed(1)}`).join("");
+      const area = c.kind === "area" && shown.length === 1
+        ? `<defs><linearGradient id="cg${i}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${CHART_COLORS[i]}" stop-opacity=".35"/><stop offset="1" stop-color="${CHART_COLORS[i]}" stop-opacity="0"/></linearGradient></defs><path d="${d}L${g.X(s.points.at(-1).x)},${g.plotH}L${g.X(s.points[0].x)},${g.plotH}Z" fill="url(#cg${i})"/>`
+        : "";
+      return `${area}<path d="${d}" fill="none" stroke="${CHART_COLORS[i]}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }).join("");
+  }
+  const base = c.stock && c.series.length === 1 && c.kind !== "bar"
+    ? `<line x1="0" x2="${g.plotW}" y1="${g.Y(c.stock.previous)}" y2="${g.Y(c.stock.previous)}" class="base"/>`
+    : c.unit === "%" ? `<line x1="0" x2="${g.plotW}" y1="${g.Y(0)}" y2="${g.Y(0)}" class="base"/>` : "";
+  plot.innerHTML = `<svg width="${g.W}" height="${CHART_H}" viewBox="0 0 ${g.W} ${CHART_H}">${grid}${base}${marks}${xticks}<g class="hov"></g></svg><div class="tipc" hidden></div>`;
+  plot.onmousemove = e => hoverPlot(plot, e);
+  plot.onmouseleave = () => { plot.querySelector(".hov").innerHTML = ""; plot.querySelector(".tipc").hidden = true; };
+}
+
+/// The point of `points` nearest to `x`, by binary search on sorted x.
+function nearest(points, x) {
+  let a = 0, b = points.length - 1;
+  while (b - a > 1) { const m = (a + b) >> 1; points[m].x < x ? a = m : b = m; }
+  return Math.abs(points[a].x - x) <= Math.abs(points[b].x - x) ? points[a] : points[b];
+}
+function hoverPlot(plot, e) {
+  const c = plot.chart, card = plot.card, g = plotScale(plot);
+  const px = e.clientX - plot.getBoundingClientRect().left;
+  if (px > g.plotW + 4) return plot.onmouseleave();
+  const x = c.kind === "bar" ? Math.round(g.x0 + px / g.plotW * g.span) : g.x0 + Math.max(0, Math.min(1, px / g.plotW)) * g.span;
+  const hits = c.series.map((s, i) => ({ s, i })).filter(({ s, i }) => !card.off.has(i) && s.points.length)
+    .map(({ s, i }) => ({ s, i, p: nearest(s.points, x) }));
+  if (!hits.length) return;
+  const at = hits[0].p.x, hx = g.X(at);
+  plot.querySelector(".hov").innerHTML = (c.kind === "bar" ? "" : `<line x1="${hx}" x2="${hx}" y1="0" y2="${g.plotH}" class="cross"/>`)
+    + hits.map(({ i, p }) => c.kind === "bar" ? "" : `<circle cx="${g.X(p.x)}" cy="${g.Y(p.y)}" r="3.5" fill="${CHART_COLORS[i]}" stroke="#121916" stroke-width="2"/>`).join("");
+  const tip = plot.querySelector(".tipc");
+  const values = hits.map(({ s, p }) => hits.length > 1 ? `${esc(s.name)} ${esc(chartValue(c, p.y, c.unit === "%"))}` : esc(chartValue(c, p.y))).join(" <span>·</span> ");
+  tip.innerHTML = `${esc(xLabel(c, at, g.span, true))} <span>·</span> ${values}`;
+  tip.hidden = false;
+  const half = tip.offsetWidth / 2;
+  tip.style.left = Math.max(half, Math.min(g.plotW - half, hx)) + "px";
+}
+
+async function chartClick(e) {
+  const card = e.target.closest(".dchart");
+  if (!card) return false;
+  const series = e.target.closest("[data-series]");
+  if (series) {
+    const i = +series.dataset.series;
+    if (card.off.has(i)) card.off.delete(i);
+    else if (card.off.size < card.chart.series.length - 1) card.off.add(i);
+    drawChart(card);
+    return true;
+  }
+  const range = e.target.closest("[data-range]");
+  if (!range || !card.chart.stock || range.getAttribute("aria-pressed") === "true") return !!range;
+  const plot = card.querySelector(".plot");
+  plot.classList.add("wait");
+  card.querySelectorAll("[data-range]").forEach(b => b.setAttribute("aria-pressed", b === range));
+  try {
+    card.chart = await invoke("stock_chart", { symbol: card.chart.stock.symbol, range: range.dataset.range });
+    card.off.clear();
+    drawChart(card);
+  } catch (err) {
+    plot.classList.remove("wait");
+    card.querySelector(".derr").textContent = String(err);
+  }
+  return true;
+}
+
+// ---------- Model (admins) ----------
+
+/// The caller's model settings. `choices` is empty unless they are an
+/// admin, and then the bar shows no chip, no model view and no rerun.
+const MODELS = { info: null, sel: 0 };
+const THINKING = ["off", "low", "medium", "high"];
+
+function isAdmin() { return !!MODELS.info?.choices.length; }
+async function loadModels() {
+  try {
+    MODELS.info = await invoke("get_models");
+  } catch {
+    return;
+  }
+  refreshHints();
+}
+function modelName(id) { return MODELS.info?.choices.find(c => c.id === id)?.name ?? id.split(/[:/]/).pop(); }
+function modelPrice(c) {
+  const usd = n => "$" + (Math.round(n * 100) / 100);
+  const price = c.input_price != null && c.output_price != null ? `${usd(c.input_price)} in, ${usd(c.output_price)} out per M tokens` : "No price listed";
+  return c.sees_images ? price : price + ", text only";
+}
+/// The hint row's chip: the model and thinking every turn uses, or Auto.
+function modelChip() {
+  const m = MODELS.info;
+  if (!m?.choices.length) return "";
+  const label = m.auto ? "Auto" : `${modelName(m.selected)} · ${cap(m.thinking)}`;
+  return `<button class="dmodel" data-act="model">${esc(label)}<kbd>⌘E</kbd></button>`;
+}
+
+function renderModel() {
+  const m = MODELS.info;
+  if (!m?.choices.length) return;
+  S.view = "model";
+  MODELS.sel = Math.max(0, m.choices.findIndex(c => c.id === m.selected));
+  drawModel();
+}
+function drawModel() {
+  const m = MODELS.info;
+  const auto = m.auto_available
+    ? `<div class="dtoggle"><span><b>Auto</b><small>Jev picks the model and thinking for each prompt</small></span><button class="dswitch" data-act="auto" role="switch" aria-checked="${m.auto}" aria-label="Auto"></button></div>${m.auto ? '<div class="dmuted">Used when Jev cannot pick:</div>' : ""}`
+    : "";
+  const rows = m.choices.map((c, i) => `<button class="drt dmrow" role="option" data-pick="${i}" aria-selected="${i === MODELS.sel}"><span class="tt"><b>${esc(c.name)}</b><span>${esc(modelPrice(c))}</span></span>${c.id === m.selected ? `<span class="dok">${ICON.check}</span>` : ""}</button>`).join("");
+  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Model</b><small>Your own turns only. Everyone else stays on the default.</small></span></div>
+    <div class="dform" style="padding-top:12px">${auto}
+      <div class="dlist" style="padding:0" role="listbox" aria-label="Models">${rows}</div>
+      <div class="dfield"><span>Thinking</span><div class="dchips">${THINKING.map(l => `<button class="dchip" data-level="${l}" aria-pressed="${l === m.thinking}">${cap(l)}</button>`).join("")}</div></div>
+      <div class="derr" id="modelErr"></div>
+    </div>${hints([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]])}`;
+}
+async function changeModel(command, args) {
+  try {
+    MODELS.info = await invoke(command, args);
+  } catch (e) {
+    const err = $("#modelErr");
+    if (err) err.textContent = String(e);
+    return;
+  }
+  if (S.view === "model") drawModel();
+}
+function modelClick(e) {
+  const pick = e.target.closest("[data-pick]");
+  if (pick) { MODELS.sel = +pick.dataset.pick; return changeModel("set_model", { id: MODELS.info.choices[MODELS.sel].id }); }
+  const level = e.target.closest("[data-level]");
+  if (level) return changeModel("set_thinking", { level: level.dataset.level });
+  if (e.target.closest('[data-act="auto"]')) return changeModel("set_auto_model", { enabled: !MODELS.info.auto });
+}
+function modelKeys(e) {
+  const n = MODELS.info.choices.length;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    MODELS.sel = (MODELS.sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+    return drawModel();
+  }
+  if (e.key === "Enter") { e.preventDefault(); return changeModel("set_model", { id: MODELS.info.choices[MODELS.sel].id }); }
+}
+
+// ---------- Reply actions ----------
+
+/// Copy, and for admins Rerun, under a finished reply.
+function replyActs(turn) {
+  turn.querySelector(".dreplyacts")?.remove();
+  const text = turn.querySelector(".reply")?.innerText.trim();
+  const rerun = isAdmin() && turn.user;
+  if (!text && !rerun) return;
+  const row = h(`<div class="dreplyacts">${text ? `<button class="dcopy" data-act="copyReply">${COPY_ICON}Copy</button>` : ""}${rerun ? `<span class="drerun"><button class="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded="false">${PLAY_ICON}Rerun<span class="dchev">${ICON.chev}</span></button></span>` : ""}</div>`);
+  const replies = turn.querySelector(".dreplies");
+  replies ? turn.insertBefore(row, replies) : turn.append(row);
+}
+function closeRerunMenu() {
+  const menu = $(".dmenu");
+  if (!menu) return false;
+  $('[data-act="rerunMenu"][aria-expanded="true"]')?.setAttribute("aria-expanded", "false");
+  menu.remove();
+  return true;
+}
+function rerunMenu(button) {
+  if (closeRerunMenu()) return;
+  const turn = button.closest(".turn"), m = MODELS.info;
+  const rows = m.choices.map(c => {
+    const used = c.id === turn.model;
+    return `<button class="mi" role="menuitem" data-rerun="${esc(c.id)}"${used ? ' aria-current="true"' : ""}><b>${esc(c.name)}</b>${used ? `<span class="ok">${ICON.check}</span>` : ""}<small>${used ? "Used for this reply" : esc(modelPrice(c))}</small></button>`;
+  }).join("");
+  const levels = ["default", ...THINKING].map(l => `<button class="dchip" data-rthink="${l}" aria-pressed="${l === "default"}">${cap(l)}</button>`).join("");
+  button.setAttribute("aria-expanded", "true");
+  button.closest(".dreplyacts").after(h(`<div class="dmenu" role="menu" aria-label="Rerun on">${rows}<div class="think">Thinking<span class="dchips">${levels}</span></div></div>`));
+  keepDown();
+}
+function rerunClick(e) {
+  const level = e.target.closest("[data-rthink]");
+  if (level) {
+    level.parentElement.querySelectorAll(".dchip").forEach(c => c.setAttribute("aria-pressed", c === level));
+    return true;
+  }
+  const pick = e.target.closest("[data-rerun]");
+  if (!pick) return false;
+  const menu = pick.closest(".dmenu"), turn = pick.closest(".turn");
+  const level2 = menu.querySelector('[data-rthink][aria-pressed="true"]')?.dataset.rthink;
+  closeRerunMenu();
+  rerun(turn, pick.dataset.rerun, level2 && level2 !== "default" ? level2 : null);
+  return true;
+}
+/// Drops `turn` and every turn after it, then sends its prompt again on
+/// `model`, as the phone's Rerun does.
+async function rerun(turn, model, thinking) {
+  const id = S.session, busy = here();
+  if (!id || busy?.run || busy?.approval) return;
+  const turns = [...body().querySelectorAll(".turn")];
+  const index = turns.filter(t => t.user).indexOf(turn);
+  if (index < 0) return;
+  const question = turn.querySelector(".ask")?.textContent ?? "";
+  for (const t of turns.slice(turns.indexOf(turn))) t.remove();
+  const fresh = newTurn(question);
+  fresh.user = true;
+  fresh.model = model;
+  fresh.append(h(`<div class="drerunof">Rerun on ${esc(modelName(model))}${thinking ? " · " + thinking : ""}</div>`));
+  reply(fresh).innerHTML = '<span class="caret"></span>';
+  const e = entry(id);
+  e.body = body();
+  e.run = { id: null };
+  refreshHints();
+  scrollDown();
+  try {
+    await invoke("rerun_prompt", { session: id, index, pick: { model, thinking }, onEvent: follow(id, fresh) });
+  } catch (err) {
+    failed(fresh, String(err));
+  }
+  if (!fresh.done) finish(id, fresh);
+}
+
 // ---------- Memories ----------
 
 const MEM_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V4a3 3 0 00-3 0zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/></svg>';
@@ -1965,6 +2323,7 @@ async function refreshStatus() {
 
 async function show(view) {
   const st = await refreshStatus();
+  if (S.link === "linked") loadModels();
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
   if (S.link === "unlinked" || view === "link") return S.link === "linked" ? renderChat() : renderLink();
@@ -2027,6 +2386,7 @@ function back() {
   if (S.view === "memories" && M.mode !== "list") { M.mode = "list"; drawMemories(); return $("#mfind")?.focus(); }
   if (S.view === "routines" && R.mode !== "list") return routineAction("list");
   if (S.view === "rnew") return renderRoutines();
+  if (S.view === "model") return S.session ? openSession(S.session) : renderChat();
   if ((S.view === "memories" || S.view === "routines" || S.view === "settings") && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
   if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id);
   if (S.view === "gnew") {
@@ -2087,6 +2447,7 @@ document.addEventListener("keydown", e => {
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (cmd && e.key === "/") { e.preventDefault(); return toggleKeys(); }
   if (e.key === "Escape" && $("#keys")) { e.preventDefault(); return toggleKeys(); }
+  if (e.key === "Escape" && closeRerunMenu()) { e.preventDefault(); return; }
   if (e.key === "Escape") {
     e.preventDefault();
     return back();
@@ -2104,6 +2465,8 @@ document.addEventListener("keydown", e => {
   if (cmd && key === "k") { e.preventDefault(); return S.view === "chats" ? null : renderChats(); }
   if (cmd && key === "i" && (S.view === "group" || S.view === "invite")) { e.preventDefault(); return renderGroupInfo(); }
   if (cmd && e.key === ".") { e.preventDefault(); return stop(); }
+  if (cmd && key === "e" && isAdmin()) { e.preventDefault(); return S.view === "model" ? back() : renderModel(); }
+  if (S.view === "model") return modelKeys(e);
   if (S.view === "chat") {
     if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(e.altKey ? "always" : "allow"); }
     if (cmd && key === "d" && here()?.approval) { e.preventDefault(); return answer("deny"); }
@@ -2121,6 +2484,21 @@ document.addEventListener("keydown", e => {
 // copies its link instead.
 bar.addEventListener("click", e => {
   if (e.target.closest(".dhints .st")) return S.link === "revoked" ? renderRevoked() : renderLink();
+  if (e.target.closest('[data-act="model"]')) return renderModel();
+  if (S.view === "model") return modelClick(e);
+  if (rerunClick(e)) return;
+  if (e.target.closest(".dchart [data-series], .dchart [data-range]")) return void chartClick(e);
+  const menuButton = e.target.closest('[data-act="rerunMenu"]');
+  if (menuButton) return rerunMenu(menuButton);
+  if (!e.target.closest(".dmenu")) closeRerunMenu();
+  const copyReply = e.target.closest('[data-act="copyReply"]');
+  if (copyReply) {
+    copy(copyReply.closest(".turn").querySelector(".reply")?.innerText.trim() ?? "");
+    copyReply.innerHTML = ICON.check + "Copied";
+    clearTimeout(copyReply.undo);
+    copyReply.undo = setTimeout(() => { copyReply.innerHTML = COPY_ICON + "Copy"; }, 1200);
+    return;
+  }
   const c = e.target.closest("[data-copy]");
   if (c) {
     e.preventDefault();
