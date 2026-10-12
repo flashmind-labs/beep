@@ -21,6 +21,15 @@ class PlacesTest {
     }
 
     @Test
+    fun leavingNeedsTheWiderRing() {
+        // As the server's check: half the radius past the edge, at least 50 m.
+        assertEquals(150f, Geofences.leaveRadius(100f))
+        assertEquals(600f, Geofences.leaveRadius(400f))
+        assertEquals(gym, Geofences.placeOf("$gym:leave"))
+        assertEquals(gym, Geofences.placeOf(gym))
+    }
+
+    @Test
     fun writesPlaceSchedules() {
         assertEquals("arrive:$gym:daily", PlaceSchedule(PlaceEvent.Arrive, gym, PlaceRepeat.Daily).toString())
         assertEquals("leave:$gym", PlaceSchedule(PlaceEvent.Leave, gym, PlaceRepeat.Always).toString())
