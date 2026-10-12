@@ -33,18 +33,18 @@ pub(super) struct AutoChoice {
     pub thinking: ReasoningLevel,
 }
 
-/// The agent a turn runs as, and the thinking Jev judged it needs.
+/// The agent a turn runs as, and the thinking Jev picked for it.
 pub(super) struct AgentTurn {
     pub agent: Agent,
     pub wanted: ReasoningLevel,
 }
 
 impl AgentTurn {
-    /// The agent's model and thinking for this turn.
+    /// The agent's model, at the thinking Jev picked.
     pub fn choice(&self) -> AutoChoice {
         AutoChoice {
             model: self.agent.model.clone(),
-            thinking: self.agent.thinking_for(self.wanted),
+            thinking: self.wanted,
         }
     }
 }

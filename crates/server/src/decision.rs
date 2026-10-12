@@ -20,8 +20,7 @@ pub struct Criteria {
     pub no: &'static str,
 }
 
-/// The agent and thinking Jev picked for a prompt. `thinking` is what
-/// Jev judged the prompt needs, before the agent's own level bounds it.
+/// The agent and thinking Jev picked for a prompt.
 pub struct AgentRouted<'a> {
     pub agent: &'a Agent,
     pub thinking: ReasoningLevel,
