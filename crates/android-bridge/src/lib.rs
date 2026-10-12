@@ -123,14 +123,15 @@ fn uuid(text: &str) -> Result<Uuid, BeepError> {
 }
 
 /// Writes the file `fetch` returns from each offset to `path`. It lands
-/// under a temporary name first, so `path` never holds half a file, and the
-/// temporary file is removed when anything fails.
+/// under a temporary name of its own first, so `path` never holds half a
+/// file even when two downloads of it run at once, and the temporary file is
+/// removed when anything fails.
 async fn download<F, Fut>(path: &str, fetch: F) -> Result<u64, BeepError>
 where
     F: FnMut(u64) -> Fut,
     Fut: Future<Output = Result<FilePart, BeepError>>,
 {
-    let partial = format!("{path}.part");
+    let partial = format!("{path}.{}.part", Uuid::new_v4());
     let result = download_to(&partial, path, fetch).await;
     if result.is_err() {
         // It may never have been created, and the first error matters more.
@@ -1033,8 +1034,7 @@ mod tests {
             }
         }));
         assert!(matches!(result, Err(BeepError::Connection { .. })));
-        assert!(!Path::new(&format!("{path}.part")).exists());
-        assert!(!Path::new(&path).exists());
+        assert!(files_beside(&path).is_empty());
     }
 
     #[test]
@@ -1051,6 +1051,18 @@ mod tests {
             std::fs::read(&path).expect("the file landed"),
             [0, 0, 0, 0, 4, 4, 4, 4]
         );
-        assert!(!Path::new(&format!("{path}.part")).exists());
+        assert_eq!(files_beside(&path), ["file"]);
+    }
+
+    /// The names of the files in `path`'s folder.
+    fn files_beside(path: &str) -> Vec<String> {
+        let dir = Path::new(path).parent().expect("the file is in a folder");
+        std::fs::read_dir(dir)
+            .expect("the folder is readable")
+            .map(|entry| {
+                let entry = entry.expect("the folder is readable");
+                entry.file_name().to_string_lossy().into_owned()
+            })
+            .collect()
     }
 }
