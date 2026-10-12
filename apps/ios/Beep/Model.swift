@@ -771,6 +771,9 @@ final class AppModel {
         if let fresh = try? await api().setAutoModel(enabled: on) { models = fresh }
     }
 
+    /// Whether an admin turned agents on for everyone; false for anyone else.
+    func agentsOn() async -> Bool { (try? await api().getAgents().enabled) ?? false }
+
     func memories() async throws -> [Memory] { try await api().listMemories() }
     /// Empty on servers from before reads were listed.
     func memoryReads() async -> [MemoryRead] { (try? await api().listMemoryReads()) ?? [] }

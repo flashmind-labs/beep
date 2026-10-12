@@ -5,17 +5,19 @@ use crate::{
     beep::{Answer, BarEvent, Beep, DataImage, LinkView, Pick, Pictures, Turn, image_uris, qr_svg},
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
+    markdown,
     state::LinkState,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, Chart, ChartRange, ClearMemories,
-    CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession,
-    GetGroup, GetGroupImages, GetModels, GroupInvite, GroupPreview, GroupReminder, JoinGroup,
-    LeaveGroup, ListCrons, ListGroupReminders, ListGroups, ListMemories, Memory, Models, PeekGroup,
-    PinGroup, PinSession, ReasoningLevel, RenameSession, RunCron, SendToGroup, Session,
-    SessionMatch, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink,
-    StockChart, ToggleCron, UnshareSession, UpdateMemory, format_group_code, group_code,
+    Agents, AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, Chart, ChartRange,
+    ClearMemories, CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory,
+    DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GroupInvite,
+    GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons, ListGroupReminders, ListGroups,
+    ListMemories, ListSkills, Memory, Models, PeekGroup, PinGroup, PinSession, ReasoningLevel,
+    RenameSession, RunCron, SendToGroup, Session, SessionMatch, SetAutoModel, SetModel,
+    SetThinking, ShareGroupApps, ShareSession, SharedLink, Skill, StockChart, ToggleCron,
+    UndoSkill, UnshareSession, UpdateMemory, UpdateSkill, format_group_code, group_code,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -678,6 +680,67 @@ pub async fn delete_cron(beep: Service<'_>, id: String) -> Result<()> {
 #[tauri::command]
 pub async fn run_cron(beep: Service<'_>, id: String) -> Result<String> {
     beep.call(RunCron { id }).await
+}
+
+/// A skill as the bar shows it: the server's fields, and the body drawn as HTML.
+#[derive(Serialize)]
+pub struct SkillView {
+    #[serde(flatten)]
+    skill: Skill,
+    html: String,
+}
+
+impl From<Skill> for SkillView {
+    fn from(skill: Skill) -> Self {
+        let html = markdown::to_html(&skill.body);
+        Self { skill, html }
+    }
+}
+
+/// The changes the skill editor sends; a field left out stays as it is.
+#[derive(Deserialize)]
+pub struct SkillChange {
+    name: Option<String>,
+    description: Option<String>,
+    body: Option<String>,
+    enabled: Option<bool>,
+}
+
+#[tauri::command]
+pub async fn list_skills(beep: Service<'_>) -> Result<Vec<SkillView>> {
+    let skills = beep.call(ListSkills {}).await?;
+    Ok(skills.into_iter().map(SkillView::from).collect())
+}
+
+#[tauri::command]
+pub async fn update_skill(beep: Service<'_>, id: String, change: SkillChange) -> Result<SkillView> {
+    let skill = beep
+        .call(UpdateSkill {
+            id,
+            name: change.name,
+            description: change.description,
+            body: change.body,
+            enabled: change.enabled,
+        })
+        .await?;
+    Ok(skill.into())
+}
+
+#[tauri::command]
+pub async fn delete_skill(beep: Service<'_>, id: String) -> Result<()> {
+    beep.call(DeleteSkill { id }).await
+}
+
+/// Puts back the version before the skill's last change.
+#[tauri::command]
+pub async fn undo_skill(beep: Service<'_>, id: String) -> Result<SkillView> {
+    Ok(beep.call(UndoSkill { id }).await?.into())
+}
+
+/// Whether agents are on, so the model view can say what Auto does. Admins only.
+#[tauri::command]
+pub async fn get_agents(beep: Service<'_>) -> Result<Agents> {
+    beep.call(GetAgents {}).await
 }
 
 /// The caller's model settings. `choices` is empty unless they are an
