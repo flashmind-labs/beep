@@ -586,6 +586,8 @@ async function loadChats(query) {
     const list = rows(sessions, query ? groups.filter(g => g.name.toLowerCase().includes(q)) : groups);
     if (!query) S.cache = list;
     if (S.view !== "chats") return;
+    // An older search can finish after a newer one: keep only the box's.
+    if (($("#find")?.value.trim() ?? "") !== query) return;
     const same = query === S.chats.query;
     S.chats = { ...S.chats, list, query, sel: same ? Math.min(S.chats.sel, Math.max(0, list.length - 1)) : 0, mode: same ? S.chats.mode : "list" };
     drawChats();

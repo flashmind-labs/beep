@@ -153,7 +153,7 @@ struct GroupChatView: View {
             }
         }
         .onDisappear { if model.onScreen == groupId { model.onScreen = nil } }
-        // A notice would say when something changed; until the iPhone gets them, this polls.
+        // Notices say when a message arrives (ChatNotifier.handle), but not when Beep is typing, so this still polls.
         .task(id: groupId) {
             while !Task.isCancelled {
                 await load()

@@ -356,16 +356,20 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
     for message in messages {
         match &message.body {
             MessageBody::User {
-                content, images, ..
+                content,
+                images,
+                turn,
             } => {
                 open.finish(&mut out);
+                open.model = turn.model.clone();
                 out.push(Turn::User {
                     text: content.clone(),
                     images: images.clone(),
                 });
             }
-            MessageBody::Scheduled { label, .. } => {
+            MessageBody::Scheduled { label, turn } => {
                 open.finish(&mut out);
+                open.model = turn.model.clone();
                 out.push(Turn::Scheduled {
                     label: label.clone(),
                 });
@@ -412,22 +416,30 @@ struct OpenTurn {
     tools: Vec<beep::ToolStep>,
     replies: Vec<String>,
     approvals: Vec<Turn>,
+    /// The model that answered, from the message that opened the turn.
+    model: String,
 }
 
 impl OpenTurn {
     fn finish(&mut self, out: &mut Vec<Turn>) {
         let turn = mem::take(self);
         match turn.reply.and_then(|at| out.get_mut(at)) {
-            Some(Turn::Assistant { tools, replies, .. }) => {
+            Some(Turn::Assistant {
+                tools,
+                replies,
+                model,
+                ..
+            }) => {
                 *tools = turn.tools;
                 *replies = turn.replies;
+                *model = turn.model;
             }
             _ if turn.tools.is_empty() && turn.replies.is_empty() => {}
             _ => out.push(Turn::Assistant {
                 html: String::new(),
                 tools: turn.tools,
                 replies: turn.replies,
-                model: String::new(),
+                model: turn.model,
             }),
         }
         out.extend(turn.approvals);
@@ -493,20 +505,26 @@ async fn follow_once(app: &AppHandle, beep: &Beep) -> Result<()> {
     Ok(())
 }
 
-/// Asks for pages until the copy holds every update.
+/// Asks for pages until the copy holds every update, then rebuilds the
+/// tray's Recent from it when a chat changed.
 async fn catch_up(app: &AppHandle, beep: &Beep) -> Result<()> {
+    let mut sessions_changed = false;
     loop {
         let after = beep.chats().last();
         let page = beep.call(GetUpdates { after }).await?;
         let more = page.more;
         let changed = beep.chats().apply(page);
         for id in changed.sessions {
+            sessions_changed = true;
             let _ = app.emit("sessions-changed", id.to_string());
         }
         for id in changed.groups {
             let _ = app.emit("group-changed", id.to_string());
         }
         if !more {
+            if sessions_changed {
+                tauri::async_runtime::spawn(crate::refresh_recent(app.clone()));
+            }
             return Ok(());
         }
     }
