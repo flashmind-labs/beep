@@ -22,6 +22,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -117,8 +121,8 @@ private fun parseBlocks(text: String): List<MsgBlock> {
             while (j < lines.size && lines[j].trimStart().startsWith("|") && lines[j].trimEnd().endsWith("|")) { tableLines.add(lines[j]); j++ }
             if (tableLines.size >= 3 && tableLines[1].contains("---")) {
                 flush()
-                val headers = tableLines[0].split("|").filter { it.isNotBlank() }.map { it.trim() }
-                val rows = tableLines.drop(2).map { row -> row.split("|").filter { it.isNotBlank() }.map { it.trim() } }
+                val headers = tableCells(tableLines[0])
+                val rows = tableLines.drop(2).map(::tableCells)
                 blocks.add(MsgBlock.Table(headers, rows)); i = j; continue
             }
         }
@@ -241,26 +245,52 @@ private fun CodeBlockView(language: String, code: String, compact: Boolean) {
     }
 }
 
+// The cells of a table row between its outer pipes. An empty cell keeps its column.
+private fun tableCells(line: String) =
+    line.trim().removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
+
 @Composable
 private fun TableView(headers: List<String>, rows: List<List<String>>, compact: Boolean) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Beep.shapes.smallRadius))
-        .border(1.5.dp, Border, RoundedCornerShape(Beep.shapes.smallRadius)).background(Surface)
-        .horizontalScroll(rememberScrollState())) {
-        Row(Modifier.background(Beep.colors.code).padding(vertical = 10.dp, horizontal = 4.dp)) {
-            headers.forEach { header ->
-                Text(header, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
-                    fontSize = if (compact) 11.sp else 12.sp, fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary, maxLines = 2)
+    val inline = inlineColors()
+    val fontSize = if (compact) 11.sp else 12.sp
+    val lineHeight = if (compact) 16.sp else 18.sp
+    val columns = maxOf(headers.size, rows.maxOfOrNull { it.size } ?: 0)
+    val head = remember(headers, inline) {
+        headers.map { buildAnnotatedString { withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+            append(formattedMessage(it, inline, codeSize = fontSize)) } } }
+    }
+    val body = remember(rows, inline) { rows.map { row -> row.map { formattedMessage(it, inline, codeSize = fontSize) } } }
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    // Every row uses the same column widths: each column fits its widest cell on one line, within limits, and
+    // longer cells wrap.
+    val style = LocalTextStyle.current.merge(TextStyle(fontSize = fontSize))
+    val natural = remember(head, body, style, density) {
+        List(columns) { column ->
+            val widest = (listOfNotNull(head.getOrNull(column)) + body.mapNotNull { it.getOrNull(column) })
+                .maxOfOrNull { measurer.measure(it, style, maxLines = 1).size.width } ?: 0
+            with(density) { widest.toDp() }.coerceIn(48.dp, 220.dp) + 24.dp
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth().clip(RoundedCornerShape(Beep.shapes.smallRadius))
+        .border(1.5.dp, Border, RoundedCornerShape(Beep.shapes.smallRadius)).background(Surface)) {
+        // A narrow table stretches to the full width, so the header fills its row.
+        val room = maxWidth - 8.dp
+        val total = natural.fold(0.dp) { sum, width -> sum + width }
+        val widths = if (total in 1.dp..room) natural.map { it * (room / total) } else natural
+        @Composable
+        fun cells(row: List<AnnotatedString>) {
+            widths.forEachIndexed { column, width ->
+                MathText(row.getOrNull(column) ?: AnnotatedString(""),
+                    modifier = Modifier.width(width).padding(horizontal = 12.dp),
+                    color = TextPrimary, fontSize = fontSize, lineHeight = lineHeight)
             }
         }
-        rows.forEachIndexed { index, row ->
-            if (index > 0) HorizontalDivider(color = Border, thickness = 1.dp)
-            Row(Modifier.padding(vertical = 9.dp, horizontal = 4.dp)) {
-                row.forEach { cell ->
-                    Text(cell, modifier = Modifier.widthIn(min = 90.dp).padding(horizontal = 12.dp),
-                        fontSize = if (compact) 11.sp else 12.sp, color = TextPrimary,
-                        lineHeight = if (compact) 16.sp else 18.sp, maxLines = 4)
-                }
+        Column(Modifier.horizontalScroll(rememberScrollState())) {
+            Row(Modifier.background(Beep.colors.code).padding(vertical = 10.dp, horizontal = 4.dp)) { cells(head) }
+            body.forEachIndexed { index, row ->
+                if (index > 0) HorizontalDivider(color = Border, thickness = 1.dp)
+                Row(Modifier.padding(vertical = 9.dp, horizontal = 4.dp)) { cells(row) }
             }
         }
     }

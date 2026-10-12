@@ -143,7 +143,6 @@ fun ThinkingPreview(thinking: String, modifier: Modifier = Modifier) {
         // Keep the last text while folding away, so the box does not empty before it closes.
         var shown by remember { mutableStateOf(text) }
         if (text.isNotEmpty()) shown = text
-        val muted = Beep.colors.muted
         Box(Modifier.padding(top = 8.dp).fillMaxWidth()
             .clip(RoundedCornerShape(Beep.shapes.smallRadius))
             .background(Beep.colors.surface)

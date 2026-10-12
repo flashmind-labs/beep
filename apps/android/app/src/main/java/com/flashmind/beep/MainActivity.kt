@@ -136,6 +136,7 @@ open class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         takeIntent(intent)
     }
     /** Picks up what [intent] asks to open: a chat, a group, a link or a screen. */
@@ -200,7 +201,8 @@ open class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             startLocationUpdates()
         }
-        takeIntent(intent)
+        // A recreated activity (theme or font change) keeps the chat it was on.
+        if (savedInstanceState == null) takeIntent(intent)
         setContent {
             BeepTheme { CompositionLocalProvider(LocalUriHandler provides OutsideUriHandler(this), LocalOpenLink provides { url: String ->
                 // The bubble has no room for the browser, so its links go to the phone's own.
@@ -303,7 +305,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     clipboardContent: MutableState<String?>,
                     onFloat: () -> Unit, onExpand: (groupId: String?) -> Unit, onBubbleSettings: () -> Unit) {
     val state by repository.state.collectAsStateWithLifecycle()
-    val config by repository.settings.collectAsStateWithLifecycle()
     val status by repository.connection.collectAsStateWithLifecycle()
     val connected by repository.connected.collectAsStateWithLifecycle()
     val pendingAppIntent by repository.pendingIntent.collectAsStateWithLifecycle()
@@ -438,7 +439,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     BackHandler(enabled = activeScreen != Screen.Chat) {
         screen = when (activeScreen) {
             Screen.Devices -> Screen.Settings
-            Screen.LocationAlways -> Screen.Places
+            Screen.LocationAlways -> beforeLocationAlways
             else -> Screen.Chat
         }
     }

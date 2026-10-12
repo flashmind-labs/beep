@@ -118,7 +118,7 @@ private fun LinkCard(data: org.json.JSONObject, onBrowse: (String) -> Unit, comp
 private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepository) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val buttonsArr = data.optJSONArray("buttons") ?: return
-    val buttons = (0 until buttonsArr.length()).map { buttonsArr.getJSONObject(it) }
+    val buttons = (0 until buttonsArr.length()).mapNotNull { buttonsArr.optJSONObject(it) }
     val openLink = LocalOpenLink.current ?: repository::openBrowser
 
     // Room below for the hard shadow, which the scroll container would otherwise clip.

@@ -2,12 +2,10 @@ package com.flashmind.beep
 
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.util.Base64
-import androidx.compose.ui.draw.scale
 
 /** Most images one message may carry; the server refuses more. */
 const val MAX_IMAGES = 8
@@ -18,14 +16,9 @@ internal fun imagePrompt(count: Int) = if (count > 1) "What are these?" else "Wh
 /** Load, resize to at most [maxSize] px on the longest side, and JPEG-encode as a base64 data URI. */
 internal fun encodeImageUri(context: Context, uri: Uri, maxSize: Int = 1024): String? {
     return try {
-        val bitmap = if (Build.VERSION.SDK_INT >= 28) {
-            ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                decoder.isMutableRequired = true
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            android.provider.MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+        val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            decoder.isMutableRequired = true
         }
         encodeBitmap(bitmap, maxSize)
     } catch (_: Exception) { null }

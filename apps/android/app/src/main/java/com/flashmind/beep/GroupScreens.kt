@@ -768,8 +768,7 @@ internal fun GroupJoinScreen(repository: ChatRepository, token: String, onJoined
                 }
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(displayText("Join ${group.name}?"), style = displayStyle(32.sp), textAlign = TextAlign.Center)
-                    val people = group.members + "Beep"
-                    Text(people.dropLast(1).joinToString(", ") + " and Beep are in it.", color = Beep.colors.muted, textAlign = TextAlign.Center)
+                    Text(group.members.joinToString(", ") + " and Beep are in it.", color = Beep.colors.muted, textAlign = TextAlign.Center)
                 }
                 Column(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface).padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {

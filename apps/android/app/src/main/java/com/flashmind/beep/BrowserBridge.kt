@@ -90,9 +90,13 @@ object BrowserBridge {
         canGoForward.value = view.canGoForward()
     }
 
-    /** Pause the page when the screen closes; the WebView itself stays. */
+    /** Pause the page when the screen closes; the WebView itself stays, let go of the activity. */
     fun pause() {
-        view?.let { (it.parent as? ViewGroup)?.removeView(it); it.onPause() }
+        view?.let {
+            (it.parent as? ViewGroup)?.removeView(it)
+            it.onPause()
+            (it.context as MutableContextWrapper).let { wrapper -> wrapper.baseContext = wrapper.applicationContext }
+        }
     }
 
     /** Start loading [target] without waiting, for links the user taps. */

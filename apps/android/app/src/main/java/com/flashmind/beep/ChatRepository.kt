@@ -341,7 +341,7 @@ class ChatRepository(private val storage: LocalStorage) {
         if (identity.contentEquals(storage.identity())) return
         try { api(identity = identity).health() } catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
         reconnectJob?.cancel()
-        synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
+        cancelRuns()
         storage.saveIdentity(identity)
         accountName.value = identityName(identity)
         synchronized(lock) { changes = emptyList(); storage.saveChanges(changes) }
@@ -383,7 +383,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     attempt++
                     connected.value = false
                     connection.value = when {
-                        error is com.flashmind.beep.ffi.BeepException.Unauthorized -> userMessage(error)
+                        error is BeepException.Unauthorized -> userMessage(error)
                         attempt < 5 -> "Reconnecting…"
                         else -> "Can’t reach your server · tap to retry"
                     }
@@ -402,9 +402,10 @@ class ChatRepository(private val storage: LocalStorage) {
         reconnectJob?.cancel()
         connected.value = false
         connection.value = "No internet"
-        synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
+        cancelRuns()
         state.value.conversations.filter { it.busy }.forEach { chat -> updateChat(chat.id) { it.copy(status = waiting(it), error = "") } }
     }
+    private fun cancelRuns() = synchronized(lock) { jobs.values.forEach { it.cancel() }; jobs.clear() }
     /** A working network is back: reconnect, which resumes waiting runs. */
     fun networkBack() {
         networkUp = true
@@ -467,7 +468,8 @@ class ChatRepository(private val storage: LocalStorage) {
      */
     suspend fun rerun(reply: ChatMessage, model: String, thinking: String = "") {
         val chat = state.value.current
-        val prompt = chat.messages.take(chat.messages.indexOf(reply)).lastOrNull { it.role in TURN_STARTS } ?: return
+        val at = chat.messages.indexOfFirst { it.id == reply.id }.takeIf { it >= 0 } ?: return
+        val prompt = chat.messages.take(at).lastOrNull { it.role in TURN_STARTS } ?: return
         rerunPrompt(prompt, model, thinking)
     }
     /**
