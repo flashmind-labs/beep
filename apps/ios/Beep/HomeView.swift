@@ -53,7 +53,9 @@ struct HomeView: View {
             }
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            matches = await model.search(text)
+            let found = await model.search(text)
+            guard !Task.isCancelled else { return }
+            matches = found
         }
         .alert("Rename chat", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Title", text: $newTitle)

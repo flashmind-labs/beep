@@ -47,11 +47,11 @@ final class PictureCache {
         guard let client else { return nil }
         let task = Task<URL?, Never> {
             try? FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
+            // The bridge writes to a temporary name and renames it, so a failure leaves nothing at `url`.
             do {
                 _ = try await client.saveFile(id: id, path: url.path)
                 return url
             } catch {
-                try? FileManager.default.removeItem(at: url)
                 return nil
             }
         }

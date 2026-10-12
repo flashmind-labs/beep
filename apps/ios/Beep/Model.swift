@@ -100,6 +100,8 @@ final class AppModel {
 
     private var client: BeepClient?
     private var runTask: Task<Void, Never>?
+    /// Which launch `runTask` belongs to, so an older run ending does not clear a newer one.
+    private var runToken = UUID()
     private var connectTask: Task<Void, Never>?
     private let pathMonitor = NWPathMonitor()
     let location = LocationReporter()
@@ -462,8 +464,10 @@ final class AppModel {
     private func launchRun() {
         guard runTask == nil else { return }
         let chatId = chat.id
+        let token = UUID()
+        runToken = token
         runTask = Task {
-            defer { if chat.id == chatId { runTask = nil } }
+            defer { if runToken == token { runTask = nil } }
             var failures = 0
             while !Task.isCancelled, chat.id == chatId, chat.busy {
                 do {

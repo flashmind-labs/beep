@@ -629,10 +629,13 @@ struct MarkdownText: View {
     /// A run of `| a | b |` lines is a table when it has a header, a `---` line and a row.
     private static func table(_ lines: [String]) -> Table? {
         guard lines.count >= 3, lines[1].contains("---") else { return nil }
-        let cells = { (line: String) in
-            line.split(separator: "|")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
+        let cells = { (line: String) -> [String] in
+            // Keep empty cells so later ones stay in their column; only the outer pipes go.
+            let line = line.trimmingCharacters(in: .whitespaces)
+            var parts = line.split(separator: "|", omittingEmptySubsequences: false)
+            if line.hasPrefix("|") { parts.removeFirst() }
+            if line.hasSuffix("|"), !parts.isEmpty { parts.removeLast() }
+            return parts.map { $0.trimmingCharacters(in: .whitespaces) }
         }
         let header = cells(lines[0])
         let rows = lines.dropFirst(2).map { row in

@@ -210,9 +210,10 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
         let task = UIApplication.shared.beginBackgroundTask(withName: "reply")
         defer { UIApplication.shared.endBackgroundTask(task) }
         if !model.connected { model.connect() }
+        let deadline = Date.now.addingTimeInterval(20)
         while !model.connected {
             try? await Task.sleep(for: .milliseconds(300))
-            if UIApplication.shared.backgroundTimeRemaining < 5 { return }
+            if Date.now >= deadline || UIApplication.shared.backgroundTimeRemaining < 5 { return }
         }
         if group {
             try? await model.sendToGroup(thread, requestId: UUID().uuidString.lowercased(), text: text)
