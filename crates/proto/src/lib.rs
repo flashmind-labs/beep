@@ -407,6 +407,10 @@ requests! {
     /// may, and not while one of its chats has a run. The server then
     /// closes the moved keys' connections, so they sign in again.
     90 JoinAccount { code: String } => Call<()>
+    /// The specialized agent each turn of a session ran as, by the
+    /// `timestamp` of the `HistoryEntry::User` that started it. Every turn is
+    /// listed, so the newest entry is the newest turn.
+    91 GetSessionAgents { session_id: String } => Call<Vec<TurnAgent>>
 }
 
 /// A chart under a reply, as `show_chart` and `show_stock_chart` return it
@@ -536,6 +540,17 @@ pub struct SentImages {
     /// `seq` in a group.
     pub message: i64,
     pub images: Vec<ImageRef>,
+}
+
+/// The agent one turn ran as.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TurnAgent {
+    /// The `HistoryEntry::User` `timestamp` of the turn.
+    pub message: i64,
+    /// The agent's name, like "Shopping". `None` for General and for a turn
+    /// that ran without agents.
+    pub agent: Option<String>,
 }
 
 /// The most of a file one `GetFile` returns, well under a frame.

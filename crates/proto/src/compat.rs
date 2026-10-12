@@ -76,6 +76,7 @@ macro_rules! sample_struct {
 sample_struct! {
     ImageRef { id, mime, width, height }
     SentImages { message, images }
+    TurnAgent { message, agent }
     FilePart { data, size }
     Approval { app, action, fields }
     ApprovalField { label, value }

@@ -1,6 +1,7 @@
 //! Request handlers, one function per request type.
 
 use crate::{
+    agents::AgentId,
     app::{Answer, Message, UserNotice, group_message},
     apps::catalog_app,
     cron, feeds,
@@ -123,6 +124,7 @@ pub fn router() -> Router {
         .call(cross_place)
         .call(list_memory_reads)
         .call(get_session_images)
+        .call(get_session_agents)
         .call(get_group_images)
         .call(get_updates)
         .call(list_skills)
@@ -462,6 +464,29 @@ async fn get_session_images(
     GetSessionImages { session_id }: GetSessionImages,
 ) -> Reply<Vec<SentImages>> {
     Ok(cx.user.session_pictures(chat_id(&session_id)?).await?)
+}
+
+async fn get_session_agents(
+    cx: Cx,
+    GetSessionAgents { session_id }: GetSessionAgents,
+) -> Reply<Vec<TurnAgent>> {
+    let turns = cx
+        .user
+        .turn_agents(chat_id(&session_id)?)
+        .await?
+        .ok_or(ApiError::NotFound {})?;
+    let agents = cx.app.models.agents();
+    Ok(turns
+        .into_iter()
+        .map(|turn| TurnAgent {
+            message: turn.sent_at,
+            agent: turn
+                .agent
+                .filter(|&id| id != AgentId::General)
+                .and_then(|id| agents.iter().find(|agent| agent.id == id))
+                .map(|agent| agent.name.clone()),
+        })
+        .collect())
 }
 
 async fn get_group_images(
