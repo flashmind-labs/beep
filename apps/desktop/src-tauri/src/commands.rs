@@ -12,12 +12,13 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     Agents, AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, Chart, ChartRange,
     ClearMemories, CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory,
-    DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GroupInvite,
-    GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons, ListGroupReminders, ListGroups,
-    ListMemories, ListSkills, Memory, Models, PeekGroup, PinGroup, PinSession, ReasoningLevel,
-    RenameSession, RunCron, SendToGroup, Session, SessionMatch, SetAutoModel, SetModel,
-    SetThinking, ShareGroupApps, ShareSession, SharedLink, Skill, StockChart, ToggleCron,
-    UndoSkill, UnshareSession, UpdateMemory, UpdateSkill, format_group_code, group_code,
+    DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GetRoute,
+    GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons, ListGroupReminders,
+    ListGroups, ListMemories, ListSkills, Memory, Models, PeekGroup, PinGroup, PinSession,
+    ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, Session, SessionMatch,
+    SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink, Skill,
+    StockChart, ToggleCron, UndoSkill, UnshareSession, UpdateMemory, UpdateSkill,
+    format_group_code, group_code,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -764,6 +765,12 @@ pub async fn set_thinking(beep: Service<'_>, level: ReasoningLevel) -> Result<Mo
 #[tauri::command]
 pub async fn stock_chart(beep: Service<'_>, symbol: String, range: ChartRange) -> Result<Chart> {
     beep.call(StockChart { symbol, range }).await
+}
+
+/// The transit card a `get_route` call planned.
+#[tauri::command]
+pub async fn route_card(beep: Service<'_>, call_id: String) -> Result<RouteCard> {
+    beep.call(GetRoute { call_id }).await
 }
 
 #[tauri::command]

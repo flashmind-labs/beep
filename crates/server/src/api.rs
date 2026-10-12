@@ -125,6 +125,7 @@ pub fn router() -> Router {
         .call(list_memory_reads)
         .call(get_session_images)
         .call(get_session_agents)
+        .call(get_route)
         .call(get_group_images)
         .call(get_updates)
         .call(list_skills)
@@ -488,6 +489,13 @@ async fn get_session_agents(
                 .map(|agent| agent.name.clone()),
         })
         .collect())
+}
+
+async fn get_route(cx: Cx, GetRoute { call_id }: GetRoute) -> Reply<RouteCard> {
+    cx.user
+        .route_card(&call_id)
+        .await?
+        .ok_or(ApiError::NotFound {})
 }
 
 async fn get_group_images(

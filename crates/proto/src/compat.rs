@@ -124,6 +124,10 @@ sample_struct! {
     ChartSeries { name, points }
     ChartPoint { x, y }
     StockInfo { symbol, name, exchange, currency, range, last, previous }
+    RouteCard { routes }
+    RouteOption { departs, arrives, minutes, transfers, live, legs }
+    RouteLeg { mode, line, name, color, text_color, headsign, from, to, from_track, to_track, departs, arrives, minutes, stops, meters, points }
+    RoutePoint { latitude, longitude }
 }
 
 macro_rules! sample_values {

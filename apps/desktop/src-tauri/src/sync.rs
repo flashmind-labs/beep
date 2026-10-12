@@ -365,6 +365,12 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
                 out.push(Turn::User {
                     text: content.clone(),
                     images: images.clone(),
+                    model: turn.model.clone(),
+                    thinking: turn
+                        .auto
+                        .as_ref()
+                        .map(|pick| pick.thinking.to_string())
+                        .unwrap_or_default(),
                 });
             }
             MessageBody::Scheduled { label, turn } => {
@@ -389,11 +395,13 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
                 }
             }
             MessageBody::Tool {
+                call_id,
                 name,
                 output,
                 success,
-                ..
-            } => open.tools.push(beep::tool_step(name, output, *success)),
+            } => open
+                .tools
+                .push(beep::tool_step(name, call_id, output, *success)),
             MessageBody::Approval { query_id, approval } => {
                 open.approvals.push(Turn::Approval {
                     query_id: query_id.clone(),

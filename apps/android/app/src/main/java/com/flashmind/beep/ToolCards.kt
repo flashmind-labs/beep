@@ -124,6 +124,8 @@ sealed class ToolCard {
     /** A place Beep saved by name, which routines can start on arriving at or leaving. */
     data class SavedPlace(val id: String, val name: String, val address: String, val radiusMeters: Int,
         val latitude: Double, val longitude: Double) : ToolCard()
+    /** Transit routes a get_route call planned, fetched from the server by the call's id. */
+    data class Route(val callId: String) : ToolCard()
 }
 
 data class SentImage(val url: String, val caption: String)
@@ -138,6 +140,8 @@ val QUIET_TOOLS = setOf("suggest_replies", "show_products", "notify_user", "task
 /** Reads the card a tool's output describes, or null when it is just text for the model. */
 fun cardFor(call: ToolCall): ToolCard? {
     if (!call.isDone || !call.success) return null
+    // Its output is text for the model; the card itself waits on the server.
+    if (call.name == "get_route") return call.callId.takeIf(String::isNotEmpty)?.let(ToolCard::Route)
     val json = runCatching { JSONObject(call.result) }.getOrNull() ?: return null
     return when (call.name) {
         "suggest_replies" -> {
@@ -866,6 +870,7 @@ fun ToolCards(cards: List<ToolCard>, compact: Boolean, repository: ChatRepositor
                 is ToolCard.Products -> ProductRow(card.products, loading = false)
                 is ToolCard.File -> FileCard(card)
                 is ToolCard.SavedPlace -> SavedPlaceCard(card, compact, repository)
+                is ToolCard.Route -> RouteCardView(card, compact, repository)
                 is ToolCard.Replies -> Unit
             }
         }
@@ -873,7 +878,7 @@ fun ToolCards(cards: List<ToolCard>, compact: Boolean, repository: ChatRepositor
 }
 
 @Composable
-private fun CardButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, primary: Boolean = false,
+internal fun CardButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, primary: Boolean = false,
     trailing: androidx.compose.ui.graphics.vector.ImageVector? = null, onClick: () -> Unit) {
     val t = LocalBeep.current
     ChunkyButton(onClick = onClick, color = if (primary) t.colors.accent else t.colors.surface,

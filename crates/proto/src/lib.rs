@@ -411,6 +411,71 @@ requests! {
     /// `timestamp` of the `HistoryEntry::User` that started it. Every turn is
     /// listed, so the newest entry is the newest turn.
     91 GetSessionAgents { session_id: String } => Call<Vec<TurnAgent>>
+    /// The routes a `get_route` call found, by the call's id, for its card.
+    /// `NotFound` for a call that found none or is not the caller's.
+    92 GetRoute { call_id: String } => Call<RouteCard>
+}
+
+/// What a `get_route` call found, as the route card draws it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RouteCard {
+    /// One to three ways there, best first, as the model was told them.
+    pub routes: Vec<RouteOption>,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RouteOption {
+    /// Clock times where they happen, like "19:01".
+    pub departs: String,
+    pub arrives: String,
+    pub minutes: u32,
+    pub transfers: u32,
+    /// Whether a leg has live times rather than the timetable's.
+    pub live: bool,
+    pub legs: Vec<RouteLeg>,
+}
+
+/// One walk or ride of a route.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RouteLeg {
+    /// The router's mode in lowercase: "walk", "bus", "tram", "subway",
+    /// "rail", "ferry" and others. Text rather than an enum so a mode the
+    /// router adds later reaches older apps as an unknown ride.
+    pub mode: String,
+    /// The line's short name, like "G". Empty for a walk.
+    pub line: String,
+    /// The line's long name, like "Ginza Line". Empty when the feed has none.
+    pub name: String,
+    /// "#RRGGBB", empty when the feed gives none.
+    pub color: String,
+    /// "#RRGGBB" for text on `color`, empty when the feed gives none.
+    pub text_color: String,
+    pub headsign: String,
+    /// Stop names. "" stands for the start or the destination themselves.
+    pub from: String,
+    pub to: String,
+    /// The platform or track, empty when unknown.
+    pub from_track: String,
+    pub to_track: String,
+    pub departs: String,
+    pub arrives: String,
+    pub minutes: u32,
+    /// Stops ridden, counting the last one. Zero for a walk.
+    pub stops: u32,
+    /// Zero when unknown.
+    pub meters: u32,
+    /// The leg's shape, simplified to what a small sketch needs.
+    pub points: Vec<RoutePoint>,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RoutePoint {
+    pub latitude: f64,
+    pub longitude: f64,
 }
 
 /// A chart under a reply, as `show_chart` and `show_stock_chart` return it

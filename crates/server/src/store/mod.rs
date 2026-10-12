@@ -28,6 +28,7 @@ mod merge;
 mod messages;
 mod places;
 mod profile;
+mod routes;
 mod runs;
 mod sessions;
 mod settings;
@@ -229,6 +230,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         35,
         "cron agents",
         include_str!("../../migrations/0035_cron_agents.sql"),
+    ),
+    (
+        36,
+        "usage agents",
+        include_str!("../../migrations/0036_usage_agents.sql"),
+    ),
+    (
+        37,
+        "route cards",
+        include_str!("../../migrations/0037_route_cards.sql"),
     ),
 ];
 

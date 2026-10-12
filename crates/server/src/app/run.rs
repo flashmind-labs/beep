@@ -12,6 +12,7 @@ use crate::{
     followups, gates, images,
     live::LiveRun,
     memories::{Exchange, Turn},
+    metering,
     permissions::{self, ApprovalPayload, Approved, Rules},
     protocol::{ApprovalDecision, AutoPick, Run, RunEvent, Usage},
     repeat::{self, RepeatGuard},
@@ -139,6 +140,9 @@ impl App {
         let Some((turn_agent, auto)) = cancel.run_until_cancelled(picking).await else {
             return self.stopped_early(user, run, live).await;
         };
+        if let Some(turn) = &turn_agent {
+            metering::turn_agent(turn.agent.id);
+        }
         // Always set the server-owned prompt, including when loading an older
         // conversation. It stays static per agent so the provider can cache it.
         conversation.set_system(
@@ -202,6 +206,7 @@ impl App {
             registry.register(Arc::new(tools::GetRouteTool {
                 user: user.clone(),
                 transitous: transitous.clone(),
+                chat,
             }));
         }
         if let Some(sandbox) = &self.tools.sandbox {

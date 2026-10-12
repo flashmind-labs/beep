@@ -30,8 +30,8 @@ use crate::{
     places::PlaceEvent,
     protocol::{
         ApiError, AppIntegration, AppKind, ConnectLink, Cron, FilePart, ImageRef, Memory,
-        MemorySource, Notice, PromptSuggestion, PromptSuggestions, Run, SentImages, Session,
-        UpdatePage,
+        MemorySource, Notice, PromptSuggestion, PromptSuggestions, RouteCard, Run, SentImages,
+        Session, UpdatePage,
     },
     starters::{
         Cached, FALLBACK_FRESH, FRESH, Generator, STARTER_REFRESH_WINDOW, STARTER_REFRESHES,
@@ -377,6 +377,21 @@ impl User {
     /// The pictures the user sent in a session, by turn.
     pub(crate) async fn session_pictures(&self, session_id: Uuid) -> Result<Vec<SentImages>> {
         self.store.session_pictures(&self.key, session_id).await
+    }
+
+    pub(crate) async fn save_route_card(
+        &self,
+        chat: Uuid,
+        call_id: &str,
+        card: &RouteCard,
+    ) -> Result<()> {
+        self.store
+            .save_route_card(&self.key, chat, call_id, card)
+            .await
+    }
+
+    pub(crate) async fn route_card(&self, call_id: &str) -> Result<Option<RouteCard>> {
+        self.store.route_card(&self.key, call_id).await
     }
 
     /// Up to `len` bytes of a sent file or picture from `offset` on, or

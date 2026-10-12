@@ -253,6 +253,15 @@ function newTurn(question, images) {
   return turn;
 }
 
+/// The model and thinking a prompt ran on, under it. Admins only: they are
+/// the ones with model choices. A later line, such as Jev's pick, replaces it.
+function ranOn(turn, model, thinking) {
+  if (!model || !isAdmin()) return;
+  turn.querySelector(".dranon")?.remove();
+  const line = thinking ? `${modelName(model)} · ${thinking}` : modelName(model);
+  turn.querySelector(".ask")?.after(h(`<div class="drerunof dranon">${esc(line)}</div>`));
+}
+
 function stepIcon(state) {
   if (state === "run") return '<span class="dspin"></span>';
   if (state === "bad") return `<span class="dbad">${ICON.x}</span>`;
@@ -382,6 +391,7 @@ function follow(id, turn) {
         for (const p of ev.images ?? []) replyPic(turn, p);
         if (ev.products) productRow(turn, ev.products);
         if (ev.chart) chartRow(turn, ev.chart);
+        if (ev.name === "get_route" && ev.success && ev.call_id) routeRow(turn, ev.call_id);
         break;
       }
       case "replies":
@@ -389,7 +399,7 @@ function follow(id, turn) {
         break;
       case "auto_picked":
         turn.model = ev.model;
-        turn.querySelector(".ask")?.after(h(`<div class="drerunof">${esc(modelName(ev.model))} · ${esc(ev.thinking)}</div>`));
+        ranOn(turn, ev.model, ev.thinking);
         break;
       case "approval":
         turn.querySelector(".caret")?.remove();
@@ -419,6 +429,10 @@ async function send(message) {
   grow(ask);
   const turn = newTurn(message);
   turn.user = true;
+  // Without Auto every prompt runs on the chosen model; with it, Jev's pick
+  // arrives as an event.
+  const m = MODELS.info;
+  if (m && !m.auto) ranOn(turn, m.selected, m.thinking);
   reply(turn).innerHTML = '<span class="caret"></span>';
   const e = entry(id);
   e.body = body();
@@ -519,6 +533,7 @@ function drawHistory(id, turns) {
     if (t.role === "user" || t.role === "scheduled") {
       turn = t.role === "user" ? newTurn(t.text, t.images) : newTurn(t.label || "Routine");
       turn.user = t.role === "user";
+      if (turn.user) ranOn(turn, t.model, t.thinking);
     } else if (t.role === "assistant") {
       turn ??= newTurn("");
       turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
@@ -528,10 +543,15 @@ function drawHistory(id, turns) {
         for (const p of x.images ?? []) replyPic(turn, p);
         if (x.products) productRow(turn, x.products);
         if (x.chart) chartRow(turn, x.chart);
+        if (x.route) routeRow(turn, x.route);
       }
       last = t.replies.length ? { turn, replies: t.replies } : null;
       turn.done = true;
-      if (t.model) turn.model = t.model;
+      if (t.model) {
+        turn.model = t.model;
+        // A turn Auto did not pick still names the model that answered.
+        if (!turn.querySelector(".dranon")) ranOn(turn, t.model, "");
+      }
       drawSteps(turn, true);
       replyActs(turn);
     } else if (t.role === "approval") {
@@ -2075,6 +2095,90 @@ async function chartClick(e) {
   return true;
 }
 
+// ---------- Transit routes ----------
+
+/// A get_route result. The routes live on the server, fetched by the call's
+/// id, so their shapes never sit in the model's context.
+const ROUTE_WALK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M15 21l-2-5-3-2 1-5 3 3h3M9 9l-3 3v4"/></svg>';
+
+async function routeRow(turn, callId) {
+  const card = h('<div class="dchart droute"><div class="dmuted"><span class="dspin"></span>Loading the route</div></div>');
+  card.pick = 0;
+  sentBox(turn).append(card);
+  try {
+    card.route = await invoke("route_card", { callId });
+    drawRoute(card);
+  } catch {
+    card.innerHTML = '<div class="dmuted">Route no longer available</div>';
+  }
+}
+
+function routeChanges(r, sep) {
+  return r.transfers ? `${sep}${r.transfers} change${r.transfers > 1 ? "s" : ""}` : "";
+}
+
+function drawRoute(card) {
+  const routes = card.route.routes, r = routes[card.pick] ?? routes[0];
+  if (!r) return void (card.innerHTML = '<div class="dmuted">No route found</div>');
+  const leg = l => {
+    if (l.mode === "walk") {
+      const km = l.meters >= 1000 ? `, ${(l.meters / 1000).toFixed(1)} km` : "";
+      return `<div class="dmuted" style="gap:10px"><span class="rw">${ROUTE_WALK}</span>Walk ${l.minutes} min${km} to ${esc(l.to || "destination")}</div>`;
+    }
+    const color = l.color || "var(--emerald)", badge = l.line || l.name || l.mode;
+    const stops = l.stops ? ` <span class="m">· ${l.stops} stop${l.stops > 1 ? "s" : ""} ·</span>` : "";
+    return `<div class="rl"><span class="rb" style="background:${color};color:${l.text_color || "var(--ink)"}">${esc(badge)}</span>
+      <span class="rt" style="border-color:${color}"><b>${esc(l.name || badge)}${l.headsign ? ` <span class="m">toward ${esc(l.headsign)}</span>` : ""}</b>
+      <span><b class="n">${esc(l.departs)}</b> ${esc(l.from)}${l.from_track ? `, platform ${esc(l.from_track)}` : ""}${stops} <b class="n">${esc(l.arrives)}</b> ${esc(l.to || "destination")}</span></span></div>`;
+  };
+  const picks = routes.length > 1
+    ? `<span class="ranges">${routes.map((o, i) => `<button data-route="${i}" aria-pressed="${i === card.pick}">${o.minutes} min${routeChanges(o, ", ")}</button>`).join("")}</span>` : "";
+  card.innerHTML = `<div class="ch"><span class="tt"><b>${esc(`${r.departs} to ${r.arrives} · ${r.minutes} min${routeChanges(r, " · ")}`)}</b>
+      <small>${r.live ? "Live times" : "Timetable times, delays not included"}</small></span></div>
+    ${picks ? `<div class="foot">${picks}</div>` : ""}
+    <div class="rs">${routeSketch(r)}</div>
+    <div class="rlegs">${r.legs.map(leg).join("")}</div>
+    <div class="foot"><button class="dbtn" data-maps>Open in Maps</button><span class="src">Transitous</span></div>`;
+}
+
+/// The route's shape fitted to the box: walks dotted, rides in their line's
+/// colour with a stop at each end. Longitude is squeezed by latitude so the
+/// shape keeps its angles.
+function routeSketch(r) {
+  const pts = r.legs.flatMap(l => l.points);
+  if (!pts.length) return "";
+  const W = 300, H = 96, pad = 8, squeeze = Math.cos(pts.reduce((a, p) => a + p.latitude, 0) / pts.length * Math.PI / 180);
+  const xs = pts.map(p => p.longitude * squeeze), ys = pts.map(p => p.latitude);
+  const left = Math.min(...xs), right = Math.max(...xs), bottom = Math.min(...ys), top = Math.max(...ys);
+  const span = Math.max(right - left, top - bottom, 1e-9);
+  const k = Math.min((W - 2 * pad) / Math.max(right - left, span * 1e-3), (H - 2 * pad) / Math.max(top - bottom, span * 1e-3));
+  const dx = (W - (right - left) * k) / 2, dy = (H - (top - bottom) * k) / 2;
+  const at = p => [(dx + (p.longitude * squeeze - left) * k).toFixed(1), (dy + (top - p.latitude) * k).toFixed(1)];
+  const path = ps => ps.map((p, i) => `${i ? "L" : "M"}${at(p).join(",")}`).join("");
+  const dot = (p, rad, attrs) => { const [x, y] = at(p); return `<circle cx="${x}" cy="${y}" r="${rad}" ${attrs}/>`; };
+  const lines = r.legs.filter(l => l.points.length).map(l => l.mode === "walk"
+    ? `<path d="${path(l.points)}" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="0.1 6"/>`
+    : `<path d="${path(l.points)}" fill="none" stroke="${l.color || "var(--emerald)"}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
+  const stops = r.legs.filter(l => l.mode !== "walk" && l.points.length).flatMap(l => [l.points[0], l.points.at(-1)])
+    .map(p => dot(p, 4, 'fill="var(--surface)" stroke="var(--fg)" stroke-width="1.8"')).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Sketch of the route">${lines}${stops}
+    ${dot(pts[0], 5, 'fill="var(--emerald)"')}${dot(pts.at(-1), 6, 'fill="var(--coral)" stroke="var(--surface)" stroke-width="2"')}</svg>`;
+}
+
+function routeClick(e) {
+  const card = e.target.closest(".droute");
+  const pick = e.target.closest("[data-route]");
+  if (pick) {
+    card.pick = +pick.dataset.route;
+    return drawRoute(card);
+  }
+  const r = card.route.routes[card.pick], pts = r.legs.flatMap(l => l.points);
+  if (!pts.length) return;
+  const at = p => `${p.latitude},${p.longitude}`;
+  // Maps plans the trip again between the ends, with its own live times.
+  invoke("open_url", { url: `https://maps.apple.com/?saddr=${at(pts[0])}&daddr=${at(pts.at(-1))}&dirflg=r` }).catch(() => {});
+}
+
 // ---------- Model (admins) ----------
 
 /// The caller's model settings. `choices` is empty unless they are an
@@ -3030,6 +3134,7 @@ bar.addEventListener("click", e => {
   if (S.view === "model") return modelClick(e);
   if (rerunClick(e)) return;
   if (e.target.closest(".dchart [data-series], .dchart [data-range]")) return void chartClick(e);
+  if (e.target.closest(".droute [data-route], .droute [data-maps]")) return void routeClick(e);
   const menuButton = e.target.closest('[data-act="rerunMenu"]');
   if (menuButton) return rerunMenu(menuButton);
   if (!e.target.closest(".dmenu")) closeRerunMenu();
