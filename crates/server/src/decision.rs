@@ -38,10 +38,14 @@ const PICK_AGENT: &str = "Which agent should answer the user's latest message? P
 const PICK_THINKING: &str =
     "How long should the model think before answering the user's latest message?";
 /// The thinking levels Jev picks from, with what each suits.
-const THINKING: [(ReasoningLevel, &str); 3] = [
+const THINKING: [(ReasoningLevel, &str); 4] = [
+    (
+        ReasoningLevel::Off,
+        "Replies that need no thought: small talk, thanks, a yes or no, rewording or translating a short text.",
+    ),
     (
         ReasoningLevel::Low,
-        "Quick lookups and small talk: a fact, a price, opening hours, the news, a short reply.",
+        "Quick lookups: a fact, a price, opening hours, the news, a short reply.",
     ),
     (
         ReasoningLevel::Medium,
@@ -500,6 +504,20 @@ mod tests {
         let request = requests.recv().await.unwrap();
         assert!(request.contains("\"Demanding work\""));
         assert!(request.contains("\"medium\""));
+        assert!(request.contains("\"off\""));
+    }
+
+    #[tokio::test]
+    async fn routes_without_thinking() {
+        let body = r#"{"model":"jev-1.13","answers":{"thinking":{"choice":"off"}}}"#;
+        let (tool, _requests) = mock("200 OK", body).await;
+        let models = [AutoModel {
+            model: "openrouter:z-ai/glm-5.3-flash".parse().unwrap(),
+            name: "GLM 5.3 Flash".into(),
+            when: "Quick lookups".into(),
+        }];
+        let routed = tool.route("User: thanks!", &models).await.unwrap();
+        assert_eq!(routed.thinking, ReasoningLevel::Off);
     }
 
     #[tokio::test]
