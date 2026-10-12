@@ -85,7 +85,10 @@ const $ = sel => bar.querySelector(sel);
 
 // Chats with a run streaming or an approval waiting, by session id. Each keeps
 // its own body, so the bar can show other chats and come back to it.
-const live = new Map(); // id -> { run: { id } | null, approval: { queryId, turn, card } | null, body }
+const live = new Map(); // id -> { run: { id, turn } | null, approval: { queryId, turn, card } | null, body }
+// Runs the bar let go of and is still telling the server to stop, by session id.
+// The chat's next prompt waits for that, so the server has the stop first.
+const stopping = new Map();
 const here = () => live.get(S.session);
 function entry(id) {
   if (!live.has(id)) live.set(id, { run: null, approval: null, body: null });
@@ -352,9 +355,11 @@ function follow(id, turn) {
   const channel = new Channel();
   let text = "";
   channel.onmessage = ev => {
+    // A stopped turn only needs its run's id, to stop it.
+    if (turn.stopped) return ev.kind === "started" && turn.started?.(ev.run_id);
     switch (ev.kind) {
       case "started":
-        entry(id).run = { id: ev.run_id };
+        entry(id).run = { id: ev.run_id, turn };
         if (id === S.session) refreshHints();
         break;
       case "text":
@@ -417,15 +422,17 @@ async function send(message) {
   reply(turn).innerHTML = '<span class="caret"></span>';
   const e = entry(id);
   e.body = body();
-  e.run = { id: null };
+  e.run = { id: null, turn };
   touch(id, message);
   refreshHints();
   scrollDown();
+  await stopping.get(id);
   try {
     await invoke("send_prompt", { session: id, message, images: [], onEvent: follow(id, turn) });
   } catch (err) {
-    failed(turn, String(err));
+    if (!turn.stopped) failed(turn, String(err));
   }
+  turn.started?.(null);
   if (!turn.done) finish(id, turn);
 }
 
@@ -437,19 +444,34 @@ async function answer(decision) {
   pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
   const turn = pending.turn;
   turn.done = false;
-  e.run = { id: null };
+  e.run = { id: null, turn };
   refreshHints();
+  await stopping.get(id);
   try {
     await invoke("answer_approval", { session: id, queryId: pending.queryId, decision, onEvent: follow(id, turn) });
   } catch (err) {
-    failed(turn, String(err));
+    if (!turn.stopped) failed(turn, String(err));
   }
+  turn.started?.(null);
   if (!turn.done) finish(id, turn);
 }
 
-async function stop() {
-  const run = here()?.run;
-  if (run?.id) await invoke("cancel_run", { runId: run.id }).catch(() => {});
+/// Stops the run at once: the chat lets go of it and takes the next prompt
+/// while the server is told to stop it.
+function stop() {
+  const id = S.session, run = here()?.run;
+  if (!run) return;
+  const turn = run.turn;
+  turn.stopped = true;
+  // A run not started yet is stopped once it says its id.
+  const runId = run.id ? Promise.resolve(run.id) : new Promise(resolve => { turn.started = resolve; });
+  const stopped = runId
+    .then(runId => runId && invoke("cancel_run", { runId }))
+    .catch(() => {})
+    .finally(() => { if (stopping.get(id) === stopped) stopping.delete(id); });
+  stopping.set(id, stopped);
+  turn.append(h('<div class="dmuted">Stopped</div>'));
+  finish(id, turn);
 }
 
 async function newChat() {
@@ -2192,14 +2214,16 @@ async function rerun(turn, model, thinking) {
   reply(fresh).innerHTML = '<span class="caret"></span>';
   const e = entry(id);
   e.body = body();
-  e.run = { id: null };
+  e.run = { id: null, turn: fresh };
   refreshHints();
   scrollDown();
+  await stopping.get(id);
   try {
     await invoke("rerun_prompt", { session: id, index, pick: { model, thinking }, onEvent: follow(id, fresh) });
   } catch (err) {
-    failed(fresh, String(err));
+    if (!fresh.stopped) failed(fresh, String(err));
   }
+  fresh.started?.(null);
   if (!fresh.done) finish(id, fresh);
 }
 

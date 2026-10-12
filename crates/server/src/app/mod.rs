@@ -51,6 +51,9 @@ use tokio::{
 };
 use uuid::Uuid;
 
+/// How long a new message waits for a stopped run in its chat to save.
+const STOPPING_WAIT: Duration = Duration::from_secs(10);
+
 /// The server's shared state: storage, users, the model and the
 /// integrations every request and background task works through.
 pub struct App {
@@ -341,13 +344,18 @@ impl App {
     }
 
     pub async fn submit(self: &Arc<Self>, user: &Arc<User>, message: Message) -> Result<CreateRun> {
+        // The app moves on as soon as it stops a run, so the next message may
+        // come while that run is still saving. It waits for it.
+        if let Some(stopping) = self.stopping(message.session_id).await {
+            let _ = timeout(STOPPING_WAIT, stopping.done.cancelled()).await;
+        }
         // Serialize registration with cancellation so a newly created run can always be stopped.
         let mut runs = self.runs.lock().await;
         let result = user
             .create_run(message.session_id, &message.request(), &message.message)
             .await?;
         if let CreateRun::Created(run) = &result {
-            let live = Arc::new(LiveRun::new(CancellationToken::new()));
+            let live = Arc::new(LiveRun::new(CancellationToken::new(), message.session_id));
             live.push(RunEvent::RunStarted {
                 run_id: run.id.clone(),
                 session_id: run.session_id.clone(),
@@ -389,6 +397,7 @@ impl App {
                     });
                 }
                 app.runs.lock().await.remove(&run.id);
+                live.done.cancel();
             });
         }
         Ok(result)
@@ -397,6 +406,16 @@ impl App {
     /// The event feed of a run in progress, `None` once it has finished.
     pub async fn live(&self, id: &str) -> Option<Arc<LiveRun>> {
         self.runs.lock().await.get(id).cloned()
+    }
+
+    /// The run in `session` that was stopped and is still saving.
+    async fn stopping(&self, session: Uuid) -> Option<Arc<LiveRun>> {
+        self.runs
+            .lock()
+            .await
+            .values()
+            .find(|live| live.session == session && live.cancel.is_cancelled())
+            .cloned()
     }
 
     pub async fn cancel(&self, id: &str) {
