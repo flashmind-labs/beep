@@ -36,6 +36,9 @@ const IN_FLIGHT: usize = 4;
 const ROUTES: usize = 3;
 /// The most points a leg's shape keeps for the card's sketch.
 const SHAPE_POINTS: usize = 48;
+/// A wait between legs past which a route is dropped when another has none,
+/// like sitting at a station overnight for the first train.
+const LONG_WAIT: Duration = Duration::from_secs(60 * 60);
 
 /// The client every run's `get_route` shares, with its cache.
 pub struct Transitous {
@@ -305,7 +308,7 @@ impl GetRouteTool {
         let routes: Vec<&Itinerary> = if args.walk_only || plan.itineraries.is_empty() {
             plan.direct.iter().take(1).collect()
         } else {
-            plan.itineraries.iter().take(ROUTES).collect()
+            useful(&plan.itineraries).into_iter().take(ROUTES).collect()
         };
         if routes.is_empty() {
             bail!(
@@ -440,6 +443,36 @@ fn describe(out: &mut String, n: usize, route: &Itinerary) {
     }
 }
 
+/// The routes worth showing: none that another leaves no earlier for and
+/// arrives no later by, and none with a long wait while a route without
+/// one exists.
+fn useful(routes: &[Itinerary]) -> Vec<&Itinerary> {
+    let beaten = |a: &Itinerary| {
+        routes.iter().any(|b| {
+            b.start_time >= a.start_time
+                && b.end_time <= a.end_time
+                && (b.start_time > a.start_time || b.end_time < a.end_time)
+        })
+    };
+    let kept: Vec<&Itinerary> = routes.iter().filter(|a| !beaten(a)).collect();
+    let short = |route: &&Itinerary| longest_wait(route) <= LONG_WAIT;
+    if kept.iter().any(short) {
+        kept.into_iter().filter(short).collect()
+    } else {
+        kept
+    }
+}
+
+/// The longest gap between one leg's end and the next one's start.
+fn longest_wait(route: &Itinerary) -> Duration {
+    route
+        .legs
+        .windows(2)
+        .filter_map(|pair| (pair[1].start_time - pair[0].end_time).to_std().ok())
+        .max()
+        .unwrap_or_default()
+}
+
 /// `route` as the card shows it.
 fn option(route: &Itinerary) -> RouteOption {
     let first = route.legs.first();
@@ -471,10 +504,16 @@ fn card_leg(leg: &Leg) -> RouteLeg {
             .map(|c| format!("#{c}"))
             .unwrap_or_default()
     };
+    let line = named(&leg.route_short_name);
+    let mut name = named(&leg.route_long_name);
+    // The apps fall back to the mode as it is, like "regional_rail".
+    if !walk && line.is_empty() && name.is_empty() {
+        name = mode_name(&leg.mode);
+    }
     RouteLeg {
         mode: leg.mode.to_lowercase(),
-        line: named(&leg.route_short_name),
-        name: named(&leg.route_long_name),
+        line,
+        name,
         color: color(&leg.route_color),
         text_color: color(&leg.route_text_color),
         headsign: text(&leg.headsign),
@@ -495,6 +534,16 @@ fn card_leg(leg: &Leg) -> RouteLeg {
             .map_or(0, |d| d.round().clamp(0.0, u32::MAX as f64) as u32),
         points: shape(leg),
     }
+}
+
+/// A mode as a rider reads it: "REGIONAL_RAIL" becomes "Regional rail".
+fn mode_name(mode: &str) -> String {
+    let words = mode.to_lowercase().replace('_', " ");
+    let mut chars = words.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 fn count(n: i64) -> u32 {
@@ -771,5 +820,30 @@ mod tests {
             ("2", "19:01", 2)
         );
         assert_eq!(ride.points.len(), 3);
+    }
+
+    #[test]
+    fn an_overnight_wait_gives_way_to_the_first_train() {
+        let leg = |start: &str, end: &str| {
+            json!({"mode": "SUBWAY", "from": {"name": "A"}, "to": {"name": "B"}, "duration": 60,
+                   "startTime": start, "endTime": end})
+        };
+        let plan: Plan = serde_json::from_value(json!({
+            "itineraries": [
+                {"duration": 16320, "startTime": "2026-10-12T15:23:00Z", "endTime": "2026-10-12T19:55:00Z", "transfers": 1,
+                 "legs": [leg("2026-10-12T15:23:00Z", "2026-10-12T15:44:00Z"), leg("2026-10-12T19:34:00Z", "2026-10-12T19:55:00Z")]},
+                {"duration": 2100, "startTime": "2026-10-12T19:20:00Z", "endTime": "2026-10-12T19:55:00Z", "transfers": 1,
+                 "legs": [leg("2026-10-12T19:20:00Z", "2026-10-12T19:30:00Z"), leg("2026-10-12T19:34:00Z", "2026-10-12T19:55:00Z")]},
+                {"duration": 2160, "startTime": "2026-10-12T19:30:00Z", "endTime": "2026-10-12T20:06:00Z", "transfers": 1,
+                 "legs": [leg("2026-10-12T19:30:00Z", "2026-10-12T19:40:00Z"), leg("2026-10-12T19:45:00Z", "2026-10-12T20:06:00Z")]}
+            ]
+        }))
+        .unwrap();
+        let kept: Vec<i64> = useful(&plan.itineraries)
+            .iter()
+            .map(|r| r.duration)
+            .collect();
+        assert_eq!(kept, [2100, 2160]);
+        assert_eq!(mode_name("REGIONAL_RAIL"), "Regional rail");
     }
 }

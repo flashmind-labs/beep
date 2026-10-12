@@ -1773,7 +1773,7 @@ function drawApps() {
     else if (app.connected) end = `<span class="dtag">Connected</span><span class="dmuted">${ICON.chev}</span>`;
     else if (!app.configured) end = '<span class="dmuted">Unavailable</span>';
     else end = `<button class="dbtn pri" data-connect="${esc(app.slug)}"${A.connecting ? " disabled" : ""}>Connect</button>`;
-    return `<div class="dapp${app.connected ? " on" : ""}" ${app.connected ? `data-open="${esc(app.slug)}" role="button" tabindex="0"` : ""}>
+    return `<div class="dappr${app.connected ? " on" : ""}" ${app.connected ? `data-open="${esc(app.slug)}" role="button" tabindex="0"` : ""}>
       ${appLogo(app)}<span class="tt"><b>${esc(app.name)}</b><small>${esc(app.description)}</small></span>${end}</div>`;
   };
   const connected = apps.filter(a => a.connected), more = apps.filter(a => !a.connected);
