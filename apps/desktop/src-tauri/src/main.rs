@@ -135,6 +135,7 @@ fn main() {
             commands::get_agents,
             commands::get_models,
             commands::stock_chart,
+            commands::route_card,
             commands::set_model,
             commands::set_thinking,
             commands::set_auto_model,

@@ -18,6 +18,7 @@ import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
 import com.flashmind.beep.proto.JoinPreview
 import com.flashmind.beep.proto.MemoryRead
+import com.flashmind.beep.proto.RouteCard
 import com.flashmind.beep.ffi.ListCache
 import com.flashmind.beep.ffi.Rerun
 import com.flashmind.beep.ffi.identityName
@@ -126,6 +127,7 @@ class ChatRepository(private val storage: LocalStorage) {
     val settings = MutableStateFlow(storage.loadSettings())
     /** The server's `updated_at` of each chat, as last listed. */
     private val serverVersions = ConcurrentHashMap<String, Long>()
+    private val routes = ConcurrentHashMap<String, RouteCard>()
     /** Asks for a sync of the chat list; several asks while one runs make one more. */
     private val syncRequests = Channel<Unit>(Channel.CONFLATED).also { requests ->
         scope.launch { for (request in requests) runCatching { syncHistory(settings.value) } }
@@ -660,6 +662,8 @@ class ChatRepository(private val storage: LocalStorage) {
     )
     private fun memory(it: ProtoMemory) =
         Memory(it.id, it.content, it.category, it.source, it.updated, it.validFrom, it.validUntil, it.quote)
+    /** A get_route call's transit card. A plan does not change, so each is fetched once. */
+    suspend fun route(callId: String): RouteCard = routes[callId] ?: api().getRoute(callId).also { routes[callId] = it }
     /** Chats whose messages hold `query`, searched on the server since the phone keeps few. */
     suspend fun searchChats(query: String): List<SessionMatch> = api().searchSessions(query)
     /** Shares the chat as it is now, or updates its shared copy under the same link. */

@@ -1,8 +1,13 @@
 //! Public transport and walking routes from Transitous, a free router over
 //! open timetable data (https://transitous.org). The legs come back as
 //! short text, so the agent answers about lines and stations from real data.
+//! The same routes are saved as a card under the call's id, with each leg's
+//! shape, for the apps to draw; the model never sees the coordinates.
 
-use crate::user::User;
+use crate::{
+    protocol::{RouteCard, RouteLeg, RouteOption, RoutePoint},
+    user::User,
+};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, SecondsFormat, TimeZone, Utc};
@@ -18,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 const BASE: &str = "https://api.transitous.org/api";
 /// Transitous asks callers to name themselves.
@@ -28,6 +34,8 @@ const CACHE_FOR: Duration = Duration::from_secs(5 * 60);
 const IN_FLIGHT: usize = 4;
 /// Itineraries shown to the model.
 const ROUTES: usize = 3;
+/// The most points a leg's shape keeps for the card's sketch.
+const SHAPE_POINTS: usize = 48;
 
 /// The client every run's `get_route` shares, with its cache.
 pub struct Transitous {
@@ -154,13 +162,24 @@ struct Leg {
     route_short_name: Option<String>,
     route_long_name: Option<String>,
     route_color: Option<String>,
+    route_text_color: Option<String>,
     #[serde(default)]
     intermediate_stops: Vec<Value>,
+    leg_geometry: Option<Geometry>,
+}
+
+/// An encoded polyline, as Google writes them, at `precision` decimals.
+#[derive(Deserialize)]
+struct Geometry {
+    points: String,
+    precision: u32,
 }
 
 #[derive(Deserialize)]
 struct Stop {
     name: String,
+    lat: Option<f64>,
+    lon: Option<f64>,
     tz: Option<String>,
     track: Option<String>,
 }
@@ -183,6 +202,14 @@ struct Args {
 pub(crate) struct GetRouteTool {
     pub user: Arc<User>,
     pub transitous: Arc<Transitous>,
+    /// The chat the run is in, whose deletion takes the cards with it.
+    pub chat: Uuid,
+}
+
+/// A plan: the text the model reads and the card the apps draw.
+struct Planned {
+    text: String,
+    card: RouteCard,
 }
 
 #[async_trait]
@@ -221,14 +248,24 @@ impl Tool for GetRouteTool {
             }
         };
         Ok(match self.route(args).await {
-            Ok(text) => ToolResult::success(ctx.tool_call_id, text),
+            Ok(Planned { text, card }) => {
+                // Without the card the answer still stands; the app shows none.
+                if let Err(error) = self
+                    .user
+                    .save_route_card(self.chat, ctx.tool_call_id, &card)
+                    .await
+                {
+                    log::warn!("unable to save route card: {error:#}");
+                }
+                ToolResult::success(ctx.tool_call_id, text)
+            }
             Err(error) => ToolResult::failure(ctx.tool_call_id, format!("{error:#}")),
         })
     }
 }
 
 impl GetRouteTool {
-    async fn route(&self, args: Args) -> Result<String> {
+    async fn route(&self, args: Args) -> Result<Planned> {
         let location = self.user.get_location().await?;
         let here = location.as_ref().map(|location| Point {
             latitude: location.latitude,
@@ -278,7 +315,12 @@ impl GetRouteTool {
         for (i, route) in routes.iter().enumerate() {
             describe(&mut out, i + 1, route);
         }
-        Ok(out)
+        Ok(Planned {
+            text: out,
+            card: RouteCard {
+                routes: routes.into_iter().map(option).collect(),
+            },
+        })
     }
 
     /// Geocodes `name` near `near`, noting the match in `out`.
@@ -398,19 +440,203 @@ fn describe(out: &mut String, n: usize, route: &Itinerary) {
     }
 }
 
+/// `route` as the card shows it.
+fn option(route: &Itinerary) -> RouteOption {
+    let first = route.legs.first();
+    let last = route.legs.last();
+    RouteOption {
+        departs: first.map_or_else(String::new, |leg| clock(route.start_time, &leg.from)),
+        arrives: last.map_or_else(String::new, |leg| clock(route.end_time, &leg.to)),
+        minutes: count(route.duration / 60),
+        transfers: count(route.transfers),
+        live: route.legs.iter().any(|leg| leg.real_time),
+        legs: route.legs.iter().map(card_leg).collect(),
+    }
+}
+
+fn card_leg(leg: &Leg) -> RouteLeg {
+    let walk = leg.mode == "WALK";
+    let text = |value: &Option<String>| value.clone().unwrap_or_default();
+    let named = |value: &Option<String>| {
+        value
+            .as_deref()
+            .filter(|name| readable(name))
+            .map(str::to_owned)
+            .unwrap_or_default()
+    };
+    let color = |value: &Option<String>| {
+        value
+            .as_deref()
+            .filter(|c| c.len() == 6 && c.chars().all(|c| c.is_ascii_hexdigit()))
+            .map(|c| format!("#{c}"))
+            .unwrap_or_default()
+    };
+    RouteLeg {
+        mode: leg.mode.to_lowercase(),
+        line: named(&leg.route_short_name),
+        name: named(&leg.route_long_name),
+        color: color(&leg.route_color),
+        text_color: color(&leg.route_text_color),
+        headsign: text(&leg.headsign),
+        from: place(&leg.from.name, "").to_owned(),
+        to: place(&leg.to.name, "").to_owned(),
+        from_track: text(&leg.from.track),
+        to_track: text(&leg.to.track),
+        departs: clock(leg.start_time, &leg.from),
+        arrives: clock(leg.end_time, &leg.to),
+        minutes: count(minutes(leg.duration)),
+        stops: if walk {
+            0
+        } else {
+            count(leg.intermediate_stops.len() as i64 + 1)
+        },
+        meters: leg
+            .distance
+            .map_or(0, |d| d.round().clamp(0.0, u32::MAX as f64) as u32),
+        points: shape(leg),
+    }
+}
+
+fn count(n: i64) -> u32 {
+    u32::try_from(n.max(0)).unwrap_or(u32::MAX)
+}
+
+/// The leg's shape for the sketch: its polyline, simplified, or else a
+/// straight line between its stops.
+fn shape(leg: &Leg) -> Vec<RoutePoint> {
+    let line = leg
+        .leg_geometry
+        .as_ref()
+        .and_then(|geometry| decode(&geometry.points, geometry.precision))
+        .filter(|points| points.len() >= 2);
+    match line {
+        Some(points) => simplify(&points, SHAPE_POINTS),
+        None => [&leg.from, &leg.to]
+            .into_iter()
+            .filter_map(|stop| {
+                Some(RoutePoint {
+                    latitude: stop.lat?,
+                    longitude: stop.lon?,
+                })
+            })
+            .collect(),
+    }
+}
+
+/// Decodes a Google encoded polyline written at `precision` decimals.
+fn decode(encoded: &str, precision: u32) -> Option<Vec<RoutePoint>> {
+    let scale = 10f64.powi(i32::try_from(precision).ok()?);
+    let mut bytes = encoded.bytes();
+    let mut next = || -> Option<Option<i64>> {
+        let mut result = 0i64;
+        let mut shift = 0;
+        loop {
+            let Some(byte) = bytes.next() else {
+                // The end of the string, which is fine only between numbers.
+                return if shift == 0 { Some(None) } else { None };
+            };
+            let chunk = i64::from(byte.checked_sub(63)?);
+            result |= (chunk & 0x1f) << shift;
+            shift += 5;
+            if shift > 60 {
+                return None;
+            }
+            if chunk < 0x20 {
+                break;
+            }
+        }
+        Some(Some(if result & 1 == 1 {
+            !(result >> 1)
+        } else {
+            result >> 1
+        }))
+    };
+    let (mut latitude, mut longitude) = (0i64, 0i64);
+    let mut points = Vec::new();
+    while let Some(dlat) = next()? {
+        latitude += dlat;
+        longitude += next()??;
+        points.push(RoutePoint {
+            latitude: latitude as f64 / scale,
+            longitude: longitude as f64 / scale,
+        });
+    }
+    Some(points)
+}
+
+/// At most `most` of `points`, keeping the corners: Douglas-Peucker, with a
+/// tolerance raised until few enough remain.
+fn simplify(points: &[RoutePoint], most: usize) -> Vec<RoutePoint> {
+    if points.len() <= most {
+        return points.to_vec();
+    }
+    let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+    for p in points {
+        lo = lo.min(p.latitude).min(p.longitude);
+        hi = hi.max(p.latitude).max(p.longitude);
+    }
+    let mut tolerance = (hi - lo).max(1e-6) / 400.0;
+    loop {
+        let mut keep = vec![false; points.len()];
+        keep[0] = true;
+        keep[points.len() - 1] = true;
+        mark(points, 0, points.len() - 1, tolerance, &mut keep);
+        let kept: Vec<RoutePoint> = points
+            .iter()
+            .zip(&keep)
+            .filter(|(_, keep)| **keep)
+            .map(|(point, _)| *point)
+            .collect();
+        if kept.len() <= most {
+            return kept;
+        }
+        tolerance *= 2.0;
+    }
+}
+
+/// Marks the point between `start` and `end` farthest from their line, and
+/// recurses, while it is farther than `tolerance`.
+fn mark(points: &[RoutePoint], start: usize, end: usize, tolerance: f64, keep: &mut [bool]) {
+    if end <= start + 1 {
+        return;
+    }
+    let (a, b) = (points[start], points[end]);
+    let (dx, dy) = (b.longitude - a.longitude, b.latitude - a.latitude);
+    let length = dx.hypot(dy);
+    let far = (start + 1..end)
+        .map(|i| {
+            let p = points[i];
+            let distance = if length == 0.0 {
+                (p.longitude - a.longitude).hypot(p.latitude - a.latitude)
+            } else {
+                (dy * (p.longitude - a.longitude) - dx * (p.latitude - a.latitude)).abs() / length
+            };
+            (i, distance)
+        })
+        .max_by(|x, y| x.1.total_cmp(&y.1));
+    if let Some((i, _)) = far.filter(|(_, distance)| *distance > tolerance) {
+        keep[i] = true;
+        mark(points, start, i, tolerance, keep);
+        mark(points, i, end, tolerance, keep);
+    }
+}
+
 /// The line's name, unless it is only a feed's internal number.
 fn route_name(leg: &Leg) -> Option<String> {
     let short = leg.route_short_name.as_deref().unwrap_or_default();
     let long = leg.route_long_name.as_deref().unwrap_or_default();
-    let readable = |name: &str| {
-        !name.is_empty() && !(name.len() > 5 && name.chars().all(|c| c.is_ascii_digit()))
-    };
     match (readable(short), readable(long)) {
         (true, true) if short != long => Some(format!("{short} ({long})")),
         (true, _) => Some(short.to_owned()),
         (false, true) => Some(long.to_owned()),
         (false, false) => None,
     }
+}
+
+/// Whether a line name means something to a rider, rather than being empty
+/// or a feed's internal number.
+fn readable(name: &str) -> bool {
+    !name.is_empty() && !(name.len() > 5 && name.chars().all(|c| c.is_ascii_digit()))
 }
 
 fn place<'a>(name: &'a str, fallback: &'a str) -> &'a str {
@@ -465,5 +691,85 @@ mod tests {
         assert!(out.contains(
             "- subway, City Metro (line colour #ff9501) toward Airport: 19:01 from Central to 19:04 at Riverside, 2 stop(s)"
         ));
+    }
+
+    #[test]
+    fn a_polyline_decodes_at_its_precision() {
+        // Google's own example.
+        let points = decode("_p~iF~ps|U_ulLnnqC_mqNvxq`@", 5).unwrap();
+        let pairs: Vec<(f64, f64)> = points.iter().map(|p| (p.latitude, p.longitude)).collect();
+        assert_eq!(pairs, [(38.5, -120.2), (40.7, -120.95), (43.252, -126.453)]);
+        // Cut off inside a number.
+        assert!(decode("_p~iF~ps|U_ulL", 5).is_none());
+        assert_eq!(decode("", 5).unwrap(), []);
+    }
+
+    #[test]
+    fn a_long_shape_keeps_its_ends_and_corners() {
+        let point = |latitude, longitude| RoutePoint {
+            latitude,
+            longitude,
+        };
+        // East for 100 points, then north for 100: one corner.
+        let mut points: Vec<RoutePoint> =
+            (0..100).map(|i| point(0.0, f64::from(i) * 0.001)).collect();
+        points.extend((1..=100).map(|i| point(f64::from(i) * 0.001, 0.099)));
+        let kept = simplify(&points, 10);
+        assert_eq!(
+            kept,
+            [point(0.0, 0.0), point(0.0, 0.099), point(0.1, 0.099)]
+        );
+        // Few enough already: unchanged.
+        assert_eq!(simplify(&points[..5], 10), &points[..5]);
+    }
+
+    #[test]
+    fn a_plan_becomes_a_card() {
+        let plan: Plan = serde_json::from_value(json!({
+            "itineraries": [{
+                "duration": 300, "startTime": "2026-10-12T10:00:00Z", "endTime": "2026-10-12T10:05:00Z", "transfers": 0,
+                "legs": [
+                    {"mode": "WALK", "from": {"name": "START", "lat": 35.0, "lon": 139.0, "tz": "Asia/Tokyo"},
+                     "to": {"name": "Central", "lat": 35.001, "lon": 139.001, "tz": "Asia/Tokyo"},
+                     "duration": 60, "startTime": "2026-10-12T10:00:00Z", "endTime": "2026-10-12T10:01:00Z", "distance": 73.4},
+                    {"mode": "SUBWAY", "from": {"name": "Central", "tz": "Asia/Tokyo", "track": "2"}, "to": {"name": "Riverside", "tz": "Asia/Tokyo"},
+                     "duration": 180, "startTime": "2026-10-12T10:01:00Z", "endTime": "2026-10-12T10:04:00Z",
+                     "headsign": "Airport", "routeShortName": "30211664", "routeLongName": "Harbour Line",
+                     "routeColor": "ff9501", "routeTextColor": "not a colour", "intermediateStops": [{}],
+                     "legGeometry": {"points": "_p~iF~ps|U_ulLnnqC_mqNvxq`@", "precision": 5, "length": 3}}
+                ]
+            }]
+        }))
+        .unwrap();
+        let card = option(&plan.itineraries[0]);
+        assert_eq!(
+            (card.departs.as_str(), card.arrives.as_str(), card.minutes),
+            ("19:00", "19:05", 5)
+        );
+        let [walk, ride] = &card.legs[..] else {
+            panic!("two legs");
+        };
+        assert_eq!(
+            (
+                walk.mode.as_str(),
+                walk.from.as_str(),
+                walk.stops,
+                walk.meters
+            ),
+            ("walk", "", 0, 73)
+        );
+        // No geometry: a line between the stops.
+        assert_eq!(walk.points.len(), 2);
+        assert_eq!(ride.line, "", "an internal number is no name");
+        assert_eq!(ride.name, "Harbour Line");
+        assert_eq!(
+            (ride.color.as_str(), ride.text_color.as_str()),
+            ("#ff9501", "")
+        );
+        assert_eq!(
+            (ride.from_track.as_str(), ride.departs.as_str(), ride.stops),
+            ("2", "19:01", 2)
+        );
+        assert_eq!(ride.points.len(), 3);
     }
 }

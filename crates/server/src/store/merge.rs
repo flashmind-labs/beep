@@ -59,6 +59,7 @@ pub struct MergeInto<'a> {
 const MOVED: &[(&str, &[&str])] = &[
     ("runs", &["request_id"]),
     ("files", &[]),
+    ("route_cards", &["call_id"]),
     ("shares", &[]),
     ("actions", &[]),
     ("profile_notes", &[]),
@@ -345,12 +346,12 @@ async fn move_settings(tx: &mut PgConnection, source: &str, target: &str) -> Res
     move_rows(tx, "skills", &[], source, target).await?;
 
     sqlx::query(
-        "INSERT INTO token_usage (user_id, day, model, calls, prompt_tokens, cached_tokens,
-             cache_write_tokens, completion_tokens, cost)
-         SELECT $2, day, model, calls, prompt_tokens, cached_tokens, cache_write_tokens,
+        "INSERT INTO token_usage (user_id, day, model, agent, calls, prompt_tokens,
+             cached_tokens, cache_write_tokens, completion_tokens, cost)
+         SELECT $2, day, model, agent, calls, prompt_tokens, cached_tokens, cache_write_tokens,
              completion_tokens, cost
          FROM token_usage WHERE user_id=$1
-         ON CONFLICT (user_id, day, model) DO UPDATE SET
+         ON CONFLICT (user_id, day, model, agent) DO UPDATE SET
              calls = token_usage.calls + excluded.calls,
              prompt_tokens = token_usage.prompt_tokens + excluded.prompt_tokens,
              cached_tokens = token_usage.cached_tokens + excluded.cached_tokens,

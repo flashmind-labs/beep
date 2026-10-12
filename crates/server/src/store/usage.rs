@@ -1,7 +1,7 @@
-//! Token usage and cost per user, day and model.
+//! Token usage and cost per user, day, model and agent.
 
 use super::Store;
-use crate::metering::CallUsage;
+use crate::{agents::AgentId, metering::CallUsage};
 use anyhow::Result;
 
 impl Store {
@@ -9,10 +9,10 @@ impl Store {
     pub(crate) async fn add_token_usage(&self, user: &str, call: &CallUsage) -> Result<()> {
         let usage = &call.tokens;
         sqlx::query(
-            "INSERT INTO token_usage (user_id, day, model, calls, prompt_tokens, cached_tokens,
-                 cache_write_tokens, completion_tokens, cost)
-             VALUES ($1, (now() AT TIME ZONE 'UTC')::date, $2, 1, $3, $4, $5, $6, $7)
-             ON CONFLICT (user_id, day, model) DO UPDATE SET
+            "INSERT INTO token_usage (user_id, day, model, agent, calls, prompt_tokens,
+                 cached_tokens, cache_write_tokens, completion_tokens, cost)
+             VALUES ($1, (now() AT TIME ZONE 'UTC')::date, $2, $3, 1, $4, $5, $6, $7, $8)
+             ON CONFLICT (user_id, day, model, agent) DO UPDATE SET
                  calls = token_usage.calls + 1,
                  prompt_tokens = token_usage.prompt_tokens + excluded.prompt_tokens,
                  cached_tokens = token_usage.cached_tokens + excluded.cached_tokens,
@@ -22,6 +22,7 @@ impl Store {
         )
         .bind(user)
         .bind(&call.model)
+        .bind(call.agent.map_or("", AgentId::as_str))
         .bind(i64::from(usage.prompt_tokens))
         .bind(i64::from(usage.cache_read_tokens))
         .bind(i64::from(usage.cache_creation_tokens))

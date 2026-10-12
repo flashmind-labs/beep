@@ -98,6 +98,8 @@ final class AppModel {
     private(set) var models: Models?
 
     private var client: BeepClient?
+    /// get_route cards by call id. A plan does not change, so each is fetched once.
+    @ObservationIgnored private var routes: [String: RouteCard] = [:]
     private var runTask: Task<Void, Never>?
     /// Which launch `runTask` belongs to, so an older run ending does not clear a newer one.
     private var runToken = UUID()
@@ -176,6 +178,13 @@ final class AppModel {
     private func api() throws -> BeepClient {
         guard let client else { throw BeepError.Connection(reason: "Not connected yet") }
         return client
+    }
+
+    func route(callId: String) async -> RouteCard? {
+        if let card = routes[callId] { return card }
+        guard let card = try? await api().getRoute(callId: callId) else { return nil }
+        routes[callId] = card
+        return card
     }
 
     // MARK: Sessions

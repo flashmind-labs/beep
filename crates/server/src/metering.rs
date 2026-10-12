@@ -1,6 +1,6 @@
 //! Counts every model call's tokens and cost against the user it ran for.
 
-use crate::store::Store;
+use crate::{agents::AgentId, store::Store};
 use async_trait::async_trait;
 use flashmind::types::{
     CompletionRequest, CompletionStream, ImageGenRequest, LlmProvider, Model, ModelCapabilities,
@@ -9,11 +9,13 @@ use flashmind::types::{
 };
 use futures::StreamExt;
 use rust_decimal::prelude::ToPrimitive;
-use std::{collections::HashMap, future::Future, sync::Arc};
+use std::{cell::Cell, collections::HashMap, future::Future, sync::Arc};
 
 tokio::task_local! {
     /// The user a call is billed to when its request names none.
     static BILLED_TO: String;
+    /// The agent the running turn runs as, once it is picked.
+    static TURN_AGENT: Cell<Option<AgentId>>;
 }
 
 /// Runs `work` with its model calls counted for `user`, for code that builds
@@ -22,9 +24,23 @@ pub async fn billed_to<F: Future>(user: &str, work: F) -> F::Output {
     BILLED_TO.scope(user.to_owned(), work).await
 }
 
+/// Runs a turn, so the calls after `turn_agent` count against its agent.
+/// Work it spawns, such as memory learning, counts against none.
+pub async fn in_turn<F: Future>(work: F) -> F::Output {
+    TURN_AGENT.scope(Cell::new(None), work).await
+}
+
+/// Counts the rest of the running turn's calls against `agent`.
+pub fn turn_agent(agent: AgentId) {
+    // Outside `in_turn` there is no turn to mark.
+    let _ = TURN_AGENT.try_with(|turn| turn.set(Some(agent)));
+}
+
 /// One finished call: what it used and what that cost.
 pub struct CallUsage {
     pub model: String,
+    /// The agent of the turn it ran in, if any.
+    pub agent: Option<AgentId>,
     pub tokens: TokenUsage,
     /// USD, zero when the model is unpriced.
     pub cost: f64,
@@ -91,6 +107,7 @@ impl LlmProvider for Metered {
             return self.inner.complete(request);
         };
         let model = request.model.to_string();
+        let agent = TURN_AGENT.try_with(Cell::get).ok().flatten();
         let pricing = self.prices.get(request.model.name()).cloned();
         let store = self.store.clone();
         let mut usage: Option<TokenUsage> = None;
@@ -111,6 +128,7 @@ impl LlmProvider for Metered {
                         .unwrap_or_default();
                     let call = CallUsage {
                         model: model.clone(),
+                        agent,
                         tokens,
                         cost,
                     };
@@ -253,5 +271,36 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(users, 1);
+    }
+
+    #[tokio::test]
+    async fn a_turns_calls_count_against_its_agent() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let metered = Metered::new(Arc::new(UsageStub), store.clone()).await;
+
+        in_turn(async {
+            // Picking the agent is not the agent's.
+            metered.complete(request(Some("alice"))).count().await;
+            turn_agent(AgentId::Research);
+            metered.complete(request(Some("alice"))).count().await;
+            metered.complete(request(Some("alice"))).count().await;
+        })
+        .await;
+
+        let mut rows = Vec::new();
+        for _ in 0..100 {
+            rows = sqlx::query_as::<_, (String, i64)>(
+                "SELECT agent, calls FROM token_usage WHERE user_id='alice' ORDER BY agent",
+            )
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+            if rows.iter().map(|(_, calls)| calls).sum::<i64>() == 3 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(rows, [(String::new(), 1), ("research".to_owned(), 2)]);
     }
 }

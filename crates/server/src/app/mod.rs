@@ -21,6 +21,7 @@ use crate::{
     decision::DecisionTool,
     images::Describer,
     live::LiveRun,
+    metering,
     models::ModelChoices,
     protocol::{ApprovalDecision, DeviceKind, Notice, Platform, RunEvent},
     sandbox::Sandbox,
@@ -384,7 +385,8 @@ impl App {
                 Err(error) => log::warn!("unable to check title: {error}; run_id={}", run.id),
             }
             tokio::spawn(async move {
-                if let Err(error) = app.execute(&user, &run, &message, &live).await {
+                let turn = metering::in_turn(app.execute(&user, &run, &message, &live));
+                if let Err(error) = turn.await {
                     log::error!("run failed: {error}; run_id={}", run.id);
                     if let Err(error) = user.finish(&run, None, RunStatus::Failed).await {
                         log::error!("unable to persist failure: {error}; run_id={}", run.id);

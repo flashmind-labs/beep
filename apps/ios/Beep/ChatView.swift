@@ -349,6 +349,9 @@ struct MessageView: View {
                         .card()
                         .padding(.top, 10)
                 }
+                ForEach(message.tools.filter { $0.name == "get_route" && $0.done && $0.success }) { call in
+                    RouteCardView(callId: call.id).padding(.top, 10)
+                }
                 ForEach(message.tools.filter { $0.name == "show_products" }) { call in
                     let products = call.products
                     if !products.isEmpty { ProductRow(products: products).padding(.top, 10) }

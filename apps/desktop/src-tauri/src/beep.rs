@@ -46,6 +46,7 @@ const SEND_IMAGE: &str = "send_image";
 /// Their results hold a chart, drawn under the reply.
 const SHOW_CHART: &str = "show_chart";
 const SHOW_STOCK_CHART: &str = "show_stock_chart";
+const GET_ROUTE: &str = "get_route";
 
 /// An admin's one-off model and thinking for a single turn. Both empty
 /// sends the turn on the account's own pick.
@@ -164,6 +165,10 @@ pub enum Turn {
         text: String,
         /// The pictures sent with it, read with the `picture` command.
         images: Vec<ImageRef>,
+        /// The model the turn ran on, empty when the server did not say.
+        model: String,
+        /// The thinking level, known only when Auto picked it.
+        thinking: String,
     },
     Assistant {
         html: String,
@@ -194,6 +199,8 @@ pub struct ToolStep {
     pub products: Option<String>,
     /// A `show_chart` or `show_stock_chart` result's chart.
     pub chart: Option<Chart>,
+    /// A `get_route` call's id, to fetch its transit card with `GetRoute`.
+    pub route: Option<String>,
 }
 
 /// A file Beep sent in the chat, fetched with `GetFile` when opened.
@@ -726,8 +733,9 @@ pub fn suggested_replies(output: &str) -> Option<Vec<String>> {
 }
 
 /// A tool result as a step of a reply.
-pub fn tool_step(name: &str, output: &str, success: bool) -> ToolStep {
+pub fn tool_step(name: &str, call_id: &str, output: &str, success: bool) -> ToolStep {
     ToolStep {
+        route: (name == GET_ROUTE && success && !call_id.is_empty()).then(|| call_id.to_owned()),
         name: name.to_owned(),
         success,
         file: sent_file(name, output),
@@ -806,10 +814,19 @@ pub fn qr_svg(data: &str) -> Result<String> {
 fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
     match entry {
         HistoryEntry::User {
-            content, timestamp, ..
+            content,
+            timestamp,
+            auto,
         } => Turn::User {
             text: content,
             images: pictures.take(timestamp),
+            model: auto
+                .as_ref()
+                .map(|pick| pick.model.clone())
+                .unwrap_or_default(),
+            thinking: auto
+                .map(|pick| pick.thinking.to_string())
+                .unwrap_or_default(),
         },
         HistoryEntry::Assistant {
             content,
@@ -823,7 +840,7 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
                 html: markdown::to_html(&content),
                 tools: tools
                     .iter()
-                    .map(|t| tool_step(&t.name, &t.output, t.success))
+                    .map(|t| tool_step(&t.name, &t.call_id, &t.output, t.success))
                     .collect(),
                 replies: suggest
                     .iter()

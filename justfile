@@ -182,6 +182,10 @@ test: test-db
 tool-schema *args:
     uv run -q --with 'psycopg[binary]' --with httpx python -I scripts/tool-schema.py --config {{server_config}} {{args}}
 
+# Model spend per agent and the costliest user-days: just usage [days]
+usage days="14":
+    uv run -q --with 'psycopg[binary]' python -I scripts/usage.py --config {{server_config}} {{days}}
+
 # Run the prompt evals against the real model in the dev config. They cost
 # money. `just eval search` runs the cases whose name contains "search".
 eval filter="": test-db
