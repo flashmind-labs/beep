@@ -56,6 +56,14 @@ impl App {
                  maps, contacts and opening apps are not available in this turn."
             );
         }
+        if message.charts {
+            let _ = writeln!(
+                ctx,
+                "Their app draws charts under your reply: use show_stock_chart for a stock, \
+                 index, currency or crypto price, and show_chart for numbers a tool or page \
+                 gave you that read better as a chart."
+            );
+        }
 
         if let Some(line) = apps_line(apps) {
             let _ = writeln!(ctx, "{line}");

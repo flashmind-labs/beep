@@ -163,8 +163,14 @@ impl App {
         }
 
         let timezone = user.get_timezone().await.ok();
-        let mut registry =
-            tools::registry(self.clone(), run, user, timezone.as_deref(), message.origin);
+        let mut registry = tools::registry(
+            self.clone(),
+            run,
+            user,
+            timezone.as_deref(),
+            message.origin,
+            message.charts,
+        );
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }

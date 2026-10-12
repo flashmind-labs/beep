@@ -1,5 +1,6 @@
 mod alarm;
 mod browser;
+mod charts;
 mod contacts;
 mod file;
 pub(crate) mod group_memory;
@@ -15,6 +16,7 @@ mod products;
 mod progress;
 mod route;
 pub(crate) mod skills;
+pub(crate) mod stocks;
 mod suggest;
 
 pub(crate) use file::SendFileTool;
@@ -52,6 +54,7 @@ pub fn registry(
     user: &Arc<User>,
     timezone: Option<&str>,
     origin: DeviceKind,
+    charts: bool,
 ) -> ToolRegistry {
     let run_id = run.id.as_str();
     let mut registry = ToolRegistry::new();
@@ -84,6 +87,10 @@ pub fn registry(
         }));
     }
     registry.register(Arc::new(progress::TaskProgressTool));
+    if charts {
+        registry.register(Arc::new(charts::ShowChartTool));
+        registry.register(Arc::new(charts::ShowStockChartTool));
+    }
     // These act on the phone, which a run started on a computer cannot reach.
     if origin == (DeviceKind::Phone {}) {
         registry.register(Arc::new(open_app::OpenAppTool));

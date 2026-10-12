@@ -175,6 +175,8 @@ pub struct Message {
     pub origin: DeviceKind,
     /// The app the message came from, when it says.
     pub platform: Option<Platform>,
+    /// Whether the app draws charts, so the run gets the chart tools.
+    pub charts: bool,
 }
 
 /// The user's answer to the tool call a session stopped on.
