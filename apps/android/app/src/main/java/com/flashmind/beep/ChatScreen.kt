@@ -418,6 +418,9 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                     scope.launch { runCatching { repository.rerun(message, model, thinking) }.onFailure { showError(context, it) } }
                                 }
                             }
+                            // The specialized agent that answered, for admins next to the memory score.
+                            if (modelChoices?.choices?.isNotEmpty() == true && message.agent.isNotEmpty())
+                                Text(message.agent, fontSize = 11.sp, color = TextDim, modifier = Modifier.padding(start = 8.dp))
                             // Jev's estimate that this turn held something worth remembering.
                             message.memoryScore?.let { score ->
                                 val saved = message.toolCalls.any { it.name in MEMORY_TOOLS }

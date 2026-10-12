@@ -52,7 +52,7 @@ pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage,
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};
 pub use merge::{Invite, Inviter, Merge, MergeInto};
-pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnRecord};
+pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnAgentRow, TurnRecord};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};

@@ -231,9 +231,12 @@ class ChatRepository(private val storage: LocalStorage) {
         val history = api(config).getSession(id)
         // A server from before it kept pictures has none to list.
         val pictures = picturesByMessage(runCatching { api(config).getSessionImages(id) }.getOrDefault(emptyList()))
+        // Likewise a server from before it named agents.
+        val agents = runCatching { api(config).getSessionAgents(id) }.getOrDefault(emptyList()).associate { it.message to it.agent.orEmpty() }
+        var turnAt = 0L
         val messages = history.mapIndexedNotNull { i, entry ->
             when (entry) {
-                is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp,
+                is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; turnAt = entry.timestamp; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp,
                     autoModel = entry.auto?.model.orEmpty(), autoThinking = entry.auto?.thinking?.name?.lowercase().orEmpty(),
                     pictures = pictures[entry.timestamp].orEmpty()) }
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
@@ -245,7 +248,8 @@ class ChatRepository(private val storage: LocalStorage) {
                     if (entry.content.isBlank()) { pending = tools; pendingReasoning = reasoning; null }
                     else {
                         pending = emptyList(); pendingReasoning = ""
-                        ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools, memoryScore = entry.memoryScore, reasoning = reasoning, model = entry.model)
+                        ChatMessage("history-$id-$i", "assistant", entry.content, toolCalls = tools, memoryScore = entry.memoryScore, reasoning = reasoning, model = entry.model,
+                            agent = agents[turnAt].orEmpty())
                     }
                 }
                 // The session stopped to ask before a call: the card takes the tools held back for it.
@@ -267,6 +271,11 @@ class ChatRepository(private val storage: LocalStorage) {
         updateChat(id) { current -> if (current == before) current.copy(messages = scored, version = version) else current }
     }
     fun refreshHistory() { syncRequests.trySend(Unit) }
+    /** Names on [replyId] the specialized agent the newest turn of [chatId] ran as. */
+    private fun labelAgent(chatId: String, replyId: String) = scope.launch {
+        val agent = runCatching { api().getSessionAgents(chatId) }.getOrNull()?.lastOrNull()?.agent ?: return@launch
+        updateChat(chatId) { c -> c.copy(messages = c.messages.map { if (it.id == replyId) it.copy(agent = agent) else it }) }
+    }
     /** Fetches the chat a notification is about, so tapping it opens the chat at once. */
     fun prefetch(id: String) {
         if (id.isEmpty() || !settings.value.configured) return
@@ -1386,6 +1395,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             if (it.id == messageId) extractCardsFromText(it).copy(reasoning = joinReasoning(it.reasoning, chat.thinking)) else it
                         },
                         runId = "", status = "", tool = "", thinking = "", cancelRequested = false, error = runEndError(status, chat.error))
+                    labelAgent(id, messageId)
                 }
                 is RunEvent.MemoryScore ->
                     next = next.copy(messages = next.messages.map { if (it.id == messageId) it.copy(memoryScore = event.probability) else it })

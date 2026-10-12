@@ -85,6 +85,13 @@ impl TurnRecord {
     }
 }
 
+/// The agent one turn ran as.
+pub struct TurnAgentRow {
+    /// When the message that started it was sent, in milliseconds.
+    pub sent_at: i64,
+    pub agent: Option<AgentId>,
+}
+
 /// One step of a session turn to save.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Step {
@@ -536,6 +543,28 @@ impl Store {
             })
         })
         .transpose()
+    }
+
+    /// The agent each turn of `chat` ran as, oldest first, by the time of
+    /// the message that started it in milliseconds. The caller checks the
+    /// user may read it.
+    pub(crate) async fn turn_agents(&self, chat: Uuid) -> Result<Vec<TurnAgentRow>> {
+        let rows = sqlx::query(
+            "SELECT floor(extract(epoch FROM m.sent_at) * 1000)::bigint, t.agent
+             FROM turns t JOIN messages m ON m.id = t.message_id
+             WHERE m.chat_id = $1 ORDER BY m.id",
+        )
+        .bind(chat)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(TurnAgentRow {
+                    sent_at: row.try_get(0)?,
+                    agent: agent(row.try_get(1)?),
+                })
+            })
+            .collect()
     }
 
     /// Every message of `chat`, oldest first, with their pictures. The

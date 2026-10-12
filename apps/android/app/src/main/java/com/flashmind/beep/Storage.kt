@@ -68,7 +68,9 @@ data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: 
     /** The thinking level an admin picked for that rerun, lowercase like "high". Empty keeps their usual one. */
     val modelThinking: String = "",
     /** The pictures the server kept from this prompt, read with `saveFile`. */
-    val pictures: List<ImageRef> = emptyList())
+    val pictures: List<ImageRef> = emptyList(),
+    /** The specialized agent that wrote this reply, like "Shopping". Empty for General. */
+    val agent: String = "")
 
 /** A tool call the server holds until the user allows it. `answer` is empty while it waits. */
 data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "") {
@@ -200,7 +202,7 @@ class LocalStorage(internal val context: Context) {
                 } else emptyList()
                 ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
                     m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals, m.optString("model"), m.optLong("sentAt"),
-                    m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"), pictures = readPictures(m))
+                    m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"), pictures = readPictures(m), agent = m.optString("agent"))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
                 pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"),
                 status = c.optString("status"), error = c.optString("error"), cancelRequested = c.optBoolean("cancelRequested"), pinned = c.optBoolean("pinned"),
@@ -298,6 +300,7 @@ class LocalStorage(internal val context: Context) {
                     .apply { if (m.reasoning.isNotEmpty()) put("reasoning", m.reasoning) }
                     .apply { if (m.model.isNotEmpty()) put("model", m.model) }
                     .apply { if (m.modelThinking.isNotEmpty()) put("modelThinking", m.modelThinking) }
+                    .apply { if (m.agent.isNotEmpty()) put("agent", m.agent) }
                     .apply { if (m.sentAt != 0L) put("sentAt", m.sentAt) }
                     .apply { if (m.autoModel.isNotEmpty()) put("autoModel", m.autoModel).put("autoThinking", m.autoThinking) }
                 if (m.cards.isNotEmpty()) {

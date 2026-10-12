@@ -44,7 +44,7 @@ use crate::{
         NewKey, NewMessage, NewPicture, NewPlace, NewPlaceRoutine, Origin, PicturesOf,
         PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice, RunStatus, SavedPlace,
         SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, Store, StoredContext, StoredMessage,
-        TurnRecord, TurnsToDelete,
+        TurnAgentRow, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::{Result, bail};
@@ -480,6 +480,15 @@ impl User {
             return Ok(None);
         }
         Ok(Some(self.store.chat_messages(session).await?))
+    }
+
+    /// The agent each turn of a session the user owns ran as, oldest first.
+    /// `None` when they have no such session.
+    pub async fn turn_agents(&self, session: Uuid) -> Result<Option<Vec<TurnAgentRow>>> {
+        if !self.store.owns_session(&self.key, session).await? {
+            return Ok(None);
+        }
+        Ok(Some(self.store.turn_agents(session).await?))
     }
 
     /// What the newest turn of a session ran with.

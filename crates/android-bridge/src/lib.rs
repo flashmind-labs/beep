@@ -12,17 +12,17 @@ use beep_proto::{
     DeletePlace, DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom,
     DeviceAnswer, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
     GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRun,
-    GetSession, GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
-    GroupPreview, GroupReminder, Health, HistoryEntry, JoinAccount, JoinGroup, JoinPreview,
-    LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices, ListGroupReminders,
-    ListGroups, ListMemories, ListMemoryReads, ListPlaces, ListSessions, ListSkills, Memory,
-    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession,
-    Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
-    RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup, SentImages, Session,
-    SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone,
-    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, Stream,
-    SuggestPrompts, ToggleCron, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
-    UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill,
+    GetSession, GetSessionAgents, GetSessionImages, GetShare, Group, GroupChat, GroupInvite,
+    GroupLink, GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, JoinAccount,
+    JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices,
+    ListGroupReminders, ListGroups, ListMemories, ListMemoryReads, ListPlaces, ListSessions,
+    ListSkills, Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel,
+    PinGroup, PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel,
+    RegisterDevice, RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup,
+    SentImages, Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetModel,
+    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill,
+    StartAppAuth, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill, UnregisterDevice,
+    UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -491,6 +491,11 @@ impl BeepClient {
     /// Read each with `save_file`.
     pub async fn get_session_images(&self, id: String) -> Result<Vec<SentImages>, BeepError> {
         self.call(GetSessionImages { session_id: id }).await
+    }
+
+    /// The specialized agent each turn of a session ran as, oldest first.
+    pub async fn get_session_agents(&self, id: String) -> Result<Vec<TurnAgent>, BeepError> {
+        self.call(GetSessionAgents { session_id: id }).await
     }
 
     /// The pictures sent in a group, by their message's `seq`.
