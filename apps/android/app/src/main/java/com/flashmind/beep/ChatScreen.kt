@@ -446,6 +446,10 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     }
                 }
             }
+            if (!compact) PromptMap(chat.messages, list, Modifier.matchParentSize()) { index ->
+                followLatest = false
+                scope.launch { list.animateScrollToItem(index) }
+            }
             androidx.compose.animation.AnimatedVisibility(visible = !followLatest && list.canScrollForward,
                 enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut() + slideOutVertically { it / 2 },
                 modifier = Modifier.align(Alignment.BottomCenter)) {
