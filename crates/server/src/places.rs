@@ -225,9 +225,14 @@ pub fn crossing(place: &SavedPlace, was_inside: bool, fix: &Location) -> Option<
 fn start_of_day(now: DateTime<Utc>, timezone: &str) -> DateTime<Utc> {
     let zone: Tz = timezone.parse().unwrap_or(chrono_tz::UTC);
     let local = now.with_timezone(&zone).date_naive();
-    local
-        .and_hms_opt(0, 0, 0)
-        .and_then(|midnight| midnight.and_local_timezone(zone).earliest())
+    // Where clocks skip midnight, the day starts at the first hour that exists.
+    (0..24)
+        .find_map(|hour| {
+            local
+                .and_hms_opt(hour, 0, 0)?
+                .and_local_timezone(zone)
+                .earliest()
+        })
         .map_or(now, |start| start.with_timezone(&Utc))
 }
 
@@ -275,23 +280,33 @@ pub async fn start_routines(app: &Arc<App>, user: &Arc<User>, crossing: &Crossed
         .await?
     {
         let since = (routine.trigger.repeat == PlaceRepeat::Daily).then_some(today);
-        if !user.claim_place_run(routine.job.id, now, since).await? {
-            log::debug!("places: ran today already; job_id={}", routine.job.id);
-            continue;
+        // One routine that fails leaves the others to start.
+        let result: Result<bool> = async {
+            if !user.claim_place_run(routine.job.id, now, since).await? {
+                log::debug!("places: ran today already; job_id={}", routine.job.id);
+                return Ok(false);
+            }
+            let task = format!(
+                "{}\n\n(This started because the user just {}.)",
+                routine.job.task.trim(),
+                crossing.event.past(&crossing.place.name)
+            );
+            // Deleted before it starts, so a second crossing cannot run it too.
+            if routine.trigger.repeat == PlaceRepeat::Once {
+                user.delete_cron(&routine.job.id.to_string()).await?;
+            }
+            Ok(cron::submit(app, user, &routine.job, &task)
+                .await?
+                .is_some())
         }
-        if routine.trigger.repeat == PlaceRepeat::Once {
-            user.delete_cron(&routine.job.id.to_string()).await?;
-        }
-        let task = format!(
-            "{}\n\n(This started because the user just {}.)",
-            routine.job.task.trim(),
-            crossing.event.past(&crossing.place.name)
-        );
-        if cron::submit(app, user, &routine.job, &task)
-            .await?
-            .is_some()
-        {
-            started += 1;
+        .await;
+        match result {
+            Ok(true) => started += 1,
+            Ok(false) => {}
+            Err(error) => log::warn!(
+                "places: unable to start a routine: {error:#}; job_id={} user={user}",
+                routine.job.id
+            ),
         }
     }
     Ok(started)
@@ -431,5 +446,9 @@ mod tests {
         assert_eq!(madrid.to_rfc3339(), "2026-10-05T22:00:00+00:00");
         let utc = start_of_day(now, "UTC");
         assert_eq!(utc.to_rfc3339(), "2026-10-05T00:00:00+00:00");
+        // Santiago skips from 00:00 to 01:00 on 2026-09-06.
+        let now = "2026-09-06T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let santiago = start_of_day(now, "America/Santiago");
+        assert_eq!(santiago.to_rfc3339(), "2026-09-06T04:00:00+00:00");
     }
 }

@@ -312,8 +312,7 @@ async fn read(app: Arc<App>, user: Arc<User>, source: Source, claim: Claim) {
         // so far is condensed now, or it would wait for a read that may keep
         // stopping.
         log::warn!("profile: read of {source} stopped: {error:#}; user={user} {summary}");
-        let last = claim.release_last();
-        if summary.notes > 0 && last {
+        if claim.release_last() {
             match condense(generator, &user, source).await {
                 Ok(learned) => log::info!("profile: condensed; user={user} learned={learned}"),
                 Err(error) => log::warn!("profile: condensing stopped: {error:#}; user={user}"),

@@ -680,6 +680,31 @@ mod tests {
         let edited = store.update_cron(&alice, &id, None, None, Some(&always));
         assert!(edited.await.unwrap());
         assert!(!run_once(store.list_crons(&alice).await.unwrap()));
+
+        // Leaving a place for a clock schedule stops it running once.
+        let edited = store.update_cron(&alice, &id, None, None, Some(&once));
+        assert!(edited.await.unwrap());
+        let edited = store.update_cron(&alice, &id, None, None, Some("0 9 * * *"));
+        assert!(edited.await.unwrap());
+        assert!(!run_once(store.list_crons(&alice).await.unwrap()));
+    }
+
+    #[tokio::test]
+    async fn a_place_schedule_is_stored_trimmed() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let place = store.save_place(&alice, &gym()).await.unwrap();
+        let schedule = format!(" arrive:{} ", place.id);
+        store
+            .create_cron(&alice, "Gym", &schedule, "Log the workout")
+            .await
+            .unwrap();
+        let routines = store
+            .place_routines(&alice, place.id, PlaceEvent::Arrive)
+            .await
+            .unwrap();
+        assert_eq!(routines.len(), 1);
     }
 
     #[tokio::test]

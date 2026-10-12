@@ -371,7 +371,10 @@ fn strip_marker(line: &str) -> &str {
     }
     let digits = line.len() - line.trim_start_matches(|c: char| c.is_ascii_digit()).len();
     match line[digits..].strip_prefix(['.', ')']) {
-        Some(rest) if digits > 0 => rest.trim_start(),
+        // `10.30` is a number, not a marker.
+        Some(rest) if digits > 0 && (rest.is_empty() || rest.starts_with(char::is_whitespace)) => {
+            rest.trim_start()
+        }
         _ => line,
     }
 }
@@ -451,6 +454,8 @@ mod tests {
         );
         assert_eq!(list_items("Why?\nHow?"), ["Why?", "How?"]);
         assert_eq!(list_items("```\n- Why?\n```"), ["Why?"]);
+        assert_eq!(list_items("10.30\n11.00"), ["10.30", "11.00"]);
+        assert_eq!(list_items("1. Walk\n2.5 hours"), ["Walk"]);
         assert_eq!(
             list_items("**Follow-ups:**\n* Why?\n* How?"),
             ["Why?", "How?"]

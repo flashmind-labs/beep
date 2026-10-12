@@ -1,8 +1,7 @@
-use crate::user::User;
+use crate::{store::DuplicateHabit, user::User};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
-use sqlx::Error as SqlError;
 use std::sync::Arc;
 
 /// Which of the habit tools.
@@ -32,12 +31,9 @@ pub(crate) struct HabitTool {
     pub kind: HabitToolKind,
 }
 
-/// Whether `error` is the database refusing a second habit of the same name.
+/// Whether `error` is the store refusing a second habit of the same name.
 fn is_duplicate(error: &anyhow::Error) -> bool {
-    matches!(
-        error.downcast_ref::<SqlError>(),
-        Some(SqlError::Database(error)) if error.is_unique_violation()
-    )
+    error.is::<DuplicateHabit>()
 }
 
 #[async_trait]

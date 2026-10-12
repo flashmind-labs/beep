@@ -29,7 +29,7 @@ use std::{
 };
 use tokio::{
     fs::{self, File, OpenOptions},
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncRead, AsyncReadExt, AsyncWriteExt},
     net::lookup_host,
     process::Command,
 };
@@ -183,21 +183,29 @@ impl Sandbox {
             .spawn()
             .context("starting drop")?;
         let mut stdin = child.stdin.take().context("no stdin")?;
-        stdin.write_all(code.as_bytes()).await?;
-        drop(stdin);
+        let stdout = child.stdout.take().context("no stdout")?;
+        let stderr = child.stderr.take().context("no stderr")?;
+        // The code is written while the output is read, so a script that
+        // prints before reading all of it cannot block both sides. A write
+        // that fails because the code exited early still leaves its output.
+        let feed = async move {
+            let _ = stdin.write_all(code.as_bytes()).await;
+        };
         // `timeout` inside the sandbox ends the run; this only catches a
         // sandbox that hangs on its own.
-        let out =
-            tokio::time::timeout(Duration::from_secs(RUN_SECS + 15), child.wait_with_output())
-                .await
-                .map_err(|_| anyhow!("the sandbox did not finish"))??;
-        let exit_code = out.status.code();
+        let (_, stdout, stderr, status) =
+            tokio::time::timeout(Duration::from_secs(RUN_SECS + 15), async {
+                tokio::join!(feed, read_head(stdout), read_head(stderr), child.wait())
+            })
+            .await
+            .map_err(|_| anyhow!("the sandbox did not finish"))?;
+        let exit_code = status?.code();
         Ok(RunOutput {
             exit_code,
             // timeout's SIGKILL shows as 128 + 9.
             timed_out: exit_code == Some(137),
-            stdout: clip(&out.stdout),
-            stderr: clip(&out.stderr),
+            stdout: clip(&stdout?),
+            stderr: clip(&stderr?),
             files: list_files(&dir, started).await?,
         })
     }
@@ -659,6 +667,20 @@ fn file_name(name: Option<&str>, url: &Url) -> String {
     }
 }
 
+/// The start of what `pipe` gives, enough for `clip`. The rest is read and
+/// dropped, so a program that prints without end neither blocks nor fills
+/// the server's memory.
+async fn read_head(mut pipe: impl AsyncRead + Unpin) -> io::Result<Vec<u8>> {
+    let mut head = Vec::new();
+    // A few bytes past the limit finish the character `clip` cuts at.
+    (&mut pipe)
+        .take(MAX_OUTPUT as u64 + 4)
+        .read_to_end(&mut head)
+        .await?;
+    io::copy(&mut pipe, &mut io::sink()).await?;
+    Ok(head)
+}
+
 fn clip(bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(bytes);
     if text.len() <= MAX_OUTPUT {
@@ -831,9 +853,16 @@ mod tests {
 
     #[test]
     fn output_is_clipped_on_a_char_boundary() {
-        let long = "é".repeat(MAX_OUTPUT);
+        let long = "€".repeat(MAX_OUTPUT);
         let clipped = clip(long.as_bytes());
         assert!(clipped.ends_with(&format!("[cut at {MAX_OUTPUT} bytes]")));
+    }
+
+    #[tokio::test]
+    async fn only_the_head_of_endless_output_is_kept() {
+        let endless = tokio::io::repeat(b'y').take(10 * MAX_OUTPUT as u64);
+        let head = read_head(endless).await.unwrap();
+        assert_eq!(head.len(), MAX_OUTPUT + 4);
     }
 
     #[tokio::test]

@@ -98,6 +98,7 @@ fn clock_shift(before: &Location, now: &Location) -> Option<String> {
     }
     let (hours, rest) = (minutes.abs() / 60, minutes.abs() % 60);
     let amount = match (hours, rest) {
+        (0, m) => format!("{m} minutes"),
         (1, 0) => "1 hour".to_owned(),
         (h, 0) => format!("{h} hours"),
         (h, m) => format!("{h}:{m:02} hours"),

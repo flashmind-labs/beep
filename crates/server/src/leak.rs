@@ -141,9 +141,11 @@ impl Gate<'_> {
         text
     }
 
+    /// The reply goes first: Jev keeps only the start of a long state, and
+    /// the memories and chat can fill it on their own.
     fn state(&self, reply: &str) -> String {
         format!(
-            "Private memories (never shown to the group):\n{}\nThe chat:\n{}\nBeep's reply:\n{reply}",
+            "Beep's reply:\n{reply}\n\nPrivate memories (never shown to the group):\n{}\nThe chat:\n{}",
             self.memories(),
             self.transcript()
         )

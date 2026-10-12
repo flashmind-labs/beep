@@ -110,8 +110,15 @@ pub(crate) async fn run(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Resu
         unread.sort_by_key(|item| item.received);
         cron::submit(app, user, job, &prompt(job, &unread)).await?
     };
+    // The run has started, so a failure here must not report the routine as
+    // failed; the emails stay flagged for the next digest.
     for (mailbox, ids) in handled {
-        user.clear_attention(mailbox, &ids).await?;
+        if let Err(error) = user.clear_attention(mailbox, &ids).await {
+            log::warn!(
+                "digest: unable to clear {}: {error:#}; user={user}",
+                mailbox.slug()
+            );
+        }
     }
     Ok(run)
 }
