@@ -21,6 +21,7 @@ mod feeds;
 mod files;
 mod groups;
 mod habits;
+pub(crate) use habits::DuplicateHabit;
 mod location;
 mod memories;
 mod merge;

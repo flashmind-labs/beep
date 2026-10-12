@@ -21,6 +21,7 @@ use crate::{
     protocol::MemorySource,
     starters::unfence,
     store::{MemoryRow, Origin, Validity},
+    tools::group_memory::shareable,
 };
 use anyhow::{Context, Result, ensure};
 use chrono::{NaiveDate, Utc};
@@ -710,8 +711,9 @@ pub(crate) fn profile(rows: &[MemoryRow], today: NaiveDate) -> Option<String> {
     let mut any = false;
     for fact in profile_facts(rows, today) {
         let line = format!("\n- {fact}");
+        // A fact too long for what is left gives way to shorter ones.
         if text.chars().count() + line.chars().count() > MAX_PROFILE_CHARS {
-            break;
+            continue;
         }
         text.push_str(&line);
         any = true;
@@ -840,13 +842,19 @@ pub(crate) fn plan_curation(
                 let Some(found) = claim(&ids) else {
                     continue;
                 };
-                let stated = found.iter().find(|r| r.source == (MemorySource::User {}));
-                let source = if stated.is_some() {
-                    MemorySource::User {}
-                } else {
-                    MemorySource::Learned {}
+                // Mail or Slack in a merge keeps it out of groups, even beside
+                // what the user said; otherwise a stated fact keeps its source.
+                let private = found.iter().copied().find(|r| !shareable(r.source));
+                let stated = found
+                    .iter()
+                    .copied()
+                    .find(|r| r.source == (MemorySource::User {}));
+                let (keep, source) = match (private, stated) {
+                    (Some(row), _) => (row, row.source),
+                    (None, Some(row)) => (row, MemorySource::User {}),
+                    (None, None) => (found[0], MemorySource::Learned {}),
                 };
-                let keep = stated.unwrap_or(&found[0]).id.clone();
+                let keep = keep.id.clone();
                 let Some(fact) = text(new, source) else {
                     continue;
                 };
@@ -1034,6 +1042,29 @@ mod tests {
     }
 
     #[test]
+    fn a_merge_with_mail_in_it_stays_mail() {
+        let mut bank = row("b", "Banks with Santander.");
+        bank.source = MemorySource::Email {};
+        let mut loan = row("l", "Has a mortgage.");
+        loan.source = MemorySource::User {};
+        let rows: HashMap<&str, &MemoryRow> = [&bank, &loan]
+            .into_iter()
+            .map(|r| (r.id.as_str(), r))
+            .collect();
+        let ops = parse_curation(
+            r#"{"ops":[{"op":"merge","ids":["l","b"],"content":"Has a mortgage with Santander."}]}"#,
+        )
+        .unwrap()
+        .ops;
+        let Step::Rewrite { keep, fact, .. } = &plan_curation(ops, &rows, day("2026-10-03"))[0]
+        else {
+            panic!("expected a rewrite");
+        };
+        assert_eq!(fact.source, MemorySource::Email {});
+        assert_eq!(keep, "b");
+    }
+
+    #[test]
     fn learn_ops_carry_their_quote() {
         let ops = parse_learn_ops(
             r#"{"ops":[{"op":"add","content":"Has a dog named Rex.","quote":"  my dog Rex "},
@@ -1088,5 +1119,15 @@ mod tests {
             )
         );
         assert_eq!(profile(&rows[3..], day("2026-10-07")), None);
+
+        // A fact too long to fit leaves room for the rest.
+        let mut long = row("x", &"Long. ".repeat(MAX_PROFILE_CHARS));
+        long.core = true;
+        let mut name = row("n", "Is called Sam.");
+        name.core = true;
+        assert_eq!(
+            profile(&[long, name], day("2026-10-07")).unwrap(),
+            format!("{PROFILE_HEADER}\n- Is called Sam.")
+        );
     }
 }

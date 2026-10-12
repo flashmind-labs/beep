@@ -338,6 +338,9 @@ pub(crate) const DENIED: &str =
 pub(crate) const SKIPPED: &str = "Not done: the user sent a new message instead of answering. \
      Do not retry unless they ask.";
 
+/// How the result of a call refused under read only starts.
+const READ_ONLY: &str = "Not done: the user set";
+
 /// The tool calls of the conversation's last model turn that have no result
 /// yet: the call the session stopped on to ask, and the ones after it.
 pub(crate) fn open_calls(conversation: &Conversation) -> Vec<ToolCall> {
@@ -817,7 +820,7 @@ impl Tool for Guarded {
             PermissionLevel::ReadOnly {} => Ok(ToolResult::success(
                 ctx.tool_call_id,
                 format!(
-                    "Not done: the user set {} to read only. Tell them, and that they \
+                    "{READ_ONLY} {} to read only. Tell them, and that they \
                      can change it under Apps in Beep's menu.",
                     self.app.name
                 ),
@@ -900,7 +903,7 @@ pub(crate) fn actions_since(conversation: &Conversation, since: DateTime<Utc>) -
 
 /// Whether a tool result says the call did what it was asked.
 fn went_through(output: &str) -> bool {
-    if output == DENIED || output == SKIPPED {
+    if output == DENIED || output == SKIPPED || output.starts_with(READ_ONLY) {
         return false;
     }
     let failed = parse_output(output).is_some_and(|result| {
@@ -1281,6 +1284,7 @@ mod tests {
                 call("read", "GMAIL_FETCH_EMAILS", json!({})),
                 call("sent", "GMAIL_SEND_EMAIL", email.clone()),
                 call("denied", "GMAIL_SEND_EMAIL", email.clone()),
+                call("read_only", "GMAIL_SEND_EMAIL", email.clone()),
                 call("failed", "GMAIL_SEND_EMAIL", email),
             ],
             None,
@@ -1288,6 +1292,10 @@ mod tests {
         conversation.add(ConversationEntry::tool("read", "[]"));
         conversation.add(ConversationEntry::tool("sent", r#"{"successful": true}"#));
         conversation.add(ConversationEntry::tool("denied", DENIED));
+        conversation.add(ConversationEntry::tool(
+            "read_only",
+            format!("{READ_ONLY} Gmail to read only."),
+        ));
         conversation.add(ConversationEntry::tool(
             "failed",
             r#"{"successful": false, "error": "quota"}"#,

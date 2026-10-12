@@ -8,6 +8,11 @@ use serde_json::{Value, json};
 use sqlx::Row;
 use uuid::Uuid;
 
+/// A habit of that name is already being tracked.
+#[derive(Debug, thiserror::Error)]
+#[error("a habit of that name already exists")]
+pub(crate) struct DuplicateHabit;
+
 impl Store {
     pub(crate) async fn create_habit(
         &self,
@@ -26,15 +31,20 @@ impl Store {
                 valid_freq.join(", ")
             );
         }
-        let id = Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO habits (id, user_id, name, frequency) VALUES ($1, $2, $3, $4)")
-            .bind(&id)
-            .bind(user.as_str())
-            .bind(name)
-            .bind(frequency)
-            .execute(&self.pool)
-            .await?;
-        Ok(id)
+        // An archived habit of the same name comes back, with its logs.
+        let id: Option<String> = sqlx::query_scalar(
+            "INSERT INTO habits (id, user_id, name, frequency) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id, name) DO UPDATE SET archived=FALSE, frequency=excluded.frequency
+                 WHERE habits.archived
+             RETURNING id",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(user.as_str())
+        .bind(name)
+        .bind(frequency)
+        .fetch_optional(&self.pool)
+        .await?;
+        id.ok_or_else(|| DuplicateHabit.into())
     }
 
     pub(crate) async fn list_habits(&self, user: &UserKey) -> Result<Vec<Value>> {
@@ -255,5 +265,20 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn an_archived_habit_comes_back_by_name() {
+        use crate::store::TestDb;
+
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let id = store.create_habit(&alice, "Run", "daily").await.unwrap();
+        assert!(store.create_habit(&alice, "Run", "daily").await.is_err());
+        assert!(store.archive_habit(&alice, "Run").await.unwrap());
+        let again = store.create_habit(&alice, "Run", "weekly").await.unwrap();
+        assert_eq!(again, id);
+        assert_eq!(store.list_habits(&alice).await.unwrap().len(), 1);
     }
 }

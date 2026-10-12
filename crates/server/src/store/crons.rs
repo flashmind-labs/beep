@@ -76,6 +76,8 @@ impl Store {
         schedule: &str,
         prompt: &str,
     ) -> Result<String> {
+        // Stored trimmed, so the generated place_id sees a place trigger.
+        let schedule = schedule.trim();
         check_label(label)?;
         check_prompt(prompt)?;
         check_schedule(schedule)?;
@@ -108,13 +110,17 @@ impl Store {
         if let Some(label) = label {
             check_label(label)?;
         }
+        let schedule = schedule.map(str::trim);
         if let Some(schedule) = schedule {
             check_schedule(schedule)?;
             self.check_place_schedule(user, schedule).await?;
         }
         let changed = sqlx::query(
             "UPDATE crons SET enabled=COALESCE($1, enabled), label=COALESCE($2, label),
-                 schedule=COALESCE($3, schedule), run_once=COALESCE($6, run_once)
+                 schedule=COALESCE($3, schedule),
+                 run_once=CASE WHEN $6 IS NOT NULL THEN $6
+                     WHEN $3 IS NOT NULL AND place_id IS NOT NULL THEN FALSE
+                     ELSE run_once END
              WHERE user_id=$4 AND id=$5 AND group_id IS NULL AND ($1 IS NOT NULL OR $2 IS NOT NULL OR $3 IS NOT NULL)",
         )
         .bind(enabled)

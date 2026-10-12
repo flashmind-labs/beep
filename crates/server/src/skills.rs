@@ -170,8 +170,10 @@ struct Answer {
 pub fn parse_ops(answer: &str) -> Result<Vec<SkillOp>> {
     let start = answer.find('{').context("no JSON in the skill review")?;
     let end = answer.rfind('}').context("no JSON in the skill review")?;
-    let parsed: Answer =
-        serde_json::from_str(&answer[start..=end]).context("unreadable skill review")?;
+    let json = answer
+        .get(start..=end)
+        .context("no JSON in the skill review")?;
+    let parsed: Answer = serde_json::from_str(json).context("unreadable skill review")?;
     Ok(parsed.changes)
 }
 
@@ -295,6 +297,7 @@ mod tests {
         );
         assert!(parse_ops("{\"changes\":[]}").unwrap().is_empty());
         assert!(parse_ops("nothing to learn").is_err());
+        assert!(parse_ops("} nothing to learn {").is_err());
     }
 
     #[test]

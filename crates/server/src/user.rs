@@ -1133,10 +1133,15 @@ impl User {
             let mut learned = Vec::new();
             for op in ops {
                 let origin = op.origin(&exchange.session_id);
-                learned.extend(
-                    self.apply_learned(known, op, MemorySource::Learned {}, origin)
-                        .await?,
-                );
+                // One op that fails leaves the others, and those already saved
+                // are still reported.
+                match self
+                    .apply_learned(known, op, MemorySource::Learned {}, origin)
+                    .await
+                {
+                    Ok(change) => learned.extend(change),
+                    Err(error) => log::warn!("memories: unable to learn: {error:#}; user={self}"),
+                }
             }
             anyhow::Ok(learned)
         };
@@ -1168,10 +1173,13 @@ impl User {
             let mut learned = Vec::new();
             for op in parse_learn_ops(&answer)? {
                 let origin = op.origin(&reading.id);
-                learned.extend(
-                    self.apply_learned(&known, op, reading.kind.source(), origin)
-                        .await?,
-                );
+                match self
+                    .apply_learned(&known, op, reading.kind.source(), origin)
+                    .await
+                {
+                    Ok(change) => learned.extend(change),
+                    Err(error) => log::warn!("memories: unable to learn: {error:#}; user={self}"),
+                }
             }
             anyhow::Ok(learned)
         };

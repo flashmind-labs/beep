@@ -191,13 +191,17 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+        if revoked == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
         sqlx::query("DELETE FROM devices WHERE user_id=$1 AND endpoint_id=$2")
             .bind(user.as_str())
             .bind(endpoint_id)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(revoked > 0)
+        Ok(true)
     }
 
     /// Records what kind of device `endpoint` is.
