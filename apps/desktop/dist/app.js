@@ -14,6 +14,7 @@ const ICON = {
   doc: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
   phone: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></svg>',
 };
+ICON.save = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
 const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/></svg>';
 /// Tool steps shown while a run works; older ones fold into "+N tools".
 const VISIBLE_STEPS = 3;
@@ -99,15 +100,40 @@ function newId() {
 
 // ---------- Size ----------
 
+/// Floating over the bar, so they take no height of their own.
+const FLOATING = new Set(["latest", "map", "keys", "viewer", "saved"]);
+/// How tall the bar gets while a picture is open, within the screen.
+const VIEWER_HEIGHT = 560;
+const scrolls = el => el.classList.contains("dbody") || el.classList.contains("dlist") || el.classList.contains("dkeys");
+const natural = el => [...el.children].reduce((n, c) => n + (scrolls(c) ? c.scrollHeight : c.offsetHeight), 0);
+let fitFrame = 0, barHeight = 0;
+/// Sizes the bar to its content once per frame, so a streaming reply does
+/// not resize the window on every token.
 function fit() {
-  let height = 2;
-  for (const el of bar.children) {
-    if (el.id === "latest" || el.id === "map") continue;
-    height += el.classList.contains("dbody") || el.classList.contains("dlist") ? el.scrollHeight : el.offsetHeight;
-  }
-  invoke("resize_bar", { height }).catch(() => {});
-  drawMap();
+  fitFrame ||= requestAnimationFrame(() => {
+    fitFrame = 0;
+    let height = 2;
+    for (const el of bar.children) if (!FLOATING.has(el.id)) height += scrolls(el) ? el.scrollHeight : el.offsetHeight;
+    if ($("#viewer")) height = Math.max(height, VIEWER_HEIGHT);
+    const keys = $("#keys");
+    if (keys) height = Math.max(height, natural(keys) + 2);
+    if (height !== barHeight) {
+      barHeight = height;
+      invoke("resize_bar", { height }).catch(() => {});
+    }
+    drawMap();
+    bar.querySelectorAll(".dbody, .dlist").forEach(fadeEdges);
+  });
 }
+
+/// Fades a scrolling list at each edge that has more above or below it.
+function fadeEdges(el) {
+  const up = el.scrollTop > 2, down = el.scrollHeight - el.scrollTop - el.clientHeight > 2;
+  el.classList.toggle("dfade", up || down);
+  el.style.setProperty("--ft", up ? "28px" : "0px");
+  el.style.setProperty("--fb", down ? "28px" : "0px");
+}
+bar.addEventListener("scroll", e => { if (e.target.matches?.(".dbody, .dlist")) fadeEdges(e.target); }, true);
 const sizer = new ResizeObserver(fit);
 new MutationObserver(() => {
   sizer.disconnect();
@@ -118,15 +144,16 @@ new MutationObserver(() => {
 // ---------- Hints ----------
 
 function hints(items) {
-  const st = { linked: ["", "Linked"], unlinked: ["off", "Not linked"], revoked: ["bad", "Removed"] }[S.link];
-  return `<div class="dhints">${items.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}<span class="st"><span class="ddot ${st[0]}"></span>${st[1]}</span></div>`;
+  const st = { unlinked: ["off", "Not linked"], revoked: ["bad", "Removed"] }[S.link];
+  const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
+  return `<div class="dhints">${items.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}${link}</div>`;
 }
 function chatHints() {
   const e = here();
-  if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], ["esc", "to hide"]]);
+  if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]]);
   if (e?.run) return hints([["⌘.", "stop"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]]);
   if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]]);
-  return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"], ["⌘Q", "quit"]]);
+  return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["⌘/", "shortcuts"], ["esc", "to hide"]]);
 }
 function refreshHints() {
   const old = $(".dhints");
@@ -276,7 +303,7 @@ function approvalCard(id, turn, { query_id, app, action, fields }) {
   const card = h(`<div class="dcard">
     <div class="head"><span class="dapp">${esc((app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
     ${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always</button><button class="dbtn warn" data-d="deny">Deny</button></div>
+    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button><button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
   </div>`);
   card.querySelectorAll("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d)));
   turn.append(card);
@@ -342,7 +369,8 @@ function follow(id, turn) {
         const step = turn.steps.find(s => s.id === ev.call_id);
         if (step) step.state = ev.success ? "ok" : "bad";
         drawSteps(turn, false);
-        if (ev.file) fileCard(turn, ev.file);
+        if (ev.file) sentFile(turn, ev.file);
+        for (const p of ev.images ?? []) replyPic(turn, p);
         if (ev.products) productRow(turn, ev.products);
         break;
       }
@@ -463,7 +491,8 @@ function drawHistory(id, turns) {
       turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
       if (t.html) reply(turn).innerHTML += t.html;
       for (const x of t.tools) {
-        if (x.file) fileCard(turn, x.file);
+        if (x.file) sentFile(turn, x.file);
+        for (const p of x.images ?? []) replyPic(turn, p);
         if (x.products) productRow(turn, x.products);
       }
       last = t.replies.length ? { turn, replies: t.replies } : null;
@@ -720,6 +749,20 @@ function productRow(turn, html) {
   sentBox(turn).append(h(html));
 }
 
+/// A file Beep sent: a picture when it is an image, a card otherwise.
+function sentFile(turn, file) {
+  const mime = picMime(file);
+  mime ? replyPic(turn, { file: { ...file, mime }, caption: "" }) : fileCard(turn, file);
+}
+
+const PIC_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+/// The picture type of `file`, by its MIME type or else its name, or null.
+function picMime(file) {
+  if (Object.values(PIC_TYPES).includes(file.mime)) return file.mime;
+  const ext = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
+  return file.mime === "application/octet-stream" || !file.mime ? PIC_TYPES[ext] ?? null : null;
+}
+
 /// A file Beep sent. Opening it downloads it once, then hands it to its app.
 function fileCard(turn, file) {
   const box = sentBox(turn);
@@ -794,6 +837,165 @@ function loadPic(id, mime) {
     pictures.set(id, got);
   }
   return Promise.resolve(got);
+}
+
+// ---------- Pictures Beep sends ----------
+
+/// The row of thumbnails under a reply; `pics` lists them for the viewer.
+function picsRow(turn) {
+  const box = sentBox(turn);
+  let row = box.querySelector(".drpics");
+  if (!row) {
+    row = h('<div class="drpics"></div>');
+    row.pics = [];
+    box.prepend(row);
+  }
+  return row;
+}
+
+/// One picture from `send_image` or an image file: `{ url }` from the web or
+/// `{ file }` kept with the chat. Hover shows Save, a click opens the viewer.
+function replyPic(turn, pic) {
+  const row = picsRow(turn), i = row.pics.push(pic) - 1;
+  const name = pic.file?.name ?? "";
+  const tile = h(`<span class="drpic wait"><button class="pic" aria-label="${esc(pic.caption || name || "Picture")}"></button>${pic.file ? `<button class="save" aria-label="Save ${esc(name)}" title="Save to Downloads">${ICON.save}</button>` : ""}</span>`);
+  const gone = () => { if (tile.isConnected) tile.replaceWith(h(`<span class="drpic gone">${GONE_PIC}</span>`)); };
+  const show = src => {
+    if (!src) return gone();
+    const img = h('<img alt="">');
+    img.onload = () => tile.classList.remove("wait");
+    img.onerror = gone;
+    img.src = src;
+    tile.querySelector(".pic").append(img);
+  };
+  tile.querySelector(".pic").addEventListener("click", () => openViewer(row.pics, i));
+  tile.querySelector(".save")?.addEventListener("click", () => savePic(pic.file));
+  row.append(tile);
+  pic.file ? loadPic(pic.file.id, pic.file.mime).then(show) : show(pic.url);
+}
+
+const GONE_PIC = "Picture no longer available";
+const V = { pics: [], at: 0 };
+
+function openViewer(pics, at) {
+  Object.assign(V, { pics, at });
+  $("#keys")?.remove();
+  drawViewer();
+}
+
+function closeViewer() {
+  $("#viewer")?.remove();
+  focusAsk();
+}
+
+/// The open picture over the whole bar, with arrows when there are more.
+function drawViewer() {
+  const p = V.pics[V.at], many = V.pics.length > 1;
+  const name = p.file ? p.file.name : hostOf(p.url);
+  const about = [many ? `${V.at + 1} of ${V.pics.length}` : "", p.file ? [fileKind(p.file), fileSize(p.file.size)].filter(Boolean).join(", ") : ""].filter(Boolean).join(" · ");
+  const acts = p.file
+    ? `<button class="dbtn" data-v="copy">${COPY_ICON}Copy<kbd>⌘C</kbd></button><button class="dbtn pri" data-v="save">${ICON.save}Save<kbd>⌘S</kbd></button>`
+    : `<button class="dbtn" data-v="open">Open in browser</button>`;
+  const nav = (dir, on) => many ? `<button class="nav${dir === "prev" ? " prev" : ""}" data-v="${dir}" aria-label="${dir === "prev" ? "Previous" : "Next"}"${on ? "" : " disabled"}>${ICON.chev}</button>` : "";
+  const keys = [...(many ? [["← →", "move"]] : []), ...(p.file ? [["⌘S", "save"], ["⌘C", "copy"]] : []), ["esc", "close"]];
+  const el = h(`<div class="dover dviewer" id="viewer" role="dialog" aria-label="${esc(name)}">
+    <div class="vt"><span class="tt"><b>${esc(name)}</b><small>${esc(about)}</small></span>${acts}<button class="dbtn" data-v="close" aria-label="Close">${ICON.x}</button></div>
+    <div class="vi">${nav("prev", V.at > 0)}<img alt="${esc(p.caption)}">${nav("next", V.at < V.pics.length - 1)}</div>
+    <div class="cap">${esc(p.caption)}</div>${hints(keys)}</div>`);
+  const img = el.querySelector("img");
+  const gone = () => img.replaceWith(h(`<div class="dmuted" style="flex:1;justify-content:center">${GONE_PIC}</div>`));
+  img.onerror = gone;
+  if (p.file) loadPic(p.file.id, p.file.mime).then(url => url ? (img.src = url) : gone());
+  else img.src = p.url;
+  el.addEventListener("click", e => { const b = e.target.closest("[data-v]"); if (b) viewerAct(b.dataset.v); });
+  const old = $("#viewer");
+  old ? old.replaceWith(el) : bar.append(el);
+}
+
+function viewerAct(a) {
+  const p = V.pics[V.at];
+  if (a === "prev" || a === "next") {
+    const at = V.at + (a === "next" ? 1 : -1);
+    if (at >= 0 && at < V.pics.length) { V.at = at; drawViewer(); }
+  } else if (a === "close") closeViewer();
+  else if (a === "save" && p.file) savePic(p.file);
+  else if (a === "copy" && p.file) copyPic(p.file);
+  else if (a === "open" && p.url) invoke("open_url", { url: p.url }).catch(() => {});
+}
+
+function viewerKeys(e, cmd) {
+  const key = e.key.toLowerCase();
+  const act = e.key === "Escape" ? "close" : e.key === "ArrowLeft" ? "prev" : e.key === "ArrowRight" ? "next"
+    : cmd && key === "s" ? "save" : cmd && key === "c" ? "copy" : null;
+  if (act) { e.preventDefault(); viewerAct(act); }
+  else if (cmd && key === "q") invoke("quit");
+}
+
+function hostOf(url) {
+  try { return new URL(url).hostname; } catch { return "Picture"; }
+}
+
+/// Saves a picture Beep sent to Downloads and says where it went.
+async function savePic(file) {
+  try {
+    const path = await invoke("save_file", { id: file.id, name: file.name });
+    notice(`Saved ${file.name} to Downloads`, { path });
+  } catch (e) {
+    notice(String(e) === GONE ? GONE_PIC : `Could not save it. ${e}`, { bad: true });
+  }
+}
+
+/// Copies a picture as PNG, the type every app pastes.
+async function copyPic(file) {
+  const url = await loadPic(file.id, file.mime);
+  if (!url) return notice(GONE_PIC, { bad: true });
+  const png = (async () => {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext("2d").drawImage(img, 0, 0);
+    return new Promise(done => canvas.toBlob(done, "image/png"));
+  })();
+  try {
+    // Handing over the promise keeps the click's permission to write.
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+    notice("Copied the picture");
+  } catch {
+    notice("Could not copy the picture", { bad: true });
+  }
+}
+
+/// A short note at the bottom of the bar; one that names a saved file can
+/// show it in Finder.
+function notice(text, { path, bad } = {}) {
+  $("#saved")?.remove();
+  const el = h(`<div class="dsaved${bad ? " bad" : ""}" id="saved" role="status"><span>${esc(text)}</span>${path ? '<button class="dbtn">Show in Finder</button>' : ""}</div>`);
+  el.querySelector("button")?.addEventListener("click", () => invoke("reveal_file", { path }).catch(() => {}));
+  bar.append(el);
+  clearTimeout(notice.timer);
+  notice.timer = setTimeout(() => el.remove(), 5000);
+}
+
+// ---------- Shortcuts ----------
+
+const SHORTCUTS = [
+  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines"], ["⌘,", "Settings"], ["⌘Q", "Quit"]]],
+  ["In a chat", [[ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
+  ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
+];
+
+/// Opens or closes the sheet of every key, over whatever the bar shows.
+function toggleKeys() {
+  const open = $("#keys");
+  if (open) { open.remove(); return focusAsk(); }
+  $("#viewer")?.remove();
+  bar.append(h(`<div class="dover" id="keys" role="dialog" aria-label="Keyboard shortcuts">
+    <div class="vt"><span class="tt"><b>Keyboard shortcuts</b></span></div>
+    <div class="dkeys">${SHORTCUTS.map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>
+    ${hints([["esc", "close"]])}</div>`));
 }
 
 // ---------- Groups ----------
@@ -1785,7 +1987,7 @@ async function show(view) {
   focusAsk();
 }
 
-listen("bar-shown", e => show(e.payload));
+listen("bar-shown", e => { barHeight = 0; show(e.payload); });
 listen("link-state", async e => {
   S.link = e.payload;
   if (S.view === "link" && S.link === "linked") {
@@ -1882,6 +2084,9 @@ function groupKeys(e, cmd) {
 
 document.addEventListener("keydown", e => {
   const cmd = e.metaKey;
+  if ($("#viewer")) return viewerKeys(e, cmd);
+  if (cmd && e.key === "/") { e.preventDefault(); return toggleKeys(); }
+  if (e.key === "Escape" && $("#keys")) { e.preventDefault(); return toggleKeys(); }
   if (e.key === "Escape") {
     e.preventDefault();
     return back();
@@ -1900,7 +2105,8 @@ document.addEventListener("keydown", e => {
   if (cmd && key === "i" && (S.view === "group" || S.view === "invite")) { e.preventDefault(); return renderGroupInfo(); }
   if (cmd && e.key === ".") { e.preventDefault(); return stop(); }
   if (S.view === "chat") {
-    if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer("allow"); }
+    if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(e.altKey ? "always" : "allow"); }
+    if (cmd && key === "d" && here()?.approval) { e.preventDefault(); return answer("deny"); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
     if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
   }
@@ -1914,6 +2120,7 @@ document.addEventListener("keydown", e => {
 // Links in replies open in the browser. A product card's corner button
 // copies its link instead.
 bar.addEventListener("click", e => {
+  if (e.target.closest(".dhints .st")) return S.link === "revoked" ? renderRevoked() : renderLink();
   const c = e.target.closest("[data-copy]");
   if (c) {
     e.preventDefault();

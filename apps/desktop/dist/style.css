@@ -14,7 +14,8 @@ html, body { margin: 0; height: 100%; background: transparent; overflow: hidden 
 body { font-family: var(--body); color: var(--fg); -webkit-font-smoothing: antialiased; user-select: none; cursor: default }
 button { font: inherit; color: inherit; cursor: default }
 
-.dbar { position: relative; height: 100vh; display: flex; flex-direction: column; background: rgba(18, 25, 22, .97); border: 1px solid var(--border);
+/* The window's vibrancy blurs what is behind it; this tints it to the palette. */
+.dbar { position: relative; height: 100vh; display: flex; flex-direction: column; background: rgba(18, 25, 22, .82); border: 1px solid var(--border);
   border-radius: 18px; box-shadow: inset 0 1px 0 rgba(228, 238, 232, .07); overflow: hidden }
 
 .dinput { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px 16px; font-size: 19px; line-height: 26px; min-width: 0 }
@@ -47,13 +48,16 @@ button { font: inherit; color: inherit; cursor: default }
 .dbody table { margin-bottom: 8px }
 
 .turn { display: flex; flex-direction: column; gap: 10px }
-.turn + .turn { padding-top: 12px; border-top: 1px solid var(--border) }
-.ask { font-weight: 500; color: var(--fg); white-space: pre-wrap }
+.turn + .turn { padding-top: 14px }
+/* The prompt sits in the user's bubble on the right, like the phone and the group chat, so it stands apart from the reply. */
+.ask { align-self: flex-end; max-width: 78%; padding: 6px 11px; border-radius: 12px 12px 4px 12px; background: rgba(59, 155, 122, .22); color: var(--fg);
+  white-space: pre-wrap; overflow-wrap: anywhere }
+.turn > .ask + .dpics, .turn > .dpics:first-child { justify-content: flex-end }
 
 .dhints { flex: none; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 16px; border-top: 1px solid var(--border); background: rgba(10, 14, 12, .35);
   font-size: 11.5px; color: var(--muted) }
 .dhints span { display: inline-flex; align-items: center; gap: 5px }
-.dhints .st { margin-left: auto; display: inline-flex; align-items: center; gap: 6px }
+.dhints .st { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; font: inherit; color: var(--fg) }
 kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 18px; text-align: center; padding: 0 5px; border-radius: 4px; background: var(--elev);
   border: 1px solid var(--border); color: var(--fg); display: inline-flex; align-items: center; gap: 2px; justify-content: center }
 .ddot { width: 7px; height: 7px; border-radius: 50%; background: var(--emerald); display: inline-block; flex: none }
@@ -253,3 +257,48 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dchip.day { min-width: 34px; padding: 0 8px }
 .dfield textarea { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; line-height: 20px; outline: 0; resize: none; caret-color: var(--emerald) }
 .dfield input[type="time"], .dfield input[type="date"] { color-scheme: dark }
+
+/* Lists and chats fade at an edge that has more to scroll. */
+.dfade { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft, 0px), #000 calc(100% - var(--fb, 0px)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft, 0px), #000 calc(100% - var(--fb, 0px)), transparent 100%) }
+
+/* Over the whole bar: the shortcut sheet and the picture viewer. */
+.dover { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; background: #0B100E; animation: dover .16s var(--ease) }
+@keyframes dover { from { opacity: 0 } }
+.dover .vt { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border) }
+.dover .vt .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
+.dover .vt b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dover .vt small { font-size: 12px; color: var(--muted) }
+.dover .dhints { margin-top: auto }
+
+/* Shortcut sheet: every key in the bar, opened with Cmd-/. */
+.dkeys { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; align-content: start; padding: 12px 18px 16px; scrollbar-width: none }
+.dkeys .kg { display: grid; gap: 2px; align-content: start }
+.dkeys .dsec { padding: 0 0 4px; border: 0 }
+.dkeys .kr { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; line-height: 22px }
+
+/* Pictures in a reply: a row of thumbnails; hover shows Save, a click opens the viewer. */
+.drpics { display: flex; flex-wrap: wrap; gap: 8px }
+.drpic { position: relative; width: 200px; height: 125px; border-radius: 10px; overflow: hidden; flex: none; background: var(--elev); user-select: none }
+.drpic .pic { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in }
+.drpic img { display: block; width: 100%; height: 100%; object-fit: cover }
+.drpic .save { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; padding: 0;
+  border: 0; background: rgba(10, 14, 12, .72); color: var(--fg); opacity: 0; transition: opacity .15s }
+.drpic:hover .save, .drpic .save:focus-visible { opacity: 1 }
+.drpic .save:hover { background: var(--emerald); color: var(--ink) }
+.drpic.wait { animation: dpulse 1.2s ease-in-out infinite }
+.drpic.gone { border: 1px dashed var(--dim); background: none; color: var(--muted); display: grid; place-items: center; font-size: 12px; text-align: center; padding: 8px }
+@keyframes dpulse { 50% { opacity: .5 } }
+.dviewer .vi { flex: 1; min-height: 0; display: flex; align-items: center; gap: 10px; padding: 14px }
+.dviewer .vi img { flex: 1; min-width: 0; height: 100%; object-fit: contain; border-radius: 8px }
+.dviewer .nav { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: var(--elev); color: var(--fg); display: grid; place-items: center; padding: 0; flex: none }
+.dviewer .nav:disabled { opacity: .3 }
+.dviewer .nav.prev svg { transform: rotate(180deg) }
+.dviewer .cap { flex: none; padding: 0 16px 14px; text-align: center; font-size: 13px; color: var(--muted) }
+.dviewer .cap:empty { display: none }
+/* Saving a picture says where it went, with a way to find it. */
+.dsaved { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 5; display: flex; gap: 12px; align-items: center; max-width: calc(100% - 32px);
+  padding: 5px 6px 5px 14px; border-radius: 10px; background: var(--fg); color: var(--ink); font-size: 13px; white-space: nowrap; box-shadow: 0 6px 18px rgba(0, 0, 0, .45) }
+.dsaved > span { overflow: hidden; text-overflow: ellipsis }
+.dsaved .dbtn { min-height: 24px; background: var(--ink); border-color: transparent; color: var(--fg) }
+.dsaved.bad { background: var(--err) }
