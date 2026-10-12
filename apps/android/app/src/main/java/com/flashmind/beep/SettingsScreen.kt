@@ -83,8 +83,10 @@ fun SettingsScreen(
             ThemePicker()
             AvatarPicker()
             BubblePicker(onBubbleSettings)
-            ModelPicker(repository)
-            AgentsSwitch(repository)
+            // Loaded by AgentsSwitch; the model section words Auto by it.
+            var agents by remember { mutableStateOf<Agents?>(null) }
+            ModelPicker(repository, agentsOn = agents?.enabled == true)
+            AgentsSwitch(repository, agents) { agents = it }
             Column {
                 HorizontalDivider(color = Beep.colors.softLine)
                 AccountRow(repository)
@@ -164,10 +166,11 @@ private fun BubblePicker(onBubbleSettings: () -> Unit) {
 
 /**
  * The model and thinking level an admin's own turns run on. The server sends choices only to
- * admins, so everyone else never sees this section.
+ * admins, so everyone else never sees this section. With [agentsOn], the agent Jev picks brings
+ * the model, and a failed pick falls back to General, so Auto on leaves nothing to pick here.
  */
 @Composable
-private fun ModelPicker(repository: ChatRepository) {
+private fun ModelPicker(repository: ChatRepository, agentsOn: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var models by remember { mutableStateOf(repository.modelChoices.value) }
@@ -209,44 +212,52 @@ private fun ModelPicker(repository: ChatRepository) {
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Auto", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
-                    Text("Jev picks the model and thinking for each prompt", fontSize = 12.sp, color = Beep.colors.muted)
+                    Text(when {
+                        current.auto && agentsOn -> "Jev picks an agent, which brings its model and thinking"
+                        current.auto -> "Jev picks the model and thinking for each prompt"
+                        agentsOn -> "Use the model below, with the agent's prompt"
+                        else -> "Off: every prompt uses the model below"
+                    }, fontSize = 12.sp, color = Beep.colors.muted)
                 }
                 Switch(checked = current.auto, onCheckedChange = ::auto,
                     colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok))
             }
-            if (current.auto) Text("Used when Jev cannot pick:", fontSize = 12.sp, color = Beep.colors.muted,
+            if (current.auto && !agentsOn) Text("Used when Jev cannot pick:", fontSize = 12.sp, color = Beep.colors.muted,
                 modifier = Modifier.padding(bottom = 6.dp))
         }
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            current.choices.forEach { choice ->
-                val selected = choice.id == current.selected
-                val shape = RoundedCornerShape(14.dp)
-                Row(Modifier.fillMaxWidth()
-                    .border(if (selected) 2.dp else 1.dp, if (selected) Beep.colors.ink else Beep.colors.softLine, shape)
-                    .clip(shape)
-                    .clickable { pick(choice) }
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(if (choice.default) "${choice.name} (default)" else choice.name,
-                            fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
-                        Text(modelDetail(choice), fontSize = 12.sp, color = Beep.colors.muted)
+        if (!(current.autoAvailable && current.auto && agentsOn)) Column {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                current.choices.forEach { choice ->
+                    val selected = choice.id == current.selected
+                    val shape = RoundedCornerShape(14.dp)
+                    Row(Modifier.fillMaxWidth()
+                        .border(if (selected) 2.dp else 1.dp, if (selected) Beep.colors.ink else Beep.colors.softLine, shape)
+                        .clip(shape)
+                        .clickable { pick(choice) }
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(if (choice.default) "${choice.name} (default)" else choice.name,
+                                fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
+                            Text(modelDetail(choice), fontSize = 12.sp, color = Beep.colors.muted)
+                        }
+                        if (selected) Icon(Icons.Outlined.Check, "Selected", Modifier.size(16.dp), tint = Beep.colors.ink)
                     }
-                    if (selected) Icon(Icons.Outlined.Check, "Selected", Modifier.size(16.dp), tint = Beep.colors.ink)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Thinking", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ReasoningLevel.entries.forEach { level ->
+                    FilterChip(selected = level == current.thinking, onClick = { think(level) },
+                        label = { Text(level.name.lowercase().replaceFirstChar { it.uppercase() }) })
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Text("Thinking", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
-        Spacer(Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ReasoningLevel.entries.forEach { level ->
-                FilterChip(selected = level == current.thinking, onClick = { think(level) },
-                    label = { Text(level.name.lowercase().replaceFirstChar { it.uppercase() }) })
-            }
-        }
         Spacer(Modifier.height(6.dp))
-        Text("Applies to your own turns. Everyone else stays on the default.", fontSize = 12.sp, color = Beep.colors.muted)
+        Text(if (agentsOn) "Applies to your own turns." else "Applies to your own turns. Everyone else stays on the default.",
+            fontSize = 12.sp, color = Beep.colors.muted)
     }
 }
 
@@ -255,26 +266,25 @@ private fun ModelPicker(repository: ChatRepository) {
  * get an answer from the server, so everyone else never sees this section.
  */
 @Composable
-private fun AgentsSwitch(repository: ChatRepository) {
+private fun AgentsSwitch(repository: ChatRepository, agents: Agents?, setAgents: (Agents) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var agents by remember { mutableStateOf<Agents?>(null) }
     val models by repository.modelChoices.collectAsState()
     LaunchedEffect(models?.choices?.isNotEmpty()) {
         if (models?.choices?.isNotEmpty() != true) return@LaunchedEffect
-        runCatching { withContext(Dispatchers.IO) { repository.agents() } }.onSuccess { agents = it }
+        runCatching { withContext(Dispatchers.IO) { repository.agents() } }.onSuccess(setAgents)
     }
     val current = agents ?: return
     if (current.agents.isEmpty()) return
     fun toggle(enabled: Boolean) {
-        agents = current.copy(enabled = enabled)
+        setAgents(current.copy(enabled = enabled))
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { repository.setAgents(enabled) } }
                 .onSuccess {
-                    agents = it
+                    setAgents(it)
                     Toast.makeText(context, if (it.enabled) "Agents on for everyone" else "Agents off", Toast.LENGTH_SHORT).show()
                 }
-                .onFailure { agents = current; Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
+                .onFailure { setAgents(current); Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
         }
     }
     val choices = models?.choices.orEmpty()

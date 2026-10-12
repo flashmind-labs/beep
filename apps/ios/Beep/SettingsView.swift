@@ -3,6 +3,9 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Binding var path: [Route]
+    /// With agents on, the agent Jev picks brings the model, and a failed pick
+    /// falls back to General, so Auto on leaves nothing to pick here.
+    @State private var agentsOn = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,6 +37,9 @@ struct SettingsView: View {
             }
         }
         .background(Mint.page)
+        .task(id: model.models?.choices.isEmpty == false) {
+            if model.models?.choices.isEmpty == false { agentsOn = await model.agentsOn() }
+        }
     }
 
     private var divider: some View { Rectangle().fill(Mint.soft).frame(height: 1) }
@@ -62,17 +68,30 @@ struct SettingsView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Auto").font(.body(14, .medium)).foregroundStyle(Mint.ink)
-                        Text("Jev picks the model and thinking for each prompt").font(.body(12)).foregroundStyle(Mint.muted)
+                        Text(models.auto
+                             ? (agentsOn ? "Jev picks an agent, which brings its model and thinking" : "Jev picks the model and thinking for each prompt")
+                             : (agentsOn ? "Use the model below, with the agent's prompt" : "Off: every prompt uses the model below"))
+                            .font(.body(12)).foregroundStyle(Mint.muted)
                     }
                     Spacer()
                     Toggle("Auto", isOn: Binding(get: { models.auto }, set: { on in Task { await model.setAuto(on) } }))
                         .labelsHidden().tint(Mint.ok)
                 }
                 .padding(.bottom, 8)
-                if models.auto {
+                if models.auto && !agentsOn {
                     Text("Used when Jev cannot pick:").font(.body(12)).foregroundStyle(Mint.muted).padding(.bottom, 6)
                 }
             }
+            if !(models.autoAvailable && models.auto && agentsOn) {
+                choicePicker(models)
+            }
+            Text(agentsOn ? "Applies to your own turns." : "Applies to your own turns. Everyone else stays on the default.")
+                .font(.body(12)).foregroundStyle(Mint.muted).padding(.top, 6)
+        }
+    }
+
+    private func choicePicker(_ models: Models) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             VStack(spacing: 6) {
                 ForEach(models.choices, id: \.id) { choice in
                     let selected = choice.id == models.selected
@@ -104,8 +123,6 @@ struct SettingsView: View {
                     }
                 }
             }
-            Text("Applies to your own turns. Everyone else stays on the default.")
-                .font(.body(12)).foregroundStyle(Mint.muted).padding(.top, 6)
         }
     }
 

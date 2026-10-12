@@ -128,6 +128,11 @@ fn main() {
             commands::toggle_cron,
             commands::delete_cron,
             commands::run_cron,
+            commands::list_skills,
+            commands::update_skill,
+            commands::delete_skill,
+            commands::undo_skill,
+            commands::get_agents,
             commands::get_models,
             commands::stock_chart,
             commands::set_model,
@@ -312,6 +317,7 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
     for (id, title, keys) in [
         ("memories", "Memories", "cmd+m"),
         ("routines", "Routines", "cmd+j"),
+        ("skills", "Skills", "cmd+l"),
     ] {
         menu.append(&MenuItem::with_id(app, id, title, linked, Some(keys))?)?;
     }
@@ -407,7 +413,7 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));
         }
-        view @ ("apps" | "link" | "memories" | "routines" | "settings") => {
+        view @ ("apps" | "link" | "memories" | "routines" | "skills" | "settings") => {
             bar::show(app, Some(view))
         }
         "check-update" => {
