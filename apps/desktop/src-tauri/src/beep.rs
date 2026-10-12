@@ -9,10 +9,10 @@ use crate::{
     sync::Chats,
 };
 use beep_proto::{
-    AnswerApproval, ApprovalDecision, ApprovalField, Call, Chat, DeviceAnswer, DeviceQuery,
-    DeviceResult, Event, GetEvents, GetFile, GetSession, GetSessionImages, HistoryEntry, ImageRef,
-    ListSessions, Notice, Platform, ReasoningLevel, RemoveDevice, RunEvent, SearchSessions,
-    SentImages, Session, SessionMatch, Stream,
+    AnswerApproval, ApprovalDecision, ApprovalField, Call, Chart, Chat, DeleteTurnsFrom,
+    DeviceAnswer, DeviceQuery, DeviceResult, Event, GetEvents, GetFile, GetSession,
+    GetSessionImages, HistoryEntry, ImageRef, ListSessions, Notice, Platform, ReasoningLevel,
+    RemoveDevice, RunEvent, SearchSessions, SentImages, Session, SessionMatch, Stream,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
 };
@@ -43,6 +43,18 @@ pub const SUGGEST_REPLIES: &str = "suggest_replies";
 const SEND_FILE: &str = "send_file";
 /// Its result lists pictures, from the web or kept with the chat.
 const SEND_IMAGE: &str = "send_image";
+/// Their results hold a chart, drawn under the reply.
+const SHOW_CHART: &str = "show_chart";
+const SHOW_STOCK_CHART: &str = "show_stock_chart";
+
+/// An admin's one-off model and thinking for a single turn. Both empty
+/// sends the turn on the account's own pick.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Pick {
+    pub model: Option<String>,
+    pub thinking: Option<ReasoningLevel>,
+}
+
 /// Its result lists products, which show as a row of cards.
 const SHOW_PRODUCTS: &str = "show_products";
 
@@ -75,6 +87,9 @@ pub enum BarEvent {
         images: Vec<SentImage>,
         /// A `show_products` result's cards, as HTML.
         products: Option<String>,
+        /// A `show_chart` or `show_stock_chart` result's chart, boxed to
+        /// keep the event small.
+        chart: Option<Box<Chart>>,
     },
     /// Follow-ups to offer under the reply.
     Replies {
@@ -154,6 +169,8 @@ pub enum Turn {
         html: String,
         tools: Vec<ToolStep>,
         replies: Vec<String>,
+        /// The model that wrote it, empty when the server did not say.
+        model: String,
     },
     Scheduled {
         label: String,
@@ -175,6 +192,8 @@ pub struct ToolStep {
     pub images: Vec<SentImage>,
     /// A `show_products` result's cards, as HTML.
     pub products: Option<String>,
+    /// A `show_chart` or `show_stock_chart` result's chart.
+    pub chart: Option<Chart>,
 }
 
 /// A file Beep sent in the chat, fetched with `GetFile` when opened.
@@ -461,6 +480,7 @@ impl Beep {
         session: Option<String>,
         message: String,
         images: Vec<DataImage>,
+        pick: Pick,
         channel: Channel<BarEvent>,
     ) -> Result<String> {
         let images = image_uris(images)?;
@@ -475,13 +495,51 @@ impl Beep {
                 request_id: Uuid::new_v4(),
                 message,
                 images,
-                model: None,
-                thinking: None,
+                model: pick.model,
+                thinking: pick.thinking,
                 platform: Some(Platform::Macos {}),
             })
             .await?;
         self.follow(replies, channel).await;
         Ok(session_id.to_string())
+    }
+
+    /// Sends the session's `index`th prompt again on `pick`, after removing
+    /// it and every turn after it. Pictures sent with it are not resent.
+    pub async fn rerun(
+        &self,
+        session: String,
+        index: usize,
+        pick: Pick,
+        channel: Channel<BarEvent>,
+    ) -> Result<()> {
+        let entries = self
+            .call(GetSession {
+                id: session.clone(),
+            })
+            .await?;
+        let Some((timestamp, message)) = entries
+            .into_iter()
+            .filter_map(|entry| match entry {
+                HistoryEntry::User {
+                    content, timestamp, ..
+                } => Some((timestamp, content)),
+                _ => None,
+            })
+            .nth(index)
+        else {
+            return Err(DesktopError::BadRequest(
+                "that prompt is no longer in the chat".into(),
+            ));
+        };
+        self.call(DeleteTurnsFrom {
+            session_id: session.clone(),
+            timestamp,
+        })
+        .await?;
+        self.send(Some(session), message, Vec::new(), pick, channel)
+            .await?;
+        Ok(())
     }
 
     /// Answers an approval card and streams the run it starts.
@@ -608,6 +666,7 @@ impl Beep {
                     file: sent_file(&name, &output),
                     images: sent_images(&name, &output),
                     products: shown_products(&name, &output),
+                    chart: shown_chart(&name, &output).map(Box::new),
                     call_id,
                     name,
                     success,
@@ -674,6 +733,7 @@ pub fn tool_step(name: &str, output: &str, success: bool) -> ToolStep {
         file: sent_file(name, output),
         images: sent_images(name, output),
         products: shown_products(name, output),
+        chart: shown_chart(name, output),
     }
 }
 
@@ -715,6 +775,23 @@ fn shown_products(name: &str, output: &str) -> Option<String> {
     products::shown(output)
 }
 
+#[derive(Deserialize)]
+struct ChartOutput {
+    chart: Chart,
+}
+
+/// The chart a `show_chart` or `show_stock_chart` result draws, or `None`
+/// for any other tool.
+fn shown_chart(name: &str, output: &str) -> Option<Chart> {
+    if name != SHOW_CHART && name != SHOW_STOCK_CHART {
+        return None;
+    }
+    serde_json::from_str::<ChartOutput>(output)
+        .ok()
+        .map(|o| o.chart)
+        .filter(|chart| chart.series.iter().any(|s| !s.points.is_empty()))
+}
+
 /// `data` as a QR code the bar can draw.
 pub fn qr_svg(data: &str) -> Result<String> {
     let qr = QrCode::new(data.as_bytes()).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
@@ -734,7 +811,12 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
             text: content,
             images: pictures.take(timestamp),
         },
-        HistoryEntry::Assistant { content, tools, .. } => {
+        HistoryEntry::Assistant {
+            content,
+            tools,
+            model,
+            ..
+        } => {
             let (suggest, tools): (Vec<_>, Vec<_>) =
                 tools.into_iter().partition(|t| t.name == SUGGEST_REPLIES);
             Turn::Assistant {
@@ -747,6 +829,7 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
                     .iter()
                     .find_map(|t| suggested_replies(&t.output))
                     .unwrap_or_default(),
+                model,
             }
         }
         HistoryEntry::Scheduled { label, .. } => Turn::Scheduled { label },
@@ -794,5 +877,14 @@ mod tests {
         assert!(row.contains("<b>$19.50</b>"), "{row}");
         assert!(shown_products(SEND_FILE, output).is_none());
         assert!(shown_products(SHOW_PRODUCTS, "failed").is_none());
+    }
+
+    #[test]
+    fn shown_chart_reads_chart_results_only() {
+        let output = r#"{"action":"show_stock_chart","chart":{"title":"AAPL","kind":"area","x":"time","categories":[],"unit":"USD","series":[{"name":"AAPL","points":[{"x":1.0,"y":2.0}]}],"stock":null,"source":"Yahoo Finance"}}"#;
+        let chart = shown_chart(SHOW_STOCK_CHART, output).expect("a chart result has a chart");
+        assert_eq!(chart.series[0].points.len(), 1);
+        assert!(shown_chart(SHOW_PRODUCTS, output).is_none());
+        assert!(shown_chart(SHOW_CHART, "failed").is_none());
     }
 }

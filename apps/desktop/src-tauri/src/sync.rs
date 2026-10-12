@@ -376,6 +376,7 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
                     html: markdown::to_html(content),
                     tools: Vec::new(),
                     replies: Vec::new(),
+                    model: String::new(),
                 });
             }
             MessageBody::Tool { name, output, .. } if name == beep::SUGGEST_REPLIES => {
@@ -426,6 +427,7 @@ impl OpenTurn {
                 html: String::new(),
                 tools: turn.tools,
                 replies: turn.replies,
+                model: String::new(),
             }),
         }
         out.extend(turn.approvals);

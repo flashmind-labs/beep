@@ -2,20 +2,20 @@
 
 use crate::{
     bar,
-    beep::{Answer, BarEvent, Beep, DataImage, LinkView, Pictures, Turn, image_uris, qr_svg},
+    beep::{Answer, BarEvent, Beep, DataImage, LinkView, Pick, Pictures, Turn, image_uris, qr_svg},
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
     state::LinkState,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, ClearMemories, CreateCron,
-    CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession, GetGroup,
-    GetGroupImages, GetModels, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup,
-    ListCrons, ListGroupReminders, ListGroups, ListMemories, Memory, Models, PeekGroup, PinGroup,
-    PinSession, ReasoningLevel, RenameSession, RunCron, SendToGroup, Session, SessionMatch,
-    SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink, ToggleCron,
-    UnshareSession, UpdateMemory, format_group_code, group_code,
+    AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, Chart, ChartRange, ClearMemories,
+    CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession,
+    GetGroup, GetGroupImages, GetModels, GroupInvite, GroupPreview, GroupReminder, JoinGroup,
+    LeaveGroup, ListCrons, ListGroupReminders, ListGroups, ListMemories, Memory, Models, PeekGroup,
+    PinGroup, PinSession, ReasoningLevel, RenameSession, RunCron, SendToGroup, Session,
+    SessionMatch, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink,
+    StockChart, ToggleCron, UnshareSession, UpdateMemory, format_group_code, group_code,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -58,7 +58,21 @@ pub async fn send_prompt(
     images: Vec<DataImage>,
     on_event: Channel<BarEvent>,
 ) -> Result<String> {
-    beep.send(session, message, images, on_event).await
+    beep.send(session, message, images, Pick::default(), on_event)
+        .await
+}
+
+/// Sends the chat's `index`th prompt again on another model or thinking,
+/// dropping it and the turns after it first. Admins only.
+#[tauri::command]
+pub async fn rerun_prompt(
+    beep: Service<'_>,
+    session: String,
+    index: usize,
+    pick: Pick,
+    on_event: Channel<BarEvent>,
+) -> Result<()> {
+    beep.rerun(session, index, pick, on_event).await
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -681,6 +695,12 @@ pub async fn set_model(beep: Service<'_>, id: String) -> Result<Models> {
 #[tauri::command]
 pub async fn set_thinking(beep: Service<'_>, level: ReasoningLevel) -> Result<Models> {
     beep.call(SetThinking { level }).await
+}
+
+/// A stock chart over another range, for a chart's range buttons.
+#[tauri::command]
+pub async fn stock_chart(beep: Service<'_>, symbol: String, range: ChartRange) -> Result<Chart> {
+    beep.call(StockChart { symbol, range }).await
 }
 
 #[tauri::command]
