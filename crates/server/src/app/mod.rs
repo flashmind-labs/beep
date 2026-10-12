@@ -299,6 +299,33 @@ impl App {
         Ok(())
     }
 
+    /// After `source` merged into `target`: stops the gone account and
+    /// starts the target again, so it picks up an outside id it took over.
+    pub async fn merged(self: &Arc<Self>, source: &str, target: &str) -> Result<()> {
+        let account = self
+            .store
+            .account(target)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("account {target} is gone"))?;
+        let old = {
+            let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+            [users.remove(source), users.remove(target)]
+        };
+        for user in old.into_iter().flatten() {
+            user.stop();
+        }
+        for key in self.store.live_keys(target).await? {
+            self.models.admit(target, &key);
+        }
+        self.start_user(&account);
+        Ok(())
+    }
+
+    /// The user behind `account`, started if it was not.
+    pub fn user_for(self: &Arc<Self>, account: &Account) -> Arc<User> {
+        self.start_user(account)
+    }
+
     fn start_user(self: &Arc<Self>, account: &Account) -> Arc<User> {
         let id = &account.id;
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);

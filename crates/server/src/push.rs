@@ -33,6 +33,8 @@ use tokio::{
 };
 
 pub use beep_proto::client::CLOSE_REVOKED;
+/// The key now signs into another account; connecting again finds it.
+const CLOSE_MOVED: u32 = 409;
 const DIAL_TIMEOUT: Duration = Duration::from_secs(15);
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// Notices kept per user while their phone is unreachable; older ones go first.
@@ -189,6 +191,19 @@ impl Pusher {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&id);
+    }
+
+    /// Closes `id`'s connection so it signs in again, as after its
+    /// account merged into another. Its queued notices stay.
+    pub fn reconnect(&self, id: EndpointId) {
+        let live = self
+            .live
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&id);
+        if let Some(connection) = live {
+            connection.close(VarInt::from_u32(CLOSE_MOVED), b"moved");
+        }
     }
 
     async fn fan_out(self: Arc<Self>, user: String, notice: Notice) {

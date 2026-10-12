@@ -1,10 +1,15 @@
-//! Linking a second device, such as a computer, to a phone's account.
+//! Linking a second device to an account, either way round.
 //!
-//! The new device makes its own key and shows a `LinkOffer` as a QR code.
-//! The offer is signed with that key and names the server, so the phone can
-//! only hand the server an offer the device made for it. The phone sends it
-//! with `LinkDevice`, and from then on the device's key signs into the
-//! phone's account.
+//! A computer with no account yet makes its own key and shows a `LinkOffer`
+//! as a QR code. The offer is signed with that key and names the server, so
+//! the phone can only hand the server an offer the device made for it. The
+//! phone sends it with `LinkDevice`, and from then on the device's key signs
+//! into the phone's account.
+//!
+//! A device that already has an account, such as a computer someone started
+//! on, shows a join code instead (`InviteDevice`). The phone scans or types
+//! it and sends `JoinAccount`, which moves the phone's own account into the
+//! computer's.
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use iroh::{EndpointId, SecretKey, Signature};
@@ -20,6 +25,7 @@ const CONTEXT: &[u8] = b"beep-link/1";
 /// Crockford's base32, which leaves out letters that look like digits.
 const CODE_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const SCHEME: &str = "beep-link:";
+const JOIN_SCHEME: &str = "beep-join:";
 
 /// A device asking to join the account of whoever scans it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,6 +130,31 @@ impl LinkOffer {
     }
 }
 
+/// A join code as text for a QR code.
+pub fn join_uri(code: &str) -> String {
+    format!("{JOIN_SCHEME}{code}")
+}
+
+/// The join code in what someone scanned, typed or pasted: a `beep-join:`
+/// QR code, or the code itself with any case, spaces or dashes. None for
+/// other text, such as a link offer.
+pub fn join_code(input: &str) -> Option<String> {
+    let input = input.trim();
+    let input = input.strip_prefix(JOIN_SCHEME).unwrap_or(input);
+    let code: String = input
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    let valid = code.len() == 10 && code.bytes().all(|b| b.is_ascii_alphanumeric());
+    valid.then_some(code)
+}
+
+/// `code` as people read it: `K7QM4-X9TRP`.
+pub fn format_join_code(code: &str) -> String {
+    crate::format_group_code(code)
+}
+
 fn check_name(name: &str) -> Result<(), LinkError> {
     if name.trim().is_empty() || name.len() > MAX_NAME {
         return Err(LinkError::BadName);
@@ -202,6 +233,16 @@ mod tests {
             offer.verify(server, then - Duration::from_secs(120)),
             Err(LinkError::Expired)
         );
+    }
+
+    #[test]
+    fn a_join_code_reads_from_its_uri_or_typed() {
+        let uri = join_uri("K7QM4X9TRP");
+        assert_eq!(join_code(&uri).as_deref(), Some("K7QM4X9TRP"));
+        assert_eq!(join_code(" k7qm4-x9trp ").as_deref(), Some("K7QM4X9TRP"));
+        assert_eq!(format_join_code("K7QM4X9TRP"), "K7QM4-X9TRP");
+        assert_eq!(join_code("beep-link:abc"), None);
+        assert_eq!(join_code("short"), None);
     }
 
     #[test]

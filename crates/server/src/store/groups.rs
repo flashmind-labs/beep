@@ -123,7 +123,7 @@ const CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTWXYZ";
 
 /// A new invite code, ten characters from [`CODE_ALPHABET`] so it can be
 /// typed: about 48 bits from a v4 UUID's random ones.
-fn new_token() -> String {
+pub(super) fn new_token() -> String {
     let base = CODE_ALPHABET.len() as u128;
     let mut random = Uuid::new_v4().as_u128();
     (0..10)

@@ -106,6 +106,8 @@ sample_struct! {
     Place { id, name, latitude, longitude, radius, address, created_at, here, last_here_at, routines }
     Cron { id, label, prompt, schedule, enabled, created_at, run_once, last_run_at, next_run_at }
     LinkedDevice { id, name, kind, primary, this_device, linked_at }
+    DeviceInvite { code, uri, expires_at }
+    JoinPreview { name, kind }
     Group { id, name, members, last, updated_at, beep_typing, pinned, apps_shared }
     GroupMember { name, you, creator, joined_at }
     GroupChat { group, messages }

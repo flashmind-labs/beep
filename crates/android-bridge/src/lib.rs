@@ -13,16 +13,16 @@ use beep_proto::{
     DeviceAnswer, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
     GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRun,
     GetSession, GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
-    GroupPreview, GroupReminder, Health, HistoryEntry, JoinGroup, LeaveGroup, LinkDevice,
-    LinkedDevice, ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMemories,
-    ListMemoryReads, ListPlaces, ListSessions, ListSkills, Memory, MemoryRead, Models, Notice,
-    PeekGroup, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, Run, RunCron,
-    SearchSessions, SendToGroup, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions,
-    SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
-    SharedSession, Skill, StartAppAuth, Stream, SuggestPrompts, ToggleCron, UndoSkill,
-    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
-    UpdateSkill,
+    GroupPreview, GroupReminder, Health, HistoryEntry, JoinAccount, JoinGroup, JoinPreview,
+    LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices, ListGroupReminders,
+    ListGroups, ListMemories, ListMemoryReads, ListPlaces, ListSessions, ListSkills, Memory,
+    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession,
+    Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveDevice, RenameSession, Run, RunCron, SearchSessions, SendToGroup, SentImages, Session,
+    SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone,
+    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, Stream,
+    SuggestPrompts, ToggleCron, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
+    UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -231,6 +231,13 @@ pub fn link_preview(offer_uri: String) -> Result<LinkPreview, BeepError> {
         code: offer.code(),
         name: offer.name,
     })
+}
+
+/// The join code in a scanned, typed or pasted text, uppercase and without
+/// dashes, or None when it is not one, as for a link offer.
+#[uniffi::export]
+pub fn join_code(input: String) -> Option<String> {
+    beep_proto::link::join_code(&input)
 }
 
 /// The token of a share link (`https://` or the legacy `beep://share/`),
@@ -768,6 +775,18 @@ impl BeepClient {
 
     pub async fn remove_device(&self, id: String) -> Result<(), BeepError> {
         self.call(RemoveDevice { id }).await
+    }
+
+    /// The computer that shows the join code `code`, before joining.
+    pub async fn peek_invite(&self, code: String) -> Result<JoinPreview, BeepError> {
+        self.call(PeekInvite { code }).await
+    }
+
+    /// Moves this phone's account, with its chats and memories, into the
+    /// computer's that shows `code`. The server then closes the connection,
+    /// and the next call signs in to the account joined.
+    pub async fn join_account(&self, code: String) -> Result<(), BeepError> {
+        self.call(JoinAccount { code }).await
     }
 
     pub async fn update_location(
