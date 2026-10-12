@@ -71,7 +71,7 @@ pub struct AgentConfig {
     pub when: String,
     /// Must be one of the server's model choices.
     pub model: Model,
-    /// The least it thinks; Jev may raise it one step.
+    /// How long it thinks when Jev cannot pick.
     pub thinking: ReasoningLevel,
 }
 
@@ -85,56 +85,9 @@ pub struct Agent {
     pub thinking: ReasoningLevel,
 }
 
-impl Agent {
-    /// The thinking for a turn Jev judged to need `wanted`: the agent's own
-    /// level, raised by at most one step.
-    pub fn thinking_for(&self, wanted: ReasoningLevel) -> ReasoningLevel {
-        let floor = rank(self.thinking);
-        let level = rank(wanted).clamp(floor, (floor + 1).min(3));
-        LEVELS[level]
-    }
-}
-
-const LEVELS: [ReasoningLevel; 4] = [
-    ReasoningLevel::Off,
-    ReasoningLevel::Low,
-    ReasoningLevel::Medium,
-    ReasoningLevel::High,
-];
-
-fn rank(level: ReasoningLevel) -> usize {
-    LEVELS.iter().position(|&l| l == level).unwrap_or(1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn agent(thinking: ReasoningLevel) -> Agent {
-        Agent {
-            id: AgentId::General,
-            name: "General".into(),
-            when: String::new(),
-            model: "openrouter:a/b".parse().expect("a valid model id"),
-            thinking,
-        }
-    }
-
-    #[test]
-    fn thinking_rises_one_step_at_most() {
-        let low = agent(ReasoningLevel::Low);
-        assert_eq!(low.thinking_for(ReasoningLevel::Off), ReasoningLevel::Low);
-        assert_eq!(
-            low.thinking_for(ReasoningLevel::Medium),
-            ReasoningLevel::Medium
-        );
-        assert_eq!(
-            low.thinking_for(ReasoningLevel::High),
-            ReasoningLevel::Medium
-        );
-        let high = agent(ReasoningLevel::High);
-        assert_eq!(high.thinking_for(ReasoningLevel::Low), ReasoningLevel::High);
-    }
 
     #[test]
     fn ids_read_as_config_keys() {
