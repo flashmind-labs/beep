@@ -60,7 +60,6 @@ struct Chat: Equatable {
     var pendingImages: [String] = []
     var thinking = ""
     var error = ""
-    var stopRequested = false
 
     /// A message waits to go out or a run is streaming.
     var busy: Bool { !requestId.isEmpty || !runId.isEmpty }
@@ -102,6 +101,8 @@ final class AppModel {
     private var runTask: Task<Void, Never>?
     /// Which launch `runTask` belongs to, so an older run ending does not clear a newer one.
     private var runToken = UUID()
+    /// Telling the server to stop the run the chat let go of.
+    private var stopTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
     private let pathMonitor = NWPathMonitor()
     let location = LocationReporter()
@@ -409,7 +410,6 @@ final class AppModel {
         chat.pendingText = trimmed
         chat.pendingImages = images.map(dataURI)
         chat.error = ""
-        chat.stopRequested = false
         launchRun()
     }
 
@@ -423,11 +423,38 @@ final class AppModel {
         launchRun()
     }
 
+    /// Stops the run at once: the chat lets go of it and is free for the next
+    /// message while the server is told to stop it.
     func stop() {
-        chat.stopRequested = true
-        let runId = chat.runId
-        guard !runId.isEmpty else { return }
-        Task { try? await api().cancelRun(id: runId) }
+        guard chat.busy else { return }
+        stopStreaming()
+        let stopped = chat
+        stopTask = Task { try? await stopRun(stopped) }
+        chat.runId = ""
+        chat.requestId = ""
+        chat.pendingText = ""
+        chat.pendingImages = []
+        chat.thinking = ""
+        chat.error = runEndError("cancelled", current: chat.error)
+        finished(chat)
+    }
+
+    /// Tells the server to stop `chat`'s run, learning its id first if the message only just went out.
+    private func stopRun(_ chat: Chat) async throws {
+        let api = try api()
+        var runId = chat.runId
+        if runId.isEmpty {
+            guard !chat.requestId.isEmpty else { return }
+            // The same request finds the run it started, or starts it to be stopped.
+            let stream = try await api.chat(
+                sessionId: chat.id, requestId: chat.requestId, message: chat.pendingText,
+                images: chat.pendingImages, rerun: nil)
+            while runId.isEmpty, let received = try await stream.next() {
+                if case .runStarted(let started, _) = received.event { runId = started }
+            }
+            guard !runId.isEmpty else { return }
+        }
+        try await api.cancelRun(id: runId)
     }
 
     func answer(_ prompt: ApprovalPrompt, _ decision: ApprovalDecision) {
@@ -466,8 +493,12 @@ final class AppModel {
         let chatId = chat.id
         let token = UUID()
         runToken = token
+        let stopping = stopTask
+        stopTask = nil
         runTask = Task {
             defer { if runToken == token { runTask = nil } }
+            // The server takes the chat's next message once it has the stop.
+            await stopping?.value
             var failures = 0
             while !Task.isCancelled, chat.id == chatId, chat.busy {
                 do {
@@ -524,7 +555,6 @@ final class AppModel {
             chat.requestId = ""
             chat.pendingText = ""
             chat.pendingImages = []
-            if chat.stopRequested { stop() }
         }
         guard received.seq > chat.cursor else { return }
         guard received.seq == chat.cursor + 1 else { throw MissedEvent() }
@@ -560,7 +590,6 @@ final class AppModel {
         case .runFinished(let status, _):
             chat.runId = ""
             chat.thinking = ""
-            chat.stopRequested = false
             chat.error = runEndError(status, current: chat.error)
             finished(chat)
             Task { await refreshSessions() }

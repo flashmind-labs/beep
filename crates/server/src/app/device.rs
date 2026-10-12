@@ -165,7 +165,7 @@ mod tests {
     #[tokio::test]
     async fn dropped_device_query_is_removed() {
         let queries = DeviceQueries::default();
-        let live = LiveRun::new(CancellationToken::new());
+        let live = LiveRun::new(CancellationToken::new(), Uuid::nil());
         {
             let mut wait = pin!(ask(&queries, &live, query(), 60));
             poll_fn(|cx| {
@@ -181,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn timed_out_device_query_is_removed() {
         let queries = DeviceQueries::default();
-        let live = LiveRun::new(CancellationToken::new());
+        let live = LiveRun::new(CancellationToken::new(), Uuid::nil());
         assert!(ask(&queries, &live, query(), 0).await.is_err());
         assert!(pending(&queries).is_empty());
     }

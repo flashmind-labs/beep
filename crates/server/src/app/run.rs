@@ -97,30 +97,41 @@ impl App {
         };
         // With agents on, every chat turn runs as one: Jev picks it, and a
         // resumed turn keeps the one it started as. Routines run as General.
-        let turn_agent = match answer {
-            _ if background || !self.agents_on().await => None,
-            Some(_) => self.resumed_agent(user, chat).await.map(|agent| AgentTurn {
-                wanted: agent.thinking,
-                agent,
-            }),
-            None => Some(self.agent_pick(user, &prompt).await),
+        // The picks ask a model, so a stop does not wait for them.
+        let picking = async {
+            match answer {
+                _ if background || !self.agents_on().await => None,
+                Some(_) => self.resumed_agent(user, chat).await.map(|agent| AgentTurn {
+                    wanted: agent.thinking,
+                    agent,
+                }),
+                None => Some(self.agent_pick(user, &prompt).await),
+            }
+        };
+        let Some(turn_agent) = cancel.run_until_cancelled(picking).await else {
+            return self.stopped_early(user, run, live).await;
         };
         // An admin's one-off model or thinking wins over Auto and the agent;
         // a resumed turn keeps the pick it started with. Auto picks for chats
         // only: a routine runs on the admin's selected model.
         let one_off = message.model.is_some() || message.thinking.is_some();
-        let auto = match (one_off, answer, &turn_agent) {
-            (true, ..) => None,
-            (false, Some(_), _) => self.resumed_pick(user, chat).await,
-            (false, None, _) if background => None,
-            (false, None, Some(agent)) => {
-                if self.agent_picks_model(user).await {
-                    Some(agent.choice())
-                } else {
-                    None
+        let picking = async {
+            match (one_off, answer, &turn_agent) {
+                (true, ..) => None,
+                (false, Some(_), _) => self.resumed_pick(user, chat).await,
+                (false, None, _) if background => None,
+                (false, None, Some(agent)) => {
+                    if self.agent_picks_model(user).await {
+                        Some(agent.choice())
+                    } else {
+                        None
+                    }
                 }
+                (false, None, None) => self.auto_pick(user, &prompt).await,
             }
-            (false, None, None) => self.auto_pick(user, &prompt).await,
+        };
+        let Some(auto) = cancel.run_until_cancelled(picking).await else {
+            return self.stopped_early(user, run, live).await;
         };
         // Always set the server-owned prompt, including when loading an older
         // conversation. It stays static per agent so the provider can cache it.
@@ -225,7 +236,10 @@ impl App {
                 .map(|answer| answer.call_id.clone()),
         );
 
-        let (composio, mcp, apps) = tokio::join!(user.app_tools(), user.mcp_tools(), user.apps());
+        let loading = async { tokio::join!(user.app_tools(), user.mcp_tools(), user.apps()) };
+        let Some((composio, mcp, apps)) = cancel.run_until_cancelled(loading).await else {
+            return self.stopped_early(user, run, live).await;
+        };
         let rules = user.app_rules().await.unwrap_or_else(|error| {
             log::warn!("permissions: unable to load, asking for everything: {error:#}");
             Rules::default()
@@ -284,9 +298,11 @@ impl App {
         }
 
         let building = Instant::now();
-        let context = self
-            .build_context(user, &conversation, message, &apps.unwrap_or_default())
-            .await;
+        let apps = apps.unwrap_or_default();
+        let building_context = self.build_context(user, &conversation, message, &apps);
+        let Some(context) = cancel.run_until_cancelled(building_context).await else {
+            return self.stopped_early(user, run, live).await;
+        };
         timer.context_built(building.elapsed());
 
         let mut agent = Agent::builder(self.provider.clone())
@@ -317,7 +333,14 @@ impl App {
             images::labelled(&attached)
         } else {
             let mut descriptions = match describing.take() {
-                Some(task) => task.await.unwrap_or_default(),
+                Some(task) => {
+                    let abort = task.abort_handle();
+                    let Some(described) = cancel.run_until_cancelled(task).await else {
+                        abort.abort();
+                        return self.stopped_early(user, run, live).await;
+                    };
+                    described.unwrap_or_default()
+                }
                 None => Vec::new(),
             };
             descriptions.resize(attached.len(), None);
@@ -644,6 +667,11 @@ impl App {
         }
 
         // Save the turn before clients see the run finish, so they can load it.
+        // A stopped turn keeps its pictures rather than wait for their descriptions.
+        let stopped = matches!(status, RunStatus::Cancelled | RunStatus::Interrupted);
+        if let Some(task) = describing.take_if(|_| stopped) {
+            task.abort();
+        }
         if let Some(task) = describing {
             match task.await {
                 Ok(descriptions) => images::replace_with_descriptions(
@@ -770,6 +798,24 @@ impl App {
             };
             wake::finish(self, user, run, finished).await;
         }
+        Ok(())
+    }
+}
+
+impl App {
+    /// Ends a run stopped before the model started. Nothing of the turn is
+    /// saved, as when it is stopped before the model said anything.
+    async fn stopped_early(&self, user: &User, run: &Run, live: &LiveRun) -> Result<()> {
+        let status = if self.shutting_down.load(Ordering::Relaxed) {
+            RunStatus::Interrupted
+        } else {
+            RunStatus::Cancelled
+        };
+        user.finish(run, None, status).await?;
+        live.push(RunEvent::RunFinished {
+            status: status.as_str().to_owned(),
+            updated_at: None,
+        });
         Ok(())
     }
 }
