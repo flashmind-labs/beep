@@ -484,6 +484,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         } else drawerState.close()
     }
     LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
+    // Unfolding resizes the window without a restart, and the drawer keeps the closed offset of the
+    // narrower sheet, so it shows half open. Snap it again once the new width is laid out.
+    val screenWidth = LocalConfiguration.current.screenWidthDp
+    LaunchedEffect(screenWidth) { withFrameNanos {}; drawerState.snapTo(drawerState.currentValue) }
     BackHandler(enabled = drawerOpen) { drawerOpen = false }
     // Closed, horizontal swipes belong to the chat (new chat or back), so the drawer only takes them to close.
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerOpen, drawerContent = {
