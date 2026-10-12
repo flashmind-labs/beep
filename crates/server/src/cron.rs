@@ -11,6 +11,7 @@ use flashmind::types::ToolRegistry;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::agents::AgentId;
 use crate::app::{App, Message};
 use crate::digest;
 use crate::protocol::{DeviceKind, Run};
@@ -148,11 +149,17 @@ pub(crate) async fn submit(
             claimed
         }
     };
+    let agent = job
+        .metadata
+        .get("agent")
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse().ok());
     let msg = |session_id| Message {
         session_id,
         request_id: Uuid::new_v4(),
         message: task.to_owned(),
         cron_id: Some(job.id.to_string()),
+        agent,
         scheduled: Some(label.to_owned()),
         woken: None,
         images: Vec::new(),
@@ -263,10 +270,13 @@ pub fn register_tools(
     user: &str,
     session_id: &str,
     timezone: Option<&str>,
+    agent: Option<AgentId>,
 ) {
     let cron_store = Arc::new(BeepCronStore::for_user(store, user));
     let cron_registry = Arc::new(CronRegistry::new(cron_store));
-    let user_meta = json!({"user_id": user, "session_id": session_id});
+    // A routine made here runs as the agent this turn is.
+    let agent = agent.map(AgentId::as_str);
+    let user_meta = json!({"user_id": user, "session_id": session_id, "agent": agent});
 
     registry.register(Arc::new(CronCreateTool::with_metadata(
         cron_registry.clone(),
@@ -279,7 +289,7 @@ pub fn register_tools(
     // model writes local times like "2026-10-05T11:30:00".
     registry.register(Arc::new(ScheduleOnceTool::with_metadata(
         cron_registry,
-        json!({"user_id": user, "session_id": session_id, "timezone": timezone}),
+        json!({"user_id": user, "session_id": session_id, "timezone": timezone, "agent": agent}),
     )));
 }
 
@@ -365,6 +375,7 @@ mod tests {
             "user",
             "session",
             Some("Asia/Singapore"),
+            None,
         );
         let tool = registry
             .get("schedule_once")
@@ -386,12 +397,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_reminder_remembers_the_chat_it_was_set_in() {
+    async fn a_reminder_remembers_the_chat_and_agent_it_was_set_in() {
         let db = TestDb::new().await.expect("test database");
         let store = db.store().await.expect("store opens");
         let mut registry = ToolRegistry::new();
         let chat = Uuid::new_v4().to_string();
-        register_tools(&mut registry, store.clone(), "user", &chat, None);
+        register_tools(
+            &mut registry,
+            store.clone(),
+            "user",
+            &chat,
+            None,
+            Some(AgentId::GettingAround),
+        );
         let tool = registry
             .get("schedule_once")
             .expect("schedule_once registered");
@@ -405,6 +423,7 @@ mod tests {
         let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].metadata["session_id"], chat.as_str());
+        assert_eq!(jobs[0].metadata["agent"], "getting_around");
     }
     #[tokio::test]
     async fn a_routine_made_outside_a_chat_keeps_its_first_chat() {

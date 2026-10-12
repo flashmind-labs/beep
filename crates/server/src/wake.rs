@@ -193,6 +193,7 @@ pub async fn wake(app: &Arc<App>, user: &Arc<User>, event: Event) -> Result<Opti
         request_id: Uuid::new_v4(),
         message: event.message(),
         cron_id: None,
+        agent: None,
         scheduled: None,
         woken: Some(event.label),
         images: Vec::new(),

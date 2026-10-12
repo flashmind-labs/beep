@@ -15,6 +15,7 @@ pub(crate) use group::group_message;
 
 use crate::{
     AsyncMutex,
+    agents::AgentId,
     apps::{Composio, ComposioSettings},
     compaction::{self, Summarizer},
     decision::DecisionTool,
@@ -163,6 +164,8 @@ pub struct Message {
     pub request_id: Uuid,
     pub message: String,
     pub cron_id: Option<String>,
+    /// The agent a routine runs as: the one that set it up.
+    pub agent: Option<AgentId>,
     /// A routine's label, empty when it has none. Set for routine runs only.
     pub scheduled: Option<String>,
     /// An event's label when an event woke the agent (see `crate::wake`).

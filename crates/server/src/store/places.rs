@@ -6,6 +6,7 @@ use super::{
     cron_jobs::{COLUMNS, job_from},
 };
 use crate::{
+    agents::AgentId,
     places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger},
     user::UserKey,
 };
@@ -24,6 +25,8 @@ pub struct NewPlaceRoutine<'a> {
     pub trigger: PlaceTrigger,
     /// The chat it was set up from, where its runs reply.
     pub chat: Option<Uuid>,
+    /// The agent of the turn that set it up, which its runs answer as.
+    pub agent: Option<AgentId>,
 }
 
 /// A place as the store keeps it.
@@ -383,8 +386,8 @@ impl Store {
         }
         let id = Uuid::new_v4();
         sqlx::query(
-            "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once, chat_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once, chat_id, agent)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(user.as_str())
         .bind(id.to_string())
@@ -393,6 +396,7 @@ impl Store {
         .bind(routine.trigger.to_string())
         .bind(routine.trigger.repeat == PlaceRepeat::Once)
         .bind(routine.chat)
+        .bind(routine.agent.map(AgentId::as_str))
         .execute(&self.pool)
         .await?;
         Ok(id)
@@ -629,6 +633,7 @@ mod tests {
             task: &task,
             trigger,
             chat: None,
+            agent: None,
         };
         store.create_place_routine(&alice, &fits).await.unwrap();
         let too_long = NewPlaceRoutine {
@@ -639,7 +644,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_place_routine_replies_in_the_chat_it_came_from() {
+    async fn a_place_routine_replies_in_the_chat_and_as_the_agent_it_came_from() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let alice = UserKey::for_test("alice");
@@ -650,6 +655,7 @@ mod tests {
             task: "Point the user to the shop",
             trigger: PlaceTrigger::parse(&format!("leave:{}:once", place.id)).unwrap(),
             chat: Some(chat),
+            agent: Some(AgentId::Shopping),
         };
         store.create_place_routine(&alice, &routine).await.unwrap();
         let routines = store
@@ -660,6 +666,7 @@ mod tests {
             routines[0].job.metadata["session_id"],
             chat.to_string().as_str()
         );
+        assert_eq!(routines[0].job.metadata["agent"], "shopping");
     }
 
     #[tokio::test]

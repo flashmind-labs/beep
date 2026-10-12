@@ -4,7 +4,7 @@
 
 use super::{App, learning::earlier_turns};
 use crate::{
-    agents::{Agent, router_state},
+    agents::{Agent, AgentId, router_state},
     memories::clip,
     models::AutoModel,
     store::TurnRecord,
@@ -164,14 +164,19 @@ impl App {
         }
     }
 
-    /// The agent the turn a resumed session stopped in ran as.
-    pub(super) async fn resumed_agent(&self, user: &User, session: Uuid) -> Option<Agent> {
-        let id = last_turn(user, session).await?.agent?;
+    /// The configured agent `id`, or `None` when the config no longer has it.
+    pub(super) fn configured_agent(&self, id: AgentId) -> Option<Agent> {
         self.models
             .agents()
             .iter()
             .find(|agent| agent.id == id)
             .cloned()
+    }
+
+    /// The agent the turn a resumed session stopped in ran as.
+    pub(super) async fn resumed_agent(&self, user: &User, session: Uuid) -> Option<Agent> {
+        let id = last_turn(user, session).await?.agent?;
+        self.configured_agent(id)
     }
 
     /// Whether the agent also picks `user`'s model and thinking: for

@@ -225,6 +225,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "account invites",
         include_str!("../../migrations/0034_account_invites.sql"),
     ),
+    (
+        35,
+        "cron agents",
+        include_str!("../../migrations/0035_cron_agents.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them

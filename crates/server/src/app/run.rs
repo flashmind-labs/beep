@@ -99,9 +99,19 @@ impl App {
         // The picks ask a model, so a stop does not wait for them.
         let picking = async {
             // With agents on, every chat turn runs as one: Jev picks it, and a
-            // resumed turn keeps the one it started as. Routines run as General.
+            // resumed turn keeps the one it started as. A routine runs as the
+            // agent that set it up; other routines and woken turns as General.
             let turn_agent = match answer {
-                _ if background || !self.agents_on().await => None,
+                _ if message.woken.is_some() || !self.agents_on().await => None,
+                _ if is_cron => {
+                    message
+                        .agent
+                        .and_then(|id| self.configured_agent(id))
+                        .map(|agent| AgentTurn {
+                            wanted: agent.thinking,
+                            agent,
+                        })
+                }
                 Some(_) => self.resumed_agent(user, chat).await.map(|agent| AgentTurn {
                     wanted: agent.thinking,
                     agent,
@@ -110,11 +120,10 @@ impl App {
             };
             // An admin's one-off model or thinking wins over Auto and the agent;
             // a resumed turn keeps the pick it started with. Auto picks for chats
-            // only: a routine runs on the admin's selected model.
+            // only: a routine without an agent runs on the user's selected model.
             let auto = match (one_off, answer, &turn_agent) {
                 (true, ..) => None,
                 (false, Some(_), _) => self.resumed_pick(user, chat).await,
-                (false, None, _) if background => None,
                 (false, None, Some(agent)) => {
                     if self.agent_picks_model(user).await {
                         Some(agent.choice())
@@ -122,6 +131,7 @@ impl App {
                         None
                     }
                 }
+                (false, None, None) if background => None,
                 (false, None, None) => self.auto_pick(user, &prompt).await,
             };
             (turn_agent, auto)
@@ -177,6 +187,7 @@ impl App {
             timezone.as_deref(),
             message.origin,
             message.charts,
+            turn_agent.as_ref().map(|turn| turn.agent.id),
         );
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
