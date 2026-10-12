@@ -5,12 +5,9 @@ use crate::protocol::{Event, RunEvent};
 use flashmind::core::CancellationToken;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use tokio::sync::broadcast;
-use uuid::Uuid;
 
 pub struct LiveRun {
     pub cancel: CancellationToken,
-    /// The chat the run belongs to.
-    pub session: Uuid,
     /// Fires once the run is saved and gone from the live runs.
     pub done: CancellationToken,
     events: Mutex<Vec<Event>>,
@@ -24,11 +21,10 @@ pub struct Subscription {
 }
 
 impl LiveRun {
-    pub fn new(cancel: CancellationToken, session: Uuid) -> Self {
+    pub fn new(cancel: CancellationToken) -> Self {
         let (tx, _) = broadcast::channel(256);
         Self {
             cancel,
-            session,
             done: CancellationToken::new(),
             events: Mutex::new(Vec::new()),
             tx,

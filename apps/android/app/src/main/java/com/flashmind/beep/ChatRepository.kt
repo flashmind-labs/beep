@@ -441,7 +441,7 @@ class ChatRepository(private val storage: LocalStorage) {
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
             messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model, modelThinking = thinking),
             requestId = request, pendingText = text.trim(), pendingImages = images, pendingModel = model, pendingThinking = thinking,
-            status = "Sending…", error = "", cancelRequested = false) }
+            status = "Sending…", error = "") }
     }
     /** Holds a message typed while [chatId]'s reply runs, added to any already held, to send when it finishes. */
     fun queue(text: String, images: List<String>, chatId: String = state.value.current.id) {
@@ -544,7 +544,7 @@ class ChatRepository(private val storage: LocalStorage) {
         val last = chat.messages.lastOrNull { it.role == "user" } ?: return
         if (!settings.value.configured) return
         updateChat(chat.id) { it.copy(requestId = UUID.randomUUID().toString(), pendingText = last.text,
-            pendingImages = last.images, pendingModel = last.model, pendingThinking = last.modelThinking, status = "Sending…", error = "", cancelRequested = false) }
+            pendingImages = last.images, pendingModel = last.model, pendingThinking = last.modelThinking, status = "Sending…", error = "") }
         launchRun(chat.id)
     }
     /**
@@ -554,20 +554,18 @@ class ChatRepository(private val storage: LocalStorage) {
     fun cancel() {
         val chat = state.value.current
         if (!chat.busy) return
-        val messageId = "assistant-${chat.runId}"
         synchronized(lock) {
             jobs.remove(chat.id)?.cancel()
-            stopping[chat.id] = scope.launch {
-                try { stopRun(chat) }
-                catch (error: Exception) { if (error is CancellationException) throw error }
-            }
+            stopping[chat.id] = scope.launch { runCatching { stopRun(chat) } }
         }
         // The run's events stop counting once its id is gone from the chat.
-        updateChat(chat.id) { c -> c.copy(
-            messages = c.messages.map { if (it.id == messageId) extractCardsFromText(it).copy(reasoning = joinReasoning(it.reasoning, c.thinking)) else it },
-            runId = "", requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "",
-            status = "", tool = "", thinking = "", cancelRequested = false, error = runEndError("cancelled", c.error)) }
+        updateChat(chat.id) { it.ended("cancelled").copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "") }
     }
+    /** [this] chat once its run ended with [status]: the reply settles and the chat is free. */
+    private fun Conversation.ended(status: String) = copy(
+        // Extract any card JSON embedded in assistant text
+        messages = messages.map { if (it.id == "assistant-$runId") extractCardsFromText(it).copy(reasoning = joinReasoning(it.reasoning, thinking)) else it },
+        runId = "", status = "", tool = "", thinking = "", error = runEndError(status, error))
     /** Tells the server to stop [chat]'s run, learning its id first if the message only just went out. */
     private suspend fun stopRun(chat: Conversation) {
         val api = api()
@@ -575,9 +573,9 @@ class ChatRepository(private val storage: LocalStorage) {
             if (chat.requestId.isEmpty()) return
             // The same request finds the run it started, or starts it to be stopped.
             sendPending(api, chat).use { events ->
-                var started: String? = null
-                while (started == null) started = (events.next() ?: break).let { (it.event as? RunEvent.RunStarted)?.runId }
-                started
+                var event = events.next()?.event
+                while (event != null && event !is RunEvent.RunStarted) event = events.next()?.event
+                (event as? RunEvent.RunStarted)?.runId
             } ?: return
         }
         api.cancelRun(runId)
@@ -610,7 +608,6 @@ class ChatRepository(private val storage: LocalStorage) {
                 try {
                     val api = api()
                     updateChat(id) { it.copy(error = "", status = if (it.runId.isEmpty()) "Sending…" else "Beep is thinking…") }
-                    if (chat.runId.isNotEmpty() && chat.cancelRequested) api.cancelRun(chat.runId)
 
                     if (chat.runId.isEmpty()) { reportTimezone(); refreshLocation() }
                     // A new message streams its run from the start; a run we lost is resumed from the cursor.
@@ -625,7 +622,6 @@ class ChatRepository(private val storage: LocalStorage) {
                             if (started != null) {
                                 runId = started.runId
                                 updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "", cursor = 0) }
-                                if (state.value.conversations.first { it.id == id }.cancelRequested) api.cancelRun(runId)
                             }
 
                             // A run that finished while we were away only reports its status.
@@ -634,7 +630,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             if (missed && runId.isEmpty()) {
                                 // A resent message whose run already finished: we never learned its id.
                                 val status = (received.event as RunEvent.RunFinished).status
-                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "", status = "", tool = "", cancelRequested = false,
+                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "", status = "", tool = "",
                                     error = runEndError(status, it.error)) }
                             } else {
                                 event(id, runId, received)
@@ -1154,7 +1150,7 @@ class ChatRepository(private val storage: LocalStorage) {
                 updateChat(conversationId) { chat ->
                     val holder = chat.messages.lastOrNull { m -> m.approvals.any { it.queryId == queryId } }
                     chat.copy(messages = chat.messages.map { if (it === holder) it.copy(id = "assistant-${run.id}") else it },
-                        runId = run.id, cursor = 0, status = "Beep is thinking…", error = "", cancelRequested = false)
+                        runId = run.id, cursor = 0, status = "Beep is thinking…", error = "")
                 }
                 launchRun(conversationId)
             } catch (error: Exception) {
@@ -1420,12 +1416,7 @@ class ChatRepository(private val storage: LocalStorage) {
                         serverVersions.merge(id, saved, ::maxOf)
                         next = next.copy(version = saved)
                     }
-                    // Extract any card JSON embedded in assistant text
-                    next = next.copy(
-                        messages = next.messages.map {
-                            if (it.id == messageId) extractCardsFromText(it).copy(reasoning = joinReasoning(it.reasoning, chat.thinking)) else it
-                        },
-                        runId = "", status = "", tool = "", thinking = "", cancelRequested = false, error = runEndError(status, chat.error))
+                    next = next.ended(status)
                     labelAgent(id, messageId)
                 }
                 is RunEvent.MemoryScore ->

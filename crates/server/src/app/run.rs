@@ -95,28 +95,23 @@ impl App {
             conversation: &conversation,
             session: chat,
         };
-        // With agents on, every chat turn runs as one: Jev picks it, and a
-        // resumed turn keeps the one it started as. Routines run as General.
+        let one_off = message.model.is_some() || message.thinking.is_some();
         // The picks ask a model, so a stop does not wait for them.
         let picking = async {
-            match answer {
+            // With agents on, every chat turn runs as one: Jev picks it, and a
+            // resumed turn keeps the one it started as. Routines run as General.
+            let turn_agent = match answer {
                 _ if background || !self.agents_on().await => None,
                 Some(_) => self.resumed_agent(user, chat).await.map(|agent| AgentTurn {
                     wanted: agent.thinking,
                     agent,
                 }),
                 None => Some(self.agent_pick(user, &prompt).await),
-            }
-        };
-        let Some(turn_agent) = cancel.run_until_cancelled(picking).await else {
-            return self.stopped_early(user, run, live).await;
-        };
-        // An admin's one-off model or thinking wins over Auto and the agent;
-        // a resumed turn keeps the pick it started with. Auto picks for chats
-        // only: a routine runs on the admin's selected model.
-        let one_off = message.model.is_some() || message.thinking.is_some();
-        let picking = async {
-            match (one_off, answer, &turn_agent) {
+            };
+            // An admin's one-off model or thinking wins over Auto and the agent;
+            // a resumed turn keeps the pick it started with. Auto picks for chats
+            // only: a routine runs on the admin's selected model.
+            let auto = match (one_off, answer, &turn_agent) {
                 (true, ..) => None,
                 (false, Some(_), _) => self.resumed_pick(user, chat).await,
                 (false, None, _) if background => None,
@@ -128,9 +123,10 @@ impl App {
                     }
                 }
                 (false, None, None) => self.auto_pick(user, &prompt).await,
-            }
+            };
+            (turn_agent, auto)
         };
-        let Some(auto) = cancel.run_until_cancelled(picking).await else {
+        let Some((turn_agent, auto)) = cancel.run_until_cancelled(picking).await else {
             return self.stopped_early(user, run, live).await;
         };
         // Always set the server-owned prompt, including when loading an older
@@ -392,11 +388,7 @@ impl App {
                     loop {
                         let event = tokio::select! {
                             biased;
-                            _ = cancel.cancelled() => break if self.shutting_down.load(Ordering::Relaxed) {
-                                RunStatus::Interrupted
-                            } else {
-                                RunStatus::Cancelled
-                            },
+                            _ = cancel.cancelled() => break self.stopped(),
                             _ = &mut hard_stop => { cancel.cancel(); break RunStatus::TimedOut; },
                             event = timeout(
                                 if tools_running > 0 { TOOL_IDLE_TIMEOUT } else { IDLE_TIMEOUT },
@@ -800,23 +792,26 @@ impl App {
         }
         Ok(())
     }
-}
 
-impl App {
     /// Ends a run stopped before the model started. Nothing of the turn is
     /// saved, as when it is stopped before the model said anything.
     async fn stopped_early(&self, user: &User, run: &Run, live: &LiveRun) -> Result<()> {
-        let status = if self.shutting_down.load(Ordering::Relaxed) {
-            RunStatus::Interrupted
-        } else {
-            RunStatus::Cancelled
-        };
+        let status = self.stopped();
         user.finish(run, None, status).await?;
         live.push(RunEvent::RunFinished {
             status: status.as_str().to_owned(),
             updated_at: None,
         });
         Ok(())
+    }
+
+    /// How a run ends when it is told to stop: shutting down interrupts it.
+    fn stopped(&self) -> RunStatus {
+        if self.shutting_down.load(Ordering::Relaxed) {
+            RunStatus::Interrupted
+        } else {
+            RunStatus::Cancelled
+        }
     }
 }
 
