@@ -39,3 +39,6 @@ pub mod wake;
 pub use beep_proto::{self as protocol, client};
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
+
+#[cfg(test)]
+mod profile_eval;
