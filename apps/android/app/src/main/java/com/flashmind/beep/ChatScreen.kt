@@ -375,11 +375,16 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             val level = message.modelThinking.takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty()
                             Text("Rerun on $name$level", fontSize = 11.sp, color = TextMuted, modifier = Modifier.padding(top = 4.dp, end = 4.dp))
                         }
-                        // The model and thinking Jev picked for this prompt under Auto.
+                        // The model and thinking Jev picked for this prompt under Auto. Everyone but
+                        // an admin is on Auto for thinking only, so they see just the level.
                         if (isUser && message.autoModel.isNotEmpty()) {
-                            val name = modelChoices?.choices?.find { it.id == message.autoModel }?.name
-                                ?: message.autoModel.substringAfterLast('/')
-                            Text("$name · ${message.autoThinking}", fontSize = 11.sp, color = TextDim,
+                            val choices = modelChoices?.choices.orEmpty()
+                            val line = if (choices.isEmpty()) message.autoThinking else {
+                                val name = choices.find { it.id == message.autoModel }?.name
+                                    ?: message.autoModel.substringAfterLast('/')
+                                "$name · ${message.autoThinking}"
+                            }
+                            Text(line, fontSize = 11.sp, color = TextDim,
                                 modifier = Modifier.padding(top = 4.dp, end = 4.dp))
                         }
                         if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact, repository, openLink)
