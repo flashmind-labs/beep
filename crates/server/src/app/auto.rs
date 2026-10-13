@@ -1,4 +1,5 @@
-//! Auto: Jev picks the model and thinking of each of an admin's prompts.
+//! Auto: Jev picks the thinking of every user's prompts, and for an admin
+//! with Auto on the model too.
 //! Agents: once an admin turns them on, Jev picks the agent of every
 //! user's prompts, which brings its own prompt, model and thinking.
 
@@ -60,11 +61,8 @@ pub(super) struct Prompt<'a> {
 impl App {
     /// Whether Jev picks `user`'s model and thinking: an admin with Auto on,
     /// on a server with Auto models and Jev.
-    async fn auto_on(&self, user: &User) -> bool {
-        if self.decision().is_none()
-            || self.models.auto().is_empty()
-            || !self.models.is_admin(user.id())
-        {
+    async fn admin_auto_on(&self, user: &User) -> bool {
+        if self.models.auto().is_empty() {
             return false;
         }
         user.auto_model().await.unwrap_or_else(|error| {
@@ -73,24 +71,36 @@ impl App {
         })
     }
 
-    /// Jev's pick for `prompt`. `None` when Auto is off or Jev fails, so
-    /// the turn runs on the user's own settings.
+    /// Jev's pick for `prompt`. Everyone but an admin gets only the thinking,
+    /// on their own model. `None` when Auto is off or Jev fails, so the turn
+    /// runs on the user's own settings.
     pub(super) async fn auto_pick(&self, user: &User, prompt: &Prompt<'_>) -> Option<AutoChoice> {
-        if !self.auto_on(user).await {
-            return None;
-        }
         let decision = self.decision()?;
-        // A recent turn keeps its model, so only the thinking is picked.
-        let kept = self.recent_model(user, prompt).await;
-        let models = kept.map_or(self.models.auto(), slice::from_ref);
+        let own;
+        let (models, kept) = if !self.models.is_admin(user.id()) {
+            let model = self.model_for(user).await;
+            own = AutoModel {
+                name: model.name().to_owned(),
+                model,
+                when: String::new(),
+            };
+            (slice::from_ref(&own), false)
+        } else if self.admin_auto_on(user).await {
+            // A recent turn keeps its model, so only the thinking is picked.
+            match self.recent_model(user, prompt).await {
+                Some(kept) => (slice::from_ref(kept), true),
+                None => (self.models.auto(), false),
+            }
+        } else {
+            return None;
+        };
         let started = Instant::now();
         match decision.route(&state(prompt, None), models).await {
             Ok(routed) => {
                 log::info!(
-                    "auto picked; user={} model={} kept={} thinking={} ms={}",
+                    "auto picked; user={} model={} kept={kept} thinking={} ms={}",
                     user.id(),
                     routed.model.model,
-                    kept.is_some(),
                     routed.thinking,
                     started.elapsed().as_millis()
                 );

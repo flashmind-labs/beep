@@ -253,12 +253,16 @@ function newTurn(question, images) {
   return turn;
 }
 
-/// The model and thinking a prompt ran on, under it. Admins only: they are
-/// the ones with model choices. A later line, such as Jev's pick, replaces it.
+/// The model and thinking a prompt ran on, under it. Everyone but an admin
+/// is on Auto for thinking only, so they see just the level Jev picked. A
+/// later line, such as Jev's pick, replaces it.
 function ranOn(turn, model, thinking) {
-  if (!model || !isAdmin()) return;
+  if (!model) return;
+  const line = isAdmin()
+    ? (thinking ? `${modelName(model)} · ${thinking}` : modelName(model))
+    : thinking;
+  if (!line) return;
   turn.querySelector(".dranon")?.remove();
-  const line = thinking ? `${modelName(model)} · ${thinking}` : modelName(model);
   turn.querySelector(".ask")?.after(h(`<div class="drerunof dranon">${esc(line)}</div>`));
 }
 
@@ -432,7 +436,7 @@ async function send(message) {
   // Without Auto every prompt runs on the chosen model; with it, Jev's pick
   // arrives as an event.
   const m = MODELS.info;
-  if (m && !m.auto) ranOn(turn, m.selected, m.thinking);
+  if (m && !m.auto && isAdmin()) ranOn(turn, m.selected, m.thinking);
   reply(turn).innerHTML = '<span class="caret"></span>';
   const e = entry(id);
   e.body = body();
