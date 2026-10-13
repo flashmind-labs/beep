@@ -12,18 +12,18 @@ use beep_proto::{
     DeletePlace, DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom,
     DeviceAnswer, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
     GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels,
-    GetRoute, GetRun, GetSession, GetSessionAgents, GetSessionImages, GetShare, Group, GroupChat,
-    GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry,
-    JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons,
-    ListDevices, ListGroupReminders, ListGroups, ListMemories, ListMemoryReads, ListPlaces,
-    ListSessions, ListSkills, Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite,
-    PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform, PromptSuggestions,
-    ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, RouteCard, Run, RunCron,
-    SearchSessions, SendToGroup, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions,
-    SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
-    SharedSession, Skill, StartAppAuth, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill,
-    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
-    UpdateSkill,
+    GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionImages, GetShare, Group,
+    GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health,
+    HistoryEntry, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice,
+    ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMemories,
+    ListMemoryReads, ListPlaces, ListSessions, ListSkills, Memory, MemoryRead, Models, Notice,
+    PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, RouteCard, Run,
+    RunCron, SearchSessions, SendToGroup, SentImages, Session, SessionMatch, SetAgents,
+    SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps,
+    ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, Stream, SuggestPrompts,
+    ToggleCron, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation,
+    UpdateMemory, UpdatePlace, UpdateSkill,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -501,7 +501,7 @@ impl BeepClient {
 
     /// The routes a `get_route` call found, for its card.
     pub async fn get_route(&self, call_id: String) -> Result<RouteCard, BeepError> {
-        self.call(GetRoute { call_id }).await
+        self.call(GetRouteCard { call_id }).await
     }
 
     /// The pictures sent in a group, by their message's `seq`.

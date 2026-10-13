@@ -5,7 +5,7 @@
 //! shape, for the apps to draw; the model never sees the coordinates.
 
 use crate::{
-    protocol::{RouteCard, RouteLeg, RouteOption, RoutePoint},
+    protocol::{RouteCard, RouteLeg, RouteOption, RoutePoint, RouteStop},
     user::User,
 };
 use anyhow::{Context, Result, bail};
@@ -172,7 +172,7 @@ struct Leg {
     route_color: Option<String>,
     route_text_color: Option<String>,
     #[serde(default)]
-    intermediate_stops: Vec<Value>,
+    intermediate_stops: Vec<Stop>,
     leg_geometry: Option<Geometry>,
 }
 
@@ -184,12 +184,32 @@ struct Geometry {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Stop {
     name: String,
     lat: Option<f64>,
     lon: Option<f64>,
     tz: Option<String>,
     track: Option<String>,
+    /// The code on the station's signs, like "G10" in Tokyo.
+    stop_code: Option<String>,
+    /// When a ride passes an intermediate stop.
+    arrival: Option<DateTime<Utc>>,
+    departure: Option<DateTime<Utc>>,
+}
+
+impl Stop {
+    /// The stop's code, empty when the feed has none.
+    fn code(&self) -> &str {
+        self.stop_code.as_deref().unwrap_or_default().trim()
+    }
+
+    fn point(&self) -> Option<RoutePoint> {
+        Some(RoutePoint {
+            latitude: self.lat?,
+            longitude: self.lon?,
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -450,11 +470,17 @@ fn describe(out: &mut String, n: usize, route: &Itinerary) {
             let _ = write!(line, " toward {headsign}");
         }
         let track = |stop: &Stop| {
-            stop.track
+            let code = match stop.code() {
+                "" => String::new(),
+                code => format!(" ({code})"),
+            };
+            let platform = stop
+                .track
                 .as_deref()
                 .filter(|t| !t.is_empty())
                 .map(|t| format!(" platform {t}"))
-                .unwrap_or_default()
+                .unwrap_or_default();
+            code + &platform
         };
         let _ = writeln!(
             out,
@@ -558,6 +584,24 @@ fn card_leg(leg: &Leg) -> RouteLeg {
             .distance
             .map_or(0, |d| d.round().clamp(0.0, u32::MAX as f64) as u32),
         points: shape(leg),
+        from_code: leg.from.code().to_owned(),
+        to_code: leg.to.code().to_owned(),
+        between: leg
+            .intermediate_stops
+            .iter()
+            .filter_map(|stop| {
+                Some(RouteStop {
+                    name: stop.name.clone(),
+                    code: stop.code().to_owned(),
+                    time: stop
+                        .arrival
+                        .or(stop.departure)
+                        .map(|at| clock(at, stop))
+                        .unwrap_or_default(),
+                    at: stop.point()?,
+                })
+            })
+            .collect(),
     }
 }
 
@@ -587,12 +631,7 @@ fn shape(leg: &Leg) -> Vec<RoutePoint> {
         Some(points) => simplify(&points, SHAPE_POINTS),
         None => [&leg.from, &leg.to]
             .into_iter()
-            .filter_map(|stop| {
-                Some(RoutePoint {
-                    latitude: stop.lat?,
-                    longitude: stop.lon?,
-                })
-            })
+            .filter_map(Stop::point)
             .collect(),
     }
 }
@@ -753,7 +792,7 @@ mod tests {
                     {"mode": "SUBWAY", "from": {"name": "Central", "tz": "Asia/Tokyo"}, "to": {"name": "Riverside", "tz": "Asia/Tokyo"},
                      "duration": 180, "startTime": "2026-10-12T10:01:00Z", "endTime": "2026-10-12T10:04:00Z",
                      "headsign": "Airport", "agencyName": "City Metro", "routeShortName": "30211664", "routeColor": "ff9501",
-                     "intermediateStops": [{}]}
+                     "intermediateStops": [{"name": "Market"}]}
                 ]
             }]
         }))
@@ -806,10 +845,13 @@ mod tests {
                     {"mode": "WALK", "from": {"name": "START", "lat": 35.0, "lon": 139.0, "tz": "Asia/Tokyo"},
                      "to": {"name": "Central", "lat": 35.001, "lon": 139.001, "tz": "Asia/Tokyo"},
                      "duration": 60, "startTime": "2026-10-12T10:00:00Z", "endTime": "2026-10-12T10:01:00Z", "distance": 73.4},
-                    {"mode": "SUBWAY", "from": {"name": "Central", "tz": "Asia/Tokyo", "track": "2"}, "to": {"name": "Riverside", "tz": "Asia/Tokyo"},
+                    {"mode": "SUBWAY", "from": {"name": "Central", "tz": "Asia/Tokyo", "track": "2", "stopCode": "H01"},
+                     "to": {"name": "Riverside", "tz": "Asia/Tokyo", "stopCode": " H03 "},
                      "duration": 180, "startTime": "2026-10-12T10:01:00Z", "endTime": "2026-10-12T10:04:00Z",
                      "headsign": "Airport", "routeShortName": "30211664", "routeLongName": "Harbour Line",
-                     "routeColor": "ff9501", "routeTextColor": "not a colour", "intermediateStops": [{}],
+                     "routeColor": "ff9501", "routeTextColor": "not a colour",
+                     "intermediateStops": [{"name": "Market", "stopCode": "H02", "lat": 35.0005, "lon": 139.0005, "tz": "Asia/Tokyo",
+                                            "arrival": "2026-10-12T10:02:00Z", "departure": "2026-10-12T10:02:30Z"}],
                      "legGeometry": {"points": "_p~iF~ps|U_ulLnnqC_mqNvxq`@", "precision": 5, "length": 3}}
                 ]
             }]
@@ -845,6 +887,27 @@ mod tests {
             ("2", "19:01", 2)
         );
         assert_eq!(ride.points.len(), 3);
+        assert_eq!(
+            (ride.from_code.as_str(), ride.to_code.as_str()),
+            ("H01", "H03")
+        );
+        let mut out = String::new();
+        describe(&mut out, 1, &plan.itineraries[0]);
+        assert!(out.contains(
+            "19:01 from Central (H01) platform 2 to 19:04 at Riverside (H03), 2 stop(s)"
+        ));
+        assert_eq!(
+            ride.between,
+            [RouteStop {
+                name: "Market".to_owned(),
+                code: "H02".to_owned(),
+                time: "19:02".to_owned(),
+                at: RoutePoint {
+                    latitude: 35.0005,
+                    longitude: 139.0005
+                },
+            }]
+        );
     }
 
     #[test]

@@ -126,7 +126,11 @@ sample_struct! {
     StockInfo { symbol, name, exchange, currency, range, last, previous }
     RouteCard { routes }
     RouteOption { departs, arrives, minutes, transfers, live, legs }
-    RouteLeg { mode, line, name, color, text_color, headsign, from, to, from_track, to_track, departs, arrives, minutes, stops, meters, points }
+    RouteLeg { mode, line, name, color, text_color, headsign, from, to, from_track, to_track, departs, arrives, minutes, stops, meters, points, from_code, to_code, between }
+    RouteStop { name, code, time, at }
+    RouteCardV1 { routes }
+    RouteOptionV1 { departs, arrives, minutes, transfers, live, legs }
+    RouteLegV1 { mode, line, name, color, text_color, headsign, from, to, from_track, to_track, departs, arrives, minutes, stops, meters, points }
     RoutePoint { latitude, longitude }
 }
 

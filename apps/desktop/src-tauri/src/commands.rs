@@ -12,7 +12,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     Agents, AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, Chart, ChartRange,
     ClearMemories, CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory,
-    DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GetRoute,
+    DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GetRouteCard,
     GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons, ListGroupReminders,
     ListGroups, ListMemories, ListSkills, Memory, Models, PeekGroup, PinGroup, PinSession,
     ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, Session, SessionMatch,
@@ -770,7 +770,7 @@ pub async fn stock_chart(beep: Service<'_>, symbol: String, range: ChartRange) -
 /// The transit card a `get_route` call planned.
 #[tauri::command]
 pub async fn route_card(beep: Service<'_>, call_id: String) -> Result<RouteCard> {
-    beep.call(GetRoute { call_id }).await
+    beep.call(GetRouteCard { call_id }).await
 }
 
 #[tauri::command]
