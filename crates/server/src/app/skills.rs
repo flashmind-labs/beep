@@ -15,18 +15,20 @@ const GROUP_MESSAGES: i64 = 200;
 
 impl App {
     /// Counts a finished turn of `user`'s chat that made `tool_calls`
-    /// calls and, once it is time, reviews the turns since the last review
-    /// in the background.
+    /// calls and, once it is time or when the user `corrected` how Beep
+    /// went about a task, reviews the turns since the last review in the
+    /// background.
     pub(super) fn count_for_skills(
         self: &Arc<Self>,
         user: &Arc<User>,
         chat: Uuid,
         tool_calls: usize,
+        corrected: bool,
     ) {
         let app = self.clone();
         let user = user.clone();
         tokio::spawn(async move {
-            let Some(review) = app.claim_review(chat, tool_calls).await else {
+            let Some(review) = app.claim_review(chat, tool_calls, corrected).await else {
                 return;
             };
             let context = match user.context(chat).await {
@@ -74,7 +76,7 @@ impl App {
         let generator_user = actor.id().to_owned();
         let group_id = joined.group.id;
         tokio::spawn(async move {
-            let Some(review) = app.claim_review(group_id, 0).await else {
+            let Some(review) = app.claim_review(group_id, 0, false).await else {
                 return;
             };
             let messages = match app
@@ -125,7 +127,7 @@ impl App {
     /// Counts a turn in `chat` and, when a review is due, starts the count
     /// again and says what it should read. Claiming first keeps two turns
     /// that end together from reviewing the same text.
-    async fn claim_review(&self, chat: Uuid, tool_calls: usize) -> Option<Review> {
+    async fn claim_review(&self, chat: Uuid, tool_calls: usize, corrected: bool) -> Option<Review> {
         let counted = self.store.count_skill_turn(chat).await;
         let review = match counted {
             Ok(review) => review,
@@ -134,7 +136,7 @@ impl App {
                 return None;
             }
         };
-        if review.turns < REVIEW_TURNS && tool_calls < REVIEW_TOOL_CALLS {
+        if review.turns < REVIEW_TURNS && tool_calls < REVIEW_TOOL_CALLS && !corrected {
             return None;
         }
         if let Err(error) = self.store.reviewed_skills(chat, Utc::now()).await {

@@ -4,7 +4,10 @@ use super::{
     App, Message,
     auto::{AgentTurn, Prompt},
     device::Parked,
-    learning::{MEMORY_THRESHOLD, ServerCall, add_server_calls, earlier_turns, memory_state},
+    learning::{
+        MEMORY_THRESHOLD, ServerCall, add_server_calls, correction_state, earlier_turns,
+        memory_state,
+    },
 };
 use crate::{
     agents::AgentId,
@@ -591,6 +594,9 @@ impl App {
         // the user once, not said in conversation.
         // Jev's memory score for the turn, kept with it.
         let mut memory_score = None;
+        // Whether the user corrected how the last turn went about its task,
+        // which is worth a skill review now.
+        let mut corrected = false;
         if status == RunStatus::Completed && !background {
             let generator = self.generator(user.id());
             let exchange = Exchange {
@@ -619,6 +625,8 @@ impl App {
                     .to_string(),
                 )
             });
+            let correction =
+                self.corrected(correction_state(exchange.earlier.last(), &exchange.latest));
             let kind = followups::Kind::of(&exchange.latest.reply);
             let replied = exchange.latest.reply.clone();
             let follow_up = async {
@@ -656,8 +664,10 @@ impl App {
                 }
                 (learned, score)
             };
-            let ((learned, score), follow_up) = tokio::join!(learning, follow_up);
+            let ((learned, score), follow_up, correction) =
+                tokio::join!(learning, follow_up, correction);
             memory_score = score;
+            corrected = correction;
             let mut calls: Vec<ServerCall> = learned
                 .iter()
                 .map(|change| ServerCall {
@@ -778,7 +788,7 @@ impl App {
                     .iter()
                     .filter(|entry| entry.timestamp >= turn_from),
             );
-            self.count_for_skills(user, chat, calls);
+            self.count_for_skills(user, chat, calls, corrected);
         }
         self.compact_after_turn(
             SessionRef {
