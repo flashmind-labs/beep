@@ -1,6 +1,7 @@
 mod alarm;
 mod browser;
 mod charts;
+mod chat;
 mod contacts;
 mod file;
 pub(crate) mod group_memory;
@@ -66,6 +67,16 @@ pub fn registry(
         owner: user.skill_owner(),
     }));
     registry.register(Arc::new(TimeTool));
+    if let Ok(chat) = run.session_id.parse() {
+        registry.register(Arc::new(chat::ChatSearchTool {
+            user: user.clone(),
+            chat,
+        }));
+        registry.register(Arc::new(chat::ChatReadTool {
+            user: user.clone(),
+            chat,
+        }));
+    }
     crate::cron::register_tools(
         &mut registry,
         app.store.clone(),
