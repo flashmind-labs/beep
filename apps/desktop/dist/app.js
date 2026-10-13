@@ -2141,19 +2141,31 @@ function drawRoute(card) {
     <div class="foot"><button class="dbtn" data-maps>Open in Maps</button><span class="src">Transitous</span></div>`;
 }
 
-/// The route's shape fitted to the box: walks dotted, rides in their line's
-/// colour with a stop at each end. Longitude is squeezed by latitude so the
-/// shape keeps its angles.
+const MAP_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile";
+
+/// The route over Esri's dark gray map tiles: walks dotted, rides in their
+/// line's colour with a stop at each end. Both are in Web Mercator. The tiles
+/// reach past the viewBox, so a wide card has map out to its edges.
 function routeSketch(r) {
   const pts = r.legs.flatMap(l => l.points);
   if (!pts.length) return "";
-  const W = 300, H = 96, pad = 8, squeeze = Math.cos(pts.reduce((a, p) => a + p.latitude, 0) / pts.length * Math.PI / 180);
-  const xs = pts.map(p => p.longitude * squeeze), ys = pts.map(p => p.latitude);
-  const left = Math.min(...xs), right = Math.max(...xs), bottom = Math.min(...ys), top = Math.max(...ys);
-  const span = Math.max(right - left, top - bottom, 1e-9);
-  const k = Math.min((W - 2 * pad) / Math.max(right - left, span * 1e-3), (H - 2 * pad) / Math.max(top - bottom, span * 1e-3));
-  const dx = (W - (right - left) * k) / 2, dy = (H - (top - bottom) * k) / 2;
-  const at = p => [(dx + (p.longitude * squeeze - left) * k).toFixed(1), (dy + (top - p.latitude) * k).toFixed(1)];
+  const W = 300, H = 98, pad = 14;
+  const mx = p => (p.longitude + 180) / 360;
+  const my = p => { const s = Math.sin(p.latitude * Math.PI / 180); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
+  const xs = pts.map(mx), ys = pts.map(my);
+  const left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys);
+  // Units per world width, never closer than street level.
+  const k = Math.min((W - 2 * pad) / Math.max(right - left, 1e-12), (H - 2 * pad) / Math.max(bottom - top, 1e-12), 256 * 2 ** 17);
+  const cx = (left + right) / 2, cy = (top + bottom) / 2;
+  const sx = x => W / 2 + (x - cx) * k, sy = y => H / 2 + (y - cy) * k;
+  const at = p => [sx(mx(p)).toFixed(1), sy(my(p)).toFixed(1)];
+  // A zoom level finer than the scale, so 256 px tiles stay sharp on Retina; the tiles stop at 16.
+  const z = Math.max(0, Math.min(16, Math.ceil(Math.log2(k / 256)) + 1)), n = 2 ** z, size = (k / n + 0.5).toFixed(1);
+  const world = v => v / k;
+  let tiles = "";
+  for (let tx = Math.floor((cx + world(-2 * W)) * n); tx <= Math.floor((cx + world(2 * W)) * n); tx++)
+    for (let ty = Math.max(0, Math.floor((cy + world(-H)) * n)); ty <= Math.min(n - 1, Math.floor((cy + world(H)) * n)); ty++)
+      tiles += `<image href="${MAP_TILES}/${z}/${ty}/${((tx % n) + n) % n}" x="${sx(tx / n).toFixed(1)}" y="${sy(ty / n).toFixed(1)}" width="${size}" height="${size}" preserveAspectRatio="none"/>`;
   const path = ps => ps.map((p, i) => `${i ? "L" : "M"}${at(p).join(",")}`).join("");
   const dot = (p, rad, attrs) => { const [x, y] = at(p); return `<circle cx="${x}" cy="${y}" r="${rad}" ${attrs}/>`; };
   const lines = r.legs.filter(l => l.points.length).map(l => l.mode === "walk"
@@ -2161,8 +2173,9 @@ function routeSketch(r) {
     : `<path d="${path(l.points)}" fill="none" stroke="${l.color || "var(--emerald)"}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
   const stops = r.legs.filter(l => l.mode !== "walk" && l.points.length).flatMap(l => [l.points[0], l.points.at(-1)])
     .map(p => dot(p, 4, 'fill="var(--surface)" stroke="var(--fg)" stroke-width="1.8"')).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Sketch of the route">${lines}${stops}
-    ${dot(pts[0], 5, 'fill="var(--emerald)"')}${dot(pts.at(-1), 6, 'fill="var(--coral)" stroke="var(--surface)" stroke-width="2"')}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Map of the route"><g opacity=".85">${tiles}</g>${lines}${stops}
+    ${dot(pts[0], 5, 'fill="var(--emerald)"')}${dot(pts.at(-1), 6, 'fill="var(--coral)" stroke="var(--surface)" stroke-width="2"')}</svg>
+    <small>Esri, HERE, Garmin, © OpenStreetMap</small>`;
 }
 
 function routeClick(e) {
