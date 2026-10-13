@@ -99,8 +99,13 @@ impl Transitous {
     }
 
     /// The best match for `text`, near `near` when given.
-    async fn geocode(&self, text: &str, near: Option<Point>) -> Result<Option<Found>> {
-        let mut query = vec![("text", text.to_owned())];
+    async fn geocode(
+        &self,
+        text: &str,
+        near: Option<Point>,
+        language: &str,
+    ) -> Result<Option<Found>> {
+        let mut query = vec![("text", text.to_owned()), ("language", language.to_owned())];
         if let Some(near) = near {
             query.push(("place", near.to_string()));
         }
@@ -200,6 +205,7 @@ struct Args {
     arrive_by: bool,
     #[serde(default)]
     walk_only: bool,
+    language: Option<String>,
 }
 
 pub(crate) struct GetRouteTool {
@@ -235,7 +241,8 @@ impl Tool for GetRouteTool {
                 "from_longitude": {"type": "number"},
                 "time": {"type": "string", "description": "When to leave (or arrive with arrive_by), ISO 8601 local time at the start, like 2026-10-12T18:30:00. Defaults to now."},
                 "arrive_by": {"type": "boolean", "description": "time is when to arrive."},
-                "walk_only": {"type": "boolean", "description": "Walk the whole way."}
+                "walk_only": {"type": "boolean", "description": "Walk the whole way."},
+                "language": {"type": "string", "description": "Language code for station and line names, the language you are answering in, like en or ja. Defaults to en."}
             },
             "additionalProperties": false
         })
@@ -274,13 +281,14 @@ impl GetRouteTool {
             latitude: location.latitude,
             longitude: location.longitude,
         });
+        let language = language(args.language.as_deref());
         let mut out = String::new();
         let from = match (args.from_latitude, args.from_longitude, &args.from) {
             (Some(latitude), Some(longitude), _) => Point {
                 latitude,
                 longitude,
             },
-            (_, _, Some(name)) => self.find(name, here, "Start", &mut out).await?,
+            (_, _, Some(name)) => self.find(name, here, "Start", language, &mut out).await?,
             _ => here.context(
                 "No start: the user's location is unknown. Ask where they are starting from.",
             )?,
@@ -290,7 +298,10 @@ impl GetRouteTool {
                 latitude,
                 longitude,
             },
-            (_, _, Some(name)) => self.find(name, Some(from), "Destination", &mut out).await?,
+            (_, _, Some(name)) => {
+                self.find(name, Some(from), "Destination", language, &mut out)
+                    .await?
+            }
             _ => bail!("Give a destination: to, or to_latitude and to_longitude."),
         };
         let tz: Option<Tz> = location.and_then(|location| location.timezone.parse().ok());
@@ -298,6 +309,7 @@ impl GetRouteTool {
             ("fromPlace", from.to_string()),
             ("toPlace", to.to_string()),
             ("arriveBy", args.arrive_by.to_string()),
+            ("language", language.to_owned()),
         ];
         if let Some(time) = &args.time {
             query.push(("time", utc(time, tz)?));
@@ -332,11 +344,12 @@ impl GetRouteTool {
         name: &str,
         near: Option<Point>,
         label: &str,
+        language: &str,
         out: &mut String,
     ) -> Result<Point> {
         let found = self
             .transitous
-            .geocode(name, near)
+            .geocode(name, near, language)
             .await?
             .with_context(|| format!("{label} {name:?} not found; give coordinates."))?;
         let _ = writeln!(
@@ -349,6 +362,18 @@ impl GetRouteTool {
             longitude: found.lon,
         })
     }
+}
+
+/// The language Transitous names stops and lines in: the one asked for when
+/// it looks like a language code, else English. Without one, some feeds
+/// answer in upper case or with internal line numbers.
+fn language(asked: Option<&str>) -> &str {
+    asked
+        .filter(|code| {
+            (2..=8).contains(&code.len())
+                && code.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+        })
+        .unwrap_or("en")
 }
 
 /// `time` in UTC for Transitous: as given when it has an offset, else as a

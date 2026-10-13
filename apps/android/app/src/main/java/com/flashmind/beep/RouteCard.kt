@@ -3,11 +3,14 @@ package com.flashmind.beep
 import android.content.Context
 import android.net.Uri
 import androidx.compose.animation.animateContentSize
+import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -35,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,9 +49,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -60,9 +67,11 @@ import com.flashmind.beep.proto.RouteOption
 import com.flashmind.beep.proto.RoutePoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.math.PI
-import kotlin.math.cos
+import kotlin.math.ceil
+import kotlin.math.log2
 import kotlin.math.max
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /** Where a route ends on screen when the server sends no colour for a line. */
 private val CORAL = Color(0xFFF07A6A)
@@ -80,8 +89,8 @@ fun RouteCardView(card: ToolCard.Route, compact: Boolean, repository: ChatReposi
     val routes = loaded?.routes.orEmpty()
     BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
         val route = routes.getOrNull(pick) ?: routes.firstOrNull()
-        Box(Modifier.fillMaxWidth().height(if (compact) 80.dp else 96.dp).background(t.colors.page)
-            .padding(horizontal = 8.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().height(if (compact) 80.dp else 96.dp).background(t.colors.page),
+            contentAlignment = Alignment.Center) {
             when {
                 route != null -> RouteSketch(route, t.colors.muted, t.colors.surface, t.colors.ink, t.colors.brand)
                 loaded == null -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = t.colors.muted)
@@ -175,50 +184,76 @@ private fun parse(hex: String): Color? =
     hex.removePrefix("#").takeIf { it.length == 6 }?.toLongOrNull(16)?.let { Color(0xFF000000 or it) }
 
 /**
- * The route's shape fitted to the box: walks dotted, rides in their line's colour with a stop at each end,
- * a dot where it starts and a coral one where it ends. Longitude is squeezed by latitude so shapes keep their angles.
+ * The route over Esri's gray map tiles: walks dotted, rides in their line's colour with a stop at each end,
+ * a dot where it starts and a coral one where it ends. Drawn in Web Mercator, like the tiles.
  */
 @Composable
 private fun RouteSketch(route: RouteOption, walk: Color, page: Color, ink: Color, start: Color) {
     val points = route.legs.flatMap { it.points }
     if (points.isEmpty()) return
-    val squeeze = cos(points.map { it.latitude }.average() * PI / 180)
-    val xs = points.map { it.longitude * squeeze }
-    val ys = points.map { it.latitude }
-    val (left, right) = xs.min() to xs.max()
-    val (bottom, top) = ys.min() to ys.max()
-    Canvas(Modifier.fillMaxSize()) {
-        val pad = 8.dp.toPx()
-        val span = max(right - left, top - bottom).takeIf { it > 0 } ?: 1.0
-        val scale = minOf((size.width - 2 * pad) / max(right - left, span * 1e-3), (size.height - 2 * pad) / max(top - bottom, span * 1e-3))
-        val offsetX = (size.width - (right - left) * scale) / 2
-        val offsetY = (size.height - (top - bottom) * scale) / 2
-        fun at(p: RoutePoint) = Offset(
-            (offsetX + (p.longitude * squeeze - left) * scale).toFloat(),
-            (offsetY + (top - p.latitude) * scale).toFloat(),
-        )
-        route.legs.forEach { leg ->
-            if (leg.points.isEmpty()) return@forEach
-            val path = Path().apply {
-                leg.points.forEachIndexed { i, p -> at(p).let { if (i == 0) moveTo(it.x, it.y) else lineTo(it.x, it.y) } }
-            }
-            if (leg.mode == "walk") {
-                drawPath(path, walk, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(0.1f, 6.dp.toPx()))))
-            } else {
-                drawPath(path, parse(leg.color) ?: start, style = Stroke(5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-            }
+    val dark = page.luminance() < 0.4f
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val width = with(density) { maxWidth.roundToPx() }.coerceIn(1, 1400)
+        val height = with(density) { maxHeight.roundToPx() }.coerceIn(1, 900)
+        val fit = remember(route, width, height) { RouteFit(points, width, height, with(density) { 14.dp.toPx() }) }
+        val map by produceState<Bitmap?>(null, fit, dark) {
+            value = MapTiles.area(fit.x, fit.y, fit.zoom, (width / fit.shrink).roundToInt(), (height / fit.shrink).roundToInt(),
+                dark, TileStyle.Quiet)
         }
-        route.legs.filter { it.mode != "walk" && it.points.isNotEmpty() }.forEach { leg ->
-            listOf(leg.points.first(), leg.points.last()).forEach { p ->
-                drawCircle(page, 4.dp.toPx(), at(p))
-                drawCircle(ink, 4.dp.toPx(), at(p), style = Stroke(1.8.dp.toPx()))
+        map?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds) }
+        Canvas(Modifier.fillMaxSize()) {
+            route.legs.forEach { leg ->
+                if (leg.points.isEmpty()) return@forEach
+                val path = Path().apply {
+                    leg.points.forEachIndexed { i, p -> fit.at(p).let { if (i == 0) moveTo(it.x, it.y) else lineTo(it.x, it.y) } }
+                }
+                if (leg.mode == "walk") {
+                    drawPath(path, walk, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(0.1f, 6.dp.toPx()))))
+                } else {
+                    drawPath(path, parse(leg.color) ?: start, style = Stroke(5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                }
             }
+            route.legs.filter { it.mode != "walk" && it.points.isNotEmpty() }.forEach { leg ->
+                listOf(leg.points.first(), leg.points.last()).forEach { p ->
+                    drawCircle(page, 4.dp.toPx(), fit.at(p))
+                    drawCircle(ink, 4.dp.toPx(), fit.at(p), style = Stroke(1.8.dp.toPx()))
+                }
+            }
+            drawCircle(start, 5.dp.toPx(), fit.at(points.first()))
+            drawCircle(page, 7.dp.toPx(), fit.at(points.last()))
+            drawCircle(CORAL, 6.dp.toPx(), fit.at(points.last()))
         }
-        drawCircle(start, 5.dp.toPx(), at(points.first()))
-        drawCircle(page, 7.dp.toPx(), at(points.last()))
-        drawCircle(CORAL, 6.dp.toPx(), at(points.last()))
+        if (map != null) {
+            Text("Esri, HERE, Garmin, © OpenStreetMap", fontSize = 8.sp, color = walk,
+                modifier = Modifier.align(Alignment.BottomEnd).background(page.copy(alpha = 0.7f))
+                    .padding(horizontal = 4.dp, vertical = 1.dp))
+        }
     }
+}
+
+/** The route's points fitted to [width] x [height] px with [pad] around them, in Web Mercator. */
+private class RouteFit(points: List<RoutePoint>, private val width: Int, private val height: Int, pad: Float) {
+    private val xs = points.map { mercatorX(it.longitude) }
+    private val ys = points.map { mercatorY(it.latitude) }
+    val x = (xs.min() + xs.max()) / 2
+    val y = (ys.min() + ys.max()) / 2
+
+    /** Pixels per world width, never closer than street level. */
+    private val scale = minOf((width - 2 * pad) / max(xs.max() - xs.min(), 1e-12),
+        (height - 2 * pad) / max(ys.max() - ys.min(), 1e-12), 256 * 2.0.pow(17))
+
+    /** The tiles' zoom: the one just past the scale, so they are drawn shrunk and sharp. Esri's stop at 16. */
+    val zoom = ceil(log2(scale / 256)).toInt().coerceIn(0, 16)
+
+    /** How the map is drawn against the tiles' own size, between a half and one unless the zoom ran out. */
+    val shrink = scale / (256 * 2.0.pow(zoom))
+
+    fun at(p: RoutePoint) = Offset(
+        (width / 2.0 + (mercatorX(p.longitude) - x) * scale).toFloat(),
+        (height / 2.0 + (mercatorY(p.latitude) - y) * scale).toFloat(),
+    )
 }
 
 private fun RouteOption.ends(): Pair<RoutePoint, RoutePoint>? {

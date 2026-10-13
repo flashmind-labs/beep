@@ -1,3 +1,4 @@
+import MapKit
 import SwiftUI
 
 /// A get_route call's routes: a sketch of the chosen one, its legs, and Maps. Fetched by call id.
@@ -16,7 +17,7 @@ struct RouteCardView: View {
             ZStack {
                 Mint.page
                 if let route {
-                    RouteSketch(route: route).padding(.horizontal, 8).padding(.vertical, 6)
+                    RouteSketch(route: route)
                 } else if loaded {
                     Text("Route no longer available").font(.body(13)).foregroundStyle(Mint.muted)
                 } else {
@@ -147,26 +148,36 @@ private struct RideLeg: View {
     }
 }
 
-/// The route's shape fitted to the box: walks dotted, rides in their line's colour with a stop at each end,
-/// a dot where it starts and a coral one where it ends. Longitude is squeezed by latitude so shapes keep their angles.
+/// The route over a muted Apple Maps snapshot: walks dotted, rides in their line's colour with a stop at each end,
+/// a dot where it starts and a coral one where it ends. Both are laid out in MapKit's map points, so they line up.
 private struct RouteSketch: View {
     let route: RouteOption
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.displayScale) private var displayScale
+    @State private var map: UIImage?
 
     var body: some View {
-        Canvas { context, size in
+        GeometryReader { geometry in
+            let fit = RouteFit(points: route.legs.flatMap(\.points), size: geometry.size, pad: 14)
+            ZStack {
+                if let map { Image(uiImage: map).resizable() }
+                if let fit { lines(fit) }
+            }
+            .task(id: fit.map { "\($0.rect.origin.x),\($0.rect.origin.y),\($0.rect.size.width),\(scheme)" }) {
+                // An old snapshot would sit under the new route's lines out of place.
+                map = nil
+                guard let fit else { return }
+                map = await fit.snapshot(size: geometry.size, dark: scheme == .dark, scale: displayScale)
+            }
+        }
+        .accessibilityLabel("Map of the route")
+    }
+
+    private func lines(_ fit: RouteFit) -> some View {
+        Canvas { context, _ in
             let points = route.legs.flatMap(\.points)
             guard let first = points.first, let last = points.last else { return }
-            let squeeze = cos(points.map(\.latitude).reduce(0, +) / Double(points.count) * .pi / 180)
-            let xs = points.map { $0.longitude * squeeze }, ys = points.map(\.latitude)
-            let left = xs.min()!, right = xs.max()!, bottom = ys.min()!, top = ys.max()!
-            let span = max(right - left, top - bottom, 1e-9)
-            let pad = 8.0
-            let scale = min((size.width - 2 * pad) / max(right - left, span * 1e-3),
-                            (size.height - 2 * pad) / max(top - bottom, span * 1e-3))
-            let dx = (size.width - (right - left) * scale) / 2, dy = (size.height - (top - bottom) * scale) / 2
-            func at(_ p: RoutePoint) -> CGPoint {
-                CGPoint(x: dx + (p.longitude * squeeze - left) * scale, y: dy + (top - p.latitude) * scale)
-            }
+            let at = fit.at
             func dot(_ p: RoutePoint, _ radius: Double) -> Path {
                 let c = at(p)
                 return Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2))
@@ -192,7 +203,43 @@ private struct RouteSketch: View {
             context.fill(dot(last, 7), with: .color(Mint.page))
             context.fill(dot(last, 6), with: .color(Mint.accent))
         }
-        .accessibilityLabel("Sketch of the route")
+    }
+}
+
+/// The route's points fitted to `size` with `pad` around them, in MapKit's map points (Web Mercator).
+private struct RouteFit {
+    /// The map points the view shows, edge to edge.
+    let rect: MKMapRect
+    private let size: CGSize
+
+    init?(points: [RoutePoint], size: CGSize, pad: Double) {
+        guard !points.isEmpty, size.width > 0, size.height > 0 else { return nil }
+        let mapped = points.map { MKMapPoint(CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)) }
+        let xs = mapped.map(\.x), ys = mapped.map(\.y)
+        let left = xs.min()!, right = xs.max()!, top = ys.min()!, bottom = ys.max()!
+        // Screen points per map point, never closer than street level.
+        let scale = min((size.width - 2 * pad) / max(right - left, 1e-6),
+                        (size.height - 2 * pad) / max(bottom - top, 1e-6),
+                        256 * pow(2, 17) / MKMapSize.world.width)
+        let width = size.width / scale, height = size.height / scale
+        rect = MKMapRect(x: (left + right - width) / 2, y: (top + bottom - height) / 2, width: width, height: height)
+        self.size = size
+    }
+
+    func at(_ p: RoutePoint) -> CGPoint {
+        let m = MKMapPoint(CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude))
+        return CGPoint(x: (m.x - rect.minX) / rect.width * size.width, y: (m.y - rect.minY) / rect.height * size.height)
+    }
+
+    func snapshot(size: CGSize, dark: Bool, scale: CGFloat) async -> UIImage? {
+        let options = MKMapSnapshotter.Options()
+        options.mapRect = rect
+        options.size = size
+        options.scale = scale
+        options.preferredConfiguration = MKStandardMapConfiguration(emphasisStyle: .muted)
+        options.pointOfInterestFilter = .excludingAll
+        options.traitCollection = UITraitCollection(userInterfaceStyle: dark ? .dark : .light)
+        return try? await MKMapSnapshotter(options: options).start().image
     }
 }
 

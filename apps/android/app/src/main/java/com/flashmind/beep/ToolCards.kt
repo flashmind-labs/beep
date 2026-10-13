@@ -277,12 +277,23 @@ private object Places {
     }
 }
 
+/** Longitude as a Web Mercator x, 0 to 1 from the antimeridian eastwards, as map tiles are laid out. */
+internal fun mercatorX(longitude: Double) = (longitude + 180) / 360
+
+/** Latitude as a Web Mercator y, 0 at the top of the map to 1 at the bottom. */
+internal fun mercatorY(latitude: Double): Double {
+    val lat = Math.toRadians(latitude.coerceIn(-85.0, 85.0))
+    return (1 - ln(tan(lat) + 1 / cos(lat)) / PI) / 2
+}
+
+/** Which tiles a map is drawn from: OpenStreetMap's own, or Esri's quiet gray canvas to draw a route over. */
+internal enum class TileStyle { Streets, Quiet }
+
 /**
- * A still map around one point, stitched from OpenStreetMap raster tiles. Tiles
- * are 256px, fetched one zoom level deeper so they read sharp on dense screens.
- * Dark themes get the same tiles inverted and dimmed. Kept in memory for the session.
+ * A still map stitched from 256px raster tiles, kept in memory for the session. OpenStreetMap
+ * tiles are inverted and dimmed for dark themes; Esri's canvas has a dark version of its own.
  */
-private object MapTiles {
+internal object MapTiles {
     private const val TILE = 256
     private val tiles = LruCache<String, Bitmap>(60)
     private val night = Paint().apply {
@@ -298,40 +309,47 @@ private object MapTiles {
         )
     }
 
+    /** Around one point, with tiles one zoom level deeper than [zoom] so they read sharp on dense screens. */
     suspend fun snapshot(latitude: Double, longitude: Double, zoom: Int, width: Int, height: Int, dark: Boolean): Bitmap? =
+        area(mercatorX(longitude), mercatorY(latitude), zoom + 1, width, height, dark, TileStyle.Streets)
+
+    /** [width] x [height] tile pixels at zoom [z], centred on Web Mercator ([x], [y]). */
+    suspend fun area(x: Double, y: Double, z: Int, width: Int, height: Int, dark: Boolean, style: TileStyle): Bitmap? =
         withContext(Dispatchers.IO) {
-            val z = zoom + 1
             val world = TILE * 2.0.pow(z)
-            val lat = Math.toRadians(latitude.coerceIn(-85.0, 85.0))
-            val cx = (longitude + 180) / 360 * world
-            val cy = (1 - ln(tan(lat) + 1 / cos(lat)) / PI) / 2 * world
-            val left = cx - width / 2.0
-            val top = cy - height / 2.0
+            val left = x * world - width / 2.0
+            val top = y * world - height / 2.0
             val count = 2.0.pow(z).toInt()
             val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(out)
+            val paint = if (dark && style == TileStyle.Streets) night else null
             var drawn = 0
             for (tx in floor(left / TILE).toInt()..floor((left + width) / TILE).toInt()) {
                 for (ty in floor(top / TILE).toInt()..floor((top + height) / TILE).toInt()) {
                     if (ty !in 0 until count) continue
-                    val tile = tile(z, Math.floorMod(tx, count), ty) ?: continue
-                    canvas.drawBitmap(tile, (tx * TILE - left).toFloat(), (ty * TILE - top).toFloat(), if (dark) night else null)
+                    val tile = tile(url(style, dark, z, Math.floorMod(tx, count), ty)) ?: continue
+                    canvas.drawBitmap(tile, (tx * TILE - left).toFloat(), (ty * TILE - top).toFloat(), paint)
                     drawn++
                 }
             }
             if (drawn > 0) out else null
         }
 
-    private fun tile(z: Int, x: Int, y: Int): Bitmap? {
-        val key = "$z/$x/$y"
-        tiles.get(key)?.let { return it }
+    private fun url(style: TileStyle, dark: Boolean, z: Int, x: Int, y: Int) = when (style) {
+        TileStyle.Streets -> "https://tile.openstreetmap.org/$z/$x/$y.png"
+        TileStyle.Quiet -> "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/" +
+            "World_${if (dark) "Dark" else "Light"}_Gray_Base/MapServer/tile/$z/$y/$x"
+    }
+
+    private fun tile(url: String): Bitmap? {
+        tiles.get(url)?.let { return it }
         return runCatching {
-            val connection = URL("https://tile.openstreetmap.org/$z/$x/$y.png").openConnection() as HttpURLConnection
+            val connection = URL(url).openConnection() as HttpURLConnection
             connection.connectTimeout = 8000
             connection.readTimeout = 8000
             connection.setRequestProperty("User-Agent", "Beep for Android")
             try { connection.inputStream.use(BitmapFactory::decodeStream) } finally { connection.disconnect() }
-        }.getOrNull()?.also { tiles.put(key, it) }
+        }.getOrNull()?.also { tiles.put(url, it) }
     }
 }
 

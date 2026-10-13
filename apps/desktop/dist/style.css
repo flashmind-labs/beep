@@ -354,8 +354,9 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dchart .foot { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--dim) }
 .dchart .foot .src { margin-left: auto }
 .droute { gap: 10px }
-.droute .rs { height: 110px; border-radius: 8px; background: var(--surface); padding: 6px }
-.droute .rs svg { width: 100%; height: 100% }
+.droute .rs { position: relative; height: 110px; border-radius: 8px; background: #242424; overflow: hidden }
+.droute .rs svg { display: block; width: 100%; height: 100% }
+.droute .rs small { position: absolute; right: 0; bottom: 0; padding: 0 5px; border-top-left-radius: 5px; font-size: 9.5px; line-height: 14px; color: var(--muted); background: rgba(10,14,12,.7) }
 .droute .rlegs { display: grid; gap: 8px }
 .droute .rw { width: 30px; display: grid; place-items: center }
 .droute .rl { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 19px }
