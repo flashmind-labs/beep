@@ -28,7 +28,38 @@ data at their request; or a correction or a request to forget",
 that say nothing about the user, or facts already remembered",
 };
 
+/// Above this Jev score the user corrected the approach, and the chat is
+/// reviewed for skills straight away.
+pub(super) const CORRECTION_THRESHOLD: f64 = 0.7;
+const CORRECTION_QUESTION: &str = "In the latest turn, does the user correct how the assistant went about a task in the earlier turn?";
+const CORRECTION_CRITERIA: Criteria = Criteria {
+    yes: "The user says the approach was wrong or asks for the task done another way: other tools, apps, \
+sites, shops or people, another order of steps, another format, length or tone, or a step it should have \
+taken or skipped",
+    no: "A new request, a follow-up question, thanks, more details for the same task, or a correction of a \
+fact about the user or the world that does not change how the task is done",
+};
+
 impl App {
+    /// Asks Jev whether the turns in `state`, from [`correction_state`],
+    /// show the user correcting how Beep went about a task. False without
+    /// Jev.
+    pub(super) async fn corrected(&self, state: Option<String>) -> bool {
+        let (Some(decision), Some(state)) = (self.decision(), state) else {
+            return false;
+        };
+        match decision
+            .probability_with(&state, CORRECTION_QUESTION, &CORRECTION_CRITERIA)
+            .await
+        {
+            Ok(probability) => probability >= CORRECTION_THRESHOLD,
+            Err(error) => {
+                log::warn!("correction score failed: {error}");
+                false
+            }
+        }
+    }
+
     /// Asks Jev how likely the exchange holds something worth remembering.
     /// Shown under the reply while we compare it with what the learner saves.
     pub(super) async fn memory_score(&self, state: String) -> Option<f64> {
@@ -44,6 +75,15 @@ impl App {
             }
         }
     }
+}
+
+/// What Jev reads to tell whether `latest` corrects `earlier`, or `None`
+/// without an earlier turn to correct.
+pub(super) fn correction_state(earlier: Option<&Turn>, latest: &Turn) -> Option<String> {
+    Some(format!(
+        "Earlier turn:\n{}\n\nLatest turn:\n{latest}",
+        earlier?
+    ))
 }
 
 /// A call the server made for the turn after the model finished, shown and
