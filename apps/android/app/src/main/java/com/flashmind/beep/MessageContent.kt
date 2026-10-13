@@ -330,29 +330,35 @@ internal fun formattedMessage(text: String, colors: InlineColors, headingSize: T
         val content = line.removePrefix(heading?.value.orEmpty())
             .replace(Regex("^( *)[-*+] +"), "$1\u2022 ")
         pushStyle(if (heading != null) SpanStyle(fontWeight = FontWeight.Bold, fontSize = headingSize, letterSpacing = (-0.3).sp) else SpanStyle())
-        var offset = 0
-        for (match in inlineTokens.findAll(content)) {
-            append(content.substring(offset, match.range.first))
-            when {
-                match.groups[4] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, fontStyle = FontStyle.Italic)) { append(match.groups[4]!!.value) }
-                match.groups[5] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(match.groups[5]!!.value) }
-                match.groups[6] != null || match.groups[7] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append((match.groups[6] ?: match.groups[7])!!.value) }
-                match.groups[8] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = colors.muted)) { append(match.groups[8]!!.value) }
-                match.groups[10] != null || match.groups[11] != null || match.groups[12] != null -> {
-                    val latex = (match.groups[10] ?: match.groups[11] ?: match.groups[12])!!.value.trim()
-                    appendInlineContent(latex, "\$$latex\$")
-                }
-                match.groups[9] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = colors.code, color = colors.onCode, fontSize = codeSize)) { append("\u200A${match.groups[9]!!.value}\u200A") }
-                else -> {
-                    val url = (match.groups[2]?.value ?: match.groups[3]!!.value).trimEnd('.', ',', ';')
-                    withLink(LinkAnnotation.Url(url, TextLinkStyles(style = SpanStyle(color = colors.link, textDecoration = TextDecoration.Underline)))) {
-                        append(match.groups[1]?.value ?: url)
-                    }
-                    if (match.groups[3] != null) append(match.value.removePrefix(url))
-                }
-            }
-            offset = match.range.last + 1
-        }
-        append(content.substring(offset)); pop()
+        appendInline(content, colors, codeSize)
+        pop()
     }
+}
+
+// Bold, italic and struck-through text are formatted again inside, so a link in **bold** stays a link.
+private fun AnnotatedString.Builder.appendInline(content: String, colors: InlineColors, codeSize: TextUnit) {
+    var offset = 0
+    for (match in inlineTokens.findAll(content)) {
+        append(content.substring(offset, match.range.first))
+        when {
+            match.groups[4] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, fontStyle = FontStyle.Italic)) { appendInline(match.groups[4]!!.value, colors, codeSize) }
+            match.groups[5] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { appendInline(match.groups[5]!!.value, colors, codeSize) }
+            match.groups[6] != null || match.groups[7] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { appendInline((match.groups[6] ?: match.groups[7])!!.value, colors, codeSize) }
+            match.groups[8] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = colors.muted)) { appendInline(match.groups[8]!!.value, colors, codeSize) }
+            match.groups[10] != null || match.groups[11] != null || match.groups[12] != null -> {
+                val latex = (match.groups[10] ?: match.groups[11] ?: match.groups[12])!!.value.trim()
+                appendInlineContent(latex, "\$$latex\$")
+            }
+            match.groups[9] != null -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = colors.code, color = colors.onCode, fontSize = codeSize)) { append("\u200A${match.groups[9]!!.value}\u200A") }
+            else -> {
+                val url = (match.groups[2]?.value ?: match.groups[3]!!.value).trimEnd('.', ',', ';')
+                withLink(LinkAnnotation.Url(url, TextLinkStyles(style = SpanStyle(color = colors.link, textDecoration = TextDecoration.Underline)))) {
+                    append(match.groups[1]?.value ?: url)
+                }
+                if (match.groups[3] != null) append(match.value.removePrefix(url))
+            }
+        }
+        offset = match.range.last + 1
+    }
+    append(content.substring(offset))
 }

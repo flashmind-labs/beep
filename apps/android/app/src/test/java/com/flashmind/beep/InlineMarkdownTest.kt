@@ -1,6 +1,7 @@
 package com.flashmind.beep
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -23,6 +24,14 @@ class InlineMarkdownTest {
         assertTrue(italics("a **bold** b").isEmpty())
         val both = styled("***both***").single { it.second.fontWeight == FontWeight.SemiBold }
         assertEquals("both" to FontStyle.Italic, both.first to both.second.fontStyle)
+    }
+    @Test fun linkInsideBold() {
+        val s = formattedMessage("1. **[Cassis](https://example.com/t/cassis/2952)**: routing", colors)
+        assertEquals("1. Cassis: routing", s.text)
+        val link = s.getLinkAnnotations(0, s.length).single()
+        assertEquals("Cassis", s.text.substring(link.start, link.end))
+        assertEquals("https://example.com/t/cassis/2952", (link.item as LinkAnnotation.Url).url)
+        assertEquals("Cassis", styled("**[Cassis](https://example.com)**").single { it.second.fontWeight == FontWeight.SemiBold }.first)
     }
     @Test fun strikethrough() {
         assertEquals(listOf("gone"), styled("~~gone~~ kept").filter { it.second.textDecoration == TextDecoration.LineThrough }.map { it.first })
