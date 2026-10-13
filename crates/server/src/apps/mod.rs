@@ -179,7 +179,12 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
             read("ONE_DRIVE_GET_RECENT_ITEMS"),
             read("ONE_DRIVE_GET_SHARED_ITEMS"),
             read("ONE_DRIVE_GET_ITEM"),
+            read("ONE_DRIVE_LIST_FOLDER_CHILDREN"),
+            read("ONE_DRIVE_GET_DRIVE_ITEM_BY_SHARING_URL"),
             read("ONE_DRIVE_DOWNLOAD_FILE"),
+            act("ONE_DRIVE_MOVE_ITEM"),
+            act("ONE_DRIVE_ONEDRIVE_CREATE_FOLDER"),
+            act("ONE_DRIVE_CREATE_LINK"),
         ],
     ),
     composio(
