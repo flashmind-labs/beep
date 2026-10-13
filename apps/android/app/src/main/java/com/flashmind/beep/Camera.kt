@@ -28,6 +28,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -200,32 +202,7 @@ internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Un
                     Text("Allow camera", fontSize = 11.sp, color = Beep.colors.ink, textAlign = TextAlign.Center)
                 }
             }
-            val tiles = listOf<Uri?>(null) + recent
-            tiles.chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    row.forEach { uri ->
-                        val tile = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp))
-                        if (uri == null) cameraTile(tile) else {
-                            val number = picked.indexOf(uri).takeIf { it >= 0 }?.plus(1)
-                            Box(tile.clickable(onClickLabel = if (number == null) "Pick photo" else "Unpick photo") {
-                                picked = if (number != null) picked - uri else if (picked.size < room) picked + uri else picked
-                            }) {
-                                PhotoThumb(uri, Modifier.fillMaxSize())
-                                if (number != null) {
-                                    Box(Modifier.fillMaxSize().border(3.dp, Beep.colors.brand, RoundedCornerShape(12.dp)))
-                                    Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp).background(Beep.colors.brand, CircleShape),
-                                        contentAlignment = Alignment.Center) {
-                                        Text("$number", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
-            if (!allowed) Text("Beep only uses the camera while it's open here. Photos you take are sent with your message and not saved to the phone.",
-                fontSize = 12.5.sp, lineHeight = 18.sp, color = Beep.colors.muted)
+            // On top, so a short window like the bubble still shows them; the photos scroll under.
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ChunkyButton(onClick = { onAllPhotos(); onDismiss() }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Outlined.Image, null, Modifier.size(20.dp))
@@ -236,6 +213,34 @@ internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Un
                     color = Beep.colors.accent, contentColor = Beep.colors.ink, enabled = !adding) {
                     Text(if (adding) "Adding…" else "Add ${picked.size}", fontWeight = FontWeight.SemiBold)
                 }
+            }
+            val tiles = listOf<Uri?>(null) + recent
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                tiles.chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        row.forEach { uri ->
+                            val tile = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp))
+                            if (uri == null) cameraTile(tile) else {
+                                val number = picked.indexOf(uri).takeIf { it >= 0 }?.plus(1)
+                                Box(tile.clickable(onClickLabel = if (number == null) "Pick photo" else "Unpick photo") {
+                                    picked = if (number != null) picked - uri else if (picked.size < room) picked + uri else picked
+                                }) {
+                                    PhotoThumb(uri, Modifier.fillMaxSize())
+                                    if (number != null) {
+                                        Box(Modifier.fillMaxSize().border(3.dp, Beep.colors.brand, RoundedCornerShape(12.dp)))
+                                        Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp).background(Beep.colors.brand, CircleShape),
+                                            contentAlignment = Alignment.Center) {
+                                            Text("$number", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+                if (!allowed) Text("Beep only uses the camera while it's open here. Photos you take are sent with your message and not saved to the phone.",
+                    fontSize = 12.5.sp, lineHeight = 18.sp, color = Beep.colors.muted)
             }
         }
     }
