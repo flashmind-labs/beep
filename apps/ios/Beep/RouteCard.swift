@@ -24,7 +24,7 @@ struct RouteCardView: View {
                     ProgressView()
                 }
             }
-            .frame(height: 96)
+            .frame(height: 140)
             .overlay(alignment: .bottom) { Rectangle().fill(Mint.ledge).frame(height: 1.5) }
             if let route {
                 VStack(alignment: .leading, spacing: 0) {
@@ -42,7 +42,7 @@ struct RouteCardView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(route.legs.indices, id: \.self) { i in
                             let leg = route.legs[i]
-                            if leg.mode == "walk" { WalkLeg(leg: leg) } else { RideLeg(leg: leg) }
+                            if leg.mode == "walk" { WalkLeg(leg: leg) } else { RideLeg(leg: leg).id("\(pick):\(i)") }
                         }
                     }
                     .padding(.top, 12)
@@ -118,8 +118,42 @@ private struct WalkLeg: View {
     }
 }
 
+/// A station code as Tokyo's signs draw it: a white badge ringed in the line's colour.
+private struct StationCode: View {
+    let code: String
+    let color: Color
+
+    var body: some View {
+        if !code.isEmpty {
+            Text(code).font(.body(10, .bold)).monospacedDigit().lineLimit(1).foregroundStyle(Mint.ink)
+                .padding(.horizontal, 3).frame(minWidth: 28, minHeight: 17)
+                .background(RoundedRectangle(cornerRadius: 4).fill(.white))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(color, lineWidth: 2))
+        }
+    }
+}
+
+/// A clock time, a station code and the rest of a stop's line.
+private struct StopRow: View {
+    let time: String
+    let code: String
+    let color: Color
+    let text: String
+    var bold = true
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(time).fontWeight(bold ? .semibold : .regular).monospacedDigit().frame(minWidth: 38, alignment: .leading)
+            StationCode(code: code, color: color)
+            Text(text)
+        }
+        .foregroundStyle(bold ? Mint.ink : Mint.muted)
+    }
+}
+
 private struct RideLeg: View {
     let leg: RouteLeg
+    @State private var open = false
 
     var body: some View {
         let color = Color(hexString: leg.color) ?? Mint.brand
@@ -130,16 +164,35 @@ private struct RideLeg: View {
                 .padding(.horizontal, 5).frame(minWidth: 34, minHeight: 22)
                 .background(RoundedRectangle(cornerRadius: 6).fill(color))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Mint.ledge, lineWidth: 1.5))
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(leg.name.isEmpty ? badge : leg.name).fontWeight(.semibold)
                     + Text(leg.headsign.isEmpty ? "" : " toward \(leg.headsign)").foregroundStyle(Mint.muted)
-                Text(leg.departs).fontWeight(.semibold).monospacedDigit()
-                    + Text(" \(leg.from)" + (leg.fromTrack.isEmpty ? "" : ", platform \(leg.fromTrack)"))
+                StopRow(time: leg.departs, code: leg.fromCode, color: color,
+                        text: leg.from + (leg.fromTrack.isEmpty ? "" : ", platform \(leg.fromTrack)"))
                 if leg.stops > 0 {
-                    Text("\(leg.stops) stop\(leg.stops > 1 ? "s" : "")").foregroundStyle(Mint.muted)
+                    let stops = "\(leg.stops) stop\(leg.stops > 1 ? "s" : "")"
+                    if leg.between.isEmpty {
+                        Text(stops).foregroundStyle(Mint.muted)
+                    } else {
+                        Button { withAnimation(.easeOut(duration: 0.2)) { open.toggle() } } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                                    .rotationEffect(.degrees(open ? 90 : 0))
+                                Text(stops)
+                            }
+                            .foregroundStyle(Mint.muted).padding(.vertical, 2).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(open ? "Hide \(stops)" : "Show \(stops)")
+                    }
+                    if open {
+                        ForEach(leg.between.indices, id: \.self) { i in
+                            let stop = leg.between[i]
+                            StopRow(time: stop.time, code: stop.code, color: color, text: stop.name, bold: false)
+                        }
+                    }
                 }
-                Text(leg.arrives).fontWeight(.semibold).monospacedDigit()
-                    + Text(" \(leg.to.isEmpty ? "destination" : leg.to)")
+                StopRow(time: leg.arrives, code: leg.toCode, color: color, text: leg.to.isEmpty ? "destination" : leg.to)
             }
             .font(.body(13)).foregroundStyle(Mint.ink)
             .padding(.leading, 10)
@@ -148,8 +201,9 @@ private struct RideLeg: View {
     }
 }
 
-/// The route over a muted Apple Maps snapshot: walks dotted, rides in their line's colour with a stop at each end,
-/// a dot where it starts and a coral one where it ends. Both are laid out in MapKit's map points, so they line up.
+/// The route over a muted Apple Maps snapshot: walks dotted, rides in their line's colour with a small dot at each
+/// stop passed and a ringed one at each end, labelled with the station's name and codes, a dot where it starts and a
+/// coral one where it ends. Both are laid out in MapKit's map points, so they line up.
 private struct RouteSketch: View {
     let route: RouteOption
     @Environment(\.colorScheme) private var scheme
@@ -193,7 +247,15 @@ private struct RouteSketch: View {
                                    style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
                 }
             }
-            for leg in route.legs where leg.mode != "walk" {
+            let rides = route.legs.filter { $0.mode != "walk" && !$0.points.isEmpty }
+            for leg in rides {
+                let color = Color(hexString: leg.color) ?? Mint.brand
+                for stop in leg.between {
+                    context.fill(dot(stop.at, 2.2), with: .color(Mint.surface))
+                    context.stroke(dot(stop.at, 2.2), with: .color(color), lineWidth: 1.4)
+                }
+            }
+            for leg in rides {
                 for p in [leg.points.first, leg.points.last].compactMap({ $0 }) {
                     context.fill(dot(p, 4), with: .color(Mint.surface))
                     context.stroke(dot(p, 4), with: .color(Mint.ink), lineWidth: 1.8)
@@ -202,6 +264,67 @@ private struct RouteSketch: View {
             context.fill(dot(first, 5), with: .color(Mint.brand))
             context.fill(dot(last, 7), with: .color(Mint.page))
             context.fill(dot(last, 6), with: .color(Mint.accent))
+            drawLabels(&context, labels(rides, at: at), size: fit.size)
+        }
+    }
+
+    private struct StationLabel {
+        let at: CGPoint
+        let name: String
+        var codes: [(code: String, color: Color)]
+    }
+
+    /// One label per station: a change at one station shares a label.
+    private func labels(_ rides: [RouteLeg], at: (RoutePoint) -> CGPoint) -> [StationLabel] {
+        var labels: [StationLabel] = []
+        for leg in rides {
+            let color = Color(hexString: leg.color) ?? Mint.brand
+            for (point, name, code) in [(leg.points.first!, leg.from, leg.fromCode), (leg.points.last!, leg.to, leg.toCode)] {
+                let p = at(point)
+                if let i = labels.firstIndex(where: { hypot($0.at.x - p.x, $0.at.y - p.y) < 18 }) {
+                    if !code.isEmpty && !labels[i].codes.contains(where: { $0.code == code }) { labels[i].codes.append((code, color)) }
+                } else if !name.isEmpty {
+                    labels.append(StationLabel(at: p, name: name, codes: code.isEmpty ? [] : [(code, color)]))
+                }
+            }
+        }
+        return labels
+    }
+
+    /// Each label beside its stop, toward the middle, then above or below; left out when nowhere has room.
+    private func drawLabels(_ context: inout GraphicsContext, _ labels: [StationLabel], size: CGSize) {
+        var placed: [CGRect] = []
+        let height: CGFloat = 18, pad: CGFloat = 4, codePad: CGFloat = 3, codeHeight: CGFloat = 13
+        for label in labels {
+            let name = context.resolve(Text(label.name).font(.body(10, .semibold)).foregroundStyle(Mint.ink))
+            let codes = label.codes.map { context.resolve(Text($0.code).font(.body(9, .bold)).foregroundStyle(Mint.ink)) }
+            let nameSize = name.measure(in: size)
+            let codeSizes = codes.map { $0.measure(in: size) }
+            let width = 2 * pad + codeSizes.reduce(0) { $0 + $1.width + 2 * codePad + pad } + nameSize.width
+            let sides: [CGFloat] = label.at.x < size.width / 2 ? [1, -1] : [-1, 1]
+            let tries = sides.flatMap { side in
+                [0, -0.85, 0.85].map { shift in
+                    CGRect(x: side > 0 ? label.at.x + 7 : label.at.x - 7 - width,
+                           y: label.at.y - height / 2 + shift * height, width: width, height: height)
+                }
+            }
+            guard let box = tries.first(where: { r in
+                r.minX >= 0 && r.maxX <= size.width && r.minY >= 0 && r.maxY <= size.height && !placed.contains { $0.intersects(r) }
+            }) else { continue }
+            placed.append(box)
+            let pill = Path(roundedRect: box, cornerRadius: 5)
+            context.fill(pill, with: .color(Mint.surface.opacity(0.92)))
+            context.stroke(pill, with: .color(Mint.ledge), lineWidth: 1)
+            var x = box.minX + pad
+            for (i, code) in codes.enumerated() {
+                let badge = CGRect(x: x, y: box.minY + (height - codeHeight) / 2, width: codeSizes[i].width + 2 * codePad, height: codeHeight)
+                let shape = Path(roundedRect: badge, cornerRadius: 3)
+                context.fill(shape, with: .color(.white))
+                context.stroke(shape, with: .color(label.codes[i].color), lineWidth: 1.5)
+                context.draw(code, at: CGPoint(x: badge.midX, y: badge.midY))
+                x = badge.maxX + pad
+            }
+            context.draw(name, at: CGPoint(x: x, y: box.midY), anchor: .leading)
         }
     }
 }
@@ -210,7 +333,7 @@ private struct RouteSketch: View {
 private struct RouteFit {
     /// The map points the view shows, edge to edge.
     let rect: MKMapRect
-    private let size: CGSize
+    let size: CGSize
 
     init?(points: [RoutePoint], size: CGSize, pad: Double) {
         guard !points.isEmpty, size.width > 0, size.height > 0 else { return nil }

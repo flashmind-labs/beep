@@ -354,7 +354,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dchart .foot { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--dim) }
 .dchart .foot .src { margin-left: auto }
 .droute { gap: 10px }
-.droute .rs { position: relative; height: 110px; border-radius: 8px; background: #242424; overflow: hidden }
+.droute .rs { position: relative; height: 150px; border-radius: 8px; background: #242424; overflow: hidden }
 .droute .rs svg { display: block; width: 100%; height: 100% }
 .droute .rs small { position: absolute; right: 0; bottom: 0; padding: 0 5px; border-top-left-radius: 5px; font-size: 9.5px; line-height: 14px; color: var(--muted); background: rgba(10,14,12,.7) }
 .droute .rlegs { display: grid; gap: 8px }
@@ -364,6 +364,17 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .droute .rt { display: grid; border-left: 3px solid; padding-left: 10px; margin-left: -4px }
 .droute .m { color: var(--muted); font-weight: 400 }
 .droute .n { font-variant-numeric: tabular-nums }
+.droute .rs text { font-family: inherit }
+.droute .rc { display: inline-grid; place-items: center; min-width: 28px; height: 16px; padding: 0 3px; margin-right: 5px; border: 2px solid; border-radius: 4px;
+  background: #fff; color: #10201A; font-size: 10px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; vertical-align: 1px }
+.droute .rst { border: 0; background: transparent; padding: 0; font: inherit; display: inline-flex; align-items: center; gap: 3px; cursor: pointer }
+.droute .rst:hover { color: var(--fg) }
+.droute .rst svg { transition: transform .2s }
+.droute .rst[aria-expanded="true"] svg { transform: rotate(90deg) }
+.droute .rsl { display: grid; gap: 1px; margin: 3px 0 2px; color: var(--muted) }
+.droute .rsl > span { display: flex; align-items: center; gap: 6px }
+.droute .rsl .n { min-width: 34px }
+.droute .rsl .rc { margin-right: 0 }
 .dchart .ranges { display: flex; gap: 2px }
 .dchart .ranges button { border: 0; background: transparent; color: var(--muted); font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 6px }
 .dchart .ranges button:hover { color: var(--fg) }

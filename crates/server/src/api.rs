@@ -126,6 +126,7 @@ pub fn router() -> Router {
         .call(get_session_images)
         .call(get_session_agents)
         .call(get_route)
+        .call(get_route_card)
         .call(get_group_images)
         .call(get_updates)
         .call(list_skills)
@@ -491,7 +492,13 @@ async fn get_session_agents(
         .collect())
 }
 
-async fn get_route(cx: Cx, GetRoute { call_id }: GetRoute) -> Reply<RouteCard> {
+async fn get_route(cx: Cx, GetRoute { call_id }: GetRoute) -> Reply<RouteCardV1> {
+    get_route_card(cx, GetRouteCard { call_id })
+        .await
+        .map(RouteCardV1::from)
+}
+
+async fn get_route_card(cx: Cx, GetRouteCard { call_id }: GetRouteCard) -> Reply<RouteCard> {
     cx.user
         .route_card(&call_id)
         .await?

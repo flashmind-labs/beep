@@ -411,9 +411,11 @@ requests! {
     /// `timestamp` of the `HistoryEntry::User` that started it. Every turn is
     /// listed, so the newest entry is the newest turn.
     91 GetSessionAgents { session_id: String } => Call<Vec<TurnAgent>>
+    /// `GetRouteCard` as apps from before stop codes read it.
+    92 GetRoute { call_id: String } => Call<RouteCardV1>
     /// The routes a `get_route` call found, by the call's id, for its card.
     /// `NotFound` for a call that found none or is not the caller's.
-    92 GetRoute { call_id: String } => Call<RouteCard>
+    93 GetRouteCard { call_id: String } => Call<RouteCard>
 }
 
 /// What a `get_route` call found, as the route card draws it.
@@ -469,6 +471,27 @@ pub struct RouteLeg {
     pub meters: u32,
     /// The leg's shape, simplified to what a small sketch needs.
     pub points: Vec<RoutePoint>,
+    /// The station codes signs show, like "G10" in Tokyo. Empty when the
+    /// feed has none. Cards saved before codes lack these and `between`.
+    #[serde(default)]
+    pub from_code: String,
+    #[serde(default)]
+    pub to_code: String,
+    /// The stops ridden through, in order, not counting `from` and `to`.
+    #[serde(default)]
+    pub between: Vec<RouteStop>,
+}
+
+/// A stop a ride passes.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RouteStop {
+    pub name: String,
+    /// The station code, empty when the feed has none.
+    pub code: String,
+    /// The clock time there, like "19:08".
+    pub time: String,
+    pub at: RoutePoint,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -476,6 +499,82 @@ pub struct RouteLeg {
 pub struct RoutePoint {
     pub latitude: f64,
     pub longitude: f64,
+}
+
+/// `RouteCard` as wire 2 apps read it from `GetRoute`. Frozen.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RouteCardV1 {
+    pub routes: Vec<RouteOptionV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RouteOptionV1 {
+    pub departs: String,
+    pub arrives: String,
+    pub minutes: u32,
+    pub transfers: u32,
+    pub live: bool,
+    pub legs: Vec<RouteLegV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RouteLegV1 {
+    pub mode: String,
+    pub line: String,
+    pub name: String,
+    pub color: String,
+    pub text_color: String,
+    pub headsign: String,
+    pub from: String,
+    pub to: String,
+    pub from_track: String,
+    pub to_track: String,
+    pub departs: String,
+    pub arrives: String,
+    pub minutes: u32,
+    pub stops: u32,
+    pub meters: u32,
+    pub points: Vec<RoutePoint>,
+}
+
+impl From<RouteCard> for RouteCardV1 {
+    fn from(card: RouteCard) -> Self {
+        Self {
+            routes: card
+                .routes
+                .into_iter()
+                .map(|route| RouteOptionV1 {
+                    departs: route.departs,
+                    arrives: route.arrives,
+                    minutes: route.minutes,
+                    transfers: route.transfers,
+                    live: route.live,
+                    legs: route
+                        .legs
+                        .into_iter()
+                        .map(|leg| RouteLegV1 {
+                            mode: leg.mode,
+                            line: leg.line,
+                            name: leg.name,
+                            color: leg.color,
+                            text_color: leg.text_color,
+                            headsign: leg.headsign,
+                            from: leg.from,
+                            to: leg.to,
+                            from_track: leg.from_track,
+                            to_track: leg.to_track,
+                            departs: leg.departs,
+                            arrives: leg.arrives,
+                            minutes: leg.minutes,
+                            stops: leg.stops,
+                            meters: leg.meters,
+                            points: leg.points,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
 }
 
 /// A chart under a reply, as `show_chart` and `show_stock_chart` return it
