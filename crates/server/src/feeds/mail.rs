@@ -32,7 +32,6 @@ use flashmind::tools::composio::ComposioClient;
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream};
 use serde_json::{Value, json};
 use std::{
-    collections::HashSet,
     fmt::{self, Write},
     iter::once,
     slice,
@@ -569,15 +568,17 @@ async fn score(
     (email, Scores { memory, attention })
 }
 
-/// Ids of the unread emails of `mailbox` received after `after`.
-pub(crate) async fn unread_since(
+/// The unread emails of `mailbox` received after `after`, leaving out mail
+/// the user sent.
+pub(crate) async fn unread_after(
     user: &User,
     mailbox: Mailbox,
     after: DateTime<Utc>,
-) -> Result<HashSet<String>> {
+) -> Result<Vec<Email>> {
     let source = Source::new(user, mailbox).await?;
-    let unread = source.list(after, Listing::Unread).await?;
-    Ok(unread.into_iter().map(|email| email.id).collect())
+    let mut unread = source.list(after, Listing::Unread).await?;
+    unread.retain(|email| !email.sent);
+    Ok(unread)
 }
 
 fn parse_gmail(data: &Value) -> Result<Page> {
