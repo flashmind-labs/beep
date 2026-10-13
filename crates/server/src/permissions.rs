@@ -527,6 +527,16 @@ const LOOKUPS: &[Lookup] = &[
         args: &[("task_id", "task_id")],
     },
     Lookup {
+        tools: &["ONE_DRIVE_MOVE_ITEM"],
+        read: "ONE_DRIVE_GET_ITEM",
+        args: &[("itemId", "item_id"), ("driveId", "drive_id")],
+    },
+    Lookup {
+        tools: &["ONE_DRIVE_CREATE_LINK"],
+        read: "ONE_DRIVE_GET_ITEM",
+        args: &[("item_id", "item_id"), ("drive_id", "drive_id")],
+    },
+    Lookup {
         tools: &["GITHUB_CREATE_AN_ISSUE_COMMENT"],
         read: "GITHUB_GET_AN_ISSUE",
         args: &[
