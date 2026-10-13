@@ -169,6 +169,9 @@ pub struct Message {
     pub agent: Option<AgentId>,
     /// A routine's label, empty when it has none. Set for routine runs only.
     pub scheduled: Option<String>,
+    /// A routine whose reply always reaches the user, as if it had called
+    /// `notify_user`. Set for the evening digest only.
+    pub always_sent: bool,
     /// An event's label when an event woke the agent (see `crate::wake`).
     pub woken: Option<String>,
     pub images: Vec<String>,

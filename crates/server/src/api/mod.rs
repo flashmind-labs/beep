@@ -180,6 +180,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         cron_id: None,
         agent: None,
         scheduled: None,
+        always_sent: false,
         woken: None,
         images: req.images,
         answer: None,
@@ -323,6 +324,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         cron_id: None,
         agent: None,
         scheduled: None,
+        always_sent: false,
         woken: None,
         images: Vec::new(),
         answer: Some(Answer {

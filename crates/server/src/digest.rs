@@ -36,7 +36,8 @@ const TASK: &str = "Write my evening digest of the unread emails below that need
 Most important first, one or two lines each: who it is from and what it asks of me. Keep it short.";
 /// Read with the routine's task, which the store keeps as it was made.
 const GUIDE: &str = "Flagged emails looked like they need me. Skip newsletters, marketing and \
-automatic notifications unless they ask something of me. If nothing needs me, say that in one line.";
+automatic notifications unless they ask something of me. If nothing needs me, say that in one line. \
+Your reply is always sent to me.";
 /// Flagged emails older than this are dropped unreported.
 const KEEP: Duration = Duration::from_secs(2 * 24 * 60 * 60);
 /// How far back unflagged unread mail is read.
@@ -58,6 +59,11 @@ fn routine(user_id: &str) -> CronJob {
         created_at: Utc::now(),
         last_run: None,
     }
+}
+
+/// Whether `job` is a digest routine.
+pub(crate) fn is_digest(job: &CronJob) -> bool {
+    job.metadata.get("kind").and_then(|v| v.as_str()) == Some(DIGEST_KIND)
 }
 
 /// Makes the digest routine the first time it is called for `user`.
@@ -262,6 +268,16 @@ mod tests {
     }
 
     #[test]
+    fn the_digest_routine_is_always_sent() {
+        assert!(is_digest(&routine("alice")));
+        let reminder = CronJob {
+            metadata: json!({"user_id": "alice", "label": "Water"}),
+            ..routine("alice")
+        };
+        assert!(!is_digest(&reminder));
+    }
+
+    #[test]
     fn an_empty_day_still_gets_a_prompt() {
         let report = Report {
             checked: vec![Mailbox::Gmail],
@@ -269,6 +285,7 @@ mod tests {
         };
         let text = prompt(&routine("user"), &report);
         assert!(text.contains("If nothing needs me, say that in one line."));
+        assert!(text.contains("Your reply is always sent to me."));
         assert!(text.ends_with("Unread emails from the last day: none."));
     }
 

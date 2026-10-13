@@ -195,6 +195,7 @@ pub async fn wake(app: &Arc<App>, user: &Arc<User>, event: Event) -> Result<Opti
         cron_id: None,
         agent: None,
         scheduled: None,
+        always_sent: false,
         woken: Some(event.label),
         images: Vec::new(),
         answer: None,
