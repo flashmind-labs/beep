@@ -4,6 +4,7 @@
 //! default. `just eval` runs them with the dev config, and `just eval wake`
 //! runs only the woken-agent cases.
 use beep_server::{
+    agents::AgentId,
     app::{App, ServerTools},
     client::Node,
     config::Config,
@@ -25,7 +26,7 @@ use flashmind::{
     llm::OpenRouterProvider,
     types::{AgentLlmConfig, Model},
 };
-use futures::future::join_all;
+use futures::{StreamExt, future::join_all, stream};
 use iroh::{SecretKey, endpoint::presets, protocol::Router};
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -36,6 +37,8 @@ use uuid::Uuid;
 /// The longest follow-up `suggest_replies` keeps; the writer is asked for 32.
 const MAX_FOLLOW_UP_CHARS: usize = 40;
 const TURN_TIMEOUT: Duration = Duration::from_secs(240);
+/// Turns started together, under the server's limit of 16 running at once.
+const MAX_TURNS_AT_ONCE: usize = 12;
 
 /// What a case expects of its turn.
 enum Check {
@@ -94,42 +97,304 @@ const CASES: &[Case] = &[
     },
 ];
 
-/// Cases run with agents on, so each agent's own prompt answers them.
-const AGENT_CASES: &[Case] = &[
-    Case {
-        name: "agents: transit goes through get_route",
-        message: "How do I get from Tokyo Station to Asakusa Station by train?",
-        checks: &[Check::Calls("get_route")],
+/// A case run with agents on, filed under the agent it is meant for. Jev
+/// still routes it, so a wrong pick counts against that agent.
+struct AgentCase {
+    agent: AgentId,
+    case: Case,
+}
+
+/// Cases run with agents on, so each agent's own prompt answers them. The
+/// `shared:` cases check what every agent must keep doing: save a memory and
+/// set a reminder.
+const AGENT_CASES: &[AgentCase] = &[
+    AgentCase {
+        agent: AgentId::General,
+        case: Case {
+            name: "agents: general sets a reminder",
+            message: "Remind me tomorrow at 9 to call the dentist",
+            checks: &[Check::Calls("schedule_once"), Check::Skips("web_search")],
+        },
     },
-    Case {
-        name: "agents: directions show the map",
-        message: "Directions by metro from Lisbon Oriente station to Rossio square",
-        checks: &[Check::Calls("get_route"), Check::Calls("open_maps")],
+    AgentCase {
+        agent: AgentId::General,
+        case: Case {
+            name: "agents: general sets an alarm",
+            message: "Set an alarm for 6:30 tomorrow morning",
+            checks: &[Check::Calls("set_alarm")],
+        },
     },
-    Case {
-        name: "agents: shopping shows products",
-        message: "Find me a good cordless stick vacuum under 300 euros",
-        checks: &[Check::Calls("show_products")],
+    AgentCase {
+        agent: AgentId::General,
+        case: Case {
+            name: "agents: settled facts need no search",
+            message: "What is the capital of Australia?",
+            checks: &[Check::Skips("web_search")],
+        },
     },
-    Case {
-        name: "agents: going out shows a place",
-        message: "Where should I get dinner tonight near Rossio in Lisbon?",
-        checks: &[Check::Calls("web_search"), Check::Calls("open_maps")],
+    AgentCase {
+        agent: AgentId::General,
+        case: Case {
+            name: "agents: small talk needs no search",
+            message: "Tell me a short joke about penguins",
+            checks: &[Check::Skips("web_search")],
+        },
     },
-    Case {
-        name: "agents: research searches",
-        message: "How does proposer-builder separation work on Ethereum today?",
-        checks: &[Check::Calls("web_search")],
+    AgentCase {
+        agent: AgentId::General,
+        case: Case {
+            name: "agents: general searches the weather",
+            message: "What's the weather in Lisbon tomorrow?",
+            checks: &[Check::Calls("web_search")],
+        },
     },
-    Case {
-        name: "agents: general sets a reminder",
-        message: "Remind me tomorrow at 9 to call the dentist",
-        checks: &[Check::Calls("schedule_once"), Check::Skips("web_search")],
+    AgentCase {
+        agent: AgentId::General,
+        case: Case {
+            name: "agents: shared: general saves a memory",
+            message: "Remember that I'm allergic to peanuts",
+            checks: &[Check::Calls("memory_store")],
+        },
     },
-    Case {
-        name: "agents: settled facts need no search",
-        message: "What is the capital of Australia?",
-        checks: &[Check::Skips("web_search")],
+    AgentCase {
+        agent: AgentId::GettingAround,
+        case: Case {
+            name: "agents: transit goes through get_route",
+            message: "How do I get from Tokyo Station to Asakusa Station by train?",
+            checks: &[Check::Calls("get_route")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GettingAround,
+        case: Case {
+            name: "agents: directions show the map",
+            message: "Directions by metro from Lisbon Oriente station to Rossio square",
+            checks: &[Check::Calls("get_route"), Check::Calls("open_maps")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GettingAround,
+        case: Case {
+            name: "agents: airport transfer goes through get_route",
+            message: "How do I get from Barcelona airport to the Sagrada Familia by public transport?",
+            checks: &[Check::Calls("get_route")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GettingAround,
+        case: Case {
+            name: "agents: flight status searches",
+            message: "Is flight TP 1352 from Lisbon to Paris on time today?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GettingAround,
+        case: Case {
+            name: "agents: visa rules search",
+            message: "Do I need a visa to visit Japan for two weeks with a Portuguese passport?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GettingAround,
+        case: Case {
+            name: "agents: shared: trip reminder",
+            message: "I fly to Osaka on Friday. Remind me Thursday at 9 to check in online.",
+            checks: &[Check::Calls("schedule_once")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Shopping,
+        case: Case {
+            name: "agents: shopping shows products",
+            message: "Find me a good cordless stick vacuum under 300 euros",
+            checks: &[Check::Calls("show_products")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Shopping,
+        case: Case {
+            name: "agents: headphones show products",
+            message: "Compare the two best noise cancelling headphones under 400 dollars",
+            checks: &[Check::Calls("show_products")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Shopping,
+        case: Case {
+            name: "agents: shoes show products",
+            message: "Find running shoes for flat feet, men's size 43",
+            checks: &[Check::Calls("show_products")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Shopping,
+        case: Case {
+            name: "agents: a nearby store shows the map",
+            message: "Where can I buy a phone charger near Rossio in Lisbon right now?",
+            checks: &[Check::Calls("open_maps")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Shopping,
+        case: Case {
+            name: "agents: a local equivalent searches",
+            message: "What's the Portuguese pharmacy equivalent of Neosporin?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Shopping,
+        case: Case {
+            name: "agents: shared: shopping saves a memory",
+            message: "Remember that I only buy fragrance-free laundry detergent, then find me one",
+            checks: &[Check::Calls("memory_store"), Check::Calls("show_products")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GoingOut,
+        case: Case {
+            name: "agents: going out shows a place",
+            message: "Where should I get dinner tonight near Rossio in Lisbon?",
+            checks: &[Check::Calls("web_search"), Check::Calls("open_maps")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GoingOut,
+        case: Case {
+            name: "agents: a late bar shows a place",
+            message: "A quiet cocktail bar in Barcelona's Gothic Quarter that is open after midnight",
+            checks: &[Check::Calls("web_search"), Check::Calls("open_maps")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GoingOut,
+        case: Case {
+            name: "agents: brunch shows a place",
+            message: "A good brunch spot in Shibuya that takes reservations",
+            checks: &[Check::Calls("web_search"), Check::Calls("open_maps")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GoingOut,
+        case: Case {
+            name: "agents: events search",
+            message: "Any jazz concerts in Berlin this weekend?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GoingOut,
+        case: Case {
+            name: "agents: an evening plan searches",
+            message: "Plan a birthday evening in Porto for six friends this Saturday",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::GoingOut,
+        case: Case {
+            name: "agents: shared: going out saves a memory",
+            message: "Remember that my partner is vegetarian, and pick a dinner place in Lisbon's Chiado for tonight",
+            checks: &[Check::Calls("memory_store"), Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Research,
+        case: Case {
+            name: "agents: research searches",
+            message: "How does proposer-builder separation work on Ethereum today?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Research,
+        case: Case {
+            name: "agents: a protocol comparison searches",
+            message: "Compare QUIC with TCP and TLS for mobile apps, with sources",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Research,
+        case: Case {
+            name: "agents: a study question searches",
+            message: "What does recent research say about intermittent fasting and longevity?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Research,
+        case: Case {
+            name: "agents: a market question searches",
+            message: "How big is the European heat pump market and who leads it?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Research,
+        case: Case {
+            name: "agents: a paper question searches",
+            message: "Explain how Raft differs from Paxos and cite sources",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Research,
+        case: Case {
+            name: "agents: shared: research sets a reminder",
+            message: "Remind me on Monday at 10 to read up on Bitcoin covenant proposals",
+            checks: &[Check::Calls("schedule_once")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Inbox,
+        case: Case {
+            name: "agents: an official procedure searches",
+            message: "How do I renew a Portuguese citizen card while living abroad?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Inbox,
+        case: Case {
+            name: "agents: a bank paperwork question searches",
+            message: "What documents do I need to open a bank account in Germany as a non-resident?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Inbox,
+        case: Case {
+            name: "agents: a licence exchange searches",
+            message: "How do I exchange an EU driving licence for a UK one?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Inbox,
+        case: Case {
+            name: "agents: a tax deadline searches",
+            message: "What is the deadline to file Spanish income tax this year?",
+            checks: &[Check::Calls("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Inbox,
+        case: Case {
+            name: "agents: no mail account means no search",
+            message: "Clean up my inbox and archive the newsletters",
+            checks: &[Check::Skips("web_search")],
+        },
+    },
+    AgentCase {
+        agent: AgentId::Inbox,
+        case: Case {
+            name: "agents: shared: a bill reminder",
+            message: "Remind me on the 28th at 10 to pay the water bill",
+            checks: &[Check::Calls("schedule_once")],
+        },
     },
 ];
 
@@ -145,6 +410,9 @@ struct Turn {
     /// What each memory search returned, for reading a failed case.
     recalled: Vec<String>,
     errors: Vec<String>,
+    /// Tokens the turn's model calls read and wrote, cache reads included.
+    prompt_tokens: u64,
+    completion_tokens: u64,
 }
 
 #[derive(Deserialize)]
@@ -183,6 +451,10 @@ impl Turn {
                     if let Some(at) = running.iter().position(|n| *n == name) {
                         running.remove(at);
                     }
+                }
+                RunEvent::Usage { usage } => {
+                    turn.prompt_tokens += u64::from(usage.prompt_tokens);
+                    turn.completion_tokens += u64::from(usage.completion_tokens);
                 }
                 RunEvent::Error { message } => turn.errors.push(message),
                 _ => {}
@@ -369,31 +641,101 @@ fn config() -> Config {
 #[ignore = "calls the real model; run with `just eval`"]
 async fn prompt_evals() {
     let config = config();
-    run_cases(&config, CASES, false).await;
+    let cases: Vec<&Case> = CASES.iter().collect();
+    let outcomes = run_cases(&config, &cases, false).await;
+    let failed = outcomes.iter().filter(|o| o.ran && !o.passed).count();
+    assert_eq!(failed, 0, "{failed} evals failed");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "calls the real model; run with `just eval agents:`"]
 async fn agent_evals() {
-    let config = config();
-    run_cases(&config, AGENT_CASES, true).await;
+    let mut config = config();
+    // `BEEP_EVAL_AGENT_MODEL` puts every agent on one candidate model, at
+    // its own thinking, to compare models agent by agent.
+    if let Ok(model) = env::var("BEEP_EVAL_AGENT_MODEL") {
+        let model: Model = model.parse().expect("BEEP_EVAL_AGENT_MODEL parses");
+        if model.to_string() != config.model && !config.model_choices.contains(&model) {
+            config.model_choices.push(model.clone());
+        }
+        for agent in config.agents.values_mut() {
+            agent.model = model.clone();
+        }
+        println!("all agents on {model}");
+    }
+    let cases: Vec<&Case> = AGENT_CASES.iter().map(|c| &c.case).collect();
+    let outcomes = run_cases(&config, &cases, true).await;
+
+    for agent in [
+        AgentId::General,
+        AgentId::GettingAround,
+        AgentId::Shopping,
+        AgentId::GoingOut,
+        AgentId::Research,
+        AgentId::Inbox,
+    ] {
+        let mine: Vec<&Outcome> = AGENT_CASES
+            .iter()
+            .zip(&outcomes)
+            .filter(|(case, _)| case.agent == agent)
+            .map(|(_, outcome)| outcome)
+            .collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let ok = mine.iter().filter(|o| o.passed).count();
+        let read: u64 = mine.iter().map(|o| o.prompt_tokens).sum();
+        let wrote: u64 = mine.iter().map(|o| o.completion_tokens).sum();
+        println!(
+            "AGENT {:<15} {ok}/{} in={read} out={wrote}",
+            agent.as_str(),
+            mine.len()
+        );
+    }
+    let failed = outcomes.iter().filter(|o| !o.passed && o.ran).count();
+    assert_eq!(failed, 0, "{failed} agent evals failed");
 }
 
-/// Runs `cases` on a fresh server, with agents on or off.
-async fn run_cases(config: &Config, cases: &[Case], agents: bool) {
+/// How one case went. Cases the `BEEP_EVAL` filter leaves out did not run.
+#[derive(Default)]
+struct Outcome {
+    ran: bool,
+    passed: bool,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+}
+
+/// Runs `cases` on a fresh server, with agents on or off, and prints each
+/// verdict. Returns how each case went, in order.
+async fn run_cases(config: &Config, cases: &[&Case], agents: bool) -> Vec<Outcome> {
     let only = env::var("BEEP_EVAL").ok();
-    let cases: Vec<&Case> = cases
+    let picked: Vec<bool> = cases
         .iter()
-        .filter(|case| only.as_deref().is_none_or(|only| case.name.contains(only)))
+        .map(|case| only.as_deref().is_none_or(|only| case.name.contains(only)))
         .collect();
-    if cases.is_empty() {
-        return;
+    let mut outcomes: Vec<Outcome> = cases.iter().map(|_| Outcome::default()).collect();
+    if !picked.contains(&true) {
+        return outcomes;
     }
     let server = Server::start(config, agents).await;
-    let turns = join_all(cases.iter().map(|case| server.turn(case.message))).await;
+    let turns: Vec<Turn> = stream::iter(
+        cases
+            .iter()
+            .zip(&picked)
+            .filter(|(_, picked)| **picked)
+            .map(|(case, _)| server.turn(case.message)),
+    )
+    .buffered(MAX_TURNS_AT_ONCE)
+    .collect()
+    .await;
 
-    let mut failed = 0;
-    for (case, turn) in cases.iter().zip(&turns) {
+    let ran = cases
+        .iter()
+        .zip(outcomes.iter_mut())
+        .zip(&picked)
+        .filter(|(_, picked)| **picked)
+        .map(|(pair, _)| pair);
+    for ((case, outcome), turn) in ran.zip(&turns) {
         let mut failures: Vec<String> =
             case.checks.iter().filter_map(|c| turn.failure(c)).collect();
         failures.extend(turn.errors.iter().map(|e| format!("error: {e}")));
@@ -406,9 +748,14 @@ async fn run_cases(config: &Config, cases: &[Case], agents: bool) {
         for failure in &failures {
             println!("  - {failure}");
         }
-        failed += usize::from(!failures.is_empty());
+        *outcome = Outcome {
+            ran: true,
+            passed: failures.is_empty(),
+            prompt_tokens: turn.prompt_tokens,
+            completion_tokens: turn.completion_tokens,
+        };
     }
-    assert_eq!(failed, 0, "{failed} of {} evals failed", cases.len());
+    outcomes
 }
 
 /// The judge for woken runs: the newest small model from another family
