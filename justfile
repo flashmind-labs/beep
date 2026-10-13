@@ -192,6 +192,17 @@ eval filter="": test-db
     BEEP_TEST_DATABASE_URL={{test_db_url}} BEEP_EVAL="{{filter}}" \
         cargo test -p beep-server --test evals -- --ignored --nocapture
 
+# The agent evals with every agent on each model in turn, a pass count per
+# agent and model. They cost money.
+# just eval-agent-models openrouter:openai/gpt-6-luna openrouter:z-ai/glm-5.3-flash
+eval-agent-models +models: test-db
+    #!/usr/bin/env bash
+    for model in {{models}}; do
+        BEEP_TEST_DATABASE_URL={{test_db_url}} BEEP_EVAL_AGENT_MODEL="$model" \
+            cargo test -p beep-server --test evals agent_evals -- --ignored --nocapture \
+            | grep -E '^(all agents|AGENT|FAIL)'
+    done
+
 # Follow-up chips for fixed turns, each graded by a judge model: just eval-followups [filter]
 eval-followups filter="":
     BEEP_EVAL="{{filter}}" cargo test -p beep-server --test followups -- --ignored --nocapture
