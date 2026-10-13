@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     agents::AgentId,
-    apps::markdown,
+    apps::{files, markdown},
     followups, gates, images,
     live::LiveRun,
     memories::{Exchange, Turn},
@@ -257,6 +257,10 @@ impl App {
             Rules::default()
         });
         let tools = markdown::wrap(composio.tools.into_iter().chain(mcp).collect());
+        let tools = match &self.tools.sandbox {
+            Some(sandbox) => files::wrap(tools, sandbox, user),
+            None => tools,
+        };
         for tool in permissions::guard(tools, rules, approved, &composio.hinted) {
             registry.register(tool);
         }
