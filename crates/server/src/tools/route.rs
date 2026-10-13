@@ -35,7 +35,7 @@ const IN_FLIGHT: usize = 4;
 /// Itineraries shown to the model.
 const ROUTES: usize = 3;
 /// The most points a leg's shape keeps for the card's sketch.
-const SHAPE_POINTS: usize = 48;
+const SHAPE_POINTS: usize = 96;
 /// A wait between legs past which a route is dropped when another has none,
 /// like sitting at a station overnight for the first train.
 const LONG_WAIT: Duration = Duration::from_secs(60 * 60);
@@ -683,12 +683,15 @@ fn simplify(points: &[RoutePoint], most: usize) -> Vec<RoutePoint> {
     if points.len() <= most {
         return points.to_vec();
     }
-    let (mut lo, mut hi) = (f64::MAX, f64::MIN);
-    for p in points {
-        lo = lo.min(p.latitude).min(p.longitude);
-        hi = hi.max(p.latitude).max(p.longitude);
-    }
-    let mut tolerance = (hi - lo).max(1e-6) / 400.0;
+    let span = |coordinate: fn(&RoutePoint) -> f64| {
+        let (lo, hi) = points
+            .iter()
+            .map(coordinate)
+            .fold((f64::MAX, f64::MIN), |(lo, hi), c| (lo.min(c), hi.max(c)));
+        hi - lo
+    };
+    let extent = span(|p| p.latitude).max(span(|p| p.longitude));
+    let mut tolerance = extent.max(1e-6) / 400.0;
     loop {
         let mut keep = vec![false; points.len()];
         keep[0] = true;
@@ -819,9 +822,10 @@ mod tests {
 
     #[test]
     fn a_long_shape_keeps_its_ends_and_corners() {
-        let point = |latitude, longitude| RoutePoint {
-            latitude,
-            longitude,
+        // In Tokyo, where latitude and longitude are far apart.
+        let point = |latitude: f64, longitude: f64| RoutePoint {
+            latitude: 35.0 + latitude,
+            longitude: 139.0 + longitude,
         };
         // East for 100 points, then north for 100: one corner.
         let mut points: Vec<RoutePoint> =
