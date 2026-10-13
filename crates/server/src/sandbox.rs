@@ -106,8 +106,8 @@ struct FileEntry {
 }
 
 #[derive(Serialize)]
-struct Saved {
-    path: String,
+pub(crate) struct Saved {
+    pub(crate) path: String,
     bytes: u64,
     content_type: Option<String>,
 }
@@ -210,7 +210,12 @@ impl Sandbox {
         })
     }
 
-    async fn download(&self, user_id: &str, url: &str, name: Option<&str>) -> Result<Saved> {
+    pub(crate) async fn download(
+        &self,
+        user_id: &str,
+        url: &str,
+        name: Option<&str>,
+    ) -> Result<Saved> {
         let dir = self.folder(user_id).await?;
         let Followed { response, url } = follow(url).await?;
         let used = folder_size(&dir).await?;
@@ -359,7 +364,7 @@ impl Tool for DownloadFileTool {
         false
     }
     fn description(&self) -> &str {
-        "Download a file such as a PDF or spreadsheet from a public http(s) URL into the user's file folder, so execute_code can read it. Files up to 20 MiB; they are deleted after 24 hours. Saving under an existing name replaces that file."
+        "Download a file such as a PDF or spreadsheet from a public http(s) URL into the user's file folder, so execute_code can read it. Use it for the s3url an app's download or attachment tool returns; execute_code has no network and cannot fetch it. Files up to 20 MiB; they are deleted after 24 hours. Saving under an existing name replaces that file."
     }
     fn parameters(&self) -> Value {
         json!({
