@@ -94,12 +94,13 @@ impl LlmProvider for Metered {
         self.models.clone()
     }
 
-    fn complete(&self, request: CompletionRequest) -> CompletionStream {
-        let user = request
-            .user
-            .clone()
-            .or_else(|| BILLED_TO.try_with(String::clone).ok());
-        let Some(user) = user else {
+    fn complete(&self, mut request: CompletionRequest) -> CompletionStream {
+        // Name the billed user on the request too, so the provider's own
+        // dashboard (OpenRouter's activity log) can split usage by user.
+        if request.user.is_none() {
+            request.user = BILLED_TO.try_with(String::clone).ok();
+        }
+        let Some(user) = request.user.clone() else {
             log::warn!(
                 "model call with no user is not counted; model={}",
                 request.model
@@ -204,9 +205,11 @@ mod tests {
                 },
             }])
         }
-        fn complete(&self, _request: CompletionRequest) -> CompletionStream {
+        fn complete(&self, request: CompletionRequest) -> CompletionStream {
+            // Echoes the user so tests can see what reached the provider.
+            let user = request.user.unwrap_or_default();
             Box::pin(async_stream::stream! {
-                yield Ok(StreamEvent::ContentDelta("hi".into()));
+                yield Ok(StreamEvent::ContentDelta(user));
                 yield Ok(StreamEvent::Usage(TokenUsage {
                     prompt_tokens: 1000,
                     completion_tokens: 100,
@@ -271,6 +274,25 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(users, 1);
+    }
+
+    #[tokio::test]
+    async fn the_billed_user_reaches_the_provider() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let metered = Metered::new(Arc::new(UsageStub), store).await;
+
+        let content = billed_to("alice", async {
+            let mut stream = metered.complete(request(None));
+            while let Some(event) = stream.next().await {
+                if let Ok(StreamEvent::ContentDelta(text)) = event {
+                    return text;
+                }
+            }
+            String::new()
+        })
+        .await;
+        assert_eq!(content, "alice");
     }
 
     #[tokio::test]
