@@ -144,11 +144,13 @@ jobs:
       - name: Remove signing assets
         if: always()
         run: |
-          if [[ -f "$RUNNER_TEMP/ios-keychains.txt" ]]; then
-            keychains=()
-            while IFS= read -r previous; do keychains+=("$previous"); done < "$RUNNER_TEMP/ios-keychains.txt"
-            security list-keychains -d user -s "${keychains[@]}"
-          fi
+          # Drop only this job's keychain. Restoring the list saved at the
+          # start would also drop one another job on this Mac added since.
+          keychains=()
+          while IFS= read -r current; do
+            [[ "$current" == */ios-signing.keychain-db ]] || keychains+=("$current")
+          done < <(security list-keychains -d user | sed 's/^ *"//; s/"$//')
+          security list-keychains -d user -s "${keychains[@]}"
           if [[ -f "$RUNNER_TEMP/ios-profile-path" ]]; then
             rm -f "$(cat "$RUNNER_TEMP/ios-profile-path")"
           fi

@@ -130,11 +130,13 @@ jobs:
       - name: Remove signing material
         if: always()
         run: |
-          if [[ -f "$RUNNER_TEMP/beep-keychains.txt" ]]; then
-            keychains=()
-            while IFS= read -r previous; do keychains+=("$previous"); done < "$RUNNER_TEMP/beep-keychains.txt"
-            security list-keychains -d user -s "${keychains[@]}"
-          fi
+          # Drop only this job's keychain. Restoring the list saved at the
+          # start would also drop one another job on this Mac added since.
+          keychains=()
+          while IFS= read -r current; do
+            [[ "$current" == */beep-signing.keychain-db ]] || keychains+=("$current")
+          done < <(security list-keychains -d user | sed 's/^ *"//; s/"$//')
+          security list-keychains -d user -s "${keychains[@]}"
           security delete-keychain "$RUNNER_TEMP/beep-signing.keychain-db" || true
           rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/beep-keychains.txt"
 
