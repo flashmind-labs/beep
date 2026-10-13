@@ -23,8 +23,9 @@ pub enum CreateRun {
 pub struct FinishedTurn<'a> {
     /// What the model sees next turn.
     pub context: &'a Conversation,
-    /// Prompt size of the run's last model call.
-    pub prompt_tokens: u32,
+    /// Prompt size of the run's last model call; `None` keeps the count the
+    /// chat had, for a routine that ran on its own turn alone.
+    pub prompt_tokens: Option<u32>,
     /// What the apps show of the turn, in order. Steps before the first that
     /// opens a turn carry on the latest one, as when an approval resumes it.
     pub steps: &'a [Step],
@@ -216,13 +217,13 @@ impl Store {
         let mut bumped = Vec::new();
         if let Some(turn) = turn {
             sqlx::query(
-                "INSERT INTO sessions (chat_id, context, context_tokens) VALUES ($1, $2, $3)
+                "INSERT INTO sessions (chat_id, context, context_tokens) VALUES ($1, $2, COALESCE($3, 0))
                  ON CONFLICT (chat_id) DO UPDATE SET context=excluded.context,
-                     context_tokens=excluded.context_tokens",
+                     context_tokens=COALESCE($3, sessions.context_tokens)",
             )
             .bind(chat)
             .bind(serde_json::to_string(turn.context)?)
-            .bind(i64::from(turn.prompt_tokens))
+            .bind(turn.prompt_tokens.map(i64::from))
             .execute(&mut *tx)
             .await?;
             // Whatever the turn did answered or skipped the cards still asking.

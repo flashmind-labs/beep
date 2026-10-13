@@ -85,14 +85,19 @@ impl App {
         }
 
         let chat = Uuid::parse_str(&run.session_id)?;
+        let answer = message.answer.as_ref();
         // The model runs on the context, which may be compacted. The apps
         // read the turn's steps, saved as messages when it ends.
         let mut conversation = user
             .context(chat)
             .await?
             .map_or_else(Conversation::new, |context| context.conversation);
+        // A routine runs on its own turn alone, not on the chat's history.
+        // Its turn is added to the chat's context once it ends, so a reply
+        // in the chat knows what it said.
+        let chat_context = (is_cron && answer.is_none())
+            .then(|| mem::replace(&mut conversation, Conversation::new()));
 
-        let answer = message.answer.as_ref();
         let prompt = Prompt {
             message: &message.message,
             images: message.images.len(),
@@ -225,7 +230,7 @@ impl App {
             session_id: chat,
             sandbox: self.tools.sandbox.clone(),
         }));
-        let notify = Arc::new(AtomicBool::new(false));
+        let notify = Arc::new(AtomicBool::new(message.always_sent));
         if background {
             registry.register(Arc::new(tools::NotifyUserTool {
                 notify: notify.clone(),
@@ -563,8 +568,7 @@ impl App {
             status = RunStatus::Waiting;
         }
 
-        // A routine that found nothing to say leaves no trace in the chat. Its
-        // turn stays in the context, so the next run knows what this one saw.
+        // A routine that found nothing to say leaves no trace in the chat.
         let silent = is_cron && status == RunStatus::Completed && !notify.load(Ordering::SeqCst);
         // A run that stops to ask notifies with the question instead.
         if is_cron && status != RunStatus::Waiting && !silent {
@@ -749,9 +753,20 @@ impl App {
                 },
             });
         }
+        // A routine's turn joins the chat's context, unless it stayed silent.
+        let stored = chat_context.map(|mut chat_context| {
+            if !silent {
+                conversation
+                    .entries()
+                    .iter()
+                    .filter(|entry| entry.timestamp >= turn_started)
+                    .for_each(|entry| chat_context.add(entry.clone()));
+            }
+            chat_context
+        });
         let turn = FinishedTurn {
-            context: &conversation,
-            prompt_tokens,
+            context: stored.as_ref().unwrap_or(&conversation),
+            prompt_tokens: stored.is_none().then_some(prompt_tokens),
             steps: &saved.steps,
             carried: TurnRecord {
                 reasoning: saved.carried_reasoning.clone(),

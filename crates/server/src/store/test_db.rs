@@ -90,7 +90,7 @@ pub async fn test_turn(
             &run,
             Some(FinishedTurn {
                 context: &context,
-                prompt_tokens: 0,
+                prompt_tokens: Some(0),
                 steps: &steps,
                 carried: TurnRecord::default(),
             }),

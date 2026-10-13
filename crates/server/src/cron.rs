@@ -65,11 +65,12 @@ const SCHEDULED_TASK: &str = "Scheduled task";
 
 /// How the model answers a routine, sent only on routine turns.
 const SCHEDULED_RULE: &str = "The message is the note you wrote yourself when you set up \
-this task, not something the user said, and nobody is watching this chat. Do the task. \
+this task, not something the user said, and nobody is watching this chat. You see only \
+this note, not the chat's earlier messages. Do the task. \
 To tell the user something, call notify_user, then write it to them in one or two short, \
 specific sentences of plain text, without Markdown; it is sent as the notification and \
 shown in this chat. A reminder is always sent. A check is sent only when the note's \
-condition is met or you found something new since its last run in this chat; otherwise \
+condition is met, judged against what the note says is already known; otherwise \
 do not call notify_user and end with one line on what you found, which the user never \
 sees. Do not mention that a task ran or that this is a reminder.";
 
@@ -112,7 +113,7 @@ pub fn legacy_scheduled_label(content: &str) -> Option<&str> {
 /// The scheduler calls it when the job is due, and the API when the user
 /// runs it early.
 pub async fn run_job(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Result<Option<Run>> {
-    if job.metadata.get("kind").and_then(|v| v.as_str()) == Some(digest::DIGEST_KIND) {
+    if digest::is_digest(job) {
         return digest::run(app, user, job).await;
     }
     submit(app, user, job, &job.task).await
@@ -161,6 +162,7 @@ pub(crate) async fn submit(
         cron_id: Some(job.id.to_string()),
         agent,
         scheduled: Some(label.to_owned()),
+        always_sent: digest::is_digest(job),
         woken: None,
         images: Vec::new(),
         answer: None,

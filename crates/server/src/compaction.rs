@@ -222,7 +222,7 @@ mod tests {
         let steps = test_steps(chat);
         let turn = FinishedTurn {
             context: chat,
-            prompt_tokens: tokens,
+            prompt_tokens: Some(tokens),
             steps: &steps,
             carried: Default::default(),
         };
@@ -384,7 +384,7 @@ mod tests {
         let steps = test_steps(&newer);
         let turn = FinishedTurn {
             context: &newer,
-            prompt_tokens: 40_000,
+            prompt_tokens: Some(40_000),
             steps: &steps[steps.len() - 1..],
             carried: Default::default(),
         };

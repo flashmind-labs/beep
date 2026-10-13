@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use beep_server::{
     app::{App, ServerTools, UserNotice},
     client::{Client, Node, OnNotice, Replies},
+    cron,
     models::ModelChoices,
     protocol::{
         ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace, DeleteSkill,
@@ -20,6 +21,8 @@ use beep_server::{
     user::User,
     wake::{self, Event as WakeEvent},
 };
+use chrono::Utc;
+use flashmind::cron::{CronJob, JobSchedule};
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role,
     StreamEvent,
@@ -49,6 +52,8 @@ struct ProviderStub {
     calls: AtomicUsize,
     /// The tools the last chat turn offered the model.
     tools: Mutex<Vec<String>>,
+    /// The user messages the last chat turn sent the model.
+    asked: Mutex<Vec<String>>,
 }
 
 #[async_trait]
@@ -76,6 +81,12 @@ impl LlmProvider for ProviderStub {
         }
         self.calls.fetch_add(1, Ordering::SeqCst);
         *self.tools.lock().unwrap() = request.tools.iter().map(|t| t.name.clone()).collect();
+        *self.asked.lock().unwrap() = request
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::User)
+            .map(|m| m.content.clone())
+            .collect();
         let is_tool_result = request
             .messages
             .last()
@@ -129,6 +140,7 @@ impl Harness {
         let provider = Arc::new(ProviderStub {
             calls: AtomicUsize::new(0),
             tools: Mutex::default(),
+            asked: Mutex::default(),
         });
         let app = App::new(
             store,
@@ -726,6 +738,72 @@ async fn a_woken_agent_reaches_the_phone_only_when_it_asks_to() {
     let sessions = user.sessions().await.unwrap();
     let session = sessions.iter().find(|s| s.id == told.session_id).unwrap();
     assert_eq!(session.title, "Arrived in Singapore");
+}
+
+#[tokio::test]
+async fn a_routine_runs_without_its_chats_history_and_replies_in_it() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let session = Uuid::new_v4();
+    let mut replies = c
+        .stream(&Chat {
+            session_id: session,
+            request_id: Uuid::new_v4(),
+            message: "Remember I prefer tea".into(),
+            images: Vec::new(),
+            model: None,
+            thinking: None,
+            platform: None,
+        })
+        .await
+        .unwrap();
+    drain(&mut replies).await;
+
+    let user = h.app.user(&h.alice_id).unwrap();
+    let job = CronJob {
+        id: Uuid::new_v4(),
+        schedule: JobSchedule::Cron("0 9 * * *".into()),
+        task: "Worth it. Remind the user to drink tea.".into(),
+        enabled: true,
+        once: false,
+        metadata: json!({"user_id": h.alice_id, "label": "Tea", "session_id": session.to_string()}),
+        created_at: Utc::now(),
+        last_run: None,
+    };
+    let run = cron::run_job(&h.app, &user, &job)
+        .await
+        .unwrap()
+        .expect("a run starts");
+    assert_eq!(run.session_id, session.to_string());
+    timeout(Duration::from_secs(20), async {
+        while h.app.live(&run.id).await.is_some() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the run finishes");
+
+    // The model saw the routine's note alone, not the chat before it.
+    assert_eq!(
+        *h.provider.asked.lock().unwrap(),
+        ["Worth it. Remind the user to drink tea."]
+    );
+    // The chat keeps both turns, so a reply there knows what the routine said.
+    let context = user.context(session).await.unwrap().expect("a context");
+    let asked: Vec<&str> = context
+        .conversation
+        .entries()
+        .iter()
+        .filter(|entry| entry.is_user())
+        .map(|entry| entry.content())
+        .collect();
+    assert_eq!(
+        asked,
+        [
+            "Remember I prefer tea",
+            "Worth it. Remind the user to drink tea."
+        ]
+    );
 }
 
 #[tokio::test]
