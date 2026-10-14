@@ -138,19 +138,7 @@ impl SendFileTool {
                 })
             }
             Source::Fastmail { email_id, blob_id } => {
-                let args = json!({ "emailId": email_id, "blobId": blob_id, "format": "original" });
-                let result = self
-                    .user
-                    .call_mcp(FASTMAIL, "read_attachment", args)
-                    .await?;
-                let attachment = attachment_in(&result)
-                    .context("Fastmail only gives the file itself for PDFs and images")?;
-                if attachment.data.len() as u64 > sandbox::MAX_DOWNLOAD {
-                    bail!(
-                        "the file is larger than {} MiB",
-                        sandbox::MAX_DOWNLOAD >> 20
-                    );
-                }
+                let attachment = fastmail_attachment(&self.user, email_id, blob_id).await?;
                 Ok(Loaded {
                     name: attachment.name.unwrap_or_else(|| "attachment".to_owned()),
                     mime: attachment.mime,
@@ -161,12 +149,32 @@ impl SendFileTool {
     }
 }
 
+/// The Fastmail attachment `blob_id` of `email_id` as the file itself,
+/// rather than the text `read_attachment` gives by default.
+pub(crate) async fn fastmail_attachment(
+    user: &User,
+    email_id: &str,
+    blob_id: &str,
+) -> Result<Attachment> {
+    let args = json!({ "emailId": email_id, "blobId": blob_id, "format": "original" });
+    let result = user.call_mcp(FASTMAIL, "read_attachment", args).await?;
+    let attachment = attachment_in(&result)
+        .context("Fastmail only gives the file itself for PDFs and images")?;
+    if attachment.data.len() as u64 > sandbox::MAX_DOWNLOAD {
+        bail!(
+            "the file is larger than {} MiB",
+            sandbox::MAX_DOWNLOAD >> 20
+        );
+    }
+    Ok(attachment)
+}
+
 /// A file decoded from an MCP result.
 #[derive(Debug, PartialEq)]
-struct Attachment {
-    name: Option<String>,
-    mime: Option<String>,
-    data: Vec<u8>,
+pub(crate) struct Attachment {
+    pub(crate) name: Option<String>,
+    pub(crate) mime: Option<String>,
+    pub(crate) data: Vec<u8>,
 }
 
 /// The file in Fastmail's `read_attachment` result. The MCP client hands

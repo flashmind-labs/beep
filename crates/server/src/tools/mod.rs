@@ -4,7 +4,7 @@ mod cards;
 mod charts;
 mod chat;
 mod contacts;
-mod file;
+pub(crate) mod file;
 pub(crate) mod group_memory;
 mod habits;
 mod image;

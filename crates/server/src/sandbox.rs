@@ -3,7 +3,7 @@
 //! read-write access to that folder only, and limits on time, memory and file
 //! size. Files older than a day are swept.
 
-use crate::{AsyncMutex, user::User};
+use crate::{AsyncMutex, tools::file::fastmail_attachment, user::User};
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use async_trait::async_trait;
 use flashmind::types::{
@@ -249,6 +249,33 @@ impl Sandbox {
         })
     }
 
+    /// Saves `data` as `name` in the user's folder, for a file an app hands
+    /// over itself rather than as a link.
+    pub(crate) async fn save(&self, user_id: &str, name: &str, data: &[u8]) -> Result<Saved> {
+        let dir = self.folder(user_id).await?;
+        let bytes = data.len() as u64;
+        ensure!(
+            bytes <= MAX_DOWNLOAD,
+            "the file is larger than {} MiB",
+            MAX_DOWNLOAD >> 20
+        );
+        ensure!(
+            folder_size(&dir).await? + bytes <= MAX_FOLDER,
+            "the user's folder is full; delete files first"
+        );
+        let file_name = clean_file_name(name);
+        let partial = dir.join(format!(".{file_name}.part"));
+        let mut file = create_fresh(&partial).await?;
+        file.write_all(data).await?;
+        file.flush().await?;
+        fs::rename(&partial, dir.join(&file_name)).await?;
+        Ok(Saved {
+            path: file_name,
+            bytes,
+            content_type: None,
+        })
+    }
+
     /// The file at `path` in the user's folder, with its plain name.
     pub(crate) async fn read(&self, user_id: &str, path: &str) -> Result<FolderFile> {
         let dir = self.folder(user_id).await?;
@@ -302,7 +329,7 @@ impl Tool for ExecuteCodeTool {
         false
     }
     fn description(&self) -> &str {
-        "Run Python or bash in a sandbox for calculations, data analysis, reading PDFs and converting files. The working directory is the user's file folder, where download_file saves files; files there are deleted after 24 hours. There is no network access. Python has numpy, pandas, scipy, matplotlib (save charts to files), openpyxl, pypdf and pdfplumber; pdftotext and pdfinfo are installed. Runs stop after 60 seconds. Print what you need to see; long output is cut."
+        "Run Python or bash in a sandbox for calculations, data analysis, reading PDFs and converting files. The working directory is the user's file folder, where download_file saves files; files there are deleted after 24 hours. There is no network access. Python has numpy, pandas, scipy, matplotlib (save charts to files), openpyxl, pypdf (it can decrypt PDFs) and pdfplumber; pdftotext and pdfinfo are installed. Runs stop after 60 seconds. Print what you need to see; long output is cut."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -364,16 +391,17 @@ impl Tool for DownloadFileTool {
         false
     }
     fn description(&self) -> &str {
-        "Download a file such as a PDF or spreadsheet from a public http(s) URL into the user's file folder, so execute_code can read it. Use it for the s3url an app's download or attachment tool returns; execute_code has no network and cannot fetch it. Files up to 20 MiB; they are deleted after 24 hours. Saving under an existing name replaces that file."
+        "Save a file such as a PDF or spreadsheet into the user's file folder, so execute_code can read it; execute_code has no network and cannot fetch it. Give exactly one source: `url` for a public http(s) URL, such as the s3url an app's download or attachment tool returns, or `email_id` with `blob_id` for a Fastmail attachment, as FASTMAIL_READ_EMAIL lists it. Use it whenever code has to open a file itself, for example to unlock a password-protected PDF with pypdf. Files up to 20 MiB; they are deleted after 24 hours. Saving under an existing name replaces that file."
     }
     fn parameters(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
                 "url": { "type": "string" },
-                "filename": { "type": "string", "description": "Name to save as; taken from the URL when left out" }
+                "email_id": { "type": "string", "description": "Fastmail email id the attachment belongs to" },
+                "blob_id": { "type": "string", "description": "The Fastmail attachment's blobId" },
+                "filename": { "type": "string", "description": "Name to save as; taken from the source when left out" }
             },
-            "required": ["url"],
             "additionalProperties": false
         })
     }
@@ -384,21 +412,47 @@ impl Tool for DownloadFileTool {
         "Downloading file…".into()
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
-        let url = ctx.args.get("url").and_then(Value::as_str).unwrap_or("");
-        let name = ctx.args.get("filename").and_then(Value::as_str);
-        match self
-            .sandbox
-            .download(self.user.external_id(), url, name)
-            .await
-        {
+        let arg = |key| {
+            ctx.args
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+        };
+        let name = arg("filename");
+        let user = self.user.external_id();
+        let saved = match (arg("url"), arg("email_id"), arg("blob_id")) {
+            (Some(url), None, None) => self
+                .sandbox
+                .download(user, url, name)
+                .await
+                .with_context(|| format!("Could not download {url}")),
+            (None, Some(email_id), Some(blob_id)) => {
+                match fastmail_attachment(&self.user, email_id, blob_id).await {
+                    Ok(attachment) => {
+                        let name = name
+                            .map(str::to_owned)
+                            .or(attachment.name)
+                            .unwrap_or_else(|| "attachment".to_owned());
+                        self.sandbox.save(user, &name, &attachment.data).await
+                    }
+                    Err(e) => Err(e),
+                }
+                .context("Could not save the attachment")
+            }
+            _ => {
+                return Ok(ToolResult::failure(
+                    ctx.tool_call_id,
+                    "Give exactly one source: `url`, or `email_id` with `blob_id`.",
+                ));
+            }
+        };
+        match saved {
             Ok(saved) => Ok(ToolResult::success(
                 ctx.tool_call_id,
                 serde_json::to_string(&saved)?,
             )),
-            Err(e) => Ok(ToolResult::failure(
-                ctx.tool_call_id,
-                format!("Could not download {url}: {e:#}"),
-            )),
+            Err(e) => Ok(ToolResult::failure(ctx.tool_call_id, format!("{e:#}"))),
         }
     }
 }
@@ -650,6 +704,12 @@ fn file_name(name: Option<&str>, url: &Url) -> String {
                 .and_then(|mut s| s.next_back().map(str::to_owned))
         })
         .unwrap_or_default();
+    clean_file_name(&raw)
+}
+
+/// `raw`'s last path segment with anything but letters, digits, `.`, `-`
+/// and `_` replaced, so it stays a plain name in the folder.
+fn clean_file_name(raw: &str) -> String {
     let cleaned: String = raw
         .rsplit('/')
         .next()
