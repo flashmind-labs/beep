@@ -5,8 +5,8 @@ use super::{
     auto::{AgentTurn, Prompt},
     device::Parked,
     learning::{
-        MEMORY_THRESHOLD, ServerCall, add_server_calls, correction_state, earlier_turns,
-        memory_state,
+        MEMORY_THRESHOLD, ServerCall, add_server_calls, correction_state, drop_follow_ups,
+        earlier_turns, memory_state,
     },
 };
 use crate::{
@@ -67,6 +67,9 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// two minutes. The run's overall deadline still applies.
 const TOOL_IDLE_TIMEOUT: Duration = Duration::from_secs(150);
 
+/// How much of a scheduled task the reply checks read.
+const SCHEDULED_TASK_CHARS: usize = 160;
+
 impl App {
     pub(super) async fn execute(
         self: &Arc<Self>,
@@ -92,6 +95,7 @@ impl App {
             .context(chat)
             .await?
             .map_or_else(Conversation::new, |context| context.conversation);
+        drop_follow_ups(&mut conversation);
         // A routine runs on its own turn alone, not on the chat's history.
         // Its turn is added to the chat's context once it ends, so a reply
         // in the chat knows what it said.
@@ -551,10 +555,12 @@ impl App {
                 let Some(decision) = &self.tools.decision else {
                     break status;
                 };
+                let scheduled = self.scheduled_tasks(user, message.cron_id.as_deref()).await;
                 let draft = gates::Draft {
                     asked: &message.message,
                     reply: &reply,
                     calls: &calls,
+                    scheduled: &scheduled,
                 };
                 let Some(verdict) = gates::review(decision, &draft).await else {
                     break status;
@@ -848,6 +854,25 @@ impl App {
             updated_at: None,
         });
         Ok(())
+    }
+
+    /// The tasks `user` has scheduled, other than the routine running now,
+    /// one line each.
+    async fn scheduled_tasks(&self, user: &User, running: Option<&str>) -> Vec<String> {
+        let jobs = match self.store.cron_jobs(Some(user.id())).await {
+            Ok(jobs) => jobs,
+            Err(error) => {
+                log::warn!("gates: unable to list scheduled tasks: {error:#}");
+                return Vec::new();
+            }
+        };
+        jobs.into_iter()
+            .filter(|job| job.enabled && running != Some(job.id.to_string().as_str()))
+            .filter_map(|job| {
+                let line = job.task.lines().find(|line| !line.trim().is_empty())?;
+                Some(line.trim().chars().take(SCHEDULED_TASK_CHARS).collect())
+            })
+            .collect()
     }
 
     /// How a run ends when it is told to stop: shutting down interrupts it.

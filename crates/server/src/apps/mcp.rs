@@ -194,7 +194,7 @@ pub(crate) fn app_tools(registry: &McpRegistry, connected: &HashSet<String>) -> 
                 server,
                 tool: name,
                 name: format!("{server}_{name}").to_uppercase(),
-                description: def.description.clone().unwrap_or_default(),
+                description: describe(name, def.description.as_deref().unwrap_or_default()),
                 schema: def.input_schema.clone(),
             }));
         }
@@ -217,7 +217,10 @@ impl Tool for AppTool {
     }
 
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
-        let args = drop_empty(ctx.args);
+        let mut args = drop_empty(ctx.args);
+        if self.tool == "search_email" {
+            fix_query(&mut args);
+        }
         match self.registry.call_tool(self.server, self.tool, args).await {
             Ok(result) => {
                 let text = result
@@ -259,6 +262,41 @@ impl Tool for AppTool {
     }
 }
 
+/// What Fastmail says about `tool`, plus what the model still gets wrong.
+fn describe(tool: &str, description: &str) -> String {
+    match tool {
+        "search_email" => format!(
+            "{description} `from:` takes an address or the name of a saved contact; \
+for a company or newsletter that is not a contact, search its name or domain as plain text."
+        ),
+        _ => description.to_owned(),
+    }
+}
+
+/// Rewrites the Gmail qualifiers Fastmail's search refuses: `newer_than:7d`
+/// becomes `after:7d`, `older_than:` becomes `before:`, and `in:anywhere`
+/// goes, since leaving out `in:` already searches every mailbox.
+fn fix_query(args: &mut Value) {
+    let Some(Value::String(query)) = args.get_mut("query") else {
+        return;
+    };
+    let fixed: Vec<String> = query
+        .split_whitespace()
+        .filter(|word| !matches!(word.to_lowercase().as_str(), "in:anywhere" | "in:all"))
+        .map(|word| {
+            let lower = word.to_lowercase();
+            if let Some(age) = lower.strip_prefix("newer_than:") {
+                format!("after:{age}")
+            } else if let Some(age) = lower.strip_prefix("older_than:") {
+                format!("before:{age}")
+            } else {
+                word.to_owned()
+            }
+        })
+        .collect();
+    *query = fixed.join(" ");
+}
+
 /// Leaves out arguments the model filled with nothing. Weaker models send
 /// every field in the schema, and Fastmail rejects a null or "None" `cursor`
 /// as an invalid page.
@@ -291,6 +329,20 @@ mod tests {
             json!({"query": "hotel"})
         );
         assert_eq!(drop_empty(Value::Null), json!({}));
+    }
+
+    #[test]
+    fn gmail_qualifiers_become_fastmail_ones() {
+        let mut args =
+            json!({"query": "from:bank newer_than:7d in:anywhere OLDER_THAN:1y", "limit": 5});
+        fix_query(&mut args);
+        assert_eq!(
+            args,
+            json!({"query": "from:bank after:7d before:1y", "limit": 5})
+        );
+        let mut args = json!({"limit": 5});
+        fix_query(&mut args);
+        assert_eq!(args, json!({"limit": 5}));
     }
 
     #[test]

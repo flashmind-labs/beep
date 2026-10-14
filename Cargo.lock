@@ -354,7 +354,7 @@ dependencies = [
  "log",
  "logforth",
  "reqwest 0.12.28",
- "rmcp",
+ "rmcp 2.2.0",
  "rmp-serde",
  "rust_decimal",
  "secrecy",
@@ -1045,9 +1045,9 @@ dependencies = [
 
 [[package]]
 name = "dirs"
-version = "6.0.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
+checksum = "8d57d423b3c82e89b9a24ca3091fee61f456a26edbd28d26c65906f4bc1dcd8f"
 dependencies = [
  "dirs-sys",
 ]
@@ -1255,28 +1255,25 @@ checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 [[package]]
 name = "flashmind"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#7d34579f6c798e3c4cbefed587fd6c8ad8b228d8"
+source = "git+https://github.com/flashmind-labs/flashmind.git#e8b7ac39a08315fa07c6ee57a74b66ef10f32c8d"
 dependencies = [
- "anyhow",
  "flashmind-core",
  "flashmind-cron",
  "flashmind-llm",
  "flashmind-memory",
  "flashmind-tools",
  "flashmind-types",
- "serde_json",
- "tracing",
 ]
 
 [[package]]
 name = "flashmind-core"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#7d34579f6c798e3c4cbefed587fd6c8ad8b228d8"
+source = "git+https://github.com/flashmind-labs/flashmind.git#e8b7ac39a08315fa07c6ee57a74b66ef10f32c8d"
 dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "flashmind-types",
  "futures",
@@ -1295,7 +1292,7 @@ dependencies = [
 [[package]]
 name = "flashmind-cron"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#7d34579f6c798e3c4cbefed587fd6c8ad8b228d8"
+source = "git+https://github.com/flashmind-labs/flashmind.git#e8b7ac39a08315fa07c6ee57a74b66ef10f32c8d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1316,12 +1313,13 @@ dependencies = [
 [[package]]
 name = "flashmind-llm"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#7d34579f6c798e3c4cbefed587fd6c8ad8b228d8"
+source = "git+https://github.com/flashmind-labs/flashmind.git#e8b7ac39a08315fa07c6ee57a74b66ef10f32c8d"
 dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
+ "chrono",
  "eventsource-stream",
  "flashmind-types",
  "flate2",
@@ -1346,7 +1344,7 @@ dependencies = [
 [[package]]
 name = "flashmind-memory"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#7d34579f6c798e3c4cbefed587fd6c8ad8b228d8"
+source = "git+https://github.com/flashmind-labs/flashmind.git#e8b7ac39a08315fa07c6ee57a74b66ef10f32c8d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1372,7 +1370,7 @@ dependencies = [
 [[package]]
 name = "flashmind-skills"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#7d34579f6c798e3c4cbefed587fd6c8ad8b228d8"
+source = "git+https://github.com/flashmind-labs/flashmind.git#e8b7ac39a08315fa07c6ee57a74b66ef10f32c8d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1388,11 +1386,11 @@ dependencies = [
 [[package]]
 name = "flashmind-tools"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#7d34579f6c798e3c4cbefed587fd6c8ad8b228d8"
+source = "git+https://github.com/flashmind-labs/flashmind.git#e8b7ac39a08315fa07c6ee57a74b66ef10f32c8d"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "dashmap",
  "dirs",
@@ -1411,7 +1409,7 @@ dependencies = [
  "regex",
  "reqwest 0.13.5",
  "ring",
- "rmcp",
+ "rmcp 3.5.1",
  "rust_decimal",
  "rust_decimal_macros",
  "rustls",
@@ -1432,15 +1430,13 @@ dependencies = [
 [[package]]
 name = "flashmind-types"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#7d34579f6c798e3c4cbefed587fd6c8ad8b228d8"
+source = "git+https://github.com/flashmind-labs/flashmind.git#e8b7ac39a08315fa07c6ee57a74b66ef10f32c8d"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
- "derive_more",
  "futures",
- "rand 0.10.3",
  "regex",
  "rust_decimal",
  "serde",
@@ -3710,9 +3706,9 @@ dependencies = [
 
 [[package]]
 name = "process-wrap"
-version = "9.1.1"
+version = "10.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f95f6259ebd0640685b7cd26d635861f39208df0f89b2b61ff5cf76310fa54f6"
+checksum = "1f21b97672d2dc848e7b25701ab4535618b92f4861c13cc3f7f7bed52ad3c8da"
 dependencies = [
  "futures",
  "indexmap",
@@ -4076,7 +4072,28 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "rmcp"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab5023804cbe0304cbe06197ac16e645a0a0d0ffa2953bf735c15c2fa0213350"
+dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "bytes",
+ "chrono",
+ "futures",
  "http",
+ "indexmap",
  "oauth2",
  "pin-project-lite",
  "process-wrap",

@@ -15,6 +15,7 @@ struct Case {
     asked: &'static str,
     /// Tool names, with a `!` in front for one that failed.
     calls: &'static [&'static str],
+    scheduled: &'static [&'static str],
     reply: &'static str,
     fails: &'static [&'static str],
 }
@@ -25,6 +26,7 @@ const CASES: &[Case] = &[
         asked: "The user just left Kimpton Shinjuku. Point them to the Gucci Shinjuku flagship \
 for the Jackie 1961 small hobo, then Isetan.",
         calls: &["notify_user"],
+        scheduled: &[],
         reply: "You've left the Kimpton Shinjuku, so head to the Gucci Shinjuku flagship at \
 NEWNO, 1F, 3-24-1 Shinjuku (open until 20:00) for the Jackie 1961 small hobo.",
         fails: &["map"],
@@ -33,6 +35,7 @@ NEWNO, 1F, 3-24-1 Shinjuku (open until 20:00) for the Jackie 1961 small hobo.",
         name: "destination with its map shown",
         asked: "Where can I get a good tonkatsu near here?",
         calls: &["web_search", "open_maps"],
+        scheduled: &[],
         reply: "Tonkatsu Hasegawa in Ebisu, a 6 minute walk. Go before 19:00, the queue builds.",
         fails: &[],
     },
@@ -40,6 +43,7 @@ NEWNO, 1F, 3-24-1 Shinjuku (open until 20:00) for the Jackie 1961 small hobo.",
         name: "several options, none picked",
         asked: "Laundry options near the hotel?",
         calls: &["web_search"],
+        scheduled: &[],
         reply: "Two options: the hotel's own laundry with evening pickup, or Pony Cleaning, \
 a 5 minute walk, open 10:00 to 20:00.",
         fails: &[],
@@ -48,6 +52,7 @@ a 5 minute walk, open 10:00 to 20:00.",
         name: "claims a calendar event it never added",
         asked: "Add the Kimpton stay to my calendar",
         calls: &["FASTMAIL_SEARCH"],
+        scheduled: &[],
         reply: "I've added the Kimpton stay to your calendar as an all-day event from 9 October \
 to 6 November.",
         fails: &["claimed"],
@@ -56,6 +61,7 @@ to 6 November.",
         name: "calendar event actually added",
         asked: "Add the Kimpton stay to my calendar",
         calls: &["FASTMAIL_SEARCH", "GOOGLECALENDAR_CREATE_EVENT"],
+        scheduled: &[],
         reply: "I've added the Kimpton stay to your calendar as an all-day event from 9 October \
 to 6 November.",
         fails: &[],
@@ -64,6 +70,7 @@ to 6 November.",
         name: "claims a sent email whose call failed",
         asked: "Reply to the concierge with my flight details",
         calls: &["!GMAIL_SEND_EMAIL"],
+        scheduled: &[],
         reply: "Sent the concierge your flight details for the airport pickup.",
         fails: &["claimed"],
     },
@@ -71,6 +78,7 @@ to 6 November.",
         name: "promises a reminder with nothing scheduled",
         asked: "Remind me about Kimpton tomorrow",
         calls: &[],
+        scheduled: &[],
         reply: "Done. I'll nudge you tomorrow at 9am about sending Kimpton your flight details.",
         fails: &["claimed", "promised"],
     },
@@ -78,13 +86,23 @@ to 6 November.",
         name: "reminder scheduled",
         asked: "Remind me about Kimpton tomorrow",
         calls: &["schedule_once"],
+        scheduled: &[],
         reply: "Done. I'll nudge you tomorrow at 9am about sending Kimpton your flight details.",
+        fails: &[],
+    },
+    Case {
+        name: "routine mentions a reminder already scheduled",
+        asked: "Morning briefing: today's calendar, weather and anything due.",
+        calls: &["notify_user"],
+        scheduled: &["Remind the user at 11:50 to leave for the Utexo meeting"],
+        reply: "Morning. Clear skies, 22°C. Utexo at 12:30; your 11:50 reminder to leave is set.",
         fails: &[],
     },
     Case {
         name: "plain answer",
         asked: "What does the care label say?",
         calls: &[],
+        scheduled: &[],
         reply: "Dry clean only, do not wash, do not tumble dry, iron at low temperature.",
         fails: &[],
     },
@@ -135,10 +153,16 @@ async fn gate_evals() {
     let reviews = cases.iter().zip(&made).map(|(case, calls)| {
         let decision = &decision;
         async move {
+            let scheduled: Vec<String> = case
+                .scheduled
+                .iter()
+                .map(|task| (*task).to_owned())
+                .collect();
             let draft = Draft {
                 asked: case.asked,
                 reply: case.reply,
                 calls,
+                scheduled: &scheduled,
             };
             gates::review(decision, &draft).await
         }

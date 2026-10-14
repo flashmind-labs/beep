@@ -140,13 +140,33 @@ impl SearchTool {
     }
 
     async fn send(&self, request: &Value) -> Result<Response, String> {
-        self.client
-            .post(&self.endpoint)
-            .bearer_auth(self.key.expose_secret())
-            .json(request)
-            .send()
-            .await
-            .map_err(|_| "Search could not reach Firecrawl. Try again shortly.".into())
+        let mut retried = false;
+        loop {
+            let sent = self
+                .client
+                .post(&self.endpoint)
+                .bearer_auth(self.key.expose_secret())
+                .json(request)
+                .send()
+                .await;
+            match sent {
+                Ok(response) => return Ok(response),
+                // A connection that never opened sent nothing, so one more try
+                // cannot search twice.
+                Err(e) if e.is_connect() && !retried => {
+                    log::warn!("search: connecting to Firecrawl failed, retrying; error={e}");
+                    retried = true;
+                }
+                Err(e) if e.is_timeout() => {
+                    log::warn!("search: Firecrawl timed out; error={e}");
+                    return Err("Search timed out. Try a narrower query.".into());
+                }
+                Err(e) => {
+                    log::warn!("search: Firecrawl unreachable; error={e}");
+                    return Err("Search could not reach Firecrawl. Try again shortly.".into());
+                }
+            }
+        }
     }
 }
 
