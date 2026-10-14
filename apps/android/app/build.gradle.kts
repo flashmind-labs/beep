@@ -17,7 +17,7 @@ android {
         targetSdk = 36
         // CI passes a growing number, since Play refuses a version code it has seen before.
         versionCode = providers.gradleProperty("beepVersionCode").orNull?.toInt() ?: 5
-        versionName = "0.1.7"
+        versionName = "0.1.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }
         // The server this build talks to, so a new install needs no setup. `just bake-profile`
