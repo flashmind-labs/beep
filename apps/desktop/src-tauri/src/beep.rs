@@ -62,6 +62,14 @@ const SHOW_PRODUCTS: &str = "show_products";
 /// Its result lists recommendations, which show as a row of cards.
 const SHOW_CARDS: &str = "show_cards";
 
+/// Where the prompt of a run the bar follows was sent from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    Here,
+    /// On another device, which answers the run's device queries itself.
+    Elsewhere,
+}
+
 /// What the bar draws while a run streams.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -514,7 +522,7 @@ impl Beep {
                 platform: Some(Platform::Macos {}),
             })
             .await?;
-        self.follow(replies, channel).await;
+        self.follow(replies, channel, Asked::Here).await;
         Ok(session_id.to_string())
     }
 
@@ -579,7 +587,7 @@ impl Beep {
                 after: 0,
             })
             .await?;
-        self.follow(replies, channel).await;
+        self.follow(replies, channel, Asked::Here).await;
         Ok(())
     }
 
@@ -594,7 +602,7 @@ impl Beep {
     /// asked in.
     pub async fn follow_run(&self, run_id: String, channel: Channel<BarEvent>) -> Result<()> {
         let replies = self.stream(GetEvents { run_id, after: 0 }).await?;
-        self.follow(replies, channel).await;
+        self.follow(replies, channel, Asked::Elsewhere).await;
         Ok(())
     }
 
@@ -639,7 +647,7 @@ impl Beep {
         }
     }
 
-    async fn follow(&self, mut replies: Replies<Event>, channel: Channel<BarEvent>) {
+    async fn follow(&self, mut replies: Replies<Event>, channel: Channel<BarEvent>, asked: Asked) {
         let mut text = String::new();
         let mut run_id = String::new();
         let mut seq = 0;
@@ -731,6 +739,8 @@ impl Beep {
                         action: approval.action,
                         fields: approval.fields.into_iter().map(Field::from).collect(),
                     },
+                    // Another device's run asks that device, not this one.
+                    _ if asked == Asked::Elsewhere => continue,
                     // The server leaves phone tools out of desktop runs; this
                     // answers any that slip through.
                     _ => {

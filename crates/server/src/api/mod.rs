@@ -56,7 +56,6 @@ use settings::{
 };
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
-const EVENTS_WINDOW: Duration = Duration::from_secs(30);
 
 pub fn router() -> Router {
     Router::default()
@@ -267,9 +266,10 @@ async fn get_events(cx: Cx, req: GetEvents, sink: Sink<Event>) -> Reply<()> {
     follow(&cx, run, after, &sink).await
 }
 
-/// Sends the run's events after `after` and follows it until it finishes, for
-/// up to `EVENTS_WINDOW`. A finished run keeps no events, only its status: the
-/// turn itself is in the session history.
+/// Sends the run's events after `after` and follows it until it finishes. A
+/// finished run keeps no events, only its status: the turn itself is in the
+/// session history. A client that drops the stream asks again with the last
+/// `seq` it saw.
 async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>) -> Reply<()> {
     let Some(live) = cx.app.live(&run.id).await else {
         let finished = Event {
@@ -289,32 +289,29 @@ async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>) -> Reply<
     } = live.subscribe(after);
     let mut pending = VecDeque::from(backlog);
 
-    let follow = async {
-        loop {
-            let event = match pending.pop_front() {
-                Some(event) => event,
-                None => match rx.recv().await {
-                    Ok(event) => event,
-                    Err(RecvError::Lagged(_)) => {
-                        pending.extend(live.since(after));
-                        continue;
-                    }
-                    Err(RecvError::Closed) => return Ok(()),
-                },
-            };
-            if event.seq <= after {
-                continue;
-            }
-
-            after = event.seq;
-            let finished = matches!(event.event, RunEvent::RunFinished { .. });
-            sink.send(&event).await?;
-            if finished {
-                return Ok(());
-            }
+    loop {
+        let event = match pending.pop_front() {
+            Some(event) => event,
+            None => match rx.recv().await {
+                Ok(event) => event,
+                Err(RecvError::Lagged(_)) => {
+                    pending.extend(live.since(after));
+                    continue;
+                }
+                Err(RecvError::Closed) => return Ok(()),
+            },
+        };
+        if event.seq <= after {
+            continue;
         }
-    };
-    timeout(EVENTS_WINDOW, follow).await.unwrap_or(Ok(()))
+
+        after = event.seq;
+        let finished = matches!(event.event, RunEvent::RunFinished { .. });
+        sink.send(&event).await?;
+        if finished {
+            return Ok(());
+        }
+    }
 }
 
 async fn device_result(cx: Cx, req: DeviceResult) -> Reply<bool> {

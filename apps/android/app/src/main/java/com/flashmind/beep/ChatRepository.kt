@@ -232,6 +232,9 @@ class ChatRepository(private val storage: LocalStorage) {
         } else refreshHistory()
     }
     /** Streams the chat's run when another device asked in it, as if it were asked here. */
+    /** Runs another device started, which this phone shows but whose device queries that device answers. */
+    private val watchedRuns: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
     private suspend fun followElsewhere(id: String, config: ConnectionSettings) {
         if (state.value.conversations.find { it.id == id }?.busy != false) return
         // A server from before it said which run is going has none to give.
@@ -242,7 +245,7 @@ class ChatRepository(private val storage: LocalStorage) {
             if (chat.busy) chat
             else { taken = true; chat.copy(runId = run.id, cursor = 0, status = "Beep is thinking…", error = "") }
         }
-        if (taken) launchRun(id)
+        if (taken) { watchedRuns += run.id; launchRun(id) }
     }
     /** Whether the phone holds the chat's turns as the server last listed them. */
     private fun cached(chat: Conversation) = chat.messages.isNotEmpty() && chat.version != 0L && serverVersions[chat.id] == chat.version
@@ -1450,7 +1453,7 @@ class ChatRepository(private val storage: LocalStorage) {
                         val prompt = ApprovalPrompt(event.queryId, query.approval)
                         next = next.withReply(messageId, { it.copy(approvals = it.approvals + prompt) },
                             { ChatMessage(messageId, "assistant", "", approvals = listOf(prompt)) })
-                    } else scope.launch {
+                    } else if (chat.runId !in watchedRuns) scope.launch {
                         runCatching {
                             val result = runCatching { executeDeviceQuery(query) }.getOrElse {
                                 JSONObject().put("error", "device_error").put("message", it.message ?: "The phone could not do that.")
