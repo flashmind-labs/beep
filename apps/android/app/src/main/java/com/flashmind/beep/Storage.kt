@@ -76,6 +76,8 @@ data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: 
 data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "") {
     val waiting get() = answer.isEmpty()
 }
+/** A message held while a reply runs: its text and the pictures attached to it. */
+data class QueuedMessage(val text: String, val images: List<String> = emptyList())
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = NEW_CHAT_TITLE,
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
@@ -92,10 +94,10 @@ data class Conversation(
     val openedAt: Long = System.currentTimeMillis(),
     /** The server's `updated_at` as last listed, kept even when [messages] are evicted. 0 until listed. */
     val updatedAt: Long = 0,
-    /** A message typed while a reply ran, sent once it finishes. */
-    val queuedText: String = "", val queuedImages: List<String> = emptyList(),
+    /** Messages typed while a reply ran, oldest first; each sends as its own turn once the reply before it finishes. */
+    val queued: List<QueuedMessage> = emptyList(),
 ) {
-    val hasQueued get() = queuedText.isNotBlank() || queuedImages.isNotEmpty()
+    val hasQueued get() = queued.isNotEmpty()
     val busy get() = requestId.isNotEmpty() || runId.isNotEmpty()
     /** When the chat last changed, as far as the phone knows, in epoch milliseconds. */
     val lastActive get() = maxOf(updatedAt, messages.maxOfOrNull { it.sentAt } ?: 0).takeIf { it > 0 } ?: openedAt
@@ -207,8 +209,7 @@ class LocalStorage(internal val context: Context) {
                 pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"),
                 status = c.optString("status"), error = c.optString("error"), pinned = c.optBoolean("pinned"),
                 version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()),
-                updatedAt = c.optLong("updatedAt"), queuedText = c.optString("queuedText"),
-                queuedImages = readImages(c, "queuedImages", "queuedImage"))
+                updatedAt = c.optLong("updatedAt"), queued = readQueued(c))
         }
         check(conversations.isNotEmpty())
         ChatState(conversations, json.optString("selected"))
@@ -338,8 +339,11 @@ class LocalStorage(internal val context: Context) {
                 .apply { if (c.pendingThinking.isNotEmpty()) put("pendingThinking", c.pendingThinking) }
                 .put("status", c.status).apply { if (c.error.isNotEmpty()) put("error", c.error) }
                 .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt).put("updatedAt", c.updatedAt)
-                .apply { if (c.queuedText.isNotEmpty()) put("queuedText", c.queuedText) }
-                .apply { if (c.queuedImages.isNotEmpty()) put("queuedImages", JSONArray(c.queuedImages)) })
+                .apply {
+                    if (c.queued.isNotEmpty()) put("queued", JSONArray(c.queued.map { q ->
+                        JSONObject().put("text", q.text).apply { if (q.images.isNotEmpty()) put("images", JSONArray(q.images)) }
+                    }))
+                })
         }
         val out = file.startWrite()
         try {
@@ -358,6 +362,15 @@ private fun readPictures(json: JSONObject): List<ImageRef> {
 }
 
 /** The images saved under [key], or the single image older versions saved under [legacyKey]. */
+/** A chat's queued messages; builds before the list kept a single `queuedText` with its images. */
+private fun readQueued(json: JSONObject): List<QueuedMessage> {
+    val list = json.optJSONArray("queued")
+    if (list != null) return (0 until list.length()).map { list.getJSONObject(it) }
+        .map { QueuedMessage(it.optString("text"), readImages(it, "images", "image")) }
+    val one = QueuedMessage(json.optString("queuedText"), readImages(json, "queuedImages", "queuedImage"))
+    return if (one.text.isNotBlank() || one.images.isNotEmpty()) listOf(one) else emptyList()
+}
+
 private fun readImages(json: JSONObject, key: String, legacyKey: String): List<String> {
     val list = json.optJSONArray(key)
     if (list != null) return (0 until list.length()).map { list.getString(it) }

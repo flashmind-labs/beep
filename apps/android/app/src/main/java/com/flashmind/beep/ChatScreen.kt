@@ -563,28 +563,39 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
         }
 
-        // A message queued while the reply runs; it sends on its own when the reply finishes.
+        // Messages queued while the reply runs; each sends as its own turn once the one before finishes.
         AnimatedVisibility(visible = chat.hasQueued,
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            Row(Modifier.padding(horizontal = if (compact) 10.dp else 14.dp).padding(top = 6.dp).fillMaxWidth()
+            Column(Modifier.padding(horizontal = if (compact) 10.dp else 14.dp).padding(top = 6.dp).fillMaxWidth()
                 .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())
-                .padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Outlined.Schedule, null, Modifier.size(16.dp), tint = TextMuted)
-                Column(Modifier.weight(1f)) {
-                    Text(if (chat.busy) "Sends when Beep finishes" else "Not sent", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
-                    Text(chat.queuedText.ifBlank { "${chat.queuedImages.size} image" + if (chat.queuedImages.size > 1) "s" else "" },
-                        fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                .padding(start = 12.dp, top = 2.dp, bottom = 2.dp, end = 4.dp)) {
+                Row(Modifier.heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Outlined.Schedule, null, Modifier.size(16.dp), tint = TextMuted)
+                    Text(when {
+                        !chat.busy -> "Not sent"
+                        chat.queued.size > 1 -> "Send one by one when Beep finishes"
+                        else -> "Sends when Beep finishes"
+                    }, Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
+                    if (!chat.busy) IconButton(onClick = { followLatest = true; repository.sendQueued(chat.id) }, Modifier.size(36.dp)) {
+                        Icon(Icons.AutoMirrored.Outlined.Send, "Send queued messages", Modifier.size(18.dp), tint = Beep.colors.accent)
+                    }
                 }
-                if (!chat.busy) IconButton(onClick = { followLatest = true; repository.sendQueued(chat.id) }, Modifier.size(36.dp)) {
-                    Icon(Icons.AutoMirrored.Outlined.Send, "Send queued message", Modifier.size(18.dp), tint = Beep.colors.accent)
-                }
-                IconButton(onClick = {
-                    val (text, images) = repository.unqueue(chat.id)
-                    draft = listOf(text, draft).filter { it.isNotBlank() }.joinToString("\n\n")
-                    attachedImages = (images + attachedImages).take(MAX_IMAGES)
-                }, Modifier.size(36.dp)) {
-                    Icon(Icons.Outlined.Close, "Edit queued message", Modifier.size(16.dp), tint = TextMuted)
+                Column(Modifier.heightIn(max = 116.dp).verticalScroll(rememberScrollState())) {
+                    chat.queued.forEachIndexed { index, queued ->
+                        Row(Modifier.heightIn(min = 36.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${index + 1}", Modifier.width(16.dp), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                color = TextMuted, textAlign = TextAlign.Center)
+                            Text(queued.text.ifBlank { "${queued.images.size} image" + if (queued.images.size > 1) "s" else "" },
+                                Modifier.weight(1f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            IconButton(onClick = {
+                                val back = repository.unqueue(index, chat.id) ?: return@IconButton
+                                draft = listOf(back.text, draft).filter { it.isNotBlank() }.joinToString("\n\n")
+                                attachedImages = (back.images + attachedImages).take(MAX_IMAGES)
+                            }, Modifier.size(36.dp)) {
+                                Icon(Icons.Outlined.Close, "Edit queued message ${index + 1}", Modifier.size(16.dp), tint = TextMuted)
+                            }
+                        }
+                    }
                 }
             }
         }

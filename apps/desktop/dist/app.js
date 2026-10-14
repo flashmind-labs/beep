@@ -90,6 +90,10 @@ const live = new Map(); // id -> { run: { id, turn } | null, approval: { queryId
 // The chat's next prompt waits for that, so the server has the stop first.
 const stopping = new Map();
 const here = () => live.get(S.session);
+// Prompts typed while a chat's reply runs, by session id, oldest first. Each
+// sends as its own turn once the reply before it finishes cleanly; a stopped
+// or failed reply holds them until the user sends them with Cmd-Return.
+const queued = new Map(); // id -> { list: [text], held }
 function entry(id) {
   if (!live.has(id)) live.set(id, { run: null, approval: null, body: null });
   return live.get(id);
@@ -157,7 +161,8 @@ function chatHints() {
   const e = here();
   const chip = modelChip();
   if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
-  if (e?.run) return hints([["⌘.", "stop"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
+  if (e?.run) return hints([[ICON.ret, "queue"], ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
+  if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
 }
@@ -177,6 +182,7 @@ function renderChat() {
   const b = body();
   b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; drawLatest(); markMap(); };
   drawLatest();
+  drawQueue();
   const ask = $("#ask");
   let multi = false;
   ask.addEventListener("input", () => {
@@ -341,6 +347,7 @@ function suggestions(turn, replies) {
 }
 
 function failed(turn, message) {
+  turn.failed = true;
   turn.append(h(`<div class="derr">${esc(message)}</div>`));
   if (/removed|not linked/i.test(message)) refreshStatus();
 }
@@ -360,6 +367,60 @@ function finish(id, turn) {
   }
   if (id === S.session) refreshHints();
   else if (S.view === "chats") S.chats.mode === "list" ? loadChats(S.chats.query) : drawChats();
+  const q = queued.get(id);
+  if (q) {
+    q.held ||= !!(turn.stopped || turn.failed || (turn.status && !["completed", "waiting"].includes(turn.status)));
+    // An approval still waiting keeps the queue until it is answered.
+    if (!q.held && !live.get(id)?.approval && id === S.session && S.view === "chat") setTimeout(() => sendQueued(id));
+    else if (id === S.session) { drawQueue(); refreshHints(); }
+  }
+}
+
+/// Holds a prompt typed while the open chat's reply runs.
+function enqueue(text) {
+  const id = S.session;
+  if (!id) return;
+  const q = queued.get(id) ?? { list: [], held: false };
+  q.list.push(text);
+  queued.set(id, q);
+  const ask = $("#ask");
+  ask.value = "";
+  grow(ask);
+  drawQueue();
+  refreshHints();
+}
+
+/// Sends the chat's first queued prompt; the rest follow as each reply finishes.
+function sendQueued(id) {
+  const q = queued.get(id);
+  if (!q?.list.length || id !== S.session || S.view !== "chat" || live.get(id)?.run || live.get(id)?.approval) return;
+  const text = q.list.shift();
+  q.held = false;
+  if (!q.list.length) queued.delete(id);
+  drawQueue();
+  send(text);
+}
+
+/// The open chat's queued prompts, between the reply and the hints. x puts
+/// one back in the field.
+function drawQueue() {
+  const old = $("#queue"), q = queued.get(S.session);
+  if (S.view !== "chat" || !q?.list.length) return old?.remove();
+  const el = h(`<div class="dqueue" id="queue"><div class="dqh"><span>${q.held ? "Not sent" : "Queued, sends after this reply"}</span>${q.held ? `<button class="dbtn">Send<kbd>⌘${ICON.ret}</kbd></button>` : ""}</div>`
+    + q.list.map((t, i) => `<div class="dq"><span class="n">${i + 1}</span><span class="t">${esc(t)}</span><button class="dcopy" aria-label="Edit queued prompt ${i + 1}">${ICON.x}</button></div>`).join("") + `</div>`);
+  el.querySelector(".dqh .dbtn")?.addEventListener("click", () => sendQueued(S.session));
+  el.querySelectorAll(".dq .dcopy").forEach((b, i) => b.addEventListener("click", () => {
+    const [text] = q.list.splice(i, 1);
+    if (!q.list.length) queued.delete(S.session);
+    const ask = $("#ask");
+    ask.value = [text, ask.value].filter(s => s.trim()).join("\n\n");
+    grow(ask);
+    drawQueue();
+    refreshHints();
+    focusAsk();
+  }));
+  if (old) old.replaceWith(el);
+  else $(".dhints").before(el);
 }
 
 /// A channel that draws one run's events into `turn`, which stays in its
@@ -413,6 +474,7 @@ function follow(id, turn) {
         failed(turn, ev.message);
         break;
       case "finished":
+        turn.status = ev.status;
         if (ev.status === "cancelled") turn.append(h('<div class="dmuted">Stopped</div>'));
         finish(id, turn);
         break;
@@ -423,8 +485,9 @@ function follow(id, turn) {
 }
 
 async function send(message) {
+  if (!message.trim()) return;
   const busy = here();
-  if (busy?.run || busy?.approval || !message.trim()) return;
+  if (busy?.run || busy?.approval) return enqueue(message.trim());
   const id = S.session ??= newId();
   const ask = $("#ask");
   body().querySelectorAll(".dreplies").forEach(r => r.remove());
@@ -515,6 +578,8 @@ async function openSession(id) {
     // The user may have moved on, or started a run here, while it loaded.
     if (S.session !== id || S.view !== "chat" || live.has(id)) return;
     drawHistory(id, turns);
+    // A reply that finished while another chat was open left its queue waiting.
+    if (queued.get(id) && !queued.get(id).held) sendQueued(id);
   } catch (e) {
     if (S.session === id && S.view === "chat") failed(newTurn(""), String(e));
   }
@@ -3189,6 +3254,7 @@ document.addEventListener("keydown", e => {
   if (S.view === "chat") {
     if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(e.altKey ? "always" : "allow"); }
     if (cmd && key === "d" && here()?.approval) { e.preventDefault(); return answer("deny"); }
+    if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
     if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
   }

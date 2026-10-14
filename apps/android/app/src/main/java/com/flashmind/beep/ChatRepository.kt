@@ -445,33 +445,33 @@ class ChatRepository(private val storage: LocalStorage) {
             requestId = request, pendingText = text.trim(), pendingImages = images, pendingModel = model, pendingThinking = thinking,
             status = "Sending…", error = "") }
     }
-    /** Holds a message typed while [chatId]'s reply runs, added to any already held, to send when it finishes. */
+    /** Holds a message typed while [chatId]'s reply runs, after any already held; each sends as its own turn. */
     fun queue(text: String, images: List<String>, chatId: String = state.value.current.id) {
-        updateChat(chatId) { it.copy(queuedText = listOf(it.queuedText, text.trim()).filter { t -> t.isNotBlank() }.joinToString("\n\n"),
-            queuedImages = (it.queuedImages + images).take(MAX_IMAGES)) }
+        if (text.isBlank() && images.isEmpty()) return
+        updateChat(chatId) { it.copy(queued = it.queued + QueuedMessage(text.trim(), images.take(MAX_IMAGES))) }
     }
-    /** Drops [chatId]'s queued message and returns it, so it can go back into the composer. */
-    fun unqueue(chatId: String = state.value.current.id): Pair<String, List<String>> {
-        val chat = state.value.conversations.find { it.id == chatId } ?: return "" to emptyList()
-        updateChat(chatId) { it.copy(queuedText = "", queuedImages = emptyList()) }
-        return chat.queuedText to chat.queuedImages
+    /** Drops [chatId]'s queued message at [index] and returns it, so it can go back into the composer. */
+    fun unqueue(index: Int, chatId: String = state.value.current.id): QueuedMessage? {
+        val message = state.value.conversations.find { it.id == chatId }?.queued?.getOrNull(index) ?: return null
+        updateChat(chatId) { it.copy(queued = it.queued.filterIndexed { i, _ -> i != index }) }
+        return message
     }
-    /** Sends [chatId]'s queued message now, after a run that ended without finishing. */
+    /** Sends [chatId]'s first queued message now, after a run that ended without finishing; the rest follow it. */
     fun sendQueued(chatId: String = state.value.current.id) {
         val chat = state.value.conversations.find { it.id == chatId } ?: return
         if (chat.busy || !chat.hasQueued) return
-        val (text, images) = unqueue(chatId)
-        send(text.ifBlank { imagePrompt(images.size) }, images, chatId)
+        val next = unqueue(0, chatId) ?: return
+        send(next.text.ifBlank { imagePrompt(next.images.size) }, next.images, chatId)
     }
     /**
-     * Starts [chat]'s queued message once its reply finished cleanly. A run that stopped,
-     * failed or waits on an approval keeps it, so nothing goes out on its own.
+     * Starts [chat]'s first queued message once its reply finished cleanly. A run that stopped,
+     * failed or waits on an approval keeps them all, so nothing goes out on its own.
      */
     private fun startQueued(chat: Conversation): Boolean {
         if (!chat.hasQueued || chat.error.isNotEmpty() || !settings.value.configured) return false
         if (chat.messages.any { m -> m.approvals.any { it.waiting } }) return false
-        val (text, images) = unqueue(chat.id)
-        startTurn(chat, text.ifBlank { imagePrompt(images.size) }, images, "")
+        val next = unqueue(0, chat.id) ?: return false
+        startTurn(chat, next.text.ifBlank { imagePrompt(next.images.size) }, next.images, "")
         return true
     }
     /**
