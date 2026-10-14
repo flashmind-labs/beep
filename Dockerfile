@@ -33,7 +33,7 @@ RUN apt-get update \
 # Python for the sandbox, under /usr so Drop exposes it read-only.
 RUN python3 -m venv /usr/local/beep-python \
     && /usr/local/beep-python/bin/pip install --no-cache-dir \
-        numpy pandas scipy matplotlib openpyxl pypdf pdfplumber
+        numpy pandas scipy matplotlib openpyxl pypdf cryptography pdfplumber
 ENV PATH=/usr/local/beep-python/bin:$PATH
 ARG DROP_VERSION=v0.3.0
 ARG TARGETARCH
