@@ -36,7 +36,8 @@ impl Tool for NotifyUserTool {
         self.notify.store(true, Ordering::SeqCst);
         Ok(ToolResult::success(
             ctx.tool_call_id,
-            "Your reply will be sent. Write it now.",
+            "Your reply will be sent. If you already wrote it, stop: writing it again \
+             sends it twice. Otherwise write it now.",
         ))
     }
 }

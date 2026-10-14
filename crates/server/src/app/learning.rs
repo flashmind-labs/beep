@@ -7,13 +7,14 @@ use crate::{
     live::LiveRun,
     memories::{self, Exchange, Hit, Turn},
     protocol::RunEvent,
+    tools,
 };
 use chrono::{DateTime, Utc};
 use flashmind::{
-    core::{Conversation, ConversationEntry},
+    core::{Conversation, ConversationEntry, EntryKind},
     types::ToolCall,
 };
-use std::fmt::Write;
+use std::{collections::HashSet, fmt::Write};
 use uuid::Uuid;
 
 /// Above this Jev score the learner reads the turn; below it nothing is stored.
@@ -138,6 +139,52 @@ pub(super) fn add_server_calls(
     }
 }
 
+/// `conversation` without the follow-up cards the server saved as
+/// `suggest_replies` calls. The model has no such tool, and seeing earlier
+/// turns call it, it calls it too.
+pub(super) fn drop_follow_ups(conversation: &mut Conversation) {
+    let mut dropped = HashSet::new();
+    let entries = conversation.entries_mut();
+    for entry in entries.iter_mut() {
+        if let EntryKind::Assistant {
+            tool_calls: Some(calls),
+            ..
+        } = &mut entry.kind
+        {
+            calls.retain(|call| {
+                let follow_up = call.name == tools::SUGGEST_REPLIES;
+                if follow_up {
+                    dropped.insert(call.id.clone());
+                }
+                !follow_up
+            });
+        }
+    }
+    if dropped.is_empty() {
+        return;
+    }
+    entries.retain(|entry| match &entry.kind {
+        EntryKind::Tool { call_id, .. } => !dropped.contains(call_id),
+        EntryKind::Assistant {
+            content,
+            tool_calls,
+            reasoning,
+        } => {
+            !content.is_empty()
+                || reasoning.as_ref().is_some_and(|text| !text.is_empty())
+                || tool_calls.as_ref().is_some_and(|calls| !calls.is_empty())
+        }
+        _ => true,
+    });
+    for entry in entries.iter_mut() {
+        if let EntryKind::Assistant { tool_calls, .. } = &mut entry.kind
+            && tool_calls.as_ref().is_some_and(Vec::is_empty)
+        {
+            *tool_calls = None;
+        }
+    }
+}
+
 /// What Jev reads to score a turn: what is already remembered, then the
 /// exchange, so a fact that is already known does not score high.
 pub(super) fn memory_state(known: &[Hit], exchange: &Exchange) -> String {
@@ -178,4 +225,68 @@ pub(super) fn earlier_turns(conversation: &Conversation, turn_started: DateTime<
     }
     let skip = turns.len().saturating_sub(memories::LEARN_CONTEXT_TURNS);
     turns.split_off(skip)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn call(id: &str, name: &str) -> ToolCall {
+        ToolCall {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            arguments: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn follow_ups_leave_the_context() {
+        let mut conversation = Conversation::new();
+        conversation.add(ConversationEntry::user("weather?"));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![call("w", "weather")],
+            None,
+        ));
+        conversation.add(ConversationEntry::tool("w", "sunny"));
+        conversation.add(ConversationEntry::assistant("Sunny."));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![call("s", tools::SUGGEST_REPLIES), call("m", "remember")],
+            None,
+        ));
+        conversation.add(ConversationEntry::tool("s", "{}"));
+        conversation.add(ConversationEntry::tool("m", "saved"));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![call("t", tools::SUGGEST_REPLIES)],
+            None,
+        ));
+        conversation.add(ConversationEntry::tool("t", "{}"));
+
+        drop_follow_ups(&mut conversation);
+
+        let names: Vec<String> = conversation
+            .entries()
+            .iter()
+            .map(|entry| match &entry.kind {
+                EntryKind::Assistant {
+                    tool_calls: Some(calls),
+                    ..
+                } => calls
+                    .iter()
+                    .map(|call| call.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                EntryKind::Tool { call_id, .. } => format!("result {call_id}"),
+                _ => entry.content().to_owned(),
+            })
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "weather?", "weather", "result w", "Sunny.", "remember", "result m"
+            ]
+        );
+    }
 }

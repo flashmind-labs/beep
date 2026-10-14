@@ -28,6 +28,9 @@ pub struct Draft<'a> {
     pub asked: &'a str,
     pub reply: &'a str,
     pub calls: &'a [Call],
+    /// The tasks the user already has scheduled, so a reply that mentions
+    /// one does not count as an unkept promise.
+    pub scheduled: &'a [String],
 }
 
 impl Draft<'_> {
@@ -49,6 +52,13 @@ impl Draft<'_> {
         for call in self.calls {
             let outcome = if call.success { "succeeded" } else { "failed" };
             let _ = writeln!(text, "- {} ({outcome})", call.name);
+        }
+        text.push_str("\nAlready scheduled before this turn:\n");
+        if self.scheduled.is_empty() {
+            text.push_str("- nothing\n");
+        }
+        for task in self.scheduled {
+            let _ = writeln!(text, "- {task}");
         }
         let _ = write!(text, "\nBeep's reply:\n{}", self.reply.trim());
         text
@@ -86,8 +96,8 @@ saved, added, booked, set up, changed or deleted something, that none of the suc
 calls listed did?",
         criteria: Criteria {
             yes: "The reply claims an action that no succeeded tool call in the list carried out.",
-            no: "Every action the reply claims matches a succeeded tool call, or the reply \
-claims none.",
+            no: "Every action the reply claims matches a succeeded tool call or something \
+already scheduled, or the reply claims none.",
         },
         fix: "Your reply says you did something that no tool call did. Do it now with the \
 right tool, or tell the user plainly that it is not done.",
@@ -98,8 +108,10 @@ right tool, or tell the user plainly that it is not done.",
         question: "Does Beep's reply promise that Beep will do something later on its own, \
 such as remind the user, check on something, follow up or let them know?",
         criteria: Criteria {
-            yes: "The reply promises a later reminder, check or message from Beep.",
-            no: "The reply promises nothing Beep would do later on its own.",
+            yes: "The reply promises a later reminder, check or message from Beep that \
+nothing already scheduled covers.",
+            no: "The reply promises nothing Beep would do later on its own, or only \
+mentions something already scheduled.",
         },
         fix: "Your reply promises to do something later, but nothing is scheduled. Set it \
 up now with schedule_once, cron_create or place_routine, or tell the user you will not.",
@@ -187,6 +199,7 @@ mod tests {
             asked: "Where should I go?",
             reply: "Head to the Gucci flagship.",
             calls: &calls,
+            scheduled: &[],
         };
         let settled: Vec<_> = CHECKS
             .iter()
@@ -203,6 +216,7 @@ mod tests {
             asked: "  Where now? ",
             reply: "Go to Isetan.\n",
             calls: &calls,
+            scheduled: &[],
         };
         let state = draft.state();
         assert!(state.contains("Asked:\nWhere now?\n"));
@@ -213,6 +227,16 @@ mod tests {
             ..draft
         };
         assert!(none.state().contains("Tool calls this turn:\n- none\n"));
+        let tasks = ["Remind the user to call Kimpton".to_owned()];
+        let scheduled = Draft {
+            scheduled: &tasks,
+            ..draft
+        };
+        assert!(
+            scheduled.state().contains(
+                "Already scheduled before this turn:\n- Remind the user to call Kimpton\n"
+            )
+        );
     }
 
     #[test]
