@@ -25,6 +25,10 @@ impl Feature {
     /// `StockChart`. Only the macOS app does.
     pub const CHARTS: Feature = Feature(2);
 
+    /// Draws `show_cards` results. `WIRE` stays below it until every app
+    /// does, since each app sends the `WIRE` it was built with.
+    pub const CARDS: Feature = Feature(3);
+
     /// The first wire revision that reads it.
     pub const fn wire(self) -> u32 {
         self.0

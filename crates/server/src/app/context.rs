@@ -56,12 +56,24 @@ impl App {
                  maps, contacts and opening apps are not available in this turn."
             );
         }
-        if message.charts {
+        if message.draws.charts {
             let _ = writeln!(
                 ctx,
                 "Their app draws charts under your reply: use show_stock_chart for a stock, \
                  index, currency or crypto price, and show_chart for numbers a tool or page \
                  gave you that read better as a chart."
+            );
+        }
+        if message.draws.cards {
+            let _ = writeln!(
+                ctx,
+                "Their app draws recommendation cards under your reply. When you recommend \
+                 places to eat, drink or visit, films, shows, books, events or anything else \
+                 to pick from, search first, then call show_cards with two to five, each with \
+                 its real page URL and the part for its kind. Keep the reply short: what you \
+                 looked for and which one you would pick, without repeating the cards' details. \
+                 Products still go in show_products. For a single place the user will go to, \
+                 open_maps is still right."
             );
         }
 

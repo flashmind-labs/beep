@@ -8,7 +8,7 @@
 //! goes wrong also stays silent.
 
 use crate::{
-    app::{App, Message, UserNotice},
+    app::{App, Draws, Message, UserNotice},
     protocol::{DeviceKind, Run},
     store::{CreateRun, Location, RunStatus, SessionRef},
     user::User,
@@ -203,7 +203,7 @@ pub async fn wake(app: &Arc<App>, user: &Arc<User>, event: Event) -> Result<Opti
         thinking: None,
         origin: DeviceKind::Phone {},
         platform: None,
-        charts: false,
+        draws: Draws::default(),
     };
     match app.submit(user, message).await? {
         CreateRun::Created(run) => {

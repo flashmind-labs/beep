@@ -12,7 +12,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::agents::AgentId;
-use crate::app::{App, Message};
+use crate::app::{App, Draws, Message};
 use crate::digest;
 use crate::protocol::{DeviceKind, Run};
 use crate::store::{CreateRun, Store};
@@ -170,7 +170,7 @@ pub(crate) async fn submit(
         thinking: None,
         origin: DeviceKind::Phone {},
         platform: None,
-        charts: false,
+        draws: Draws::default(),
     };
 
     let mut result = app
