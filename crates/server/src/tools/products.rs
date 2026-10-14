@@ -230,7 +230,7 @@ fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String>
 }
 
 /// The host of an http(s) page on a public domain name.
-fn public_host(url: &str) -> Option<String> {
+pub(super) fn public_host(url: &str) -> Option<String> {
     let parsed = Url::parse(url).ok()?;
     if !matches!(parsed.scheme(), "http" | "https") || url.len() > 2048 {
         return None;
@@ -240,7 +240,7 @@ fn public_host(url: &str) -> Option<String> {
         .then(|| host.to_owned())
 }
 
-fn clip(text: &str, max: usize) -> String {
+pub(super) fn clip(text: &str, max: usize) -> String {
     text.trim()
         .chars()
         .take(max)

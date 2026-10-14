@@ -185,8 +185,18 @@ pub struct Message {
     pub origin: DeviceKind,
     /// The app the message came from, when it says.
     pub platform: Option<Platform>,
-    /// Whether the app draws charts, so the run gets the chart tools.
+    /// What the app draws under a reply, so the run gets those tools.
+    pub draws: Draws,
+}
+
+/// What an app draws under a reply beyond text and images. A run only gets
+/// the tools whose results its app can show.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Draws {
+    /// `show_chart` and `show_stock_chart`.
     pub charts: bool,
+    /// `show_cards`.
+    pub cards: bool,
 }
 
 /// The user's answer to the tool call a session stopped on.

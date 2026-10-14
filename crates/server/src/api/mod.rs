@@ -1,7 +1,7 @@
 //! Request handlers, one function per request type.
 
 use crate::{
-    app::{Answer, Message},
+    app::{Answer, Draws, Message},
     images::{MAX_IMAGE_BYTES, MAX_IMAGES},
     live::Subscription,
     permissions,
@@ -188,7 +188,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         thinking: req.thinking,
         origin: cx.device,
         platform: req.platform,
-        charts: draws_charts(&cx),
+        draws: draws(&cx),
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
@@ -198,10 +198,13 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
     }
 }
 
-/// Whether a run started on this connection gets the chart tools: only the
-/// macOS app draws them.
-fn draws_charts(cx: &Cx) -> bool {
-    cx.device == (DeviceKind::Desktop {}) && cx.supports(Feature::CHARTS)
+/// What a run started on this connection can show. Only the macOS app draws
+/// charts.
+fn draws(cx: &Cx) -> Draws {
+    Draws {
+        charts: cx.device == (DeviceKind::Desktop {}) && cx.supports(Feature::CHARTS),
+        cards: cx.supports(Feature::CARDS),
+    }
 }
 
 /// One symbol's chart over another range, for a stock chart's range buttons.
@@ -335,7 +338,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         thinking: None,
         origin: cx.device,
         platform: None,
-        charts: draws_charts(&cx),
+        draws: draws(&cx),
     };
     let conversation = cx.user.context(session_id).await?;
     let open = conversation.map(|context| permissions::open_calls(&context.conversation));

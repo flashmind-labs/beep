@@ -202,7 +202,7 @@ impl App {
             user,
             timezone.as_deref(),
             message.origin,
-            message.charts,
+            message.draws,
             turn_agent.as_ref().map(|turn| turn.agent.id),
         );
         if let Some(search) = &self.tools.search {

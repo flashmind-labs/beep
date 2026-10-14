@@ -1,5 +1,6 @@
 mod alarm;
 mod browser;
+mod cards;
 mod charts;
 mod chat;
 mod contacts;
@@ -31,7 +32,7 @@ pub(crate) use suggest::{
 
 use crate::{
     agents::AgentId,
-    app::App,
+    app::{App, Draws},
     protocol::{DeviceAnswer, DeviceKind, Run},
     user::User,
 };
@@ -56,7 +57,7 @@ pub fn registry(
     user: &Arc<User>,
     timezone: Option<&str>,
     origin: DeviceKind,
-    charts: bool,
+    draws: Draws,
     agent: Option<AgentId>,
 ) -> ToolRegistry {
     let run_id = run.id.as_str();
@@ -87,6 +88,9 @@ pub fn registry(
     );
     registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));
     registry.register(Arc::new(products::ShowProductsTool));
+    if draws.cards {
+        registry.register(Arc::new(cards::ShowCardsTool { user: user.clone() }));
+    }
     for kind in habits::HabitToolKind::ALL {
         registry.register(Arc::new(habits::HabitTool {
             user: user.clone(),
@@ -102,7 +106,7 @@ pub fn registry(
         }));
     }
     registry.register(Arc::new(progress::TaskProgressTool));
-    if charts {
+    if draws.charts {
         registry.register(Arc::new(charts::ShowChartTool));
         registry.register(Arc::new(charts::ShowStockChartTool));
     }
