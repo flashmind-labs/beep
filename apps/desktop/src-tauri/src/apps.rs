@@ -4,22 +4,29 @@
 //! looks again until the app shows as connected. Fastmail only redirects to
 //! `http://localhost`, so this Mac listens there for the one-time code and
 //! passes it to the server, which keeps the tokens.
+//!
+//! MCP servers the user adds by URL sign in through the web page at
+//! `mcp_callback_url()`, which hands the code to `beep://oauth`; `open_link`
+//! passes it on to the server.
 
 use crate::{
+    bar,
     beep::Beep,
     commands::open_url,
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    AppIntegration, AppKind, AppPermissions, ConnectApp, ConnectLink, DisconnectApp, FinishAppAuth,
-    GetAppPermissions, ListApps, PermissionLevel, SetAppPermissions, StartAppAuth,
+    AddMcpServer, AppIntegration, AppKind, AppPermissions, ConnectApp, ConnectLink,
+    ConnectMcpServer, DisconnectApp, FinishAppAuth, FinishMcpAuth, GetAppPermissions, ListApps,
+    ListMcpServers, McpCallback, McpConnect, McpServer, PermissionLevel, RemoveMcpServer,
+    SetAppPermissions, StartAppAuth, mcp_callback,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -192,6 +199,69 @@ pub async fn set_app_permissions(
         allowed,
     })
     .await
+}
+
+#[tauri::command]
+pub async fn list_mcp_servers(beep: Service<'_>) -> Result<Vec<McpServer>> {
+    beep.call(ListMcpServers {}).await
+}
+
+/// Adds a server by its URL. One that needs a sign-in opens it in the
+/// browser and comes back not connected yet; the link back finishes it.
+#[tauri::command]
+pub async fn add_mcp_server(beep: Service<'_>, name: String, url: String) -> Result<McpServer> {
+    open_sign_in(beep.call(AddMcpServer { name, url }).await?)
+}
+
+/// Connects server `id` again, signing in again when it has to.
+#[tauri::command]
+pub async fn connect_mcp_server(beep: Service<'_>, id: String) -> Result<McpServer> {
+    open_sign_in(beep.call(ConnectMcpServer { id }).await?)
+}
+
+#[tauri::command]
+pub async fn remove_mcp_server(beep: Service<'_>, id: String) -> Result<()> {
+    beep.call(RemoveMcpServer { id }).await
+}
+
+fn open_sign_in(connect: McpConnect) -> Result<McpServer> {
+    if let Some(url) = connect.auth_url {
+        open_url(url)?;
+    }
+    Ok(connect.server)
+}
+
+/// Takes a `beep://` link macOS opened Beep with. An MCP sign-in goes to
+/// the server, then Apps opens and the bar hears `mcp-signed-in` with
+/// `null`, or why it failed.
+pub fn open_link<R: Runtime>(app: &AppHandle<R>, url: &str) {
+    if !url.starts_with("beep://oauth") {
+        return;
+    }
+    let Some(McpCallback {
+        code,
+        state,
+        issuer,
+    }) = mcp_callback(url)
+    else {
+        // Cancelled on the page: nothing to finish.
+        bar::show(app, Some("apps"));
+        return;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let beep = app.state::<Arc<Beep>>().inner().clone();
+        let finished = beep
+            .call(FinishMcpAuth {
+                code,
+                state,
+                issuer,
+            })
+            .await;
+        let failed = finished.err().map(|e| e.to_string());
+        bar::show(&app, Some("apps"));
+        let _ = app.emit_to("bar", "mcp-signed-in", failed);
+    });
 }
 
 /// What the browser brought back to the redirect.

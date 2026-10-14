@@ -44,4 +44,6 @@ jsonwebtoken = "9.3"
 async-stream = "0.3"
 # Builds real MCP results to check how `send_file` reads them.
 rmcp = { version = "2.2", default-features = false }
+# The network tests make the TLS connections the server's endpoint sets up for.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tempfile = "3"

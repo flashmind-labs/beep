@@ -114,6 +114,20 @@ pub async fn answer_approval(
 }
 
 #[tauri::command]
+pub async fn active_run(beep: Service<'_>, session: String) -> Result<Option<String>> {
+    beep.active_run(&session).await
+}
+
+#[tauri::command]
+pub async fn follow_run(
+    beep: Service<'_>,
+    run_id: String,
+    on_event: Channel<BarEvent>,
+) -> Result<()> {
+    beep.follow_run(run_id, on_event).await
+}
+
+#[tauri::command]
 pub async fn cancel_run(beep: Service<'_>, run_id: String) -> Result<()> {
     beep.call(CancelRun { id: run_id }).await
 }

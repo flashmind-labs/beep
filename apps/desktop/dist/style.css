@@ -405,4 +405,20 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dlevel[aria-checked="true"] .dradio { border-color: var(--emerald); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 7px var(--emerald) }
 .daction span:first-child { flex: 1; font-size: 13.5px }
 .dtag.ok { color: var(--emerald) }
-.dtag.ask { color: var(--coral) }
+.dtag.ask { color: var(--coral); align-self: auto; max-width: none; padding: 1px 6px; border-radius: 6px; background: var(--elev); white-space: nowrap }
+
+/* Pictures pasted or dropped into the prompt, sent with the next message. */
+.dthumbs { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px 0 }
+.dthumb { width: 52px; height: 52px; border-radius: 9px; border: 1px solid var(--border); position: relative; flex: none }
+.dthumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; display: block }
+.dthumb button { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; border: 0; padding: 0;
+  background: var(--fg); color: var(--ink); display: grid; place-items: center; cursor: pointer }
+.dthumb button svg { width: 9px; height: 9px }
+.dthumbs .derr { font-size: 12.5px; color: var(--err) }
+.ddrop { position: absolute; inset: 5px; z-index: 2; border: 2px dashed var(--emerald); border-radius: 14px; background: rgba(18, 25, 22, .92);
+  display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; color: var(--fg); pointer-events: none }
+
+/* Adding an MCP server in Apps. */
+.dform.dmcp { padding: 6px 10px 4px; gap: 10px }
+.dfield input.url { font-family: var(--mono); font-size: 12.5px }
+.dappr .dtag, .dappr .dbtn { flex: none; white-space: nowrap }

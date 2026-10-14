@@ -23,6 +23,9 @@ import com.flashmind.beep.ffi.ListCache
 import com.flashmind.beep.ffi.Rerun
 import com.flashmind.beep.ffi.identityName
 import com.flashmind.beep.proto.AppIntegration
+import com.flashmind.beep.proto.McpCallback
+import com.flashmind.beep.proto.McpConnect
+import com.flashmind.beep.proto.McpServer
 import com.flashmind.beep.proto.ApprovalDecision
 import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.ImageRef
@@ -86,6 +89,9 @@ class BeepApplication : Application() {
 
 /** How a localhost OAuth flow ended; `error` is null on success. */
 data class AppAuthResult(val slug: String, val error: String?)
+
+/** How an MCP server sign-in that came back through the app ended: [error] is null when it connected. */
+data class McpAuthResult(val server: String?, val error: String?)
 
 data class AppIntent(val app: String, val uri: String, val fallbackUrl: String)
 
@@ -219,7 +225,24 @@ class ChatRepository(private val storage: LocalStorage) {
             else s.copy(conversations = listOf(Conversation(id = id)) + s.conversations, selected = id)
         }
         ChatNotifications.cancel(storage.context, id)
-        if (known) scope.launch { runCatching { loadHistory(id, settings.value) } } else refreshHistory()
+        if (known) scope.launch {
+            val config = settings.value
+            runCatching { loadHistory(id, config) }
+            followElsewhere(id, config)
+        } else refreshHistory()
+    }
+    /** Streams the chat's run when another device asked in it, as if it were asked here. */
+    private suspend fun followElsewhere(id: String, config: ConnectionSettings) {
+        if (state.value.conversations.find { it.id == id }?.busy != false) return
+        // A server from before it said which run is going has none to give.
+        val run = runCatching { api(config).activeRun(id) }.getOrNull() ?: return
+        if (settings.value != config) return
+        var taken = false
+        updateChat(id) { chat ->
+            if (chat.busy) chat
+            else { taken = true; chat.copy(runId = run.id, cursor = 0, status = "Beep is thinking…", error = "") }
+        }
+        if (taken) launchRun(id)
     }
     /** Whether the phone holds the chat's turns as the server last listed them. */
     private fun cached(chat: Conversation) = chat.messages.isNotEmpty() && chat.version != 0L && serverVersions[chat.id] == chat.version
@@ -315,6 +338,8 @@ class ChatRepository(private val storage: LocalStorage) {
         state.value.conversations
             .filter { it.id in listed && (it.id == state.value.current.id || it.messages.isNotEmpty()) && !cached(it) }
             .forEach { runCatching { loadHistory(it.id, config) } }
+        // The open chat may have a reply on its way from another device.
+        state.value.current.id.takeIf { it in listed }?.let { followElsewhere(it, config) }
     }
     /**
      * Drops the chats another phone deleted. The list stops at 200 chats, so
@@ -857,6 +882,29 @@ class ChatRepository(private val storage: LocalStorage) {
 
     /** Set when a localhost OAuth flow ends, so the app list reloads. */
     val appAuthResults = MutableStateFlow<AppAuthResult?>(null)
+
+    suspend fun listMcpServers(): List<McpServer> = api().listMcpServers()
+    suspend fun addMcpServer(name: String, url: String): McpConnect = api().addMcpServer(name, url)
+    suspend fun connectMcpServer(id: String): McpConnect = api().connectMcpServer(id)
+    suspend fun removeMcpServer(id: String) = api().removeMcpServer(id)
+
+    val mcpAuthResults = MutableStateFlow<McpAuthResult?>(null)
+
+    /**
+     * Hands an MCP server's sign-in, which came back to the app as a link, on to the server.
+     * Runs in the repository's scope so it finishes whichever screen is open.
+     */
+    fun finishMcpAuth(callback: McpCallback) {
+        scope.launch {
+            mcpAuthResults.value = try {
+                McpAuthResult(api().finishMcpAuth(callback).name, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                McpAuthResult(null, userMessage(e))
+            }
+        }
+    }
 
     /**
      * Connects an app whose provider only redirects to localhost. Runs in the repository's

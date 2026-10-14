@@ -6,6 +6,7 @@
 use crate::{
     apps::{
         CATALOG, CatalogApp, catalog_app,
+        custom_mcp::PREFIX as ADDED_PREFIX,
         mcp::{FASTMAIL, FASTMAIL_TOOLS},
     },
     protocol::{AppAction, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel},
@@ -81,34 +82,73 @@ impl ToolSlug {
     }
 }
 
+/// The app a tool belongs to: one in the catalog, or a server the user
+/// added, by its row name such as `mcp_my-notes`.
+#[derive(Clone)]
+pub(crate) enum ToolApp {
+    Catalog(&'static CatalogApp),
+    Added(String),
+}
+
+impl ToolApp {
+    pub(crate) fn slug(&self) -> &str {
+        match self {
+            ToolApp::Catalog(app) => app.slug,
+            ToolApp::Added(slug) => slug,
+        }
+    }
+
+    /// The app's name on an approval: "My notes" for `mcp_my-notes`.
+    pub(crate) fn name(&self) -> String {
+        match self {
+            ToolApp::Catalog(app) => app.name.to_owned(),
+            ToolApp::Added(slug) => {
+                capitalize(&slug.trim_start_matches(ADDED_PREFIX).replace('-', " "))
+            }
+        }
+    }
+}
+
 /// The app a tool belongs to and whether it acts, for Composio slugs such
-/// as `GMAIL_SEND_EMAIL` and MCP tools such as `FASTMAIL_DELETE_EMAIL`, in
-/// either case.
-fn lookup(tool: &str) -> Option<(&'static CatalogApp, Acts)> {
+/// as `GMAIL_SEND_EMAIL`, MCP tools such as `FASTMAIL_DELETE_EMAIL`, in
+/// either case, and tools of added servers such as `MCP_MY-NOTES_SEARCH`.
+/// An added server says nothing Beep trusts about its tools, so they all act.
+fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     let tool = ToolSlug::new(tool);
     let tool = tool.as_str();
     for app in CATALOG {
         if let Some(picked) = app.tools.iter().find(|picked| picked.slug == tool) {
-            return Some((app, picked.acts));
+            return Some((ToolApp::Catalog(app), picked.acts));
         }
+    }
+    let added = ADDED_PREFIX.to_ascii_uppercase();
+    if let Some(rest) = tool.strip_prefix(&added) {
+        let (server, name) = rest.split_once('_')?;
+        if server.is_empty() || name.is_empty() {
+            return None;
+        }
+        let slug = format!("{ADDED_PREFIX}{}", server.to_ascii_lowercase());
+        return Some((ToolApp::Added(slug), Acts::Always));
     }
     let name = tool.strip_prefix("FASTMAIL_")?.to_lowercase();
     let &(_, acts) = FASTMAIL_TOOLS.iter().find(|(known, _)| *known == name)?;
-    Some((catalog_app("fastmail")?, acts))
+    Some((ToolApp::Catalog(catalog_app("fastmail")?), acts))
 }
 
-/// The app of `tool` and whether a call with `args` acts, for a call made
-/// outside a session, such as from a group. `None` for a tool outside the
-/// catalog.
+/// The catalog app of `tool` and whether a call with `args` acts, for a
+/// call made outside a session, such as from a group. `None` for a tool
+/// outside the catalog.
 pub(crate) fn call_acts(tool: &str, args: &Value) -> Option<(&'static CatalogApp, bool)> {
-    let (app, acts) = lookup(tool)?;
-    Some((app, acts.on(args)))
+    match lookup(tool)? {
+        (ToolApp::Catalog(app), acts) => Some((app, acts.on(args))),
+        (ToolApp::Added(_), _) => None,
+    }
 }
 
 /// The card that asks to allow `tool` with `args`.
-pub(crate) fn approval_for(app: &CatalogApp, tool: &str, args: &Value) -> Approval {
+pub(crate) fn approval_for(app: &ToolApp, tool: &str, args: &Value) -> Approval {
     Approval {
-        app: app.name.to_owned(),
+        app: app.name(),
         action: action_name(app, ToolSlug::new(tool).as_str()),
         fields: fields(args),
     }
@@ -131,8 +171,8 @@ fn action_tools(app: &CatalogApp) -> Vec<String> {
 }
 
 /// "send email" for `GMAIL_SEND_EMAIL`.
-fn action_name(app: &CatalogApp, tool: &str) -> String {
-    let prefix = format!("{}_", app.slug.to_uppercase());
+fn action_name(app: &ToolApp, tool: &str) -> String {
+    let prefix = format!("{}_", app.slug().to_uppercase());
     tool.strip_prefix(&prefix)
         .unwrap_or(tool)
         .to_lowercase()
@@ -203,11 +243,11 @@ impl Rules {
 }
 
 /// What the phone shows for `app`.
-pub(crate) fn app_permissions(app: &CatalogApp, rules: &Rules) -> AppPermissions {
+pub(crate) fn app_permissions(app: &'static CatalogApp, rules: &Rules) -> AppPermissions {
     let actions = action_tools(app)
         .into_iter()
         .map(|tool| AppAction {
-            label: capitalize(&action_name(app, &tool)),
+            label: capitalize(&action_name(&ToolApp::Catalog(app), &tool)),
             allowed: rules.allows(app.slug, &tool),
             tool,
         })
@@ -249,7 +289,7 @@ struct Shared {
 /// The app of `tool` and whether it acts, by the catalog or by its Composio
 /// tags in `hinted`, the slugs `hinted_to_act` picked out. Tags only add
 /// asking: a catalog action whose tags say update still asks.
-fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(&'static CatalogApp, Acts)> {
+fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(ToolApp, Acts)> {
     let (app, acts) = lookup(tool)?;
     if hinted.contains(&ToolSlug::new(tool)) {
         return Some((app, Acts::Always));
@@ -275,7 +315,7 @@ pub(crate) fn guard(
             else {
                 return Some(tool);
             };
-            let level = shared.rules.level(app.slug);
+            let level = shared.rules.level(app.slug());
             if level == (PermissionLevel::ReadOnly {}) && acts == Acts::Always {
                 return None;
             }
@@ -283,7 +323,7 @@ pub(crate) fn guard(
             // The model only drafts in a send tool when it knows the user sees the call first.
             let description = if acts == Acts::Always
                 && level == (PermissionLevel::Ask {})
-                && !shared.rules.allows(app.slug, slug.as_str())
+                && !shared.rules.allows(app.slug(), slug.as_str())
             {
                 format!("{} {ASKS_FIRST}", tool.description())
             } else {
@@ -309,7 +349,7 @@ struct Guarded {
     tool: Arc<dyn Tool>,
     slug: ToolSlug,
     description: String,
-    app: &'static CatalogApp,
+    app: ToolApp,
     acts: Acts,
     shared: Arc<Shared>,
 }
@@ -380,8 +420,8 @@ pub(crate) fn waiting_approval(conversation: &Conversation) -> Option<HistoryEnt
     fields.extend(records(&call.arguments, conversation));
     Some(HistoryEntry::Approval {
         approval: Approval {
-            app: app.name.to_owned(),
-            action: action_name(app, ToolSlug::new(&call.name).as_str()),
+            app: app.name(),
+            action: action_name(&app, ToolSlug::new(&call.name).as_str()),
             fields: fields.into_iter().take(MAX_FIELDS).collect(),
         },
         query_id: call.id,
@@ -740,10 +780,21 @@ pub(crate) async fn allow_always(user: &User, tool: &str) -> Result<()> {
         return Ok(());
     };
     let rules = user.app_rules().await?;
-    let mut rule = rules.0.get(app.slug).cloned().unwrap_or_default();
+    let mut rule = rules.0.get(app.slug()).cloned().unwrap_or_default();
     rule.allowed.insert(ToolSlug::new(tool).0);
-    user.save_app_permissions(&row(app, rule.level, rule.allowed.into_iter().collect()))
-        .await
+    let row = match app {
+        ToolApp::Catalog(app) => row(app, rule.level, rule.allowed.into_iter().collect()),
+        ToolApp::Added(slug) => {
+            let mut allowed: Vec<String> = rule.allowed.into_iter().collect();
+            allowed.sort();
+            AppPermissionRow {
+                app: slug,
+                level: rule.level,
+                allowed,
+            }
+        }
+    };
+    user.save_app_permissions(&row).await
 }
 
 /// The call's arguments as the user reads them.
@@ -825,24 +876,24 @@ impl Tool for Guarded {
         }
         let name = self.slug.as_str();
         let rules = &self.shared.rules;
-        match rules.level(self.app.slug) {
+        match rules.level(self.app.slug()) {
             PermissionLevel::Allow {} => self.tool.execute(ctx).await,
             PermissionLevel::ReadOnly {} => Ok(ToolResult::success(
                 ctx.tool_call_id,
                 format!(
                     "{READ_ONLY} {} to read only. Tell them, and that they \
                      can change it under Apps in Beep's menu.",
-                    self.app.name
+                    self.app.name()
                 ),
             )),
             PermissionLevel::Ask {}
-                if rules.allows(self.app.slug, name)
+                if rules.allows(self.app.slug(), name)
                     || self.shared.approved.0.as_deref() == Some(ctx.tool_call_id) =>
             {
                 self.tool.execute(ctx).await
             }
             PermissionLevel::Ask {} => {
-                let approval = approval_for(self.app, name, &ctx.args);
+                let approval = approval_for(&self.app, name, &ctx.args);
                 Ok(ToolResult::interrupt(
                     ctx.tool_call_id,
                     Arc::new(ApprovalPayload { approval }),
@@ -906,7 +957,7 @@ pub(crate) fn actions_since(conversation: &Conversation, since: DateTime<Utc>) -
         .filter_map(|(call, _)| {
             let (app, acts) = lookup(&call.name)?;
             acts.on(&call.arguments)
-                .then(|| describe_action(app, call, conversation))
+                .then(|| describe_action(&app, call, conversation))
         })
         .collect()
 }
@@ -923,7 +974,7 @@ fn went_through(output: &str) -> bool {
     !failed
 }
 
-fn describe_action(app: &CatalogApp, call: &ToolCall, conversation: &Conversation) -> String {
+fn describe_action(app: &ToolApp, call: &ToolCall, conversation: &Conversation) -> String {
     let action = action_name(app, ToolSlug::new(&call.name).as_str());
     let mut fields = records(&call.arguments, conversation);
     fields.extend(fields_of(&call.arguments));
@@ -940,9 +991,9 @@ fn describe_action(app: &CatalogApp, call: &ToolCall, conversation: &Conversatio
         })
         .collect();
     if details.is_empty() {
-        format!("{}: {action}", app.name)
+        format!("{}: {action}", app.name())
     } else {
-        format!("{}: {action} ({})", app.name, details.join("; "))
+        format!("{}: {action} ({})", app.name(), details.join("; "))
     }
 }
 
@@ -963,18 +1014,28 @@ mod tests {
     #[test]
     fn tools_are_classified_by_app() {
         let (app, acts) = lookup("GMAIL_SEND_EMAIL").unwrap();
-        assert_eq!((app.slug, acts), ("gmail", Acts::Always));
+        assert_eq!((app.slug(), acts), ("gmail", Acts::Always));
         assert_eq!(lookup("GMAIL_FETCH_EMAILS").unwrap().1, Acts::Never);
         let (app, acts) = lookup("FASTMAIL_UPDATE_EMAIL").unwrap();
-        assert_eq!((app.slug, acts), ("fastmail", Acts::WhenMoving));
+        assert_eq!((app.slug(), acts), ("fastmail", Acts::WhenMoving));
         assert!(lookup("open_maps").is_none());
+        // A tool of a server the user added always asks.
+        let (app, acts) = lookup("MCP_MY-NOTES_SEARCH_PAGES").unwrap();
+        assert_eq!((app.slug(), acts), ("mcp_my-notes", Acts::Always));
+        assert_eq!(app.name(), "My notes");
+        assert_eq!(
+            action_name(&app, "MCP_MY-NOTES_SEARCH_PAGES"),
+            "search pages"
+        );
+        assert!(call_acts("MCP_MY-NOTES_SEARCH_PAGES", &Value::Null).is_none());
+        assert!(lookup("MCP_").is_none());
     }
 
     #[test]
     fn lowercase_composio_names_are_classified() {
         let none = HashSet::new();
         let (app, acts) = classify("outlook_reply_email", &none).unwrap();
-        assert_eq!((app.slug, acts), ("outlook", Acts::Always));
+        assert_eq!((app.slug(), acts), ("outlook", Acts::Always));
         assert_eq!(
             classify("outlook_query_emails", &none).unwrap().1,
             Acts::Never
@@ -1266,7 +1327,7 @@ mod tests {
             name: "GMAIL_SEND_EMAIL".into(),
             arguments: json!({ "subject": "s".repeat(MAX_ACTION_VALUE_CHARS) }),
         };
-        let action = describe_action(gmail, &call, &Conversation::new());
+        let action = describe_action(&ToolApp::Catalog(gmail), &call, &Conversation::new());
         assert!(!action.contains("..."), "{action}");
     }
 

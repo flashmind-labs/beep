@@ -155,3 +155,34 @@ pub(super) async fn finish_app_auth(cx: Cx, req: FinishAppAuth) -> Reply<()> {
         .finish_app_auth(&req.slug, &req.code, &req.state, req.issuer.as_deref())
         .await
 }
+
+pub(super) async fn list_mcp_servers(cx: Cx, _: ListMcpServers) -> Reply<Vec<McpServer>> {
+    cx.user.list_custom_mcp().await
+}
+
+pub(super) async fn add_mcp_server(
+    cx: Cx,
+    AddMcpServer { name, url }: AddMcpServer,
+) -> Reply<McpConnect> {
+    cx.user.add_custom_mcp(&name, &url).await
+}
+
+pub(super) async fn connect_mcp_server(
+    cx: Cx,
+    ConnectMcpServer { id }: ConnectMcpServer,
+) -> Reply<McpConnect> {
+    cx.user.reconnect_custom_mcp(&id).await
+}
+
+pub(super) async fn finish_mcp_auth(cx: Cx, req: FinishMcpAuth) -> Reply<McpServer> {
+    cx.user
+        .finish_custom_mcp(&req.code, &req.state, req.issuer.as_deref())
+        .await
+}
+
+pub(super) async fn remove_mcp_server(
+    cx: Cx,
+    RemoveMcpServer { id }: RemoveMcpServer,
+) -> Reply<()> {
+    cx.user.remove_custom_mcp(&id).await
+}

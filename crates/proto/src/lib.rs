@@ -416,6 +416,45 @@ requests! {
     /// The routes a `get_route` call found, by the call's id, for its card.
     /// `NotFound` for a call that found none or is not the caller's.
     93 GetRouteCard { call_id: String } => Call<RouteCard>
+    /// The MCP servers the user added by URL.
+    94 ListMcpServers {} => Call<Vec<McpServer>>
+    /// Adds a remote MCP server by its https URL. One that needs no sign-in
+    /// connects at once; otherwise open `auth_url`, which comes back through
+    /// `mcp_callback_url()` with what `FinishMcpAuth` takes.
+    95 AddMcpServer { name: String, url: String } => Call<McpConnect>
+    /// Connects an added server again, signing in again when it needs to.
+    96 ConnectMcpServer { id: String } => Call<McpConnect>
+    /// Hands the sign-in redirect's `code`, `state` and `iss` to the server,
+    /// which finds the server the flow was for by `state`.
+    97 FinishMcpAuth { code: String, state: String, issuer: Option<String> } => Call<McpServer>
+    98 RemoveMcpServer { id: String } => Call<()>
+    /// The run going on in the caller's session, started from any of their
+    /// devices, to follow with `GetEvents` from 0. `None` when it is idle.
+    99 ActiveRun { session_id: Uuid } => Call<Option<Run>>
+}
+
+/// A remote MCP server the user added. The server makes every call, so it
+/// works the same from every device.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpServer {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub connected: bool,
+    /// Whether it signs in with OAuth.
+    pub sign_in: bool,
+    /// The tools Beep gets from it, as the server names them.
+    pub tools: Vec<String>,
+}
+
+/// An added or reconnected server: connected, or waiting for the user to
+/// sign in at `auth_url`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpConnect {
+    pub server: McpServer,
+    pub auth_url: Option<String>,
 }
 
 /// What a `get_route` call found, as the route card draws it.
@@ -742,6 +781,70 @@ pub fn share_url(token: &str) -> String {
 /// links still read.
 pub fn share_token(url: &str) -> Option<&str> {
     link_token(url, "s", "beep://share/")
+}
+
+/// Where MCP sign-ins come back. The Worker hands it to the app: Android
+/// claims it as an App Link, and the page sends other apps on to
+/// `beep://oauth?...`.
+pub fn mcp_callback_url() -> String {
+    format!("https://{LINK_HOST}/oauth/callback")
+}
+
+/// What a sign-in redirect brought back.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpCallback {
+    pub code: String,
+    pub state: String,
+    pub issuer: Option<String>,
+}
+
+/// The sign-in result in `url`, if it is `mcp_callback_url()` or
+/// `beep://oauth` with a `code` and a `state`.
+pub fn mcp_callback(url: &str) -> Option<McpCallback> {
+    let url = url.trim();
+    let callback = format!("https://{LINK_HOST}/oauth/callback");
+    let query = url
+        .strip_prefix(&callback)
+        .or_else(|| url.strip_prefix("beep://oauth"))?;
+    let query = query.strip_prefix('/').unwrap_or(query).strip_prefix('?')?;
+    let (mut code, mut state, mut issuer) = (None, None, None);
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let value = percent_decode(value)?;
+        match key {
+            "code" => code = Some(value),
+            "state" => state = Some(value),
+            "iss" => issuer = Some(value),
+            _ => {}
+        }
+    }
+    Some(McpCallback {
+        code: code.filter(|code| !code.is_empty())?,
+        state: state.filter(|state| !state.is_empty())?,
+        issuer,
+    })
+}
+
+/// A query value with `%XX` escapes and `+` decoded, or `None` when it is
+/// not valid UTF-8 after.
+fn percent_decode(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => out.push(b' '),
+            b'%' => {
+                let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                i += 2;
+            }
+            byte => out.push(byte),
+        }
+        i += 1;
+    }
+    String::from_utf8(out).ok()
 }
 
 /// The invite link with `token`.
@@ -1790,6 +1893,33 @@ mod tests {
     #[test]
     fn share_token_reads_only_share_links() {
         assert_eq!(share_url("ab12"), "https://beep.flashmind.com/s/ab12");
+        assert_eq!(
+            mcp_callback(
+                "https://beep.flashmind.com/oauth/callback?code=a%2Fb&state=s1&iss=https%3A%2F%2Fid.example"
+            ),
+            Some(McpCallback {
+                code: "a/b".to_owned(),
+                state: "s1".to_owned(),
+                issuer: Some("https://id.example".to_owned()),
+            })
+        );
+        assert_eq!(
+            mcp_callback("beep://oauth?state=s1&code=c"),
+            Some(McpCallback {
+                code: "c".to_owned(),
+                state: "s1".to_owned(),
+                issuer: None,
+            })
+        );
+        assert_eq!(
+            mcp_callback("https://beep.flashmind.com/oauth/callback?code=c"),
+            None
+        );
+        assert_eq!(
+            mcp_callback("https://beep.flashmind.com.evil/oauth/callback?code=c&state=s"),
+            None
+        );
+        assert_eq!(mcp_callback("beep://oauth?code=%zz&state=s"), None);
         assert_eq!(share_token(&share_url("ab12")), Some("ab12"));
         assert_eq!(
             share_token(" https://beep.flashmind.com/s/ab12/\n"),

@@ -189,6 +189,17 @@ pub struct Message {
     pub draws: Draws,
 }
 
+impl Message {
+    /// Something the user typed, rather than a routine, an event or an
+    /// answer to a card.
+    fn is_prompt(&self) -> bool {
+        self.cron_id.is_none()
+            && self.scheduled.is_none()
+            && self.woken.is_none()
+            && self.answer.is_none()
+    }
+}
+
 /// What an app draws under a reply beyond text and images. A run only gets
 /// the tools whose results its app can show.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -398,6 +409,12 @@ impl App {
                 Err(error) => log::warn!("unable to check title: {error}; run_id={}", run.id),
             }
             tokio::spawn(async move {
+                // Saved before the run can finish, which replaces it.
+                if message.is_prompt()
+                    && let Err(error) = user.save_prompt(&run, &message.message).await
+                {
+                    log::warn!("unable to save the prompt: {error:#}; run_id={}", run.id);
+                }
                 let turn = metering::in_turn(app.execute(&user, &run, &message, &live));
                 if let Err(error) = turn.await {
                     log::error!("run failed: {error}; run_id={}", run.id);

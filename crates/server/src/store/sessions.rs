@@ -105,6 +105,11 @@ fn remove_turn(conversation: &mut Conversation, timestamp: i64, which: TurnsToDe
 /// `chats c` and `chat_members m`.
 const SESSION_COLUMNS: &str = "c.id, {title}, m.pinned, c.updated_at";
 
+/// A session is listed once a turn is saved, or while its first run is
+/// going, so it shows on every device the moment it is asked.
+const SHOWN: &str = "(EXISTS (SELECT 1 FROM sessions s WHERE s.chat_id = c.id)
+    OR EXISTS (SELECT 1 FROM runs r WHERE r.chat_id = c.id AND r.status = 'running'))";
+
 fn session_columns() -> String {
     SESSION_COLUMNS.replace("{title}", SESSION_TITLE)
 }
@@ -136,8 +141,7 @@ impl Store {
         let rows = sqlx::query(&format!(
             "SELECT {} FROM chats c
              JOIN chat_members m ON m.chat_id = c.id
-             JOIN sessions s ON s.chat_id = c.id
-             WHERE m.user_id = $1 AND c.kind = 'session'
+             WHERE m.user_id = $1 AND c.kind = 'session' AND {SHOWN}
              ORDER BY m.pinned DESC, c.seq DESC LIMIT 200",
             session_columns()
         ))
@@ -272,11 +276,10 @@ impl Store {
         user: &UserKey,
         ids: &[Uuid],
     ) -> Result<Vec<Uuid>> {
-        Ok(sqlx::query_scalar(
+        Ok(sqlx::query_scalar(&format!(
             "SELECT c.id FROM chats c JOIN chat_members m ON m.chat_id = c.id
-             JOIN sessions s ON s.chat_id = c.id
-             WHERE m.user_id = $1 AND c.kind = 'session' AND c.id = ANY($2)",
-        )
+                 WHERE m.user_id = $1 AND c.kind = 'session' AND c.id = ANY($2) AND {SHOWN}"
+        ))
         .bind(user.as_str())
         .bind(ids)
         .fetch_all(&self.pool)
@@ -595,6 +598,90 @@ mod tests {
         assert!(store.delete_session(&alice, s1).await.unwrap());
         assert!(!store.in_chat(&alice, s1).await.unwrap());
         assert!(!store.delete_session(&alice, s1).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_prompt_shows_while_its_run_goes_and_gives_way_to_the_turn() {
+        use crate::store::{
+            CreateRun, FinishedTurn, RunStatus, TestDb, TurnRecord, test_chat, test_steps,
+        };
+        use flashmind::core::ConversationEntry;
+
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let start = |chat, request: &'static str| {
+            let store = store.clone();
+            let alice = alice.clone();
+            async move {
+                let CreateRun::Created(run) =
+                    store.create_run(&alice, chat, request, "hi").await.unwrap()
+                else {
+                    panic!("the run was not created");
+                };
+                store.save_prompt(&alice, &run, "hi").await.unwrap();
+                run
+            }
+        };
+        let listed = || async {
+            let sessions = store.sessions(&alice).await.unwrap();
+            sessions.into_iter().map(|s| s.id).collect::<Vec<_>>()
+        };
+        let texts = |chat| {
+            let store = store.clone();
+            async move {
+                let messages = store.chat_messages(chat).await.unwrap();
+                messages
+                    .iter()
+                    .map(|m| m.text().to_owned())
+                    .collect::<Vec<_>>()
+            }
+        };
+
+        // Listed with its prompt as soon as it starts, and found by its run.
+        let s1 = test_chat("s1");
+        let run = start(s1, "req-1").await;
+        assert_eq!(listed().await, vec![s1.to_string()]);
+        assert_eq!(texts(s1).await, ["hi"]);
+        assert_eq!(
+            store.active_run(&alice, s1).await.unwrap(),
+            Some(run.clone())
+        );
+
+        // The finished turn holds the prompt once.
+        let mut turn = Conversation::new();
+        turn.add(ConversationEntry::user("hi"));
+        turn.add(ConversationEntry::assistant("re: hi"));
+        let steps = test_steps(&turn);
+        let finished = FinishedTurn {
+            context: &turn,
+            prompt_tokens: Some(0),
+            steps: &steps,
+            carried: TurnRecord::default(),
+        };
+        store
+            .finish(&alice, &run, Some(finished), RunStatus::Completed)
+            .await
+            .unwrap();
+        assert_eq!(texts(s1).await, ["hi", "re: hi"]);
+        assert_eq!(store.active_run(&alice, s1).await.unwrap(), None);
+
+        // A first run that saved nothing takes its prompt and listing along.
+        let s2 = test_chat("s2");
+        let run = start(s2, "req-2").await;
+        store
+            .finish(&alice, &run, None, RunStatus::Failed)
+            .await
+            .unwrap();
+        assert!(texts(s2).await.is_empty());
+        assert_eq!(listed().await, vec![s1.to_string()]);
+
+        // So does one a restart cut off.
+        let s3 = test_chat("s3");
+        start(s3, "req-3").await;
+        store.recover().await.unwrap();
+        assert!(texts(s3).await.is_empty());
+        assert_eq!(listed().await, vec![s1.to_string()]);
     }
 
     #[tokio::test]

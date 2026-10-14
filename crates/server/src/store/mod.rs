@@ -42,7 +42,7 @@ mod users;
 
 pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
-pub use apps::McpServerRow;
+pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::PushDevice;
@@ -240,6 +240,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         37,
         "route cards",
         include_str!("../../migrations/0037_route_cards.sql"),
+    ),
+    (
+        38,
+        "custom mcp",
+        include_str!("../../migrations/0038_custom_mcp.sql"),
+    ),
+    (
+        39,
+        "run prompts",
+        include_str!("../../migrations/0039_run_prompts.sql"),
     ),
 ];
 

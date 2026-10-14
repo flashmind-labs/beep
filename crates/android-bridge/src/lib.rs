@@ -6,24 +6,25 @@
 //! the server dials the endpoint to deliver notices.
 
 use beep_proto::{
-    Agents, AnswerApproval, AnswerGroupApproval, ApiError, AppIntegration, AppPermissions,
-    ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp, ConnectLink, CopyShare,
-    CreateCron, CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory,
-    DeletePlace, DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom,
-    DeviceAnswer, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
-    GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels,
-    GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionImages, GetShare, Group,
-    GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health,
-    HistoryEntry, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice,
-    ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMemories,
-    ListMemoryReads, ListPlaces, ListSessions, ListSkills, Memory, MemoryRead, Models, Notice,
-    PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RenameSession, RouteCard, Run,
-    RunCron, SearchSessions, SendToGroup, SentImages, Session, SessionMatch, SetAgents,
-    SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone, ShareGroupApps,
-    ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, Stream, SuggestPrompts,
-    ToggleCron, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation,
-    UpdateMemory, UpdatePlace, UpdateSkill,
+    ActiveRun, AddMcpServer, Agents, AnswerApproval, AnswerGroupApproval, ApiError, AppIntegration,
+    AppPermissions, ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp,
+    ConnectLink, ConnectMcpServer, CopyShare, CreateCron, CreateGroup, Cron, CrossPlace,
+    DeleteCron, DeleteGroupReminder, DeleteMemory, DeletePlace, DeleteSession, DeleteSessions,
+    DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult, DisconnectApp, Event,
+    ExistingSessions, FilePart, FinishAppAuth, FinishMcpAuth, GetAgents, GetAppPermissions,
+    GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRouteCard, GetRun, GetSession,
+    GetSessionAgents, GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink,
+    GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, JoinAccount, JoinGroup,
+    JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices,
+    ListGroupReminders, ListGroups, ListMcpServers, ListMemories, ListMemoryReads, ListPlaces,
+    ListSessions, ListSkills, McpCallback, McpConnect, McpServer, Memory, MemoryRead, Models,
+    Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing,
+    Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RemoveMcpServer,
+    RenameSession, RouteCard, Run, RunCron, SearchSessions, SendToGroup, SentImages, Session,
+    SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone,
+    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, Stream,
+    SuggestPrompts, ToggleCron, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
+    UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -249,6 +250,12 @@ pub fn share_token(url: String) -> Option<String> {
     beep_proto::share_token(&url).map(str::to_owned)
 }
 
+/// The sign-in an MCP server sent back, if `url` is the OAuth callback.
+#[uniffi::export]
+pub fn mcp_callback(url: String) -> Option<McpCallback> {
+    beep_proto::mcp_callback(&url)
+}
+
 /// The token of a group invite link (`https://` or the legacy
 /// `beep://group/`), or None for any other text.
 #[uniffi::export]
@@ -419,6 +426,13 @@ impl BeepClient {
 
     pub async fn get_run(&self, id: String) -> Result<Run, BeepError> {
         self.call(GetRun { id }).await
+    }
+
+    /// The run going on in `session_id`, started from any of the user's
+    /// devices, or `None` when it is idle.
+    pub async fn active_run(&self, session_id: String) -> Result<Option<Run>, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(ActiveRun { session_id }).await
     }
 
     pub async fn cancel_run(&self, id: String) -> Result<(), BeepError> {
@@ -866,6 +880,36 @@ impl BeepClient {
 
     pub async fn disconnect_app(&self, slug: String) -> Result<(), BeepError> {
         self.call(DisconnectApp { slug }).await
+    }
+
+    /// The MCP servers this user added by URL.
+    pub async fn list_mcp_servers(&self) -> Result<Vec<McpServer>, BeepError> {
+        self.call(ListMcpServers {}).await
+    }
+
+    /// Adds a remote MCP server. When it needs a sign-in, `auth_url` is the
+    /// page to open in the browser.
+    pub async fn add_mcp_server(&self, name: String, url: String) -> Result<McpConnect, BeepError> {
+        self.call(AddMcpServer { name, url }).await
+    }
+
+    /// Connects server `id` again, or starts a new sign-in for it.
+    pub async fn connect_mcp_server(&self, id: String) -> Result<McpConnect, BeepError> {
+        self.call(ConnectMcpServer { id }).await
+    }
+
+    /// Hands the server the sign-in that came back to the app.
+    pub async fn finish_mcp_auth(&self, callback: McpCallback) -> Result<McpServer, BeepError> {
+        self.call(FinishMcpAuth {
+            code: callback.code,
+            state: callback.state,
+            issuer: callback.issuer,
+        })
+        .await
+    }
+
+    pub async fn remove_mcp_server(&self, id: String) -> Result<(), BeepError> {
+        self.call(RemoveMcpServer { id }).await
     }
 
     /// What Beep may do in `slug`, and which of its actions act.

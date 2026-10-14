@@ -4,13 +4,13 @@ use super::{
     Store,
     chats::{SessionChat, ensure_session, touch},
     messages::{Step, TurnRecord, drop_approvals, insert_steps, latest_turn, patch_turn},
-    updates::{Readers, UpdateOp, log_chat, log_messages},
+    updates::{Bumped, Readers, UpdateOp, log_chat, log_messages},
 };
 use crate::{protocol::Run, user::UserKey};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use flashmind::core::Conversation;
-use sqlx::{Row, postgres::PgRow};
+use sqlx::{PgConnection, Row, postgres::PgRow};
 use uuid::Uuid;
 
 pub enum CreateRun {
@@ -85,10 +85,72 @@ fn run(row: &PgRow) -> Result<Run> {
 impl Store {
     // Called once before accepting requests. A server restart never silently repeats tools.
     pub async fn recover(&self) -> Result<()> {
-        sqlx::query("UPDATE runs SET status='interrupted' WHERE status='running'")
-            .execute(&self.pool)
-            .await?;
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            "UPDATE runs SET status='interrupted' WHERE status='running' RETURNING chat_id, prompt_id",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        // Their turns were never saved, so the prompts shown meanwhile go too.
+        let mut bumped = Vec::new();
+        for row in rows {
+            if let Some(prompt) = row.try_get::<Option<i64>, _>(1)? {
+                bumped.extend(drop_prompt(&mut tx, row.try_get(0)?, prompt).await?);
+            }
+        }
+        tx.commit().await?;
+        self.announce(&bumped);
         Ok(())
+    }
+
+    /// Saves the prompt of `run`, just started, so every device shows it
+    /// while the run goes on. The finished turn takes its place.
+    pub(crate) async fn save_prompt(&self, user: &UserKey, run: &Run, prompt: &str) -> Result<()> {
+        let chat = Uuid::parse_str(&run.session_id)?;
+        let mut tx = self.pool.begin().await?;
+        let id: i64 = sqlx::query_scalar(
+            "WITH next AS (SELECT nextval(pg_get_serial_sequence('messages', 'id')) AS id)
+             INSERT INTO messages (id, chat_id, role, turn_id, author_id, content, sent_at)
+             SELECT id, $1, 'user', id, $2, $3, now() FROM next RETURNING id",
+        )
+        .bind(chat)
+        .bind(user.as_str())
+        .bind(prompt)
+        .fetch_one(&mut *tx)
+        .await?;
+        let running = sqlx::query(
+            "UPDATE runs SET prompt_id = $1 WHERE id = $2 AND user_id = $3 AND status = 'running'",
+        )
+        .bind(id)
+        .bind(&run.id)
+        .bind(user.as_str())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        // Finished already: its turn is saved, or nothing is.
+        if running == 0 {
+            tx.rollback().await?;
+            return Ok(());
+        }
+        touch(&mut tx, chat).await?;
+        let bumped =
+            log_messages(&mut tx, chat, &[id], UpdateOp::Message, Readers::Members).await?;
+        tx.commit().await?;
+        self.announce(&bumped);
+        Ok(())
+    }
+
+    /// The run going on in session `chat`, if any.
+    pub(crate) async fn active_run(&self, user: &UserKey, chat: Uuid) -> Result<Option<Run>> {
+        let row = sqlx::query(
+            "SELECT id, chat_id, status FROM runs
+             WHERE user_id = $1 AND chat_id = $2 AND status = 'running'",
+        )
+        .bind(user.as_str())
+        .bind(chat)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref().map(run).transpose()
     }
 
     /// Starts a run in session `chat`, making the session on its first run.
@@ -215,6 +277,20 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         let mut saved = None;
         let mut bumped = Vec::new();
+        // The prompt shown while it ran gives way to the turn, or to nothing.
+        let prompt: Option<i64> =
+            sqlx::query_scalar("SELECT prompt_id FROM runs WHERE id = $1 AND user_id = $2")
+                .bind(&run.id)
+                .bind(user.as_str())
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+        if let Some(prompt) = prompt {
+            bumped.extend(drop_prompt(&mut tx, chat, prompt).await?);
+            if turn.is_none() {
+                touch(&mut tx, chat).await?;
+            }
+        }
         if let Some(turn) = turn {
             sqlx::query(
                 "INSERT INTO sessions (chat_id, context, context_tokens) VALUES ($1, $2, COALESCE($3, 0))
@@ -270,4 +346,13 @@ impl Store {
         self.announce(&bumped);
         Ok(saved)
     }
+}
+
+/// Deletes the prompt message `prompt` of `chat` and logs it gone.
+async fn drop_prompt(tx: &mut PgConnection, chat: Uuid, prompt: i64) -> Result<Vec<Bumped>> {
+    let gone: Vec<i64> = sqlx::query_scalar("DELETE FROM messages WHERE id = $1 RETURNING id")
+        .bind(prompt)
+        .fetch_all(&mut *tx)
+        .await?;
+    log_messages(tx, chat, &gone, UpdateOp::Deleted, Readers::Members).await
 }

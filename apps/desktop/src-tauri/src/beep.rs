@@ -9,7 +9,7 @@ use crate::{
     sync::Chats,
 };
 use beep_proto::{
-    AnswerApproval, ApprovalDecision, ApprovalField, Call, Chart, Chat, DeleteTurnsFrom,
+    ActiveRun, AnswerApproval, ApprovalDecision, ApprovalField, Call, Chart, Chat, DeleteTurnsFrom,
     DeviceAnswer, DeviceQuery, DeviceResult, Event, GetEvents, GetFile, GetSession,
     GetSessionImages, HistoryEntry, ImageRef, ListSessions, Notice, Platform, ReasoningLevel,
     RemoveDevice, RunEvent, SearchSessions, SentImages, Session, SessionMatch, Stream,
@@ -572,6 +572,21 @@ impl Beep {
                 after: 0,
             })
             .await?;
+        self.follow(replies, channel).await;
+        Ok(())
+    }
+
+    /// The run going on in `session`, started here or on another device.
+    pub async fn active_run(&self, session: &str) -> Result<Option<String>> {
+        let session_id =
+            Uuid::parse_str(session).map_err(|_| DesktopError::BadRequest("bad session".into()))?;
+        Ok(self.call(ActiveRun { session_id }).await?.map(|run| run.id))
+    }
+
+    /// Streams run `run_id` from its start, for a chat that another device
+    /// asked in.
+    pub async fn follow_run(&self, run_id: String, channel: Channel<BarEvent>) -> Result<()> {
+        let replies = self.stream(GetEvents { run_id, after: 0 }).await?;
         self.follow(replies, channel).await;
         Ok(())
     }

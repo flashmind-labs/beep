@@ -40,6 +40,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.*
 import com.flashmind.beep.ffi.groupToken
+import com.flashmind.beep.ffi.mcpCallback
 import com.flashmind.beep.ffi.shareToken
 import com.flashmind.beep.proto.Group
 import androidx.compose.material3.*
@@ -133,7 +134,8 @@ open class MainActivity : ComponentActivity() {
     /** A notice about an app, or the `beep://apps` link Composio returns to after sign-in. */
     private fun opensApps(intent: Intent?): Boolean =
         intent?.getBooleanExtra("open_apps", false) == true ||
-            (intent?.data?.scheme == "beep" && intent.data?.host == "apps")
+            (intent?.data?.scheme == "beep" && intent.data?.host in setOf("apps", "oauth")) ||
+            intent?.data?.path == "/oauth/callback"
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -148,6 +150,8 @@ open class MainActivity : ComponentActivity() {
         if (opensApps(intent)) pendingOpenApps.value = true
         if (intent.getBooleanExtra("open_read", false)) pendingOpenRead.value = true
         intent.data?.let { shareToken(it.toString()) }?.let { pendingShareToken.value = it }
+        // An MCP server's sign-in came back: the server finishes it, Apps shows how it went.
+        intent.data?.let { mcpCallback(it.toString()) }?.let { (application as BeepApplication).repository.finishMcpAuth(it) }
         intent.data?.let { groupToken(it.toString()) }?.let { pendingGroupToken.value = it }
         intent.getStringExtra("group_id")?.let { pendingGroup.value = it }
     }

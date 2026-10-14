@@ -41,7 +41,7 @@ use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use serde_json::Value;
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fmt,
     sync::{Arc, Mutex, PoisonError, Weak},
     time::{Duration, Instant},
@@ -89,6 +89,10 @@ pub struct User {
     decision: Option<Arc<DecisionTool>>,
     /// MCP servers the user connected, such as Fastmail, made on first use.
     pub(crate) mcp: OnceCell<McpRegistry>,
+    /// The servers the user added by URL, which connect only when called.
+    pub(crate) custom_mcp: OnceCell<McpRegistry>,
+    /// Sign-ins to added servers under way, by their OAuth `state`.
+    pub(crate) mcp_flows: Mutex<HashMap<String, mcp::Flow>>,
     pub(crate) notifications: broadcast::Sender<UserNotice>,
     /// Suggested prompts, kept for 12 hours.
     pub(crate) starters: AsyncMutex<Option<Cached>>,
@@ -121,6 +125,8 @@ impl User {
             composio: shared.composio.clone(),
             decision: shared.decision.clone(),
             mcp: OnceCell::new(),
+            custom_mcp: OnceCell::new(),
+            mcp_flows: Mutex::default(),
             notifications: shared.notifications.clone(),
             starters: AsyncMutex::new(None),
             starter_refreshes: Mutex::default(),
@@ -236,6 +242,18 @@ impl User {
         self.store
             .create_run(&self.key, session, request, message)
             .await
+    }
+
+    /// Shows the prompt of `run`, just started, on every device while it runs.
+    pub async fn save_prompt(&self, run: &Run, prompt: &str) -> Result<()> {
+        self.store.save_prompt(&self.key, run, prompt).await?;
+        self.changed(&run.session_id);
+        Ok(())
+    }
+
+    /// The run going on in `session`, if any.
+    pub async fn active_run(&self, session: Uuid) -> Result<Option<Run>> {
+        self.store.active_run(&self.key, session).await
     }
 
     /// The run already started for `request`, without starting one.
