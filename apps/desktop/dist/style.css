@@ -241,6 +241,32 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dprod-copy:hover { border-color: var(--emerald) }
 .dprod.pending .dprod-card { min-height: 220px; cursor: default }
 
+/* Recommendation cards: places, films, events. Shorter than the phone's and without buttons; a click opens the page, or Maps for a place. */
+.drecs { flex: none; display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; margin: 2px 0 8px; align-items: start; user-select: none }
+.drecs::-webkit-scrollbar { display: none }
+.dbody a.drec, .drec { flex: none; width: 216px; display: grid; color: #E8EEEA; text-decoration: none; border: 1.5px solid #34413A; border-radius: 16px;
+  overflow: hidden; background: #1C2420; box-shadow: 0 3px 0 #34413A; cursor: pointer }
+.drec:hover { border-color: #46564D }
+.drec img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0 }
+.drec img.on { opacity: 1 }
+.drec-img { display: block; position: relative; height: 72px; background: #26302B }
+.drec-day { position: absolute; left: 10px; top: 10px; display: grid; justify-items: center; width: 42px; padding: 4px 0; border-radius: 10px; background: #1C2420; border: 1.5px solid #34413A; line-height: 1.1 }
+.drec-day small { font-size: 9.5px; font-weight: 600; color: var(--coral) }
+.drec-day b { font-size: 17px; font-weight: 700 }
+.drec-poster { display: flex; height: 120px; background: #24332B }
+.drec-art { width: 80px; flex: none; background: #26302B }
+.drec-watch { flex: 1; display: grid; align-content: end; gap: 4px; padding: 10px; line-height: 16px }
+.drec-watch small { font-size: 10.5px; color: #93A39A }
+.drec-watch b { font-size: 13px; font-weight: 600 }
+.drec-info { display: grid; gap: 5px; align-content: start; padding: 10px 12px 12px; min-width: 0 }
+.drec-title { font-size: 14px; line-height: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.drec-sub, .drec-meta { font-size: 12px; line-height: 16px; color: #93A39A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.drec-facts { display: flex; gap: 4px; flex-wrap: wrap }
+.drec-facts i { font-style: normal; font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 999px; background: #24332B }
+.drec-status { font-size: 12px; font-weight: 500 }
+.drec-status.place { color: #93A39A }
+.drec-status.open { color: #5CC49C }
+
 /* Memories and routines */
 .dmem { display: grid; gap: 2px; padding: 7px 10px; border-radius: 9px; color: var(--fg) }
 .dmem .top { display: flex; align-items: flex-start; gap: 10px }

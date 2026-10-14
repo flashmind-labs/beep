@@ -3,6 +3,7 @@
 mod apps;
 mod bar;
 mod beep;
+mod cards;
 mod commands;
 mod devices;
 mod error;

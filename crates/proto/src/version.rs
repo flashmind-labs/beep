@@ -11,7 +11,7 @@ use crate::{Hello, Platform};
 /// The newest wire revision this crate reads. Raise it together with a new
 /// `Feature`, and run the compat test with `BEEP_WIRE_BLESS=1` to freeze the
 /// new revision's fixtures.
-pub const WIRE: u32 = 2;
+pub const WIRE: u32 = 3;
 
 /// A reply shape newer than some clients: a streamed enum variant, or
 /// anything else only the `WIRE` it names can decode. Declare each as an
@@ -25,8 +25,9 @@ impl Feature {
     /// `StockChart`. Only the macOS app does.
     pub const CHARTS: Feature = Feature(2);
 
-    /// Draws `show_cards` results. `WIRE` stays below it until every app
-    /// does, since each app sends the `WIRE` it was built with.
+    /// Draws `show_cards` results. The macOS and Android apps do; the iOS
+    /// app sends the same `WIRE` but does not yet, so the server checks its
+    /// platform too.
     pub const CARDS: Feature = Feature(3);
 
     /// The first wire revision that reads it.

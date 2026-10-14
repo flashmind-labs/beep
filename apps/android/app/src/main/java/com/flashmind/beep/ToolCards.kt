@@ -119,6 +119,8 @@ sealed class ToolCard {
     data class Replies(val replies: List<String>, val choice: Boolean) : ToolCard()
     data class Images(val images: List<SentImage>) : ToolCard()
     data class Products(val products: List<Product>) : ToolCard()
+    /** Recommendations from show_cards: places, films and shows, events or any other kind. */
+    data class Recs(val cards: List<RecCard>) : ToolCard()
     /** A file Beep sent, fetched from the server by [id] when first opened. */
     data class File(val id: String, val name: String, val mime: String, val size: Long) : ToolCard()
     /** A place Beep saved by name, which routines can start on arriving at or leaving. */
@@ -135,7 +137,7 @@ data class Contact(val name: String, val phone: String, val email: String)
 private fun JSONObject.text(key: String) = optString(key).takeIf { it.isNotBlank() && it != "null" }
 
 /** Tools that get no chip: what they do is already on screen, or is bookkeeping. */
-val QUIET_TOOLS = setOf("suggest_replies", "show_products", "notify_user", "task_progress")
+val QUIET_TOOLS = setOf("suggest_replies", "show_products", "show_cards", "notify_user", "task_progress")
 
 /** Reads the card a tool's output describes, or null when it is just text for the model. */
 fun cardFor(call: ToolCall): ToolCard? {
@@ -178,6 +180,7 @@ fun cardFor(call: ToolCall): ToolCard? {
             if (images.isEmpty()) null else ToolCard.Images(images)
         }
         "show_products" -> shownProducts(json).takeIf { it.isNotEmpty() }?.let { ToolCard.Products(it) }
+        "show_cards" -> shownRecCards(json).takeIf { it.isNotEmpty() }?.let { ToolCard.Recs(it) }
         "place_save" -> savedPlaceOf(json)
         "send_file" -> json.optJSONObject("file")?.let { f ->
             val id = f.text("id") ?: return null
@@ -886,6 +889,7 @@ fun ToolCards(cards: List<ToolCard>, compact: Boolean, repository: ChatRepositor
                     }
                 }
                 is ToolCard.Products -> ProductRow(card.products, loading = false)
+                is ToolCard.Recs -> RecRow(card.cards)
                 is ToolCard.File -> FileCard(card)
                 is ToolCard.SavedPlace -> SavedPlaceCard(card, compact, repository)
                 is ToolCard.Route -> RouteCardView(card, compact, repository)

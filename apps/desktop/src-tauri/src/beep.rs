@@ -2,6 +2,7 @@
 //! a connection opened on demand, and the run streams the bar follows.
 
 use crate::{
+    cards,
     error::{DesktopError, Result},
     identity::{Identity, secret_key},
     markdown, products,
@@ -58,6 +59,8 @@ pub struct Pick {
 
 /// Its result lists products, which show as a row of cards.
 const SHOW_PRODUCTS: &str = "show_products";
+/// Its result lists recommendations, which show as a row of cards.
+const SHOW_CARDS: &str = "show_cards";
 
 /// What the bar draws while a run streams.
 #[derive(Debug, Clone, Serialize)]
@@ -88,6 +91,8 @@ pub enum BarEvent {
         images: Vec<SentImage>,
         /// A `show_products` result's cards, as HTML.
         products: Option<String>,
+        /// A `show_cards` result's cards, as HTML.
+        cards: Option<String>,
         /// A `show_chart` or `show_stock_chart` result's chart, boxed to
         /// keep the event small.
         chart: Option<Box<Chart>>,
@@ -197,6 +202,8 @@ pub struct ToolStep {
     pub images: Vec<SentImage>,
     /// A `show_products` result's cards, as HTML.
     pub products: Option<String>,
+    /// A `show_cards` result's cards, as HTML.
+    pub cards: Option<String>,
     /// A `show_chart` or `show_stock_chart` result's chart.
     pub chart: Option<Chart>,
     /// A `get_route` call's id, to fetch its transit card with `GetRoute`.
@@ -635,9 +642,32 @@ impl Beep {
     async fn follow(&self, mut replies: Replies<Event>, channel: Channel<BarEvent>) {
         let mut text = String::new();
         let mut run_id = String::new();
+        let mut seq = 0;
         loop {
             let event = match replies.next().await {
-                Ok(Some(event)) => event.event,
+                Ok(Some(event)) => {
+                    seq = event.seq;
+                    event.event
+                }
+                // The server ends a stream after a while; a run still going
+                // is picked up again from the last event.
+                Ok(None) if !run_id.is_empty() => {
+                    let more = GetEvents {
+                        run_id: run_id.clone(),
+                        after: seq,
+                    };
+                    match self.stream(more).await {
+                        Ok(more) => {
+                            replies = more;
+                            continue;
+                        }
+                        Err(e) => {
+                            let message = e.to_string();
+                            let _ = channel.send(BarEvent::Error { message });
+                            break;
+                        }
+                    }
+                }
                 Ok(None) => break,
                 Err(e) => {
                     let message = self.failed(e).await.to_string();
@@ -688,6 +718,7 @@ impl Beep {
                     file: sent_file(&name, &output),
                     images: sent_images(&name, &output),
                     products: shown_products(&name, &output),
+                    cards: shown_cards(&name, &output),
                     chart: shown_chart(&name, &output).map(Box::new),
                     call_id,
                     name,
@@ -724,7 +755,8 @@ impl Beep {
                 },
                 RunEvent::Usage { .. } | RunEvent::MemoryScore { .. } => continue,
             };
-            if channel.send(out).is_err() {
+            let finished = matches!(out, BarEvent::Finished { .. });
+            if channel.send(out).is_err() || finished {
                 break;
             }
         }
@@ -756,6 +788,7 @@ pub fn tool_step(name: &str, call_id: &str, output: &str, success: bool) -> Tool
         file: sent_file(name, output),
         images: sent_images(name, output),
         products: shown_products(name, output),
+        cards: shown_cards(name, output),
         chart: shown_chart(name, output),
     }
 }
@@ -796,6 +829,14 @@ fn shown_products(name: &str, output: &str) -> Option<String> {
         return None;
     }
     products::shown(output)
+}
+
+/// The cards a `show_cards` result lists, or `None` for any other tool.
+fn shown_cards(name: &str, output: &str) -> Option<String> {
+    if name != SHOW_CARDS {
+        return None;
+    }
+    cards::shown(output)
 }
 
 #[derive(Deserialize)]
