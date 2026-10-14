@@ -59,6 +59,20 @@ android-release version:
     git tag -a "android-v{{version}}" -m "Beep for Android {{version}}"
     echo "Tagged android-v{{version}}. Publish it with: git push origin main android-v{{version}}"
 
+# Release Android and desktop together and push both tags. Without versions it
+# bumps each app's patch number: `just release`, or `just release 0.2.0 0.4.0`
+# (Android first, then desktop).
+release android="" desktop="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bump() { local v; v=$(git tag --list "$1-v*" --sort=-v:refname | head -1); v=${v#"$1-v"}; [[ -n $v ]] || { echo "no $1 tag to bump" >&2; exit 1; }; echo "${v%.*}.$(( ${v##*.} + 1 ))"; }
+    android="{{android}}"; desktop="{{desktop}}"
+    android=${android:-$(bump android)}; desktop=${desktop:-$(bump desktop)}
+    echo "Releasing Android $android and desktop $desktop"
+    just android-release "$android"
+    just desktop-release "$desktop"
+    git push origin main "android-v$android" "desktop-v$desktop"
+
 # Deploy the Cloudflare Worker behind https share and invite links. Needs
 # CLOUDFLARE_ACCOUNT_ID in .env: the account that holds flashmind.com.
 links-deploy:

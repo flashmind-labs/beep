@@ -15,6 +15,11 @@ bundle and uploads it to Play, and the phone updates from Play:
 - Releases stay drafts until the repository variable `PLAY_RELEASE_STATUS` is
   `completed`.
 
+To release Android and the desktop app together, run `just release`. It bumps
+each app's patch number from its latest tag, runs both release recipes below
+and pushes main with both tags. Pass versions to pick them:
+`just release 0.2.0 0.4.0` (Android first, then desktop).
+
 Do not hand-install APKs on the phone: a locally built APK is signed with
 another key and will not install over the Play build. Use the debug APK on an
 emulator (`./gradlew assembleDebug`).
@@ -95,8 +100,8 @@ workflow builds the same DMG on the Mac runner. Its key and state live in
 are in the same mock as the phone's.
 
 To release it, `just desktop-release 0.2.0` sets the version in
-`apps/desktop/src-tauri/Cargo.toml`, commits and tags `desktop-v0.2.0`. Pushing
-the tag runs the same workflow, which refuses to build without the Developer ID
+`apps/desktop/src-tauri/Cargo.toml`, commits and tags `desktop-v0.2.0` (or use
+`just release` for both apps). Pushing the tag runs the same workflow, which refuses to build without the Developer ID
 and notary secrets, then attaches a signed, notarized `Beep-0.2.0.dmg` to the
 tag's Forgejo release.
 
