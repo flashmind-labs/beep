@@ -3,18 +3,45 @@
 use super::User;
 use crate::{
     app::UserNotice,
-    apps::mcp::{StoreProvider, app_tools, check_redirect, display_name, lost_login, preset},
-    protocol::Notice,
+    apps::{
+        custom_mcp::{
+            self, CustomProvider, LIMITS, MAX_LABEL, MAX_SERVERS, MAX_URL, Outcome, check_url,
+            config_of, custom_tools, host_of, info, is_custom, ready, recheck, register,
+            server_name,
+        },
+        internal,
+        mcp::{StoreProvider, app_tools, check_redirect, display_name, lost_login, preset},
+    },
+    protocol::{ApiError, McpConnect, McpServer, Notice, mcp_callback_url},
+    store::{CustomMcp, McpServerRow},
 };
 use anyhow::{Result, bail};
 use flashmind::{tools::mcp::McpRegistry, types::Tool};
+use reqwest::Url;
 use serde_json::Value;
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+/// How long a sign-in may take before its `state` is forgotten.
+const FLOW_TTL: Duration = Duration::from_secs(10 * 60);
+
+/// A sign-in to an added server under way.
+pub(crate) struct Flow {
+    server: String,
+    started: Instant,
+}
 
 impl User {
     /// Forgets a server whose login was rejected and tells the user to
     /// connect it again. The app then lists it as not connected.
-    async fn drop_lost_mcp_login(&self, name: &str) {
+    pub(crate) async fn drop_lost_mcp_login(&self, name: &str) {
+        if is_custom(name) {
+            self.drop_lost_custom_login(name).await;
+            return;
+        }
         match self.remove_mcp(name).await {
             Ok(true) => {}
             Ok(false) => return,
@@ -54,13 +81,27 @@ impl User {
             .await
     }
 
-    /// Names of the servers the user has credentials for.
+    /// The registry of the servers the user added by URL. It starts empty
+    /// and learns each server when a call or a connect needs it.
+    async fn custom_registry(&self) -> &McpRegistry {
+        self.custom_mcp
+            .get_or_init(|| async {
+                let provider = Arc::new(CustomProvider {
+                    user: self.me.clone(),
+                });
+                McpRegistry::new(provider, None)
+            })
+            .await
+    }
+
+    /// Names of the catalog servers, such as Fastmail, the user has
+    /// credentials for. Servers the user added are not among them.
     pub async fn mcp_connected(&self) -> Result<HashSet<String>> {
         Ok(self
             .mcp_servers()
             .await?
             .into_iter()
-            .filter(|row| row.credentials.is_some())
+            .filter(|row| row.credentials.is_some() && !is_custom(&row.name))
             .map(|row| row.name)
             .collect())
     }
@@ -68,19 +109,296 @@ impl User {
     /// Agent tools for the servers the user has connected, one per remote
     /// tool Beep exposes.
     pub async fn mcp_tools(&self) -> Vec<Arc<dyn Tool>> {
-        let connected = match self.mcp_connected().await {
-            Ok(connected) if !connected.is_empty() => connected,
+        let rows = match self.mcp_servers().await {
+            Ok(rows) if !rows.is_empty() => rows,
             Ok(_) => return Vec::new(),
             Err(error) => {
                 log::warn!("mcp: unable to list servers: {error:#}");
                 return Vec::new();
             }
         };
-        let registry = self.mcp_registry().await;
-        // The tools are made from `current_mcp_tools` on every run, so the
-        // queued register and unregister ops are not needed.
+        let connected: HashSet<String> = rows
+            .iter()
+            .filter(|row| row.credentials.is_some() && !is_custom(&row.name))
+            .map(|row| row.name.clone())
+            .collect();
+        let mut tools = Vec::new();
+        if !connected.is_empty() {
+            let registry = self.mcp_registry().await;
+            // The tools are made from `current_mcp_tools` on every run, so the
+            // queued register and unregister ops are not needed.
+            registry.drain_pending_ops();
+            tools = app_tools(registry, &connected);
+        }
+        if rows.iter().any(ready) {
+            let registry = self.custom_registry().await;
+            registry.drain_pending_ops();
+            tools.extend(custom_tools(registry, &self.me, self.id(), &rows));
+        }
+        tools
+    }
+
+    /// The servers the user added by URL.
+    pub async fn list_custom_mcp(&self) -> Result<Vec<McpServer>, ApiError> {
+        let rows = self
+            .mcp_servers()
+            .await
+            .map_err(internal("list MCP servers"))?;
+        Ok(rows.iter().filter_map(server_info).collect())
+    }
+
+    /// Adds a server by URL and connects it, or starts its sign-in.
+    pub async fn add_custom_mcp(&self, label: &str, url: &str) -> Result<McpConnect, ApiError> {
+        let label = label.trim();
+        if label.is_empty() || label.chars().count() > MAX_LABEL || url.len() > MAX_URL {
+            return Err(ApiError::bad_request(
+                "Give the server a short name and its URL.",
+            ));
+        }
+        let name = server_name(label)
+            .ok_or_else(|| ApiError::bad_request("The name needs at least one letter or digit."))?;
+        let url = check_url(url)
+            .await
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        let rows = self
+            .mcp_servers()
+            .await
+            .map_err(internal("list MCP servers"))?;
+        if rows.iter().any(|row| row.name == name) {
+            return Err(ApiError::bad_request(format!(
+                "You already have a server called {label}."
+            )));
+        }
+        if rows.iter().filter(|row| row.custom.is_some()).count() >= MAX_SERVERS {
+            return Err(ApiError::bad_request(format!(
+                "You can add up to {MAX_SERVERS} servers."
+            )));
+        }
+        let custom = CustomMcp {
+            url: url.to_string(),
+            label: label.to_owned(),
+            sign_in: false,
+        };
+        let added = self
+            .store
+            .add_custom_mcp(&self.key, &name, &custom)
+            .await
+            .map_err(internal("add MCP server"))?;
+        if !added {
+            return Err(ApiError::bad_request("That name is taken."));
+        }
+        let connect = self.connect_custom(&name, custom).await;
+        if connect.is_err() {
+            // Nothing was saved worth keeping: the user fixes the URL and adds again.
+            let _ = self.delete_mcp_server(&name).await;
+        }
+        connect
+    }
+
+    /// Connects an added server again, starting a new sign-in if it needs one.
+    pub async fn reconnect_custom_mcp(&self, id: &str) -> Result<McpConnect, ApiError> {
+        let row = self.custom_row(id).await?;
+        let custom = row.custom.clone().ok_or(ApiError::NotFound {})?;
+        if let Some(registry) = self.custom_mcp.get() {
+            // Drops the old connection, so the next one starts from the saved login.
+            let _ = registry.remove(id).await;
+            registry.drain_pending_ops();
+        }
+        self.connect_custom(id, custom).await
+    }
+
+    /// Finishes the sign-in `state` names, which this user started.
+    pub async fn finish_custom_mcp(
+        &self,
+        code: &str,
+        state: &str,
+        issuer: Option<&str>,
+    ) -> Result<McpServer, ApiError> {
+        let flow = self
+            .mcp_flows
+            .lock()
+            .map_err(|_| ApiError::Internal {})?
+            .remove(state);
+        let Some(flow) = flow.filter(|flow| flow.started.elapsed() < FLOW_TTL) else {
+            return Err(ApiError::bad_request(
+                "This sign-in expired or was already used. Connect the server again.",
+            ));
+        };
+        let row = self.custom_row(&flow.server).await?;
+        let custom = row.custom.clone().ok_or(ApiError::NotFound {})?;
+        recheck(&custom.url)
+            .await
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        let host = host_of(&custom.url);
+        let permit = LIMITS.begin(&host, self.id()).map_err(|_| {
+            ApiError::bad_request(format!("{} is busy. Try again in a moment.", custom.label))
+        })?;
+        let registry = self.custom_registry().await;
+        let result = registry
+            .complete_auth(&flow.server, code, state, issuer)
+            .await;
         registry.drain_pending_ops();
-        app_tools(registry, &connected)
+        if let Err(error) = result {
+            permit.finish(custom_mcp::outcome_of(&error));
+            log::warn!(
+                "mcp: sign-in failed; server={} error={error:#}",
+                flow.server
+            );
+            return Err(ApiError::bad_request(format!(
+                "Signing in to {} failed. Try connecting it again.",
+                custom.label
+            )));
+        }
+        permit.finish(Outcome::Ok);
+        let row = self.custom_row(&flow.server).await?;
+        server_info(&row).ok_or(ApiError::NotFound {})
+    }
+
+    /// Removes an added server and its login.
+    pub async fn remove_custom_mcp(&self, id: &str) -> Result<(), ApiError> {
+        self.custom_row(id).await?;
+        if let Some(registry) = self.custom_mcp.get() {
+            let _ = registry.remove(id).await;
+            registry.drain_pending_ops();
+        }
+        if let Ok(mut flows) = self.mcp_flows.lock() {
+            flows.retain(|_, flow| flow.server != id);
+        }
+        self.delete_mcp_server(id)
+            .await
+            .map_err(internal("remove MCP server"))?;
+        Ok(())
+    }
+
+    /// The row of the added server `id`.
+    async fn custom_row(&self, id: &str) -> Result<McpServerRow, ApiError> {
+        if !is_custom(id) {
+            return Err(ApiError::NotFound {});
+        }
+        self.mcp_servers()
+            .await
+            .map_err(internal("list MCP servers"))?
+            .into_iter()
+            .find(|row| row.name == id && row.custom.is_some())
+            .ok_or(ApiError::NotFound {})
+    }
+
+    /// Connects `name`, which reads its tools, or starts its sign-in when
+    /// the server asks for one.
+    async fn connect_custom(
+        &self,
+        name: &str,
+        mut custom: CustomMcp,
+    ) -> Result<McpConnect, ApiError> {
+        let busy =
+            || ApiError::bad_request(format!("{} is busy. Try again in a moment.", custom.label));
+        let host = host_of(&custom.url);
+        let permit = LIMITS.begin(&host, self.id()).map_err(|_| busy())?;
+        let registry = self.custom_registry().await;
+        let row = self.custom_row(name).await?;
+        let config = config_of(&row, &custom);
+        register(registry, &config)
+            .await
+            .map_err(internal("register MCP server"))?;
+        if !custom.sign_in || row.credentials.is_some() {
+            let connected = registry.connect(config.clone()).await;
+            registry.drain_pending_ops();
+            match connected {
+                Ok(tools) => {
+                    permit.finish(Outcome::Ok);
+                    let tools = tools.into_iter().map(|tool| tool.name).collect();
+                    return Ok(McpConnect {
+                        server: info(name, &custom, true, tools),
+                        auth_url: None,
+                    });
+                }
+                Err(error) if lost_login(&error) => {}
+                Err(error) => {
+                    permit.finish(custom_mcp::outcome_of(&error));
+                    log::info!("mcp: connect failed; server={name} error={error:#}");
+                    return Err(ApiError::bad_request(format!(
+                        "Beep could not connect to {}. Check the URL.",
+                        custom.label
+                    )));
+                }
+            }
+        }
+        // The server wants a sign-in: an old login, if any, no longer works.
+        if row.credentials.is_some() {
+            let _ = self.save_mcp_credentials(name, Value::Null).await;
+        }
+        let started = registry.start_auth(name, &mcp_callback_url()).await;
+        let auth_url = match started {
+            Ok(url) => url,
+            Err(error) => {
+                permit.finish(custom_mcp::outcome_of(&error));
+                log::info!("mcp: no sign-in; server={name} error={error:#}");
+                return Err(ApiError::bad_request(format!(
+                    "Beep could not connect to {}. It needs a sign-in Beep does not support,                      or the URL is wrong.",
+                    custom.label
+                )));
+            }
+        };
+        permit.finish(Outcome::Ok);
+        let state = Url::parse(&auth_url).ok().and_then(|url| {
+            url.query_pairs()
+                .find(|(key, _)| key == "state")
+                .map(|(_, value)| value.into_owned())
+        });
+        let Some(state) = state else {
+            log::warn!("mcp: sign-in URL without state; server={name}");
+            return Err(ApiError::Internal {});
+        };
+        custom.sign_in = true;
+        self.store
+            .set_mcp_sign_in(&self.key, name)
+            .await
+            .map_err(internal("save MCP sign-in"))?;
+        if let Ok(mut flows) = self.mcp_flows.lock() {
+            flows.retain(|_, flow| flow.started.elapsed() < FLOW_TTL && flow.server != name);
+            flows.insert(
+                state,
+                Flow {
+                    server: name.to_owned(),
+                    started: Instant::now(),
+                },
+            );
+        }
+        Ok(McpConnect {
+            server: info(name, &custom, false, Vec::new()),
+            auth_url: Some(auth_url),
+        })
+    }
+
+    /// Clears the login an added server rejected and tells the user to
+    /// connect it again. The server stays in the list.
+    async fn drop_lost_custom_login(&self, name: &str) {
+        let Ok(row) = self.custom_row(name).await else {
+            return;
+        };
+        if row.credentials.is_none() {
+            return;
+        }
+        if let Err(error) = self.save_mcp_credentials(name, Value::Null).await {
+            log::warn!("mcp: unable to clear a lost login; server={name} error={error:#}");
+            return;
+        }
+        let label = row.custom.map(|custom| custom.label).unwrap_or_default();
+        log::warn!("mcp: {name} rejected the saved login, asking to reconnect; user={self}");
+        let notice = UserNotice {
+            user: self.id().to_owned(),
+            notice: Notice {
+                title: format!("Reconnect {label}"),
+                body: format!("Beep lost access to {label}. Connect it again under Apps."),
+                session_id: String::new(),
+                app: None,
+                approval: None,
+                changed: false,
+                group: false,
+            },
+        };
+        // Nobody listening just means the phone is offline.
+        let _ = self.notifications.send(notice);
     }
 
     /// Calls one tool on a connected server outside of any run and returns its
@@ -168,5 +486,92 @@ impl User {
             }
         }
         registry.drain_pending_ops();
+    }
+}
+
+/// What the app lists for an added server's row.
+fn server_info(row: &McpServerRow) -> Option<McpServer> {
+    let custom = row.custom.as_ref()?;
+    let tools = config_of(row, custom)
+        .cached_tools
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect();
+    Some(info(&row.name, custom, ready(row), tools))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::TestDb;
+    use flashmind::core::CancellationToken;
+    use flashmind::types::tool::ToolContext;
+    use serde_json::json;
+
+    /// Adds real public servers: one open, one behind OAuth. Needs the
+    /// network, so it runs only when asked for.
+    #[tokio::test]
+    #[ignore]
+    async fn added_servers_connect_or_ask_to_sign_in() {
+        // The server's endpoint installs it on startup; a test has none.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let db = TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+
+        let open = user
+            .add_custom_mcp("DeepWiki", "https://mcp.deepwiki.com/mcp")
+            .await
+            .unwrap();
+        assert!(open.auth_url.is_none(), "{open:?}");
+        assert!(
+            open.server.connected && !open.server.tools.is_empty(),
+            "{open:?}"
+        );
+        let names: Vec<String> = user
+            .mcp_tools()
+            .await
+            .iter()
+            .map(|tool| tool.name().to_owned())
+            .collect();
+        assert!(
+            names.iter().any(|name| name.starts_with("MCP_DEEPWIKI_")),
+            "{names:?}"
+        );
+        let tools = user.mcp_tools().await;
+        let structure = tools
+            .iter()
+            .find(|tool| tool.name() == "MCP_DEEPWIKI_READ_WIKI_STRUCTURE")
+            .expect("DeepWiki lists its wiki structure tool");
+        let cancel = CancellationToken::new();
+        let args = json!({"repoName": "tokio-rs/tokio"});
+        let result = structure
+            .execute(ToolContext::new("call", args, None, &cancel))
+            .await
+            .unwrap();
+        assert!(
+            result.is_success() && result.output().to_lowercase().contains("tokio"),
+            "{result:?}"
+        );
+
+        let oauth = user
+            .add_custom_mcp("Linear", "https://mcp.linear.app/mcp")
+            .await
+            .unwrap();
+        let auth = oauth.auth_url.expect("Linear asks to sign in");
+        assert!(!oauth.server.connected && oauth.server.sign_in);
+        assert!(
+            auth.contains("redirect_uri=https%3A%2F%2Fbeep.flashmind.com%2Foauth%2Fcallback"),
+            "{auth}"
+        );
+
+        let refused = user
+            .add_custom_mcp("Router", "http://192.168.1.1/mcp")
+            .await;
+        assert!(refused.is_err());
+
+        assert_eq!(user.list_custom_mcp().await.unwrap().len(), 2);
+        user.remove_custom_mcp(&open.server.id).await.unwrap();
+        user.remove_custom_mcp(&oauth.server.id).await.unwrap();
+        assert!(user.list_custom_mcp().await.unwrap().is_empty());
     }
 }

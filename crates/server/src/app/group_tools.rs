@@ -14,7 +14,7 @@ use crate::{
     decision::DecisionTool,
     feeds::mail::clip,
     leak::{Gate, Said, Secret},
-    permissions::{self, Rules, ToolSlug},
+    permissions::{self, Rules, ToolApp, ToolSlug},
     protocol::{Approval, Notice, PendingApproval},
     tools::group_memory::{Member, Secrets},
     user::User,
@@ -326,7 +326,8 @@ impl Tool for MemberTool {
             if self.run.leaks(&args.to_string()).await {
                 return Ok(ToolResult::failure(ctx.tool_call_id, LEAKS));
             }
-            let approval = permissions::approval_for(owner.app, &self.name, &args);
+            let approval =
+                permissions::approval_for(&ToolApp::Catalog(owner.app), &self.name, &args);
             self.run
                 .app
                 .ask_group_action(&self.run, owner, approval, args);

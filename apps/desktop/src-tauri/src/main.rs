@@ -36,6 +36,7 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_notification::NotificationExt;
 
 /// The server's node id, baked in by build.rs.
@@ -53,6 +54,7 @@ struct Recent(Mutex<Vec<Session>>);
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -71,6 +73,8 @@ fn main() {
             commands::send_prompt,
             commands::rerun_prompt,
             commands::answer_approval,
+            commands::active_run,
+            commands::follow_run,
             commands::cancel_run,
             commands::list_sessions,
             commands::search_sessions,
@@ -106,6 +110,10 @@ fn main() {
             apps::disconnect_app,
             apps::app_permissions,
             apps::set_app_permissions,
+            apps::list_mcp_servers,
+            apps::add_mcp_server,
+            apps::connect_mcp_server,
+            apps::remove_mcp_server,
             devices::use_here,
             devices::list_devices,
             devices::invite_phone,
@@ -178,6 +186,20 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     tauri::async_runtime::spawn(update::follow(handle.clone()));
     let toggle = handle.clone();
     hotkey::start(move || bar::toggle(&toggle));
+
+    // Sign-ins come back as beep:// links, while running or as the reason
+    // macOS started Beep.
+    let links = handle.clone();
+    app.deep_link().on_open_url(move |event| {
+        for url in event.urls() {
+            apps::open_link(&links, url.as_str());
+        }
+    });
+    if let Ok(Some(urls)) = app.deep_link().get_current() {
+        for url in urls {
+            apps::open_link(&handle, url.as_str());
+        }
+    }
 
     let menu = tray_menu(&handle, &beep)?;
     let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;

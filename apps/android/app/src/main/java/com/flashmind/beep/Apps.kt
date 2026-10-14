@@ -32,7 +32,10 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Switch
@@ -63,7 +66,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
@@ -77,6 +85,8 @@ import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.AppAction
 import com.flashmind.beep.proto.AppKind
 import com.flashmind.beep.proto.AppPermissions
+import com.flashmind.beep.proto.McpConnect
+import com.flashmind.beep.proto.McpServer
 import com.flashmind.beep.proto.PermissionLevel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -99,11 +109,36 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf<String?>(null) }
     var open by remember { mutableStateOf<AppIntegration?>(null) }
+    // Null until the server answers; a server too old to know them never does, and the section stays hidden.
+    var servers by remember { mutableStateOf<List<McpServer>?>(null) }
+    var openServer by remember { mutableStateOf<McpServer?>(null) }
+    var adding by remember { mutableStateOf(false) }
 
     fun refresh() { scope.launch {
-        try { apps = withContext(Dispatchers.IO) { repository.listApps() }; error = "" }
+        try {
+            apps = withContext(Dispatchers.IO) { repository.listApps() }
+            servers = withContext(Dispatchers.IO) { runCatching { repository.listMcpServers() }.getOrNull() } ?: servers
+            openServer = openServer?.let { o -> servers?.firstOrNull { it.id == o.id } }
+            error = ""
+        }
         catch (e: Exception) { error = userMessage(e) }
         finally { loading = false; busy = null }
+    } }
+    fun browse(url: String) =
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    /** Opens the server's sign-in when it needs one; the link back finishes it. */
+    fun connected(result: McpConnect) {
+        result.authUrl?.let { browse(it) } ?: refresh()
+    }
+    fun signIn(server: McpServer) { scope.launch {
+        busy = server.id
+        try { connected(withContext(Dispatchers.IO) { repository.connectMcpServer(server.id) }) }
+        catch (e: Exception) { error = userMessage(e); busy = null }
+    } }
+    fun removeServer(server: McpServer) { scope.launch {
+        busy = server.id
+        try { withContext(Dispatchers.IO) { repository.removeMcpServer(server.id) }; refresh() }
+        catch (e: Exception) { error = userMessage(e); busy = null }
     } }
     fun connect(app: AppIntegration) { scope.launch {
         busy = app.slug
@@ -135,6 +170,15 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        repository.mcpAuthResults.collect { result ->
+            if (result == null) return@collect
+            error = result.error ?: ""
+            repository.mcpAuthResults.value = null
+            refresh()
+        }
+    }
+
     // Coming back from the browser after signing in is the cue to look again.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
@@ -149,6 +193,17 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
             onDisconnect = { open = null; disconnect(app) })
         return
     }
+    openServer?.let { server ->
+        BackHandler { openServer = null }
+        McpServerScreen(server, busy == server.id, error, onBack = { openServer = null },
+            onSignIn = { signIn(server) }, onRemove = { openServer = null; removeServer(server) })
+        return
+    }
+    if (adding) AddMcpServerDialog(repository, onDismiss = { adding = false }, onAdded = { result ->
+        adding = false
+        connected(result)
+        refresh()
+    })
 
     val t = Beep.colors
     Scaffold(containerColor = t.page, topBar = {
@@ -184,6 +239,23 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
                     AppRow(app, busy == app.slug, onConnect = { connect(app) }, onOpen = { open = app })
                 }
             }
+            val servers = servers
+            if (!loading && servers != null) {
+                item { SectionLabel("Your servers") }
+                if (servers.isEmpty()) item {
+                    Text("Add any remote MCP server by its address. Beep asks before every action it takes there.",
+                        color = t.muted, fontSize = 13.sp, lineHeight = 18.sp)
+                }
+                items(servers, key = { "m-" + it.id }) { server ->
+                    McpServerRow(server, busy == server.id, onSignIn = { signIn(server) }, onOpen = { openServer = server })
+                }
+                item {
+                    ChunkyButton(onClick = { adding = true }, color = t.surface, contentColor = t.ink,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text("+ Add MCP server", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
         }
     }
 }
@@ -215,6 +287,162 @@ private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, on
                 else -> ChunkyButton(onClick = onConnect, color = t.accent, contentColor = t.onAccent,
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
                     Text("Connect", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+/** The host a server URL names, for the row under its name. */
+private fun hostOf(url: String): String = Uri.parse(url).host ?: url
+
+/** A tool's name as the server gave it, such as `search_pages`, in words. */
+private fun mcpToolLabel(name: String): String =
+    name.replace('_', ' ').replace('-', ' ').trim().replaceFirstChar { it.uppercase() }
+
+@Composable
+private fun McpServerRow(server: McpServer, busy: Boolean, onSignIn: () -> Unit, onOpen: () -> Unit) {
+    val t = Beep.colors
+    BeepCard(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            AppLogo(server.id, server.name)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(server.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = t.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(2.dp))
+                Text(hostOf(server.url), fontSize = 12.sp, color = t.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(10.dp))
+            when {
+                busy -> CircularProgressIndicator(Modifier.padding(horizontal = 18.dp).size(20.dp), strokeWidth = 2.dp, color = t.ok)
+                server.connected -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (server.tools.size == 1) "1 tool" else "${server.tools.size} tools",
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = t.ink)
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(16.dp), tint = t.muted)
+                }
+                else -> ChunkyButton(onClick = onSignIn, color = t.accent, contentColor = t.onAccent,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
+                    Text(if (server.signIn) "Sign in" else "Retry", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+/** Name and URL of a new server. Adding it connects, and returns the sign-in page when it needs one. */
+@Composable
+private fun AddMcpServerDialog(repository: ChatRepository, onDismiss: () -> Unit, onAdded: (McpConnect) -> Unit) {
+    val t = Beep.colors
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("") }
+    var working by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    fun add() { scope.launch {
+        working = true
+        error = ""
+        try { onAdded(withContext(Dispatchers.IO) { repository.addMcpServer(name.trim(), url.trim()) }) }
+        catch (e: Exception) { error = userMessage(e) }
+        finally { working = false }
+    } }
+    val fieldColors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = t.surface, focusedContainerColor = t.surface)
+    AlertDialog(onDismissRequest = { if (!working) onDismiss() }, containerColor = t.surface,
+        title = { Text(displayText("Add MCP server"), style = displayStyle(22.sp)) },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(name, { name = it.take(60) }, label = { Text("Name") }, singleLine = true, enabled = !working,
+                modifier = Modifier.fillMaxWidth(), placeholder = { Text("Team wiki") }, colors = fieldColors,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
+            OutlinedTextField(url, { url = it.take(2000) }, label = { Text("Server URL") }, singleLine = true, enabled = !working,
+                modifier = Modifier.fillMaxWidth(), placeholder = { Text("https://example.com/mcp") }, colors = fieldColors,
+                textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
+                isError = error.isNotEmpty(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done))
+            when {
+                working -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = t.ok)
+                    Text("Connecting to the server…", fontSize = 13.sp, color = t.muted)
+                }
+                error.isNotEmpty() -> Text(error, fontSize = 13.sp, color = t.error, lineHeight = 18.sp)
+                else -> Text("Use the server's https address. If it needs an account, Beep opens its sign-in in the browser.",
+                    fontSize = 12.sp, color = t.muted, lineHeight = 17.sp)
+            }
+        } },
+        confirmButton = { ChunkyButton(onClick = ::add, color = t.accent, contentColor = t.onAccent,
+            enabled = !working && name.isNotBlank() && url.isNotBlank()) {
+            Text(if (error.isNotEmpty()) "Try again" else "Add", fontWeight = FontWeight.SemiBold)
+        } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !working) { Text("Cancel") } })
+}
+
+/** One added server: its address, whether it works, its tools, and Remove. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun McpServerScreen(server: McpServer, busy: Boolean, error: String, onBack: () -> Unit, onSignIn: () -> Unit, onRemove: () -> Unit) {
+    val t = Beep.colors
+    Scaffold(containerColor = t.page, topBar = {
+        TopAppBar(title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AppLogo(server.id, server.name, size = 32.dp)
+                Spacer(Modifier.width(12.dp))
+                Text(server.name, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = t.page))
+    }) { padding ->
+        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                BeepCard(Modifier.fillMaxWidth()) {
+                    Text(server.url, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = t.ink,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+                }
+            }
+            if (error.isNotEmpty()) item { Text(error, color = t.error, fontSize = 13.sp) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(if (server.connected) t.ok else t.error))
+                    Text(when {
+                        server.connected -> if (server.tools.size == 1) "Connected, 1 tool" else "Connected, ${server.tools.size} tools"
+                        server.signIn -> "Sign-in expired"
+                        else -> "Not connected"
+                    }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.ink)
+                }
+            }
+            if (server.connected && server.tools.isNotEmpty()) {
+                item { SectionLabel("Tools") }
+                item {
+                    BeepCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
+                            server.tools.forEachIndexed { i, tool ->
+                                if (i > 0) HorizontalDivider(color = t.softLine)
+                                Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(mcpToolLabel(tool), fontSize = 14.sp, color = t.ink, modifier = Modifier.weight(1f))
+                                    Text("Asks", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = t.ink,
+                                        modifier = Modifier.clip(CircleShape).background(t.tints[2]).padding(horizontal = 8.dp, vertical = 3.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Text("Beep asks before every tool on a server you add. Tap Always when it asks to stop asking for this server.",
+                        fontSize = 12.sp, color = t.muted, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                }
+            }
+            if (!server.connected) item {
+                Text(if (server.signIn) "The server stopped accepting Beep's sign-in. Sign in again to use its tools."
+                    else "Beep could not reach this server. It tries again when you ask.",
+                    fontSize = 13.sp, color = t.muted, lineHeight = 18.sp)
+            }
+            if (!server.connected) item {
+                if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = t.ok)
+                else ChunkyButton(onClick = onSignIn, color = t.accent, contentColor = t.onAccent) {
+                    Text(if (server.signIn) "Sign in again" else "Try again", fontWeight = FontWeight.SemiBold)
+                }
+            }
+            item {
+                Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
+                    TextButton(onClick = onRemove) { Text("Remove server", color = t.error, fontSize = 14.sp) }
                 }
             }
         }

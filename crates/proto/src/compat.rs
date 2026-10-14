@@ -91,6 +91,8 @@ sample_struct! {
     HistoryTool { name, call_id, output, success }
     AppIntegration { slug, name, description, logo_url, connected, configured, kind }
     ConnectLink { url }
+    McpServer { id, name, url, connected, sign_in, tools }
+    McpConnect { server, auth_url }
     PromptSuggestion { title, prompt }
     PromptSuggestions { suggestions, personal }
     Usage { prompt_tokens, completion_tokens, total_tokens, cache_read_tokens, cache_creation_tokens }

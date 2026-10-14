@@ -357,6 +357,7 @@ dependencies = [
  "rmcp 2.2.0",
  "rmp-serde",
  "rust_decimal",
+ "rustls",
  "secrecy",
  "serde",
  "serde_json",

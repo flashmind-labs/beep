@@ -14,6 +14,7 @@ const ICON = {
   doc: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
   phone: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></svg>',
 };
+ICON.image = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>';
 ICON.save = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
 const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/></svg>';
 /// Tool steps shown while a run works; older ones fold into "+N tools".
@@ -163,6 +164,7 @@ function chatHints() {
   if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
   if (e?.run) return hints([[ICON.ret, "queue"], ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
+  if (attached.pics.length) return hints([[ICON.ret, "send"], ["⌘V", "paste image"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
 }
@@ -183,6 +185,7 @@ function renderChat() {
   b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; drawLatest(); markMap(); };
   drawLatest();
   drawQueue();
+  drawAttached();
   const ask = $("#ask");
   let multi = false;
   ask.addEventListener("input", () => {
@@ -485,16 +488,21 @@ function follow(id, turn) {
 }
 
 async function send(message) {
-  if (!message.trim()) return;
+  const images = attached.pics.slice();
+  if (!message.trim() && !images.length) return;
   const busy = here();
+  if (images.length && (busy?.run || busy?.approval)) return attachError("Images send once this reply finishes");
   if (busy?.run || busy?.approval) return enqueue(message.trim());
+  message = message.trim() || (images.length > 1 ? "What are these?" : "What is this?");
+  attached.pics = [];
+  drawAttached();
   const id = S.session ??= newId();
   const ask = $("#ask");
   body().querySelectorAll(".dreplies").forEach(r => r.remove());
   ask.value = "";
   ask.placeholder = "Ask a follow-up…";
   grow(ask);
-  const turn = newTurn(message);
+  const turn = newTurn(message, images.map(url => ({ url })));
   turn.user = true;
   // Without Auto every prompt runs on the chosen model; with it, Jev's pick
   // arrives as an event.
@@ -509,12 +517,44 @@ async function send(message) {
   scrollDown();
   await stopping.get(id);
   try {
-    await invoke("send_prompt", { session: id, message, images: [], onEvent: follow(id, turn) });
+    await invoke("send_prompt", { session: id, message, images, onEvent: follow(id, turn) });
   } catch (err) {
     if (!turn.stopped) failed(turn, String(err));
   }
   turn.started?.(null);
   if (!turn.done) finish(id, turn);
+}
+
+// Chats whose run, started on another device, the bar is looking up or following.
+const watching = new Set();
+
+/// Follows the open chat's run when another device started it, drawing it
+/// as it streams like one sent from here.
+async function watchRun(id) {
+  if (!id || live.has(id) || watching.has(id)) return;
+  watching.add(id);
+  try {
+    const runId = await invoke("active_run", { session: id }).catch(() => null);
+    if (!runId || live.has(id) || S.session !== id || S.view !== "chat") return;
+    // The prompt is already drawn from the server's copy, waiting for its reply.
+    const last = [...body().querySelectorAll(".turn")].at(-1);
+    const turn = last?.user && !last.done ? last : newTurn("");
+    turn.steps ??= [];
+    reply(turn).innerHTML = '<span class="caret"></span>';
+    const e = entry(id);
+    e.body = body();
+    e.run = { id: runId, turn };
+    refreshHints();
+    scrollDown();
+    try {
+      await invoke("follow_run", { runId, onEvent: follow(id, turn) });
+    } catch (err) {
+      if (!turn.stopped) failed(turn, String(err));
+    }
+    if (!turn.done) finish(id, turn);
+  } finally {
+    watching.delete(id);
+  }
 }
 
 async function answer(decision) {
@@ -580,6 +620,7 @@ async function openSession(id) {
     drawHistory(id, turns);
     // A reply that finished while another chat was open left its queue waiting.
     if (queued.get(id) && !queued.get(id).held) sendQueued(id);
+    else watchRun(id);
   } catch (e) {
     if (S.session === id && S.view === "chat") failed(newTurn(""), String(e));
   }
@@ -845,6 +886,97 @@ async function copy(text, button) {
   setTimeout(() => { if (button.isConnected) button.innerHTML = was; }, 1200);
 }
 
+// ---------- Attached images ----------
+
+// Pictures pasted or dropped into the prompt, sent with the next message.
+// Each is shrunk and sent as JPEG, as the phone does.
+const attached = { pics: [], error: "" };
+const MAX_IMAGES = 8;
+const PIC_SIDE = 1024;
+
+/// The strip of attached pictures above the prompt, or the error from the
+/// last paste, with the placeholder and hints to match.
+function drawAttached() {
+  const old = $("#thumbs"), input = $("#ask")?.closest(".dinput");
+  if (!input) return;
+  const n = attached.pics.length;
+  const el = n || attached.error ? h(`<div class="dthumbs" id="thumbs">${attached.pics.map((url, i) =>
+    `<span class="dthumb"><img src="${esc(url)}" alt="Image ${i + 1}"><button aria-label="Remove image ${i + 1}" data-i="${i}">${ICON.x}</button></span>`).join("")}${attached.error ? `<span class="derr">${esc(attached.error)}</span>` : ""}</div>`) : null;
+  el?.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { unattach(+b.dataset.i); focusAsk(); }));
+  if (old) el ? old.replaceWith(el) : old.remove();
+  else if (el) input.before(el);
+  const ask = $("#ask");
+  if (n) {
+    ask.dataset.ph ??= ask.placeholder;
+    ask.placeholder = `Ask about ${n > 1 ? "these images" : "this image"}…`;
+  } else if (ask.dataset.ph) {
+    ask.placeholder = ask.dataset.ph;
+    delete ask.dataset.ph;
+  }
+  refreshHints();
+}
+
+function unattach(i) {
+  attached.pics.splice(i, 1);
+  attached.error = "";
+  drawAttached();
+}
+
+function attachError(text) {
+  attached.error = text;
+  drawAttached();
+  clearTimeout(attached.timer);
+  attached.timer = setTimeout(() => { attached.error = ""; drawAttached(); }, 4000);
+}
+
+/// Adds image files from a paste or a drop, up to `MAX_IMAGES` in all.
+async function attach(files) {
+  const pics = [...files].filter(f => f.type.startsWith("image/"));
+  if (!pics.length) return false;
+  for (const f of pics) {
+    if (attached.pics.length >= MAX_IMAGES) { attachError(`Up to ${MAX_IMAGES} images in one message`); break; }
+    try { attached.pics.push(await shrinkPic(f)); } catch { attachError("That image could not be read"); }
+  }
+  drawAttached();
+  return true;
+}
+
+/// `file` as a JPEG data URI no longer than `PIC_SIDE` on its longest side.
+async function shrinkPic(file) {
+  const img = await createImageBitmap(file);
+  const scale = Math.min(1, PIC_SIDE / Math.max(img.width, img.height, 1));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  const cx = canvas.getContext("2d");
+  // JPEG has no transparency; a screenshot's clear parts become white, not black.
+  cx.fillStyle = "#fff";
+  cx.fillRect(0, 0, canvas.width, canvas.height);
+  cx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  img.close();
+  return canvas.toDataURL("image/jpeg", 0.8);
+}
+
+document.addEventListener("paste", e => {
+  if (S.view !== "chat" || !$("#ask")) return;
+  const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+  if (files.some(f => f.type.startsWith("image/"))) { e.preventDefault(); attach(files); }
+});
+
+// Dropping images on the chat attaches them too.
+bar.addEventListener("dragover", e => {
+  if (S.view !== "chat" || !e.dataTransfer?.types.includes("Files")) return;
+  e.preventDefault();
+  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}Drop images to ask about them</div>`));
+});
+bar.addEventListener("dragleave", e => { if (!bar.contains(e.relatedTarget)) $("#ddrop")?.remove(); });
+bar.addEventListener("drop", e => {
+  $("#ddrop")?.remove();
+  if (S.view !== "chat" || !e.dataTransfer?.files.length) return;
+  e.preventDefault();
+  attach(e.dataTransfer.files).then(() => focusAsk());
+});
+
 // ---------- Files ----------
 
 function fileKind(f) {
@@ -932,6 +1064,7 @@ function picRow(images) {
 }
 
 function picTile(p) {
+  if (p.url) return `<img class="dpic" src="${esc(p.url)}" alt="">`;
   const got = pictures.get(p.id);
   if (typeof got === "string") return `<img class="dpic" src="${got}" alt="">`;
   if (got === null) return goneTile();
@@ -1793,7 +1926,10 @@ async function renderSettings(confirm = false) {
 
 /// The Apps view: every app, the one being connected and the one whose
 /// permissions are open.
-const A = { apps: null, error: "", connecting: null, poll: null, open: null, perms: null };
+const A = { apps: null, error: "", connecting: null, poll: null, open: null, perms: null,
+  // MCP servers added by URL: null until listed, the add form, and the one
+  // whose sign-in is open in the browser.
+  servers: null, adding: false, addError: "", waiting: null, busy: null };
 
 const APP_LEVELS = [
   ["ask", "Ask first", "Beep shows what it is about to do and waits for you."],
@@ -1827,6 +1963,9 @@ async function loadApps() {
   } catch (e) {
     A.error = String(e);
   }
+  // A server too old to know them leaves the section out.
+  A.servers = await invoke("list_mcp_servers").catch(() => A.servers);
+  if (A.waiting && A.servers?.find(m => m.id === A.waiting)?.connected) A.waiting = null;
   // A Composio sign-in ends on the web page; the app shows up connected here.
   if (A.connecting && A.apps?.find(a => a.slug === A.connecting)?.connected) stopConnecting();
   if (S.view === "apps") drawApps();
@@ -1850,11 +1989,100 @@ function drawApps() {
   if (!A.apps && !A.error) html += '<div class="dmuted" style="padding:14px 10px"><span class="dspin"></span></div>';
   if (connected.length) html += '<div class="dsec">Connected</div>' + connected.map(row).join("");
   if (more.length) html += `<div class="dsec">${connected.length ? "More apps" : "Available"}</div>` + more.map(row).join("");
+  if (A.servers) html += drawServers();
+  // Redrawing keeps what is typed in the add form.
+  const typed = { name: $("#mname")?.value, url: $("#murl")?.value }, focus = document.activeElement?.id;
   list.innerHTML = html;
   logoFallbacks(list);
+  if (typed.name != null && $("#mname")) $("#mname").value = typed.name;
+  if (typed.url != null && $("#murl")) $("#murl").value = typed.url;
+  if (focus && $("#" + focus)) $("#" + focus).focus();
 }
 
+function hostOf(url) {
+  try { return new URL(url).host; } catch { return url; }
+}
+
+/// The servers the user added, then the add form or its button.
+function drawServers() {
+  const row = m => {
+    let end;
+    if (A.waiting === m.id) end = `<span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" data-mcancel>Cancel</button>`;
+    else if (A.busy === m.id) end = '<span class="dmuted"><span class="dspin"></span></span>';
+    else if (m.connected) end = `<span class="dtag ok">${m.tools.length === 1 ? "1 tool" : `${m.tools.length} tools`}</span><button class="dbtn quiet" data-mremove="${esc(m.id)}">Remove</button>`;
+    else end = `<span class="dtag ask">${m.sign_in ? "Sign-in expired" : "Not connected"}</span><button class="dbtn pri" data-mconnect="${esc(m.id)}">${m.sign_in ? "Sign in" : "Retry"}</button>`
+      + `<button class="dbtn quiet" data-mremove="${esc(m.id)}">Remove</button>`;
+    const tools = m.connected && m.tools.length ? ` title="${esc(m.tools.join(", "))}"` : "";
+    return `<div class="dappr"${tools}><span class="dalogo">${esc(m.name.slice(0, 1).toUpperCase())}</span><span class="tt"><b>${esc(m.name)}</b><small>${esc(hostOf(m.url))}</small></span>${end}</div>`;
+  };
+  let html = '<div class="dsec">Your MCP servers</div>' + A.servers.map(row).join("");
+  if (A.adding) {
+    const busy = A.busy === "new";
+    html += `<div class="dform dmcp">
+      <label class="dfield"><span>Name</span><input id="mname" maxlength="60" placeholder="Team notes" autocomplete="off" spellcheck="false"${busy ? " disabled" : ""}></label>
+      <label class="dfield${A.addError ? " err" : ""}"><span>${A.addError ? esc(A.addError) : "Server URL"}</span><input id="murl" class="url" maxlength="2000" placeholder="https://example.com/mcp" autocomplete="off" spellcheck="false"${busy ? " disabled" : ""}></label>
+      <div style="display:flex;gap:8px;align-items:center">${busy ? '<span class="dmuted"><span class="dspin"></span> Connecting…</span>'
+        : `<button class="dbtn pri" data-madd>Add server<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-mclose>Cancel</button>`}</div></div>`;
+  } else {
+    html += `<div style="padding:4px 10px"><button class="dbtn" data-mnew>Add MCP server</button></div>`;
+  }
+  return html + '<div class="dmuted" style="padding:6px 10px;display:block">Beep asks before every tool on a server you add.</div>';
+}
+
+async function addServer() {
+  const name = $("#mname")?.value.trim(), url = $("#murl")?.value.trim();
+  if (!name || !url) return (name ? $("#murl") : $("#mname"))?.focus();
+  A.busy = "new";
+  A.addError = "";
+  drawApps();
+  try {
+    const server = await invoke("add_mcp_server", { name, url });
+    A.adding = false;
+    if (!server.connected) A.waiting = server.id;
+  } catch (e) {
+    A.addError = String(e);
+  }
+  A.busy = null;
+  await loadApps();
+  if (A.adding) $("#murl")?.focus();
+}
+
+async function serverAction(kind, id) {
+  A.busy = id;
+  A.error = "";
+  drawApps();
+  try {
+    if (kind === "connect") {
+      const server = await invoke("connect_mcp_server", { id });
+      if (!server.connected) A.waiting = id;
+    } else {
+      await invoke("remove_mcp_server", { id });
+    }
+  } catch (e) {
+    A.error = String(e);
+  }
+  A.busy = null;
+  loadApps();
+}
+
+// The link back from a server's sign-in, which Rust already handed on.
+listen("mcp-signed-in", e => {
+  A.waiting = null;
+  if (e.payload) A.error = `Sign-in did not finish: ${e.payload}`;
+  if (S.view === "apps") loadApps();
+});
+
 async function appsClick(e) {
+  const m = e.target.closest("[data-mnew],[data-mclose],[data-madd],[data-mcancel],[data-mconnect],[data-mremove]");
+  if (m) {
+    const d = m.dataset;
+    if (d.mnew != null) { A.adding = true; A.addError = ""; drawApps(); return $("#mname")?.focus(); }
+    if (d.mclose != null) { A.adding = false; A.addError = ""; return drawApps(); }
+    if (d.madd != null) return addServer();
+    if (d.mcancel != null) { A.waiting = null; return drawApps(); }
+    if (d.mconnect) return serverAction("connect", d.mconnect);
+    if (d.mremove) return serverAction("remove", d.mremove);
+  }
   if (e.target.closest("[data-cancel]")) {
     invoke("cancel_app_sign_in").catch(() => {});
     return stopConnecting();
@@ -2956,7 +3184,7 @@ listen("group-approval", e => {
   if (G.id === a.group_id && S.view === "group") drawGroup();
 });
 listen("sessions-changed", e => {
-  if (S.view === "chat" && !here()?.run && e.payload && e.payload === S.session) refreshSession(S.session);
+  if (S.view === "chat" && !here()?.run && e.payload && e.payload === S.session) refreshSession(S.session).then(() => watchRun(e.payload));
   if (listIdle()) loadChats("");
 });
 
@@ -3168,6 +3396,7 @@ function back() {
   if (S.view === "skills" && K.mode !== "list") return skillAction(K.mode === "edit" || K.mode === "vdelete" ? "view" : "list");
   if (S.view === "rnew") return renderRoutines();
   if (S.view === "appperms") return renderApps();
+  if (S.view === "apps" && A.adding) { A.adding = false; A.addError = ""; return drawApps(); }
   if (S.view === "apps") return renderSettings();
   if (S.view === "model") return S.session ? openSession(S.session) : renderChat();
   if ((S.view === "memories" || S.view === "routines" || S.view === "skills" || S.view === "settings") && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
@@ -3257,6 +3486,7 @@ document.addEventListener("keydown", e => {
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
     if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
+    if (e.key === "Backspace" && !cmd && e.target.id === "ask" && !e.target.value && attached.pics.length) { e.preventDefault(); return unattach(attached.pics.length - 1); }
   }
   if (S.view === "chats") return chatsKeys(e, cmd);
   if (S.view === "memories") return memKeys(e, cmd);
@@ -3264,6 +3494,10 @@ document.addEventListener("keydown", e => {
   if (S.view === "skills") return skillKeys(e, cmd);
   if (S.view === "group") return groupKeys(e, cmd);
   if (S.view === "gnew" && e.key === "Enter" && !e.isComposing && e.target.tagName === "INPUT") { e.preventDefault(); return groupFormGo(); }
+  if (S.view === "apps" && e.key === "Enter" && !e.isComposing && (e.target.id === "mname" || e.target.id === "murl")) {
+    e.preventDefault();
+    return e.target.id === "mname" && !$("#murl").value.trim() ? $("#murl").focus() : addServer();
+  }
 });
 
 // Links in replies open in the browser. A product card's corner button

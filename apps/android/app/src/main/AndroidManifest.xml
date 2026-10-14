@@ -49,8 +49,9 @@
                 <data android:scheme="beep" android:host="apps" />
                 <data android:scheme="beep" android:host="share" />
                 <data android:scheme="beep" android:host="group" />
+                <data android:scheme="beep" android:host="oauth" />
             </intent-filter>
-            <!-- Share and invite links. The host is LINK_HOST in crates/proto, and
+            <!-- Share and invite links, and MCP sign-ins coming back. The host is LINK_HOST in crates/proto, and
                  deploy/links serves the assetlinks.json that verifies it. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
@@ -59,6 +60,7 @@
                 <data android:scheme="https" android:host="beep.flashmind.com" />
                 <data android:pathPrefix="/s/" />
                 <data android:pathPrefix="/g/" />
+                <data android:path="/oauth/callback" />
             </intent-filter>
         </activity>
         <!-- Launcher icons. Avatars enables exactly one of these. The last four belong to dropped

@@ -5,11 +5,11 @@ use beep_server::{
     cron,
     models::ModelChoices,
     protocol::{
-        ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace, DeleteSkill,
-        DeviceKind, Event, ExistingSessions, GetEvents, GetRun, GetSession, GetUpdates, Health,
-        HistoryEntry, LinkDevice, ListApps, ListCrons, ListDevices, ListPlaces, ListSessions,
-        ListSkills, MemorySource, MessageBody, Notice, RemoveDevice, RunEvent, Session,
-        StartAppAuth, StreamUpdates, SuggestPrompts, UndoSkill, Update, UpdateLocation,
+        ActiveRun, ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace,
+        DeleteSkill, DeviceKind, Event, ExistingSessions, GetEvents, GetRun, GetSession,
+        GetUpdates, Health, HistoryEntry, LinkDevice, ListApps, ListCrons, ListDevices, ListPlaces,
+        ListSessions, ListSkills, MemorySource, MessageBody, Notice, RemoveDevice, RunEvent,
+        Session, StartAppAuth, StreamUpdates, SuggestPrompts, UndoSkill, Update, UpdateLocation,
         UpdatePlace, UpdateSkill,
         link::{LinkOffer, OFFER_TTL},
         wire::framed,
@@ -1151,4 +1151,84 @@ async fn a_client_follows_its_log_and_fetches_only_what_is_new() {
     assert!(
         matches!(history.first(), Some(HistoryEntry::User { content, .. }) if content == "Remember I prefer tea")
     );
+}
+
+#[tokio::test]
+async fn a_prompt_from_the_computer_shows_live_on_the_phone() {
+    let h = Harness::new().await;
+    let server = h.router.endpoint().id();
+    let (phone_notice, mut phone_notices, _) = inbox();
+    let phone_node = h.node(alice(), phone_notice).await;
+    let phone = phone_node.connect().await.unwrap();
+    let offer = LinkOffer::sign(&macbook(), server, "MacBook", SystemTime::now()).unwrap();
+    phone.call(&LinkDevice { offer }).await.unwrap();
+    let (desk_notice, _, _) = inbox();
+    let desk_node = h.node(macbook(), desk_notice).await;
+    h.introduce(&desk_node);
+    let desk = desk_node.connect().await.unwrap();
+
+    let session_id = Uuid::new_v4();
+    let ask = Chat {
+        session_id,
+        request_id: Uuid::new_v4(),
+        message: "slow".into(),
+        images: Vec::new(),
+        model: None,
+        thinking: None,
+        platform: None,
+    };
+    let mut asked = desk.stream(&ask).await.unwrap();
+    let run_id = started(&mut asked).await;
+
+    // The phone hears the chat changed, and finds it listed with the prompt
+    // while the reply is still being written. Linking the computer sends a
+    // notice too, so it looks again on each one, as the apps do.
+    loop {
+        next_title(&mut phone_notices).await;
+        let history = phone
+            .call(&GetSession {
+                id: session_id.to_string(),
+            })
+            .await
+            .unwrap();
+        if matches!(
+            history.as_slice(),
+            [HistoryEntry::User { content, .. }] if content == "slow"
+        ) {
+            break;
+        }
+        assert!(history.is_empty(), "only the prompt shows: {history:?}");
+    }
+    let sessions = phone.call(&ListSessions {}).await.unwrap();
+    assert!(sessions.iter().any(|s| s.id == session_id.to_string()));
+
+    // It follows the run from the start.
+    let running = phone.call(&ActiveRun { session_id }).await.unwrap();
+    assert_eq!(running.map(|run| run.id).as_deref(), Some(run_id.as_str()));
+    let mut followed = phone
+        .stream(&GetEvents {
+            run_id: run_id.clone(),
+            after: 0,
+        })
+        .await
+        .unwrap();
+    assert_eq!(started(&mut followed).await, run_id);
+    let mut text = String::new();
+    while text.is_empty() {
+        match followed.next().await.unwrap().map(|e| e.event) {
+            Some(RunEvent::TextDelta { delta }) => text = delta,
+            Some(_) => {}
+            None => panic!("the run ended before writing"),
+        }
+    }
+    assert_eq!(text, "Working");
+
+    desk.call(&CancelRun { id: run_id }).await.unwrap();
+    assert!(
+        drain(&mut followed)
+            .await
+            .iter()
+            .any(|event| matches!(event, RunEvent::RunFinished { .. }))
+    );
+    assert_eq!(phone.call(&ActiveRun { session_id }).await.unwrap(), None);
 }
