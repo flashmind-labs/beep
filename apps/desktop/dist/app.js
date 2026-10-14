@@ -21,7 +21,7 @@ const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" s
 const VISIBLE_STEPS = 3;
 
 /// Tools that get no step: what they do is already on screen, or is bookkeeping.
-const QUIET_TOOLS = new Set(["suggest_replies", "show_products", "show_chart", "notify_user", "task_progress"]);
+const QUIET_TOOLS = new Set(["suggest_replies", "show_products", "show_cards", "show_chart", "notify_user", "task_progress"]);
 
 /// What a tool is doing, in words, the same as the phone's toolLabel.
 /// Unknown tools fall back to their name: "GMAIL_SEND_EMAIL" becomes "Gmail: send email".
@@ -41,6 +41,7 @@ const TOOL_LABELS = {
   suggest_replies: "Suggesting replies",
   send_file: "Sending a file",
   show_products: "Showing products",
+  show_cards: "Showing recommendations",
   show_chart: "Drawing a chart",
   show_stock_chart: "Looking up stocks",
   task_progress: "Updating progress",
@@ -458,6 +459,7 @@ function follow(id, turn) {
         if (ev.file) sentFile(turn, ev.file);
         for (const p of ev.images ?? []) replyPic(turn, p);
         if (ev.products) productRow(turn, ev.products);
+        if (ev.cards) productRow(turn, ev.cards);
         if (ev.chart) chartRow(turn, ev.chart);
         if (ev.name === "get_route" && ev.success && ev.call_id) routeRow(turn, ev.call_id);
         break;
@@ -652,6 +654,7 @@ function drawHistory(id, turns) {
         if (x.file) sentFile(turn, x.file);
         for (const p of x.images ?? []) replyPic(turn, p);
         if (x.products) productRow(turn, x.products);
+        if (x.cards) productRow(turn, x.cards);
         if (x.chart) chartRow(turn, x.chart);
         if (x.route) routeRow(turn, x.route);
       }
@@ -3537,7 +3540,7 @@ bar.addEventListener("click", e => {
 
 // Product pictures show over their placeholder once loaded; a broken one
 // leaves the placeholder.
-bar.addEventListener("load", e => { if (e.target.matches?.(".dprod-img img")) e.target.classList.add("on"); }, true);
-bar.addEventListener("error", e => { if (e.target.matches?.(".dprod-img img")) e.target.remove(); }, true);
+bar.addEventListener("load", e => { if (e.target.matches?.(".dprod-img img, .drec img")) e.target.classList.add("on"); }, true);
+bar.addEventListener("error", e => { if (e.target.matches?.(".dprod-img img, .drec img")) e.target.remove(); }, true);
 
 show(null);
