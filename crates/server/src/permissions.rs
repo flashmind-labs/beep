@@ -417,7 +417,7 @@ pub(crate) fn waiting_approval(conversation: &Conversation) -> Option<HistoryEnt
     let call = open_calls(conversation).into_iter().next()?;
     let (app, _) = lookup(&call.name)?;
     let mut fields = fields(&call.arguments);
-    fields.extend(records(&call.arguments, conversation));
+    fields.extend(records(&call, conversation));
     Some(HistoryEntry::Approval {
         approval: Approval {
             app: app.name(),
@@ -433,7 +433,7 @@ pub(crate) fn waiting_approval(conversation: &Conversation) -> Option<HistoryEnt
 /// `conversation`. Empty when the call names none or nothing said more.
 pub(crate) fn describe_records(call_id: &str, conversation: &Conversation) -> Vec<ApprovalField> {
     find_call(call_id, conversation)
-        .map(|call| records(&call.arguments, conversation))
+        .map(|call| records(call, conversation))
         .unwrap_or_default()
 }
 
@@ -463,8 +463,8 @@ const RECORD_KEYS: &[(&str, &str)] = &[
     ("sender", "From"),
 ];
 
-fn records(args: &Value, conversation: &Conversation) -> Vec<ApprovalField> {
-    let ids = record_ids(args);
+fn records(call: &ToolCall, conversation: &Conversation) -> Vec<ApprovalField> {
+    let ids = record_ids(&call.arguments);
     if ids.is_empty() {
         return Vec::new();
     }
@@ -479,7 +479,7 @@ fn records(args: &Value, conversation: &Conversation) -> Vec<ApprovalField> {
         .collect();
     ids.into_iter()
         .filter_map(|id| results.iter().find_map(|result| find_record(result, id)))
-        .flat_map(record_fields)
+        .flat_map(|record| record_fields(record, call))
         .take(MAX_FIELDS)
         .collect()
 }
@@ -616,7 +616,10 @@ pub(crate) async fn describe_call(
                 // The record is the object holding the ID it was read by;
                 // a read that answers with the record alone is that object.
                 let id = args.values().find_map(Value::as_str).unwrap_or_default();
-                shown.extend(record_fields(find_record(&found, id).unwrap_or(&found)));
+                shown.extend(record_fields(
+                    find_record(&found, id).unwrap_or(&found),
+                    call,
+                ));
             }
             Err(error) => log::debug!("approval: unable to read {}: {error:#}", lookup.read),
         }
@@ -690,15 +693,33 @@ fn record_ids(args: &Value) -> Vec<&str> {
         .collect()
 }
 
+/// What the sender of the email `call` names is to the user. A reply or
+/// forward is sent by the user, so the original's sender is who they answer.
+fn sender_label(call: &ToolCall) -> &'static str {
+    match ToolSlug::new(&call.name).as_str() {
+        "GMAIL_REPLY_TO_THREAD" | "OUTLOOK_REPLY_EMAIL" => "Replying to",
+        "FASTMAIL_SEND_EMAIL" => match call.arguments.get("mode").and_then(Value::as_str) {
+            Some("forward") => "Forwarding from",
+            _ => "Replying to",
+        },
+        _ => "From",
+    }
+}
+
 /// The fields of `record` that tell the user which one it is.
-fn record_fields(record: &Value) -> Vec<ApprovalField> {
+fn record_fields(record: &Value, call: &ToolCall) -> Vec<ApprovalField> {
     let mut labels = HashSet::new();
     let mut shown: Vec<ApprovalField> = RECORD_KEYS
         .iter()
         .filter_map(|(key, label)| {
             let value = record_value(record, key)?;
-            labels.insert(*label).then(|| ApprovalField {
-                label: (*label).to_owned(),
+            let label = if *label == "From" {
+                sender_label(call)
+            } else {
+                label
+            };
+            labels.insert(label).then(|| ApprovalField {
+                label: label.to_owned(),
                 value: value.chars().take(MAX_VALUE_CHARS).collect(),
             })
         })
@@ -976,7 +997,7 @@ fn went_through(output: &str) -> bool {
 
 fn describe_action(app: &ToolApp, call: &ToolCall, conversation: &Conversation) -> String {
     let action = action_name(app, ToolSlug::new(&call.name).as_str());
-    let mut fields = records(&call.arguments, conversation);
+    let mut fields = records(call, conversation);
     fields.extend(fields_of(&call.arguments));
     let details: Vec<String> = fields
         .into_iter()
@@ -1228,7 +1249,12 @@ mod tests {
             "from": [{"name": "Shop", "email": "orders@example.com"}],
         });
         assert_eq!(record_ids(&json!({"ids": ["M1", ""], "keep": "x"})), ["M1"]);
-        let shown: Vec<_> = record_fields(find_record(&email, "M1").unwrap())
+        let delete = ToolCall {
+            id: "delete".into(),
+            name: "FASTMAIL_DELETE_EMAIL".into(),
+            arguments: json!({"ids": ["M1"]}),
+        };
+        let shown: Vec<_> = record_fields(find_record(&email, "M1").unwrap(), &delete)
             .into_iter()
             .map(|f| (f.label, f.value))
             .collect();
@@ -1239,6 +1265,22 @@ mod tests {
                 ("From".into(), "Shop <orders@example.com>".into())
             ]
         );
+    }
+
+    #[test]
+    fn a_reply_names_who_it_answers() {
+        let email = json!({
+            "id": "M1", "subject": "Booking",
+            "from": [{"name": "Hotel", "email": "desk@example.com"}],
+        });
+        let send = |mode| ToolCall {
+            id: "send".into(),
+            name: "FASTMAIL_SEND_EMAIL".into(),
+            arguments: json!({"mode": mode, "emailId": "M1", "body": "Thanks"}),
+        };
+        let sender = |call| record_fields(&email, &call).pop().unwrap();
+        assert_eq!(sender(send("reply")).label, "Replying to");
+        assert_eq!(sender(send("forward")).label, "Forwarding from");
     }
 
     #[test]
@@ -1282,7 +1324,12 @@ mod tests {
             "Status": {"type": "select"},
             "Name": {"type": "title", "title": [{"plain_text": "Trip "}, {"plain_text": "plan"}]},
         }});
-        let shown = record_fields(&page);
+        let update = ToolCall {
+            id: "update".into(),
+            name: "NOTION_UPDATE_PAGE".into(),
+            arguments: json!({"page_id": "p1"}),
+        };
+        let shown = record_fields(&page, &update);
         assert_eq!(
             (shown[0].label.as_str(), shown[0].value.as_str()),
             ("Title", "Trip plan")
