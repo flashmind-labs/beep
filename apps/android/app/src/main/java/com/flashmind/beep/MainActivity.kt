@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,6 +59,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.graphics.Outline
 import android.view.Gravity
@@ -317,6 +319,14 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val browserOpen by repository.browserOpen.collectAsStateWithLifecycle()
     var drawerOpen by remember { mutableStateOf(false) }
     var bubbleMenu by remember { mutableStateOf(false) }
+    // The system bubble lives in the notification shade, so it is checked again each time the app comes back.
+    var systemFloating by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    LifecycleResumeEffect(Unit) {
+        systemFloating = SystemBubble.shown(context)
+        onPauseOrDispose {}
+    }
+    val floating = Bubble.floating.value || systemFloating
     // The outside screen of a flip phone, about 350 dp square, gets the bubble's slim chat.
     val cover = !bubble && LocalConfiguration.current.let { it.screenWidthDp < 480 && it.screenHeightDp < 480 }
     var historyQuery by rememberSaveable { mutableStateOf("") }
@@ -416,7 +426,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         repository.select(id)
         trailEnd = id
     }
-    val context = androidx.compose.ui.platform.LocalContext.current
     // Handle pending app launch intents
     LaunchedEffect(pendingAppIntent) {
         pendingAppIntent?.let { intent ->
@@ -774,7 +783,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 }
             },
                 actions = {
-                    IconButton(onClick = onFloat, Modifier.padding(end = 6.dp)) { Icon(Icons.Outlined.BubbleChart, "Float chat", tint = TextMuted) }
+                    IconButton(onClick = { startNewChat() }, Modifier.padding(end = if (floating) 6.dp else 0.dp)) {
+                        Icon(Icons.Outlined.Add, "New chat", tint = TextMuted)
+                    }
+                    if (!floating) IconButton(onClick = onFloat, Modifier.padding(end = 6.dp)) { Icon(Icons.Outlined.BubbleChart, "Float chat", tint = TextMuted) }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
         }) { padding ->
             SwipeChats(canStartNew = state.current.messages.isNotEmpty(), hasPrevious = previousChat() != null,
