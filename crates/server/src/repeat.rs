@@ -1,6 +1,7 @@
 //! Spots a model stuck emitting the same text, or making the same tool call,
 //! over and over.
 
+use crate::paging;
 use async_trait::async_trait;
 use flashmind::types::{
     ToolRegistry,
@@ -9,6 +10,7 @@ use flashmind::types::{
 use serde_json::Value;
 use std::{
     collections::HashMap,
+    mem,
     sync::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicUsize, Ordering},
@@ -141,7 +143,11 @@ impl Tool for CallGuard {
                  Change the arguments, try another tool, or answer with what you have.",
             ));
         }
-        self.tool.execute(ctx).await
+        let mut result = self.tool.execute(ctx).await?;
+        if let ToolResult::Success { output, .. } = &mut result {
+            *output = paging::mark(mem::take(output));
+        }
+        Ok(result)
     }
 
     fn timeout_secs(&self) -> Option<u64> {
