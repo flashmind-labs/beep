@@ -522,6 +522,11 @@ const LOOKUPS: &[Lookup] = &[
         args: &[("message_id", "message_id")],
     },
     Lookup {
+        tools: &["GMAIL_BATCH_MODIFY_MESSAGES"],
+        read: "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+        args: &[("messageIds", "message_id")],
+    },
+    Lookup {
         tools: &["GMAIL_REPLY_TO_THREAD"],
         read: "GMAIL_FETCH_MESSAGE_BY_THREAD_ID",
         args: &[("thread_id", "thread_id")],
@@ -824,14 +829,22 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
         return Vec::new();
     };
     args.iter()
-        .filter(|(key, _)| !is_id(key))
         .filter_map(|(key, value)| {
             let value = match value {
+                // A list of IDs means nothing to the user, but how many it
+                // names does, as when a batch trashes hundreds of emails.
+                Value::Array(items) if is_id(key) && items.len() > 1 => items.len().to_string(),
+                _ if is_id(key) => return None,
                 Value::Null => return None,
                 Value::String(text) => text.trim().to_owned(),
                 Value::Array(items) if items.iter().all(|item| address(item).is_some()) => items
                     .iter()
                     .filter_map(address)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                Value::Array(items) if items.iter().all(Value::is_string) => items
+                    .iter()
+                    .filter_map(Value::as_str)
                     .collect::<Vec<_>>()
                     .join(", "),
                 other => other.to_string(),
@@ -840,7 +853,7 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
                 return None;
             }
             Some(ApprovalField {
-                label: capitalize(&key.replace('_', " ")),
+                label: field_label(key),
                 value: shorten(&value, MAX_VALUE_CHARS),
             })
         })
@@ -869,9 +882,37 @@ fn address(item: &Value) -> Option<String> {
     })
 }
 
+/// An argument's name as the user reads it: `recipient_email` becomes
+/// "Recipient email", and a list of IDs is named by what it lists, so
+/// `addLabelIds` becomes "Add labels".
+fn field_label(key: &str) -> String {
+    let mut words = String::new();
+    for c in key.chars() {
+        if c == '_' {
+            words.push(' ');
+        } else if c.is_uppercase() {
+            words.push(' ');
+            words.extend(c.to_lowercase());
+        } else {
+            words.push(c);
+        }
+    }
+    let words = words.trim();
+    let words = match words.strip_suffix(" ids") {
+        Some(listed) => format!("{listed}s"),
+        None if words == "ids" => "items".to_owned(),
+        None => words.to_owned(),
+    };
+    capitalize(&words)
+}
+
 /// An argument that only names a record, such as `message_id` or `emailId`,
-/// whose value means nothing to the user.
+/// whose value means nothing to the user. Label IDs are names like `TRASH`
+/// or `INBOX`, so they are shown.
 fn is_id(key: &str) -> bool {
+    if key.to_ascii_lowercase().contains("label") {
+        return false;
+    }
     let camel = key.ends_with("Id") || key.ends_with("Ids");
     let key = key.to_ascii_lowercase();
     camel || ["id", "ids"].contains(&key.as_str()) || key.ends_with("_id") || key.ends_with("_ids")
@@ -1115,7 +1156,8 @@ mod tests {
             [
                 ("Send email", false),
                 ("Reply to thread", true),
-                ("Move to trash", false)
+                ("Move to trash", false),
+                ("Batch modify messages", false)
             ]
         );
         let fastmail = app_permissions(catalog_app("fastmail").unwrap(), &Rules::default());
@@ -1376,6 +1418,21 @@ mod tests {
         };
         let action = describe_action(&ToolApp::Catalog(gmail), &call, &Conversation::new());
         assert!(!action.contains("..."), "{action}");
+    }
+
+    #[test]
+    fn a_batch_shows_its_labels_and_how_many_it_names() {
+        let shown = fields(&json!({
+            "messageIds": ["M1", "M2", "M3"],
+            "addLabelIds": ["TRASH"],
+            "removeLabelIds": [],
+        }));
+        let shown: Vec<(&str, &str)> = shown
+            .iter()
+            .map(|field| (field.label.as_str(), field.value.as_str()))
+            .collect();
+        assert_eq!(shown, [("Add labels", "TRASH"), ("Messages", "3")]);
+        assert!(record_ids(&json!({"addLabelIds": ["TRASH"], "messageIds": ["M1"]})) == ["M1"]);
     }
 
     #[test]

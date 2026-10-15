@@ -99,6 +99,7 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
             act("GMAIL_SEND_EMAIL"),
             act("GMAIL_REPLY_TO_THREAD"),
             act("GMAIL_MOVE_TO_TRASH"),
+            act("GMAIL_BATCH_MODIFY_MESSAGES"),
             read("GMAIL_SEARCH_PEOPLE"),
         ],
     ),

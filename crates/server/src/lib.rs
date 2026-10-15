@@ -17,6 +17,7 @@ pub mod live;
 pub mod memories;
 pub mod metering;
 pub mod models;
+pub mod paging;
 pub mod permissions;
 pub mod places;
 pub mod profile;
