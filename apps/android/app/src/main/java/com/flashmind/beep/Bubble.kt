@@ -111,6 +111,8 @@ object Bubble {
     /** Whether the full app is on screen, where the bubble would only be in the way. */
     private var appInFront = false
     private var bubbleView: View? = null
+    /** Whether the overlay bubble is up, so the app can drop its float button. */
+    val floating = mutableStateOf(false)
     private var target: ComposeView? = null
     private var params: LayoutParams? = null
     private var targetParams: LayoutParams? = null
@@ -202,6 +204,7 @@ object Bubble {
         windows.addView(targetView, dismiss)
         windows.addView(view, bubbleParams)
         bubbleView = view; target = targetView; params = bubbleParams; targetParams = dismiss
+        floating.value = true
         owner.resume()
         callbacks = object : ComponentCallbacks {
             // A fold, unfold or rotation changes the screen under the bubble.
@@ -223,6 +226,7 @@ object Bubble {
         callbacks?.let { app.unregisterComponentCallbacks(it) }
         owner?.destroy()
         bubbleView = null; target = null; params = null; targetParams = null; owner = null; callbacks = null; rest = null
+        floating.value = false
         leaving.value = false; targetShown.value = false; nearTarget.value = false
     }
 
