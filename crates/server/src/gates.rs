@@ -11,7 +11,7 @@ use std::fmt::Write;
 const THRESHOLD: f64 = 0.6;
 
 /// The tools that put a destination on the map.
-const MAP_TOOLS: &[&str] = &["open_maps"];
+pub const MAP_TOOLS: &[&str] = &["open_maps"];
 /// The tools that make Beep do something later.
 const SCHEDULE_TOOLS: &[&str] = &["cron_create", "cron_edit", "schedule_once", "place_routine"];
 
@@ -31,6 +31,9 @@ pub struct Draft<'a> {
     /// The tasks the user already has scheduled, so a reply that mentions
     /// one does not count as an unkept promise.
     pub scheduled: &'a [String],
+    /// Whether the run has a map card to show. A run started on a computer
+    /// has none, so a reply naming a place cannot be sent back for one.
+    pub can_map: bool,
 }
 
 impl Draft<'_> {
@@ -87,7 +90,7 @@ several options without picking one.",
         },
         fix: "Your reply sends the user somewhere but shows no map. Call open_maps with \
 action place, or directions, for that destination.",
-        settled: |draft| draft.called(MAP_TOOLS),
+        settled: |draft| !draft.can_map || draft.called(MAP_TOOLS),
     },
     Check {
         key: "claimed",
@@ -121,9 +124,9 @@ up now with schedule_once, cron_create or place_routine, or tell the user you wi
 
 /// Told before the fixes, so the second pass adds to the reply instead of
 /// writing it again.
-const PREFACE: &str = "Your reply needs a fix. The user already has it, so do not \
-repeat it. Make the calls needed, then add at most one \
-short sentence, and only when the fix changes what you told them.";
+const PREFACE: &str = "Your reply may need a fix. The user already has it, so do not \
+repeat it or confirm it. Make the calls needed. Add one short sentence only when the fix \
+changes a fact you told them; otherwise write nothing.";
 
 /// A reply that failed checks.
 #[derive(Debug)]
@@ -132,6 +135,15 @@ pub struct Verdict {
     pub failed: Vec<&'static str>,
     /// What the agent is told in its second pass.
     pub note: String,
+}
+
+impl Verdict {
+    /// Whether the fix is only a card the agent left out. The card speaks
+    /// for itself, so the second pass's text is dropped rather than shown
+    /// as a bubble saying the map is below.
+    pub fn card_only(&self) -> bool {
+        self.failed == ["map"]
+    }
 }
 
 /// The checks `draft` fails, or `None` when it passes. A check Jev cannot
@@ -200,6 +212,7 @@ mod tests {
             reply: "Head to the Gucci flagship.",
             calls: &calls,
             scheduled: &[],
+            can_map: true,
         };
         let settled: Vec<_> = CHECKS
             .iter()
@@ -210,6 +223,18 @@ mod tests {
     }
 
     #[test]
+    fn a_run_without_maps_is_not_asked_for_one() {
+        let draft = Draft {
+            asked: "Where should I go?",
+            reply: "Head to the Gucci flagship.",
+            calls: &[],
+            scheduled: &[],
+            can_map: false,
+        };
+        assert!((CHECKS[0].settled)(&draft));
+    }
+
+    #[test]
     fn the_state_lists_every_call_with_its_outcome() {
         let calls = [call("open_maps", true), call("web_search", false)];
         let draft = Draft {
@@ -217,6 +242,7 @@ mod tests {
             reply: "Go to Isetan.\n",
             calls: &calls,
             scheduled: &[],
+            can_map: true,
         };
         let state = draft.state();
         assert!(state.contains("Asked:\nWhere now?\n"));

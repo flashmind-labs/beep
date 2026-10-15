@@ -6,7 +6,7 @@ use super::{
     device::Parked,
     learning::{
         MEMORY_THRESHOLD, ServerCall, add_server_calls, correction_state, drop_follow_ups,
-        earlier_turns, memory_state,
+        drop_text_since, earlier_turns, memory_state,
     },
 };
 use crate::{
@@ -277,6 +277,7 @@ impl App {
             registry.register(tool);
         }
         let refusals = repeat::guard_tool_calls(&mut registry);
+        let can_map = gates::MAP_TOOLS.iter().any(|tool| registry.contains(tool));
 
         // Entries from here on belong to this turn. Matching by time rather than
         // index survives the agent compacting mid-run.
@@ -409,6 +410,9 @@ impl App {
 
             let mut input = input;
             let mut gated = false;
+            // When the second pass only adds a card, its text stays off the
+            // phone and out of the transcript; this is when that pass began.
+            let mut quiet_since = None;
             loop {
                 let status = {
                     let stream = agent.start(
@@ -444,6 +448,9 @@ impl App {
                                 if text_guard.push(&delta) {
                                     cancel.cancel();
                                     break RunStatus::Looped;
+                                }
+                                if quiet_since.is_some() {
+                                    continue;
                                 }
                                 timer.output(Output::Text);
                                 reply.push_str(&delta);
@@ -555,6 +562,9 @@ impl App {
                 };
                 // A finished reply is checked once; a failed check gets the
                 // agent one more pass to fix it.
+                if let Some(since) = quiet_since {
+                    drop_text_since(&mut conversation, since);
+                }
                 if gated || status != RunStatus::Completed || parked.is_some() {
                     break status;
                 }
@@ -568,10 +578,14 @@ impl App {
                     reply: &reply,
                     calls: &calls,
                     scheduled: &scheduled,
+                    can_map,
                 };
                 let Some(verdict) = gates::review(decision, &draft).await else {
                     break status;
                 };
+                if verdict.card_only() {
+                    quiet_since = Some(Utc::now());
+                }
                 conversation.add(ConversationEntry::system_message(verdict.note));
             }
         };

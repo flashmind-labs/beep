@@ -185,6 +185,27 @@ pub(super) fn drop_follow_ups(conversation: &mut Conversation) {
     }
 }
 
+/// `conversation` without the text the agent wrote from `since` on. Its
+/// calls stay, so a card it showed in that time is kept.
+pub(super) fn drop_text_since(conversation: &mut Conversation, since: DateTime<Utc>) {
+    let entries = conversation.entries_mut();
+    entries.retain_mut(|entry| {
+        if entry.timestamp < since {
+            return true;
+        }
+        let EntryKind::Assistant {
+            content,
+            tool_calls,
+            ..
+        } = &mut entry.kind
+        else {
+            return true;
+        };
+        content.clear();
+        tool_calls.as_ref().is_some_and(|calls| !calls.is_empty())
+    });
+}
+
 /// What Jev reads to score a turn: what is already remembered, then the
 /// exchange, so a fact that is already known does not score high.
 pub(super) fn memory_state(known: &[Hit], exchange: &Exchange) -> String {
@@ -230,6 +251,7 @@ pub(super) fn earlier_turns(conversation: &Conversation, turn_started: DateTime<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeDelta;
 
     fn call(id: &str, name: &str) -> ToolCall {
         ToolCall {
@@ -286,6 +308,47 @@ mod tests {
             names,
             [
                 "weather?", "weather", "result w", "Sunny.", "remember", "result m"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_quiet_pass_keeps_its_calls_but_not_its_text() {
+        let since = Utc::now();
+        let mut earlier = ConversationEntry::assistant("Go to Isetan.");
+        earlier.timestamp = since - TimeDelta::seconds(1);
+        let mut conversation = Conversation::new();
+        conversation.add(earlier);
+        conversation.add(ConversationEntry::system_message("Show the map."));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "Opening the map.",
+            vec![call("m", "open_maps")],
+            None,
+        ));
+        conversation.add(ConversationEntry::tool("m", "shown"));
+        conversation.add(ConversationEntry::assistant("The map is below."));
+
+        drop_text_since(&mut conversation, since);
+
+        let kept: Vec<(String, usize)> = conversation
+            .entries()
+            .iter()
+            .map(|entry| match &entry.kind {
+                EntryKind::Assistant {
+                    content,
+                    tool_calls,
+                    ..
+                } => (content.clone(), tool_calls.as_ref().map_or(0, Vec::len)),
+                _ => (entry.content().to_owned(), 0),
+            })
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                ("Go to Isetan.".to_owned(), 0),
+                ("Show the map.".to_owned(), 0),
+                (String::new(), 1),
+                ("shown".to_owned(), 0),
             ]
         );
     }
