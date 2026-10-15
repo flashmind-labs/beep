@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Shield
@@ -65,8 +67,10 @@ fun ApprovalCard(prompt: ApprovalPrompt, onAnswer: (String) -> Unit, modifier: M
                 }
                 Icon(Icons.Outlined.Shield, null, Modifier.size(18.dp), tint = t.muted)
             }
-            if (approval.fields.isNotEmpty()) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Beep.shapes.smallRadius))
-                .background(t.raised).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Many records scroll inside the card, so Deny and Allow stay on screen.
+            if (approval.fields.isNotEmpty()) Column(Modifier.fillMaxWidth().heightIn(max = 280.dp)
+                .clip(RoundedCornerShape(Beep.shapes.smallRadius)).background(t.raised)
+                .verticalScroll(rememberScrollState()).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 approval.fields.forEach { field ->
                     Row {
                         Text(field.label, fontSize = 12.sp, color = t.muted, modifier = Modifier.width(76.dp))

@@ -285,6 +285,9 @@ impl App {
         let mut failed_tools = HashSet::new();
         // The guarded call the run stops on to ask the user, if any.
         let mut parked = None;
+        // The turn's calls, which the gates read with the reply. An approved
+        // call that ran on resuming counts, so "sent" after Allow holds.
+        let mut calls = Vec::new();
 
         // Close the open calls before the model goes on. An answer runs them
         // in order, as if they had just been made; a new message leaves them
@@ -315,6 +318,12 @@ impl App {
             if answer.is_some() {
                 if !result.is_success() {
                     failed_tools.insert(call.id.clone());
+                }
+                if result.output() != permissions::DENIED {
+                    calls.push(gates::Call {
+                        name: call.name.clone(),
+                        success: result.is_success(),
+                    });
                 }
                 live.push(RunEvent::ToolResult {
                     name: call.name,
@@ -399,8 +408,6 @@ impl App {
             tokio::pin!(hard_stop);
 
             let mut input = input;
-            // The turn's calls, which the gates read with the reply.
-            let mut calls = Vec::new();
             let mut gated = false;
             loop {
                 let status = {
