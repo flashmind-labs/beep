@@ -160,7 +160,8 @@ private fun RecCardView(card: RecCard, modifier: Modifier) {
         }) {
             when {
                 media != null -> Poster(card.image, media)
-                else -> RecPicture(card.image, event)
+                // A card that came without a picture drops the picture area; an event keeps it for its date.
+                card.image != null || event != null -> RecPicture(card.image, event)
             }
             Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(card.title, color = Beep.colors.ink, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold,

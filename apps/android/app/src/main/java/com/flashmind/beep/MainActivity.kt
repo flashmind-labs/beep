@@ -31,7 +31,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -490,15 +490,18 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         } else drawerState.close()
     }
     LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
-    // Unfolding resizes the window without a restart, and the drawer keeps the closed offset of the
-    // narrower sheet, so it shows half open. Snap it again once the sheet has its new width, which is
-    // when the drawer has moved its anchors.
-    var sheetWidth by remember { mutableIntStateOf(0) }
-    LaunchedEffect(sheetWidth) { if (sheetWidth > 0) drawerState.snapTo(drawerState.targetValue) }
+    // Unfolding resizes the window without a restart, and the drawer can keep the closed offset of the
+    // narrower sheet, so it shows half open over the chat. Snapping it again did not cure that on a Fold,
+    // so a drawer at rest closed is moved a further sheet width out of sight, whatever its offset says.
+    val drawerHidden = drawerState.isClosed && drawerState.targetValue == DrawerValue.Closed
     BackHandler(enabled = drawerOpen) { drawerOpen = false }
     // Closed, horizontal swipes belong to the chat (new chat or back), so the drawer only takes them to close.
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerOpen, drawerContent = {
-        ModalDrawerSheet(modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(0.9f).onSizeChanged { sheetWidth = it.width }, drawerContainerColor = Ink,
+        ModalDrawerSheet(modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(0.9f)
+            .layout { measurable, constraints ->
+                val sheet = measurable.measure(constraints)
+                layout(sheet.width, sheet.height) { sheet.place(if (drawerHidden) -sheet.width else 0, 0) }
+            }, drawerContainerColor = Ink,
             drawerShape = RoundedCornerShape(topEnd = Beep.shapes.radius, bottomEnd = Beep.shapes.radius)) {
             Spacer(Modifier.height(if (bubble) 8.dp else 20.dp))
             Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {

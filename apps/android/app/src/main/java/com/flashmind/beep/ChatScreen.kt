@@ -278,7 +278,9 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         .popIn(message.id, play = fresh, origin = TransformOrigin(if (isUser) 1f else 0f, 1f)),
                         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
                         newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
-                        val isLastAssistant = !isUser && chat.messages.lastOrNull { it.role == "assistant" }?.id == message.id
+                        // Only a reply after the latest prompt: while a new run starts, the one before it is done
+                        // and keeps its cards.
+                        val isLastAssistant = !isUser && chat.messages.lastOrNull()?.id == message.id
                         val bubbleShape = if (isUser) RoundedCornerShape(radius, radius, 6.dp, radius)
                             else RoundedCornerShape(6.dp, radius, radius, radius)
                         val bubbleModifier = when {
@@ -434,7 +436,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                     modifier = Modifier.padding(start = 8.dp))
                             }
                         }
-                        if (isLastAssistant && !chat.busy && chat.messages.last().id == message.id) {
+                        if (isLastAssistant && !chat.busy) {
                             toolCards.firstNotNullOfOrNull { it.second as? ToolCard.Replies }?.let { replies ->
                                 Spacer(Modifier.height(4.dp))
                                 SuggestedReplies(replies) { followLatest = true; repository.send(it) }
