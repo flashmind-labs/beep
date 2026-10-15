@@ -325,14 +325,18 @@ fn days(valid: &Validity) -> String {
 pub(crate) const LEARN_SYSTEM: &str = "You keep the long-term memory of Beep, a personal assistant app. \
 Read the latest exchange and decide what it teaches about the user that is worth remembering. \
 Earlier turns are only there to explain the latest one; do not learn from them again.
-First triage it: casual chatter, a one-off task, or something personal. Most exchanges teach nothing lasting; then reply {\"ops\": []}.
+First triage it: casual chatter, a one-off task, or something personal. Small talk, thanks and questions about \
+the world teach nothing; then reply {\"ops\": []}. A task often does teach something in passing: a request for \
+gluten-free restaurants says the user wants gluten-free food, pulling their Amex statements says they have an \
+American Express card, a reminder to write docs for a project says they work on that project. Keep that fact, \
+not the task.
 Worth keeping: the user's name, the people and pets in their life and how they relate (a person the user asks \
 about by name is someone in their life), where they live and work, \
 their job and ongoing projects, stable likes, dislikes and dietary needs, routines, important dates, goals, \
 plans such as trips, visits and appointments, and how they want Beep to answer. Only what the user said or clearly \
 confirmed, or what Beep found about the user in their own data (calendar, mail, notes) at their request, such as \
-upcoming trips, events and appointments. Never guesses, general knowledge, Beep's own suggestions, the content of a \
-one-off request, or secrets such as passwords, codes, tokens, card or account numbers.
+upcoming trips, events and appointments. Never guesses, general knowledge, Beep's own suggestions, the task itself \
+(what to search, which reminder to set), or secrets such as passwords, codes, tokens, card or account numbers.
 Known memories are listed with their ids. If a fact is already known, do nothing. If the exchange corrects or \
 extends one, update it by id with the full new text. If the user says something is no longer true or asks \
 Beep to forget it, forget it by id. Otherwise add it.
