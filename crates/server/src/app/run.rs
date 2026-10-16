@@ -424,6 +424,9 @@ impl App {
                     tokio::pin!(stream);
 
                     let mut tools_running = 0usize;
+                    // Text after a tool call starts a new paragraph; the phone
+                    // joins the deltas, so "month." and "Here's" would touch.
+                    let mut after_tool = false;
                     // A model repeating itself never stops on its own; end the run instead
                     // of streaming the same sentence until the deadline.
                     let mut text_guard = RepeatGuard::default();
@@ -453,6 +456,14 @@ impl App {
                                     continue;
                                 }
                                 timer.output(Output::Text);
+                                let delta = if mem::take(&mut after_tool)
+                                    && !reply.is_empty()
+                                    && !reply.ends_with(char::is_whitespace)
+                                {
+                                    format!("\n\n{delta}")
+                                } else {
+                                    delta
+                                };
                                 reply.push_str(&delta);
                                 RunEvent::TextDelta { delta }
                             }
@@ -471,6 +482,7 @@ impl App {
                             }) => {
                                 timer.output(Output::Tool);
                                 tools_running += 1;
+                                after_tool = true;
                                 RunEvent::ToolStarted {
                                     name,
                                     call_id: id,
