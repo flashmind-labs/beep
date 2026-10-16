@@ -37,8 +37,9 @@ async fn main() -> Result<()> {
 
     let model: Model = config.model.parse()?;
     let mut llm = AgentLlmConfig::new(model).with_reasoning(config.reasoning);
-    // Reasoning shares this budget with the reply.
-    llm.max_tokens = Some(8192);
+    // Reasoning shares this budget with the reply, and at high effort it can
+    // use most of 8k before a long table is written.
+    llm.max_tokens = Some(32_000);
     llm.provider_preferences = Some(config.routing.clone());
     let key = config
         .provider_key
