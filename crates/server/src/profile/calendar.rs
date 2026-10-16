@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Write,
+    iter,
 };
 
 /// How far the calendar read reaches back and ahead.
@@ -22,6 +23,9 @@ const CALENDAR_AHEAD_DAYS: i64 = 183;
 const CALENDAR_PAGES: usize = 200;
 /// How much of the calendar one Fastmail search covers.
 const FASTMAIL_SPAN_DAYS: i64 = 90;
+/// How much one Outlook calendar view covers. Graph refuses a view over
+/// 1825 days, which the whole read is.
+const OUTLOOK_SPAN_DAYS: i64 = 365;
 const CALENDAR_SYSTEM: &str = "You help a personal assistant app get to know its user. You get events \
 from the user's own calendar. A repeating event is listed once with how many times it happened and between \
 which days.";
@@ -180,28 +184,30 @@ async fn outlook_events(user: &User, window: Window) -> Result<Vec<Event>> {
         .composio_client()
         .context("Composio is not configured")?;
     let mut events = Vec::new();
-    for page in 0..CALENDAR_PAGES {
-        // The calendar view expands repeating events into each time they happen.
-        let arguments = json!({
-            "start_datetime": rfc3339(window.after),
-            "end_datetime": rfc3339(window.before.unwrap_or_else(Utc::now)),
-            "top": TOP,
-            "skip": page * TOP,
-            "orderby": "start/dateTime asc",
-        });
-        let response = client
-            .execute_tool("OUTLOOK_GET_CALENDAR_VIEW", arguments)
-            .await?;
-        if response.successful == Some(false) {
-            bail!(
-                "Outlook calendar listing failed: {}",
-                response.error.as_deref().unwrap_or("no error given")
-            );
-        }
-        let listed = event_list(&response.data);
-        events.extend(listed.iter().filter_map(parse_event));
-        if listed.len() < TOP {
-            break;
+    for span in spans(window, OUTLOOK_SPAN_DAYS) {
+        for page in 0..CALENDAR_PAGES {
+            // The calendar view expands repeating events into each time they happen.
+            let arguments = json!({
+                "start_datetime": rfc3339(span.after),
+                "end_datetime": rfc3339(span.before.unwrap_or_else(Utc::now)),
+                "top": TOP,
+                "skip": page * TOP,
+                "orderby": "start/dateTime asc",
+            });
+            let response = client
+                .execute_tool("OUTLOOK_GET_CALENDAR_VIEW", arguments)
+                .await?;
+            if response.successful == Some(false) {
+                bail!(
+                    "Outlook calendar listing failed: {}",
+                    response.error.as_deref().unwrap_or("no error given")
+                );
+            }
+            let listed = event_list(&response.data);
+            events.extend(listed.iter().filter_map(parse_event));
+            if listed.len() < TOP {
+                break;
+            }
         }
     }
     Ok(events)
@@ -220,19 +226,29 @@ async fn fastmail_events(user: &User, window: Window) -> Result<Vec<Event>> {
     }
     let schema = schema.context("Fastmail has no search_events tool")?;
     let arguments = EventArguments::from_schema(&schema)?;
-    let end = window.before.unwrap_or_else(Utc::now);
     let mut events = Vec::new();
+    for span in spans(window, FASTMAIL_SPAN_DAYS) {
+        events.extend(fastmail_span(user, &arguments, span).await?);
+    }
+    Ok(events)
+}
+
+/// `window` cut into back-to-back spans of at most `days`, oldest first.
+fn spans(window: Window, days: i64) -> impl Iterator<Item = Window> {
+    let end = window.before.unwrap_or_else(Utc::now);
     let mut after = window.after;
-    while after < end {
-        let before = (after + Days::days(FASTMAIL_SPAN_DAYS)).min(end);
+    iter::from_fn(move || {
+        if after >= end {
+            return None;
+        }
+        let before = (after + Days::days(days)).min(end);
         let span = Window {
             after,
             before: Some(before),
         };
-        events.extend(fastmail_span(user, &arguments, span).await?);
         after = before;
-    }
-    Ok(events)
+        Some(span)
+    })
 }
 
 /// Fastmail's events in one span of at most `FASTMAIL_SPAN_DAYS`.
@@ -480,6 +496,30 @@ fn people(value: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spans_cover_the_window_back_to_back() {
+        let after = DateTime::parse_from_rfc3339("2021-10-15T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let before = after + Days::days(CALENDAR_BACK_DAYS + CALENDAR_AHEAD_DAYS);
+        let window = Window {
+            after,
+            before: Some(before),
+        };
+        let spans: Vec<_> = spans(window, OUTLOOK_SPAN_DAYS).collect();
+        assert_eq!(spans.len(), 6);
+        assert_eq!(spans[0].after, after);
+        assert_eq!(spans[5].before, Some(before));
+        for pair in spans.windows(2) {
+            assert_eq!(pair[0].before, Some(pair[1].after));
+        }
+        assert!(
+            spans
+                .iter()
+                .all(|span| { span.before.unwrap() - span.after <= Days::days(OUTLOOK_SPAN_DAYS) })
+        );
+    }
 
     #[test]
     fn reads_google_outlook_and_jmap_events() {

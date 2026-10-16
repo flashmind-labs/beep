@@ -10,7 +10,10 @@ use crate::{
 };
 use chrono::{DateTime, Duration, Utc};
 use flashmind::core::{Conversation, EntryKind};
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::HashMap,
+    fmt::{self, Write},
+};
 
 /// How likely a follow-up has to be useful before one is written.
 const THRESHOLD: f64 = 0.8;
@@ -237,9 +240,10 @@ pub async fn score(decision: &DecisionTool, state: &str) -> Option<f64> {
 /// The follow-ups for `state` as a `suggest_replies` result, whatever Jev
 /// thinks of the turn.
 pub async fn draft(generator: Generator<'_>, state: String, reply: &str) -> Option<String> {
-    let output = replies_output(items(generator, SYSTEM, state, reply).await?);
+    let items = items(generator, SYSTEM, state, reply).await?;
+    let output = replies_output(items.clone());
     if output.is_none() {
-        log::warn!("fewer than two usable follow-ups");
+        log::warn!("fewer than two usable follow-ups: {items:?}");
     }
     output
 }
@@ -254,25 +258,39 @@ async fn items(
 ) -> Option<Vec<String>> {
     // Said last, next to the reply: in the system prompt alone the model
     // follows the place or the sources, like Japanese chips in Tokyo.
-    let state = format!("{state}\n\nWrite every item in the language of the Assistant line above.");
-    let answer = match generator.text(system, state).await {
-        Ok(answer) => answer,
-        Err(error) => {
-            log::warn!("unable to write follow-ups: {error}");
-            return None;
+    let mut state =
+        format!("{state}\n\nWrite every item in the language of the Assistant line above.");
+    let mut retried = false;
+    loop {
+        let answer = match generator.text(system, state.clone()).await {
+            Ok(answer) => answer,
+            Err(error) => {
+                log::warn!("unable to write follow-ups: {error}");
+                return None;
+            }
+        };
+        let (items, other): (Vec<String>, Vec<String>) = list_items(&answer)
+            .into_iter()
+            .map(|item| item.trim_matches(['"', '\'', '“', '”']).trim().to_owned())
+            .partition(|item| same_script(item, reply));
+        if !other.is_empty() {
+            log::info!(
+                "dropped {} follow-ups in another script than the reply",
+                other.len()
+            );
         }
-    };
-    let (items, other): (Vec<String>, Vec<String>) = list_items(&answer)
-        .into_iter()
-        .map(|item| item.trim_matches(['"', '\'', '“', '”']).trim().to_owned())
-        .partition(|item| same_script(item, reply));
-    if !other.is_empty() {
-        log::info!(
-            "dropped {} follow-ups in another script than the reply",
-            other.len()
+        // Even said last, the place still wins now and then; one more try
+        // with what went wrong spelled out usually lands.
+        if !items.is_empty() || other.is_empty() || retried {
+            return Some(items);
+        }
+        retried = true;
+        let _ = write!(
+            state,
+            "\n\nYou wrote {other:?}, which is not the language of the Assistant line. \
+             Write them again in the Assistant line's language."
         );
     }
-    Some(items)
 }
 
 /// A writing system, coarsely: enough to tell an English reply from
