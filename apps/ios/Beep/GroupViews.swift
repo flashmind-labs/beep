@@ -111,7 +111,10 @@ struct GroupChatView: View {
     @State private var error = ""
     @State private var replying: GroupMessage?
     @State private var flashing: Int64?
+    /// Messages already shown, or there when the chat opened; these do not spring in.
+    @State private var settled: Set<Int64>?
     @FocusState private var typing: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var group: Group? { chat?.group ?? model.groups.first { $0.id == groupId } }
 
@@ -129,9 +132,9 @@ struct GroupChatView: View {
                 .overlay { placeholder }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: chat?.messages.count) { scroller.scrollTo("end", anchor: .bottom) }
-                .onChange(of: outgoing.count) { scroller.scrollTo("end", anchor: .bottom) }
-                .onChange(of: chat?.group.beepTyping) { scroller.scrollTo("end", anchor: .bottom) }
+                .onChange(of: chat?.messages.count) { toEnd(scroller) }
+                .onChange(of: outgoing.count) { toEnd(scroller) }
+                .onChange(of: chat?.group.beepTyping) { toEnd(scroller) }
             }
             if !error.isEmpty {
                 Text(error).font(.body(12)).foregroundStyle(Mint.error)
@@ -162,10 +165,15 @@ struct GroupChatView: View {
         }
     }
 
+    private func toEnd(_ scroller: ScrollViewProxy) {
+        withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo("end", anchor: .bottom) }
+    }
+
     private func load() async {
         do {
             let fresh = try await model.group(groupId)
-            chat = fresh
+            if settled == nil { settled = Set(fresh.messages.map(\.seq)) }
+            withAnimation(.bouncy) { chat = fresh }
             let last = fresh.messages.last?.seq ?? 0
             if last != picturesSeq {
                 pictures = await model.groupPictures(groupId)
@@ -229,10 +237,12 @@ struct GroupChatView: View {
             }
             if chat.group.beepTyping {
                 HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text("Beep is typing").font(.body(13)).foregroundStyle(Mint.muted)
+                    PulsingDots()
+                    StatusLine()
                 }
                 .padding(.leading, 4)
+                .popIn(anchor: .bottomLeading)
+                .transition(.opacity)
             }
         }
     }
@@ -246,12 +256,17 @@ struct GroupChatView: View {
                             first: index == 0, last: index == total - 1, flash: flashing == message.seq,
                             quoteAuthor: { source(of: $0)?.author }, quoted: { jump(to: $0, scroller: scroller) }, reply: { reply(to: message) })
                     .id(message.seq)
+                    // Your own message was already on screen while it was sending.
+                    .popIn(play: !(settled?.contains(message.seq) ?? true) && !message.author.isYou,
+                           anchor: run.author.isYou ? .bottomTrailing : .bottomLeading)
+                    .onAppear { settled?.insert(message.seq) }
             }
             ForEach(Array(pending.enumerated()), id: \.element.id) { index, out in
                 GroupBubble(group: group, author: .member(name: "", you: true), content: out.text,
                             first: run.messages.isEmpty && index == 0, last: run.messages.count + index == total - 1,
                             flash: false, quoteAuthor: { source(of: $0)?.author }, quoted: { _ in }, reply: {})
                     .opacity(0.6)
+                    .popIn(anchor: .bottomTrailing)
             }
         }
         .frame(maxWidth: .infinity, alignment: run.author.isYou ? .trailing : .leading)
@@ -586,7 +601,7 @@ private struct MentionPicker: View {
 
 // MARK: Sheets
 
-private struct SheetHeader: View {
+struct SheetHeader: View {
     let icon: String
     let tint: Color
     let title: String
@@ -636,7 +651,7 @@ private struct NameField: View {
 }
 
 /// The sheets' frame: a surface with the content padded, sized to fit.
-private struct SheetBody<Content: View>: View {
+struct SheetBody<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -786,6 +801,7 @@ struct JoinCodeSheet: View {
     @State private var wrong = false
     @State private var busy = false
     @State private var error = ""
+    @State private var scanning = false
 
     /// A pasted link gives its token; a typed code is read as one.
     private var code: String? {
@@ -801,11 +817,16 @@ struct JoinCodeSheet: View {
                       error: wrong ? "No group has this code. Check it, or ask for a new one." : nil,
                       hint: "Ten letters and digits, like K7QM4-X9TRP", mono: true)
                 .onChange(of: typed) { wrong = false }
-            Button {
-                typed = UIPasteboard.general.string ?? ""
-                if let code { find(code) }
-            } label: {
-                Label("Paste link", systemImage: "doc.on.clipboard").frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                Button {
+                    typed = UIPasteboard.general.string ?? ""
+                    if let code { find(code) }
+                } label: {
+                    Label("Paste link", systemImage: "doc.on.clipboard").frame(maxWidth: .infinity)
+                }
+                Button { scanning = true } label: {
+                    Label("Scan code", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity)
+                }
             }
             .buttonStyle(PillButton())
             .disabled(busy)
@@ -818,6 +839,10 @@ struct JoinCodeSheet: View {
                     .disabled(busy || code == nil || wrong)
                     .opacity(busy || code == nil || wrong ? 0.5 : 1)
             }
+        }
+        .qrScanner(isPresented: $scanning) { text in
+            typed = text
+            if let code { find(code) }
         }
     }
 

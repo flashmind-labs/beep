@@ -85,16 +85,26 @@ struct ChunkyButton: ButtonStyle {
             .background(shape.fill(fill))
             .overlay(shape.stroke(Mint.ledge, lineWidth: 2))
             .offset(x: down, y: down)
+            .animation(.sink, value: configuration.isPressed)
             .background(shape.fill(Mint.ledge).offset(x: 3, y: 3))
     }
 }
 
-/// The small connection status dot.
+/// The small connection status dot, pulsing while it reconnects.
 struct ConnectionDot: View {
     let connected: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
 
     var body: some View {
         Circle().fill(connected ? Mint.ok : Mint.error).frame(width: 7, height: 7)
+            .opacity(!connected && dim ? 0.3 : 1)
+            .animation(.default, value: connected)
+            .task(id: connected) {
+                withTransaction(Transaction(animation: nil)) { dim = false }
+                guard !connected, !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) { dim = true }
+            }
     }
 }
 
@@ -109,6 +119,7 @@ struct TextAction: ButtonStyle {
             .padding(.horizontal, 8)
             .frame(minHeight: 36)
             .opacity(configuration.isPressed ? 0.6 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -173,6 +184,7 @@ struct PrimaryButton: ButtonStyle {
             .background(RoundedRectangle(cornerRadius: 18).fill(fill))
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(Mint.ledge, lineWidth: 2))
             .offset(x: configuration.isPressed ? 3 : 0, y: configuration.isPressed ? 3 : 0)
+            .animation(.sink, value: configuration.isPressed)
             .background(RoundedRectangle(cornerRadius: 18).fill(Mint.ledge).offset(x: 3, y: 3))
     }
 }
@@ -188,7 +200,8 @@ struct PillButton: ButtonStyle {
             .frame(minHeight: 36)
             .background(Capsule().fill(fill))
             .overlay(Capsule().stroke(Mint.ledge, lineWidth: 2))
-            .opacity(configuration.isPressed ? 0.7 : 1)
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.sink, value: configuration.isPressed)
     }
 }
 

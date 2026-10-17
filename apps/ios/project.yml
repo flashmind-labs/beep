@@ -32,7 +32,7 @@ targets:
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Beep uses your location for nearby places, weather and directions.
         INFOPLIST_KEY_NSContactsUsageDescription: Beep looks up a contact when you ask it to.
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: Beep watches the places you saved, so a routine can start when you arrive or leave.
-        INFOPLIST_KEY_NSCameraUsageDescription: Beep uses the camera while it's open in a chat, to send a photo with your message.
+        INFOPLIST_KEY_NSCameraUsageDescription: Beep uses the camera to scan a Beep code, and while it's open in a chat to send a photo with your message.
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Beep shows your recent photos so you can send one with a message.
         SWIFT_INCLUDE_PATHS: $(PROJECT_DIR)/Generated
         HEADER_SEARCH_PATHS: $(PROJECT_DIR)/Generated

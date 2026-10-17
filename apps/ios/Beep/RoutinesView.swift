@@ -39,6 +39,8 @@ struct RoutinesView: View {
                         ForEach(crons, id: \.id) { cron in
                             RoutineCard(cron: cron, toggle: { set(cron, enabled: $0) },
                                         run: { run(cron) }, delete: { delete(cron) })
+                                .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                                                        removal: .opacity.combined(with: .move(edge: .leading))))
                         }
                         Text("Swipe right to run now, left to delete")
                             .font(.body(11)).foregroundStyle(Mint.dim)
@@ -126,12 +128,14 @@ private struct RoutineCard: View {
                     Text(toDelete ? "Delete" : "Run now").font(.body(13, .semibold))
                     if toDelete { Image(systemName: "trash") }
                 }
-                .scaleEffect(armed ? 1.1 : 1)
+                .scaleEffect(armed ? 1.3 : 1)
+                .animation(.bouncy, value: armed)
                 .foregroundStyle(Mint.ink)
                 .padding(.horizontal, 22)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: toDelete ? .trailing : .leading)
                 .background(RoundedRectangle(cornerRadius: 18)
-                    .fill(!armed ? Mint.soft : toDelete ? Mint.error : Mint.accent))
+                    .fill(!armed ? Mint.soft : toDelete ? Mint.error : Mint.accent)
+                    .animation(.easeOut(duration: 0.15), value: armed))
             }
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -167,7 +171,7 @@ private struct RoutineCard: View {
                     delete()
                 } else {
                     if done { run() }
-                    withAnimation(.spring(duration: 0.3)) { offset = 0 }
+                    withAnimation(.bouncy) { offset = 0 }
                 }
             })
     }

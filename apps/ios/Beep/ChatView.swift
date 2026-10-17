@@ -7,7 +7,11 @@ struct ChatView: View {
     @State private var photos: [Data] = []
     @State private var picking = false
     @State private var camera = false
+    /// Messages already on screen when the chat opened, or already shown; these do not spring in.
+    @State private var settled: Set<String> = []
+    @State private var squish = false
     @FocusState private var typing: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,27 +28,39 @@ struct ChatView: View {
                                 // A reply sits close under its own prompt; turns keep the full gap.
                                 .padding(.top, index > 0 && message.role == .assistant
                                          && model.chat.messages[index - 1].role == .user ? -12 : 0)
+                                .popIn(play: !settled.contains(message.id),
+                                       anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
+                                .onAppear { settled.insert(message.id) }
                         }
-                        if model.chat.busy, !model.chat.thinking.isEmpty {
-                            ThinkingPreview(text: model.chat.thinking)
-                        }
-                        if model.chat.busy, waitingForFirstEvent {
-                            ProgressView().padding(.leading, 4)
+                        if model.chat.busy, !replyStarted {
+                            working
+                                .popIn(anchor: .bottomLeading)
+                                .transition(.opacity)
                         }
                         if !model.chat.error.isEmpty, !model.chat.busy {
-                            ErrorRow(text: model.chat.error) { model.retry() }
+                            ErrorRow(text: model.chat.error) { model.retry() }.unfold()
                         } else if !model.chat.error.isEmpty {
-                            Text(model.chat.error).font(.body(13)).foregroundStyle(Mint.muted)
+                            Text(model.chat.error).font(.body(13)).foregroundStyle(Mint.muted).unfold()
                         }
                         Color.clear.frame(height: 1).id("end")
                     }
                     .padding(18)
+                    .animation(.bouncy, value: model.chat.busy)
+                    .animation(.bouncy, value: replyStarted)
+                    .animation(.easeOut(duration: 0.2), value: model.chat.error)
                 }
                 // Open at the latest message instead of scrolling down from the top.
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: model.chat.messages) { scroller.scrollTo("end", anchor: .bottom) }
-                .onChange(of: model.chat.id) { scroller.scrollTo("end", anchor: .bottom) }
+                .onChange(of: model.chat.messages) { old, new in
+                    // A new message glides into view; streamed text just keeps the end in sight.
+                    let glide = old.count != new.count && !reduceMotion
+                    withAnimation(glide ? .smooth : nil) { scroller.scrollTo("end", anchor: .bottom) }
+                }
+                .onChange(of: model.chat.id, initial: true) {
+                    settled = Set(model.chat.messages.map(\.id))
+                    scroller.scrollTo("end", anchor: .bottom)
+                }
             }
             composer
         }
@@ -78,9 +94,27 @@ struct ChatView: View {
         }
     }
 
-    private var waitingForFirstEvent: Bool {
-        guard let last = model.chat.messages.last else { return true }
-        return last.role == .user
+    /// Whether the run's reply has text yet; until then the working row stands in for it.
+    private var replyStarted: Bool {
+        guard let last = model.chat.messages.last else { return false }
+        return last.role == .assistant && !last.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Hopping dots and a changing verb, the tail of the model's thinking, and where the reply will go.
+    private var working: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                PulsingDots()
+                StatusLine()
+            }
+            .padding(.leading, 4)
+            if !model.chat.thinking.isEmpty {
+                ThinkingPreview(text: model.chat.thinking).padding(.top, 8).padding(.trailing, 48).unfold()
+            }
+            ReplySkeleton().padding(.top, 12).padding(.trailing, 48)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeOut(duration: 0.22), value: model.chat.thinking.isEmpty)
     }
 
     /// Back to the list, Beep's avatar, the chat's name and the connection dot.
@@ -122,7 +156,7 @@ struct ChatView: View {
         let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty
         let prompt = photos.count > 1 ? "Ask about the photos..." : photos.isEmpty ? "Ask anything..." : "Ask about the photo..."
         return VStack(alignment: .leading, spacing: 0) {
-            if !photos.isEmpty { thumbnails }
+            if !photos.isEmpty { thumbnails.unfold() }
             HStack(alignment: .bottom, spacing: 8) {
                 HStack(alignment: .bottom, spacing: 4) {
                     TextField("", text: $draft, prompt: Text(prompt).foregroundStyle(Mint.dim), axis: .vertical)
@@ -149,28 +183,39 @@ struct ChatView: View {
                 .frame(minHeight: 50)
                 .chunky()
                 if model.chat.busy {
-                    Button { model.stop() } label: { Image(systemName: "stop.fill") }
+                    Button { model.stop() } label: { Image(systemName: "stop.fill").foregroundStyle(Mint.page) }
                         .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 25))
                         .foregroundStyle(Mint.page)
                         .accessibilityLabel("Stop reply")
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                 } else {
                     Button {
                         model.send(draft, images: photos)
                         draft = ""
                         photos = []
+                        // A quick squish on tap so sending feels physical.
+                        guard !reduceMotion else { return }
+                        withAnimation(.easeIn(duration: 0.07)) { squish = true } completion: {
+                            withAnimation(.interpolatingSpring(stiffness: 600, damping: 2 * 0.4 * sqrt(600))) { squish = false }
+                        }
                     } label: { Image(systemName: "arrow.up").foregroundStyle(empty ? Mint.ink : .white) }
                         .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.brand, size: 50, radius: 25))
                         .opacity(empty ? 0.5 : 1)
+                        .scaleEffect(squish ? 0.82 : 1)
                         .disabled(empty)
                         .accessibilityLabel("Send")
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
+            .animation(.bouncy, value: model.chat.busy)
+            .animation(.easeOut(duration: 0.15), value: empty)
             .padding(.leading, 14)
             .padding(.trailing, 16)
             .padding(.top, 8)
             .padding(.bottom, 12)
         }
         .background(Mint.page)
+        .animation(.bouncy, value: photos.count)
     }
 
     /// The photos waiting to go with the next message, each with a remove button.
@@ -190,6 +235,8 @@ struct ChatView: View {
                         .padding(3)
                         .accessibilityLabel("Remove photo \(index + 1)")
                     }
+                    .popIn()
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
             .padding(.horizontal, 14).padding(.top, 8)
@@ -226,6 +273,8 @@ private struct EmptyChat: View {
     @Environment(AppModel.self) private var model
     let send: (String) -> Void
     let fill: (String) -> Void
+    @State private var loading = false
+    @State private var spin = false
 
     /// Templates until the server's starters arrive; the last two only fill the composer.
     private static let templates: [(title: String, prompt: String, complete: Bool)] = [
@@ -239,6 +288,7 @@ private struct EmptyChat: View {
             (Text("A little help.\n") + Text("Right here.").foregroundColor(Mint.ok))
                 .font(.display(40)).foregroundStyle(Mint.ink)
                 .lineSpacing(0)
+                .popIn(anchor: .bottomLeading)
                 .padding(.top, 24)
             Text("Find an answer. Untangle a thought.\nKeep something worth remembering.")
                 .font(.body(15)).foregroundStyle(Mint.muted).lineSpacing(5)
@@ -264,13 +314,33 @@ private struct EmptyChat: View {
                         .chunky()
                     }
                     .buttonStyle(.plain)
+                    .id(item.title)
+                    .popIn(delay: 0.06 * Double(index + 1))
                 }
             }
             if !model.starters.isEmpty {
                 Button {
-                    Task { await model.loadStarters(refresh: true) }
+                    loading = true
+                    Task {
+                        await model.loadStarters(refresh: true)
+                        loading = false
+                    }
                 } label: {
-                    Label("New ideas", systemImage: "arrow.clockwise").font(.body(13))
+                    Label {
+                        Text("New ideas")
+                    } icon: {
+                        Image(systemName: "arrow.clockwise")
+                            .rotationEffect(.degrees(spin ? 360 : 0))
+                    }
+                    .font(.body(13))
+                }
+                .disabled(loading)
+                .onChange(of: loading) {
+                    if loading {
+                        withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) { spin = true }
+                    } else {
+                        withTransaction(Transaction(animation: nil)) { spin = false }
+                    }
                 }
                 .buttonStyle(TextAction(color: Mint.muted))
                 .frame(maxWidth: .infinity)
@@ -295,15 +365,20 @@ private func starterIcon(_ text: String) -> String {
     return "sparkles"
 }
 
+/// The tail of the model's reasoning while it thinks, the oldest lines fading out at the top.
 private struct ThinkingPreview: View {
     let text: String
 
     var body: some View {
-        Text(String(text.suffix(240)))
+        Text(String(text.trimmingCharacters(in: .whitespacesAndNewlines).suffix(1500)))
             .font(.body(13)).foregroundStyle(Mint.muted)
-            .lineLimit(3)
-            .padding(.horizontal, 12).padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxHeight: 140, alignment: .bottom)
+            .clipped()
+            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.2)],
+                                 startPoint: .top, endPoint: .bottom))
+            .padding(.horizontal, 12).padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
     }
 }
@@ -340,7 +415,7 @@ struct MessageView: View {
                     ApprovalCard(prompt: prompt).padding(.bottom, 8)
                 }
                 if !message.text.isEmpty {
-                    MarkdownText(text: message.text)
+                    Typewriter(text: message.text, streaming: live) { MarkdownText(text: $0) }
                 }
                 // The mock shows a saved place under the reply that names it.
                 ForEach(message.tools.compactMap(\.savedPlace), id: \.id) { place in
@@ -356,9 +431,11 @@ struct MessageView: View {
                     let products = call.products
                     if !products.isEmpty { ProductRow(products: products).padding(.top, 10) }
                 }
-                if !message.text.isEmpty, !live { actions }
+                if !message.text.isEmpty, !live { actions.transition(.opacity) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeOut(duration: 0.2), value: live)
+            .animation(.bouncy, value: message.approvals.count)
         }
     }
 
@@ -399,6 +476,7 @@ struct MessageView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
                     .padding(.bottom, 6)
+                    .unfold()
             }
         }
     }
@@ -415,12 +493,15 @@ struct MessageView: View {
                 if folded > 0 {
                     FoldedTools(calls: Array(calls.prefix(folded)), finished: folded == calls.count,
                                 open: showAllTools) { withAnimation(.snappy) { showAllTools.toggle() } }
+                        .unfold()
                 }
                 ForEach(Array(calls.enumerated()), id: \.element.id) { index, call in
-                    if index >= hidden { ToolChip(call: call, tint: Mint.tints[index % 3]) }
+                    if index >= hidden { ToolChip(call: call, tint: Mint.tints[index % 3]).unfold() }
                 }
             }
             .padding(.bottom, 8)
+            .animation(.bouncy, value: calls.count)
+            .animation(.bouncy, value: folded)
         }
     }
 
@@ -473,6 +554,8 @@ struct FoldedTools: View {
                     }
                 }
                 Text(summary).font(.body(12)).foregroundStyle(Mint.muted)
+                    .contentTransition(.numericText())
+                    .animation(.snappy, value: summary)
                 Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Mint.muted)
                     .rotationEffect(.degrees(open ? 180 : 0))
@@ -491,30 +574,57 @@ struct FoldedTools: View {
     }
 }
 
+/// A tool call as a chip. A running one springs in and its icon wiggles; when it
+/// finishes the done mark is stamped on. Chips already done when shown stay still.
 struct ToolChip: View {
     let call: ToolCall
     var tint: Color = Mint.tints[1]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var sawRunning: Bool?
+    @State private var wiggle = false
+    @State private var stamped = false
 
     var body: some View {
+        let still = reduceMotion || !(sawRunning ?? !call.done)
         HStack(spacing: 8) {
             Text(toolInitial(call.name))
                 .font(.body(11, .semibold))
                 .frame(width: 26, height: 26)
                 .background(Circle().fill(Mint.surface))
+                .rotationEffect(.degrees(!call.done && !still ? (wiggle ? 12 : -12) : 0))
             Text(call.done ? doneLabel(call.label) : call.label)
                 .font(.body(13, .medium)).lineLimit(1)
-            if call.done {
-                Image(systemName: call.success ? "checkmark" : "xmark")
-                    .font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
-                    .frame(width: 18, height: 18)
-                    .background(Circle().fill(call.success ? Mint.ok : Mint.error))
-            } else {
-                ProgressView().controlSize(.mini).tint(Mint.ink).frame(width: 13, height: 13)
+                .contentTransition(.opacity)
+            ZStack {
+                if call.done {
+                    let on = stamped || still
+                    Image(systemName: call.success ? "checkmark" : "xmark")
+                        .font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                        .frame(width: 18, height: 18)
+                        .background(Circle().fill(call.success ? Mint.ok : Mint.error))
+                        .scaleEffect(on ? 1 : 1.8)
+                        .rotationEffect(.degrees(on ? 0 : -14))
+                        .opacity(on ? 1 : 0)
+                } else {
+                    ProgressView().controlSize(.mini).tint(Mint.ink).frame(width: 13, height: 13)
+                }
             }
+            .frame(width: 18, height: 18)
         }
         .foregroundStyle(Mint.ink)
         .padding(.leading, 5).padding(.trailing, 12).padding(.vertical, 5)
         .chunky(tint, shape: Capsule())
+        .popIn(play: !call.done, anchor: .leading)
+        .onAppear { if sawRunning == nil { sawRunning = !call.done } }
+        .task(id: call.done) {
+            let moving = !reduceMotion && (sawRunning ?? !call.done)
+            if call.done {
+                withTransaction(Transaction(animation: nil)) { wiggle = false }
+                if moving { withAnimation(.stamp) { stamped = true } }
+            } else if moving {
+                withAnimation(.linear(duration: 0.26).repeatForever(autoreverses: true)) { wiggle = true }
+            }
+        }
     }
 }
 
