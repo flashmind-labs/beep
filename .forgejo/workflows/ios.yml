@@ -123,11 +123,10 @@ jobs:
           options = {
               "method": "app-store-connect",
               "destination": "export",
-              "signingStyle": "manual",
+              # Automatic, so the widget extension gets its own App Store
+              # profile next to the app's.
+              "signingStyle": "automatic",
               "signingCertificate": "Apple Distribution",
-              "provisioningProfiles": {
-                  "com.flashmind.beep": os.environ["IOS_PROFILE_UUID"],
-              },
               "teamID": os.environ["IOS_TEAM_ID"],
               "manageAppVersionAndBuildNumber": False,
           }
@@ -136,7 +135,9 @@ jobs:
           PY
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Beep.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ios-export-options.plist" \
-            -exportPath "$RUNNER_TEMP/ios-export"
+            -exportPath "$RUNNER_TEMP/ios-export" \
+            -allowProvisioningUpdates -authenticationKeyPath "$IOS_API_KEY_PATH" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" -authenticationKeyIssuerID "$APPLE_API_ISSUER_ID"
           xcrun altool --upload-app -f "$RUNNER_TEMP/ios-export/Beep.ipa" -t ios \
             --api-key "$APPLE_API_KEY_ID" --api-issuer "$APPLE_API_ISSUER_ID" \
             --p8-file-path "$IOS_API_KEY_PATH"
