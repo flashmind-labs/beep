@@ -115,9 +115,11 @@ losing it means installed apps can no longer update.
 
 ## iOS app
 
-`apps/ios` is the SwiftUI port. `just ios-run` builds the Rust bridge for the
-simulator, generates the Xcode project with xcodegen and launches it on the
-iPhone 17 simulator. Debug builds take `-send "text"` and `-open
+`apps/ios` is the SwiftUI port. `just ios-run` builds, installs and launches
+on a connected iPhone with Developer Mode enabled. Pass a device ID or name
+to select one; `IOS_TEAM_ID` overrides the local development certificate's team.
+`just ios-sim-run` runs on the iPhone 17 simulator. Debug builds take
+`-send "text"` and `-open
 chats|settings|memories|routines` as launch arguments
 (`xcrun simctl launch booted com.flashmind.beep -send "hi"`), so it can be
 tested without tapping.

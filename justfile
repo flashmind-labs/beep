@@ -89,11 +89,16 @@ ios-build:
     cd apps/ios && xcodegen generate --quiet && xcodebuild -project Beep.xcodeproj -scheme Beep -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath build -quiet build
 
 # Install and launch the iOS app on the iPhone 17 simulator
-ios-run: ios-build
+ios-sim-run: ios-build
     xcrun simctl boot "iPhone 17" || true
     open -a Simulator
     xcrun simctl install "iPhone 17" apps/ios/build/Build/Products/Debug-iphonesimulator/Beep.app
     xcrun simctl launch "iPhone 17" com.flashmind.beep
+
+# Build, install, and launch on a connected iPhone. Optional device ID or name.
+[positional-arguments]
+ios-run device="":
+    bash apps/ios/scripts/run-device.sh "$1"
 
 # Restart the server (kill old, start new)
 restart-server:
