@@ -9,6 +9,9 @@ struct BeepApp: App {
             RootView()
                 .environment(delegate.model)
                 .task { delegate.model.connect() }
+                .onOpenURL { url in
+                    if url.scheme == "beep", url.host == "new" { delegate.model.destination = .newChat }
+                }
         }
     }
 }
@@ -167,6 +170,10 @@ struct RootView: View {
             path.append(.placeRoutine(id))
         case .latestRead:
             path = [.latestRead]
+        case .newChat:
+            // An empty chat already open is the new chat.
+            if !(path == [.chat] && model.chat.messages.isEmpty) { openChat(nil) }
+            model.composeNext = true
         }
     }
 
@@ -176,6 +183,7 @@ struct RootView: View {
     /// `-open`. `group`, `groupinfo` and `invite` open the first group, `photos` the photo sheet in a
     /// new chat, `start`, `newgroup` and `joingroup` the sheets, `locationalways` the location ask. `-places sample` swaps the
     /// server's places for made up ones, and `placesave` shows a chat with a saved place card.
+    /// `widget` takes the widget's path to a new chat with the keyboard up.
     /// `-creategroup "name"` makes a group and `-leavegroup 1` leaves the first one.
     private func debugLaunch() async {
         let defaults = UserDefaults.standard
@@ -194,6 +202,7 @@ struct RootView: View {
         }
         switch defaults.string(forKey: "open") {
         case "chat", "newchat", "photos": openChat(nil)
+        case "widget": model.destination = .newChat
         case "products":
             openChat(nil)
             model.chat.messages = sampleProducts

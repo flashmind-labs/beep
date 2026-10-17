@@ -11,6 +11,8 @@ targets:
   Beep:
     type: application
     platform: iOS
+    dependencies:
+      - target: BeepWidget
     sources:
       - path: Beep
       - path: Generated
@@ -47,7 +49,37 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIAppFonts: [bricolage_grotesque.ttf, rubik.ttf]
         NSUserActivityTypes: [INSendMessageIntent]
+        # beep://new, from the widget.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.flashmind.beep
+            CFBundleURLSchemes: [beep]
     entitlements:
       path: Beep/Beep.entitlements
       properties:
         com.apple.developer.usernotifications.communication: true
+  BeepWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widget
+      - path: ../android/app/src/main/res/font/bricolage_grotesque.ttf
+        buildPhase: resources
+      - path: ../android/app/src/main/res/font/rubik.ttf
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flashmind.beep.widget
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Beep
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIAppFonts: [bricolage_grotesque.ttf, rubik.ttf]
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension

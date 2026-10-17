@@ -73,6 +73,11 @@ struct ChatView: View {
             #endif
         }
         .onChange(of: model.chat.id) { model.onScreen = model.chat.id }
+        .onChange(of: model.composeNext, initial: true) {
+            guard model.composeNext else { return }
+            model.composeNext = false
+            typing = true
+        }
         .onDisappear { if model.onScreen == model.chat.id { model.onScreen = nil } }
         .sheet(isPresented: $picking) {
             PhotoSheet(room: max(0, ChatPhotos.limit - photos.count)) { picked in
