@@ -84,6 +84,8 @@ final class AppModel {
     }
     /// Where a tapped notification wants to go; the root view follows it and clears it.
     var destination: Destination?
+    /// Set when a new chat should open with the keyboard up; the chat clears it.
+    var composeNext = false
     /// A member to @mention when the group chat shows again, from the member sheet.
     var pendingMention: String?
     /// The last line of each chat for the list, cached by the chat's update time.
@@ -880,6 +882,8 @@ enum Destination: Equatable {
     case placeRoutine(String)
     /// Memories, showing what the newest read of mail or a calendar found.
     case latestRead
+    /// A new chat with the keyboard up, from the widget.
+    case newChat
 }
 
 func nowMillis() -> Int64 { Int64(Date.now.timeIntervalSince1970 * 1000) }
