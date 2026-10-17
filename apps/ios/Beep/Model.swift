@@ -766,6 +766,21 @@ final class AppModel {
         await refreshAfterConnect()
     }
 
+    // MARK: Devices
+
+    func peekInvite(_ code: String) async throws -> JoinPreview { try await api().peekInvite(code: code) }
+
+    func linkDevice(_ offerUri: String) async throws -> LinkedDevice { try await api().linkDevice(offerUri: offerUri) }
+
+    /// Moves this phone into the account that showed `code`, then loads that account's chats.
+    func joinAccount(_ code: String) async throws {
+        try await api().joinAccount(code: code)
+        // The server closes the connection; the next call signs in again.
+        try? await Task.sleep(for: .milliseconds(1500))
+        newChat()
+        await refreshAfterConnect()
+    }
+
     // MARK: Settings
 
     func setModel(_ id: String) async {

@@ -193,10 +193,11 @@ struct HomeView: View {
                     ProgressView().padding(.top, 60)
                 }
                 ForEach(items) { item in
-                    row(item)
+                    row(item).transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
             .padding(.bottom, 84)
+            .animation(.bouncy, value: items.map(\.id))
         }
         .refreshable {
             await model.refreshSessions()
@@ -379,6 +380,7 @@ struct HomeRow: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 9)
         .background(held ? Mint.user : .clear)
+        .animation(.easeOut(duration: 0.15), value: held)
     }
 
     @ViewBuilder private var picture: some View {

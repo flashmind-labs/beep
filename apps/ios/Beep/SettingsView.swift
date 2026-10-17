@@ -32,6 +32,7 @@ struct SettingsView: View {
                         divider
                     }
                     .buttonStyle(.plain)
+                    ComputerCard()
                 }
                 .padding(.horizontal, 20).padding(.vertical, 8)
             }

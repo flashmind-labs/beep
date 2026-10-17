@@ -48,6 +48,7 @@ struct OnboardingView: View {
                         : "Import the key file saved from Settings on your other phone.",
                     done: imported, action: "Import", busy: busy
                 ) { importing = true }
+                ComputerCard()
                 if !error.isEmpty {
                     Text(error).font(.body(13)).foregroundStyle(Mint.error)
                 }
