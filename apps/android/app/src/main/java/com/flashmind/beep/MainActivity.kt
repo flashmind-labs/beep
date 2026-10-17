@@ -394,13 +394,13 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             openGroup = null; screen = Screen.Chat
         }
     }
-    // Chats left by starting a new one, newest last, so a swipe right can go back to them.
-    // The trail only holds while the user stays on the chat the swipes led to: opening one from the
-    // list, a notification or a share starts over, and it lives no longer than this screen.
-    var visited by remember { mutableStateOf(listOf<String>()) }
+    // The chat left by starting a new one, so a swipe right can go back to it once.
+    // It only holds while the user stays on the new chat: opening one from the list, a
+    // notification or a share forgets it, and it lives no longer than this screen.
+    var left by remember { mutableStateOf<String?>(null) }
     var trailEnd by remember { mutableStateOf<String?>(null) }
     fun openChat(id: String) {
-        visited = emptyList()
+        left = null
         openGroup = null
         repository.select(id)
     }
@@ -411,18 +411,17 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             return
         }
         if (state.current.messages.isEmpty()) return
-        visited = visited.filter { it != state.current.id } + state.current.id
+        left = state.current.id
         repository.newChat()
         trailEnd = repository.state.value.current.id
     }
     fun previousChat(): String? {
         if (trailEnd != state.current.id) return null
-        val ids = state.conversations.map { it.id }.toSet()
-        return visited.lastOrNull { it in ids && it != state.current.id }
+        return left?.takeIf { id -> id != state.current.id && state.conversations.any { it.id == id } }
     }
     fun goBack() {
         val id = previousChat() ?: run { drawerOpen = true; return }
-        visited = visited.dropLastWhile { it != id }.dropLast(1)
+        left = null
         repository.select(id)
         trailEnd = id
     }

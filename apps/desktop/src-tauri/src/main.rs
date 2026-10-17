@@ -302,6 +302,22 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::new(app)?;
     menu.append(&MenuItem::with_id(
         app,
+        "open-bar",
+        "Open Beep",
+        true,
+        None::<&str>,
+    )?)?;
+    // A menu shortcut cannot show a double tap, so it gets a line of its own.
+    menu.append(&MenuItem::with_id(
+        app,
+        "hotkey",
+        "Or press Option twice, anywhere",
+        false,
+        None::<&str>,
+    )?)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(
+        app,
         "status",
         status,
         false,
@@ -433,6 +449,7 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
         return;
     }
     match event.id().as_ref() {
+        "open-bar" => bar::show(app, Some("tray")),
         "new" => {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));

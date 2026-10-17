@@ -167,8 +167,13 @@ function chatHints() {
   if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (attached.pics.length) return hints([[ICON.ret, "send"], ["⌘V", "paste image"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
+  if (!knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
 }
+// Shown from first launch until the bar is first opened with a double tap of Option.
+const KNOWS_HOTKEY = "beep.knowsHotkey";
+function knowsHotkey() { try { return localStorage.getItem(KNOWS_HOTKEY) === "1"; } catch { return false; } }
+function learnedHotkey() { try { localStorage.setItem(KNOWS_HOTKEY, "1"); } catch {} }
 function refreshHints() {
   const old = $(".dhints");
   if (old && S.view === "chat") old.replaceWith(h(chatHints()));
@@ -3163,7 +3168,8 @@ async function show(view) {
   focusAsk();
 }
 
-listen("bar-shown", e => { barHeight = 0; show(e.payload); });
+// Only the Option double tap shows the bar without naming a view.
+listen("bar-shown", e => { barHeight = 0; if (e.payload == null) learnedHotkey(); show(e.payload); });
 listen("link-state", async e => {
   S.link = e.payload;
   if (S.view === "link" && S.link === "linked") {
