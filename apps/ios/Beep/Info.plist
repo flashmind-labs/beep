@@ -29,6 +29,14 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>grab</string>
+		<string>lyft</string>
+		<string>uber</string>
+	</array>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Beep sets alarms in the Clock when you ask it to.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>

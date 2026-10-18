@@ -49,6 +49,9 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIAppFonts: [bricolage_grotesque.ttf, rubik.ttf]
         NSUserActivityTypes: [INSendMessageIntent]
+        # The ride apps a place card can open with the drop-off set.
+        LSApplicationQueriesSchemes: [grab, lyft, uber]
+        NSAlarmKitUsageDescription: Beep sets alarms in the Clock when you ask it to.
         # beep://new, from the widget.
         CFBundleURLTypes:
           - CFBundleURLName: com.flashmind.beep

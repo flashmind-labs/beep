@@ -36,7 +36,7 @@ private func memberIndex(_ group: Group, _ name: String) -> Int {
 
 private func memberTint(_ index: Int) -> Color { Mint.tints[index % Mint.tints.count] }
 
-private func initial(_ name: String) -> String { String(name.prefix(1)).uppercased() }
+func initial(_ name: String) -> String { String(name.prefix(1)).uppercased() }
 
 /// Bolds each @beep, so a mention stands out in the bubble.
 private func withMentions(_ text: String) -> String {

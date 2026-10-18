@@ -25,7 +25,7 @@ struct ChatView: View {
                         }
                         ForEach(Array(model.chat.messages.enumerated()), id: \.element.id) { index, message in
                             MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
-                                        quote: quote)
+                                        latest: index == model.chat.messages.count - 1, quote: quote)
                                 // A reply sits close under its own prompt; turns keep the full gap.
                                 .padding(.top, index > 0 && message.role == .assistant
                                          && model.chat.messages[index - 1].role == .user ? -12 : 0)
@@ -80,6 +80,7 @@ struct ChatView: View {
             typing = true
         }
         .onDisappear { if model.onScreen == model.chat.id { model.onScreen = nil } }
+        .safariSheet(Binding(get: { model.browsing }, set: { model.browsing = $0 }))
         .sheet(isPresented: $picking) {
             PhotoSheet(room: max(0, ChatPhotos.limit - photos.count)) { picked in
                 picking = false
@@ -396,7 +397,10 @@ struct MessageView: View {
     @Environment(AppModel.self) private var model
     let message: Message
     let live: Bool
+    /// The newest reply in the chat, which shows the suggested replies.
+    var latest = false
     var quote: (String) -> Void = { _ in }
+    @State private var page: URL?
     @State private var showThoughts = false
     @State private var showAllTools = false
     @State private var copied = false
@@ -426,22 +430,27 @@ struct MessageView: View {
                 if !message.text.isEmpty {
                     Typewriter(text: message.text, streaming: live) { MarkdownText(text: $0) }
                 }
-                // The mock shows a saved place under the reply that names it.
-                ForEach(message.tools.compactMap(\.savedPlace), id: \.id) { place in
-                    PlaceCard(place: place) { model.destination = .placeRoutine(place.id) }
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .card()
-                        .padding(.top, 10)
+                // A finished tool with something to show is a card, once the reply is done.
+                let cards = message.tools.compactMap(\.card).filter { if case .replies = $0 { false } else { true } }
+                if !live, !cards.isEmpty { ToolCards(cards: cards) { page = $0 }.padding(.top, 10) }
+                if !live, !message.text.isEmpty {
+                    let shown = Set(cards.compactMap { if case .link(let url) = $0 { url } else { nil } })
+                    let links = linksIn(message.text).filter { !shown.contains($0) }
+                    if !links.isEmpty {
+                        VStack(spacing: 8) { ForEach(links, id: \.self) { LinkCard(url: $0) { page = $0 } } }
+                            .padding(.top, 8).padding(.trailing, 4)
+                    }
                 }
-                ForEach(message.tools.filter { $0.name == "get_route" && $0.done && $0.success }) { call in
-                    RouteCardView(callId: call.id).padding(.top, 10)
-                }
-                ForEach(message.tools.filter { $0.name == "show_products" }) { call in
-                    let products = call.products
-                    if !products.isEmpty { ProductRow(products: products).padding(.top, 10) }
-                }
+                let steps = TaskStep.latest(in: message.tools)
+                if !steps.isEmpty { TaskProgressCard(steps: steps).padding(.top, 8) }
                 if !message.text.isEmpty, !live { actions.transition(.opacity) }
+                if latest, !model.chat.busy, let replies = message.tools.lazy.compactMap({ call -> ToolCard.Replies? in
+                    if case .replies(let replies) = call.card { replies } else { nil }
+                }).first {
+                    SuggestedReplies(replies: replies) { model.send($0) }.padding(.top, 4)
+                }
             }
+            .safariSheet($page)
             .frame(maxWidth: .infinity, alignment: .leading)
             .animation(.easeOut(duration: 0.2), value: live)
             .animation(.bouncy, value: message.approvals.count)
@@ -493,7 +502,7 @@ struct MessageView: View {
     /// While a reply runs only the latest three chips show and the earlier ones fold
     /// into one line; once it is done a long run folds away entirely.
     @ViewBuilder private var tools: some View {
-        let calls = message.tools.filter { !quietTools.contains($0.name) }
+        let calls = message.tools.filter { $0.card == nil && !quietTools.contains($0.name) }
         if !calls.isEmpty {
             let finished = !live && calls.allSatisfy(\.done)
             let folded = finished && calls.count > 3 ? calls.count : max(0, calls.count - 3)
@@ -727,6 +736,10 @@ struct MarkdownText: View {
                     Rectangle().fill(Mint.soft).frame(height: 1).padding(.vertical, 6)
                 case .products(let products):
                     ProductRow(products: products).padding(.vertical, 4)
+                case .picture(let picture):
+                    ReplyImage(picture: picture).padding(.vertical, 2)
+                case .gallery(let pictures):
+                    ReplyGallery(pictures: pictures).padding(.vertical, 2)
                 case .paragraph(let line):
                     inline(line)
                 }
@@ -741,6 +754,30 @@ struct MarkdownText: View {
     private enum Block {
         case paragraph(String), bullet(String), heading(String), code(String), table(Table), rule
         case products([Product])
+        case picture(ReplyPicture), gallery([ReplyPicture])
+    }
+
+    private static let imageToken = try? NSRegularExpression(
+        pattern: #"!\[([^\]]*)]\((https://[^\s)]+|data:image/[^\s)]+)\)"#)
+
+    /// A line split around its images: text before an image, the image, then the rest.
+    private static func pictures(in line: String) -> [Block]? {
+        guard let regex = imageToken else { return nil }
+        let matches = regex.matches(in: line, range: NSRange(line.startIndex..., in: line))
+        guard !matches.isEmpty else { return nil }
+        var out: [Block] = []
+        var rest = line.startIndex
+        for match in matches {
+            guard let whole = Range(match.range, in: line), let alt = Range(match.range(at: 1), in: line),
+                  let url = Range(match.range(at: 2), in: line) else { continue }
+            let before = line[rest..<whole.lowerBound].trimmingCharacters(in: .whitespaces)
+            if !before.isEmpty { out.append(.paragraph(before)) }
+            out.append(.picture(ReplyPicture(url: String(line[url]), alt: String(line[alt]))))
+            rest = whole.upperBound
+        }
+        let after = line[rest...].trimmingCharacters(in: .whitespaces)
+        if !after.isEmpty { out.append(.paragraph(after)) }
+        return out
     }
 
     private struct Table {
@@ -853,6 +890,20 @@ struct MarkdownText: View {
                 out.append(.rule)
             } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
                 out.append(.bullet(String(line.dropFirst(2))))
+            } else if let parts = Self.pictures(in: line) {
+                for part in parts {
+                    // Images with nothing but blank lines between them show as one row.
+                    if case .picture(let picture) = part {
+                        if case .picture(let previous) = out.last {
+                            out[out.count - 1] = .gallery([previous, picture])
+                            continue
+                        } else if case .gallery(let row) = out.last {
+                            out[out.count - 1] = .gallery(row + [picture])
+                            continue
+                        }
+                    }
+                    out.append(part)
+                }
             } else if line.hasPrefix("#") {
                 out.append(.heading(line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)))
             } else {

@@ -3,27 +3,29 @@ import Network
 import Observation
 import UIKit
 
-/// One tool call shown as a chip.
+/// One tool call shown as a chip, or as a card once it finished with something to show.
 struct ToolCall: Identifiable, Equatable {
     var id: String
     var name: String
-    var done = false
-    var success = true
-    /// The result, cut to 16 KiB by the server; cards like a saved place read it.
-    var output = ""
+    private(set) var done = false
+    private(set) var success = true
+    /// The result, cut to 16 KiB by the server; the card is read from it.
+    private(set) var output = ""
+    private(set) var card: ToolCard?
 
     var label: String { toolLabel(name) }
 
-    /// The place a `place_save` call saved, for its card.
-    var savedPlace: SavedPlace? {
-        guard name == "place_save", done, success else { return nil }
-        return SavedPlace(toolOutput: output)
+    init(id: String, name: String, done: Bool = false, success: Bool = true, output: String = "") {
+        self.id = id
+        self.name = name
+        if done { finish(success: success, output: output) }
     }
 
-    /// The products a `show_products` call picked, for a row of cards.
-    var products: [Product] {
-        guard name == "show_products", done, success else { return [] }
-        return Product.shown(toolOutput: output)
+    mutating func finish(success: Bool, output: String) {
+        done = true
+        self.success = success
+        self.output = output
+        card = ToolCard(name: name, callId: id, success: success, output: output)
     }
 }
 
@@ -116,6 +118,9 @@ final class AppModel {
     private var previewLoads: Set<String> = []
     private var reportedTimezone: String?
     private let pictureCache = PictureCache()
+    let replyImages = ReplyImageCache()
+    /// A page open_browser asked for, shown in Safari over the chat.
+    var browsing: URL?
 
     init() {
         let key = Identity.loadOrCreate()
@@ -638,9 +643,8 @@ final class AppModel {
         case .toolResult(_, let callId, let output, let success):
             updateReply(mid) { reply in
                 guard let index = reply.tools.firstIndex(where: { callId.isEmpty ? !$0.done : $0.id == callId }) else { return }
-                reply.tools[index].done = true
-                reply.tools[index].success = success
-                reply.tools[index].output = output
+                reply.tools[index].finish(success: success, output: output)
+                if success { act(reply.tools[index]) }
             }
         case .deviceQuery(let queryId, let query):
             if case .approve(let approval) = query {
@@ -682,12 +686,37 @@ final class AppModel {
         chat.thinking = ""
     }
 
-    /// Questions about the phone. Contacts and the browser are not wired up on iPhone yet.
+    /// Questions about the phone. The browser is not wired up on iPhone yet.
     private func answerDeviceQuery(runId: String, queryId: String, query: DeviceQuery) {
         Task {
-            let answer = DeviceAnswer.err(message: "The iPhone app cannot do that yet.")
+            let answer: DeviceAnswer
+            switch query {
+            case .contacts(let name): answer = .ok(output: await PhoneContacts.search(name))
+            case .browser, .approve: answer = .err(message: "The iPhone app cannot do that yet.")
+            }
             _ = try? await api().deviceResult(runId: runId, queryId: queryId, answer: answer)
         }
+    }
+
+    /// Does what a phone tool asked as its result streams in, as Android does: opens the app or
+    /// page, or sets the alarm. Places only show as a card; Maps opens when the user taps it.
+    private func act(_ call: ToolCall) {
+        guard UIApplication.shared.applicationState == .active else { return }
+        switch call.card {
+        case .openedApp(let app): PhoneApps.open(app: app.app, uri: app.uri, fallback: app.fallback)
+        case .link(let url): browsing = url
+        case .alarm(let alarm): Task { await PhoneAlarms.set(alarm) }
+        default: break
+        }
+    }
+
+    /// A file Beep sent, downloaded once into the cache under its own name.
+    func sentFile(id: String, name: String) async throws -> URL {
+        let url = SentFiles.local(id: id, name: name)
+        if FileManager.default.fileExists(atPath: url.path) { return url }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = try await api().saveFile(id: id, path: url.path)
+        return url
     }
 
     /// Keeps the list's preview current, and when the app is in the background

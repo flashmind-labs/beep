@@ -25,9 +25,7 @@ impl Feature {
     /// `StockChart`. Only the macOS app does.
     pub const CHARTS: Feature = Feature(2);
 
-    /// Draws `show_cards` results. The macOS and Android apps do; the iOS
-    /// app sends the same `WIRE` but does not yet, so the server checks its
-    /// platform too.
+    /// Draws `show_cards` results.
     pub const CARDS: Feature = Feature(3);
 
     /// The first wire revision that reads it.
