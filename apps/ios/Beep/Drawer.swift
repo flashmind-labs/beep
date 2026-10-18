@@ -21,6 +21,10 @@ struct ChatsDrawer<Content: View>: View {
     @State private var newTitle = ""
     @State private var deleting: Session?
     @State private var leaving: Group?
+    @State private var sharing: Session?
+    /// The rows picked for bulk delete, by `HomeItem.id`; selection mode is on while it is set.
+    @State private var picked: Set<String>?
+    @State private var confirmingBulk = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -55,7 +59,10 @@ struct ChatsDrawer<Content: View>: View {
             .animation(.snappy(duration: 0.28), value: open)
         }
         .onChange(of: open) {
-            guard open else { return }
+            guard open else {
+                picked = nil
+                return
+            }
             hideKeyboard()
             Task {
                 await model.refreshSessions()
@@ -90,6 +97,21 @@ struct ChatsDrawer<Content: View>: View {
         } message: {
             Text("This will permanently delete this conversation and all its messages.")
         }
+        .alert(bulkTitle, isPresented: $confirmingBulk) {
+            Button("Cancel", role: .cancel) {}
+            Button(bulkChats.isEmpty ? "Leave" : "Delete", role: .destructive) {
+                let chats = bulkChats, groups = bulkGroups
+                picked = nil
+                Task { await model.deleteAll(chats: chats, groups: groups) }
+            }
+        } message: {
+            Text([bulkChats.isEmpty ? nil : "The conversations and their messages are deleted for good.",
+                  bulkGroups.isEmpty ? nil : "You stop getting the groups' messages."]
+                .compactMap { $0 }.joined(separator: " "))
+        }
+        .sheet(item: $sharing) { session in
+            ShareChatSheet(session: session)
+        }
         .alert("Leave \(leaving?.name ?? "")?", isPresented: Binding(get: { leaving != nil }, set: { if !$0 { leaving = nil } })) {
             Button("Cancel", role: .cancel) {}
             Button("Leave", role: .destructive) {
@@ -114,6 +136,7 @@ struct ChatsDrawer<Content: View>: View {
             }
             .padding(.leading, 20).padding(.trailing, 16).padding(.top, 20).padding(.bottom, 12)
             search
+            if let picked { selectionBar(picked) }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if !messageHits.isEmpty, !chats.isEmpty { label("Titles") }
@@ -139,7 +162,7 @@ struct ChatsDrawer<Content: View>: View {
                 }
                 HStack(spacing: 8) {
                     tile("Places", "mappin.and.ellipse", Mint.tints[1], .places)
-                    tile("Apps", "puzzlepiece.extension", Mint.tints[0], .settings)
+                    tile("Apps", "puzzlepiece.extension", Mint.tints[0], .apps)
                     Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
                 }
             }
@@ -161,6 +184,62 @@ struct ChatsDrawer<Content: View>: View {
             }
             .padding(.horizontal, 10).padding(.bottom, 12)
         }
+    }
+
+    private func selectionBar(_ ids: Set<String>) -> some View {
+        let all = Set(rows.map(\.id))
+        let everything = !all.isEmpty && ids.isSuperset(of: all)
+        return HStack(spacing: 4) {
+            Text("\(ids.count) selected").font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+            Spacer()
+            Button(everything ? "None" : "All") { picked = everything ? [] : ids.union(all) }
+                .buttonStyle(TextAction())
+            Button { confirmingBulk = true } label: {
+                Image(systemName: "trash").font(.system(size: 17))
+                    .foregroundStyle(ids.isEmpty ? Mint.muted : Mint.accent)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(ids.isEmpty)
+            .accessibilityLabel("Delete selected")
+            Button { picked = nil } label: {
+                Image(systemName: "xmark").font(.system(size: 16, weight: .medium)).foregroundStyle(Mint.ink)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Done selecting")
+        }
+        .padding(.leading, 20).padding(.trailing, 8).padding(.bottom, 4)
+    }
+
+    private var bulkChats: Set<String> {
+        Set(model.sessions.map(\.id).filter { picked?.contains($0) == true })
+    }
+
+    private var bulkGroups: Set<String> {
+        Set(model.groups.map(\.id).filter { picked?.contains(HomeItem.groupKey($0)) == true })
+    }
+
+    /// "Delete 2 conversations and leave 1 group?"
+    private var bulkTitle: String {
+        func count(_ n: Int, _ noun: String) -> String? { n == 0 ? nil : "\(n) \(noun)\(n == 1 ? "" : "s")" }
+        let parts = [count(bulkChats.count, "conversation").map { "delete " + $0 },
+                     count(bulkGroups.count, "group").map { "leave " + $0 }].compactMap { $0 }
+        let line = parts.joined(separator: " and ")
+        return line.prefix(1).uppercased() + line.dropFirst() + "?"
+    }
+
+    private func toggle(_ id: String) {
+        guard var ids = picked else { return }
+        if ids.contains(id) { ids.remove(id) } else { ids.insert(id) }
+        picked = ids
+    }
+
+    private func check(_ id: String) -> some View {
+        let on = picked?.contains(id) == true
+        return Image(systemName: on ? "checkmark.circle" : "circle").font(.system(size: 18))
+            .foregroundStyle(on ? Mint.accent : Mint.muted)
+            .accessibilityLabel(on ? "Selected" : "Not selected")
     }
 
     private var search: some View {
@@ -199,15 +278,17 @@ struct ChatsDrawer<Content: View>: View {
 
     /// Chats found by what was written in them, past the ones the titles already show.
     private var messageHits: [SessionMatch] {
+        guard picked == nil else { return [] }
         let titled = Set(chats.map(\.id))
         let known = Set(model.sessions.map(\.id))
         return hits.filter { !titled.contains($0.session.id) && known.contains($0.session.id) }
     }
 
     private func chatRow(_ session: Session) -> some View {
-        let current = model.openGroup == nil && model.chat.id == session.id
-        return Button { pick { openChat(session) } } label: {
+        let current = picked.map { $0.contains(session.id) } ?? (model.openGroup == nil && model.chat.id == session.id)
+        return Button { picked == nil ? pick { openChat(session) } : toggle(session.id) } label: {
             HStack(spacing: 12) {
+                if picked != nil { check(session.id) }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(session.title.isEmpty ? "New conversation" : session.title)
                         .font(.body(14)).foregroundStyle(Mint.ink).lineLimit(2).multilineTextAlignment(.leading)
@@ -215,7 +296,7 @@ struct ChatsDrawer<Content: View>: View {
                         .foregroundStyle(current ? Mint.ink.opacity(0.7) : Mint.muted).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                if session.pinned {
+                if session.pinned, picked == nil {
                     Image(systemName: "pin").font(.system(size: 13)).foregroundStyle(Mint.brand).accessibilityLabel("Pinned")
                 }
             }
@@ -223,25 +304,31 @@ struct ChatsDrawer<Content: View>: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button { newTitle = session.title; renaming = session } label: { Label("Rename", systemImage: "pencil") }
-            Button { Task { await model.togglePin(session) } } label: {
-                Label(session.pinned ? "Unpin" : "Pin", systemImage: session.pinned ? "pin.slash" : "pin")
+            if picked == nil {
+                Button { picked = [session.id] } label: { Label("Select", systemImage: "checkmark.circle") }
+                Button { newTitle = session.title; renaming = session } label: { Label("Rename", systemImage: "pencil") }
+                Button { Task { await model.togglePin(session) } } label: {
+                    Label(session.pinned ? "Unpin" : "Pin", systemImage: session.pinned ? "pin.slash" : "pin")
+                }
+                Button { sharing = session } label: { Label("Share", systemImage: "square.and.arrow.up") }
+                Button(role: .destructive) { deleting = session } label: { Label("Delete", systemImage: "trash") }
             }
-            Button(role: .destructive) { deleting = session } label: { Label("Delete", systemImage: "trash") }
         }
     }
 
     private func groupRow(_ group: Group) -> some View {
-        let current = model.openGroup == group.id
-        return Button { pick { openGroup(group.id) } } label: {
+        let key = HomeItem.groupKey(group.id)
+        let current = picked.map { $0.contains(key) } ?? (model.openGroup == group.id)
+        return Button { picked == nil ? pick { openGroup(group.id) } : toggle(key) } label: {
             HStack(spacing: 12) {
+                if picked != nil { check(key) }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(group.name).font(.body(14)).foregroundStyle(Mint.ink).lineLimit(1)
                     Text(groupSummary(group)).font(.body(12))
                         .foregroundStyle(current ? Mint.ink.opacity(0.7) : Mint.muted).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                if group.pinned {
+                if group.pinned, picked == nil {
                     Image(systemName: "pin").font(.system(size: 13)).foregroundStyle(Mint.brand).accessibilityLabel("Pinned")
                 }
                 Image(systemName: "person.2").font(.system(size: 13)).foregroundStyle(Mint.brand).accessibilityLabel("Group")
@@ -250,12 +337,15 @@ struct ChatsDrawer<Content: View>: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button { Task { await model.pinGroup(group.id, pinned: !group.pinned) } } label: {
-                Label(group.pinned ? "Unpin" : "Pin", systemImage: group.pinned ? "pin.slash" : "pin")
-            }
-            Button { invite(group) } label: { Label("Invite", systemImage: "link") }
-            Button(role: .destructive) { leaving = group } label: {
-                Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
+            if picked == nil {
+                Button { picked = [key] } label: { Label("Select", systemImage: "checkmark.circle") }
+                Button { Task { await model.pinGroup(group.id, pinned: !group.pinned) } } label: {
+                    Label(group.pinned ? "Unpin" : "Pin", systemImage: group.pinned ? "pin.slash" : "pin")
+                }
+                Button { invite(group) } label: { Label("Invite", systemImage: "link") }
+                Button(role: .destructive) { leaving = group } label: {
+                    Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
+                }
             }
         }
     }
@@ -486,9 +576,12 @@ enum HomeItem: Identifiable {
     var id: String {
         switch self {
         case .chat(let session): session.id
-        case .group(let group): "group-" + group.id
+        case .group(let group): Self.groupKey(group.id)
         }
     }
+
+    /// A group's key in the list and in the picked set, apart from chat ids.
+    static func groupKey(_ id: String) -> String { "group-" + id }
 
     var session: Session? {
         if case .chat(let session) = self { return session }

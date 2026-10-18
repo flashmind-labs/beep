@@ -247,6 +247,56 @@ final class AppModel {
         await refreshSessions()
     }
 
+    /// Deletes the chats and leaves the groups picked in the drawer.
+    func deleteAll(chats: Set<String>, groups ids: Set<String>) async {
+        if !chats.isEmpty {
+            _ = try? await api().deleteSessions(ids: Array(chats))
+            if chats.contains(chat.id) { newChat() }
+        }
+        if let open = openGroup, ids.contains(open) { openGroup = nil }
+        for id in ids { try? await leaveGroup(id) }
+        await refreshSessions()
+    }
+
+    // MARK: Sharing
+
+    func share(_ id: String) async throws -> SharedLink { try await api().shareSession(id: id) }
+    func unshare(_ id: String) async throws { try await api().unshareSession(id: id) }
+    func sharedChat(_ token: String) async throws -> SharedSession { try await api().getShare(token: token) }
+
+    /// Copies a shared chat into the user's own chats and opens the copy.
+    func continueShared(_ token: String) async throws {
+        let session = try await api().copyShare(token: token, sessionId: UUID().uuidString.lowercased())
+        await refreshSessions()
+        openGroup = nil
+        open(session)
+    }
+
+    // MARK: Apps
+
+    func apps() async throws -> [AppIntegration] { try await api().listApps() }
+    /// Nil on servers from before MCP servers could be added.
+    func mcpServers() async -> [McpServer]? { try? await api().listMcpServers() }
+    func connectApp(_ slug: String) async throws -> String { try await api().connectApp(slug: slug).url }
+    func disconnectApp(_ slug: String) async throws { try await api().disconnectApp(slug: slug) }
+    func startAppAuth(_ slug: String, redirect: String) async throws -> String {
+        try await api().startAppAuth(slug: slug, redirectUri: redirect).url
+    }
+    func finishAppAuth(_ slug: String, code: String, state: String, issuer: String?) async throws {
+        try await api().finishAppAuth(slug: slug, code: code, state: state, issuer: issuer)
+    }
+    func appPermissions(_ slug: String) async throws -> AppPermissions { try await api().getAppPermissions(slug: slug) }
+    func setAppPermissions(_ slug: String, _ permissions: AppPermissions) async throws {
+        try await api().setAppPermissions(slug: slug, level: permissions.level,
+                                          allowed: permissions.actions.filter(\.allowed).map(\.tool))
+    }
+    func addMcpServer(name: String, url: String) async throws -> McpConnect {
+        try await api().addMcpServer(name: name, url: url)
+    }
+    func connectMcpServer(_ id: String) async throws -> McpConnect { try await api().connectMcpServer(id: id) }
+    func finishMcpAuth(_ callback: McpCallback) async throws -> McpServer { try await api().finishMcpAuth(callback: callback) }
+    func removeMcpServer(_ id: String) async throws { try await api().removeMcpServer(id: id) }
+
     /// Loads the open chat from the server. Turns where the model only called tools
     /// fold into the next reply with text, as on Android.
     func loadHistory() async {
@@ -889,6 +939,8 @@ enum Destination: Equatable {
     case latestRead
     /// A new chat with the keyboard up, from the widget.
     case newChat
+    /// A chat someone shared, from its link.
+    case shared(String)
 }
 
 func nowMillis() -> Int64 { Int64(Date.now.timeIntervalSince1970 * 1000) }
