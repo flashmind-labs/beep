@@ -7,10 +7,10 @@ use beep_server::{
     protocol::{
         ActiveRun, ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace,
         DeleteSkill, DeviceKind, Event, ExistingSessions, GetEvents, GetRun, GetSession,
-        GetUpdates, Health, HistoryEntry, LinkDevice, ListApps, ListCrons, ListDevices, ListPlaces,
-        ListSessions, ListSkills, MemorySource, MessageBody, Notice, RemoveDevice, RunEvent,
-        Session, StartAppAuth, StreamUpdates, SuggestPrompts, UndoSkill, Update, UpdateLocation,
-        UpdatePlace, UpdateSkill,
+        GetUpdates, Health, HistoryEntry, InviteDevice, LinkDevice, ListApps, ListCrons,
+        ListDevices, ListPlaces, ListSessions, ListSkills, MemorySource, MessageBody, Notice,
+        PeekInvite, RemoveDevice, RunEvent, Session, StartAppAuth, StreamUpdates, SuggestPrompts,
+        UndoSkill, Update, UpdateLocation, UpdatePlace, UpdateSkill,
         link::{LinkOffer, OFFER_TTL},
         wire::framed,
     },
@@ -1009,10 +1009,24 @@ async fn a_linked_computer_shares_the_account_until_removed() {
         desk_seen = next_title(&mut desk_titles).await;
     }
 
-    // Only the account's own key links others.
+    // Any key links others, not only the account's own.
     let other = LinkOffer::sign(&SecretKey::generate(), server, "Laptop", now).unwrap();
-    let error = desk.call(&LinkDevice { offer: other }).await.unwrap_err();
-    assert!(matches!(api_error(error), ApiError::Unauthorized {}));
+    let laptop = desk.call(&LinkDevice { offer: other }).await.unwrap();
+    assert_eq!(laptop.name, "Laptop");
+    phone.call(&RemoveDevice { id: laptop.id }).await.unwrap();
+    // And shows a code for a new device to join with.
+    let invite = desk
+        .call(&InviteDevice {
+            name: "Desk".into(),
+        })
+        .await
+        .unwrap();
+    let joiner = h.client_as(SecretKey::generate()).await;
+    let preview = joiner
+        .call(&PeekInvite { code: invite.code })
+        .await
+        .unwrap();
+    assert_eq!(preview.name, "Desk");
 
     // A chat from the computer gets no phone tools.
     let chat = Chat {

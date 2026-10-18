@@ -864,7 +864,7 @@ struct JoinCodeSheet: View {
 }
 
 /// `text` as a QR code, sharp at any size.
-private struct QRCode: View {
+struct QRCode: View {
     let text: String
 
     var body: some View {

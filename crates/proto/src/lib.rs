@@ -285,8 +285,7 @@ requests! {
     /// thinking of each prompt from the server's Auto models. Admins only.
     48 SetAutoModel { enabled: bool } => Call<Models>
     /// Lets the device that made `offer` sign into the caller's account.
-    /// Only the account's primary key may link, and only a key with no
-    /// account.
+    /// Any key of the account may link, and only a key with no account.
     49 LinkDevice { offer: LinkOffer } => Call<LinkedDevice>
     /// The account's keys: the primary key first, then linked devices.
     50 ListDevices {} => Call<Vec<LinkedDevice>>
@@ -398,7 +397,7 @@ requests! {
     /// A code another device scans or types to join the caller's account,
     /// bringing its own account's chats, memories and devices along.
     /// `name` is what the caller calls itself, such as "MacBook", and
-    /// becomes its name in the device list. Only the primary key may invite.
+    /// becomes its name in the device list. Any key of the account may invite.
     88 InviteDevice { name: String } => Call<DeviceInvite>
     /// Who made the invite `code`, before joining.
     89 PeekInvite { code: String } => Call<JoinPreview>

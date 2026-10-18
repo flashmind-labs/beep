@@ -10,21 +10,22 @@ use beep_proto::{
     AppPermissions, ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp,
     ConnectLink, ConnectMcpServer, CopyShare, CreateCron, CreateGroup, Cron, CrossPlace,
     DeleteCron, DeleteGroupReminder, DeleteMemory, DeletePlace, DeleteSession, DeleteSessions,
-    DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceResult, DisconnectApp, Event,
-    ExistingSessions, FilePart, FinishAppAuth, FinishMcpAuth, GetAgents, GetAppPermissions,
-    GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRouteCard, GetRun, GetSession,
-    GetSessionAgents, GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink,
-    GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, JoinAccount, JoinGroup,
-    JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListApps, ListCrons, ListDevices,
-    ListGroupReminders, ListGroups, ListMcpServers, ListMemories, ListMemoryReads, ListPlaces,
-    ListSessions, ListSkills, McpCallback, McpConnect, McpServer, Memory, MemoryRead, Models,
-    Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing,
-    Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveDevice, RemoveMcpServer,
-    RenameSession, RouteCard, Run, RunCron, SearchSessions, SendToGroup, SentImages, Session,
-    SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetModel, SetThinking, SetTimezone,
-    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, Stream,
-    SuggestPrompts, ToggleCron, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
-    UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill,
+    DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceInvite, DeviceResult,
+    DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth, FinishMcpAuth, GetAgents,
+    GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRouteCard,
+    GetRun, GetSession, GetSessionAgents, GetSessionImages, GetShare, Group, GroupChat,
+    GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry,
+    InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice,
+    ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMcpServers, ListMemories,
+    ListMemoryReads, ListPlaces, ListSessions, ListSkills, McpCallback, McpConnect, McpServer,
+    Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup,
+    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveDevice, RemoveMcpServer, RenameSession, RouteCard, Run, RunCron, SearchSessions,
+    SendToGroup, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel,
+    SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession,
+    Skill, StartAppAuth, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill,
+    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
+    UpdateSkill,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -241,6 +242,12 @@ pub fn link_preview(offer_uri: String) -> Result<LinkPreview, BeepError> {
 #[uniffi::export]
 pub fn join_code(input: String) -> Option<String> {
     beep_proto::link::join_code(&input)
+}
+
+/// A join code as people read it, such as `K7QM4-X9TRP`.
+#[uniffi::export]
+pub fn format_join_code(code: String) -> String {
+    beep_proto::link::format_join_code(&code)
 }
 
 /// The token of a share link (`https://` or the legacy `beep://share/`),
@@ -803,7 +810,13 @@ impl BeepClient {
         self.call(RemoveDevice { id }).await
     }
 
-    /// The computer that shows the join code `code`, before joining.
+    /// A code another device scans or types to join this account. `name` is
+    /// what this device calls itself, shown on the other device.
+    pub async fn invite_device(&self, name: String) -> Result<DeviceInvite, BeepError> {
+        self.call(InviteDevice { name }).await
+    }
+
+    /// The device that shows the join code `code`, before joining.
     pub async fn peek_invite(&self, code: String) -> Result<JoinPreview, BeepError> {
         self.call(PeekInvite { code }).await
     }

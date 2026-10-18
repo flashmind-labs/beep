@@ -30,12 +30,9 @@ pub(super) async fn unregister_device(cx: Cx, req: UnregisterDevice) -> Reply<()
     found(cx.user.unregister_device(&req.device_id).await?)
 }
 
-/// Links a computer whose offer the phone scanned. Only the primary key
+/// Links a computer whose offer the caller scanned. Any key of the account
 /// may link others.
 pub(super) async fn link_device(cx: Cx, LinkDevice { offer }: LinkDevice) -> Reply<LinkedDevice> {
-    if !cx.primary {
-        return Err(ApiError::Unauthorized {});
-    }
     offer
         .verify(cx.pusher.server_id(), SystemTime::now())
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
@@ -79,15 +76,12 @@ pub(super) async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> 
     Ok(())
 }
 
-/// A code another device joins the caller's account with. Only the
-/// primary key may invite.
+/// A code another device joins the caller's account with. Any key of the
+/// account may show one, as it already sees everything a joiner would.
 pub(super) async fn invite_device(
     cx: Cx,
     InviteDevice { name }: InviteDevice,
 ) -> Reply<DeviceInvite> {
-    if !cx.primary {
-        return Err(ApiError::Unauthorized {});
-    }
     let name = name.trim();
     if name.is_empty() || name.len() > link::MAX_NAME {
         return Err(ApiError::bad_request(
