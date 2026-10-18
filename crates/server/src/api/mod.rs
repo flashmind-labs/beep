@@ -205,11 +205,11 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
 }
 
 /// What a run started on this connection can show. Only the macOS app draws
-/// charts, and the iOS app does not draw cards yet.
+/// charts.
 fn draws(cx: &Cx) -> Draws {
     Draws {
         charts: cx.device == (DeviceKind::Desktop {}) && cx.supports(Feature::CHARTS),
-        cards: cx.supports(Feature::CARDS) && cx.client.platform != Some(Platform::Ios {}),
+        cards: cx.supports(Feature::CARDS),
     }
 }
 

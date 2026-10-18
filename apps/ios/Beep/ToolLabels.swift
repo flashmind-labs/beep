@@ -14,7 +14,7 @@ func toolLabel(_ name: String) -> String {
 }
 
 /// Tools that get no chip: what they do is already on screen, or is bookkeeping.
-let quietTools: Set<String> = ["suggest_replies", "show_products", "notify_user", "task_progress"]
+let quietTools: Set<String> = ["suggest_replies", "show_products", "show_cards", "notify_user", "task_progress"]
 
 private let toolLabels: [String: String] = [
     "web_search": "Searching the web",
@@ -35,6 +35,7 @@ private let toolLabels: [String: String] = [
     "query_contacts": "Looking up contacts",
     "suggest_replies": "Suggesting replies",
     "show_products": "Showing products",
+    "show_cards": "Showing recommendations",
     "task_progress": "Updating progress",
     "memory_store": "Remembering",
     "memory_recall": "Recalling memories",

@@ -276,6 +276,9 @@ struct RootView: View {
         case "placesave":
             openChat(nil)
             model.chat.messages = samplePlaceSave
+        case "cards", "cardstop":
+            openChat(nil)
+            model.chat.messages = sampleCards(top: defaults.string(forKey: "open") == "cardstop")
         case "settings": path = [.settings]
         case "apps": path = [.apps]
         case "shared":
@@ -339,6 +342,27 @@ private let samplePlaceSave: [Message] = {
                    ToolCall(id: "p", name: "place_save", done: true, output: output)]
     return [Message(id: "u", role: .user, text: "I'm at the gym"), reply]
 }()
+#endif
+
+#if DEBUG
+/// A reply with every tool card for `-open cards`, or only the first half for `-open cardstop`.
+private func sampleCards(top: Bool) -> [Message] {
+    let calls: [(String, String)] = [
+        ("open_maps", #"{"place": {"mode": "search", "query": "Sagrada Familia", "name": "Sagrada Familia"}}"#),
+        ("get_location", #"{"latitude": 41.3874, "longitude": 2.1686}"#),
+        ("query_contacts", #"{"contacts": [{"name": "Ana Sample", "phones": [{"number": "+34 600 000 000", "type": "mobile"}], "emails": [{"address": "ana@example.com"}]}, {"name": "Ben Sample", "phones": [{"number": "+34 600 000 001"}]}], "count": 2}"#),
+        ("open_app", #"{"app": "spotify", "uri": "spotify:", "fallback_url": "https://open.spotify.com"}"#),
+        ("open_browser", #"{"url": "https://www.apple.com"}"#),
+        ("set_alarm", #"{"hour": 7, "minute": 30, "label": "Gym", "days": ["monday", "wednesday"]}"#),
+        ("send_image", #"{"images": [{"url": "https://picsum.photos/id/10/800/600", "caption": "Forest"}, {"url": "https://picsum.photos/id/20/800/600", "caption": "Desk"}]}"#),
+        ("show_cards", #"{"cards": [{"kind": "place", "title": "Cafe One", "url": "https://example.com/1", "subtitle": "Coffee", "rating": 4.6, "reviews": 230, "note": "Closest", "place": {"address": "1 Sample St", "latitude": 41.39, "longitude": 2.17, "distance_m": 650, "open_now": true}}, {"kind": "event", "title": "Jazz night", "url": "https://example.com/2", "event": {"start": "2026-11-02T21:00:00+01:00", "venue": "Hall", "tickets_url": "https://example.com/t"}}, {"kind": "media", "title": "A film", "url": "https://example.com/3", "media": {"year": 2024, "creator": "Someone", "watch": "Netflix", "watch_url": "https://netflix.com"}}]}"#),
+        ("send_file", #"{"file": {"id": "f1", "name": "report.pdf", "mime": "application/pdf", "size": 48213}}"#),
+        ("suggest_replies", #"{"replies": ["Sounds good", "Something else"], "kind": "choice"}"#),
+    ]
+    var reply = Message(id: "a", role: .assistant, text: "Here is everything. See https://www.rust-lang.org for more.")
+    reply.tools = calls.prefix(top ? 6 : calls.count).enumerated().map { ToolCall(id: "c\($0.offset)", name: $0.element.0, done: true, output: $0.element.1) }
+    return [Message(id: "u", role: .user, text: "Show me every card"), reply]
+}
 #endif
 
 private struct JoinToken: Identifiable {
