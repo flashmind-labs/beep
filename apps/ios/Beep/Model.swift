@@ -84,6 +84,8 @@ final class AppModel {
     }
     /// Where a tapped notification wants to go; the root view follows it and clears it.
     var destination: Destination?
+    /// The group chat on screen instead of the one to one chat, if any.
+    var openGroup: String?
     /// Set when a new chat should open with the keyboard up; the chat clears it.
     var composeNext = false
     /// A member to @mention when the group chat shows again, from the member sheet.

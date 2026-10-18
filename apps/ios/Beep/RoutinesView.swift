@@ -99,7 +99,8 @@ struct RoutinesView: View {
         Task {
             do {
                 try await model.runCron(cron.id)
-                path = [.chat]
+                model.openGroup = nil
+                path = []
             } catch {
                 self.error = describe(error)
             }
