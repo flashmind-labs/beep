@@ -635,12 +635,12 @@ mod tests {
     async fn mcp_auth_checks_app_and_redirect() {
         let (alice, _store, _db) = alice().await;
         let error = alice
-            .start_app_auth("gmail", "http://localhost:4000/callback")
+            .start_app_auth("gmail", "http://localhost:4000/callback", false)
             .await
             .unwrap_err();
         assert!(matches!(error, ApiError::BadRequest { .. }));
         let error = alice
-            .start_app_auth("fastmail", "https://example.com/callback")
+            .start_app_auth("fastmail", "https://example.com/callback", false)
             .await
             .unwrap_err();
         assert!(matches!(error, ApiError::BadRequest { .. }));

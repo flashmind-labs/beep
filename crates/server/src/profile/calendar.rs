@@ -2,7 +2,6 @@
 
 use super::{Calendar, Source, Summary, extract, rfc3339, top};
 use crate::{
-    apps::mcp::FASTMAIL,
     feeds::mail::{Window, clip},
     starters::Generator,
     store::ProfileNote,
@@ -218,11 +217,13 @@ async fn outlook_events(user: &User, window: Window) -> Result<Vec<Event>> {
 /// the window is read a season at a time.
 async fn fastmail_events(user: &User, window: Window) -> Result<Vec<Event>> {
     const TOOL: &str = "search_events";
-    let mut schema = user.mcp_tool_schema(FASTMAIL, TOOL).await;
+    // The profile reads the first account, as the mail feed does.
+    let server = user.fastmail_server(None).await?;
+    let mut schema = user.mcp_tool_schema(&server, TOOL).await;
     if schema.is_none() {
         // Any call connects the server, which lists its tools.
-        let _ = user.call_mcp(FASTMAIL, "list_calendars", json!({})).await;
-        schema = user.mcp_tool_schema(FASTMAIL, TOOL).await;
+        let _ = user.call_mcp(&server, "list_calendars", json!({})).await;
+        schema = user.mcp_tool_schema(&server, TOOL).await;
     }
     let schema = schema.context("Fastmail has no search_events tool")?;
     let arguments = EventArguments::from_schema(&schema)?;
@@ -264,7 +265,7 @@ async fn fastmail_span(
     let mut offset = 0;
     for _ in 0..CALENDAR_PAGES {
         let call = arguments.build(window, LIMIT, cursor.as_deref(), offset);
-        let value = user.call_mcp(FASTMAIL, TOOL, call).await?;
+        let value = user.call_fastmail(None, TOOL, call).await?;
         let listed = event_list(&value);
         events.extend(listed.iter().filter_map(parse_event));
         offset += listed.len();

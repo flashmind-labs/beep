@@ -5,10 +5,10 @@ use super::User;
 use crate::{
     apps::{
         CATALOG, Composio, TOOLS_TIMEOUT, catalog_app, connect_url, connected_slugs, internal,
-        mcp::check_redirect, mcp_app,
+        mcp_app,
     },
     permissions::{self, ToolSlug},
-    protocol::{ApiError, AppIntegration, AppKind, ConnectLink},
+    protocol::{ApiError, AppAccount, AppIntegration, AppKind, ConnectLink},
     store::Feed,
 };
 use anyhow::Result;
@@ -174,19 +174,39 @@ impl User {
     }
 
     /// Starts OAuth for an MCP app. The browser comes back to `redirect_uri`
-    /// on the phone, which passes the result to `finish_app_auth`.
+    /// on the phone, which passes the result to `finish_app_auth`. `add`
+    /// signs in another account instead of reconnecting the first.
     pub async fn start_app_auth(
         &self,
         slug: &str,
         redirect_uri: &str,
+        add: bool,
     ) -> Result<ConnectLink, ApiError> {
         mcp_app(slug)?;
-        check_redirect(redirect_uri).map_err(|error| ApiError::bad_request(error.to_string()))?;
-        let url = self
-            .start_mcp_auth(slug, redirect_uri)
-            .await
-            .map_err(internal("start MCP OAuth"))?;
+        let url = self.start_fastmail_auth(redirect_uri, add).await?;
         Ok(ConnectLink { url })
+    }
+
+    /// The connected accounts of an MCP app, the default first.
+    pub async fn app_accounts(&self, slug: &str) -> Result<Vec<AppAccount>, ApiError> {
+        mcp_app(slug)?;
+        let accounts = self
+            .list_fastmail_accounts()
+            .await
+            .map_err(internal("list MCP servers"))?;
+        Ok(accounts
+            .into_iter()
+            .map(|account| AppAccount {
+                id: account.name,
+                address: account.address,
+            })
+            .collect())
+    }
+
+    /// Disconnects one account of an MCP app.
+    pub async fn remove_app_account(&self, slug: &str, id: &str) -> Result<(), ApiError> {
+        mcp_app(slug)?;
+        self.remove_fastmail_account(id).await
     }
 
     /// Completes an MCP app login with the code the phone caught.
@@ -198,7 +218,7 @@ impl User {
         issuer: Option<&str>,
     ) -> Result<(), ApiError> {
         mcp_app(slug)?;
-        self.finish_mcp_auth(slug, code, state, issuer)
+        self.finish_fastmail_auth(code, state, issuer)
             .await
             .map_err(internal("finish MCP OAuth"))
     }
@@ -207,7 +227,7 @@ impl User {
     pub async fn disconnect_app(&self, slug: &str) -> Result<(), ApiError> {
         if catalog_app(slug).is_some_and(|app| app.kind == (AppKind::Fastmail {})) {
             let removed = self
-                .remove_mcp(slug)
+                .remove_fastmail()
                 .await
                 .map_err(internal("remove MCP server"))?;
             return if removed {

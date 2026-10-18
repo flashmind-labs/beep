@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.flashmind.beep.proto.AppAccount
 import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.AppAction
 import com.flashmind.beep.proto.AppKind
@@ -113,10 +114,19 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
     var servers by remember { mutableStateOf<List<McpServer>?>(null) }
     var openServer by remember { mutableStateOf<McpServer?>(null) }
     var adding by remember { mutableStateOf(false) }
+    // Fastmail's accounts; null while unknown or from a server too old to list them.
+    var accounts by remember { mutableStateOf<List<AppAccount>?>(null) }
 
     fun refresh() { scope.launch {
         try {
             apps = withContext(Dispatchers.IO) { repository.listApps() }
+            val fastmail = apps.firstOrNull { it.kind == AppKind.FASTMAIL }
+            accounts = when {
+                fastmail == null -> null
+                !fastmail.connected -> emptyList()
+                else -> withContext(Dispatchers.IO) { runCatching { repository.listAppAccounts(fastmail.slug) }.getOrNull() }
+            }
+            open = open?.let { o -> apps.firstOrNull { it.slug == o.slug && it.connected } }
             servers = withContext(Dispatchers.IO) { runCatching { repository.listMcpServers() }.getOrNull() } ?: servers
             openServer = openServer?.let { o -> servers?.firstOrNull { it.id == o.id } }
             error = ""
@@ -140,11 +150,11 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
         try { withContext(Dispatchers.IO) { repository.removeMcpServer(server.id) }; refresh() }
         catch (e: Exception) { error = userMessage(e); busy = null }
     } }
-    fun connect(app: AppIntegration) { scope.launch {
+    fun connect(app: AppIntegration, add: Boolean = false) { scope.launch {
         busy = app.slug
         if (app.kind == AppKind.FASTMAIL) {
             val appContext = context.applicationContext
-            repository.authorizeApp(app.slug) { url ->
+            repository.authorizeApp(app.slug, add) { url ->
                 appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
             return@launch
@@ -153,6 +163,11 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
             val url = withContext(Dispatchers.IO) { repository.connectApp(app.slug) }
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (e: Exception) { error = userMessage(e); busy = null }
+    } }
+    fun removeAccount(app: AppIntegration, account: AppAccount) { scope.launch {
+        busy = "account:" + account.id
+        try { withContext(Dispatchers.IO) { repository.removeAppAccount(app.slug, account.id) }; refresh() }
+        catch (e: Exception) { error = userMessage(e); busy = null }
     } }
     fun disconnect(app: AppIntegration) { scope.launch {
         busy = app.slug
@@ -189,8 +204,12 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
 
     open?.let { app ->
         BackHandler { open = null }
+        val appAccounts = accounts.takeIf { app.kind == AppKind.FASTMAIL }
         AppPermissionsScreen(repository, app, onBack = { open = null },
-            onDisconnect = { open = null; disconnect(app) })
+            onDisconnect = { open = null; disconnect(app) },
+            accounts = appAccounts?.let { list ->
+                AccountsSection(list, busy, onAdd = { connect(app, add = true) }, onRemove = { removeAccount(app, it) })
+            })
         return
     }
     openServer?.let { server ->
@@ -230,7 +249,9 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
             if (connected.isNotEmpty()) {
                 item { SectionLabel("Connected") }
                 items(connected, key = { "c-" + it.slug }) { app ->
-                    AppRow(app, busy == app.slug, onConnect = { connect(app) }, onOpen = { open = app })
+                    val addresses = accounts?.takeIf { app.kind == AppKind.FASTMAIL && it.isNotEmpty() }
+                        ?.joinToString(", ") { it.address ?: "Fastmail account" }
+                    AppRow(app, busy == app.slug, onConnect = { connect(app) }, onOpen = { open = app }, detail = addresses)
                 }
             }
             if (available.isNotEmpty()) {
@@ -267,7 +288,7 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, onOpen: () -> Unit) {
+private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, onOpen: () -> Unit, detail: String? = null) {
     val t = Beep.colors
     BeepCard(Modifier.fillMaxWidth().then(if (app.connected) Modifier.clickable(onClick = onOpen) else Modifier)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -276,7 +297,7 @@ private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, on
             Column(Modifier.weight(1f)) {
                 Text(app.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = t.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
-                Text(app.description, fontSize = 12.sp, color = t.muted, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(detail ?: app.description, fontSize = 12.sp, color = t.muted, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.width(10.dp))
             when {
@@ -470,7 +491,8 @@ private val levels = listOf(
 /** How much Beep may do in one connected app: a level, and under Ask first, actions that never ask. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppPermissionsScreen(repository: ChatRepository, app: AppIntegration, onBack: () -> Unit, onDisconnect: () -> Unit) {
+private fun AppPermissionsScreen(repository: ChatRepository, app: AppIntegration, onBack: () -> Unit, onDisconnect: () -> Unit,
+                                 accounts: AccountsSection? = null) {
     val t = Beep.colors
     val scope = rememberCoroutineScope()
     var permissions by remember { mutableStateOf<AppPermissions?>(null) }
@@ -505,6 +527,7 @@ private fun AppPermissionsScreen(repository: ChatRepository, app: AppIntegration
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (error.isNotEmpty()) item { Text(error, color = t.error, fontSize = 13.sp) }
+            if (accounts != null) item { AccountsCard(app, accounts) }
             val current = permissions
             if (current == null) {
                 if (error.isEmpty()) item {
@@ -548,10 +571,74 @@ private fun AppPermissionsScreen(repository: ChatRepository, app: AppIntegration
             }
             item {
                 Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
-                    TextButton(onClick = onDisconnect) { Text("Disconnect ${app.name}", color = t.error, fontSize = 14.sp) }
+                    val all = if ((accounts?.accounts?.size ?: 0) > 1) " (all accounts)" else ""
+                    TextButton(onClick = onDisconnect) { Text("Disconnect ${app.name}$all", color = t.error, fontSize = 14.sp) }
                 }
             }
         }
+    }
+}
+
+/** An app's connected accounts and what can be done with them, for its settings screen. */
+private class AccountsSection(
+    val accounts: List<AppAccount>,
+    val busy: String?,
+    val onAdd: () -> Unit,
+    val onRemove: (AppAccount) -> Unit,
+)
+
+/** Each connected account with Remove, and a button that signs in another. The first one is Beep's default. */
+@Composable
+private fun AccountsCard(app: AppIntegration, section: AccountsSection) {
+    val t = Beep.colors
+    var removing by remember { mutableStateOf<AppAccount?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel("Accounts")
+        BeepCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
+                section.accounts.forEachIndexed { i, account ->
+                    if (i > 0) HorizontalDivider(color = t.softLine)
+                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(account.address ?: "${app.name} account", fontSize = 14.sp, color = t.ink,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (i == 0 && section.accounts.size > 1) Text("Default", fontSize = 11.sp, color = t.muted)
+                        }
+                        if (section.busy == "account:" + account.id) {
+                            CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(18.dp), strokeWidth = 2.dp, color = t.ok)
+                        } else {
+                            TextButton(onClick = { removing = account }) { Text("Remove", color = t.error, fontSize = 13.sp) }
+                        }
+                    }
+                }
+            }
+        }
+        if (section.busy == app.slug) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = t.ok)
+                Text("Waiting for the browser sign-in…", fontSize = 13.sp, color = t.muted)
+            }
+        } else {
+            ChunkyButton(onClick = section.onAdd, color = t.surface, contentColor = t.ink,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
+                Text("+ Add another account", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Text("Beep uses the first account unless you name another, like \"check my work inbox\". " +
+            "To add a different account, sign out of ${app.name} in the browser first.",
+            fontSize = 12.sp, color = t.muted, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 4.dp))
+    }
+    removing?.let { account ->
+        val last = section.accounts.size == 1
+        AlertDialog(onDismissRequest = { removing = null }, containerColor = t.surface,
+            title = { Text("Remove ${account.address ?: "this account"}?") },
+            text = { Text(if (last) "This disconnects ${app.name}. Beep can no longer read or send its mail."
+                else "Beep stops using this account. Your other ${app.name} accounts stay connected.",
+                fontSize = 14.sp, color = t.muted) },
+            confirmButton = { TextButton(onClick = { removing = null; section.onRemove(account) }) {
+                Text("Remove", color = t.error, fontWeight = FontWeight.SemiBold)
+            } },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } })
     }
 }
 

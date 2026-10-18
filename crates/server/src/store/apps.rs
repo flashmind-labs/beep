@@ -20,6 +20,8 @@ pub struct McpServerRow {
     pub credentials: Option<Value>,
     /// Set for a server the user added by URL.
     pub custom: Option<CustomMcp>,
+    /// The account's address, for a Fastmail account once it is known.
+    pub address: Option<String>,
 }
 
 /// What the user gave for a server they added, and whether it signs in.
@@ -48,6 +50,7 @@ impl Store {
                     name: r.try_get(0)?,
                     config: r.try_get(1)?,
                     credentials: r.try_get(2)?,
+                    address: label.clone().filter(|_| url.is_none()),
                     custom: url.map(|url| CustomMcp {
                         label: label.unwrap_or_else(|| url.clone()),
                         url,
@@ -90,6 +93,25 @@ impl Store {
         )
         .bind(user.as_str())
         .bind(name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Saves or clears the address of a catalog server's account, kept in
+    /// `label` since only added servers use that for a name.
+    pub(crate) async fn set_mcp_address(
+        &self,
+        user: &UserKey,
+        name: &str,
+        address: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE mcp_servers SET label = $3 WHERE user_id=$1 AND name=$2 AND url IS NULL",
+        )
+        .bind(user.as_str())
+        .bind(name)
+        .bind(address)
         .execute(&self.pool)
         .await?;
         Ok(())
