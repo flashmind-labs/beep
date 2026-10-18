@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
+import com.flashmind.beep.proto.DeviceInvite
 import com.flashmind.beep.proto.JoinPreview
 import com.flashmind.beep.proto.MemoryRead
 import com.flashmind.beep.proto.RouteCard
@@ -868,6 +869,7 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun removeDevice(id: String) = api().removeDevice(id)
     suspend fun peekInvite(code: String): JoinPreview = api().peekInvite(code)
     suspend fun joinAccount(code: String) = api().joinAccount(code)
+    suspend fun inviteDevice(name: String): DeviceInvite = api().inviteDevice(name)
     suspend fun models(): Models = api().getModels().also(::keepModels)
     suspend fun setModel(id: String): Models = api().setModel(id).also(::keepModels)
     suspend fun setThinking(level: ReasoningLevel): Models = api().setThinking(level).also(::keepModels)

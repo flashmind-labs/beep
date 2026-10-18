@@ -1,5 +1,10 @@
 package com.flashmind.beep
 
+import com.flashmind.beep.proto.DeviceInvite
+import com.flashmind.beep.ffi.formatJoinCode
+import androidx.compose.ui.draw.alpha
+import androidx.compose.material3.CircularProgressIndicator
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
@@ -76,7 +81,8 @@ import kotlinx.coroutines.withContext
  * The phone and the computers linked to its account. A computer with no
  * account shows a link code in its Link to phone window; scanning it here
  * asks first, then links it. A computer with its own account shows a join
- * code instead, and joining moves this phone's account into it.
+ * code instead, and joining moves this phone's account into it. Any device
+ * on the account can link others, and can show a join code for a new one.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +91,7 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var devices by remember { mutableStateOf<List<LinkedDevice>?>(null) }
     var removing by remember { mutableStateOf<LinkedDevice?>(null) }
+    var showingCode by remember { mutableStateOf(false) }
 
     fun refresh() = scope.launch {
         runCatching { withContext(Dispatchers.IO) { repository.listDevices() } }
@@ -115,6 +122,7 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
     }
 
     LinkCodeSheets(codes)
+    if (showingCode) ShowCodeSheet(repository, onDismiss = { showingCode = false; refresh() })
 
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(title = { Text(displayText("Linked devices"), style = displayStyle(24.sp)) },
@@ -128,27 +136,29 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
                 val owner = devices.orEmpty().any { it.primary && it.thisDevice }
                 devices.orEmpty().forEach { device -> DeviceRow(device, canRemove = owner) { removing = device } }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Beep.colors.softLine)
-                val linked = devices.orEmpty().any { !it.primary }
-                Text((if (linked) "A linked computer sees your chats and memories. " else "No computers linked yet. ") +
-                    "Phone actions such as contacts and alarms stay on this phone.",
+                val linked = devices.orEmpty().size > 1
+                val joined = devices.orEmpty().firstOrNull { it.primary && !it.thisDevice }
+                Text((if (joined != null) "This phone is on ${joined.name}'s account. "
+                    else if (linked) "A linked device sees your chats and memories. " else "No computers linked yet. ") +
+                    "Any device on the account can add another. Phone actions such as contacts and alarms stay on this phone.",
                     fontSize = 12.sp, lineHeight = 18.sp, color = Beep.colors.muted)
             }
-            val primary = devices.orEmpty().any { it.primary && it.thisDevice }
-            val owner = devices.orEmpty().firstOrNull { it.primary && !it.thisDevice }
-            if (primary) {
+            if (devices != null) {
                 Button(onClick = codes::scan, modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Beep.colors.accent, contentColor = Beep.colors.onAccent)) {
                     Icon(Icons.Outlined.Laptop, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                     Text("Scan a computer's code", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
+                Spacer(Modifier.height(10.dp))
+                ChunkyButton(onClick = { showingCode = true }, modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(16.dp)) {
+                    Icon(Icons.Outlined.PhoneAndroid, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                    Text("Show a code for a new device", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
                 TextButton(onClick = { codes.typing = true }, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
                     Text("Type a code instead", color = Beep.colors.muted)
                 }
-            } else if (owner != null) {
-                Text("This phone is on ${owner.name}'s account. Link other devices from ${owner.name}.",
-                    fontSize = 12.sp, lineHeight = 18.sp, color = Beep.colors.muted,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
             }
         }
     }
@@ -375,9 +385,74 @@ internal fun LinkCodeSheets(codes: LinkCodes) {
                     OutlinedTextField(text, { text = it }, singleLine = true, placeholder = { Text("K7QM4-X9TRP") },
                         textStyle = TextStyle(fontFamily = FontFamily.Monospace),
                         shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth())
-                    Text("The code your computer shows under Settings, Devices.", fontSize = 12.sp, color = Beep.colors.muted)
+                    Text("The code your other device shows under Settings, Devices.", fontSize = 12.sp, color = Beep.colors.muted)
                 }
             },
             containerColor = Beep.colors.surface)
+    }
+}
+
+/**
+ * A join code for a new phone or computer. Whatever scans or types it moves
+ * its own account, with its chats and memories, into this one.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShowCodeSheet(repository: ChatRepository, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var invite by remember { mutableStateOf<DeviceInvite?>(null) }
+    var left by remember { mutableStateOf(0L) }
+
+    fun fetch() = scope.launch {
+        invite = null
+        runCatching { withContext(Dispatchers.IO) { repository.inviteDevice(Build.MODEL) } }
+            .onSuccess { invite = it }
+            .onFailure { Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show(); onDismiss() }
+    }
+    LaunchedEffect(Unit) { fetch() }
+    LaunchedEffect(invite) {
+        val until = invite?.expiresAt?.toEpochMilli() ?: return@LaunchedEffect
+        while (true) {
+            left = ((until - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
+            if (left == 0L) break
+            delay(1000)
+        }
+    }
+    val expired = invite != null && left == 0L
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Beep.colors.surface) {
+        Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(displayText("Add a device"), style = displayStyle(24.sp), color = Beep.colors.ink)
+            Text("On the new phone or computer, scan this in Beep: Settings, Linked devices, or Using Beep on a computer on iPhone. " +
+                "Its chats and memories move to this account.",
+                fontSize = 13.sp, lineHeight = 19.sp, color = Beep.colors.muted)
+            Box(Modifier.size(180.dp).align(Alignment.CenterHorizontally).background(QR_PAPER, RoundedCornerShape(12.dp)).padding(12.dp),
+                contentAlignment = Alignment.Center) {
+                invite?.let { QrCode(it.uri, Modifier.fillMaxSize().alpha(if (expired) 0.15f else 1f)) }
+            }
+            Box(Modifier.fillMaxWidth().height(56.dp).background(Beep.colors.page, RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center) {
+                val shown = invite
+                if (shown == null) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
+                else Text(formatJoinCode(shown.code), fontFamily = FontFamily.Monospace, fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 3.sp, color = if (expired) Beep.colors.dim else Beep.colors.ink, maxLines = 1)
+            }
+            Text(if (expired) "This code expired." else if (invite == null) "A code lasts ten minutes."
+                else "Works for ${DateUtils.formatElapsedTime(left)} more.",
+                fontSize = 12.sp, color = Beep.colors.muted, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (expired) TextButton(onClick = { fetch() }) { Text("New code") }
+                else TextButton(onClick = {
+                    (context as? MainActivity)?.suppressNextClipboard = true
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Beep join code", invite?.code?.let(::formatJoinCode)))
+                    Toast.makeText(context, "Code copied", Toast.LENGTH_SHORT).show()
+                }, enabled = invite != null) { Text("Copy code") }
+                Spacer(Modifier.weight(1f))
+                ChunkyButton(onClick = onDismiss, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
+                    shape = RoundedCornerShape(12.dp)) { Text("Done", fontWeight = FontWeight.SemiBold) }
+            }
+        }
     }
 }

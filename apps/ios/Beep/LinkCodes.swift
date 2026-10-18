@@ -94,12 +94,14 @@ private struct Invited: Identifiable {
 
 /// Joins a computer's account, or links a computer to this one, from the code it shows.
 /// A link code links that computer to this phone's account; a join code moves this
-/// phone's account into the computer's. Both ask first.
+/// phone's account into the computer's. Both ask first. It also shows this account's
+/// own join code, for a new phone or computer to scan.
 struct ComputerCard: View {
     @Environment(AppModel.self) private var model
     @State private var scanning = false
     @State private var typing = false
     @State private var typed = ""
+    @State private var showingCode = false
     @State private var scanned: Scanned?
     @State private var invited: Invited?
     @State private var busy = false
@@ -127,6 +129,7 @@ struct ComputerCard: View {
                     } else {
                         Button("Scan code") { scanning = true }.buttonStyle(PillButton(fill: Mint.user))
                         Button("Type code") { typed = ""; typing = true }.buttonStyle(TextAction(color: Mint.muted))
+                        Button("Show code") { showingCode = true }.buttonStyle(TextAction(color: Mint.muted))
                     }
                 }
             }
@@ -143,7 +146,7 @@ struct ComputerCard: View {
             Button("Cancel", role: .cancel) {}
             Button("Next") { read(typed) }
         } message: {
-            Text("The code your computer shows under Settings, Devices.")
+            Text("The code your other device shows under Settings, Devices.")
         }
         .sheet(item: $scanned) { offer in
             LinkSheet(preview: offer.preview) { scanned = nil } link: {
@@ -151,6 +154,7 @@ struct ComputerCard: View {
                 link(offer)
             }
         }
+        .sheet(isPresented: $showingCode) { ShowCodeSheet() }
         .sheet(item: $invited) { invite in
             JoinSheet(preview: invite.preview) { invited = nil } join: {
                 invited = nil
@@ -209,6 +213,79 @@ struct ComputerCard: View {
     private func joinMessage(_ error: Error) -> String {
         if case BeepError.NotFound = error { return "That code is used up or expired. Show a new one on the computer." }
         return describe(error)
+    }
+}
+
+/// This account's join code, for a new phone or computer to scan or type. Whatever
+/// joins with it moves its own chats and memories here.
+private struct ShowCodeSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var invite: DeviceInvite?
+    @State private var error = ""
+    @State private var copied = false
+
+    var body: some View {
+        SheetBody {
+            SheetHeader(icon: "plus.viewfinder", tint: Mint.tints[1], title: "Add a device", subtitle: "Scan with Beep on it")
+            Text("On the new phone or computer, scan this in Beep: Settings, Linked devices, or Using Beep on a computer on iPhone. "
+                + "Its chats and memories move to this account.")
+                .font(.body(13)).foregroundStyle(Mint.muted)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let left = invite.map { max(0, Int($0.expiresAt.timeIntervalSince(context.date))) } ?? 0
+                let expired = invite != nil && left == 0
+                VStack(spacing: 14) {
+                    SwiftUI.Group {
+                        if let invite { QRCode(text: invite.uri).opacity(expired ? 0.15 : 1) } else { Color.clear }
+                    }
+                    .frame(width: 156, height: 156)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
+                    SwiftUI.Group {
+                        if let invite {
+                            Text(formatJoinCode(code: invite.code))
+                                .font(.system(size: 26, weight: .semibold, design: .monospaced)).tracking(3)
+                                .foregroundStyle(expired ? Mint.dim : Mint.ink).lineLimit(1).textSelection(.enabled)
+                        } else {
+                            ProgressView()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
+                    Text(expired ? "This code expired." : invite == nil ? "A code lasts ten minutes."
+                        : "Works for \(left / 60):\(String(format: "%02d", left % 60)) more.")
+                        .font(.body(12)).foregroundStyle(Mint.muted).monospacedDigit()
+                    HStack(spacing: 8) {
+                        if expired {
+                            Button("New code") { Task { await fetch() } }.buttonStyle(TextAction())
+                        } else {
+                            Button(copied ? "Copied" : "Copy code") {
+                                UIPasteboard.general.string = invite.map { formatJoinCode(code: $0.code) }
+                                copied = true
+                            }
+                            .buttonStyle(TextAction())
+                            .disabled(invite == nil)
+                        }
+                        Spacer()
+                        Button("Done") { dismiss() }.buttonStyle(PillButton(fill: Mint.accent))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            if !error.isEmpty { Text(error).font(.body(12)).foregroundStyle(Mint.error) }
+        }
+        .task { await fetch() }
+    }
+
+    private func fetch() async {
+        invite = nil
+        copied = false
+        error = ""
+        do {
+            invite = try await model.inviteDevice()
+        } catch {
+            self.error = describe(error)
+        }
     }
 }
 

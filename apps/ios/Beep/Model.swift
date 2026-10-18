@@ -774,6 +774,9 @@ final class AppModel {
 
     func linkDevice(_ offerUri: String) async throws -> LinkedDevice { try await api().linkDevice(offerUri: offerUri) }
 
+    /// A code a new phone or computer joins this account with.
+    func inviteDevice() async throws -> DeviceInvite { try await api().inviteDevice(name: UIDevice.current.name) }
+
     /// Moves this phone into the account that showed `code`, then loads that account's chats.
     func joinAccount(_ code: String) async throws {
         try await api().joinAccount(code: code)

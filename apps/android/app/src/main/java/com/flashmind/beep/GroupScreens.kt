@@ -705,11 +705,11 @@ internal fun JoinCodeSheet(repository: ChatRepository, onDismiss: () -> Unit, on
 }
 
 /** The light card behind a QR code, so any camera reads it in dark mode too. */
-private val QR_PAPER = Color(0xFFF4F8F5)
+internal val QR_PAPER = Color(0xFFF4F8F5)
 
 /** [text] as a QR code, drawn square by square. */
 @Composable
-private fun QrCode(text: String, modifier: Modifier = Modifier) {
+internal fun QrCode(text: String, modifier: Modifier = Modifier) {
     val matrix = remember(text) {
         QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, mapOf(EncodeHintType.MARGIN to 0))
     }
