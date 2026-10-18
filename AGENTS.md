@@ -20,6 +20,9 @@ each app's patch number from its latest tag, runs both release recipes below
 and pushes main with both tags. Pass versions to pick them:
 `just release 0.2.0 0.4.0` (Android first, then desktop).
 
+Only release an app when it gets a new version. Do not run a release recipe,
+tag or upload a build unless a new version number is being cut for that app.
+
 Do not hand-install APKs on the phone: a locally built APK is signed with
 another key and will not install over the Play build. Use the debug APK on an
 emulator (`./gradlew assembleDebug`).
