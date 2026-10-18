@@ -196,15 +196,19 @@ impl Store {
 
     /// `user`'s updates after `after`, oldest first, as many as fit a page.
     /// A client behind the tombstones already dropped gets everything again
-    /// with `reset`.
+    /// with `reset`. A negative cursor continues a rebuild below the reset
+    /// threshold; clients pass it back unchanged, just like any other cursor.
     pub(crate) async fn updates_page(&self, user: &UserKey, after: i64) -> Result<UpdatePage> {
+        let rebuilding = after < 0;
+        let after = after.saturating_abs();
         let pruned_below: Option<i64> =
             sqlx::query_scalar("SELECT pruned_below FROM sync_counters WHERE user_id = $1")
                 .bind(user.as_str())
                 .fetch_optional(&self.pool)
                 .await?;
-        let reset = after > 0 && after < pruned_below.unwrap_or(0) - 1;
-        let after = if reset { 0 } else { after.max(0) };
+        let pruned_below = pruned_below.unwrap_or(0);
+        let reset = !rebuilding && after > 0 && after < pruned_below - 1;
+        let after = if reset { 0 } else { after };
         // Each write holds the user's counter until it commits, so whatever
         // is visible here has no gaps below it still to fill in.
         let rows = sqlx::query(
@@ -301,6 +305,13 @@ impl Store {
             };
             page.updates.push(update);
         }
+        if page.more && page.last < pruned_below - 1 {
+            // The next page must continue this rebuild rather than reset it.
+            page.last = -page.last;
+        } else if !page.more {
+            // An empty tail can still have fallen below the reset threshold.
+            page.last = page.last.max(pruned_below - 1);
+        }
         Ok(page)
     }
 }
@@ -329,6 +340,7 @@ mod tests {
         protocol::MessageBody,
         store::{NewMessage, TestDb, TurnsToDelete, test_chat, test_turn},
     };
+    use std::collections::HashSet;
 
     /// A page as short labels, oldest first.
     fn labels(page: &UpdatePage) -> Vec<String> {
@@ -490,6 +502,97 @@ mod tests {
         let ahead = store.updates_page(&alice, i64::MAX).await.unwrap();
         assert!(!ahead.reset && ahead.updates.is_empty());
         assert!(!store.updates_page(&alice, 0).await.unwrap().reset);
+    }
+
+    #[tokio::test]
+    async fn a_rebuild_continues_across_pages_below_the_reset_threshold() {
+        for (count, bytes) in [(PAGE_UPDATES + 1, 1), (5, PAGE_BYTES / 2)] {
+            let db = TestDb::new().await.unwrap();
+            let store = db.store().await.unwrap();
+            let alice = UserKey::for_test("alice");
+            let chat = test_chat("paged");
+            store
+                .create_group(&alice, chat, "Trip", "Ali")
+                .await
+                .unwrap();
+            let before = store.last_update(alice.as_str()).await.unwrap();
+            sqlx::query(
+                "WITH added AS (
+                     INSERT INTO messages (chat_id, role, content)
+                     SELECT $1, 'beep', repeat('x', $2) FROM generate_series(1, $3::bigint)
+                     RETURNING id
+                 ), logged AS (
+                     INSERT INTO updates (user_id, update_id, chat_id, message_id, op)
+                     SELECT $4, $5 + row_number() OVER (ORDER BY id), $1, id, 'message'
+                     FROM added RETURNING update_id
+                 )
+                 UPDATE sync_counters SET last = (SELECT max(update_id) FROM logged),
+                     pruned_below = (SELECT max(update_id) + 1 FROM logged)
+                 WHERE user_id = $4",
+            )
+            .bind(chat)
+            .bind(bytes as i32)
+            .bind(count)
+            .bind(alice.as_str())
+            .bind(before)
+            .execute(store.pool())
+            .await
+            .unwrap();
+            let newest = store.last_update(alice.as_str()).await.unwrap();
+
+            // Both a new device and a stale cache must finish the rebuild.
+            for start in [0, before] {
+                let mut cursor = start;
+                let mut seen = HashSet::new();
+                let mut finished = false;
+                for page_number in 0..count + 2 {
+                    let page = store.updates_page(&alice, cursor).await.unwrap();
+                    assert_eq!(page.reset, start > 0 && page_number == 0);
+                    assert!(page.last.abs() > cursor.abs() || page_number == 0);
+                    for update in &page.updates {
+                        let id = match update {
+                            Update::Chat { update_id, .. } | Update::Message { update_id, .. } => {
+                                *update_id
+                            }
+                            other => panic!("unexpected update: {other:?}"),
+                        };
+                        assert!(seen.insert(id), "a page repeated an update");
+                    }
+                    cursor = page.last;
+                    if !page.more {
+                        finished = true;
+                        break;
+                    }
+                    assert!(cursor < 0, "rebuild cursor must bypass the reset threshold");
+                }
+                assert!(finished, "the rebuild must finish");
+                assert_eq!(seen.len() as i64, newest);
+                assert_eq!(cursor, newest);
+                let tail = store.updates_page(&alice, cursor).await.unwrap();
+                assert!(!tail.reset && !tail.more && tail.updates.is_empty());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_rebuild_advances_past_the_reset_threshold() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        sqlx::query("INSERT INTO sync_counters (user_id, last, pruned_below) VALUES ($1, 10, 11)")
+            .bind(alice.as_str())
+            .execute(store.pool())
+            .await
+            .unwrap();
+
+        for cursor in [0, 1, -1] {
+            let page = store.updates_page(&alice, cursor).await.unwrap();
+            assert_eq!(page.reset, cursor == 1);
+            assert!(!page.more && page.updates.is_empty());
+            assert_eq!(page.last, 10);
+            let tail = store.updates_page(&alice, page.last).await.unwrap();
+            assert!(!tail.reset && !tail.more && tail.updates.is_empty());
+        }
     }
 
     #[tokio::test]
