@@ -74,12 +74,11 @@ struct GroupAvatar: View {
 
 /// The open group sheet, shown over whatever is on screen.
 enum GroupSheet: Identifiable {
-    case start, new, code
+    case new, code
     case invite(id: String, name: String)
 
     var id: String {
         switch self {
-        case .start: "start"
         case .new: "new"
         case .code: "code"
         case .invite(let id, _): "invite-\(id)"
@@ -99,6 +98,9 @@ private struct Outgoing: Identifiable {
 struct GroupChatView: View {
     @Environment(AppModel.self) private var model
     let groupId: String
+    /// Opens the chat list.
+    let menu: () -> Void
+    /// Leaves the group's screen, as when the group is gone.
     let back: () -> Void
     let info: () -> Void
     let invite: (Group) -> Void
@@ -288,19 +290,16 @@ struct GroupChatView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Button {
                 typing = false
-                back()
-            } label: {
-                Image(systemName: "arrow.left").font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Mint.ink).frame(width: 44, height: 44).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Chats")
+                menu()
+            } label: { Image(systemName: "line.3.horizontal") }
+                .buttonStyle(ChunkyButton())
+                .accessibilityLabel("Conversations")
             Button(action: info) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(group?.name ?? "Group").font(.display(22)).foregroundStyle(Mint.ink).lineLimit(1)
+                    Text(group?.name ?? "Group").font(.display(24)).foregroundStyle(Mint.ink).lineLimit(1)
                     if let group {
                         HStack(spacing: 6) {
                             HStack(spacing: -6) {
@@ -324,7 +323,7 @@ struct GroupChatView: View {
             .disabled(group == nil)
             .accessibilityLabel("Invite")
         }
-        .padding(.leading, 6)
+        .padding(.leading, 12)
         .padding(.trailing, 8)
         .padding(.vertical, 6)
         .background(Mint.page)
@@ -365,9 +364,9 @@ struct GroupChatView: View {
                 .padding(.vertical, 14)
                 .frame(minHeight: 50)
                 .chunky()
-            Button(action: send) { Image(systemName: "arrow.up").foregroundStyle(empty ? Mint.ink : .white) }
-                .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.brand, size: 50, radius: 25))
-                .opacity(empty ? 0.5 : 1)
+            Button(action: send) { Image(systemName: "paperplane") }
+                .buttonStyle(ChunkyButton(fill: Mint.accent, size: 50, radius: 18))
+                .opacity(empty ? 0.45 : 1)
                 .disabled(empty)
                 .accessibilityLabel("Send")
         }

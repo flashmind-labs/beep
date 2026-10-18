@@ -2,7 +2,8 @@ import SwiftUI
 
 struct ChatView: View {
     @Environment(AppModel.self) private var model
-    let back: () -> Void
+    let menu: () -> Void
+    let newChat: () -> Void
     @State private var draft = ""
     @State private var photos: [Data] = []
     @State private var picking = false
@@ -122,37 +123,38 @@ struct ChatView: View {
         .animation(.easeOut(duration: 0.22), value: model.chat.thinking.isEmpty)
     }
 
-    /// Back to the list, Beep's avatar, the chat's name and the connection dot.
+    /// The menu for the chat list, the chat's name with the connection under it, and a new chat.
     private var chatBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Button {
                 typing = false
-                back()
-            } label: {
-                Image(systemName: "arrow.left").font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Mint.ink).frame(width: 44, height: 44).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Chats")
-            ChatAvatar(text: "b", fill: Mint.brand, size: 38, light: true)
+                menu()
+            } label: { Image(systemName: "line.3.horizontal") }
+                .buttonStyle(ChunkyButton())
+                .accessibilityLabel("Conversations")
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.chat.title.isEmpty ? "Beep" : model.chat.title)
-                    .font(.display(20)).foregroundStyle(Mint.ink).lineLimit(1)
+                Text(model.chat.title.isEmpty ? "New conversation" : model.chat.title)
+                    .font(.body(16, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                 HStack(spacing: 6) {
                     ConnectionDot(connected: model.connected)
-                    if !model.connected {
-                        Text("Tap to reconnect").font(.body(12, .medium)).foregroundStyle(Mint.muted)
-                    } else if model.chat.busy {
-                        Text("typing…").font(.body(12)).foregroundStyle(Mint.muted)
-                    }
+                    Text(model.connected ? "Connected" : "Tap to reconnect").font(.body(12, .medium)).foregroundStyle(Mint.muted)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { if !model.connected { model.connect() } }
             }
             Spacer(minLength: 0)
+            Button {
+                typing = false
+                newChat()
+            } label: {
+                Image(systemName: "plus").font(.system(size: 20)).foregroundStyle(Mint.muted)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New chat")
         }
-        .padding(.leading, 6)
-        .padding(.trailing, 16)
+        .padding(.leading, 12)
+        .padding(.trailing, 10)
         .padding(.vertical, 6)
         .background(Mint.page)
     }
@@ -164,6 +166,19 @@ struct ChatView: View {
             if !photos.isEmpty { thumbnails.unfold() }
             HStack(alignment: .bottom, spacing: 8) {
                 HStack(alignment: .bottom, spacing: 4) {
+                    // As on Android, the photo button steps aside once there is something typed.
+                    if !model.chat.busy, draft.isEmpty, photos.count < ChatPhotos.limit {
+                        Button {
+                            typing = false
+                            picking = true
+                        } label: {
+                            Image(systemName: "photo").font(.system(size: 19)).foregroundStyle(Mint.muted)
+                                .frame(width: 40, height: 40).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, 5)
+                        .accessibilityLabel("Add a photo")
+                    }
                     TextField("", text: $draft, prompt: Text(prompt).foregroundStyle(Mint.dim), axis: .vertical)
                         .font(.body(15))
                         .foregroundStyle(Mint.ink)
@@ -171,25 +186,14 @@ struct ChatView: View {
                         .lineLimit(1...6)
                         .focused($typing)
                         .padding(.vertical, 14)
-                    if photos.count < ChatPhotos.limit {
-                        Button {
-                            typing = false
-                            picking = true
-                        } label: {
-                            Image(systemName: "photo").font(.system(size: 18)).foregroundStyle(Mint.muted)
-                                .frame(width: 36, height: 36).contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.bottom, 7)
-                        .accessibilityLabel("Add a photo")
-                    }
+                        .padding(.leading, draft.isEmpty && !model.chat.busy ? 6 : 16)
                 }
-                .padding(.leading, 16).padding(.trailing, 6)
+                .padding(.leading, 4).padding(.trailing, 12)
                 .frame(minHeight: 50)
                 .chunky()
                 if model.chat.busy {
                     Button { model.stop() } label: { Image(systemName: "stop.fill").foregroundStyle(Mint.page) }
-                        .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 25))
+                        .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 18))
                         .foregroundStyle(Mint.page)
                         .accessibilityLabel("Stop reply")
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
@@ -203,9 +207,9 @@ struct ChatView: View {
                         withAnimation(.easeIn(duration: 0.07)) { squish = true } completion: {
                             withAnimation(.interpolatingSpring(stiffness: 600, damping: 2 * 0.4 * sqrt(600))) { squish = false }
                         }
-                    } label: { Image(systemName: "arrow.up").foregroundStyle(empty ? Mint.ink : .white) }
-                        .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.brand, size: 50, radius: 25))
-                        .opacity(empty ? 0.5 : 1)
+                    } label: { Image(systemName: "paperplane") }
+                        .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.accent, size: 50, radius: 18))
+                        .opacity(empty ? 0.45 : 1)
                         .scaleEffect(squish ? 0.82 : 1)
                         .disabled(empty)
                         .accessibilityLabel("Send")

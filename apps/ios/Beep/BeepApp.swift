@@ -30,8 +30,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 enum Route: Hashable {
-    case chat
-    case group(String)
     case groupInfo(String)
     case settings, memories, routines, skills, places, locationAlways
     case skill(String)
@@ -41,36 +39,39 @@ enum Route: Hashable {
     case placeRoutine(String)
 }
 
+/// The app opens on a chat with Beep, as on Android. The chats and groups are in the drawer
+/// behind the menu button, and the other screens push over the chat.
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @State private var path: [Route] = []
     @State private var sheet: GroupSheet?
+    @State private var drawer = false
     /// An invite being looked at, shown full screen.
     @State private var joining: String?
+    /// The chat left by starting a new one, so a swipe right can go back to it once. It only
+    /// holds while the user stays on the new chat; opening another one forgets it.
+    @State private var left: String?
+    @State private var trailEnd: String?
 
     var body: some View {
         if model.onboarded {
             NavigationStack(path: $path) {
-                HomeView(openChat: openChat, openGroup: openGroup, go: { path.append($0) }, sheet: { sheet = $0 })
-                    .navigationDestination(for: Route.self) { route in
-                        screen(route).toolbar(.hidden, for: .navigationBar)
-                    }
+                ChatsDrawer(open: $drawer, openChat: { openChat($0) }, openGroup: openGroup,
+                            newGroup: { sheet = .new }, invite: { sheet = .invite(id: $0.id, name: $0.name) },
+                            go: { path.append($0) }) {
+                    chatPane
+                }
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: Route.self) { route in
+                    screen(route).toolbar(.hidden, for: .navigationBar)
+                }
             }
             .tint(Mint.brand)
             .sheet(item: $sheet) { shown in
                 switch shown {
-                case .start:
-                    StartSheet {
-                        sheet = nil
-                        model.newChat()
-                        path = [.chat]
-                    } newGroup: {
-                        sheet = .new
-                    } joinCode: {
-                        sheet = .code
-                    }
                 case .new:
                     NewGroupSheet { group in
+                        drawer = false
                         openGroup(group.id)
                         sheet = .invite(id: group.id, name: group.name)
                     } joinCode: {
@@ -79,6 +80,7 @@ struct RootView: View {
                 case .code:
                     JoinCodeSheet { token in
                         sheet = nil
+                        drawer = false
                         Task {
                             try? await Task.sleep(for: .milliseconds(400))
                             joining = token
@@ -112,17 +114,32 @@ struct RootView: View {
         }
     }
 
+    /// The group on screen, or the chat with Beep. Swipes work the same in both: left starts
+    /// a new chat, right goes back to the chat before or opens the drawer.
+    @ViewBuilder private var chatPane: some View {
+        if let id = model.openGroup {
+            SwipeChats(canStartNew: true, hasPrevious: true, onNew: startNewChat, onBack: { model.openGroup = nil }) {
+                GroupChatView(groupId: id, menu: { drawer = true }, back: { model.openGroup = nil },
+                              info: { path.append(.groupInfo(id)) }) {
+                    sheet = .invite(id: $0.id, name: $0.name)
+                }
+                .id(id)
+            }
+        } else {
+            SwipeChats(canStartNew: !model.chat.messages.isEmpty, hasPrevious: previousChat != nil,
+                       onNew: startNewChat, onBack: goBack) {
+                ChatView(menu: { drawer = true }, newChat: startNewChat)
+            }
+        }
+    }
+
     @ViewBuilder private func screen(_ route: Route) -> some View {
         switch route {
-        case .chat:
-            ChatView(back: home)
-        case .group(let id):
-            GroupChatView(groupId: id, back: home, info: { path.append(.groupInfo(id)) }) {
-                sheet = .invite(id: $0.id, name: $0.name)
-            }
-            .id(id)
         case .groupInfo(let id):
-            GroupInfoView(groupId: id, back: { path.removeLast() }, left: home) { name in
+            GroupInfoView(groupId: id, back: { path.removeLast() }, left: {
+                model.openGroup = nil
+                path.removeAll()
+            }) { name in
                 model.pendingMention = name
                 path.removeLast()
             } invite: {
@@ -145,25 +162,56 @@ struct RootView: View {
         }
     }
 
-    private func home() { path.removeAll() }
-
     private func openChat(_ session: Session?) {
+        left = nil
+        model.openGroup = nil
         if let session { model.open(session) } else { model.newChat() }
-        path = [.chat]
+        path = []
     }
 
     private func openGroup(_ id: String) {
-        path = [.group(id)]
+        model.openGroup = id
+        path = []
+    }
+
+    private func startNewChat() {
+        if model.openGroup != nil {
+            model.openGroup = nil
+            if !model.chat.messages.isEmpty { model.newChat() }
+            return
+        }
+        guard !model.chat.messages.isEmpty else { return }
+        left = model.chat.id
+        model.newChat()
+        trailEnd = model.chat.id
+    }
+
+    private var previousChat: Session? {
+        guard trailEnd == model.chat.id, let left, left != model.chat.id else { return nil }
+        return model.sessions.first { $0.id == left }
+    }
+
+    private func goBack() {
+        guard let previous = previousChat else {
+            drawer = true
+            return
+        }
+        left = nil
+        model.open(previous)
+        trailEnd = previous.id
     }
 
     /// Opens the chat or group a tapped notification belongs to.
     private func follow() {
         guard let destination = model.destination else { return }
         model.destination = nil
+        drawer = false
         switch destination {
         case .chat(let id):
+            left = nil
+            model.openGroup = nil
             model.openChat(id)
-            path = [.chat]
+            path = []
         case .group(let id):
             openGroup(id)
         case .placeRoutine(let id):
@@ -172,16 +220,16 @@ struct RootView: View {
             path = [.latestRead]
         case .newChat:
             // An empty chat already open is the new chat.
-            if !(path == [.chat] && model.chat.messages.isEmpty) { openChat(nil) }
+            if !(path.isEmpty && model.openGroup == nil && model.chat.messages.isEmpty) { openChat(nil) }
             model.composeNext = true
         }
     }
 
     #if DEBUG
     /// Lets the simulator be driven without taps: `-open chat|settings|memories|routines|skills|places`
-    /// opens a screen and `-send "text"` sends a message once connected. The list shows without
-    /// `-open`. `group`, `groupinfo` and `invite` open the first group, `photos` the photo sheet in a
-    /// new chat, `start`, `newgroup` and `joingroup` the sheets, `locationalways` the location ask. `-places sample` swaps the
+    /// opens a screen and `-send "text"` sends a message once connected. `drawer` opens the chat
+    /// list. `group`, `groupinfo` and `invite` open the first group, `photos` the photo sheet in a
+    /// new chat, `newgroup` and `joingroup` the sheets, `locationalways` the location ask. `-places sample` swaps the
     /// server's places for made up ones, and `placesave` shows a chat with a saved place card.
     /// `widget` takes the widget's path to a new chat with the keyboard up.
     /// `-creategroup "name"` makes a group and `-leavegroup 1` leaves the first one.
@@ -202,6 +250,9 @@ struct RootView: View {
         }
         switch defaults.string(forKey: "open") {
         case "chat", "newchat", "photos": openChat(nil)
+        case "drawer":
+            while !model.connected { try? await Task.sleep(for: .milliseconds(200)) }
+            drawer = true
         case "widget": model.destination = .newChat
         case "products":
             openChat(nil)
@@ -218,7 +269,6 @@ struct RootView: View {
             while model.places.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }
             path = [.places, .placeRoutine(model.places[0].id)]
         case "locationalways": path = [.locationAlways]
-        case "start": sheet = .start
         case "newgroup": sheet = .new
         case "joingroup": sheet = .code
         case "group", "groupinfo", "invite":
@@ -231,10 +281,9 @@ struct RootView: View {
         }
         guard let text = defaults.string(forKey: "send") else { return }
         while !model.connected { try? await Task.sleep(for: .milliseconds(200)) }
-        if case .group(let id) = path.last {
+        if let id = model.openGroup {
             try? await model.sendToGroup(id, requestId: UUID().uuidString.lowercased(), text: text)
         } else {
-            if path.last != .chat { openChat(nil) }
             model.send(text)
         }
     }
