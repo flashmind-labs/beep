@@ -23,6 +23,7 @@ import com.flashmind.beep.proto.RouteCard
 import com.flashmind.beep.ffi.ListCache
 import com.flashmind.beep.ffi.Rerun
 import com.flashmind.beep.ffi.identityName
+import com.flashmind.beep.proto.AppAccount
 import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.McpCallback
 import com.flashmind.beep.proto.McpConnect
@@ -859,6 +860,9 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun listApps(): List<AppIntegration> = api().listApps().also { fresh -> saveLists { it.copy(apps = fresh) } }
     suspend fun connectApp(slug: String): String = api().connectApp(slug).url
     suspend fun disconnectApp(slug: String) = api().disconnectApp(slug)
+    /** The accounts of an app that connects several, such as Fastmail; the agent's default first. */
+    suspend fun listAppAccounts(slug: String): List<AppAccount> = api().listAppAccounts(slug)
+    suspend fun removeAppAccount(slug: String, id: String) = api().removeAppAccount(slug, id)
     suspend fun appPermissions(slug: String): AppPermissions = api().getAppPermissions(slug)
     suspend fun setAppPermissions(slug: String, level: PermissionLevel, allowed: List<String>) =
         api().setAppPermissions(slug, level, allowed)
@@ -913,13 +917,16 @@ class ChatRepository(private val storage: LocalStorage) {
 
     /**
      * Connects an app whose provider only redirects to localhost. Runs in the repository's
-     * scope so it survives the screen while the user is in the browser.
+     * scope so it survives the screen while the user is in the browser. `add` signs in
+     * another account instead of reconnecting the first.
      */
-    fun authorizeApp(slug: String, open: (String) -> Unit) {
+    fun authorizeApp(slug: String, add: Boolean = false, open: (String) -> Unit) {
         scope.launch {
             val error = try {
                 LoopbackAuth.run(
-                    start = { redirect -> api().startAppAuth(slug, redirect).url },
+                    start = { redirect ->
+                        if (add) api().addAppAccount(slug, redirect).url else api().startAppAuth(slug, redirect).url
+                    },
                     open = open,
                     finish = { api().finishAppAuth(slug, it.code, it.state, it.issuer) },
                 )

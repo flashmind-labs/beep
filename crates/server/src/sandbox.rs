@@ -400,6 +400,7 @@ impl Tool for DownloadFileTool {
                 "url": { "type": "string" },
                 "email_id": { "type": "string", "description": "Fastmail email id the attachment belongs to" },
                 "blob_id": { "type": "string", "description": "The Fastmail attachment's blobId" },
+                "account": { "type": "string", "description": "The Fastmail account the email is in, when the FASTMAIL tools take an `account`" },
                 "filename": { "type": "string", "description": "Name to save as; taken from the source when left out" }
             },
             "additionalProperties": false
@@ -428,7 +429,7 @@ impl Tool for DownloadFileTool {
                 .await
                 .with_context(|| format!("Could not download {url}")),
             (None, Some(email_id), Some(blob_id)) => {
-                match fastmail_attachment(&self.user, email_id, blob_id).await {
+                match fastmail_attachment(&self.user, arg("account"), email_id, blob_id).await {
                     Ok(attachment) => {
                         let name = name
                             .map(str::to_owned)

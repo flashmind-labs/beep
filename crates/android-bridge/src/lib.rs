@@ -6,26 +6,26 @@
 //! the server dials the endpoint to deliver notices.
 
 use beep_proto::{
-    ActiveRun, AddMcpServer, Agents, AnswerApproval, AnswerGroupApproval, ApiError, AppIntegration,
-    AppPermissions, ApprovalDecision, Call, CancelRun, Chat, ClearMemories, ConnectApp,
-    ConnectLink, ConnectMcpServer, CopyShare, CreateCron, CreateGroup, Cron, CrossPlace,
-    DeleteCron, DeleteGroupReminder, DeleteMemory, DeletePlace, DeleteSession, DeleteSessions,
-    DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceInvite, DeviceResult,
-    DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth, FinishMcpAuth, GetAgents,
-    GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetRouteCard,
-    GetRun, GetSession, GetSessionAgents, GetSessionImages, GetShare, Group, GroupChat,
-    GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry,
-    InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice,
-    ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMcpServers, ListMemories,
-    ListMemoryReads, ListPlaces, ListSessions, ListSkills, McpCallback, McpConnect, McpServer,
-    Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup,
-    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
-    RemoveDevice, RemoveMcpServer, RenameSession, RouteCard, Run, RunCron, SearchSessions,
-    SendToGroup, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel,
-    SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession,
-    Skill, StartAppAuth, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill,
-    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
-    UpdateSkill,
+    ActiveRun, AddAppAccount, AddMcpServer, Agents, AnswerApproval, AnswerGroupApproval, ApiError,
+    AppAccount, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun, Chat,
+    ClearMemories, ConnectApp, ConnectLink, ConnectMcpServer, CopyShare, CreateCron, CreateGroup,
+    Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory, DeletePlace, DeleteSession,
+    DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceInvite,
+    DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth, FinishMcpAuth,
+    GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels,
+    GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionImages, GetShare, Group,
+    GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health,
+    HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice,
+    LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices, ListGroupReminders,
+    ListGroups, ListMcpServers, ListMemories, ListMemoryReads, ListPlaces, ListSessions,
+    ListSkills, McpCallback, McpConnect, McpServer, Memory, MemoryRead, Models, Notice, PeekGroup,
+    PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
+    RemoveMcpServer, RenameSession, RouteCard, Run, RunCron, SearchSessions, SendToGroup,
+    SentImages, Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetModel,
+    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill,
+    StartAppAuth, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill, UnregisterDevice,
+    UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -1003,6 +1003,26 @@ impl BeepClient {
         redirect_uri: String,
     ) -> Result<ConnectLink, BeepError> {
         self.call(StartAppAuth { slug, redirect_uri }).await
+    }
+
+    /// The connected accounts of `slug`, such as each Fastmail account,
+    /// the agent's default first.
+    pub async fn list_app_accounts(&self, slug: String) -> Result<Vec<AppAccount>, BeepError> {
+        self.call(ListAppAccounts { slug }).await
+    }
+
+    /// Like `start_app_auth`, but signs in another account.
+    pub async fn add_app_account(
+        &self,
+        slug: String,
+        redirect_uri: String,
+    ) -> Result<ConnectLink, BeepError> {
+        self.call(AddAppAccount { slug, redirect_uri }).await
+    }
+
+    /// Disconnects one account of `slug`, by `AppAccount::id`.
+    pub async fn remove_app_account(&self, slug: String, id: String) -> Result<(), BeepError> {
+        self.call(RemoveAppAccount { slug, id }).await
     }
 
     /// Passes the redirect's query parameters back to the server.
