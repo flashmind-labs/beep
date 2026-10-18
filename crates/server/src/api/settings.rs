@@ -147,7 +147,28 @@ pub(super) async fn start_app_auth(
     cx: Cx,
     StartAppAuth { slug, redirect_uri }: StartAppAuth,
 ) -> Reply<ConnectLink> {
-    cx.user.start_app_auth(&slug, &redirect_uri).await
+    cx.user.start_app_auth(&slug, &redirect_uri, false).await
+}
+
+pub(super) async fn list_app_accounts(
+    cx: Cx,
+    ListAppAccounts { slug }: ListAppAccounts,
+) -> Reply<Vec<AppAccount>> {
+    cx.user.app_accounts(&slug).await
+}
+
+pub(super) async fn add_app_account(
+    cx: Cx,
+    AddAppAccount { slug, redirect_uri }: AddAppAccount,
+) -> Reply<ConnectLink> {
+    cx.user.start_app_auth(&slug, &redirect_uri, true).await
+}
+
+pub(super) async fn remove_app_account(
+    cx: Cx,
+    RemoveAppAccount { slug, id }: RemoveAppAccount,
+) -> Reply<()> {
+    cx.user.remove_app_account(&slug, &id).await
 }
 
 pub(super) async fn finish_app_auth(cx: Cx, req: FinishAppAuth) -> Reply<()> {

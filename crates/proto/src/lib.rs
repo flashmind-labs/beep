@@ -430,6 +430,26 @@ requests! {
     /// The run going on in the caller's session, started from any of their
     /// devices, to follow with `GetEvents` from 0. `None` when it is idle.
     99 ActiveRun { session_id: Uuid } => Call<Option<Run>>
+    /// The accounts of an app that connects several, such as Fastmail, in
+    /// the order Beep uses them: the agent's default account comes first.
+    /// Empty when none is connected.
+    100 ListAppAccounts { slug: String } => Call<Vec<AppAccount>>
+    /// Like `StartAppAuth`, but signs in another account instead of
+    /// reconnecting the first. `FinishAppAuth` completes it. Signing in to an
+    /// account Beep already has replaces its old login.
+    101 AddAppAccount { slug: String, redirect_uri: String } => Call<ConnectLink>
+    /// Disconnects one account, by `AppAccount::id`. `DisconnectApp` still
+    /// disconnects them all.
+    102 RemoveAppAccount { slug: String, id: String } => Call<()>
+}
+
+/// One connected account of an app such as Fastmail.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppAccount {
+    pub id: String,
+    /// The account's email address, once the server has read it.
+    pub address: Option<String>,
 }
 
 /// A remote MCP server the user added. The server makes every call, so it
