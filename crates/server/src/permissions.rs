@@ -5,9 +5,7 @@
 
 use crate::{
     apps::{
-        CATALOG, CatalogApp, catalog_app,
-        custom_mcp::PREFIX as ADDED_PREFIX,
-        mcp::{FASTMAIL, FASTMAIL_TOOLS},
+        CATALOG, CatalogApp, catalog_app, custom_mcp::PREFIX as ADDED_PREFIX, mcp::FASTMAIL_TOOLS,
     },
     protocol::{AppAction, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel},
     store::AppPermissionRow,
@@ -614,9 +612,11 @@ pub(crate) async fn describe_call(
     else {
         return Vec::new();
     };
+    // A Fastmail call reads back from the account it acts in.
+    let account = call.arguments.get("account").and_then(Value::as_str);
     let mut shown = Vec::new();
     for args in read_args(lookup, &call.arguments) {
-        match read_record(user, lookup.read, args.clone()).await {
+        match read_record(user, lookup.read, account, args.clone()).await {
             Ok(found) => {
                 // The record is the object holding the ID it was read by;
                 // a read that answers with the record alone is that object.
@@ -666,11 +666,17 @@ fn read_args(lookup: &Lookup, args: &Value) -> Vec<Map<String, Value>> {
         .collect()
 }
 
-/// Calls `read`, on Fastmail's MCP server for a lowercase name and on
-/// Composio otherwise, and returns what it found.
-async fn read_record(user: &User, read: &str, args: Map<String, Value>) -> Result<Value> {
+/// Calls `read`, on Fastmail's MCP server in `account` (or the first
+/// account) for a lowercase name and on Composio otherwise, and returns
+/// what it found.
+async fn read_record(
+    user: &User,
+    read: &str,
+    account: Option<&str>,
+    args: Map<String, Value>,
+) -> Result<Value> {
     if read.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
-        return user.call_mcp(FASTMAIL, read, Value::Object(args)).await;
+        return user.call_fastmail(account, read, Value::Object(args)).await;
     }
     let client = user
         .composio_client()

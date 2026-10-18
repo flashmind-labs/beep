@@ -49,10 +49,10 @@ use sessions::{
     unshare_session,
 };
 use settings::{
-    add_mcp_server, connect_app, connect_mcp_server, disconnect_app, finish_app_auth,
-    finish_mcp_auth, get_agents, get_app_permissions, get_models, list_apps, list_mcp_servers,
-    remove_mcp_server, set_agents, set_app_permissions, set_auto_model, set_model, set_thinking,
-    start_app_auth,
+    add_app_account, add_mcp_server, connect_app, connect_mcp_server, disconnect_app,
+    finish_app_auth, finish_mcp_auth, get_agents, get_app_permissions, get_models,
+    list_app_accounts, list_apps, list_mcp_servers, remove_app_account, remove_mcp_server,
+    set_agents, set_app_permissions, set_auto_model, set_model, set_thinking, start_app_auth,
 };
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
@@ -93,6 +93,9 @@ pub fn router() -> Router {
         .call(disconnect_app)
         .call(start_app_auth)
         .call(finish_app_auth)
+        .call(list_app_accounts)
+        .call(add_app_account)
+        .call(remove_app_account)
         .call(suggest_prompts)
         .call(get_app_permissions)
         .call(set_app_permissions)

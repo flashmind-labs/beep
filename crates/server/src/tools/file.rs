@@ -1,7 +1,7 @@
 //! Sends the user a file in the chat, such as a mail attachment or a file
 //! code made, instead of mailing it to them.
 
-use crate::{apps::mcp::FASTMAIL, sandbox, sandbox::Sandbox, user::User};
+use crate::{sandbox, sandbox::Sandbox, user::User};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -22,7 +22,11 @@ pub(crate) struct SendFileTool {
 enum Source<'a> {
     Url(&'a str),
     Folder(&'a str),
-    Fastmail { email_id: &'a str, blob_id: &'a str },
+    Fastmail {
+        account: Option<&'a str>,
+        email_id: &'a str,
+        blob_id: &'a str,
+    },
 }
 
 /// The bytes to send, with what is known of their name and type.
@@ -48,6 +52,7 @@ impl Tool for SendFileTool {
                 "path": { "type": "string", "description": "File in the user's file folder, as execute_code or download_file named it" },
                 "email_id": { "type": "string", "description": "Fastmail email id the attachment belongs to" },
                 "blob_id": { "type": "string", "description": "The Fastmail attachment's blobId" },
+                "account": { "type": "string", "description": "The Fastmail account the email is in, when the FASTMAIL tools take an `account`" },
                 "filename": { "type": "string", "description": "Name to show, such as 'BoardingPass.pdf'; taken from the source when left out" }
             },
             "additionalProperties": false
@@ -70,7 +75,11 @@ impl Tool for SendFileTool {
         let source = match (arg("url"), arg("path"), arg("email_id"), arg("blob_id")) {
             (Some(url), None, None, None) => Source::Url(url),
             (None, Some(path), None, None) => Source::Folder(path),
-            (None, None, Some(email_id), Some(blob_id)) => Source::Fastmail { email_id, blob_id },
+            (None, None, Some(email_id), Some(blob_id)) => Source::Fastmail {
+                account: arg("account"),
+                email_id,
+                blob_id,
+            },
             _ => {
                 return Ok(ToolResult::failure(
                     ctx.tool_call_id,
@@ -137,8 +146,13 @@ impl SendFileTool {
                     data: file.data,
                 })
             }
-            Source::Fastmail { email_id, blob_id } => {
-                let attachment = fastmail_attachment(&self.user, email_id, blob_id).await?;
+            Source::Fastmail {
+                account,
+                email_id,
+                blob_id,
+            } => {
+                let attachment =
+                    fastmail_attachment(&self.user, account, email_id, blob_id).await?;
                 Ok(Loaded {
                     name: attachment.name.unwrap_or_else(|| "attachment".to_owned()),
                     mime: attachment.mime,
@@ -149,15 +163,17 @@ impl SendFileTool {
     }
 }
 
-/// The Fastmail attachment `blob_id` of `email_id` as the file itself,
-/// rather than the text `read_attachment` gives by default.
+/// The Fastmail attachment `blob_id` of `email_id`, in `account` or the
+/// first account, as the file itself rather than the text `read_attachment`
+/// gives by default.
 pub(crate) async fn fastmail_attachment(
     user: &User,
+    account: Option<&str>,
     email_id: &str,
     blob_id: &str,
 ) -> Result<Attachment> {
     let args = json!({ "emailId": email_id, "blobId": blob_id, "format": "original" });
-    let result = user.call_mcp(FASTMAIL, "read_attachment", args).await?;
+    let result = user.call_fastmail(account, "read_attachment", args).await?;
     let attachment = attachment_in(&result)
         .context("Fastmail only gives the file itself for PDFs and images")?;
     if attachment.data.len() as u64 > sandbox::MAX_DOWNLOAD {

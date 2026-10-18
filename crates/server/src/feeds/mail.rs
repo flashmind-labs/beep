@@ -283,7 +283,7 @@ impl<'a> Source<'a> {
                 if let Some(cursor) = cursor {
                     arguments["cursor"] = json!(cursor);
                 }
-                let value = user.call_mcp(FASTMAIL, "search_email", arguments).await?;
+                let value = user.call_fastmail(None, "search_email", arguments).await?;
                 parse_fastmail(&value)
             }
             Source::Outlook {
@@ -324,7 +324,7 @@ impl<'a> Source<'a> {
             return;
         };
         let arguments = json!({"id": email.id});
-        match user.call_mcp(FASTMAIL, "read_email", arguments).await {
+        match user.call_fastmail(None, "read_email", arguments).await {
             Ok(value) => {
                 if let Some(body) = value["bodyText"].as_str() {
                     email.body = body.to_owned();

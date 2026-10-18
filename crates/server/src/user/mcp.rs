@@ -10,7 +10,11 @@ use crate::{
             server_name,
         },
         internal,
-        mcp::{StoreProvider, app_tools, check_redirect, display_name, lost_login, preset},
+        mcp::{
+            FASTMAIL, FastmailAccount, MAX_FASTMAIL_ACCOUNTS, StoreProvider, app_tools,
+            check_redirect, display_name, fastmail_name, identity_address, is_fastmail, lost_login,
+            pick_account, preset,
+        },
     },
     protocol::{ApiError, McpConnect, McpServer, Notice, mcp_callback_url},
     store::{CustomMcp, McpServerRow},
@@ -18,7 +22,7 @@ use crate::{
 use anyhow::{Result, bail};
 use flashmind::{tools::mcp::McpRegistry, types::Tool};
 use reqwest::Url;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     collections::HashSet,
     sync::Arc,
@@ -42,6 +46,12 @@ impl User {
             self.drop_lost_custom_login(name).await;
             return;
         }
+        let address = self
+            .fastmail_accounts()
+            .await
+            .ok()
+            .and_then(|accounts| accounts.into_iter().find(|account| account.name == name))
+            .and_then(|account| account.address);
         match self.remove_mcp(name).await {
             Ok(true) => {}
             Ok(false) => return,
@@ -51,14 +61,19 @@ impl User {
             }
         }
         let app = display_name(name);
+        let which = match &address {
+            Some(address) => format!("{app} ({address})"),
+            None => app.to_owned(),
+        };
         log::warn!("mcp: {name} rejected the saved login, asking to reconnect; user={self}");
         let notice = UserNotice {
             user: self.id().to_owned(),
             notice: Notice {
                 title: format!("Reconnect {app}"),
-                body: format!("Beep lost access to {app}. Tap to connect it again."),
+                body: format!("Beep lost access to {which}. Tap to connect it again."),
                 session_id: String::new(),
-                app: Some(name.to_owned()),
+                // The app's slug, which the phone connects again.
+                app: Some(if is_fastmail(name) { FASTMAIL } else { name }.to_owned()),
                 approval: None,
                 changed: false,
                 group: false,
@@ -94,16 +109,102 @@ impl User {
             .await
     }
 
-    /// Names of the catalog servers, such as Fastmail, the user has
-    /// credentials for. Servers the user added are not among them.
+    /// Slugs of the catalog apps, such as Fastmail, the user has an
+    /// account with credentials for. Servers the user added are not among them.
     pub async fn mcp_connected(&self) -> Result<HashSet<String>> {
+        Ok(self
+            .connected_servers()
+            .await?
+            .into_iter()
+            .map(|name| {
+                if is_fastmail(&name) {
+                    FASTMAIL.to_owned()
+                } else {
+                    name
+                }
+            })
+            .collect())
+    }
+
+    /// Server names of the catalog servers with credentials, one per
+    /// Fastmail account.
+    async fn connected_servers(&self) -> Result<Vec<String>> {
         Ok(self
             .mcp_servers()
             .await?
             .into_iter()
-            .filter(|row| row.credentials.is_some() && !is_custom(&row.name))
+            .filter(|row| row.credentials.is_some() && preset(&row.name).is_some())
             .map(|row| row.name)
             .collect())
+    }
+
+    /// The connected Fastmail accounts, oldest first. The first is the one
+    /// a call that names none goes to.
+    pub(crate) async fn fastmail_accounts(&self) -> Result<Vec<FastmailAccount>> {
+        Ok(fastmail_rows(&self.mcp_servers().await?))
+    }
+
+    /// The server of the Fastmail account `account` names, by address or
+    /// id, or of the first account when it names none.
+    pub(crate) async fn fastmail_server(&self, account: Option<&str>) -> Result<String> {
+        let accounts = self.fastmail_accounts().await?;
+        match pick_account(&accounts, account) {
+            Ok(found) => Ok(found.name.clone()),
+            Err(message) => bail!(message),
+        }
+    }
+
+    /// Calls `tool` on the Fastmail account `account` names, or the first.
+    pub(crate) async fn call_fastmail(
+        &self,
+        account: Option<&str>,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<Value> {
+        let server = self.fastmail_server(account).await?;
+        self.call_mcp(&server, tool, arguments).await
+    }
+
+    /// Reads and saves the address of each of `accounts` that has none yet,
+    /// from the account's sending identities.
+    async fn learn_addresses(&self, accounts: &mut [FastmailAccount]) {
+        for account in accounts
+            .iter_mut()
+            .filter(|account| account.address.is_none())
+        {
+            let Some(address) = self.read_address(&account.name).await else {
+                continue;
+            };
+            if let Err(error) = self
+                .store
+                .set_mcp_address(&self.key, &account.name, Some(&address))
+                .await
+            {
+                log::warn!("mcp: unable to save the account address: {error:#}");
+            }
+            account.address = Some(address);
+        }
+    }
+
+    /// The address Fastmail account `name` sends from, if it answers.
+    async fn read_address(&self, name: &str) -> Option<String> {
+        match self.call_mcp(name, "list_identities", json!({})).await {
+            Ok(value) => identity_address(&value),
+            Err(error) => {
+                log::info!(
+                    "mcp: unable to read the account address; server={name} error={error:#}"
+                );
+                None
+            }
+        }
+    }
+
+    /// The Fastmail accounts as the app lists them, reading any address
+    /// not known yet.
+    pub(crate) async fn list_fastmail_accounts(&self) -> Result<Vec<FastmailAccount>> {
+        let mut accounts = self.fastmail_accounts().await?;
+        self.learn_addresses(&mut accounts).await;
+        Ok(accounts)
     }
 
     /// Agent tools for the servers the user has connected, one per remote
@@ -117,18 +218,18 @@ impl User {
                 return Vec::new();
             }
         };
-        let connected: HashSet<String> = rows
-            .iter()
-            .filter(|row| row.credentials.is_some() && !is_custom(&row.name))
-            .map(|row| row.name.clone())
-            .collect();
+        let mut accounts = fastmail_rows(&rows);
         let mut tools = Vec::new();
-        if !connected.is_empty() {
+        if !accounts.is_empty() {
+            if accounts.len() > 1 {
+                // The agent picks an account by address, so learn any missing.
+                self.learn_addresses(&mut accounts).await;
+            }
             let registry = self.mcp_registry().await;
             // The tools are made from `current_mcp_tools` on every run, so the
             // queued register and unregister ops are not needed.
             registry.drain_pending_ops();
-            tools = app_tools(registry, &connected);
+            tools = app_tools(registry, &accounts);
         }
         if rows.iter().any(ready) {
             let registry = self.custom_registry().await;
@@ -340,12 +441,7 @@ impl User {
             }
         };
         permit.finish(Outcome::Ok);
-        let state = Url::parse(&auth_url).ok().and_then(|url| {
-            url.query_pairs()
-                .find(|(key, _)| key == "state")
-                .map(|(_, value)| value.into_owned())
-        });
-        let Some(state) = state else {
+        let Some(state) = state_of(&auth_url) else {
             log::warn!("mcp: sign-in URL without state; server={name}");
             return Err(ApiError::Internal {});
         };
@@ -429,32 +525,136 @@ impl User {
         Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
     }
 
-    /// Starts OAuth and returns the URL to open in the browser.
-    pub async fn start_mcp_auth(&self, name: &str, redirect_uri: &str) -> Result<String> {
-        let Some(config) = preset(name) else {
-            bail!("unknown MCP server");
+    /// Starts a Fastmail sign-in and returns the URL to open in the browser.
+    /// `add` signs in another account; otherwise it reconnects the first,
+    /// as apps from before several accounts expect.
+    pub async fn start_fastmail_auth(
+        &self,
+        redirect_uri: &str,
+        add: bool,
+    ) -> Result<String, ApiError> {
+        check_redirect(redirect_uri).map_err(|error| ApiError::bad_request(error.to_string()))?;
+        let rows = self
+            .mcp_servers()
+            .await
+            .map_err(internal("list MCP servers"))?;
+        let accounts = fastmail_rows(&rows);
+        let name = if add || accounts.is_empty() {
+            // The first slot without a working login; a half-finished one is reused.
+            (1..=MAX_FASTMAIL_ACCOUNTS)
+                .map(fastmail_name)
+                .find(|name| !accounts.iter().any(|account| &account.name == name))
+                .ok_or_else(|| {
+                    ApiError::bad_request(format!(
+                        "You can connect up to {MAX_FASTMAIL_ACCOUNTS} Fastmail accounts."
+                    ))
+                })?
+        } else {
+            accounts[0].name.clone()
         };
-        check_redirect(redirect_uri)?;
+        let config = preset(&name).ok_or(ApiError::Internal {})?;
         let registry = self.mcp_registry().await;
-        registry.add(config).await?;
-        registry.start_auth(name, redirect_uri).await
+        registry
+            .add(config)
+            .await
+            .map_err(internal("add MCP server"))?;
+        let auth_url = registry
+            .start_auth(&name, redirect_uri)
+            .await
+            .map_err(internal("start MCP OAuth"))?;
+        if let Some(state) = state_of(&auth_url)
+            && let Ok(mut flows) = self.mcp_flows.lock()
+        {
+            flows.retain(|_, flow| flow.started.elapsed() < FLOW_TTL && flow.server != name);
+            flows.insert(
+                state,
+                Flow {
+                    server: name,
+                    started: Instant::now(),
+                },
+            );
+        }
+        Ok(auth_url)
     }
 
-    /// Exchanges the code from the redirect, saves the tokens and connects.
-    pub async fn finish_mcp_auth(
+    /// Exchanges the code from the redirect, saves the tokens and connects
+    /// the account the sign-in was for. Signing in to an account Beep
+    /// already had replaces the older login.
+    pub async fn finish_fastmail_auth(
         &self,
-        name: &str,
         code: &str,
         state: &str,
         issuer: Option<&str>,
     ) -> Result<()> {
+        let flow = self
+            .mcp_flows
+            .lock()
+            .ok()
+            .and_then(|mut flows| flows.remove(state))
+            .filter(|flow| is_fastmail(&flow.server));
+        let name = flow.map_or_else(|| FASTMAIL.to_owned(), |flow| flow.server);
         let registry = self.mcp_registry().await;
-        registry.complete_auth(name, code, state, issuer).await
+        registry.complete_auth(&name, code, state, issuer).await?;
+        // The login may be another account's than the slot had before.
+        let address = self.read_address(&name).await;
+        self.store
+            .set_mcp_address(&self.key, &name, address.as_deref())
+            .await?;
+        let Some(address) = address else {
+            return Ok(());
+        };
+        let older = self
+            .fastmail_accounts()
+            .await?
+            .into_iter()
+            .filter(|account| account.name != name && account.address.as_ref() == Some(&address));
+        for account in older {
+            log::info!("mcp: an account signed in again, dropping its older login; user={self}");
+            self.remove_mcp(&account.name).await?;
+        }
+        Ok(())
     }
 
-    /// Disconnects and forgets the server and its tokens. Returns whether it existed.
+    /// Disconnects one Fastmail account, by its id.
+    pub async fn remove_fastmail_account(&self, id: &str) -> Result<(), ApiError> {
+        if !is_fastmail(id) {
+            return Err(ApiError::NotFound {});
+        }
+        let removed = self
+            .remove_mcp(id)
+            .await
+            .map_err(internal("remove MCP server"))?;
+        if removed {
+            Ok(())
+        } else {
+            Err(ApiError::NotFound {})
+        }
+    }
+
+    /// Disconnects every Fastmail account. Returns whether there was one.
+    pub async fn remove_fastmail(&self) -> Result<bool> {
+        let names: Vec<String> = self
+            .mcp_servers()
+            .await?
+            .into_iter()
+            .map(|row| row.name)
+            .filter(|name| is_fastmail(name))
+            .collect();
+        let mut existed = false;
+        for name in names {
+            existed |= self.remove_mcp(&name).await?;
+        }
+        Ok(existed)
+    }
+
+    /// Disconnects and forgets the server and its tokens. Returns whether it
+    /// was connected.
     pub async fn remove_mcp(&self, name: &str) -> Result<bool> {
-        let existed = self.mcp_connected().await?.contains(name);
+        let existed = self
+            .connected_servers()
+            .await?
+            .iter()
+            .any(|server| server == name);
         let registry = self.mcp_registry().await;
         if registry.get_config(name).await.is_some() {
             registry.remove(name).await?;
@@ -468,7 +668,7 @@ impl User {
     /// Reconnects every connected server once. Connecting refreshes an
     /// expired access token, which also rotates and saves the refresh token.
     pub(crate) async fn keep_mcp_alive(&self) {
-        let connected = match self.mcp_connected().await {
+        let connected = match self.connected_servers().await {
             Ok(connected) if !connected.is_empty() => connected,
             Ok(_) => return,
             Err(error) => {
@@ -489,6 +689,25 @@ impl User {
     }
 }
 
+/// The Fastmail accounts among `rows` that finished signing in, oldest first.
+fn fastmail_rows(rows: &[McpServerRow]) -> Vec<FastmailAccount> {
+    rows.iter()
+        .filter(|row| row.credentials.is_some() && is_fastmail(&row.name))
+        .map(|row| FastmailAccount {
+            name: row.name.clone(),
+            address: row.address.clone().filter(|address| !address.is_empty()),
+        })
+        .collect()
+}
+
+/// The `state` an authorization URL carries.
+fn state_of(auth_url: &str) -> Option<String> {
+    Url::parse(auth_url)
+        .ok()?
+        .query_pairs()
+        .find_map(|(key, value)| (key == "state").then(|| value.into_owned()))
+}
+
 /// What the app lists for an added server's row.
 fn server_info(row: &McpServerRow) -> Option<McpServer> {
     let custom = row.custom.as_ref()?;
@@ -507,6 +726,66 @@ mod tests {
     use flashmind::core::CancellationToken;
     use flashmind::types::tool::ToolContext;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn fastmail_accounts_are_listed_picked_and_removed() {
+        let db = TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+        assert!(user.app_accounts("fastmail").await.unwrap().is_empty());
+        for (name, address) in [
+            ("fastmail", "me@example.com"),
+            ("fastmail-2", "work@example.com"),
+        ] {
+            user.save_mcp_credentials(name, json!({"client_id": "c"}))
+                .await
+                .unwrap();
+            user.store
+                .set_mcp_address(&user.key, name, Some(address))
+                .await
+                .unwrap();
+        }
+        // A sign-in that never finished is not an account.
+        user.save_mcp_config("fastmail-3", json!({})).await.unwrap();
+
+        let accounts = user.app_accounts("fastmail").await.unwrap();
+        let ids: Vec<&str> = accounts.iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, ["fastmail", "fastmail-2"]);
+        assert_eq!(accounts[1].address.as_deref(), Some("work@example.com"));
+        assert_eq!(
+            user.mcp_connected().await.unwrap(),
+            HashSet::from(["fastmail".to_owned()])
+        );
+        assert_eq!(user.fastmail_server(None).await.unwrap(), "fastmail");
+        assert_eq!(
+            user.fastmail_server(Some("Work@example.com"))
+                .await
+                .unwrap(),
+            "fastmail-2"
+        );
+        assert!(user.fastmail_server(Some("x@example.com")).await.is_err());
+
+        let error = user
+            .remove_app_account("fastmail", "mcp_x")
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ApiError::NotFound {}));
+        user.remove_app_account("fastmail", "fastmail")
+            .await
+            .unwrap();
+        // The other account becomes the default.
+        assert_eq!(user.fastmail_server(None).await.unwrap(), "fastmail-2");
+        assert!(
+            user.apps()
+                .await
+                .unwrap()
+                .iter()
+                .any(|a| a.slug == "fastmail" && a.connected)
+        );
+
+        user.disconnect_app("fastmail").await.unwrap();
+        assert!(user.app_accounts("fastmail").await.unwrap().is_empty());
+        assert!(user.mcp_servers().await.unwrap().is_empty());
+    }
 
     /// Adds real public servers: one open, one behind OAuth. Needs the
     /// network, so it runs only when asked for.
