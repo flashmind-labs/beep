@@ -11,6 +11,7 @@ struct BeepApp: App {
                 .task { delegate.model.connect() }
                 .onOpenURL { url in
                     if url.scheme == "beep", url.host == "new" { delegate.model.destination = .newChat }
+                    if let token = shareToken(url: url.absoluteString) { delegate.model.destination = .shared(token) }
                 }
         }
     }
@@ -31,7 +32,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 enum Route: Hashable {
     case groupInfo(String)
-    case settings, memories, routines, skills, places, locationAlways
+    case settings, memories, routines, skills, places, locationAlways, apps
     case skill(String)
     /// Memories, opened on the newest read.
     case latestRead
@@ -48,6 +49,8 @@ struct RootView: View {
     @State private var drawer = false
     /// An invite being looked at, shown full screen.
     @State private var joining: String?
+    /// A shared chat being read, shown full screen.
+    @State private var reading: String?
     /// The chat left by starting a new one, so a swipe right can go back to it once. It only
     /// holds while the user stays on the new chat; opening another one forgets it.
     @State private var left: String?
@@ -98,6 +101,15 @@ struct RootView: View {
                     joining = nil
                 }
             }
+            .fullScreenCover(item: Binding(get: { reading.map(JoinToken.init) }, set: { reading = $0?.id })) { shared in
+                SharedChatView(token: shared.id) {
+                    reading = nil
+                } continued: {
+                    reading = nil
+                    left = nil
+                    path = []
+                }
+            }
             .task {
                 #if DEBUG
                 // `-noask 1` keeps the permission prompt off screenshots.
@@ -146,6 +158,7 @@ struct RootView: View {
                 sheet = .invite(id: $0.id, name: $0.name)
             }
         case .settings: SettingsView(path: $path)
+        case .apps: AppsView(back: { path.removeLast() })
         case .memories: MemoriesView(path: $path)
         case .latestRead: MemoriesView(path: $path, latestRead: true)
         case .routines: RoutinesView(path: $path)
@@ -222,6 +235,8 @@ struct RootView: View {
             // An empty chat already open is the new chat.
             if !(path.isEmpty && model.openGroup == nil && model.chat.messages.isEmpty) { openChat(nil) }
             model.composeNext = true
+        case .shared(let token):
+            reading = token
         }
     }
 
@@ -232,6 +247,7 @@ struct RootView: View {
     /// new chat, `newgroup` and `joingroup` the sheets, `locationalways` the location ask. `-places sample` swaps the
     /// server's places for made up ones, and `placesave` shows a chat with a saved place card.
     /// `widget` takes the widget's path to a new chat with the keyboard up.
+    /// `apps` opens the apps, `shared` with `-token t` the shared chat behind a link.
     /// `-creategroup "name"` makes a group and `-leavegroup 1` leaves the first one.
     private func debugLaunch() async {
         let defaults = UserDefaults.standard
@@ -261,6 +277,9 @@ struct RootView: View {
             openChat(nil)
             model.chat.messages = samplePlaceSave
         case "settings": path = [.settings]
+        case "apps": path = [.apps]
+        case "shared":
+            if let token = defaults.string(forKey: "token") { reading = token }
         case "memories": path = [.memories]
         case "routines": path = [.routines]
         case "skills": path = [.skills]
