@@ -50,8 +50,7 @@ struct ChatView: View {
                     .animation(.bouncy, value: replyStarted)
                     .animation(.easeOut(duration: 0.2), value: model.chat.error)
                 }
-                // Open at the latest message instead of scrolling down from the top.
-                .defaultScrollAnchor(.bottom)
+                .chatScrollAnchor()
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: model.chat.messages) { old, new in
                     // A new message glides into view; streamed text just keeps the end in sight.
@@ -164,6 +163,7 @@ struct ChatView: View {
         let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty
         let prompt = photos.count > 1 ? "Ask about the photos..." : photos.isEmpty ? "Ask anything..." : "Ask about the photo..."
         return VStack(alignment: .leading, spacing: 0) {
+            if !model.chat.queued.isEmpty { queuedList.unfold() }
             if !photos.isEmpty { thumbnails.unfold() }
             HStack(alignment: .bottom, spacing: 8) {
                 HStack(alignment: .bottom, spacing: 4) {
@@ -193,11 +193,23 @@ struct ChatView: View {
                 .frame(minHeight: 50)
                 .chunky()
                 if model.chat.busy {
-                    Button { model.stop() } label: { Image(systemName: "stop.fill").foregroundStyle(Mint.page) }
-                        .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 18))
-                        .foregroundStyle(Mint.page)
-                        .accessibilityLabel("Stop reply")
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    VStack(spacing: 8) {
+                        if !empty {
+                            Button {
+                                model.queue(draft, images: photos)
+                                draft = ""
+                                photos = []
+                            } label: { Image(systemName: "clock") }
+                                .buttonStyle(ChunkyButton(fill: Mint.surface, size: 50, radius: 18))
+                                .accessibilityLabel("Queue message")
+                                .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        }
+                        Button { model.stop() } label: { Image(systemName: "stop.fill").foregroundStyle(Mint.page) }
+                            .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 18))
+                            .foregroundStyle(Mint.page)
+                            .accessibilityLabel("Stop reply")
+                    }
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
                 } else {
                     Button {
                         model.send(draft, images: photos)
@@ -226,6 +238,64 @@ struct ChatView: View {
         }
         .background(Mint.page)
         .animation(.bouncy, value: photos.count)
+    }
+
+    /// Messages queued while the reply runs; each sends as its own turn once the one before
+    /// finishes. Tapping the cross puts one back in the composer to edit.
+    private var queuedList: some View {
+        let queued = model.chat.queued
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "clock").font(.system(size: 13)).foregroundStyle(Mint.muted)
+                Text(!model.chat.busy ? "Not sent"
+                     : queued.count > 1 ? "Send one by one when Beep finishes" : "Sends when Beep finishes")
+                    .font(.body(12, .semibold)).foregroundStyle(Mint.muted)
+                Spacer(minLength: 0)
+                if !model.chat.busy {
+                    Button { model.sendQueued() } label: {
+                        Image(systemName: "paperplane").font(.system(size: 15)).foregroundStyle(Mint.accent)
+                            .frame(width: 36, height: 36).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Send queued messages")
+                }
+            }
+            .frame(minHeight: 32)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(queued.enumerated()), id: \.offset) { index, message in
+                        HStack(spacing: 8) {
+                            Text("\(index + 1)").font(.body(12, .semibold)).foregroundStyle(Mint.muted)
+                                .frame(width: 16)
+                            Text(message.text.isEmpty
+                                 ? "\(message.images.count) image\(message.images.count > 1 ? "s" : "")"
+                                 : message.text)
+                                .font(.body(14)).foregroundStyle(Mint.ink).lineLimit(1)
+                            Spacer(minLength: 0)
+                            Button {
+                                guard let back = model.unqueue(index) else { return }
+                                draft = draft.isEmpty ? back.text : back.text + "\n" + draft
+                                photos = Array((back.images + photos).prefix(ChatPhotos.limit))
+                                typing = true
+                            } label: {
+                                Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Mint.muted)
+                                    .frame(width: 36, height: 36).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Edit queued message \(index + 1)")
+                        }
+                        .frame(minHeight: 36)
+                    }
+                }
+            }
+            .frame(maxHeight: 116)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 2)
+        .chunky(radius: 12)
+        .padding(.horizontal, 14).padding(.top, 6)
+        .animation(.bouncy, value: queued)
     }
 
     /// The photos waiting to go with the next message, each with a remove button.
@@ -922,5 +992,19 @@ struct MarkdownText: View {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         if let styled = try? AttributedString(markdown: line, options: options) { return Text(styled) }
         return Text(line)
+    }
+}
+
+extension View {
+    /// Opens at the latest message instead of scrolling down from the top. A chat shorter
+    /// than the screen still starts at the top, as on Android, rather than floating above
+    /// the composer.
+    @ViewBuilder func chatScrollAnchor() -> some View {
+        if #available(iOS 18, *) {
+            defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(.bottom, for: .sizeChanges)
+        } else {
+            defaultScrollAnchor(.bottom)
+        }
     }
 }

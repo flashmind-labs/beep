@@ -132,7 +132,7 @@ struct GroupChatView: View {
                     .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 16)
                 }
                 .overlay { placeholder }
-                .defaultScrollAnchor(.bottom)
+                .chatScrollAnchor()
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: chat?.messages.count) { toEnd(scroller) }
                 .onChange(of: outgoing.count) { toEnd(scroller) }
