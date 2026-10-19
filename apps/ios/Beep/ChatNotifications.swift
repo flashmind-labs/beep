@@ -2,8 +2,8 @@ import Intents
 import SwiftUI
 import UserNotifications
 
-/// Shows the server's notices as communication notifications: one thread per chat
-/// or group, the sender's avatar, and Reply and Mark as read in place.
+/// Shows the server's notices: one thread per chat or group, Reply and Mark as read in
+/// place, and in a group the sender's avatar as a communication notification.
 final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDelegate, @unchecked Sendable {
     /// Set once by the model that owns this.
     @MainActor weak var model: AppModel?
@@ -113,8 +113,10 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
 
         let sender = last.sender == "You" ? nil : last.sender
         let request: UNNotificationRequest
-        if let message = try? content.updating(from: intent(threadId: threadId, title: title, sender: sender,
-                                                            text: content.body, group: group)) {
+        // Only a group posts as a message from a person, with their avatar; Beep's own
+        // notifications keep the app icon rather than a drawn "b".
+        if group, let message = try? content.updating(from: intent(threadId: threadId, title: title, sender: sender,
+                                                                   text: content.body, group: group)) {
             request = UNNotificationRequest(identifier: UUID().uuidString, content: message, trigger: nil)
         } else {
             request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
