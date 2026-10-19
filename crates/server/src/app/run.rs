@@ -12,7 +12,7 @@ use super::{
 use crate::{
     agents::AgentId,
     apps::{files, markdown},
-    followups, gates, images,
+    cron, followups, gates, images,
     live::LiveRun,
     memories::{Exchange, Turn},
     metering,
@@ -205,6 +205,11 @@ impl App {
             message.draws,
             turn_agent.as_ref().map(|turn| turn.agent.id),
         );
+        if is_cron {
+            for name in cron::CHANGING_TOOLS {
+                registry.remove(name);
+            }
+        }
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }
@@ -278,6 +283,9 @@ impl App {
         }
         let refusals = repeat::guard_tool_calls(&mut registry);
         let can_map = gates::MAP_TOOLS.iter().any(|tool| registry.contains(tool));
+        let can_schedule = gates::SCHEDULE_TOOLS
+            .iter()
+            .any(|tool| registry.contains(tool));
 
         // Entries from here on belong to this turn. Matching by time rather than
         // index survives the agent compacting mid-run.
@@ -591,6 +599,7 @@ impl App {
                     calls: &calls,
                     scheduled: &scheduled,
                     can_map,
+                    can_schedule,
                 };
                 let Some(verdict) = gates::review(decision, &draft).await else {
                     break status;

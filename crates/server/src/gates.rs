@@ -13,7 +13,7 @@ const THRESHOLD: f64 = 0.6;
 /// The tools that put a destination on the map.
 pub const MAP_TOOLS: &[&str] = &["open_maps"];
 /// The tools that make Beep do something later.
-const SCHEDULE_TOOLS: &[&str] = &["cron_create", "cron_edit", "schedule_once", "place_routine"];
+pub const SCHEDULE_TOOLS: &[&str] = &["cron_create", "cron_edit", "schedule_once", "place_routine"];
 
 /// A tool call the turn made.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +34,9 @@ pub struct Draft<'a> {
     /// Whether the run has a map card to show. A run started on a computer
     /// has none, so a reply naming a place cannot be sent back for one.
     pub can_map: bool,
+    /// Whether the run can schedule anything. A routine's run cannot, so a
+    /// reply promising a later check is not sent back to set one up.
+    pub can_schedule: bool,
 }
 
 impl Draft<'_> {
@@ -118,7 +121,7 @@ mentions something already scheduled.",
         },
         fix: "Your reply promises to do something later, but nothing is scheduled. Set it \
 up now with schedule_once, cron_create or place_routine, or tell the user you will not.",
-        settled: |draft| draft.called(SCHEDULE_TOOLS),
+        settled: |draft| !draft.can_schedule || draft.called(SCHEDULE_TOOLS),
     },
 ];
 
@@ -213,6 +216,7 @@ mod tests {
             calls: &calls,
             scheduled: &[],
             can_map: true,
+            can_schedule: true,
         };
         let settled: Vec<_> = CHECKS
             .iter()
@@ -230,8 +234,23 @@ mod tests {
             calls: &[],
             scheduled: &[],
             can_map: false,
+            can_schedule: true,
         };
         assert!((CHECKS[0].settled)(&draft));
+    }
+
+    #[test]
+    fn a_routine_is_not_asked_to_schedule() {
+        let draft = Draft {
+            asked: "Check whether .bitcoin is on sale.",
+            reply: "Not on sale yet, I will keep checking.",
+            calls: &[],
+            scheduled: &[],
+            can_map: true,
+            can_schedule: false,
+        };
+        let promised = CHECKS.iter().find(|check| check.key == "promised");
+        assert!((promised.expect("promised check").settled)(&draft));
     }
 
     #[test]
@@ -243,6 +262,7 @@ mod tests {
             calls: &calls,
             scheduled: &[],
             can_map: true,
+            can_schedule: true,
         };
         let state = draft.state();
         assert!(state.contains("Asked:\nWhere now?\n"));
