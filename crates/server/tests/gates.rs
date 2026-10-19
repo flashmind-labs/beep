@@ -164,6 +164,7 @@ async fn gate_evals() {
                 calls,
                 scheduled: &scheduled,
                 can_map: true,
+                can_schedule: true,
             };
             gates::review(decision, &draft).await
         }

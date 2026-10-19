@@ -72,7 +72,19 @@ specific sentences of plain text, without Markdown; it is sent as the notificati
 shown in this chat. A reminder is always sent. A check is sent only when the note's \
 condition is met, judged against what the note says is already known; otherwise \
 do not call notify_user and end with one line on what you found, which the user never \
-sees. Do not mention that a task ran or that this is a reminder.";
+sees. Do not mention that a task ran or that this is a reminder. You cannot set up, change \
+or delete reminders or routines here.";
+
+/// The tools that set up, change or delete what runs later. A routine's run
+/// does not get them: runs that copied their own routine with a fresher
+/// note left the user with the same check several times over.
+pub const CHANGING_TOOLS: &[&str] = &[
+    "cron_create",
+    "cron_edit",
+    "cron_delete",
+    "schedule_once",
+    "place_routine",
+];
 
 /// The context lines for a routine's turn. History reads the label back with
 /// [`scheduled_label`] so clients show the turn as a routine, not a prompt.
