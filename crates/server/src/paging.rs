@@ -7,8 +7,9 @@ use serde_json::Value;
 /// Put before the result, where cutting a long output cannot drop it and
 /// readers that skip to the JSON still find it.
 const MORE: &str = "This is not every result: the tool says there are more pages. Before \
-giving a count, a total or saying this is all of them, fetch the next page with the \
-cursor or page token below, or tell the user the list is partial.\n";
+giving a count, a total or saying this is all of them, or when acting on all of them, \
+fetch the next page with the cursor or page token below. Otherwise tell the user the list \
+is partial.\n";
 
 /// How deep in a result the paging fields are looked for. Composio puts
 /// them under `data`, sometimes one level further down.

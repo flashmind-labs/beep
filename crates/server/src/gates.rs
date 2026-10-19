@@ -81,7 +81,7 @@ struct Check {
     settled: fn(&Draft) -> bool,
 }
 
-const CHECKS: [Check; 3] = [
+const CHECKS: [Check; 4] = [
     Check {
         key: "map",
         question: "Does Beep's reply send the user to one specific place to go to now or soon, \
@@ -123,7 +123,29 @@ mentions something already scheduled.",
 up now with schedule_once, cron_create or place_routine, or tell the user you will not.",
         settled: |draft| !draft.can_schedule || draft.called(SCHEDULE_TOOLS),
     },
+    Check {
+        key: UNFINISHED,
+        question: "Is Beep partway through a job it does itself with tools, such as moving, \
+archiving, labelling or reading many emails or items, and does its reply say some of them \
+are still left for Beep to handle?",
+        criteria: Criteria {
+            yes: "The reply says Beep handled only part of the items (more pages remain, some \
+may still be there, it has not checked the rest, or it offers to keep going) and nothing \
+stops Beep from going on now.",
+            no: "Beep's job is done, the reply is advice or directions for the user to act \
+on, or Beep stops for something only the user can settle, such as a confirmation before \
+deleting, an app that is not connected or a real choice.",
+        },
+        fix: "You stopped before the task was done. Keep going now: fetch the next page or \
+search again, act on it, and repeat until nothing is left. Then say in one line what you \
+did in total.",
+        settled: |_| false,
+    },
 ];
+
+/// The check for a reply that stops partway through the user's task. It may
+/// send the agent back more than once, since a long job takes several passes.
+pub const UNFINISHED: &str = "unfinished";
 
 /// Told before the fixes, so the second pass adds to the reply instead of
 /// writing it again.
@@ -134,7 +156,8 @@ changes a fact you told them; otherwise write nothing.";
 /// A reply that failed checks.
 #[derive(Debug)]
 pub struct Verdict {
-    /// The keys of the checks it failed: `map`, `claimed` or `promised`.
+    /// The keys of the checks it failed: `map`, `claimed`, `promised` or
+    /// `unfinished`.
     pub failed: Vec<&'static str>,
     /// What the agent is told in its second pass.
     pub note: String,
@@ -146,6 +169,11 @@ impl Verdict {
     /// as a bubble saying the map is below.
     pub fn card_only(&self) -> bool {
         self.failed == ["map"]
+    }
+
+    /// Whether the agent was sent back to finish the user's task.
+    pub fn unfinished(&self) -> bool {
+        self.failed.contains(&UNFINISHED)
     }
 }
 
