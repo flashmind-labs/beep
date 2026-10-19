@@ -106,6 +106,37 @@ to 6 November.",
         reply: "Dry clean only, do not wash, do not tumble dry, iron at low temperature.",
         fails: &[],
     },
+    Case {
+        name: "moves one page of applications and stops",
+        asked: "Move the job applications into the job applications folder",
+        calls: &["FASTMAIL_SEARCH_EMAIL", "FASTMAIL_UPDATE_EMAIL"],
+        scheduled: &[],
+        reply: "I moved 44 more applications into \"job applications\", which now holds 178. \
+The search stopped before the end, so some may still be in the Inbox. Tell me if you want me \
+to keep going.",
+        fails: &["unfinished"],
+    },
+    Case {
+        name: "moves every application",
+        asked: "Move the job applications into the job applications folder",
+        calls: &[
+            "FASTMAIL_SEARCH_EMAIL",
+            "FASTMAIL_UPDATE_EMAIL",
+            "FASTMAIL_SEARCH_EMAIL",
+        ],
+        scheduled: &[],
+        reply: "Done: 222 applications are in \"job applications\" and none are left in the Inbox.",
+        fails: &[],
+    },
+    Case {
+        name: "waits for a confirmation before deleting",
+        asked: "Clean up the newsletters",
+        calls: &["GMAIL_FETCH_EMAILS"],
+        scheduled: &[],
+        reply: "I found 120 newsletters from 14 senders, mostly Substack and Medium. Say yes and \
+I'll move them all to the trash.",
+        fails: &[],
+    },
 ];
 
 fn config() -> Config {

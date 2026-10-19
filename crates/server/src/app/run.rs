@@ -61,6 +61,10 @@ use uuid::Uuid;
 /// The longest any run may take. A model stuck repeating itself is stopped
 /// sooner by the repeat guards.
 const MAX_RUN: Duration = Duration::from_secs(15 * 60);
+/// How many times a reply that stopped partway through the user's task is
+/// sent back to keep going.
+const MAX_CONTINUES: usize = 6;
+
 /// How long a run may go without a single event from the model or a tool.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// The same while a tool runs: crawls and extractions poll quietly for up to
@@ -417,7 +421,14 @@ impl App {
             tokio::pin!(hard_stop);
 
             let mut input = input;
-            let mut gated = false;
+            // A finished reply is checked once. A reply that stopped partway
+            // through the task is checked again after each pass, up to
+            // `MAX_CONTINUES` times.
+            let mut checks_left = 1;
+            let mut continues = 0;
+            // Where the reply stood at the last check, so the next one reads
+            // only what the agent wrote since.
+            let mut checked_to = 0;
             // When the second pass only adds a card, its text stays off the
             // phone and out of the transcript; this is when that pass began.
             let mut quiet_since = None;
@@ -580,32 +591,37 @@ impl App {
                         }
                     }
                 };
-                // A finished reply is checked once; a failed check gets the
-                // agent one more pass to fix it.
+                // A failed check gets the agent one more pass to fix it.
                 if let Some(since) = quiet_since {
                     drop_text_since(&mut conversation, since);
                 }
-                if gated || status != RunStatus::Completed || parked.is_some() {
+                if checks_left == 0 || status != RunStatus::Completed || parked.is_some() {
                     break status;
                 }
-                gated = true;
+                checks_left -= 1;
                 let Some(decision) = &self.tools.decision else {
                     break status;
                 };
                 let scheduled = self.scheduled_tasks(user, message.cron_id.as_deref()).await;
                 let draft = gates::Draft {
                     asked: &message.message,
-                    reply: &reply,
+                    reply: &reply[checked_to..],
                     calls: &calls,
                     scheduled: &scheduled,
                     can_map,
                     can_schedule,
                 };
-                let Some(verdict) = gates::review(decision, &draft).await else {
+                let verdict = gates::review(decision, &draft).await;
+                checked_to = reply.len();
+                let Some(verdict) = verdict else {
                     break status;
                 };
                 if verdict.card_only() {
                     quiet_since = Some(Utc::now());
+                }
+                if verdict.unfinished() && continues < MAX_CONTINUES {
+                    continues += 1;
+                    checks_left = 1;
                 }
                 conversation.add(ConversationEntry::system_message(verdict.note));
             }
