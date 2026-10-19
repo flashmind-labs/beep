@@ -544,6 +544,47 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     }
 }
 
+/// The edge swipe back for a full-screen cover, which UIKit gives none: dragging in from the
+/// left edge slides the screen along and lets go of it past a third of the width.
+private struct EdgeSwipeBack: ViewModifier {
+    let back: () -> Void
+    @State private var drag: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        GeometryReader { proxy in
+            content
+                .offset(x: drag)
+                .overlay(alignment: .leading) {
+                    Color.clear
+                        .frame(width: 24)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 10, coordinateSpace: .global)
+                            .onChanged { drag = max(0, $0.translation.width) }
+                            .onEnded { value in
+                                let width = proxy.size.width
+                                if value.predictedEndTranslation.width > width / 3 {
+                                    withAnimation(.snappy(duration: 0.2)) { drag = width }
+                                    Task {
+                                        try? await Task.sleep(for: .milliseconds(200))
+                                        back()
+                                    }
+                                } else {
+                                    withAnimation(.snappy) { drag = 0 }
+                                }
+                            })
+                        .ignoresSafeArea()
+                }
+        }
+    }
+}
+
+extension View {
+    /// Lets a swipe in from the left edge go back, as on a pushed screen.
+    func edgeSwipeBack(_ back: @escaping () -> Void) -> some View {
+        modifier(EdgeSwipeBack(back: back))
+    }
+}
+
 /// A round avatar with a ledge outline: Beep's "b" or a group's initials.
 struct ChatAvatar: View {
     let text: String

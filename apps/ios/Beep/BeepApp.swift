@@ -100,6 +100,7 @@ struct RootView: View {
                 } back: {
                     joining = nil
                 }
+                .edgeSwipeBack { joining = nil }
             }
             .fullScreenCover(item: Binding(get: { reading.map(JoinToken.init) }, set: { reading = $0?.id })) { shared in
                 SharedChatView(token: shared.id) {
@@ -109,6 +110,7 @@ struct RootView: View {
                     left = nil
                     path = []
                 }
+                .edgeSwipeBack { reading = nil }
             }
             .task {
                 #if DEBUG
