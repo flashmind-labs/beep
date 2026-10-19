@@ -16,6 +16,8 @@ struct AppsView: View {
     @State private var open: AppIntegration?
     @State private var openServer: McpServer?
     @State private var adding = false
+    /// Fastmail's accounts; nil while unknown or from a server too old to list them.
+    @State private var accounts: [AppAccount]?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,7 +63,9 @@ struct AppsView: View {
         }
         .background(Mint.page)
         .navigationDestination(item: $open) { app in
-            AppPermissionsView(app: app, back: { open = nil }) {
+            AppPermissionsView(app: app, accounts: app.kind == .fastmail ? accounts : nil, busy: busy,
+                               addAccount: { connect(app, add: true) }, removeAccount: { removeAccount(app, $0) },
+                               back: { open = nil }) {
                 open = nil
                 disconnect(app)
             }
@@ -93,7 +97,7 @@ struct AppsView: View {
                 AppLogo(slug: app.slug, name: app.name, logoUrl: app.logoUrl)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(app.name).font(.body(15, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
-                    Text(app.description).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(2)
+                    Text(addresses(app) ?? app.description).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
                 Spacer(minLength: 10)
@@ -144,9 +148,21 @@ struct AppsView: View {
         .buttonStyle(.plain)
     }
 
+    /// The addresses of a connected Fastmail's accounts, for its row.
+    private func addresses(_ app: AppIntegration) -> String? {
+        guard app.kind == .fastmail, app.connected, let accounts, !accounts.isEmpty else { return nil }
+        return accounts.map { $0.address ?? "Fastmail account" }.joined(separator: ", ")
+    }
+
     private func refresh() async {
         do {
             apps = try await model.apps()
+            if let fastmail = apps.first(where: { $0.kind == .fastmail }) {
+                accounts = fastmail.connected ? try? await model.appAccounts(fastmail.slug) : []
+            } else {
+                accounts = nil
+            }
+            if let shown = open { open = apps.first { $0.slug == shown.slug && $0.connected } }
             servers = await model.mcpServers() ?? servers
             if let shown = openServer { openServer = servers?.first { $0.id == shown.id } }
             error = ""
@@ -157,12 +173,15 @@ struct AppsView: View {
         busy = nil
     }
 
-    private func connect(_ app: AppIntegration) {
+    /// `add` signs in another Fastmail account instead of reconnecting the first.
+    private func connect(_ app: AppIntegration, add: Bool = false) {
         busy = app.slug
         Task {
             do {
                 if app.kind == .fastmail {
-                    try await LoopbackAuth.run(start: { try await model.startAppAuth(app.slug, redirect: $0) }) {
+                    try await LoopbackAuth.run(start: {
+                        add ? try await model.addAppAccount(app.slug, redirect: $0) : try await model.startAppAuth(app.slug, redirect: $0)
+                    }) {
                         try await model.finishAppAuth(app.slug, code: $0.code, state: $0.state, issuer: $0.issuer)
                     }
                 } else {
@@ -171,6 +190,14 @@ struct AppsView: View {
             } catch {
                 self.error = describe(error)
             }
+            await refresh()
+        }
+    }
+
+    private func removeAccount(_ app: AppIntegration, _ account: AppAccount) {
+        busy = "account:" + account.id
+        Task {
+            do { try await model.removeAppAccount(app.slug, id: account.id) } catch { self.error = describe(error) }
             await refresh()
         }
     }
@@ -325,10 +352,16 @@ private let levels: [(PermissionLevel, String, String)] = [
 private struct AppPermissionsView: View {
     @Environment(AppModel.self) private var model
     let app: AppIntegration
+    /// The app's accounts when it connects several, the first one Beep's default.
+    let accounts: [AppAccount]?
+    let busy: String?
+    let addAccount: () -> Void
+    let removeAccount: (AppAccount) -> Void
     let back: () -> Void
     let disconnect: () -> Void
     @State private var permissions: AppPermissions?
     @State private var error = ""
+    @State private var removing: AppAccount?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -343,6 +376,7 @@ private struct AppPermissionsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     if !error.isEmpty { Text(error).font(.body(13)).foregroundStyle(Mint.error) }
+                    if let accounts { accountsCard(accounts) }
                     if let current = permissions {
                         SectionLabel(text: "When Beep acts in \(app.name)")
                         ForEach(levels, id: \.1) { level, title, detail in
@@ -364,7 +398,7 @@ private struct AppPermissionsView: View {
                     } else if error.isEmpty {
                         ProgressView().tint(Mint.ok).frame(maxWidth: .infinity).padding(40)
                     }
-                    Button("Disconnect \(app.name)", action: disconnect)
+                    Button("Disconnect \(app.name)\((accounts?.count ?? 0) > 1 ? " (all accounts)" : "")", action: disconnect)
                         .buttonStyle(TextAction(color: Mint.error))
                         .frame(maxWidth: .infinity).padding(.top, 12)
                 }
@@ -374,6 +408,56 @@ private struct AppPermissionsView: View {
         .background(Mint.page)
         .task(id: app.slug) {
             do { permissions = try await model.appPermissions(app.slug) } catch { self.error = describe(error) }
+        }
+        .alert("Remove \(removing?.address ?? "this account")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                if let account = removing { removeAccount(account) }
+            }
+        } message: {
+            Text(accounts?.count == 1 ? "This disconnects \(app.name). Beep can no longer read or send its mail."
+                 : "Beep stops using this account. Your other \(app.name) accounts stay connected.")
+        }
+    }
+
+    /// Each connected account with Remove, and a button that signs in another.
+    private func accountsCard(_ accounts: [AppAccount]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: "Accounts")
+            VStack(spacing: 0) {
+                ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
+                    if index > 0 { Rectangle().fill(Mint.soft).frame(height: 1) }
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(account.address ?? "\(app.name) account").font(.body(14)).foregroundStyle(Mint.ink).lineLimit(1)
+                            if index == 0, accounts.count > 1 { Text("Default").font(.body(11)).foregroundStyle(Mint.muted) }
+                        }
+                        Spacer(minLength: 0)
+                        if busy == "account:" + account.id {
+                            ProgressView().tint(Mint.ok).padding(.horizontal, 12)
+                        } else {
+                            Button("Remove") { removing = account }.buttonStyle(TextAction(color: Mint.error))
+                        }
+                    }
+                    .frame(minHeight: 52)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 4)
+            .card()
+            if busy == app.slug {
+                HStack(spacing: 8) {
+                    ProgressView().tint(Mint.ok)
+                    Text("Waiting for the browser sign-in…").font(.body(13)).foregroundStyle(Mint.muted)
+                }
+            } else {
+                Button(action: addAccount) {
+                    Text("+ Add another account").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
+                        .padding(.horizontal, 16).frame(minHeight: 40)
+                }
+                .buttonStyle(SinkButton())
+            }
+            Text("Beep uses the first account unless you name another, like \"check my work inbox\". To add a different account, sign out of \(app.name) in the browser first.")
+                .font(.body(12)).foregroundStyle(Mint.muted).lineSpacing(3).padding(.horizontal, 4)
         }
     }
 

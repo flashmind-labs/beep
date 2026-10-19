@@ -109,6 +109,8 @@ fn main() {
             apps::connect_app,
             apps::cancel_app_sign_in,
             apps::disconnect_app,
+            apps::list_app_accounts,
+            apps::remove_app_account,
             apps::app_permissions,
             apps::set_app_permissions,
             apps::list_mcp_servers,

@@ -290,6 +290,13 @@ final class AppModel {
     func finishAppAuth(_ slug: String, code: String, state: String, issuer: String?) async throws {
         try await api().finishAppAuth(slug: slug, code: code, state: state, issuer: issuer)
     }
+    /// The accounts of an app that connects several, such as Fastmail, the agent's default first.
+    func appAccounts(_ slug: String) async throws -> [AppAccount] { try await api().listAppAccounts(slug: slug) }
+    /// Like `startAppAuth`, but signs in another account.
+    func addAppAccount(_ slug: String, redirect: String) async throws -> String {
+        try await api().addAppAccount(slug: slug, redirectUri: redirect).url
+    }
+    func removeAppAccount(_ slug: String, id: String) async throws { try await api().removeAppAccount(slug: slug, id: id) }
     func appPermissions(_ slug: String) async throws -> AppPermissions { try await api().getAppPermissions(slug: slug) }
     func setAppPermissions(_ slug: String, _ permissions: AppPermissions) async throws {
         try await api().setAppPermissions(slug: slug, level: permissions.level,

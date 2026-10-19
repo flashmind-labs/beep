@@ -16,10 +16,10 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    AddMcpServer, AppIntegration, AppKind, AppPermissions, ConnectApp, ConnectLink,
-    ConnectMcpServer, DisconnectApp, FinishAppAuth, FinishMcpAuth, GetAppPermissions, ListApps,
-    ListMcpServers, McpCallback, McpConnect, McpServer, PermissionLevel, RemoveMcpServer,
-    SetAppPermissions, StartAppAuth, mcp_callback,
+    AddAppAccount, AddMcpServer, AppAccount, AppIntegration, AppKind, AppPermissions, ConnectApp,
+    ConnectLink, ConnectMcpServer, DisconnectApp, FinishAppAuth, FinishMcpAuth, GetAppPermissions,
+    ListAppAccounts, ListApps, ListMcpServers, McpCallback, McpConnect, McpServer, PermissionLevel,
+    RemoveAppAccount, RemoveMcpServer, SetAppPermissions, StartAppAuth, mcp_callback,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -145,19 +145,25 @@ pub async fn list_apps(beep: Service<'_>) -> Result<Vec<AppView>> {
 
 /// Opens the app's sign-in page. A Composio app returns at once and shows
 /// as connected once the page is done; Fastmail returns when the browser
-/// comes back, connected.
+/// comes back, connected. `add` signs in another Fastmail account instead
+/// of reconnecting the first.
 #[tauri::command]
 pub async fn connect_app(
     beep: Service<'_>,
     sign_in: State<'_, SignIn>,
     slug: String,
     kind: Kind,
+    add: Option<bool>,
 ) -> Result<()> {
     if kind == Kind::Composio {
         let ConnectLink { url } = beep.call(ConnectApp { slug }).await?;
         return open_url(url);
     }
-    let task = tokio::spawn(sign_in_here(beep.inner().clone(), slug));
+    let task = tokio::spawn(sign_in_here(
+        beep.inner().clone(),
+        slug,
+        add.unwrap_or(false),
+    ));
     sign_in.replace(Some(task.abort_handle()));
     match task.await {
         Ok(done) => done,
@@ -175,6 +181,19 @@ pub fn cancel_app_sign_in(sign_in: State<'_, SignIn>) {
 #[tauri::command]
 pub async fn disconnect_app(beep: Service<'_>, slug: String) -> Result<()> {
     beep.call(DisconnectApp { slug }).await
+}
+
+/// The accounts of an app that connects several, such as Fastmail, the
+/// agent's default first.
+#[tauri::command]
+pub async fn list_app_accounts(beep: Service<'_>, slug: String) -> Result<Vec<AppAccount>> {
+    beep.call(ListAppAccounts { slug }).await
+}
+
+/// Disconnects one account of `slug`, by `AppAccount::id`.
+#[tauri::command]
+pub async fn remove_app_account(beep: Service<'_>, slug: String, id: String) -> Result<()> {
+    beep.call(RemoveAppAccount { slug, id }).await
 }
 
 #[tauri::command]
@@ -279,19 +298,26 @@ enum Redirect {
 }
 
 /// Listens on a loopback port, starts the sign-in with it and passes the
-/// code that comes back to the server.
-async fn sign_in_here(beep: Arc<Beep>, slug: String) -> Result<()> {
+/// code that comes back to the server. `add` signs in another account.
+async fn sign_in_here(beep: Arc<Beep>, slug: String, add: bool) -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(anyhow::Error::from)?;
     let port = listener.local_addr().map_err(anyhow::Error::from)?.port();
     let redirect_uri = format!("http://localhost:{port}/callback");
-    let ConnectLink { url } = beep
-        .call(StartAppAuth {
+    let ConnectLink { url } = if add {
+        beep.call(AddAppAccount {
             slug: slug.clone(),
             redirect_uri,
         })
-        .await?;
+        .await?
+    } else {
+        beep.call(StartAppAuth {
+            slug: slug.clone(),
+            redirect_uri,
+        })
+        .await?
+    };
     open_url(url)?;
     timeout(SIGN_IN_TIMEOUT, async {
         loop {

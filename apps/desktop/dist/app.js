@@ -1937,7 +1937,11 @@ async function renderSettings(confirm = false) {
 const A = { apps: null, error: "", connecting: null, poll: null, open: null, perms: null,
   // MCP servers added by URL: null until listed, the add form, and the one
   // whose sign-in is open in the browser.
-  servers: null, adding: false, addError: "", waiting: null, busy: null };
+  servers: null, adding: false, addError: "", waiting: null, busy: null,
+  // Fastmail's accounts by app slug, the agent's default first; missing
+  // when the server is too old to list them. `removing` is the account
+  // whose Remove waits for a second click.
+  accounts: {}, removing: null };
 
 const APP_LEVELS = [
   ["ask", "Ask first", "Beep shows what it is about to do and waits for you."],
@@ -1976,7 +1980,21 @@ async function loadApps() {
   if (A.waiting && A.servers?.find(m => m.id === A.waiting)?.connected) A.waiting = null;
   // A Composio sign-in ends on the web page; the app shows up connected here.
   if (A.connecting && A.apps?.find(a => a.slug === A.connecting)?.connected) stopConnecting();
+  await Promise.all((A.apps ?? []).filter(a => a.kind === "fastmail").map(loadAccounts));
   if (S.view === "apps") drawApps();
+}
+
+async function loadAccounts(app) {
+  if (!app.connected) return void (A.accounts[app.slug] = []);
+  const accounts = await invoke("list_app_accounts", { slug: app.slug }).catch(() => null);
+  if (accounts) A.accounts[app.slug] = accounts;
+  else delete A.accounts[app.slug];
+}
+
+/// The addresses of a connected app's accounts, for its row in Apps.
+function accountList(app) {
+  const accounts = A.accounts[app.slug];
+  return accounts?.length ? accounts.map(a => a.address ?? `${app.name} account`).join(", ") : null;
 }
 
 function drawApps() {
@@ -1990,7 +2008,7 @@ function drawApps() {
     else if (!app.configured) end = '<span class="dmuted">Unavailable</span>';
     else end = `<button class="dbtn pri" data-connect="${esc(app.slug)}"${A.connecting ? " disabled" : ""}>Connect</button>`;
     return `<div class="dappr${app.connected ? " on" : ""}" ${app.connected ? `data-open="${esc(app.slug)}" role="button" tabindex="0"` : ""}>
-      ${appLogo(app)}<span class="tt"><b>${esc(app.name)}</b><small>${esc(app.description)}</small></span>${end}</div>`;
+      ${appLogo(app)}<span class="tt"><b>${esc(app.name)}</b><small>${esc((app.connected && accountList(app)) || app.description)}</small></span>${end}</div>`;
   };
   const connected = apps.filter(a => a.connected), more = apps.filter(a => !a.connected);
   let html = A.error ? `<div class="derr" style="padding:8px 10px">${esc(A.error)}</div>` : "";
@@ -2107,7 +2125,7 @@ async function connectApp(app) {
   A.error = "";
   drawApps();
   try {
-    await invoke("connect_app", { slug: app.slug, kind: app.kind });
+    await invoke("connect_app", { slug: app.slug, kind: app.kind, add: false });
   } catch (e) {
     if (A.connecting === app.slug && String(e) !== "cancelled") A.error = String(e);
     stopConnecting();
@@ -2139,6 +2157,7 @@ async function renderAppPermissions(app) {
     <div class="dlist dapps" id="plist"></div>${hints([["esc", "back"]])}`;
   logoFallbacks(bar);
   $("#plist").addEventListener("click", permsClick);
+  A.removing = null;
   drawPerms();
   try {
     A.perms = await invoke("app_permissions", { slug: app.slug });
@@ -2146,7 +2165,59 @@ async function renderAppPermissions(app) {
   } catch (e) {
     A.error = String(e);
   }
+  if (app.kind === "fastmail") await loadAccounts(app);
   if (S.view === "appperms" && A.open === app) drawPerms();
+}
+
+/// Each connected account with Remove, and a button that signs in another.
+function drawAccounts(app) {
+  const accounts = A.accounts[app.slug];
+  let html = '<div class="dsec">Accounts</div>' + accounts.map((a, i) => {
+    const name = esc(a.address ?? `${app.name} account`);
+    const first = i === 0 && accounts.length > 1 ? ' <small class="dmuted" style="display:inline">Default</small>' : "";
+    const end = A.busy === "account:" + a.id ? '<span class="dmuted"><span class="dspin"></span></span>'
+      : A.removing === a.id ? `<span class="dmuted">${accounts.length === 1 ? `Disconnects ${esc(app.name)}` : "Beep stops using this account"}</span>`
+        + `<button class="dbtn quiet" data-unremove>Cancel</button><button class="dbtn warn" data-remove="${esc(a.id)}">Remove</button>`
+      : `<button class="dbtn quiet" data-removing="${esc(a.id)}">Remove</button>`;
+    return `<div class="daction"><span>${name}${first}</span>${end}</div>`;
+  }).join("");
+  html += A.connecting === app.slug
+    ? '<div style="padding:4px 10px;display:flex;gap:8px;align-items:center"><span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" data-cancel>Cancel</button></div>'
+    : '<div style="padding:4px 10px"><button class="dbtn" data-addaccount>Add another account</button></div>';
+  return html + `<div class="dmuted" style="padding:6px 10px;display:block">Beep uses the first account unless you name another, like "check my work inbox". To add a different account, sign out of ${esc(app.name)} in the browser first.</div>`;
+}
+
+async function addAccount(app) {
+  if (A.connecting) return;
+  A.connecting = app.slug;
+  A.error = "";
+  drawPerms();
+  try {
+    await invoke("connect_app", { slug: app.slug, kind: app.kind, add: true });
+  } catch (e) {
+    if (A.connecting === app.slug && String(e) !== "cancelled") A.error = String(e);
+  }
+  A.connecting = null;
+  await loadAccounts(app);
+  if (S.view === "appperms" && A.open === app) drawPerms();
+}
+
+async function removeAccount(app, id) {
+  A.busy = "account:" + id;
+  A.removing = null;
+  drawPerms();
+  try {
+    await invoke("remove_app_account", { slug: app.slug, id });
+    A.error = "";
+  } catch (e) {
+    A.error = String(e);
+  }
+  A.busy = null;
+  await loadAccounts(app);
+  if (S.view !== "appperms" || A.open !== app) return;
+  // The last account gone disconnects the app.
+  if (A.accounts[app.slug]?.length === 0) { A.apps = null; return renderApps(); }
+  drawPerms();
 }
 
 function drawPerms() {
@@ -2154,6 +2225,7 @@ function drawPerms() {
   if (!list || !app) return;
   let html = A.error ? `<div class="derr" style="padding:8px 10px">${esc(A.error)}</div>` : "";
   if (!p && !A.error) html += '<div class="dmuted" style="padding:14px 10px"><span class="dspin"></span></div>';
+  if (p && A.accounts[app.slug]?.length) html += drawAccounts(app);
   if (p) {
     html += `<div class="dsec">When Beep acts in ${esc(app.name)}</div>` + APP_LEVELS.map(([level, title, detail]) =>
       `<button class="dlevel" role="radio" aria-checked="${p.level === level}" data-level="${level}"><span class="dradio"></span>
@@ -2167,12 +2239,25 @@ function drawPerms() {
     }
     html += '<div class="dmuted" style="padding:8px 10px;display:block">Searching and reading is always allowed.</div>';
   }
-  html += `<div style="padding:6px 10px 2px"><button class="dbtn warn" id="disconnect">Disconnect ${esc(app.name)}</button></div>`;
+  const all = (A.accounts[app.slug]?.length ?? 0) > 1 ? " (all accounts)" : "";
+  html += `<div style="padding:6px 10px 2px"><button class="dbtn warn" id="disconnect">Disconnect ${esc(app.name)}${all}</button></div>`;
   list.innerHTML = html;
 }
 
 async function permsClick(e) {
   const app = A.open, p = A.perms;
+  if (e.target.closest("[data-cancel]")) {
+    invoke("cancel_app_sign_in").catch(() => {});
+    A.connecting = null;
+    return drawPerms();
+  }
+  if (e.target.closest("[data-addaccount]")) return addAccount(app);
+  const account = e.target.closest("[data-removing],[data-unremove],[data-remove]")?.dataset;
+  if (account) {
+    if (account.remove) return removeAccount(app, account.remove);
+    A.removing = account.removing ?? null;
+    return drawPerms();
+  }
   if (e.target.closest("#disconnect")) {
     const b = e.target.closest("#disconnect");
     b.disabled = true;
