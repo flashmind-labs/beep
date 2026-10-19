@@ -3,12 +3,16 @@ import SwiftUI
 @main
 struct BeepApp: App {
     @UIApplicationDelegateAdaptor private var delegate: AppDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(delegate.model)
                 .task { delegate.model.connect() }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { delegate.model.ensureConnected() }
+                }
                 .onOpenURL { url in
                     if url.scheme == "beep", url.host == "new" { delegate.model.destination = .newChat }
                     if let token = shareToken(url: url.absoluteString) { delegate.model.destination = .shared(token) }

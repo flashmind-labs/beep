@@ -84,6 +84,8 @@ final class AppModel {
         didSet { UserDefaults.standard.set(onboarded, forKey: "onboarded") }
     }
     private(set) var connected = false
+    /// A connection attempt is under way.
+    private(set) var connecting = false
     private(set) var connectionError = ""
     var chat = Chat()
     private(set) var sessions: [Session] = []
@@ -140,7 +142,10 @@ final class AppModel {
         notifier.model = self
         pathMonitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
-            Task { @MainActor in await self?.client?.networkChanged() }
+            Task { @MainActor in
+                await self?.client?.networkChanged()
+                self?.ensureConnected()
+            }
         }
         pathMonitor.start(queue: DispatchQueue(label: "beep.path"))
     }
@@ -155,9 +160,11 @@ final class AppModel {
         return "\(short) (\(build))"
     }()
 
-    /// Connects to the server, retrying with backoff until it answers.
+    /// Connects to the server, retrying with backoff until it answers. It keeps trying for as
+    /// long as the app runs; iOS pauses the retries while the app is in the background.
     func connect() {
         connectTask?.cancel()
+        connecting = true
         connectTask = Task {
             var attempt = 0
             while !Task.isCancelled {
@@ -168,15 +175,34 @@ final class AppModel {
                     client = fresh
                     try await fresh.health()
                     connected = true
+                    connecting = false
                     connectionError = ""
+                    connectTask = nil
                     await refreshAfterConnect()
                     return
                 } catch {
+                    guard !Task.isCancelled else { return }
                     connected = false
                     connectionError = describe(error)
-                    if attempt >= 10 { return }
                     try? await Task.sleep(for: .milliseconds(min(1000 * attempt, 15000)))
                 }
+            }
+        }
+    }
+
+    /// Reconnects when the app comes back or the network returns: at once when it is known to
+    /// be down, and after a failed check when it only looks up, since a connection can die
+    /// while the app is suspended.
+    func ensureConnected() {
+        guard connectTask == nil else { return }
+        guard connected, let client else { return connect() }
+        Task {
+            do {
+                try await client.health()
+            } catch {
+                guard connectTask == nil else { return }
+                connected = false
+                connect()
             }
         }
     }

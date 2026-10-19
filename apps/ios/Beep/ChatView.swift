@@ -137,7 +137,7 @@ struct ChatView: View {
                     .font(.body(16, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                 HStack(spacing: 6) {
                     ConnectionDot(connected: model.connected)
-                    Text(model.connected ? "Connected" : "Tap to reconnect").font(.body(12, .medium)).foregroundStyle(Mint.muted)
+                    Text(model.connected ? "Connected" : model.connecting ? "Connecting..." : "Tap to reconnect").font(.body(12, .medium)).foregroundStyle(Mint.muted)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { if !model.connected { model.connect() } }
