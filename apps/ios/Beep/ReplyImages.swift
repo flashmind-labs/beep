@@ -256,6 +256,7 @@ struct ImageViewer: View {
                 }
             }
         }
+        .edgeSwipeBack { dismiss() }
         .onAppear { page = start }
         .task(id: page) {
             file = nil

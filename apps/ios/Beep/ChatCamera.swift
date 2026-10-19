@@ -19,6 +19,7 @@ struct ChatCamera: View {
                 viewfinder
             }
         }
+        .edgeSwipeBack { done(shots) }
         .preferredColorScheme(.dark)
         .statusBarHidden()
         .task { camera.start() }

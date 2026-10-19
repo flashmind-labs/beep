@@ -21,6 +21,7 @@ struct QRScanner: View {
                 .padding(20)
         }
         .background(Color.black)
+        .edgeSwipeBack { dismiss() }
     }
 
     private struct Scanner: UIViewControllerRepresentable {
