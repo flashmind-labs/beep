@@ -1976,17 +1976,19 @@ async function loadApps() {
     A.error = String(e);
   }
   // A server too old to know them leaves the section out.
-  A.servers = await invoke("list_mcp_servers").catch(() => A.servers);
+  const [servers] = await Promise.all([
+    invoke("list_mcp_servers").catch(() => A.servers),
+    ...(A.apps ?? []).filter(a => a.kind === "fastmail").map(loadAccounts),
+  ]);
+  A.servers = servers;
   if (A.waiting && A.servers?.find(m => m.id === A.waiting)?.connected) A.waiting = null;
   // A Composio sign-in ends on the web page; the app shows up connected here.
   if (A.connecting && A.apps?.find(a => a.slug === A.connecting)?.connected) stopConnecting();
-  await Promise.all((A.apps ?? []).filter(a => a.kind === "fastmail").map(loadAccounts));
   if (S.view === "apps") drawApps();
 }
 
 async function loadAccounts(app) {
-  if (!app.connected) return void (A.accounts[app.slug] = []);
-  const accounts = await invoke("list_app_accounts", { slug: app.slug }).catch(() => null);
+  const accounts = app.connected ? await invoke("list_app_accounts", { slug: app.slug }).catch(() => null) : [];
   if (accounts) A.accounts[app.slug] = accounts;
   else delete A.accounts[app.slug];
 }
@@ -2003,7 +2005,7 @@ function drawApps() {
   const apps = A.apps ?? [];
   const row = app => {
     let end;
-    if (A.connecting === app.slug) end = `<span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" data-cancel>Cancel</button>`;
+    if (A.connecting === app.slug) end = waitingFor("data-cancel");
     else if (app.connected) end = `<span class="dtag">Connected</span><span class="dmuted">${ICON.chev}</span>`;
     else if (!app.configured) end = '<span class="dmuted">Unavailable</span>';
     else end = `<button class="dbtn pri" data-connect="${esc(app.slug)}"${A.connecting ? " disabled" : ""}>Connect</button>`;
@@ -2029,11 +2031,14 @@ function hostOf(url) {
   try { return new URL(url).host; } catch { return url; }
 }
 
+/// A sign-in open in the browser, with the Cancel that `attr` marks.
+const waitingFor = attr => `<span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" ${attr}>Cancel</button>`;
+
 /// The servers the user added, then the add form or its button.
 function drawServers() {
   const row = m => {
     let end;
-    if (A.waiting === m.id) end = `<span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" data-mcancel>Cancel</button>`;
+    if (A.waiting === m.id) end = waitingFor("data-mcancel");
     else if (A.busy === m.id) end = '<span class="dmuted"><span class="dspin"></span></span>';
     else if (m.connected) end = `<span class="dtag ok">${m.tools.length === 1 ? "1 tool" : `${m.tools.length} tools`}</span><button class="dbtn quiet" data-mremove="${esc(m.id)}">Remove</button>`;
     else end = `<span class="dtag ask">${m.sign_in ? "Sign-in expired" : "Not connected"}</span><button class="dbtn pri" data-mconnect="${esc(m.id)}">${m.sign_in ? "Sign in" : "Retry"}</button>`
@@ -2159,13 +2164,14 @@ async function renderAppPermissions(app) {
   $("#plist").addEventListener("click", permsClick);
   A.removing = null;
   drawPerms();
+  const accounts = app.kind === "fastmail" ? loadAccounts(app) : null;
   try {
     A.perms = await invoke("app_permissions", { slug: app.slug });
     A.error = "";
   } catch (e) {
     A.error = String(e);
   }
-  if (app.kind === "fastmail") await loadAccounts(app);
+  await accounts;
   if (S.view === "appperms" && A.open === app) drawPerms();
 }
 
@@ -2182,7 +2188,7 @@ function drawAccounts(app) {
     return `<div class="daction"><span>${name}${first}</span>${end}</div>`;
   }).join("");
   html += A.connecting === app.slug
-    ? '<div style="padding:4px 10px;display:flex;gap:8px;align-items:center"><span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" data-cancel>Cancel</button></div>'
+    ? `<div style="padding:4px 10px;display:flex;gap:8px;align-items:center">${waitingFor("data-cancel")}</div>`
     : '<div style="padding:4px 10px"><button class="dbtn" data-addaccount>Add another account</button></div>';
   return html + `<div class="dmuted" style="padding:6px 10px;display:block">Beep uses the first account unless you name another, like "check my work inbox". To add a different account, sign out of ${esc(app.name)} in the browser first.</div>`;
 }

@@ -155,6 +155,7 @@ struct AppsView: View {
     }
 
     private func refresh() async {
+        async let listed = model.mcpServers()
         do {
             apps = try await model.apps()
             if let fastmail = apps.first(where: { $0.kind == .fastmail }) {
@@ -163,7 +164,7 @@ struct AppsView: View {
                 accounts = nil
             }
             if let shown = open { open = apps.first { $0.slug == shown.slug && $0.connected } }
-            servers = await model.mcpServers() ?? servers
+            servers = await listed ?? servers
             if let shown = openServer { openServer = servers?.first { $0.id == shown.id } }
             error = ""
         } catch {
