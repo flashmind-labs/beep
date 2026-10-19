@@ -192,6 +192,7 @@ struct ChatView: View {
                 .padding(.leading, 4).padding(.trailing, 12)
                 .frame(minHeight: 50)
                 .chunky()
+                .chatTextBox()
                 if model.chat.busy {
                     VStack(spacing: 8) {
                         if !empty {
