@@ -49,6 +49,12 @@ struct Message: Identifiable, Equatable {
     var pictures: [Picture] = []
 }
 
+/// A message typed while a reply runs, sent as its own turn once the reply finishes.
+struct QueuedMessage: Equatable {
+    var text: String
+    var images: [Data]
+}
+
 /// The open chat and the run streaming into it.
 struct Chat: Equatable {
     var id = UUID().uuidString.lowercased()
@@ -62,6 +68,8 @@ struct Chat: Equatable {
     var pendingImages: [String] = []
     var thinking = ""
     var error = ""
+    /// Messages waiting for the reply to finish, sent one by one.
+    var queued: [QueuedMessage] = []
 
     /// A message waits to go out or a run is streaming.
     var busy: Bool { !requestId.isEmpty || !runId.isEmpty }
@@ -488,6 +496,25 @@ final class AppModel {
         launchRun()
     }
 
+    /// Holds a message until the running reply finishes.
+    func queue(_ text: String, images: [Data] = []) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty || !images.isEmpty else { return }
+        chat.queued.append(QueuedMessage(text: trimmed, images: Array(images.prefix(ChatPhotos.limit))))
+    }
+
+    /// Drops the queued message at `index` and returns it, so it can go back into the composer.
+    func unqueue(_ index: Int) -> QueuedMessage? {
+        guard chat.queued.indices.contains(index) else { return nil }
+        return chat.queued.remove(at: index)
+    }
+
+    /// Sends the first queued message now; the rest follow it.
+    func sendQueued() {
+        guard !chat.busy, let next = unqueue(0) else { return }
+        send(next.text, images: next.images)
+    }
+
     /// Sends the last prompt again after a run that did not finish.
     func retry() {
         guard !chat.busy, let last = chat.messages.last(where: { $0.role == .user }) else { return }
@@ -666,6 +693,8 @@ final class AppModel {
             chat.thinking = ""
             chat.error = runEndError(status, current: chat.error)
             finished(chat)
+            // Queued messages wait out a run that stopped or failed, so the user can decide.
+            if chat.error.isEmpty { sendQueued() }
             Task { await refreshSessions() }
         case .runStarted, .usage, .memoryScore, .autoPicked:
             break
