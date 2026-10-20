@@ -119,6 +119,8 @@ fn main() {
             apps::add_mcp_server,
             apps::connect_mcp_server,
             apps::remove_mcp_server,
+            apps::list_mcp_tools,
+            apps::set_mcp_tool,
             devices::use_here,
             devices::list_devices,
             devices::invite_phone,

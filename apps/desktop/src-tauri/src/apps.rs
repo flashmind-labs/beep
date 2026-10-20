@@ -18,8 +18,9 @@ use crate::{
 use beep_proto::{
     AddAppAccount, AddMcpServer, AppAccount, AppIntegration, AppKind, AppPermissions, ConnectApp,
     ConnectLink, ConnectMcpServer, DisconnectApp, FinishAppAuth, FinishMcpAuth, GetAppPermissions,
-    ListAppAccounts, ListApps, ListMcpServers, McpCallback, McpConnect, McpServer, PermissionLevel,
-    RemoveAppAccount, RemoveMcpServer, SetAppPermissions, StartAppAuth, mcp_callback,
+    ListAppAccounts, ListApps, ListMcpServers, ListMcpTools, McpCallback, McpConnect, McpServer,
+    McpTools, PermissionLevel, RemoveAppAccount, RemoveMcpServer, SetAppPermissions, SetMcpTool,
+    StartAppAuth, mcp_callback,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -236,6 +237,23 @@ pub async fn add_mcp_server(beep: Service<'_>, name: String, url: String) -> Res
 #[tauri::command]
 pub async fn connect_mcp_server(beep: Service<'_>, id: String) -> Result<McpServer> {
     open_sign_in(beep.call(ConnectMcpServer { id }).await?)
+}
+
+/// Every tool server `id` lists, and which of them Beep uses.
+#[tauri::command]
+pub async fn list_mcp_tools(beep: Service<'_>, id: String) -> Result<McpTools> {
+    beep.call(ListMcpTools { id }).await
+}
+
+/// Turns one tool of server `id` on or off for Beep.
+#[tauri::command]
+pub async fn set_mcp_tool(
+    beep: Service<'_>,
+    id: String,
+    tool: String,
+    enabled: bool,
+) -> Result<McpTools> {
+    beep.call(SetMcpTool { id, tool, enabled }).await
 }
 
 #[tauri::command]
