@@ -64,6 +64,14 @@ impl App {
                  gave you that read better as a chart."
             );
         }
+        if message.draws.mac_files {
+            let _ = writeln!(
+                ctx,
+                "You can open files on their Mac with mac_files: when they mention a file on \
+                 their Desktop, in Downloads or anywhere else on the computer, find and read it \
+                 rather than asking them to send it."
+            );
+        }
         if message.draws.cards {
             let _ = writeln!(
                 ctx,

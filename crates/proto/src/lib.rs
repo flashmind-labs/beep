@@ -189,7 +189,9 @@ requests! {
     /// the chat, and `GetSessionImages` lists them. `model` is a `ModelChoice::id` to run this
     /// one turn on instead of the picked model, and `thinking` how long it
     /// reasons; only admins may set either. `platform` is the app sending it,
-    /// missing from apps older than the field.
+    /// missing from apps older than the field. `files` are other files sent
+    /// with the message, which the model reads and `GetSessionFiles` lists;
+    /// older apps send none.
     2 Chat {
         session_id: Uuid,
         request_id: Uuid,
@@ -199,6 +201,8 @@ requests! {
         thinking: Option<ReasoningLevel>,
         #[serde(default)]
         platform: Option<Platform>,
+        #[serde(default)]
+        files: Vec<Upload>,
     } => Stream<Event>
     3 GetRun { id: String } => Call<Run>
     4 CancelRun { id: String } => Call<()>
@@ -441,6 +445,43 @@ requests! {
     /// Disconnects one account, by `AppAccount::id`. `DisconnectApp` still
     /// disconnects them all.
     102 RemoveAppAccount { slug: String, id: String } => Call<()>
+    /// The files the user sent in a session, other than pictures, by the
+    /// `timestamp` of the `HistoryEntry::User` they came with. `GetFile`
+    /// reads each one.
+    103 GetSessionFiles { session_id: String } => Call<Vec<SentFiles>>
+}
+
+/// The most a message's `files` may hold in all, so the request stays
+/// under a frame.
+pub const MAX_UPLOAD: usize = 5 * 1024 * 1024;
+
+/// A file sent with a message, such as a PDF or a spreadsheet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Upload {
+    pub name: String,
+    pub mime: String,
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+}
+
+/// A file someone sent with a message, kept on the server as long as its
+/// chat. Read its bytes with `GetFile`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FileRef {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+}
+
+/// The files one message carried, in the order they were sent.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SentFiles {
+    /// The `HistoryEntry::User` `timestamp`.
+    pub message: i64,
+    pub files: Vec<FileRef>,
 }
 
 /// One connected account of an app such as Fastmail.
@@ -985,8 +1026,29 @@ wire_enum! {
         0 Contacts { name: String }
         1 Browser { command: BrowserCommand }
         3 Approve { approval: Approval }
+        4 MacFiles { command: MacFileCommand } since MAC_FILES
     }
 }
+
+wire_enum! {
+    /// What Beep asks the Mac app to do with the user's files. Paths are
+    /// absolute or start at `~`, and stay under the home folder. `List`
+    /// answers a folder's entries as a JSON list of `name`, `folder`, `size`
+    /// and `modified`; `Find` the paths under `folder` whose name contains
+    /// `name`, as a JSON list; `Read` a file as JSON with `name`, `mime`,
+    /// `size` and base64 `data`, up to `MAC_READ` bytes.
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum MacFileCommand {
+        0 List { path: String }
+        1 Find { name: String, folder: String }
+        2 Read { path: String }
+    }
+}
+
+/// The largest file `MacFileCommand::Read` answers with, so its base64
+/// answer stays under a frame.
+pub const MAC_READ: u64 = 5 * 1024 * 1024;
 
 /// A tool call that waits for the user's OK, as the phone shows it.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -1833,6 +1895,11 @@ mod tests {
             model: Some("openai/gpt-test".into()),
             thinking: Some(ReasoningLevel::High),
             platform: Some(Platform::Ios {}),
+            files: vec![Upload {
+                name: "a.pdf".into(),
+                mime: "application/pdf".into(),
+                data: vec![1, 2, 3],
+            }],
         };
         let buf = rmp_serde::to_vec(&chat).unwrap();
         assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);

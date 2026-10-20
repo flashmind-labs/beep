@@ -16,16 +16,19 @@ use crate::{
     memories::{CURATE_SWEEP, FILE_CONCURRENCY, FILE_QUESTION, FILING, MAX_FILED, profile},
     permissions::Rules,
     places::PlaceEvent,
-    protocol::{Cron, FilePart, ImageRef, Memory, RouteCard, Run, SentImages, Session, UpdatePage},
+    protocol::{
+        Cron, FilePart, ImageRef, Memory, RouteCard, Run, SentFiles, SentImages, Session,
+        UpdatePage, Upload,
+    },
     starters::Cached,
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
         Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Invite, Join, JoinedGroup,
-        LinkKey, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge, MergeInto, NewFile,
-        NewKey, NewMessage, NewPicture, NewPlace, NewPlaceRoutine, PicturesOf, PlaceRoutine,
-        Posted, ProfileNote, ProfileRead, PushDevice, RunStatus, SavedPlace, SavedTurn, Share,
-        SkillOwner, SkillPatch, SkillRow, Store, StoredContext, StoredMessage, TurnAgentRow,
-        TurnRecord, TurnsToDelete,
+        LinkKey, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge, MergeInto,
+        NewAttachment, NewFile, NewKey, NewMessage, NewPicture, NewPlace, NewPlaceRoutine,
+        PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice, RunStatus,
+        SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, Store, StoredContext,
+        StoredMessage, TurnAgentRow, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::Result;
@@ -374,6 +377,24 @@ impl User {
             })
             .collect();
         self.store.save_pictures(&self.key, of, &pictures).await
+    }
+
+    /// Keeps the files other than pictures the user sent with a message.
+    pub(crate) async fn save_attachments(&self, of: PicturesOf, files: &[Upload]) -> Result<()> {
+        let files: Vec<NewAttachment> = files
+            .iter()
+            .map(|file| NewAttachment {
+                name: &file.name,
+                mime: &file.mime,
+                data: &file.data,
+            })
+            .collect();
+        self.store.save_attachments(&self.key, of, &files).await
+    }
+
+    /// The files other than pictures the user sent in a session, by turn.
+    pub(crate) async fn session_files(&self, session_id: Uuid) -> Result<Vec<SentFiles>> {
+        self.store.session_files(&self.key, session_id).await
     }
 
     /// The pictures the user sent in a session, by turn.

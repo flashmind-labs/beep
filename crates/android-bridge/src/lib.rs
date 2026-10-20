@@ -426,6 +426,7 @@ impl BeepClient {
             model,
             thinking,
             platform: Some(PLATFORM),
+            files: Vec::new(),
         };
         let replies = self.stream(chat).await?;
         Ok(EventStream::new(replies))

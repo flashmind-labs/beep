@@ -198,6 +198,7 @@ pub async fn wake(app: &Arc<App>, user: &Arc<User>, event: Event) -> Result<Opti
         always_sent: false,
         woken: Some(event.label),
         images: Vec::new(),
+        files: Vec::new(),
         answer: None,
         model: None,
         thinking: None,

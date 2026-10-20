@@ -5,15 +5,17 @@ use crate::{
     cards,
     error::{DesktopError, Result},
     identity::{Identity, secret_key},
-    markdown, products,
+    mac_files, markdown, products,
     state::{LinkState, Saved, StateFile},
     sync::Chats,
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     ActiveRun, AnswerApproval, ApprovalDecision, ApprovalField, Call, Chart, Chat, DeleteTurnsFrom,
     DeviceAnswer, DeviceQuery, DeviceResult, Event, GetEvents, GetFile, GetSession,
-    GetSessionImages, HistoryEntry, ImageRef, ListSessions, Notice, Platform, ReasoningLevel,
-    RemoveDevice, RunEvent, SearchSessions, SentImages, Session, SessionMatch, Stream,
+    GetSessionImages, HistoryEntry, ImageRef, ListSessions, MAX_UPLOAD, Notice, Platform,
+    ReasoningLevel, RemoveDevice, RunEvent, SearchSessions, SentImages, Session, SessionMatch,
+    Stream, Upload,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
 };
@@ -145,6 +147,46 @@ impl TryFrom<String> for DataImage {
     }
 }
 
+/// A file other than a picture the bar attaches to a message, its bytes in
+/// base64.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileUpload {
+    pub name: String,
+    pub mime: String,
+    pub data: String,
+}
+
+/// What the user sends: the prompt and what is attached to it.
+pub struct Sent {
+    pub message: String,
+    pub images: Vec<DataImage>,
+    pub files: Vec<FileUpload>,
+}
+
+/// The files as `Chat` takes them, or an error past `MAX_UPLOAD` in all.
+pub fn uploads(files: Vec<FileUpload>) -> Result<Vec<Upload>> {
+    let mut total = 0;
+    let mut out = Vec::with_capacity(files.len());
+    for file in files {
+        let data = STANDARD
+            .decode(file.data.as_bytes())
+            .map_err(|_| DesktopError::BadRequest(format!("{} could not be read", file.name)))?;
+        total += data.len();
+        if total > MAX_UPLOAD {
+            return Err(DesktopError::BadRequest(format!(
+                "files up to {} MB in one message",
+                MAX_UPLOAD >> 20
+            )));
+        }
+        out.push(Upload {
+            name: file.name,
+            mime: file.mime,
+            data,
+        });
+    }
+    Ok(out)
+}
+
 /// The URIs `Chat` and `SendToGroup` take, or an error past `MAX_IMAGES`.
 pub fn image_uris(images: Vec<DataImage>) -> Result<Vec<String>> {
     if images.len() > MAX_IMAGES {
@@ -176,6 +218,9 @@ impl From<ApprovalField> for Field {
 pub enum Turn {
     User {
         text: String,
+        /// When it was sent, in milliseconds: the `message` that
+        /// `session_files` lists its files by.
+        at: i64,
         /// The pictures sent with it, read with the `picture` command.
         images: Vec<ImageRef>,
         /// The model the turn ran on, empty when the server did not say.
@@ -500,12 +545,12 @@ impl Beep {
     pub async fn send(
         &self,
         session: Option<String>,
-        message: String,
-        images: Vec<DataImage>,
+        sent: Sent,
         pick: Pick,
         channel: Channel<BarEvent>,
     ) -> Result<String> {
-        let images = image_uris(images)?;
+        let images = image_uris(sent.images)?;
+        let files = uploads(sent.files)?;
         let session_id = match session.as_deref().map(Uuid::parse_str) {
             Some(Ok(id)) => id,
             _ => Uuid::new_v4(),
@@ -515,11 +560,12 @@ impl Beep {
             .stream(Chat {
                 session_id,
                 request_id: Uuid::new_v4(),
-                message,
+                message: sent.message,
                 images,
                 model: pick.model,
                 thinking: pick.thinking,
                 platform: Some(Platform::Macos {}),
+                files,
             })
             .await?;
         self.follow(replies, channel, Asked::Here).await;
@@ -527,7 +573,8 @@ impl Beep {
     }
 
     /// Sends the session's `index`th prompt again on `pick`, after removing
-    /// it and every turn after it. Pictures sent with it are not resent.
+    /// it and every turn after it. Pictures and files sent with it are not
+    /// resent.
     pub async fn rerun(
         &self,
         session: String,
@@ -559,8 +606,12 @@ impl Beep {
             timestamp,
         })
         .await?;
-        self.send(Some(session), message, Vec::new(), pick, channel)
-            .await?;
+        let sent = Sent {
+            message,
+            images: Vec::new(),
+            files: Vec::new(),
+        };
+        self.send(Some(session), sent, pick, channel).await?;
         Ok(())
     }
 
@@ -741,6 +792,17 @@ impl Beep {
                     },
                     // Another device's run asks that device, not this one.
                     _ if asked == Asked::Elsewhere => continue,
+                    DeviceQuery::MacFiles { command } => {
+                        let answer = DeviceResult {
+                            run_id: run_id.clone(),
+                            query_id,
+                            answer: mac_files::answer(command).await,
+                        };
+                        if let Err(e) = self.call(answer).await {
+                            log::warn!("answering a file query: {e}");
+                        }
+                        continue;
+                    }
                     // The server leaves phone tools out of desktop runs; this
                     // answers any that slip through.
                     _ => {
@@ -885,6 +947,7 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
             auto,
         } => Turn::User {
             text: content,
+            at: timestamp,
             images: pictures.take(timestamp),
             model: auto
                 .as_ref()

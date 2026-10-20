@@ -448,3 +448,20 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dform.dmcp { padding: 6px 10px 4px; gap: 10px }
 .dfield input.url { font-family: var(--mono); font-size: 12.5px }
 .dappr .dtag, .dappr .dbtn { flex: none; white-space: nowrap }
+
+/* A file attached to a prompt: name and size beside a document icon. In the
+   prompt it has a remove button like a picture; under a sent prompt it opens. */
+.dachip { position: relative; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 8px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--elev); max-width: 220px; flex: none; color: var(--fg); text-align: left; font: inherit }
+button.dachip { cursor: pointer }
+button.dachip:hover { border-color: #3A4A41 }
+.dachip.gone { opacity: .6; cursor: default }
+.dachip .ic { width: 30px; height: 30px; border-radius: 7px; background: rgba(240, 122, 106, .16); color: var(--coral); display: grid; place-items: center; flex: none }
+.dachip .ic svg { width: 16px; height: 16px }
+.dachip .nm { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block }
+.dachip .sz { font-size: 11.5px; color: var(--muted); display: block }
+.dachip > button { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; border: 0; padding: 0;
+  background: var(--fg); color: var(--ink); display: grid; place-items: center; cursor: pointer }
+.dachip > button svg { width: 9px; height: 9px }
+.dachips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end }
+.dachips .dachip { height: 40px; border-radius: 7px }

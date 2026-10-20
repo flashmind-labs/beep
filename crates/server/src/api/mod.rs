@@ -44,9 +44,9 @@ use memories::{
 };
 use sessions::{
     copy_share, delete_session, delete_sessions, delete_turn, delete_turns_from, existing_sessions,
-    get_file, get_route, get_route_card, get_session, get_session_agents, get_session_images,
-    get_share, list_sessions, pin_session, rename_session, search_sessions, share_session,
-    unshare_session,
+    get_file, get_route, get_route_card, get_session, get_session_agents, get_session_files,
+    get_session_images, get_share, list_sessions, pin_session, rename_session, search_sessions,
+    share_session, unshare_session,
 };
 use settings::{
     add_app_account, add_mcp_server, connect_app, connect_mcp_server, disconnect_app,
@@ -140,6 +140,7 @@ pub fn router() -> Router {
         .call(cross_place)
         .call(list_memory_reads)
         .call(get_session_images)
+        .call(get_session_files)
         .call(get_session_agents)
         .call(get_route)
         .call(get_route_card)
@@ -175,6 +176,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         return Err(ApiError::bad_request("message must be 1-32768 bytes"));
     }
     check_images(&req.images)?;
+    check_files(&req.files)?;
     if (req.model.is_some() || req.thinking.is_some()) && !cx.app.models.is_admin(cx.user.id()) {
         return Err(ApiError::Unauthorized {});
     }
@@ -192,6 +194,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         always_sent: false,
         woken: None,
         images: req.images,
+        files: req.files,
         answer: None,
         model,
         thinking: req.thinking,
@@ -207,12 +210,14 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
     }
 }
 
-/// What a run started on this connection can show. Only the macOS app draws
-/// charts.
+/// What a run started on this connection can show and reach. Only the macOS
+/// app draws charts and reads the user's files.
 fn draws(cx: &Cx) -> Draws {
+    let desktop = cx.device == (DeviceKind::Desktop {});
     Draws {
-        charts: cx.device == (DeviceKind::Desktop {}) && cx.supports(Feature::CHARTS),
+        charts: desktop && cx.supports(Feature::CHARTS),
         cards: cx.supports(Feature::CARDS),
+        mac_files: desktop && cx.supports(Feature::MAC_FILES),
     }
 }
 
@@ -241,6 +246,28 @@ fn check_images(images: &[String]) -> Reply<()> {
             "each image must be at most {} MiB",
             MAX_IMAGE_BYTES >> 20
         )));
+    }
+    Ok(())
+}
+
+/// Refuses files past `MAX_UPLOAD` in all, or one without a name.
+fn check_files(files: &[Upload]) -> Reply<()> {
+    if files.len() > MAX_IMAGES {
+        return Err(ApiError::bad_request(format!(
+            "at most {MAX_IMAGES} files per message"
+        )));
+    }
+    if files.iter().map(|file| file.data.len()).sum::<usize>() > MAX_UPLOAD {
+        return Err(ApiError::bad_request(format!(
+            "files may be at most {} MiB in all",
+            MAX_UPLOAD >> 20
+        )));
+    }
+    if files
+        .iter()
+        .any(|file| file.name.trim().is_empty() || file.name.len() > 255 || file.mime.len() > 255)
+    {
+        return Err(ApiError::bad_request("each file needs a name"));
     }
     Ok(())
 }
@@ -341,6 +368,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         always_sent: false,
         woken: None,
         images: Vec::new(),
+        files: Vec::new(),
         answer: Some(Answer {
             call_id: query_id.clone(),
             decision,

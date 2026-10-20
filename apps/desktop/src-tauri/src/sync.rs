@@ -364,6 +364,7 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
                 open.model = turn.model.clone();
                 out.push(Turn::User {
                     text: content.clone(),
+                    at: message.timestamp,
                     images: images.clone(),
                     model: turn.model.clone(),
                     thinking: turn

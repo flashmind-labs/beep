@@ -7,6 +7,7 @@
 //! turns do not resend the image data. The pictures themselves are kept with
 //! the chat, so every device can show them.
 
+use crate::attachments;
 use anyhow::{Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -171,7 +172,8 @@ impl Describer {
 }
 
 /// Replaces the images of the turn's user message with their descriptions.
-/// Images whose description failed stay, so the model can still look at them.
+/// Images whose description failed stay, so the model can still look at them,
+/// and the files sent with them stay after them.
 pub fn replace_with_descriptions(
     conversation: &mut Conversation,
     turn_started: DateTime<Utc>,
@@ -190,10 +192,10 @@ pub fn replace_with_descriptions(
     else {
         return;
     };
-    let images: Vec<ContentPart> = parts
+    let (images, files): (Vec<ContentPart>, Vec<ContentPart>) = parts
         .drain(..)
-        .filter(|part| matches!(part, ContentPart::Image { .. }))
-        .collect();
+        .filter(|part| matches!(part, ContentPart::Image { .. }) || attachments::is_file(part))
+        .partition(|part| matches!(part, ContentPart::Image { .. }));
     let several = images.len() > 1;
     for (index, image) in images.into_iter().enumerate() {
         match descriptions.get(index) {
@@ -210,6 +212,7 @@ pub fn replace_with_descriptions(
             }
         }
     }
+    parts.extend(files);
 }
 
 #[cfg(test)]
@@ -296,6 +299,31 @@ mod tests {
                 "<b>",
                 "[Image 3: menu]"
             ]
+        );
+    }
+
+    #[test]
+    fn files_sent_with_images_stay() {
+        let started = Utc::now();
+        let mut conversation = Conversation::new();
+        let file = ContentPart::Text {
+            text: "<file name=\"a.csv\" type=\"text/csv\" size=\"3 bytes\">\na,b\n</file>".into(),
+        };
+        let mut parts = labelled(&[image("a")]);
+        parts.push(file.clone());
+        conversation.add(ConversationEntry::user_with_parts("what is this?", parts));
+
+        replace_with_descriptions(&mut conversation, started, &[Some("a cat".into())]);
+
+        let EntryKind::User {
+            parts: Some(parts), ..
+        } = &conversation.entries()[0].kind
+        else {
+            panic!("the user message lost its parts");
+        };
+        assert_eq!(
+            texts(parts),
+            ["[Image 1: a cat]".to_owned(), texts(&[file])[0].clone()]
         );
     }
 }

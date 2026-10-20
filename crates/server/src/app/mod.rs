@@ -23,7 +23,7 @@ use crate::{
     live::LiveRun,
     metering,
     models::ModelChoices,
-    protocol::{ApprovalDecision, DeviceKind, Notice, Platform, RunEvent},
+    protocol::{ApprovalDecision, DeviceKind, Notice, Platform, RunEvent, Upload},
     sandbox::Sandbox,
     search::SearchTool,
     starters::Generator,
@@ -175,6 +175,8 @@ pub struct Message {
     /// An event's label when an event woke the agent (see `crate::wake`).
     pub woken: Option<String>,
     pub images: Vec<String>,
+    /// Other files sent with the message, such as a PDF.
+    pub files: Vec<Upload>,
     /// Set when the run resumes a session that stopped to ask the user.
     pub answer: Option<Answer>,
     /// An admin's one-off model for this run, instead of their picked one.
@@ -208,6 +210,8 @@ pub struct Draws {
     pub charts: bool,
     /// `show_cards`.
     pub cards: bool,
+    /// `mac_files`: the app is the Mac app, which answers file queries.
+    pub mac_files: bool,
 }
 
 /// The user's answer to the tool call a session stopped on.

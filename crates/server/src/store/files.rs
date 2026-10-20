@@ -1,6 +1,6 @@
 //! Files kept for a chat: ones Beep sent the user, kept until the session is
-//! deleted or `FILE_KEEP` passes, and pictures users sent, kept as long as
-//! their message. The rows hold what each file is; `Blobs`
+//! deleted or `FILE_KEEP` passes, and pictures and other files users sent,
+//! kept as long as their message. The rows hold what each file is; `Blobs`
 //! holds the bytes.
 
 use super::{
@@ -8,7 +8,7 @@ use super::{
     updates::{Readers, UpdateOp, log_messages},
 };
 use crate::{
-    protocol::{FilePart, ImageRef, SentImages},
+    protocol::{FilePart, FileRef, ImageRef, SentFiles, SentImages},
     user::UserKey,
 };
 use anyhow::Result;
@@ -33,6 +33,13 @@ pub struct NewPicture<'a> {
     pub data: &'a [u8],
     pub width: u32,
     pub height: u32,
+}
+
+/// A file other than a picture that a user sent with a message.
+pub struct NewAttachment<'a> {
+    pub name: &'a str,
+    pub mime: &'a str,
+    pub data: &'a [u8],
 }
 
 /// The message pictures came with.
@@ -123,6 +130,85 @@ impl Store {
         Ok(saved)
     }
 
+    /// Keeps the files `user` sent with a message, in order. The message goes
+    /// out again, so other devices fetch them.
+    pub(crate) async fn save_attachments(
+        &self,
+        user: &UserKey,
+        of: PicturesOf,
+        files: &[NewAttachment<'_>],
+    ) -> Result<()> {
+        if files.is_empty() {
+            return Ok(());
+        }
+        for (position, file) in files.iter().enumerate() {
+            let id = Uuid::new_v4().simple().to_string();
+            sqlx::query(
+                "INSERT INTO files (id, user_id, chat_id, message_id, name, mime, data,
+                                    position, attached, size)
+                 VALUES ($1, $2, $3, $4, $5, $6, '', $7, true, $8)",
+            )
+            .bind(&id)
+            .bind(user.as_str())
+            .bind(of.chat)
+            .bind(of.message)
+            .bind(file.name)
+            .bind(file.mime)
+            .bind(i32::try_from(position)?)
+            .bind(i64::try_from(file.data.len())?)
+            .execute(&self.pool)
+            .await?;
+            self.put_blob(&id, file.data).await?;
+        }
+        let mut tx = self.pool.begin().await?;
+        let bumped = log_messages(
+            &mut tx,
+            of.chat,
+            &[of.message],
+            UpdateOp::Message,
+            Readers::Members,
+        )
+        .await?;
+        tx.commit().await?;
+        self.announce(&bumped);
+        Ok(())
+    }
+
+    /// The files other than pictures `user` sent in session `chat`, by the
+    /// time of the message they came with in milliseconds.
+    pub(crate) async fn session_files(&self, user: &UserKey, chat: Uuid) -> Result<Vec<SentFiles>> {
+        let rows = sqlx::query(
+            "SELECT floor(extract(epoch FROM m.sent_at) * 1000)::bigint AS message,
+                 f.id, f.name, f.mime, f.size
+             FROM files f JOIN messages m ON m.id = f.message_id
+             WHERE f.user_id = $1 AND f.chat_id = $2 AND f.attached
+             ORDER BY m.id, f.position",
+        )
+        .bind(user.as_str())
+        .bind(chat)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut sent: Vec<SentFiles> = Vec::new();
+        for row in &rows {
+            let message: i64 = row.try_get("message")?;
+            let size: i64 = row.try_get("size")?;
+            let file = FileRef {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                mime: row.try_get("mime")?,
+                size: u64::try_from(size)?,
+            };
+            match sent.last_mut() {
+                Some(last) if last.message == message => last.files.push(file),
+                _ => sent.push(SentFiles {
+                    message,
+                    files: vec![file],
+                }),
+            }
+        }
+        Ok(sent)
+    }
+
     /// Stores the bytes of file `id`, dropping its row when that fails so
     /// no file is listed without them.
     async fn put_blob(&self, id: &str, data: &[u8]) -> Result<()> {
@@ -147,7 +233,7 @@ impl Store {
             "SELECT floor(extract(epoch FROM m.sent_at) * 1000)::bigint AS message,
                  f.id, f.mime, f.width, f.height
              FROM files f JOIN messages m ON m.id = f.message_id
-             WHERE f.user_id = $1 AND f.chat_id = $2
+             WHERE f.user_id = $1 AND f.chat_id = $2 AND NOT f.attached
              ORDER BY m.id, f.position",
         )
         .bind(user.as_str())
@@ -162,7 +248,7 @@ impl Store {
     pub(crate) async fn group_pictures(&self, chat: Uuid) -> Result<Vec<SentImages>> {
         let rows = sqlx::query(
             "SELECT message_id AS message, id, mime, width, height FROM files
-             WHERE chat_id = $1 AND message_id IS NOT NULL
+             WHERE chat_id = $1 AND message_id IS NOT NULL AND NOT attached
              ORDER BY message_id, position",
         )
         .bind(chat)
@@ -372,6 +458,73 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn sent_files_list_apart_from_pictures() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let bob = UserKey::for_test("bob");
+        let s1 = test_chat("s1");
+        let one = test_turn(&store, &alice, s1, "one", 1000).await.unwrap();
+        let of = PicturesOf {
+            chat: s1,
+            message: one,
+        };
+        store
+            .save_pictures(&alice, of, &[picture(b"pic")])
+            .await
+            .unwrap();
+        let lease = NewAttachment {
+            name: "Lease 2026.pdf",
+            mime: "application/pdf",
+            data: b"%PDF-lease",
+        };
+        let rent = NewAttachment {
+            name: "rent.csv",
+            mime: "text/csv",
+            data: b"may,1450",
+        };
+        store
+            .save_attachments(&alice, of, &[lease, rent])
+            .await
+            .unwrap();
+
+        let files = store.session_files(&alice, s1).await.unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].message, 1000);
+        let named: Vec<(&str, &str, u64)> = files[0]
+            .files
+            .iter()
+            .map(|f| (f.name.as_str(), f.mime.as_str(), f.size))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("Lease 2026.pdf", "application/pdf", 10),
+                ("rent.csv", "text/csv", 8)
+            ]
+        );
+        let read = store
+            .file_part(&alice, &files[0].files[1].id, 0, 100)
+            .await
+            .unwrap();
+        assert_eq!(read.unwrap().data, b"may,1450");
+        assert!(store.session_files(&bob, s1).await.unwrap().is_empty());
+
+        // Pictures stay pictures: the files are not among them.
+        let pictures = store.session_pictures(&alice, s1).await.unwrap();
+        assert_eq!(pictures[0].images.len(), 1);
+        let messages = store.chat_messages(s1).await.unwrap();
+        let opened = messages.iter().find(|m| m.id == one).unwrap();
+        assert_eq!(opened.images.len(), 1);
+
+        store
+            .delete_turn(&alice, s1, 1000, TurnsToDelete::One)
+            .await
+            .unwrap();
+        assert!(store.session_files(&alice, s1).await.unwrap().is_empty());
     }
 
     #[tokio::test]

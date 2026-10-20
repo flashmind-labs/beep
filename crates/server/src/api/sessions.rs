@@ -95,6 +95,13 @@ pub(super) async fn get_session_images(
     Ok(cx.user.session_pictures(chat_id(&session_id)?).await?)
 }
 
+pub(super) async fn get_session_files(
+    cx: Cx,
+    GetSessionFiles { session_id }: GetSessionFiles,
+) -> Reply<Vec<SentFiles>> {
+    Ok(cx.user.session_files(chat_id(&session_id)?).await?)
+}
+
 pub(super) async fn get_session_agents(
     cx: Cx,
     GetSessionAgents { session_id }: GetSessionAgents,

@@ -10,6 +10,7 @@ mod error;
 mod groups;
 mod hotkey;
 mod identity;
+mod mac_files;
 mod markdown;
 mod products;
 mod state;
@@ -80,6 +81,7 @@ fn main() {
             commands::list_sessions,
             commands::search_sessions,
             commands::open_session,
+            commands::session_files,
             commands::new_chat,
             commands::rename_session,
             commands::pin_session,

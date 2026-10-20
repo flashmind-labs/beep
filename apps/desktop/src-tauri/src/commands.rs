@@ -2,7 +2,10 @@
 
 use crate::{
     bar,
-    beep::{Answer, BarEvent, Beep, DataImage, LinkView, Pick, Pictures, Turn, image_uris, qr_svg},
+    beep::{
+        Answer, BarEvent, Beep, DataImage, FileUpload, LinkView, Pick, Pictures, Sent, Turn,
+        image_uris, qr_svg,
+    },
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
     markdown,
@@ -13,11 +16,11 @@ use beep_proto::{
     Agents, AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, Chart, ChartRange,
     ClearMemories, CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory,
     DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GetRouteCard,
-    GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons, ListGroupReminders,
-    ListGroups, ListMemories, ListSkills, Memory, Models, PeekGroup, PinGroup, PinSession,
-    ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, Session, SessionMatch,
-    SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink, Skill,
-    StockChart, ToggleCron, UndoSkill, UnshareSession, UpdateMemory, UpdateSkill,
+    GetSessionFiles, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons,
+    ListGroupReminders, ListGroups, ListMemories, ListSkills, Memory, Models, PeekGroup, PinGroup,
+    PinSession, ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session,
+    SessionMatch, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink,
+    Skill, StockChart, ToggleCron, UndoSkill, UnshareSession, UpdateMemory, UpdateSkill,
     format_group_code, group_code,
 };
 use serde::{Deserialize, Serialize};
@@ -59,10 +62,15 @@ pub async fn send_prompt(
     session: Option<String>,
     message: String,
     images: Vec<DataImage>,
+    files: Vec<FileUpload>,
     on_event: Channel<BarEvent>,
 ) -> Result<String> {
-    beep.send(session, message, images, Pick::default(), on_event)
-        .await
+    let sent = Sent {
+        message,
+        images,
+        files,
+    };
+    beep.send(session, sent, Pick::default(), on_event).await
 }
 
 /// Sends the chat's `index`th prompt again on another model or thinking,
@@ -148,6 +156,13 @@ pub async fn open_session(beep: Service<'_>, id: String) -> Result<Vec<Turn>> {
     beep.set_session(Some(id.clone()));
     beep.set_group(None);
     beep.history(id).await
+}
+
+/// The files other than pictures sent in a session, by the `at` of the
+/// user turn they came with.
+#[tauri::command]
+pub async fn session_files(beep: Service<'_>, id: String) -> Result<Vec<SentFiles>> {
+    beep.call(GetSessionFiles { session_id: id }).await
 }
 
 #[tauri::command]

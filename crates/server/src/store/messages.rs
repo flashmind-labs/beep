@@ -625,7 +625,7 @@ impl Store {
         let mut images: HashMap<i64, Vec<ImageRef>> = HashMap::new();
         let rows = sqlx::query(
             "SELECT message_id, id, mime, width, height FROM files
-             WHERE message_id = ANY($1) ORDER BY message_id, position",
+             WHERE message_id = ANY($1) AND NOT attached ORDER BY message_id, position",
         )
         .bind(&ids)
         .fetch_all(&self.pool)

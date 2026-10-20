@@ -2,6 +2,7 @@ pub mod agents;
 pub mod api;
 pub mod app;
 pub mod apps;
+pub mod attachments;
 pub mod compaction;
 pub mod config;
 pub mod cron;
