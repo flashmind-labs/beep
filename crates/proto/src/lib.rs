@@ -157,9 +157,40 @@ macro_rules! requests {
 
         $(
             $(#[$meta])*
-            #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+            #[derive(Debug, Clone, PartialEq, Serialize)]
             pub struct $name {
                 $($(#[$fmeta])* pub $field: $ty,)*
+            }
+
+            /// Reads the fields this build knows and skips any a newer app
+            /// added after them, so a request only ever gains fields.
+            impl<'de> Deserialize<'de> for $name {
+                fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+                    #[derive(Deserialize)]
+                    #[serde(rename = "Request")]
+                    struct Known {
+                        $($(#[$fmeta])* $field: $ty,)*
+                    }
+
+                    struct Lenient;
+
+                    impl<'de> serde::de::Visitor<'de> for Lenient {
+                        type Value = Known;
+
+                        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                            f.write_str("a request as an array")
+                        }
+
+                        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Known, A::Error> {
+                            let known = Known::deserialize(serde::de::value::SeqAccessDeserializer::new(&mut seq))?;
+                            while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+                            Ok(known)
+                        }
+                    }
+
+                    let Known { $($field),* } = d.deserialize_seq(Lenient)?;
+                    Ok(Self { $($field),* })
+                }
             }
 
             impl Rpc for $name {
@@ -2068,5 +2099,17 @@ mod tests {
             rmp_serde::from_slice::<GetRun>(&[0x90]).is_err(),
             "missing argument"
         );
+    }
+
+    #[test]
+    fn a_request_skips_fields_a_newer_app_added() {
+        // GetRun with a second field this build does not know.
+        let buf = [0x92, 0xa2, b'r', b'1', 0x91, 0x07];
+        assert_eq!(
+            rmp_serde::from_slice::<GetRun>(&buf).unwrap(),
+            GetRun { id: "r1".into() }
+        );
+        // A request with no fields yet, given one.
+        assert!(rmp_serde::from_slice::<Health>(&[0x91, 0xc0]).is_ok());
     }
 }
