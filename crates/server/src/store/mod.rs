@@ -256,6 +256,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "attachments",
         include_str!("../../migrations/0040_attachments.sql"),
     ),
+    (
+        41,
+        "mcp tools",
+        include_str!("../../migrations/0041_mcp_tools.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them
