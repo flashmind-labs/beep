@@ -229,6 +229,20 @@ final class AppModel {
         return client
     }
 
+    /// The client once the server has answered on it, reconnecting once when it does not.
+    /// For a request that must not be sent twice, so a dropped connection fails here
+    /// rather than after the request went out.
+    private func liveApi() async throws -> BeepClient {
+        let api = try api()
+        do {
+            try await api.health()
+        } catch BeepError.Connection {
+            await api.networkChanged()
+            try await api.health()
+        }
+        return api
+    }
+
     func route(callId: String) async -> RouteCard? {
         if let card = routes[callId] { return card }
         guard let card = try? await api().getRoute(callId: callId) else { return nil }
@@ -355,9 +369,9 @@ final class AppModel {
                                           allowed: permissions.actions.filter(\.allowed).map(\.tool))
     }
     func addMcpServer(name: String, url: String) async throws -> McpConnect {
-        try await api().addMcpServer(name: name, url: url)
+        try await liveApi().addMcpServer(name: name, url: url)
     }
-    func connectMcpServer(_ id: String) async throws -> McpConnect { try await api().connectMcpServer(id: id) }
+    func connectMcpServer(_ id: String) async throws -> McpConnect { try await liveApi().connectMcpServer(id: id) }
     func finishMcpAuth(_ callback: McpCallback) async throws -> McpServer { try await api().finishMcpAuth(callback: callback) }
     func removeMcpServer(_ id: String) async throws { try await api().removeMcpServer(id: id) }
 
@@ -1102,6 +1116,12 @@ func runEndError(_ status: String, current: String = "") -> String {
     case "looped": "Beep got stuck repeating itself and was stopped. Try again."
     default: current.isEmpty ? "Run ended: \(status). You can send another message." : current
     }
+}
+
+/// Like `describe`, but says why the server could not be reached.
+func explain(_ error: Error) -> String {
+    if case BeepError.Connection(let reason) = error { return "Can't reach the server: \(reason)." }
+    return describe(error)
 }
 
 func describe(_ error: Error) -> String {
