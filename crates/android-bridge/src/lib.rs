@@ -17,15 +17,16 @@ use beep_proto::{
     GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health,
     HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice,
     LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices, ListGroupReminders,
-    ListGroups, ListMcpServers, ListMemories, ListMemoryReads, ListPlaces, ListSessions,
-    ListSkills, McpCallback, McpConnect, McpServer, Memory, MemoryRead, Models, Notice, PeekGroup,
-    PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
-    RemoveMcpServer, RenameSession, RouteCard, Run, RunCron, SearchSessions, SendToGroup,
-    SentImages, Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetModel,
-    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill,
-    StartAppAuth, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill, UnregisterDevice,
-    UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill,
+    ListGroups, ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads, ListPlaces,
+    ListSessions, ListSkills, McpCallback, McpConnect, McpServer, McpTools, Memory, MemoryRead,
+    Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession, Place,
+    PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount,
+    RemoveDevice, RemoveMcpServer, RenameSession, RouteCard, Run, RunCron, SearchSessions,
+    SendToGroup, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel,
+    SetMcpTool, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
+    SharedSession, Skill, StartAppAuth, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill,
+    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
+    UpdateSkill,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -968,6 +969,21 @@ impl BeepClient {
 
     pub async fn remove_mcp_server(&self, id: String) -> Result<(), BeepError> {
         self.call(RemoveMcpServer { id }).await
+    }
+
+    /// Every tool server `id` lists, and which of them Beep uses.
+    pub async fn list_mcp_tools(&self, id: String) -> Result<McpTools, BeepError> {
+        self.call(ListMcpTools { id }).await
+    }
+
+    /// Turns one tool of server `id` on or off for Beep.
+    pub async fn set_mcp_tool(
+        &self,
+        id: String,
+        tool: String,
+        enabled: bool,
+    ) -> Result<McpTools, BeepError> {
+        self.call(SetMcpTool { id, tool, enabled }).await
     }
 
     /// What Beep may do in `slug`, and which of its actions act.

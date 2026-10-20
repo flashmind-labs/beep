@@ -11,14 +11,14 @@
 
 use crate::{
     apps::mcp::lost_login,
-    protocol::McpServer as McpServerInfo,
+    protocol::{McpServer as McpServerInfo, McpTool, McpTools},
     store::{CustomMcp, McpServerRow},
     user::User,
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use flashmind::{
-    tools::mcp::{McpConfigProvider, McpRegistry, McpServerConfig},
+    tools::mcp::{McpConfigProvider, McpRegistry, McpServerConfig, McpToolDef},
     types::tool::{Tool, ToolContext, ToolResult},
 };
 use reqwest::Url;
@@ -38,9 +38,10 @@ pub(crate) const PREFIX: &str = "mcp_";
 const MAX_SLUG: usize = 16;
 /// Longest name a model provider takes for a tool.
 const MAX_TOOL_NAME: usize = 64;
-/// Most tools one server gives the agent; every schema goes out with each
-/// model request.
-const MAX_TOOLS: usize = 25;
+/// Most tools of one server the agent works well with, and how many are on
+/// until the user picks; every schema goes out with each model request.
+/// The user may turn on more.
+pub(crate) const MAX_TOOLS: usize = 25;
 /// Longest tool description and schema kept.
 const MAX_DESCRIPTION: usize = 1000;
 const MAX_SCHEMA_BYTES: usize = 8 * 1024;
@@ -511,16 +512,112 @@ pub(crate) fn tool_name(name: &str, tool: &str) -> String {
     out
 }
 
+/// Whether each of a server's tools can go to the agent: its schema fits,
+/// and no tool before it takes the same agent name.
+fn usable(server: &str, defs: &[McpToolDef]) -> Vec<bool> {
+    let mut seen = HashSet::new();
+    defs.iter()
+        .map(|def| {
+            let fits = serde_json::to_vec(&def.input_schema)
+                .is_ok_and(|schema| schema.len() <= MAX_SCHEMA_BYTES);
+            fits && seen.insert(tool_name(server, &def.name))
+        })
+        .collect()
+}
+
+/// Whether the agent gets each of a server's tools: the usable ones the
+/// user turned on, or until they pick, the first `MAX_TOOLS` usable ones.
+fn enabled(server: &str, defs: &[McpToolDef], chosen: Option<&[String]>) -> Vec<bool> {
+    let mut left = MAX_TOOLS;
+    usable(server, defs)
+        .into_iter()
+        .zip(defs)
+        .map(|(usable, def)| {
+            usable
+                && match chosen {
+                    Some(chosen) => chosen.contains(&def.name),
+                    None if left > 0 => {
+                        left -= 1;
+                        true
+                    }
+                    None => false,
+                }
+        })
+        .collect()
+}
+
+/// The names of the tools the agent gets from a server.
+pub(crate) fn enabled_names(
+    server: &str,
+    defs: &[McpToolDef],
+    chosen: Option<&[String]>,
+) -> Vec<String> {
+    defs.iter()
+        .zip(enabled(server, defs, chosen))
+        .filter(|(_, on)| *on)
+        .map(|(def, _)| def.name.clone())
+        .collect()
+}
+
+/// Every tool of a server, as the app lists them.
+pub(crate) fn tool_list(server: &str, defs: &[McpToolDef], chosen: Option<&[String]>) -> McpTools {
+    let tools = defs
+        .iter()
+        .zip(usable(server, defs))
+        .zip(enabled(server, defs, chosen))
+        .map(|((def, usable), enabled)| McpTool {
+            name: def.name.clone(),
+            description: description_of(def),
+            enabled,
+            usable,
+        })
+        .collect();
+    McpTools {
+        tools,
+        limit: MAX_TOOLS as u32,
+    }
+}
+
+/// The user's picks after turning `tool` on or off. Until then the picks
+/// are the default ones, and a pick of a tool the server stopped listing
+/// is kept for when it lists it again.
+pub(crate) fn choose(
+    server: &str,
+    defs: &[McpToolDef],
+    chosen: Option<&[String]>,
+    tool: &str,
+    on: bool,
+) -> Vec<String> {
+    let mut picks = match chosen {
+        Some(chosen) => chosen.to_vec(),
+        None => enabled_names(server, defs, None),
+    };
+    picks.retain(|name| name != tool);
+    if on {
+        picks.push(tool.to_owned());
+    }
+    picks
+}
+
+fn description_of(def: &McpToolDef) -> String {
+    def.description
+        .as_deref()
+        .unwrap_or_default()
+        .chars()
+        .take(MAX_DESCRIPTION)
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
 /// The agent tools of the user's ready added servers, from the schemas
-/// cached at their last connect. A server's first `MAX_TOOLS` tools go in,
-/// and a tool whose schema is too large or whose name clashes is left out.
+/// cached at their last connect, the ones the user turned on.
 pub(crate) fn custom_tools(
     registry: &McpRegistry,
     owner: &Weak<User>,
     user: &str,
     rows: &[McpServerRow],
 ) -> Vec<Arc<dyn Tool>> {
-    let mut seen = HashSet::new();
     let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
     for row in rows.iter().filter(|row| ready(row)) {
         let Some(custom) = &row.custom else {
@@ -528,26 +625,9 @@ pub(crate) fn custom_tools(
         };
         let config = config_of(row, custom);
         let host = host_of(&custom.url);
-        for def in config.cached_tools.iter().take(MAX_TOOLS) {
-            let name = tool_name(&row.name, &def.name);
-            if !seen.insert(name.clone()) {
-                continue;
-            }
-            if serde_json::to_vec(&def.input_schema).map_or(true, |s| s.len() > MAX_SCHEMA_BYTES) {
-                log::info!(
-                    "mcp: {}/{} left out, its schema is too large",
-                    row.name,
-                    def.name
-                );
-                continue;
-            }
-            let description: String = def
-                .description
-                .as_deref()
-                .unwrap_or_default()
-                .chars()
-                .take(MAX_DESCRIPTION)
-                .collect();
+        let defs = &config.cached_tools;
+        let on = enabled(&row.name, defs, custom.tools.as_deref());
+        for (def, _) in defs.iter().zip(on).filter(|(_, on)| *on) {
             tools.push(Arc::new(CustomTool {
                 registry: registry.clone(),
                 owner: owner.clone(),
@@ -556,10 +636,10 @@ pub(crate) fn custom_tools(
                 host: host.clone(),
                 user: user.to_owned(),
                 tool: def.name.clone(),
-                name,
+                name: tool_name(&row.name, &def.name),
                 description: format!(
                     "{} (from {}, a server the user added)",
-                    description.trim(),
+                    description_of(def),
                     custom.label
                 ),
                 schema: def.input_schema.clone(),
@@ -714,6 +794,62 @@ mod tests {
         );
         assert_eq!(tool_name("mcp_notes", "a.b"), "MCP_NOTES_A_B");
         assert!(tool_name("mcp_notes", &"x".repeat(100)).len() <= MAX_TOOL_NAME);
+    }
+
+    fn defs(names: &[&str]) -> Vec<McpToolDef> {
+        names
+            .iter()
+            .map(|name| McpToolDef {
+                name: (*name).to_owned(),
+                description: None,
+                input_schema: json!({"type": "object"}),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_first_usable_tools_are_on_until_the_user_picks() {
+        let names: Vec<String> = (0..30).map(|i| format!("tool_{i}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut defs = defs(&names);
+        defs[1].input_schema = json!({"description": "x".repeat(MAX_SCHEMA_BYTES)});
+        let on = enabled_names("mcp_notes", &defs, None);
+        assert_eq!(on.len(), MAX_TOOLS);
+        assert!(!on.contains(&"tool_1".to_owned()));
+        assert_eq!(on.last().map(String::as_str), Some("tool_25"));
+        let list = tool_list("mcp_notes", &defs, None);
+        assert!(!list.tools[1].usable && !list.tools[1].enabled);
+        assert!(list.tools[29].usable && !list.tools[29].enabled);
+    }
+
+    #[test]
+    fn picks_change_one_tool_and_may_pass_the_limit() {
+        let names: Vec<String> = (0..30).map(|i| format!("tool_{i}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let defs = defs(&names);
+        let picks = choose("mcp_notes", &defs, None, "tool_29", true);
+        assert_eq!(
+            enabled_names("mcp_notes", &defs, Some(&picks)).len(),
+            MAX_TOOLS + 1
+        );
+        let picks = choose("mcp_notes", &defs, Some(&picks), "tool_0", false);
+        let on = enabled_names("mcp_notes", &defs, Some(&picks));
+        assert_eq!(on.len(), MAX_TOOLS);
+        assert!(!on.contains(&"tool_0".to_owned()) && on.contains(&"tool_29".to_owned()));
+        // A tool the server stopped listing stays picked.
+        let picks = choose("mcp_notes", &defs[1..], Some(&picks), "tool_1", false);
+        assert!(picks.contains(&"tool_29".to_owned()));
+    }
+
+    #[test]
+    fn a_clashing_name_is_not_usable() {
+        let defs = defs(&["get-item", "get_item", "other"]);
+        let usable: Vec<bool> = tool_list("mcp_notes", &defs, None)
+            .tools
+            .iter()
+            .map(|tool| tool.usable)
+            .collect();
+        assert_eq!(usable, [true, false, true]);
     }
 
     #[test]

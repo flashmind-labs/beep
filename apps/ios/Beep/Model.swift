@@ -374,6 +374,10 @@ final class AppModel {
     func connectMcpServer(_ id: String) async throws -> McpConnect { try await liveApi().connectMcpServer(id: id) }
     func finishMcpAuth(_ callback: McpCallback) async throws -> McpServer { try await api().finishMcpAuth(callback: callback) }
     func removeMcpServer(_ id: String) async throws { try await api().removeMcpServer(id: id) }
+    func mcpTools(_ id: String) async throws -> McpTools { try await api().listMcpTools(id: id) }
+    func setMcpTool(_ id: String, tool: String, enabled: Bool) async throws -> McpTools {
+        try await api().setMcpTool(id: id, tool: tool, enabled: enabled)
+    }
 
     /// Loads the open chat from the server and saves it for the next time it opens.
     func loadHistory() async {

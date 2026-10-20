@@ -480,6 +480,12 @@ requests! {
     /// `timestamp` of the `HistoryEntry::User` they came with. `GetFile`
     /// reads each one.
     103 GetSessionFiles { session_id: String } => Call<Vec<SentFiles>>
+    /// Every tool an added server lists, as it last listed them, and which
+    /// of them the agent gets.
+    104 ListMcpTools { id: String } => Call<McpTools>
+    /// Turns one of an added server's tools on or off for the agent. The
+    /// server takes more than `McpTools::limit`; the app warns first.
+    105 SetMcpTool { id: String, tool: String, enabled: bool } => Call<McpTools>
 }
 
 /// The most a message's `files` may hold in all, so the request stays
@@ -537,6 +543,29 @@ pub struct McpServer {
     pub sign_in: bool,
     /// The tools Beep gets from it, as the server names them.
     pub tools: Vec<String>,
+}
+
+/// The tools of an added server, in the order it lists them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpTools {
+    pub tools: Vec<McpTool>,
+    /// How many tools of one server the agent works well with. Until the
+    /// user picks, the first `limit` usable tools are on.
+    pub limit: u32,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpTool {
+    /// The tool's name on its server.
+    pub name: String,
+    pub description: String,
+    /// Whether the agent gets it.
+    pub enabled: bool,
+    /// False when Beep cannot use it, such as a schema too large to send
+    /// the model. It stays off.
+    pub usable: bool,
 }
 
 /// An added or reconnected server: connected, or waiting for the user to

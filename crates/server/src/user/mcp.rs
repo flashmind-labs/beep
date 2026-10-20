@@ -6,8 +6,8 @@ use crate::{
     apps::{
         custom_mcp::{
             self, CustomProvider, LIMITS, MAX_LABEL, MAX_SERVERS, MAX_URL, Outcome, check_url,
-            config_of, custom_tools, host_of, info, is_custom, ready, recheck, register,
-            server_name,
+            choose, config_of, custom_tools, enabled_names, host_of, info, is_custom, ready,
+            recheck, register, server_name, tool_list,
         },
         internal,
         mcp::{
@@ -16,7 +16,7 @@ use crate::{
             pick_account, preset,
         },
     },
-    protocol::{ApiError, McpConnect, McpServer, Notice, mcp_callback_url},
+    protocol::{ApiError, McpConnect, McpServer, McpTools, Notice, mcp_callback_url},
     store::{CustomMcp, McpServerRow},
 };
 use anyhow::{Result, bail};
@@ -279,6 +279,7 @@ impl User {
             url: url.to_string(),
             label: label.to_owned(),
             sign_in: false,
+            tools: None,
         };
         let added = self
             .store
@@ -371,6 +372,30 @@ impl User {
         Ok(())
     }
 
+    /// Every tool the added server `id` listed at its last connect.
+    pub async fn list_mcp_tools(&self, id: &str) -> Result<McpTools, ApiError> {
+        let row = self.custom_row(id).await?;
+        let custom = row.custom.as_ref().ok_or(ApiError::NotFound {})?;
+        let defs = config_of(&row, custom).cached_tools;
+        Ok(tool_list(id, &defs, custom.tools.as_deref()))
+    }
+
+    /// Turns one tool of the added server `id` on or off for the agent.
+    pub async fn set_mcp_tool(&self, id: &str, tool: &str, on: bool) -> Result<McpTools, ApiError> {
+        let row = self.custom_row(id).await?;
+        let custom = row.custom.as_ref().ok_or(ApiError::NotFound {})?;
+        let defs = config_of(&row, custom).cached_tools;
+        if on && !defs.iter().any(|def| def.name == tool) {
+            return Err(ApiError::NotFound {});
+        }
+        let picks = choose(id, &defs, custom.tools.as_deref(), tool, on);
+        self.store
+            .set_mcp_tools(&self.key, id, &picks)
+            .await
+            .map_err(internal("save MCP tools"))?;
+        Ok(tool_list(id, &defs, Some(&picks)))
+    }
+
     /// The row of the added server `id`.
     async fn custom_row(&self, id: &str) -> Result<McpServerRow, ApiError> {
         if !is_custom(id) {
@@ -407,7 +432,7 @@ impl User {
             match connected {
                 Ok(tools) => {
                     permit.finish(Outcome::Ok);
-                    let tools = tools.into_iter().map(|tool| tool.name).collect();
+                    let tools = enabled_names(name, &tools, custom.tools.as_deref());
                     return Ok(McpConnect {
                         server: info(name, &custom, true, tools),
                         auth_url: None,
@@ -711,11 +736,8 @@ fn state_of(auth_url: &str) -> Option<String> {
 /// What the app lists for an added server's row.
 fn server_info(row: &McpServerRow) -> Option<McpServer> {
     let custom = row.custom.as_ref()?;
-    let tools = config_of(row, custom)
-        .cached_tools
-        .into_iter()
-        .map(|tool| tool.name)
-        .collect();
+    let defs = config_of(row, custom).cached_tools;
+    let tools = enabled_names(&row.name, &defs, custom.tools.as_deref());
     Some(info(&row.name, custom, ready(row), tools))
 }
 
@@ -785,6 +807,55 @@ mod tests {
         user.disconnect_app("fastmail").await.unwrap();
         assert!(user.app_accounts("fastmail").await.unwrap().is_empty());
         assert!(user.mcp_servers().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn added_server_tools_are_picked_one_by_one() {
+        let db = TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+        let custom = CustomMcp {
+            url: "https://notes.example.com/mcp".to_owned(),
+            label: "Notes".to_owned(),
+            sign_in: false,
+            tools: None,
+        };
+        assert!(
+            user.store
+                .add_custom_mcp(&user.key, "mcp_notes", &custom)
+                .await
+                .unwrap()
+        );
+        let cached: Vec<Value> = (0..30)
+            .map(|i| json!({"name": format!("tool_{i}"), "input_schema": {"type": "object"}}))
+            .collect();
+        user.save_mcp_config(
+            "mcp_notes",
+            json!({"name": "mcp_notes", "cached_tools": cached}),
+        )
+        .await
+        .unwrap();
+
+        let list = user.list_mcp_tools("mcp_notes").await.unwrap();
+        assert_eq!(list.tools.len(), 30);
+        assert_eq!(list.tools.iter().filter(|tool| tool.enabled).count(), 25);
+        assert_eq!(user.mcp_tools().await.len(), 25);
+
+        let list = user
+            .set_mcp_tool("mcp_notes", "tool_29", true)
+            .await
+            .unwrap();
+        assert!(list.tools[29].enabled);
+        assert_eq!(user.mcp_tools().await.len(), 26);
+        user.set_mcp_tool("mcp_notes", "tool_0", false)
+            .await
+            .unwrap();
+        let servers = user.list_custom_mcp().await.unwrap();
+        assert_eq!(servers[0].tools.len(), 25);
+        assert!(!servers[0].tools.contains(&"tool_0".to_owned()));
+        assert!(matches!(
+            user.set_mcp_tool("mcp_notes", "nope", true).await,
+            Err(ApiError::NotFound {})
+        ));
     }
 
     /// Adds real public servers: one open, one behind OAuth. Needs the

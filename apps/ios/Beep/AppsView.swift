@@ -73,7 +73,7 @@ struct AppsView: View {
         }
         .navigationDestination(item: $openServer) { server in
             McpServerView(server: server, busy: busy == server.id, error: error, back: { openServer = nil },
-                          signIn: { signIn(server) }) {
+                          signIn: { signIn(server) }, changed: { Task { await refresh() } }) {
                 openServer = nil
                 remove(server)
             }
@@ -524,14 +524,22 @@ private struct AppPermissionsView: View {
     }
 }
 
-/// One added server: its address, whether it works, its tools, and Remove.
+/// One added server: its address, whether it works, its tools with a switch each, and Remove.
 private struct McpServerView: View {
+    @Environment(AppModel.self) private var model
     let server: McpServer
     let busy: Bool
     let error: String
     let back: () -> Void
     let signIn: () -> Void
+    /// After a tool is turned on or off, so the list's count follows.
+    let changed: () -> Void
     let remove: () -> Void
+    /// Nil until the server answers; a server too old to list them leaves the plain list of names.
+    @State private var tools: McpTools?
+    @State private var toolError = ""
+    /// The tool waiting on the warning about going past the limit.
+    @State private var asking: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -549,12 +557,42 @@ private struct McpServerView: View {
                         .padding(.horizontal, 14).padding(.vertical, 10)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .card()
-                    if !error.isEmpty { Text(error).font(.body(13)).foregroundStyle(Mint.error) }
+                    if !error.isEmpty || !toolError.isEmpty {
+                        Text(error.isEmpty ? toolError : error).font(.body(13)).foregroundStyle(Mint.error)
+                    }
                     HStack(spacing: 8) {
                         Circle().fill(server.connected ? Mint.ok : Mint.error).frame(width: 8, height: 8)
                         Text(status).font(.body(13, .semibold)).foregroundStyle(Mint.ink)
                     }
-                    if server.connected, !server.tools.isEmpty {
+                    if server.connected, let list = tools, !list.tools.isEmpty {
+                        HStack {
+                            SectionLabel(text: "Tools")
+                            Spacer()
+                            Text("\(onCount) of \(list.limit) on").font(.body(12, .semibold))
+                                .foregroundStyle(onCount > Int(list.limit) ? Mint.error : Mint.muted)
+                        }
+                        VStack(spacing: 0) {
+                            ForEach(Array(list.tools.enumerated()), id: \.offset) { index, tool in
+                                if index > 0 { Rectangle().fill(Mint.soft).frame(height: 1) }
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(toolLabel(tool.name)).font(.body(14)).foregroundStyle(tool.usable ? Mint.ink : Mint.muted)
+                                        if !tool.usable {
+                                            Text("Too large for Beep to use").font(.body(11)).foregroundStyle(Mint.muted)
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
+                                    Toggle("Use \(toolLabel(tool.name))", isOn: Binding(get: { tool.enabled }, set: { toggle(tool.name, $0) }))
+                                        .labelsHidden().tint(Mint.ok).disabled(!tool.usable)
+                                }
+                                .frame(minHeight: 52)
+                            }
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 4)
+                        .card()
+                        Text("Beep uses up to \(list.limit) tools from a server, so turn on the ones you need. It asks before every tool on a server you add. Tap Always when it asks to stop asking for this server.")
+                            .font(.body(12)).foregroundStyle(Mint.muted).padding(.horizontal, 4)
+                    } else if server.connected, !server.tools.isEmpty {
                         SectionLabel(text: "Tools")
                         VStack(spacing: 0) {
                             ForEach(Array(server.tools.enumerated()), id: \.offset) { index, tool in
@@ -592,11 +630,48 @@ private struct McpServerView: View {
             }
         }
         .background(Mint.page)
+        .task(id: "\(server.id) \(server.connected)") {
+            if server.connected { tools = try? await model.mcpTools(server.id) }
+        }
+        .alert("Turn on more than \(tools?.limit ?? 25) tools?", isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } })) {
+            Button("Cancel", role: .cancel) {}
+            Button("Turn on") {
+                if let tool = asking { set(tool, true) }
+            }
+        } message: {
+            Text("Beep works best with \(tools?.limit ?? 25) tools or fewer from one server. With more, replies get slower and Beep is more likely to pick the wrong tool.")
+        }
     }
 
+    private var onCount: Int { tools?.tools.filter(\.enabled).count ?? server.tools.count }
+
     private var status: String {
-        if server.connected { return server.tools.count == 1 ? "Connected, 1 tool" : "Connected, \(server.tools.count) tools" }
-        return server.signIn ? "Sign-in expired" : "Not connected"
+        guard server.connected else { return server.signIn ? "Sign-in expired" : "Not connected" }
+        let total = tools?.tools.count ?? server.tools.count
+        if onCount == total { return total == 1 ? "Connected, 1 tool" : "Connected, \(total) tools" }
+        return "Connected, \(onCount) of \(total) tools on"
+    }
+
+    private func toggle(_ tool: String, _ enabled: Bool) {
+        guard let list = tools else { return }
+        if enabled, onCount >= Int(list.limit) { asking = tool } else { set(tool, enabled) }
+    }
+
+    private func set(_ tool: String, _ enabled: Bool) {
+        guard let before = tools else { return }
+        tools = McpTools(tools: before.tools.map {
+            $0.name == tool ? McpTool(name: $0.name, description: $0.description, enabled: enabled, usable: $0.usable) : $0
+        }, limit: before.limit)
+        toolError = ""
+        Task {
+            do {
+                tools = try await model.setMcpTool(server.id, tool: tool, enabled: enabled)
+                changed()
+            } catch {
+                tools = before
+                toolError = describe(error)
+            }
+        }
     }
 
     /// A tool's name as the server gave it, such as `search_pages`, in words.
