@@ -28,6 +28,7 @@ import com.flashmind.beep.proto.AppIntegration
 import com.flashmind.beep.proto.McpCallback
 import com.flashmind.beep.proto.McpConnect
 import com.flashmind.beep.proto.McpServer
+import com.flashmind.beep.proto.McpTools
 import com.flashmind.beep.proto.ApprovalDecision
 import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.ImageRef
@@ -896,6 +897,8 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun addMcpServer(name: String, url: String): McpConnect = api().addMcpServer(name, url)
     suspend fun connectMcpServer(id: String): McpConnect = api().connectMcpServer(id)
     suspend fun removeMcpServer(id: String) = api().removeMcpServer(id)
+    suspend fun listMcpTools(id: String): McpTools = api().listMcpTools(id)
+    suspend fun setMcpTool(id: String, tool: String, enabled: Boolean): McpTools = api().setMcpTool(id, tool, enabled)
 
     val mcpAuthResults = MutableStateFlow<McpAuthResult?>(null)
 

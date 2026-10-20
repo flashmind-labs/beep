@@ -30,13 +30,16 @@ pub struct CustomMcp {
     pub url: String,
     pub label: String,
     pub sign_in: bool,
+    /// The tools the user turned on, by their names on the server. `None`
+    /// until the user picks.
+    pub tools: Option<Vec<String>>,
 }
 
 impl Store {
     /// The user's server-managed MCP servers.
     pub(crate) async fn mcp_servers(&self, user: &UserKey) -> Result<Vec<McpServerRow>> {
         let rows = sqlx::query(
-            "SELECT name, config, credentials, url, label, sign_in FROM mcp_servers
+            "SELECT name, config, credentials, url, label, sign_in, tools FROM mcp_servers
              WHERE user_id=$1 ORDER BY created_at, name",
         )
         .bind(user.as_str())
@@ -55,6 +58,7 @@ impl Store {
                         label: label.unwrap_or_else(|| url.clone()),
                         url,
                         sign_in: r.try_get(5).unwrap_or(false),
+                        tools: r.try_get(6).unwrap_or(None),
                     }),
                 })
             })
@@ -93,6 +97,24 @@ impl Store {
         )
         .bind(user.as_str())
         .bind(name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Saves which tools of an added server the agent gets.
+    pub(crate) async fn set_mcp_tools(
+        &self,
+        user: &UserKey,
+        name: &str,
+        tools: &[String],
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE mcp_servers SET tools = $3 WHERE user_id=$1 AND name=$2 AND url IS NOT NULL",
+        )
+        .bind(user.as_str())
+        .bind(name)
+        .bind(tools)
         .execute(&self.pool)
         .await?;
         Ok(())

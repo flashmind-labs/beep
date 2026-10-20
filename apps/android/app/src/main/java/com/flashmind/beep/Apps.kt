@@ -88,6 +88,7 @@ import com.flashmind.beep.proto.AppKind
 import com.flashmind.beep.proto.AppPermissions
 import com.flashmind.beep.proto.McpConnect
 import com.flashmind.beep.proto.McpServer
+import com.flashmind.beep.proto.McpTools
 import com.flashmind.beep.proto.PermissionLevel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -213,8 +214,9 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
         return
     }
     openServer?.let { server ->
-        BackHandler { openServer = null }
-        McpServerScreen(server, busy == server.id, error, onBack = { openServer = null },
+        // Back refreshes the list, whose tool count the toggles may have changed.
+        BackHandler { openServer = null; refresh() }
+        McpServerScreen(repository, server, busy == server.id, error, onBack = { openServer = null; refresh() },
             onSignIn = { signIn(server) }, onRemove = { openServer = null; removeServer(server) })
         return
     }
@@ -395,11 +397,45 @@ private fun AddMcpServerDialog(repository: ChatRepository, onDismiss: () -> Unit
         dismissButton = { TextButton(onClick = onDismiss, enabled = !working) { Text("Cancel") } })
 }
 
-/** One added server: its address, whether it works, its tools, and Remove. */
+/** One added server: its address, whether it works, its tools with a switch each, and Remove. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun McpServerScreen(server: McpServer, busy: Boolean, error: String, onBack: () -> Unit, onSignIn: () -> Unit, onRemove: () -> Unit) {
+private fun McpServerScreen(repository: ChatRepository, server: McpServer, busy: Boolean, error: String,
+                            onBack: () -> Unit, onSignIn: () -> Unit, onRemove: () -> Unit) {
     val t = Beep.colors
+    val scope = rememberCoroutineScope()
+    // Null until the server answers; a server too old to list them leaves the plain list of names.
+    var tools by remember(server.id) { mutableStateOf<McpTools?>(null) }
+    var toolError by remember(server.id) { mutableStateOf("") }
+    // The tool waiting on the warning about going past the limit.
+    var asking by remember(server.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(server.id, server.connected) {
+        if (server.connected) tools = withContext(Dispatchers.IO) { runCatching { repository.listMcpTools(server.id) }.getOrNull() }
+    }
+    fun set(tool: String, enabled: Boolean) { scope.launch {
+        val before = tools ?: return@launch
+        tools = before.copy(tools = before.tools.map { if (it.name == tool) it.copy(enabled = enabled) else it })
+        toolError = ""
+        try { tools = withContext(Dispatchers.IO) { repository.setMcpTool(server.id, tool, enabled) } }
+        catch (e: Exception) { tools = before; toolError = userMessage(e) }
+    } }
+    fun toggle(tool: String, enabled: Boolean) {
+        val list = tools ?: return
+        if (enabled && list.tools.count { it.enabled } >= list.limit.toInt()) asking = tool else set(tool, enabled)
+    }
+    val on = tools?.tools?.count { it.enabled } ?: server.tools.size
+    val total = tools?.tools?.size ?: server.tools.size
+    asking?.let { tool ->
+        val limit = tools?.limit ?: 25u
+        AlertDialog(onDismissRequest = { asking = null }, containerColor = t.surface,
+            title = { Text(displayText("Turn on more than $limit tools?"), style = displayStyle(22.sp)) },
+            text = { Text("Beep works best with $limit tools or fewer from one server. With more, replies get slower and Beep is more likely to pick the wrong tool.",
+                fontSize = 14.sp, color = t.muted, lineHeight = 20.sp) },
+            confirmButton = { ChunkyButton(onClick = { asking = null; set(tool, true) }, color = t.accent, contentColor = t.onAccent) {
+                Text("Turn on", fontWeight = FontWeight.SemiBold)
+            } },
+            dismissButton = { TextButton(onClick = { asking = null }) { Text("Cancel") } })
+    }
     Scaffold(containerColor = t.page, topBar = {
         TopAppBar(title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -418,18 +454,51 @@ private fun McpServerScreen(server: McpServer, busy: Boolean, error: String, onB
                         maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
                 }
             }
-            if (error.isNotEmpty()) item { Text(error, color = t.error, fontSize = 13.sp) }
+            if (error.isNotEmpty() || toolError.isNotEmpty()) item { Text(error.ifEmpty { toolError }, color = t.error, fontSize = 13.sp) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.size(8.dp).clip(CircleShape).background(if (server.connected) t.ok else t.error))
                     Text(when {
-                        server.connected -> if (server.tools.size == 1) "Connected, 1 tool" else "Connected, ${server.tools.size} tools"
+                        server.connected && on == total -> if (on == 1) "Connected, 1 tool" else "Connected, $on tools"
+                        server.connected -> "Connected, $on of $total tools on"
                         server.signIn -> "Sign-in expired"
                         else -> "Not connected"
                     }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.ink)
                 }
             }
-            if (server.connected && server.tools.isNotEmpty()) {
+            val list = tools
+            if (server.connected && list != null && list.tools.isNotEmpty()) {
+                item {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { SectionLabel("Tools") }
+                        Text("$on of ${list.limit} on", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                            color = if (on > list.limit.toInt()) t.error else t.muted)
+                    }
+                }
+                item {
+                    BeepCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
+                            list.tools.forEachIndexed { i, tool ->
+                                if (i > 0) HorizontalDivider(color = t.softLine)
+                                Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+                                        Text(mcpToolLabel(tool.name), fontSize = 14.sp, color = if (tool.usable) t.ink else t.muted)
+                                        if (!tool.usable) Text("Too large for Beep to use", fontSize = 11.sp, color = t.muted)
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Switch(checked = tool.enabled, onCheckedChange = { toggle(tool.name, it) }, enabled = tool.usable,
+                                        modifier = Modifier.semantics { contentDescription = "Use ${mcpToolLabel(tool.name)}" },
+                                        colors = SwitchDefaults.colors(checkedTrackColor = t.ok))
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Text("Beep uses up to ${list.limit} tools from a server, so turn on the ones you need. It asks before every tool on a server you add. Tap Always when it asks to stop asking for this server.",
+                        fontSize = 12.sp, color = t.muted, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                }
+            } else if (server.connected && server.tools.isNotEmpty()) {
                 item { SectionLabel("Tools") }
                 item {
                     BeepCard(Modifier.fillMaxWidth()) {

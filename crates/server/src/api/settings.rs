@@ -201,6 +201,17 @@ pub(super) async fn finish_mcp_auth(cx: Cx, req: FinishMcpAuth) -> Reply<McpServ
         .await
 }
 
+pub(super) async fn list_mcp_tools(cx: Cx, ListMcpTools { id }: ListMcpTools) -> Reply<McpTools> {
+    cx.user.list_mcp_tools(&id).await
+}
+
+pub(super) async fn set_mcp_tool(
+    cx: Cx,
+    SetMcpTool { id, tool, enabled }: SetMcpTool,
+) -> Reply<McpTools> {
+    cx.user.set_mcp_tool(&id, &tool, enabled).await
+}
+
 pub(super) async fn remove_mcp_server(
     cx: Cx,
     RemoveMcpServer { id }: RemoveMcpServer,

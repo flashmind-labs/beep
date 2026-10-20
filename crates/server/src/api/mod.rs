@@ -51,8 +51,9 @@ use sessions::{
 use settings::{
     add_app_account, add_mcp_server, connect_app, connect_mcp_server, disconnect_app,
     finish_app_auth, finish_mcp_auth, get_agents, get_app_permissions, get_models,
-    list_app_accounts, list_apps, list_mcp_servers, remove_app_account, remove_mcp_server,
-    set_agents, set_app_permissions, set_auto_model, set_model, set_thinking, start_app_auth,
+    list_app_accounts, list_apps, list_mcp_servers, list_mcp_tools, remove_app_account,
+    remove_mcp_server, set_agents, set_app_permissions, set_auto_model, set_mcp_tool, set_model,
+    set_thinking, start_app_auth,
 };
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
@@ -149,6 +150,8 @@ pub fn router() -> Router {
         .call(connect_mcp_server)
         .call(finish_mcp_auth)
         .call(remove_mcp_server)
+        .call(list_mcp_tools)
+        .call(set_mcp_tool)
         .call(get_group_images)
         .call(get_updates)
         .call(list_skills)
