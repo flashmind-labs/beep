@@ -6,6 +6,9 @@ struct ChatView: View {
     let newChat: () -> Void
     @State private var draft = ""
     @State private var photos: [Data] = []
+    @State private var files: [SentFile] = []
+    @State private var importing = false
+    @State private var fileError = ""
     @State private var picking = false
     @State private var camera = false
     /// Messages already on screen when the chat opened, or already shown; these do not spring in.
@@ -90,7 +93,32 @@ struct ChatView: View {
                     try? await Task.sleep(for: .milliseconds(350))
                     camera = true
                 }
+            } files: {
+                picking = false
+                Task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    importing = true
+                }
             }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            var room = SentFile.limit - files.reduce(0) { $0 + $1.size }
+            var tooBig = false
+            for url in urls.prefix(ChatPhotos.limit - files.count) {
+                guard let file = try? SentFile.attach(url) else { fileError = "Couldn't read that file"; continue }
+                if file.size > room {
+                    tooBig = true
+                    if let local = file.local { try? FileManager.default.removeItem(at: local.deletingLastPathComponent()) }
+                    continue
+                }
+                room -= file.size
+                files.append(file)
+            }
+            if tooBig { fileError = "Files can be 5 MB in all" }
+        }
+        .alert(fileError, isPresented: Binding(get: { !fileError.isEmpty }, set: { if !$0 { fileError = "" } })) {
+            Button("OK", role: .cancel) {}
         }
         .fullScreenCover(isPresented: $camera) {
             ChatCamera(room: max(0, ChatPhotos.limit - photos.count)) { shots in
@@ -160,11 +188,13 @@ struct ChatView: View {
     }
 
     private var composer: some View {
-        let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty
-        let prompt = photos.count > 1 ? "Ask about the photos..." : photos.isEmpty ? "Ask anything..." : "Ask about the photo..."
+        let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty && files.isEmpty
+        let prompt = photos.count > 1 ? "Ask about the photos..." : !photos.isEmpty ? "Ask about the photo..."
+            : !files.isEmpty ? "Ask about the file..." : "Ask anything..."
         return VStack(alignment: .leading, spacing: 0) {
             if !model.chat.queued.isEmpty { queuedList.unfold() }
             if !photos.isEmpty { thumbnails.unfold() }
+            if !files.isEmpty { fileChips.unfold() }
             HStack(alignment: .bottom, spacing: 8) {
                 HStack(alignment: .bottom, spacing: 4) {
                     // As on Android, the photo button steps aside once there is something typed.
@@ -178,7 +208,7 @@ struct ChatView: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.bottom, 5)
-                        .accessibilityLabel("Add a photo")
+                        .accessibilityLabel("Add a photo or file")
                     }
                     TextField("", text: $draft, prompt: Text(prompt).foregroundStyle(Mint.dim), axis: .vertical)
                         .font(.body(15))
@@ -197,9 +227,10 @@ struct ChatView: View {
                     VStack(spacing: 8) {
                         if !empty {
                             Button {
-                                model.queue(draft, images: photos)
+                                model.queue(draft, images: photos, files: files)
                                 draft = ""
                                 photos = []
+                                files = []
                             } label: { Image(systemName: "clock") }
                                 .buttonStyle(ChunkyButton(fill: Mint.surface, size: 50, radius: 18))
                                 .accessibilityLabel("Queue message")
@@ -213,9 +244,10 @@ struct ChatView: View {
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
                 } else {
                     Button {
-                        model.send(draft, images: photos)
+                        model.send(draft, images: photos, files: files)
                         draft = ""
                         photos = []
+                        files = []
                         // A quick squish on tap so sending feels physical.
                         guard !reduceMotion else { return }
                         withAnimation(.easeIn(duration: 0.07)) { squish = true } completion: {
@@ -239,6 +271,7 @@ struct ChatView: View {
         }
         .background(Mint.page)
         .animation(.bouncy, value: photos.count)
+        .animation(.bouncy, value: files.count)
     }
 
     /// Messages queued while the reply runs; each sends as its own turn once the one before
@@ -268,15 +301,15 @@ struct ChatView: View {
                         HStack(spacing: 8) {
                             Text("\(index + 1)").font(.body(12, .semibold)).foregroundStyle(Mint.muted)
                                 .frame(width: 16)
-                            Text(message.text.isEmpty
-                                 ? "\(message.images.count) image\(message.images.count > 1 ? "s" : "")"
-                                 : message.text)
+                            Text(!message.text.isEmpty ? message.text
+                                 : message.files.first?.name ?? "\(message.images.count) image\(message.images.count > 1 ? "s" : "")")
                                 .font(.body(14)).foregroundStyle(Mint.ink).lineLimit(1)
                             Spacer(minLength: 0)
                             Button {
                                 guard let back = model.unqueue(index) else { return }
                                 draft = draft.isEmpty ? back.text : back.text + "\n" + draft
                                 photos = Array((back.images + photos).prefix(ChatPhotos.limit))
+                                files = back.files + files
                                 typing = true
                             } label: {
                                 Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
@@ -315,6 +348,29 @@ struct ChatView: View {
                         .buttonStyle(.plain)
                         .padding(3)
                         .accessibilityLabel("Remove photo \(index + 1)")
+                    }
+                    .popIn()
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 14).padding(.top, 8)
+        }
+    }
+
+    /// The files waiting to go with the next message, each with a remove button.
+    private var fileChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(files.enumerated()), id: \.offset) { index, file in
+                    ZStack(alignment: .topTrailing) {
+                        AttachedFileChip(file: file)
+                        Button { files.remove(at: index) } label: {
+                            Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Mint.page)
+                                .frame(width: 20, height: 20).background(Circle().fill(Mint.ink))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(3)
+                        .accessibilityLabel("Remove \(file.name)")
                     }
                     .popIn()
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
@@ -531,7 +587,18 @@ struct MessageView: View {
     /// The text, with any pictures above it in a 220 point wide block as in the mock.
     @ViewBuilder private var userBubble: some View {
         let text = Text(message.text).font(.body(15)).foregroundStyle(Mint.ink).textSelection(.enabled)
-        if message.pictures.isEmpty {
+        if !message.files.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                if !message.pictures.isEmpty { PictureGrid(pictures: message.pictures) }
+                ForEach(Array(message.files.enumerated()), id: \.offset) { _, file in FileCard(file: file) }
+                if !message.text.isEmpty {
+                    text.padding(.horizontal, 10).padding(.top, 2).padding(.bottom, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(4)
+            .frame(width: 260)
+        } else if message.pictures.isEmpty {
             text.padding(.horizontal, 14).padding(.vertical, 10)
         } else {
             VStack(alignment: .leading, spacing: 0) {
@@ -991,8 +1058,24 @@ struct MarkdownText: View {
 
     private func inline(_ line: String) -> Text {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        if let styled = try? AttributedString(markdown: line, options: options) { return Text(styled) }
-        return Text(line)
+        var styled = (try? AttributedString(markdown: line, options: options)) ?? AttributedString(line)
+        linkBareAddresses(&styled)
+        return Text(styled)
+    }
+
+    /// Makes bare web addresses tappable, as Android and the Mac do. Markdown links
+    /// keep their own target.
+    private func linkBareAddresses(_ text: inout AttributedString) {
+        let plain = String(text.characters)
+        guard plain.contains("http"), let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return }
+        for match in detector.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
+            guard let url = match.url, ["http", "https"].contains(url.scheme?.lowercased()),
+                  let found = Range(match.range, in: plain),
+                  let lower = AttributedString.Index(found.lowerBound, within: text),
+                  let upper = AttributedString.Index(found.upperBound, within: text),
+                  !text[lower..<upper].runs.contains(where: { $0.link != nil }) else { continue }
+            text[lower..<upper].link = url
+        }
     }
 }
 

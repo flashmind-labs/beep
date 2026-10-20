@@ -70,18 +70,21 @@ data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: 
     /** The pictures the server kept from this prompt, read with `saveFile`. */
     val pictures: List<ImageRef> = emptyList(),
     /** The specialized agent that wrote this reply, like "Shopping". Empty for General. */
-    val agent: String = "")
+    val agent: String = "",
+    /** Other files sent with this prompt, such as a PDF. */
+    val files: List<ToolCard.File> = emptyList())
 
 /** A tool call the server holds until the user allows it. `answer` is empty while it waits. */
 data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "") {
     val waiting get() = answer.isEmpty()
 }
-/** A message held while a reply runs: its text and the pictures attached to it. */
-data class QueuedMessage(val text: String, val images: List<String> = emptyList())
+/** A message held while a reply runs: its text and the pictures and files attached to it. */
+data class QueuedMessage(val text: String, val images: List<String> = emptyList(), val files: List<ToolCard.File> = emptyList())
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = NEW_CHAT_TITLE,
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
     val requestId: String = "", val pendingText: String = "", val pendingImages: List<String> = emptyList(),
+    val pendingFiles: List<ToolCard.File> = emptyList(),
     val pendingModel: String = "",
     val pendingThinking: String = "",
     val status: String = "", val error: String = "",
@@ -106,7 +109,7 @@ const val NEW_CHAT_TITLE = "New conversation"
 
 /** A chat opened but never used. It is not kept once the user moves on, nor listed. */
 val Conversation.isUnused get() =
-    messages.isEmpty() && !busy && pendingText.isEmpty() && pendingImages.isEmpty() && title == NEW_CHAT_TITLE
+    messages.isEmpty() && !busy && pendingText.isEmpty() && pendingImages.isEmpty() && pendingFiles.isEmpty() && title == NEW_CHAT_TITLE
 
 /** A change to the chat list made on the phone, kept until the server has it. */
 sealed interface ChatChange {
@@ -115,7 +118,7 @@ sealed interface ChatChange {
     data class Pin(val id: String, val pinned: Boolean) : ChatChange
 }
 
-data class Draft(val text: String = "", val images: List<String> = emptyList())
+data class Draft(val text: String = "", val images: List<String> = emptyList(), val files: List<ToolCard.File> = emptyList())
 
 data class ChatState(val conversations: List<Conversation> = listOf(Conversation()), val selected: String = "") {
     val current get() = conversations.firstOrNull { it.id == selected } ?: conversations.first()
@@ -204,9 +207,10 @@ class LocalStorage(internal val context: Context) {
                 } else emptyList()
                 ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
                     m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals, m.optString("model"), m.optLong("sentAt"),
-                    m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"), pictures = readPictures(m), agent = m.optString("agent"))
+                    m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"), pictures = readPictures(m), agent = m.optString("agent"),
+                    files = readFiles(m, "files"))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
-                pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"),
+                pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingFiles = readFiles(c, "pendingFiles"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"),
                 status = c.optString("status"), error = c.optString("error"), pinned = c.optBoolean("pinned"),
                 version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()),
                 updatedAt = c.optLong("updatedAt"), queued = readQueued(c))
@@ -297,6 +301,7 @@ class LocalStorage(internal val context: Context) {
                 val msg = JSONObject().put("id", m.id).put("role", m.role).put("text", m.text).apply { if (m.images.isNotEmpty()) put("images", JSONArray(m.images)) }
                     .apply { if (m.pictures.isNotEmpty()) put("pictures", JSONArray(m.pictures.map { p ->
                         JSONObject().put("id", p.id).put("mime", p.mime).put("width", p.width.toLong()).put("height", p.height.toLong()) })) }
+                    .apply { if (m.files.isNotEmpty()) put("files", filesJson(m.files)) }
                     .apply { if (m.memoryScore != null) put("memoryScore", m.memoryScore) }
                     .apply { if (m.reasoning.isNotEmpty()) put("reasoning", m.reasoning) }
                     .apply { if (m.model.isNotEmpty()) put("model", m.model) }
@@ -335,6 +340,7 @@ class LocalStorage(internal val context: Context) {
             list.put(JSONObject().put("id", c.id).put("title", c.title).put("messages", messages)
                 .put("runId", c.runId).put("cursor", c.cursor).put("requestId", c.requestId)
                 .put("pendingText", c.pendingText).apply { if (c.pendingImages.isNotEmpty()) put("pendingImages", JSONArray(c.pendingImages)) }
+                .apply { if (c.pendingFiles.isNotEmpty()) put("pendingFiles", filesJson(c.pendingFiles)) }
                 .apply { if (c.pendingModel.isNotEmpty()) put("pendingModel", c.pendingModel) }
                 .apply { if (c.pendingThinking.isNotEmpty()) put("pendingThinking", c.pendingThinking) }
                 .put("status", c.status).apply { if (c.error.isNotEmpty()) put("error", c.error) }
@@ -342,6 +348,7 @@ class LocalStorage(internal val context: Context) {
                 .apply {
                     if (c.queued.isNotEmpty()) put("queued", JSONArray(c.queued.map { q ->
                         JSONObject().put("text", q.text).apply { if (q.images.isNotEmpty()) put("images", JSONArray(q.images)) }
+                            .apply { if (q.files.isNotEmpty()) put("files", filesJson(q.files)) }
                     }))
                 })
         }
@@ -361,16 +368,28 @@ private fun readPictures(json: JSONObject): List<ImageRef> {
     }
 }
 
-/** The images saved under [key], or the single image older versions saved under [legacyKey]. */
+private fun filesJson(files: List<ToolCard.File>) = JSONArray(files.map { f ->
+    JSONObject().put("id", f.id).put("name", f.name).put("mime", f.mime).put("size", f.size).apply { if (f.path.isNotEmpty()) put("path", f.path) }
+})
+
+private fun readFiles(json: JSONObject, key: String): List<ToolCard.File> {
+    val list = json.optJSONArray(key) ?: return emptyList()
+    return (0 until list.length()).map { i ->
+        val f = list.getJSONObject(i)
+        ToolCard.File(f.optString("id"), f.optString("name"), f.optString("mime"), f.optLong("size"), f.optString("path"))
+    }
+}
+
 /** A chat's queued messages; builds before the list kept a single `queuedText` with its images. */
 private fun readQueued(json: JSONObject): List<QueuedMessage> {
     val list = json.optJSONArray("queued")
     if (list != null) return (0 until list.length()).map { list.getJSONObject(it) }
-        .map { QueuedMessage(it.optString("text"), readImages(it, "images", "image")) }
+        .map { QueuedMessage(it.optString("text"), readImages(it, "images", "image"), readFiles(it, "files")) }
     val one = QueuedMessage(json.optString("queuedText"), readImages(json, "queuedImages", "queuedImage"))
     return if (one.text.isNotBlank() || one.images.isNotEmpty()) listOf(one) else emptyList()
 }
 
+/** The images saved under [key], or the single image older versions saved under [legacyKey]. */
 private fun readImages(json: JSONObject, key: String, legacyKey: String): List<String> {
     val list = json.optJSONArray(key)
     if (list != null) return (0 until list.length()).map { list.getString(it) }

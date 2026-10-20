@@ -40,6 +40,7 @@ struct PhotoSheet: View {
     let room: Int
     let add: ([Data]) -> Void
     let camera: () -> Void
+    let files: () -> Void
     @State private var recent: [PHAsset] = []
     @State private var picked: [PHAsset] = []
     @State private var gallery: [PhotosPickerItem] = []
@@ -73,6 +74,12 @@ struct PhotoSheet: View {
                     }
                     .buttonStyle(PillButton(fill: Mint.accent))
                     .disabled(loading)
+                } else {
+                    Button { files() } label: {
+                        Label("Files", systemImage: "doc.text").font(.body(14, .semibold)).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PillButton())
+                    .accessibilityLabel("Attach files")
                 }
             }
             Spacer(minLength: 0)

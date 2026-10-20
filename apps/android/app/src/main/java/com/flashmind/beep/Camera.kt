@@ -150,7 +150,7 @@ private fun PhotoThumb(uri: Uri, modifier: Modifier) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Unit, onImages: (List<String>) -> Unit) {
+internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Unit, onFiles: () -> Unit, onImages: (List<String>) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var allowed by remember { mutableStateOf(cameraAllowed(context)) }
@@ -212,6 +212,10 @@ internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Un
                 if (picked.isNotEmpty()) ChunkyButton(onClick = { addPicked() }, modifier = Modifier.weight(1f),
                     color = Beep.colors.accent, contentColor = Beep.colors.ink, enabled = !adding) {
                     Text(if (adding) "Adding…" else "Add ${picked.size}", fontWeight = FontWeight.SemiBold)
+                } else ChunkyButton(onClick = { onFiles(); onDismiss() }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Outlined.Description, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Files", fontWeight = FontWeight.SemiBold)
                 }
             }
             val tiles = listOf<Uri?>(null) + recent

@@ -1,5 +1,8 @@
 package com.flashmind.beep
 
+import android.widget.Toast
+import androidx.compose.foundation.layout.widthIn
+
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.flashmind.beep.proto.Models
@@ -112,6 +115,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                        onExpand: (() -> Unit)? = null) {
     var draft by DraftField({ repository.draft(chat.id).text }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(text = it)) }
     var attachedImages by DraftField({ repository.draft(chat.id).images }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(images = it)) }
+    var attachedFiles by DraftField({ repository.draft(chat.id).files }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(files = it)) }
     // The composer's text with its cursor. When the draft changes from outside the field, such as a quote or
     // dictation, the cursor goes to `draftCursor` if one was set, or else to the end.
     var draftField by remember(chat.id) { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
@@ -133,9 +137,22 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
         }
     }
+    // Any other file is copied in when picked; together they may hold MAX_UPLOAD bytes.
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) scope.launch {
+            val copied = withContext(Dispatchers.IO) { uris.mapNotNull { Attachments.copy(context, it) } }
+            var room = MAX_UPLOAD - attachedFiles.sumOf { it.size }
+            val (fit, tooBig) = copied.partition { (it.size <= room).also { fits -> if (fits) room -= it.size } }
+            withContext(Dispatchers.IO) { tooBig.forEach(Attachments::delete) }
+            attachedFiles = (attachedFiles + fit).take(MAX_IMAGES)
+            if (tooBig.isNotEmpty()) Toast.makeText(context, "Files can be 5 MB in all", Toast.LENGTH_SHORT).show()
+            else if (copied.size < uris.size) Toast.makeText(context, "Couldn't read that file", Toast.LENGTH_SHORT).show()
+        }
+    }
     var attaching by remember { mutableStateOf(false) }
     if (attaching) AttachSheet(room = MAX_IMAGES - attachedImages.size, onDismiss = { attaching = false },
         onAllPhotos = { photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+        onFiles = { filePicker.launch(arrayOf("*/*")) },
         onImages = { attachedImages = (attachedImages + it).take(MAX_IMAGES) })
     val inputFocusRequester = remember { FocusRequester() }
     LaunchedEffect(focusInput.value) {
@@ -182,13 +199,14 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
     // Dismiss clipboard banner when user starts typing
     LaunchedEffect(draft) { if (draft.isNotBlank()) clipboardContent.value = null }
     fun submit() {
-        val hasContent = draft.isNotBlank() || attachedImages.isNotEmpty()
+        val hasContent = draft.isNotBlank() || attachedImages.isNotEmpty() || attachedFiles.isNotEmpty()
         if (hasContent && !chat.busy) {
             followLatest = true
-            val text = draft.ifBlank { imagePrompt(attachedImages.size) }
-            repository.send(text, attachedImages)
+            val text = draft.ifBlank { attachedPrompt(attachedImages.size, attachedFiles.size) }
+            repository.send(text, attachedImages, files = attachedFiles)
             draft = ""
             attachedImages = emptyList()
+            attachedFiles = emptyList()
         }
     }
     // While Beep works, its progress sits in the conversation under the last message, even after some
@@ -336,7 +354,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             inputFocusRequester.requestFocus()
                         }
                         val quote: () -> Unit = { quoteText(message.text.trim().lines().take(4).joinToString("\n")) }
-                        if (shownText.isNotBlank() || message.images.isNotEmpty() || message.pictures.isNotEmpty()) SelectableMessage(quoteText) { picker -> Box {
+                        if (shownText.isNotBlank() || message.images.isNotEmpty() || message.pictures.isNotEmpty() || message.files.isNotEmpty()) SelectableMessage(quoteText) { picker -> Box {
                         // Long press and double tap belong to text selection, so a tap opens the menu (copy, quote, share).
                         Column(bubbleModifier.then(picker.tracking).combinedClickable(enabled = !isStreaming, onClickLabel = "Message actions",
                             indication = null, interactionSource = remember { MutableInteractionSource() },
@@ -364,6 +382,10 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             }
                             // Pictures the server kept, for a chat reloaded or sent from another device.
                             if (message.images.isEmpty()) SentPictureRow(message.pictures)
+                            if (message.files.isNotEmpty()) Column(Modifier.widthIn(max = 280.dp).padding(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                message.files.forEach { FileCard(it) }
+                            }
                             if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
                                 padded = isUser || Beep.shapes.botBubble)
                         }
@@ -565,6 +587,26 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
         }
 
+        // Files waiting to go with the next message.
+        AnimatedVisibility(visible = attachedFiles.isNotEmpty(),
+            enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Row(Modifier.horizontalScroll(rememberScrollState())
+                .padding(horizontal = if (compact) 12.dp else 18.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                attachedFiles.forEach { file ->
+                    Box {
+                        AttachedFileChip(file, Modifier.popIn(file.path))
+                        ChunkyButton(onClick = { attachedFiles = attachedFiles - file; scope.launch(Dispatchers.IO) { Attachments.delete(file) } },
+                            color = Beep.colors.ink, contentColor = Beep.colors.page,
+                            modifier = Modifier.size(24.dp).align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp),
+                            contentPadding = PaddingValues(0.dp)) {
+                            Icon(Icons.Outlined.Close, "Remove ${file.name}", Modifier.size(14.dp))
+                        }
+                    }
+                }
+            }
+        }
+
         // Messages queued while the reply runs; each sends as its own turn once the one before finishes.
         AnimatedVisibility(visible = chat.hasQueued,
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
@@ -587,12 +629,13 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         Row(Modifier.heightIn(min = 36.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${index + 1}", Modifier.width(16.dp), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                                 color = TextMuted, textAlign = TextAlign.Center)
-                            Text(queued.text.ifBlank { "${queued.images.size} image" + if (queued.images.size > 1) "s" else "" },
+                            Text(queued.text.ifBlank { queued.files.firstOrNull()?.name ?: ("${queued.images.size} image" + if (queued.images.size > 1) "s" else "") },
                                 Modifier.weight(1f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             IconButton(onClick = {
                                 val back = repository.unqueue(index, chat.id) ?: return@IconButton
                                 draft = listOf(back.text, draft).filter { it.isNotBlank() }.joinToString("\n\n")
                                 attachedImages = (back.images + attachedImages).take(MAX_IMAGES)
+                                attachedFiles = back.files + attachedFiles
                             }, Modifier.size(36.dp)) {
                                 Icon(Icons.Outlined.Close, "Edit queued message ${index + 1}", Modifier.size(16.dp), tint = TextMuted)
                             }
@@ -616,12 +659,12 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                 verticalAlignment = Alignment.CenterVertically) {
                 if (!chat.busy && draft.isBlank() && attachedImages.size < MAX_IMAGES) {
                     IconButton(onClick = { attaching = true }, modifier = Modifier.padding(start = 2.dp)) {
-                        Icon(Icons.Outlined.Image, "Add a photo", Modifier.size(22.dp), tint = TextMuted)
+                        Icon(Icons.Outlined.Image, "Add a photo or file", Modifier.size(22.dp), tint = TextMuted)
                     }
                 }
                 TextField(value = draftField, onValueChange = { if (it.text.toByteArray().size <= 32768) { draftField = it; draft = it.text } },
                     modifier = Modifier.weight(1f).focusRequester(inputFocusRequester),
-                    placeholder = { Text(if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else "Ask anything...", fontSize = 15.sp, color = TextDim) },
+                    placeholder = { Text(if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else if (attachedFiles.isNotEmpty()) "Ask about the file..." else "Ask anything...", fontSize = 15.sp, color = TextDim) },
                     textStyle = LocalTextStyle.current.copy(fontSize = 15.sp),
                     colors = TextFieldDefaults.colors(unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, cursorColor = TextPrimary),
@@ -631,10 +674,10 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             val buttonModifier = Modifier.size(buttonSize)
             when {
                 chat.busy -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (draft.isNotBlank() || attachedImages.isNotEmpty()) {
+                    if (draft.isNotBlank() || attachedImages.isNotEmpty() || attachedFiles.isNotEmpty()) {
                         ChunkyButton(onClick = {
-                            repository.queue(draft, attachedImages, chat.id)
-                            draft = ""; attachedImages = emptyList()
+                            repository.queue(draft, attachedImages, chat.id, attachedFiles)
+                            draft = ""; attachedImages = emptyList(); attachedFiles = emptyList()
                         }, modifier = buttonModifier, shape = buttonShape,
                             color = Surface, contentColor = TextPrimary, contentPadding = PaddingValues(0.dp)) {
                             Icon(Icons.Outlined.Schedule, "Queue message", Modifier.size(22.dp))
@@ -645,7 +688,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         Icon(Icons.Outlined.Stop, "Stop reply", Modifier.size(22.dp))
                     }
                 }
-                draft.isNotBlank() || attachedImages.isNotEmpty() -> {
+                draft.isNotBlank() || attachedImages.isNotEmpty() || attachedFiles.isNotEmpty() -> {
                     // A quick squish on tap so sending feels physical.
                     val squish = remember { Animatable(1f) }
                     val noMotion = reduceMotion()

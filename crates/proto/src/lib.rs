@@ -493,6 +493,7 @@ requests! {
 pub const MAX_UPLOAD: usize = 5 * 1024 * 1024;
 
 /// A file sent with a message, such as a PDF or a spreadsheet.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Upload {
     pub name: String,

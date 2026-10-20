@@ -121,8 +121,11 @@ sealed class ToolCard {
     data class Products(val products: List<Product>) : ToolCard()
     /** Recommendations from show_cards: places, films and shows, events or any other kind. */
     data class Recs(val cards: List<RecCard>) : ToolCard()
-    /** A file Beep sent, fetched from the server by [id] when first opened. */
-    data class File(val id: String, val name: String, val mime: String, val size: Long) : ToolCard()
+    /**
+     * A file Beep or the user sent, fetched from the server by [id] when first opened. A file
+     * the user attached on this phone has no [id] until the chat reloads, and opens from [path].
+     */
+    data class File(val id: String, val name: String, val mime: String, val size: Long, val path: String = "") : ToolCard()
     /** A place Beep saved by name, which routines can start on arriving at or leaving. */
     data class SavedPlace(val id: String, val name: String, val address: String, val radiusMeters: Int,
         val latitude: Double, val longitude: Double) : ToolCard()
