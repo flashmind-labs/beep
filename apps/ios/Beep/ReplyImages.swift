@@ -4,7 +4,7 @@ import UIKit
 
 /// Files Beep sent, kept in Caches/sent/<id>/<name> so each downloads once. A sent image is
 /// named `beep-file:<id>/<name>`, so the image views load it like one from the web.
-enum SentFiles {
+enum SentFileCache {
     private static let scheme = "beep-file:"
 
     static func imageURL(id: String, name: String) -> String {
@@ -50,7 +50,7 @@ final class ReplyImageCache {
             data = Data(base64Encoded: String(url[url.index(after: comma)...]), options: .ignoreUnknownCharacters)
         } else if url.hasPrefix("https://"), let link = URL(string: url) {
             data = await Self.download(link)
-        } else if let file = SentFiles.parts(url) {
+        } else if let file = SentFileCache.parts(url) {
             data = (try? await model.sentFile(id: file.id, name: file.name)).flatMap { try? Data(contentsOf: $0) }
         } else {
             data = nil
@@ -260,7 +260,7 @@ struct ImageViewer: View {
         .onAppear { page = start }
         .task(id: page) {
             file = nil
-            guard let current, let sent = SentFiles.parts(current.url) else { return }
+            guard let current, let sent = SentFileCache.parts(current.url) else { return }
             file = try? await model.sentFile(id: sent.id, name: sent.name)
         }
     }

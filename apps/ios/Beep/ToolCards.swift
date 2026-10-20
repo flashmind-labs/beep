@@ -92,7 +92,7 @@ enum ToolCard: Equatable {
         case "send_image":
             let images: [ReplyPicture] = (json["images"] as? [[String: Any]] ?? []).compactMap { image in
                 let url = field(image, "url") ?? (image["file"] as? [String: Any]).flatMap { file in
-                    field(file, "id").map { SentFiles.imageURL(id: $0, name: field(file, "name") ?? "image") }
+                    field(file, "id").map { SentFileCache.imageURL(id: $0, name: field(file, "name") ?? "image") }
                 }
                 return url.map { ReplyPicture(url: $0, alt: field(image, "caption") ?? "") }
             }
@@ -115,7 +115,7 @@ enum ToolCard: Equatable {
             let mime = field(file, "mime") ?? "application/octet-stream"
             // An image shows as a picture, as one from send_image does.
             if mime.hasPrefix("image/") {
-                self = .images([ReplyPicture(url: SentFiles.imageURL(id: id, name: name), alt: "")])
+                self = .images([ReplyPicture(url: SentFileCache.imageURL(id: id, name: name), alt: "")])
             } else {
                 self = .file(SentFile(id: id, name: name, mime: mime, size: (file["size"] as? Int64) ?? Int64(file["size"] as? Int ?? 0)))
             }
