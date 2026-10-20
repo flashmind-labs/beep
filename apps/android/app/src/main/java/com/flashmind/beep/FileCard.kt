@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Description
@@ -96,6 +97,25 @@ fun FileCard(card: ToolCard.File) {
     }
 }
 
+/** A file waiting in the composer: its icon, name and size. */
+@Composable
+fun AttachedFileChip(file: ToolCard.File, modifier: Modifier = Modifier) {
+    val t = Beep
+    val context = LocalContext.current
+    Row(modifier.widthIn(max = 220.dp).beepFrame(RoundedCornerShape(t.shapes.smallRadius), t.colors.surface, pressableLook())
+        .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.size(32.dp).background(t.colors.tints[0], RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.Description, null, Modifier.size(18.dp), tint = t.colors.ink)
+        }
+        Column {
+            Text(file.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = t.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOf(kindOf(file), Formatter.formatShortFileSize(context, file.size)).filter(String::isNotBlank).joinToString(", "),
+                fontSize = 11.sp, color = t.colors.muted, maxLines = 1)
+        }
+    }
+}
+
 /** "PDF" for a PDF, else the extension in capitals. */
 private fun kindOf(card: ToolCard.File): String =
     if (card.mime == "application/pdf") "PDF" else card.name.substringAfterLast('.', "").uppercase().take(5)
@@ -126,7 +146,11 @@ object SentFiles {
 
     fun isImage(url: String) = url.startsWith(SCHEME)
 
-    suspend fun fetch(context: Context, card: ToolCard.File): Uri = uriOf(context, download(context, card.id, card.name))
+    suspend fun fetch(context: Context, card: ToolCard.File): Uri = uriOf(context, local(context, card))
+
+    /** [card]'s file on this phone: the attached copy, or else the download. */
+    suspend fun local(context: Context, card: ToolCard.File): File =
+        if (card.path.isNotEmpty()) File(card.path) else download(context, card.id, card.name)
 
     /** The file behind an [imageUrl], downloaded on first use. */
     suspend fun image(context: Context, url: String): File {

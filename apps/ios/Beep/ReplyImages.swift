@@ -266,12 +266,58 @@ struct ImageViewer: View {
     }
 }
 
-/// A file a send_file call sent.
+/// A file a send_file call sent, or one the user sent with a message. A file
+/// attached on this phone has no `id` until the chat reloads, and opens from `local`.
 struct SentFile: Equatable {
     var id: String
     var name: String
     var mime: String
     var size: Int64
+    var local: URL? = nil
+
+    /// The most the files of one message may hold in all; the server refuses more.
+    static let limit: Int64 = 5 * 1024 * 1024
+
+    /// Copies a picked file in, so the message can still send it after the picker lets go.
+    static func attach(_ url: URL) throws -> SentFile {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let dir = FileManager.default.temporaryDirectory.appending(path: "attached/\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let copy = dir.appending(path: url.lastPathComponent)
+        try FileManager.default.copyItem(at: url, to: copy)
+        let values = try? copy.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey])
+        return SentFile(id: "", name: url.lastPathComponent,
+                        mime: values?.contentType?.preferredMIMEType ?? "application/octet-stream",
+                        size: Int64(values?.fileSize ?? 0), local: copy)
+    }
+
+    /// "PDF" for a PDF, else the extension in capitals, then the size.
+    var detail: String {
+        let kind = mime == "application/pdf" ? "PDF" : String((name as NSString).pathExtension.uppercased().prefix(5))
+        let size = size > 0 ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : ""
+        return [kind, size].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+}
+
+/// A file waiting in the composer: its icon, name and size.
+struct AttachedFileChip: View {
+    let file: SentFile
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.text").font(.system(size: 15)).foregroundStyle(Mint.ink)
+                .frame(width: 32, height: 32)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Mint.tints[0]))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(file.name).font(.body(13, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
+                Text(file.detail).font(.body(11)).foregroundStyle(Mint.muted).lineLimit(1)
+            }
+        }
+        .padding(.leading, 7).padding(.trailing, 30).padding(.vertical, 7)
+        .frame(maxWidth: 230, alignment: .leading)
+        .chunky(radius: 12)
+    }
 }
 
 /// A file Beep sent. Tapping downloads it once and opens it; the share button hands it to another app.
@@ -326,9 +372,7 @@ struct FileCard: View {
         if gone { return "No longer available" }
         if loading { return "Downloading..." }
         if !error.isEmpty { return error }
-        let kind = file.mime == "application/pdf" ? "PDF" : String((file.name as NSString).pathExtension.uppercased().prefix(5))
-        let size = file.size > 0 ? ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file) : ""
-        return [kind, size].filter { !$0.isEmpty }.joined(separator: ", ")
+        return file.detail
     }
 
     private func withFile(_ then: @escaping (URL) -> Void) {
@@ -336,7 +380,7 @@ struct FileCard: View {
         loading = true
         Task {
             do {
-                then(try await model.sentFile(id: file.id, name: file.name))
+                then(try await model.sentFile(file))
                 error = ""
             } catch BeepError.NotFound {
                 gone = true

@@ -185,6 +185,10 @@ class ChatRepository(private val storage: LocalStorage) {
     val backedUp = MutableStateFlow<Boolean?>(null)
     init {
         scope.launch {
+            // Copies of attached files that no message, queue or retry still needs.
+            val kept = state.value.conversations.flatMap { c ->
+                c.pendingFiles + c.queued.flatMap { it.files } + c.messages.flatMap { it.files } }.map { it.path }
+            withContext(Dispatchers.IO) { runCatching { Attachments.prune(storage.context, kept) } }
             restoreIdentity()
             accountName.value = identityName(storage.identity())
             if (settings.value.configured) reconnect()
@@ -264,6 +268,7 @@ class ChatRepository(private val storage: LocalStorage) {
         val history = api(config).getSession(id)
         // A server from before it kept pictures has none to list.
         val pictures = picturesByMessage(runCatching { api(config).getSessionImages(id) }.getOrDefault(emptyList()))
+        val files = filesByMessage(runCatching { api(config).getSessionFiles(id) }.getOrDefault(emptyList()))
         // Likewise a server from before it named agents.
         val agents = runCatching { api(config).getSessionAgents(id) }.getOrDefault(emptyList()).associate { it.message to it.agent.orEmpty() }
         var turnAt = 0L
@@ -271,7 +276,7 @@ class ChatRepository(private val storage: LocalStorage) {
             when (entry) {
                 is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; turnAt = entry.timestamp; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp,
                     autoModel = entry.auto?.model.orEmpty(), autoThinking = entry.auto?.thinking?.name?.lowercase().orEmpty(),
-                    pictures = pictures[entry.timestamp].orEmpty()) }
+                    pictures = pictures[entry.timestamp].orEmpty(), files = files[entry.timestamp].orEmpty()) }
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
@@ -456,30 +461,32 @@ class ChatRepository(private val storage: LocalStorage) {
         if (!connected.value && settings.value.configured) reconnect()
     }
     private fun resumePending() { state.value.conversations.filter { it.busy }.forEach { launchRun(it.id) } }
-    fun send(text: String, images: List<String> = emptyList(), conversationId: String = state.value.current.id, model: String = "", thinking: String = "") {
+    fun send(text: String, images: List<String> = emptyList(), conversationId: String = state.value.current.id, model: String = "", thinking: String = "",
+             files: List<ToolCard.File> = emptyList()) {
         // A routine's chat may not be listed here yet.
         if (state.value.conversations.none { it.id == conversationId })
             update { it.copy(conversations = it.conversations + Conversation(id = conversationId, title = text.trim().take(44))) }
         val chat = state.value.conversations.first { it.id == conversationId }
         if (text.isBlank() || chat.busy || !settings.value.configured) return
-        startTurn(chat, text, images, model, thinking)
+        startTurn(chat, text, images, model, thinking, files)
         launchRun(chat.id)
     }
     /** Shows [text] as the user's next prompt and marks the chat as sending it. */
-    private fun startTurn(chat: Conversation, text: String, images: List<String>, model: String, thinking: String = "") {
+    private fun startTurn(chat: Conversation, text: String, images: List<String>, model: String, thinking: String = "",
+                          files: List<ToolCard.File> = emptyList()) {
         val request = UUID.randomUUID().toString()
         // A new message instead of an answer skips the call that waits on it.
         val skipped = chat.messages.flatMap { m -> m.approvals.filter { it.waiting } }
         skipped.forEach { ApprovalNotifications.cancel(storage.context, it.queryId) }
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
-            messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model, modelThinking = thinking),
-            requestId = request, pendingText = text.trim(), pendingImages = images, pendingModel = model, pendingThinking = thinking,
+            messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model, modelThinking = thinking, files = files),
+            requestId = request, pendingText = text.trim(), pendingImages = images, pendingFiles = files, pendingModel = model, pendingThinking = thinking,
             status = "Sending…", error = "") }
     }
     /** Holds a message typed while [chatId]'s reply runs, after any already held; each sends as its own turn. */
-    fun queue(text: String, images: List<String>, chatId: String = state.value.current.id) {
-        if (text.isBlank() && images.isEmpty()) return
-        updateChat(chatId) { it.copy(queued = it.queued + QueuedMessage(text.trim(), images.take(MAX_IMAGES))) }
+    fun queue(text: String, images: List<String>, chatId: String = state.value.current.id, files: List<ToolCard.File> = emptyList()) {
+        if (text.isBlank() && images.isEmpty() && files.isEmpty()) return
+        updateChat(chatId) { it.copy(queued = it.queued + QueuedMessage(text.trim(), images.take(MAX_IMAGES), files)) }
     }
     /** Drops [chatId]'s queued message at [index] and returns it, so it can go back into the composer. */
     fun unqueue(index: Int, chatId: String = state.value.current.id): QueuedMessage? {
@@ -492,7 +499,7 @@ class ChatRepository(private val storage: LocalStorage) {
         val chat = state.value.conversations.find { it.id == chatId } ?: return
         if (chat.busy || !chat.hasQueued) return
         val next = unqueue(0, chatId) ?: return
-        send(next.text.ifBlank { imagePrompt(next.images.size) }, next.images, chatId)
+        send(next.text.ifBlank { attachedPrompt(next.images.size, next.files.size) }, next.images, chatId, files = next.files)
     }
     /**
      * Starts [chat]'s first queued message once its reply finished cleanly. A run that stopped,
@@ -502,7 +509,7 @@ class ChatRepository(private val storage: LocalStorage) {
         if (!chat.hasQueued || chat.error.isNotEmpty() || !settings.value.configured) return false
         if (chat.messages.any { m -> m.approvals.any { it.waiting } }) return false
         val next = unqueue(0, chat.id) ?: return false
-        startTurn(chat, next.text.ifBlank { imagePrompt(next.images.size) }, next.images, "")
+        startTurn(chat, next.text.ifBlank { attachedPrompt(next.images.size, next.files.size) }, next.images, "", files = next.files)
         return true
     }
     /**
@@ -528,8 +535,11 @@ class ChatRepository(private val storage: LocalStorage) {
             try { prompt.pictures.map { SentPictures.dataUri(storage.context, it) } }
             catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
         }
+        // Likewise its files, which go out again from a local copy.
+        val files = try { withContext(Dispatchers.IO) { prompt.files.map { it.copy(path = SentFiles.local(storage.context, it).path) } } }
+            catch (error: Exception) { throw IllegalStateException(userMessage(error), error) }
         deleteTurn(prompt, chat.id, onward = true)
-        send(prompt.text, images, chat.id, model, thinking)
+        send(prompt.text, images, chat.id, model, thinking, files)
     }
     /**
      * Removes [prompt] with the reply and tool calls that followed it, here and on the server.
@@ -577,7 +587,7 @@ class ChatRepository(private val storage: LocalStorage) {
         val last = chat.messages.lastOrNull { it.role == "user" } ?: return
         if (!settings.value.configured) return
         updateChat(chat.id) { it.copy(requestId = UUID.randomUUID().toString(), pendingText = last.text,
-            pendingImages = last.images, pendingModel = last.model, pendingThinking = last.modelThinking, status = "Sending…", error = "") }
+            pendingImages = last.images, pendingFiles = last.files, pendingModel = last.model, pendingThinking = last.modelThinking, status = "Sending…", error = "") }
         launchRun(chat.id)
     }
     /**
@@ -592,7 +602,7 @@ class ChatRepository(private val storage: LocalStorage) {
             stopping[chat.id] = scope.launch { runCatching { stopRun(chat) } }
         }
         // The run's events stop counting once its id is gone from the chat.
-        updateChat(chat.id) { it.ended("cancelled").copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "") }
+        updateChat(chat.id) { it.ended("cancelled").copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingFiles = emptyList(), pendingModel = "", pendingThinking = "") }
     }
     /** [this] chat once its run ended with [status]: the reply settles and the chat is free. */
     private fun Conversation.ended(status: String) = copy(
@@ -614,6 +624,7 @@ class ChatRepository(private val storage: LocalStorage) {
         api.cancelRun(runId)
     }
     private suspend fun sendPending(api: BeepClient, chat: Conversation) = api.chat(chat.id, chat.requestId, chat.pendingText, chat.pendingImages,
+        withContext(Dispatchers.IO) { Attachments.uploads(chat.pendingFiles) },
         chat.pendingModel.takeIf { it.isNotEmpty() }?.let { Rerun(it, ReasoningLevel.entries.find { level -> level.name.equals(chat.pendingThinking, true) }) })
     /** What the chat shows under a run that ended with [status], given the error it already has. */
     private fun runEndError(status: String, current: String) = when (status) {
@@ -654,7 +665,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             val started = received.event as? RunEvent.RunStarted
                             if (started != null) {
                                 runId = started.runId
-                                updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "", cursor = 0) }
+                                updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImages = emptyList(), pendingFiles = emptyList(), pendingModel = "", pendingThinking = "", cursor = 0) }
                             }
 
                             // A run that finished while we were away only reports its status.
@@ -663,7 +674,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             if (missed && runId.isEmpty()) {
                                 // A resent message whose run already finished: we never learned its id.
                                 val status = (received.event as RunEvent.RunFinished).status
-                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingModel = "", pendingThinking = "", status = "", tool = "",
+                                updateChat(id) { it.copy(requestId = "", pendingText = "", pendingImages = emptyList(), pendingFiles = emptyList(), pendingModel = "", pendingThinking = "", status = "", tool = "",
                                     error = runEndError(status, it.error)) }
                             } else {
                                 event(id, runId, received)
@@ -1099,7 +1110,7 @@ class ChatRepository(private val storage: LocalStorage) {
         var cursor = 0L
         var finished = false
         while (!finished) {
-            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, emptyList(), null) else api.events(runId, cursor)
+            val stream = if (runId.isEmpty()) api.chat(sessionId, requestId, prompt, emptyList(), emptyList(), null) else api.events(runId, cursor)
             stream.use { events ->
                 var first = true
                 while (true) {

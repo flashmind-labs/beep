@@ -47,12 +47,15 @@ struct Message: Identifiable, Equatable {
     var approvals: [ApprovalPrompt] = []
     /// Pictures a user message carries.
     var pictures: [Picture] = []
+    /// Other files a user message carries, such as a PDF.
+    var files: [SentFile] = []
 }
 
 /// A message typed while a reply runs, sent as its own turn once the reply finishes.
 struct QueuedMessage: Equatable {
     var text: String
     var images: [Data]
+    var files: [SentFile] = []
 }
 
 /// The open chat and the run streaming into it.
@@ -66,6 +69,8 @@ struct Chat: Equatable {
     var pendingText = ""
     /// Data URIs of the pictures going out with `pendingText`.
     var pendingImages: [String] = []
+    /// Files going out with `pendingText`.
+    var pendingFiles: [SentFile] = []
     var thinking = ""
     var error = ""
     /// Messages waiting for the reply to finish, sent one by one.
@@ -269,7 +274,7 @@ final class AppModel {
         stopStreaming()
         chat = Chat(id: session.id, title: session.title)
         if let cached = ChatStore.loadHistory(session.id) {
-            show(cached.entries, images: cached.images, at: cached.updatedAt)
+            show(cached.entries, images: cached.images, files: cached.files, at: cached.updatedAt)
         }
         Task { await refreshOpenChat() }
     }
@@ -387,17 +392,22 @@ final class AppModel {
         guard let entries = try? await api().getSession(id: id), chat.id == id, !chat.busy else { return }
         // An older server has no pictures to give, which just means none show.
         let images = (try? await api().getSessionImages(id: id)) ?? []
+        let files = (try? await api().getSessionFiles(id: id)) ?? []
         guard chat.id == id, !chat.busy else { return }
-        show(entries, images: images, at: updatedAt)
-        ChatStore.saveHistory(id, HistoryCache(updatedAt: updatedAt, entries: entries, images: images))
+        show(entries, images: images, files: files, at: updatedAt)
+        ChatStore.saveHistory(id, HistoryCache(updatedAt: updatedAt, entries: entries, images: images, files: files))
         if let session = sessions.first(where: { $0.id == id }) { remember(preview(entries), for: session) }
     }
 
     /// Puts a fetched or saved history on screen as the open chat's messages. Turns where
     /// the model only called tools fold into the next reply with text, as on Android.
-    private func show(_ entries: [HistoryEntry], images: [SentImages], at updatedAt: Int64) {
+    private func show(_ entries: [HistoryEntry], images: [SentImages], files: [SentFiles], at updatedAt: Int64) {
         let id = chat.id
         let pictures = picturesByMessage(images)
+        var filesByMessage: [Int64: [SentFile]] = [:]
+        for sent in files {
+            filesByMessage[sent.message] = sent.files.map { SentFile(id: $0.id, name: $0.name, mime: $0.mime, size: Int64($0.size)) }
+        }
         var pendingTools: [ToolCall] = []
         var pendingReasoning = ""
         var messages: [Message] = []
@@ -407,7 +417,8 @@ final class AppModel {
             case .user(let content, let timestamp, _):
                 pendingTools = []
                 pendingReasoning = ""
-                messages.append(Message(id: mid, role: .user, text: content, pictures: pictures[timestamp] ?? []))
+                messages.append(Message(id: mid, role: .user, text: content, pictures: pictures[timestamp] ?? [],
+                                        files: filesByMessage[timestamp] ?? []))
             case .scheduled(let label, _):
                 pendingTools = []
                 pendingReasoning = ""
@@ -556,25 +567,28 @@ final class AppModel {
 
     // MARK: Runs
 
-    /// Sends a message, with up to eight pictures as JPEGs.
-    func send(_ text: String, images: [Data] = []) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !images.isEmpty, !chat.busy else { return }
+    /// Sends a message, with up to eight pictures as JPEGs and any other files.
+    func send(_ text: String, images: [Data] = [], files: [SentFile] = []) {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty || !images.isEmpty || !files.isEmpty, !chat.busy else { return }
+        // The server needs words; a file sent on its own gets some, as Android does.
+        if trimmed.isEmpty, !files.isEmpty { trimmed = files.count + images.count > 1 ? "Have a look at these files." : "Have a look at this file." }
         if chat.messages.isEmpty { chat.title = String((trimmed.isEmpty ? "Photo" : trimmed).prefix(44)) }
         chat.messages.append(Message(id: UUID().uuidString, role: .user, text: trimmed,
-                                     pictures: images.map { Picture(dataUri: dataURI($0)) }))
+                                     pictures: images.map { Picture(dataUri: dataURI($0)) }, files: files))
         chat.requestId = UUID().uuidString.lowercased()
         chat.pendingText = trimmed
         chat.pendingImages = images.map(dataURI)
+        chat.pendingFiles = files
         chat.error = ""
         launchRun()
     }
 
     /// Holds a message until the running reply finishes.
-    func queue(_ text: String, images: [Data] = []) {
+    func queue(_ text: String, images: [Data] = [], files: [SentFile] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !images.isEmpty else { return }
-        chat.queued.append(QueuedMessage(text: trimmed, images: Array(images.prefix(ChatPhotos.limit))))
+        guard !trimmed.isEmpty || !images.isEmpty || !files.isEmpty else { return }
+        chat.queued.append(QueuedMessage(text: trimmed, images: Array(images.prefix(ChatPhotos.limit)), files: files))
     }
 
     /// Drops the queued message at `index` and returns it, so it can go back into the composer.
@@ -586,7 +600,7 @@ final class AppModel {
     /// Sends the first queued message now; the rest follow it.
     func sendQueued() {
         guard !chat.busy, let next = unqueue(0) else { return }
-        send(next.text, images: next.images)
+        send(next.text, images: next.images, files: next.files)
     }
 
     /// Sends the last prompt again after a run that did not finish.
@@ -595,6 +609,7 @@ final class AppModel {
         chat.requestId = UUID().uuidString.lowercased()
         chat.pendingText = last.text
         chat.pendingImages = last.pictures.compactMap(\.dataUri)
+        chat.pendingFiles = last.files
         chat.error = ""
         launchRun()
     }
@@ -610,6 +625,7 @@ final class AppModel {
         chat.requestId = ""
         chat.pendingText = ""
         chat.pendingImages = []
+        chat.pendingFiles = []
         chat.thinking = ""
         chat.error = runEndError("cancelled", current: chat.error)
         finished(chat)
@@ -624,7 +640,7 @@ final class AppModel {
             // The same request finds the run it started, or starts it to be stopped.
             let stream = try await api.chat(
                 sessionId: chat.id, requestId: chat.requestId, message: chat.pendingText,
-                images: chat.pendingImages, rerun: nil)
+                images: chat.pendingImages, files: try await uploads(chat.pendingFiles), rerun: nil)
             while runId.isEmpty, let received = try await stream.next() {
                 if case .runStarted(let started, _) = received.event { runId = started }
             }
@@ -684,7 +700,7 @@ final class AppModel {
                         await reportTimezone()
                         stream = try await api.chat(
                             sessionId: chatId, requestId: chat.requestId, message: chat.pendingText,
-                            images: chat.pendingImages, rerun: nil)
+                            images: chat.pendingImages, files: try await uploads(chat.pendingFiles), rerun: nil)
                     } else {
                         stream = try await api.events(runId: chat.runId, after: chat.cursor)
                     }
@@ -696,6 +712,7 @@ final class AppModel {
                             chat.requestId = ""
                             chat.pendingText = ""
                             chat.pendingImages = []
+                            chat.pendingFiles = []
                             chat.error = runEndError(status)
                             await loadHistory()
                             break
@@ -731,6 +748,7 @@ final class AppModel {
             chat.requestId = ""
             chat.pendingText = ""
             chat.pendingImages = []
+            chat.pendingFiles = []
         }
         guard received.seq > chat.cursor else { return }
         guard received.seq == chat.cursor + 1 else { throw MissedEvent() }
@@ -820,6 +838,22 @@ final class AppModel {
         }
     }
 
+    /// The bytes to send for `files`, read from the attached copy or downloaded again.
+    private func uploads(_ files: [SentFile]) async throws -> [Upload] {
+        var out: [Upload] = []
+        for file in files {
+            let url = try await sentFile(file)
+            out.append(Upload(name: file.name, mime: file.mime, data: try Data(contentsOf: url)))
+        }
+        return out
+    }
+
+    /// `file` on this phone: the copy attached here, or else the download.
+    func sentFile(_ file: SentFile) async throws -> URL {
+        if let local = file.local { return local }
+        return try await sentFile(id: file.id, name: file.name)
+    }
+
     /// A file Beep sent, downloaded once into the cache under its own name.
     func sentFile(id: String, name: String) async throws -> URL {
         let url = SentFileCache.local(id: id, name: name)
@@ -857,7 +891,7 @@ final class AppModel {
         }
         guard let api = try? api(),
             let stream = try? await api.chat(
-                sessionId: id, requestId: UUID().uuidString.lowercased(), message: text, images: [], rerun: nil)
+                sessionId: id, requestId: UUID().uuidString.lowercased(), message: text, images: [], files: [], rerun: nil)
         else { return }
         var reply = ""
         while let received = try? await stream.next() {

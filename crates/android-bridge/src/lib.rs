@@ -13,20 +13,20 @@ use beep_proto::{
     DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceInvite,
     DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth, FinishMcpAuth,
     GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels,
-    GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionImages, GetShare, Group,
-    GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health,
-    HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice,
-    LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices, ListGroupReminders,
-    ListGroups, ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads, ListPlaces,
-    ListSessions, ListSkills, McpCallback, McpConnect, McpServer, McpTools, Memory, MemoryRead,
-    Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession, Place,
-    PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount,
-    RemoveDevice, RemoveMcpServer, RenameSession, RouteCard, Run, RunCron, SearchSessions,
-    SendToGroup, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel,
-    SetMcpTool, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
-    SharedSession, Skill, StartAppAuth, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill,
-    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
-    UpdateSkill,
+    GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetSessionImages,
+    GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder,
+    Health, HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup,
+    LinkDevice, LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices,
+    ListGroupReminders, ListGroups, ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads,
+    ListPlaces, ListSessions, ListSkills, McpCallback, McpConnect, McpServer, McpTools, Memory,
+    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession,
+    Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, RouteCard, Run, RunCron,
+    SearchSessions, SendToGroup, SentFiles, SentImages, Session, SessionMatch, SetAgents,
+    SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking, SetTimezone,
+    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, Stream,
+    SuggestPrompts, ToggleCron, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
+    UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -234,6 +234,9 @@ pub struct HistoryCache {
     pub updated_at: i64,
     pub entries: Vec<HistoryEntry>,
     pub images: Vec<SentImages>,
+    /// Missing from caches saved before files were kept.
+    #[serde(default)]
+    pub files: Vec<SentFiles>,
 }
 
 /// `cache` as bytes for the phone to save.
@@ -450,13 +453,15 @@ impl BeepClient {
     /// Starts a run and streams its events, starting with `RunStarted`.
     /// `session_id` and `request_id` are UUIDs. Resending the same
     /// `request_id` follows the existing run. `rerun` runs this one turn on
-    /// another model and thinking; only admins may set it.
+    /// another model and thinking; only admins may set it. `files` are other
+    /// files sent with the message, up to `MAX_UPLOAD` bytes in all.
     pub async fn chat(
         &self,
         session_id: String,
         request_id: String,
         message: String,
         images: Vec<String>,
+        files: Vec<Upload>,
         rerun: Option<Rerun>,
     ) -> Result<Arc<EventStream>, BeepError> {
         let (model, thinking) = match rerun {
@@ -471,7 +476,7 @@ impl BeepClient {
             model,
             thinking,
             platform: Some(PLATFORM),
-            files: Vec::new(),
+            files,
         };
         let replies = self.stream(chat).await?;
         Ok(EventStream::new(replies))
@@ -559,6 +564,12 @@ impl BeepClient {
     /// Read each with `save_file`.
     pub async fn get_session_images(&self, id: String) -> Result<Vec<SentImages>, BeepError> {
         self.call(GetSessionImages { session_id: id }).await
+    }
+
+    /// The other files the user sent in a session, by their message's
+    /// timestamp. Read each with `save_file`.
+    pub async fn get_session_files(&self, id: String) -> Result<Vec<SentFiles>, BeepError> {
+        self.call(GetSessionFiles { session_id: id }).await
     }
 
     /// The specialized agent each turn of a session ran as, oldest first.
@@ -1162,11 +1173,22 @@ mod tests {
                 timestamp: 7,
             }],
             images: Vec::new(),
+            files: Vec::new(),
         };
         let decoded = decode_history_cache(encode_history_cache(cache)).expect("it was just saved");
         assert_eq!(decoded.updated_at, 42);
         assert_eq!(decoded.entries.len(), 1);
         assert!(decode_history_cache(vec![0xc1]).is_none());
+    }
+
+    #[test]
+    fn history_cache_from_before_files_still_reads() {
+        let entries: Vec<HistoryEntry> = Vec::new();
+        let images: Vec<SentImages> = Vec::new();
+        let old = rmp_serde::to_vec(&(42i64, entries, images)).expect("plain values encode");
+        let decoded = decode_history_cache(old).expect("an older cache still reads");
+        assert_eq!(decoded.updated_at, 42);
+        assert!(decoded.files.is_empty());
     }
 
     fn runtime() -> tokio::runtime::Runtime {
