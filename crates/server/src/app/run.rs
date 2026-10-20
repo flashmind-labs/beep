@@ -12,6 +12,7 @@ use super::{
 use crate::{
     agents::AgentId,
     apps::{files, markdown},
+    attachments::{self, Handed},
     cron, followups, gates, images,
     live::LiveRun,
     memories::{Exchange, Turn},
@@ -233,6 +234,14 @@ impl App {
         if let Some(sandbox) = &self.tools.sandbox {
             sandbox::register(&mut registry, sandbox, user);
         }
+        if message.draws.mac_files {
+            registry.register(Arc::new(tools::MacFilesTool {
+                app: self.clone(),
+                run_id: run.id.clone(),
+                user: user.clone(),
+                sandbox: self.tools.sandbox.clone(),
+            }));
+        }
         registry.register(Arc::new(tools::SendFileTool {
             user: user.clone(),
             session_id: chat,
@@ -379,7 +388,7 @@ impl App {
                 let message = message.message.clone();
                 tokio::spawn(async move { describer.describe_all(&attached, &message).await })
             });
-        let parts = if sees_images {
+        let mut parts = if sees_images {
             images::labelled(&attached)
         } else {
             let mut descriptions = match describing.take() {
@@ -396,6 +405,19 @@ impl App {
             descriptions.resize(attached.len(), None);
             images::described(&descriptions)
         };
+        if !message.files.is_empty() {
+            let handed: Vec<Handed> = message
+                .files
+                .iter()
+                .map(|file| Handed {
+                    name: &file.name,
+                    mime: &file.mime,
+                    data: &file.data,
+                })
+                .collect();
+            let sandbox = self.tools.sandbox.as_deref();
+            parts.extend(attachments::parts(sandbox, user.external_id(), &handed).await);
+        }
 
         // Flashmind saves `context` as a developer message before the user message. It
         // stays in history, which keeps the cached prefix intact and timestamps each turn.
@@ -841,7 +863,8 @@ impl App {
         let finished = user.finish(run, Some(turn), status).await?;
         // The pictures stay with the message they came with, so every device
         // shows them after the model only keeps their descriptions.
-        if let Some(opened) = finished.and_then(|saved| saved.opened)
+        let opened = finished.and_then(|saved| saved.opened);
+        if let Some(opened) = opened
             && !message.images.is_empty()
         {
             let of = PicturesOf {
@@ -855,6 +878,21 @@ impl App {
                 Ok(_) => user.changed(&run.session_id),
                 Err(error) => log::warn!(
                     "unable to keep the turn's pictures: {error}; run_id={}",
+                    run.id
+                ),
+            }
+        }
+        if let Some(opened) = opened
+            && !message.files.is_empty()
+        {
+            let of = PicturesOf {
+                chat,
+                message: opened,
+            };
+            match user.save_attachments(of, &message.files).await {
+                Ok(()) => user.changed(&run.session_id),
+                Err(error) => log::warn!(
+                    "unable to keep the turn's files: {error:#}; run_id={}",
                     run.id
                 ),
             }

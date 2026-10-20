@@ -1184,6 +1184,8 @@ class ChatRepository(private val storage: LocalStorage) {
         is DeviceQuery.Browser -> browser(query.command)
         // Never runs on its own: the user answers it through [answerApproval].
         is DeviceQuery.Approve -> JSONObject().put("decision", "deny")
+        // Only asked of the Mac app.
+        is DeviceQuery.MacFiles -> error("The phone cannot read files on a computer")
     }
 
     /**

@@ -11,7 +11,7 @@ use crate::{Hello, Platform};
 /// The newest wire revision this crate reads. Raise it together with a new
 /// `Feature`, and run the compat test with `BEEP_WIRE_BLESS=1` to freeze the
 /// new revision's fixtures.
-pub const WIRE: u32 = 3;
+pub const WIRE: u32 = 4;
 
 /// A reply shape newer than some clients: a streamed enum variant, or
 /// anything else only the `WIRE` it names can decode. Declare each as an
@@ -27,6 +27,9 @@ impl Feature {
 
     /// Draws `show_cards` results.
     pub const CARDS: Feature = Feature(3);
+
+    /// Answers `DeviceQuery::MacFiles`. Only the macOS app does.
+    pub const MAC_FILES: Feature = Feature(4);
 
     /// The first wire revision that reads it.
     pub const fn wire(self) -> u32 {

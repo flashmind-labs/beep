@@ -40,6 +40,7 @@ const TOOL_LABELS = {
   query_contacts: "Looking up contacts",
   suggest_replies: "Suggesting replies",
   send_file: "Sending a file",
+  mac_files: "Using files on this Mac",
   show_products: "Showing products",
   show_cards: "Showing recommendations",
   show_chart: "Drawing a chart",
@@ -60,6 +61,8 @@ const TOOL_LABELS = {
   habit_status: "Checking habits",
   habit_delete: "Deleting a habit",
 };
+// Tools whose own description says more than their name, such as "Reading lease.pdf".
+const DESCRIBED = new Set(["mac_files"]);
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 function toolLabel(name) {
   if (TOOL_LABELS[name]) return TOOL_LABELS[name];
@@ -165,7 +168,7 @@ function chatHints() {
   if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
   if (e?.run) return hints([[ICON.ret, "queue"], ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
-  if (attached.pics.length) return hints([[ICON.ret, "send"], ["⌘V", "paste image"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
+  if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (!knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
@@ -259,9 +262,10 @@ function markMap() {
   [...map.children].forEach((tk, i) => tk.classList.toggle("on", i === cur));
 }
 
-function newTurn(question, images) {
+function newTurn(question, images, files) {
   const turn = h(`<div class="turn">${question ? `<div class="ask">${esc(question)}</div>` : ""}${picRow(images)}</div>`);
   fillPics(turn);
+  if (files?.length) turn.append(askFiles(files));
   turn.steps = [];
   turn.folded = true;
   body().append(turn);
@@ -327,7 +331,7 @@ function thinking(turn, delta) {
     row = h(`<div class="thinkrow" style="display:grid;gap:6px"><button class="drow" aria-expanded="false"><span class="chev">${ICON.chev}</span>Thinking</button><div class="think" hidden></div></div>`);
     const btn = row.querySelector("button"), text = row.querySelector(".think");
     btn.addEventListener("click", () => { text.hidden = !text.hidden; btn.setAttribute("aria-expanded", String(!text.hidden)); });
-    const ask = turn.querySelector(".dpics") ?? turn.querySelector(".ask");
+    const ask = turn.querySelector(".dachips") ?? turn.querySelector(".dpics") ?? turn.querySelector(".ask");
     ask ? ask.after(row) : turn.prepend(row);
   }
   row.querySelector(".think").textContent += delta;
@@ -454,7 +458,7 @@ function follow(id, turn) {
         break;
       case "tool_started":
         if (QUIET_TOOLS.has(ev.name)) break;
-        turn.steps.push({ id: ev.call_id, label: toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
+        turn.steps.push({ id: ev.call_id, label: (DESCRIBED.has(ev.name) && ev.description) || toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
         drawSteps(turn, false);
         break;
       case "tool_result": {
@@ -495,13 +499,15 @@ function follow(id, turn) {
 }
 
 async function send(message) {
-  const images = attached.pics.slice();
-  if (!message.trim() && !images.length) return;
+  const images = attached.pics.slice(), files = attached.files.slice();
+  const n = images.length + files.length;
+  if (!message.trim() && !n) return;
   const busy = here();
-  if (images.length && (busy?.run || busy?.approval)) return attachError("Images send once this reply finishes");
+  if (n && (busy?.run || busy?.approval)) return attachError(`${files.length ? "Files" : "Images"} send once this reply finishes`);
   if (busy?.run || busy?.approval) return enqueue(message.trim());
-  message = message.trim() || (images.length > 1 ? "What are these?" : "What is this?");
+  message = message.trim() || (n > 1 ? "What are these?" : "What is this?");
   attached.pics = [];
+  attached.files = [];
   drawAttached();
   const id = S.session ??= newId();
   const ask = $("#ask");
@@ -509,7 +515,7 @@ async function send(message) {
   ask.value = "";
   ask.placeholder = "Ask a follow-up…";
   grow(ask);
-  const turn = newTurn(message, images.map(url => ({ url })));
+  const turn = newTurn(message, images.map(url => ({ url })), files);
   turn.user = true;
   // Without Auto every prompt runs on the chosen model; with it, Jev's pick
   // arrives as an event.
@@ -524,7 +530,8 @@ async function send(message) {
   scrollDown();
   await stopping.get(id);
   try {
-    await invoke("send_prompt", { session: id, message, images, onEvent: follow(id, turn) });
+    const uploads = files.map(({ name, mime, data }) => ({ name, mime, data }));
+    await invoke("send_prompt", { session: id, message, images, files: uploads, onEvent: follow(id, turn) });
   } catch (err) {
     if (!turn.stopped) failed(turn, String(err));
   }
@@ -650,6 +657,7 @@ function drawHistory(id, turns) {
     if (t.role === "user" || t.role === "scheduled") {
       turn = t.role === "user" ? newTurn(t.text, t.images) : newTurn(t.label || "Routine");
       turn.user = t.role === "user";
+      if (turn.user) turn.dataset.at = t.at;
       if (turn.user) ranOn(turn, t.model, t.thinking);
     } else if (t.role === "assistant") {
       turn ??= newTurn("");
@@ -681,6 +689,19 @@ function drawHistory(id, turns) {
   // Only the latest reply's follow-ups still make sense.
   if (last) suggestions(last.turn, last.replies);
   scrollDown();
+  loadAskFiles(id, body());
+}
+
+/// Puts the files sent in session `id` under their prompts, once the server
+/// lists them. The chat may have been left or redrawn meanwhile.
+async function loadAskFiles(id, b) {
+  const sent = await invoke("session_files", { id }).catch(() => []);
+  if (S.session !== id || body() !== b) return;
+  for (const { message, files } of sent) {
+    const turn = b.querySelector(`.turn[data-at="${message}"]`);
+    if (!turn || turn.querySelector(".dachips")) continue;
+    (turn.querySelector(".dpics") ?? turn.querySelector(".ask"))?.after(askFiles(files));
+  }
 }
 
 // ---------- Chats ----------
@@ -894,29 +915,61 @@ async function copy(text, button) {
   setTimeout(() => { if (button.isConnected) button.innerHTML = was; }, 1200);
 }
 
-// ---------- Attached images ----------
+// ---------- Attached images and files ----------
 
-// Pictures pasted or dropped into the prompt, sent with the next message.
-// Each is shrunk and sent as JPEG, as the phone does.
-const attached = { pics: [], error: "" };
+// Pictures and files pasted or dropped into the prompt, sent with the next
+// message. Each picture is shrunk and sent as JPEG, as the phone does; other
+// files go as they are, up to MAX_UPLOAD in all.
+const attached = { pics: [], files: [], error: "" };
 const MAX_IMAGES = 8;
+const MAX_UPLOAD = 5 * 1024 * 1024;
 const PIC_SIDE = 1024;
 
-/// The strip of attached pictures above the prompt, or the error from the
-/// last paste, with the placeholder and hints to match.
+const attachedCount = () => attached.pics.length + attached.files.length;
+
+/// An attached file's chip: its name and size, with a remove button while
+/// it waits in the prompt, as a button that opens it once it is kept.
+function fileChip(f, i) {
+  const about = [fileKind(f), fileSize(f.size)].filter(Boolean).join(", ");
+  const remove = i === undefined ? "" : `<button aria-label="Remove ${esc(f.name)}" data-i="${i}">${ICON.x}</button>`;
+  const tag = f.id ? "button" : "span";
+  return `<${tag} class="dachip"><span class="ic">${ICON.doc}</span><span style="min-width:0"><span class="nm">${esc(f.name)}</span><span class="sz">${esc(about)}</span></span>${remove}</${tag}>`;
+}
+
+/// The files a prompt carried, under it. A kept one opens like a file Beep sent.
+function askFiles(files) {
+  const row = h(`<div class="dachips">${files.map(f => fileChip(f)).join("")}</div>`);
+  [...row.children].forEach((chip, i) => {
+    const file = files[i];
+    if (!file.id) return;
+    chip.addEventListener("click", async () => {
+      if (chip.classList.contains("gone")) return;
+      try { await invoke("open_file", { id: file.id, name: file.name }); }
+      catch (e) {
+        chip.querySelector(".sz").textContent = String(e) === GONE ? GONE : String(e);
+        if (String(e) === GONE) chip.classList.add("gone");
+      }
+    });
+  });
+  return row;
+}
+
+/// The strip of attached pictures and files above the prompt, or the error
+/// from the last paste, with the placeholder and hints to match.
 function drawAttached() {
   const old = $("#thumbs"), input = $("#ask")?.closest(".dinput");
   if (!input) return;
-  const n = attached.pics.length;
+  const pics = attached.pics.length, n = attachedCount();
   const el = n || attached.error ? h(`<div class="dthumbs" id="thumbs">${attached.pics.map((url, i) =>
-    `<span class="dthumb"><img src="${esc(url)}" alt="Image ${i + 1}"><button aria-label="Remove image ${i + 1}" data-i="${i}">${ICON.x}</button></span>`).join("")}${attached.error ? `<span class="derr">${esc(attached.error)}</span>` : ""}</div>`) : null;
+    `<span class="dthumb"><img src="${esc(url)}" alt="Image ${i + 1}"><button aria-label="Remove image ${i + 1}" data-i="${i}">${ICON.x}</button></span>`).join("")}${attached.files.map((f, i) => fileChip(f, pics + i)).join("")}${attached.error ? `<span class="derr">${esc(attached.error)}</span>` : ""}</div>`) : null;
   el?.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { unattach(+b.dataset.i); focusAsk(); }));
   if (old) el ? old.replaceWith(el) : old.remove();
   else if (el) input.before(el);
   const ask = $("#ask");
   if (n) {
     ask.dataset.ph ??= ask.placeholder;
-    ask.placeholder = `Ask about ${n > 1 ? "these images" : "this image"}…`;
+    const what = attached.files.length ? (n > 1 ? "these" : "this file") : (n > 1 ? "these images" : "this image");
+    ask.placeholder = `Ask about ${what}…`;
   } else if (ask.dataset.ph) {
     ask.placeholder = ask.dataset.ph;
     delete ask.dataset.ph;
@@ -924,8 +977,10 @@ function drawAttached() {
   refreshHints();
 }
 
+/// Removes the `i`th attachment, counting pictures first.
 function unattach(i) {
-  attached.pics.splice(i, 1);
+  if (i < attached.pics.length) attached.pics.splice(i, 1);
+  else attached.files.splice(i - attached.pics.length, 1);
   attached.error = "";
   drawAttached();
 }
@@ -937,16 +992,33 @@ function attachError(text) {
   attached.timer = setTimeout(() => { attached.error = ""; drawAttached(); }, 4000);
 }
 
-/// Adds image files from a paste or a drop, up to `MAX_IMAGES` in all.
+/// Adds files from a paste or a drop: pictures shrunk, up to `MAX_IMAGES`;
+/// other files, or pictures that cannot be drawn, as they are.
 async function attach(files) {
-  const pics = [...files].filter(f => f.type.startsWith("image/"));
-  if (!pics.length) return false;
-  for (const f of pics) {
-    if (attached.pics.length >= MAX_IMAGES) { attachError(`Up to ${MAX_IMAGES} images in one message`); break; }
-    try { attached.pics.push(await shrinkPic(f)); } catch { attachError("That image could not be read"); }
+  const all = [...files];
+  if (!all.length) return false;
+  for (const f of all) {
+    if (attachedCount() >= MAX_IMAGES) { attachError(`Up to ${MAX_IMAGES} attachments in one message`); break; }
+    if (f.type.startsWith("image/")) {
+      try { attached.pics.push(await shrinkPic(f)); continue; } catch { /* sent as a file, such as a HEIC */ }
+    }
+    const used = attached.files.reduce((n, x) => n + x.size, 0);
+    if (used + f.size > MAX_UPLOAD) { attachError(`Files up to ${MAX_UPLOAD >> 20} MB in one message`); continue; }
+    try { attached.files.push({ name: f.name || "file", mime: f.type, size: f.size, data: await fileBase64(f) }); }
+    catch { attachError(`${f.name || "That file"} could not be read`); }
   }
   drawAttached();
   return true;
+}
+
+/// `file`'s bytes in base64. A folder fails to read.
+function fileBase64(file) {
+  return new Promise((done, fail) => {
+    const reader = new FileReader();
+    reader.onload = () => done(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => fail(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 /// `file` as a JPEG data URI no longer than `PIC_SIDE` on its longest side.
@@ -968,14 +1040,14 @@ async function shrinkPic(file) {
 document.addEventListener("paste", e => {
   if (S.view !== "chat" || !$("#ask")) return;
   const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
-  if (files.some(f => f.type.startsWith("image/"))) { e.preventDefault(); attach(files); }
+  if (files.length) { e.preventDefault(); attach(files); }
 });
 
-// Dropping images on the chat attaches them too.
+// Dropping images and files on the chat attaches them too.
 bar.addEventListener("dragover", e => {
   if (S.view !== "chat" || !e.dataTransfer?.types.includes("Files")) return;
   e.preventDefault();
-  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}Drop images to ask about them</div>`));
+  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}Drop images or files to ask about them</div>`));
 });
 bar.addEventListener("dragleave", e => { if (!bar.contains(e.relatedTarget)) $("#ddrop")?.remove(); });
 bar.addEventListener("drop", e => {
@@ -3586,7 +3658,7 @@ document.addEventListener("keydown", e => {
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
     if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
-    if (e.key === "Backspace" && !cmd && e.target.id === "ask" && !e.target.value && attached.pics.length) { e.preventDefault(); return unattach(attached.pics.length - 1); }
+    if (e.key === "Backspace" && !cmd && e.target.id === "ask" && !e.target.value && attachedCount()) { e.preventDefault(); return unattach(attachedCount() - 1); }
   }
   if (S.view === "chats") return chatsKeys(e, cmd);
   if (S.view === "memories") return memKeys(e, cmd);

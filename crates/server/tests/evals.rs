@@ -589,6 +589,7 @@ impl Server {
             model: None,
             thinking: None,
             platform: None,
+            files: Vec::new(),
         };
         let mut replies = client.stream(&chat).await.expect("the chat starts");
         let mut events = Vec::new();

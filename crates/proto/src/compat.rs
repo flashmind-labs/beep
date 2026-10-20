@@ -78,6 +78,9 @@ sample_struct! {
     SentImages { message, images }
     TurnAgent { message, agent }
     FilePart { data, size }
+    Upload { name, mime, data }
+    FileRef { id, name, mime, size }
+    SentFiles { message, files }
     Approval { app, action, fields }
     ApprovalField { label, value }
     PendingApproval { run_id, query_id, approval }

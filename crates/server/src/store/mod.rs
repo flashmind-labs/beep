@@ -48,7 +48,7 @@ pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::PushDevice;
 pub use digest::AttentionItem;
 pub use feeds::Feed;
-pub use files::{NewFile, NewPicture, PicturesOf};
+pub use files::{NewAttachment, NewFile, NewPicture, PicturesOf};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
 pub use memories::{Fact, Scored, WordEmbedder};

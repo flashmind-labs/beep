@@ -754,7 +754,7 @@ final class AppModel {
             let answer: DeviceAnswer
             switch query {
             case .contacts(let name): answer = .ok(output: await PhoneContacts.search(name))
-            case .browser, .approve: answer = .err(message: "The iPhone app cannot do that yet.")
+            case .browser, .approve, .macFiles: answer = .err(message: "The iPhone app cannot do that yet.")
             }
             _ = try? await api().deviceResult(runId: runId, queryId: queryId, answer: answer)
         }

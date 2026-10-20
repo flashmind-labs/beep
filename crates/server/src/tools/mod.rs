@@ -9,6 +9,7 @@ pub(crate) mod group_memory;
 mod habits;
 mod image;
 mod location;
+mod mac_files;
 mod maps;
 mod memory;
 mod notify_user;
@@ -23,6 +24,7 @@ mod suggest;
 
 pub(crate) use file::SendFileTool;
 pub(crate) use image::SendImageTool;
+pub(crate) use mac_files::MacFilesTool;
 pub(crate) use notify_user::NotifyUserTool;
 pub(crate) use route::GetRouteTool;
 pub use route::Transitous;

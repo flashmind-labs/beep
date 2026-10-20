@@ -177,6 +177,7 @@ pub(crate) async fn submit(
         always_sent: digest::is_digest(job),
         woken: None,
         images: Vec::new(),
+        files: Vec::new(),
         answer: None,
         model: None,
         thinking: None,
