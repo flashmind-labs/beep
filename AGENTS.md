@@ -79,7 +79,9 @@ Phones update from Play on their own schedule, so the server must keep
 answering every released app. rmp_serde encodes structs as arrays and refuses
 an element it does not expect, so:
 
-- Requests may only gain trailing `#[serde(default)]` fields. A server skips
+- Requests may only gain `#[serde(default)]` fields, always added at the end.
+  Never insert, reorder, retype or remove a field: fields are read
+  by position, so everything after the change would shift. A server skips
   trailing fields it does not know, so a newer app still works against it
   (servers from before 196b52f refuse them: deploy the server first).
 - Replies, pushed `Notice`s and streamed enums never change shape. A new field
