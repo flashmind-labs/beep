@@ -251,6 +251,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "run prompts",
         include_str!("../../migrations/0039_run_prompts.sql"),
     ),
+    (
+        40,
+        "attachments",
+        include_str!("../../migrations/0040_attachments.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them
