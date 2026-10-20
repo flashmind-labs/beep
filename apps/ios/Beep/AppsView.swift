@@ -231,7 +231,7 @@ struct AppsView: View {
         busy = server.id
         Task {
             do { await connected(try await model.connectMcpServer(server.id)) } catch {
-                self.error = describe(error)
+                self.error = explain(error)
                 busy = nil
             }
         }
@@ -673,7 +673,7 @@ private struct AddMcpServerSheet: View {
                 added(try await model.addMcpServer(name: String(name.trimmingCharacters(in: .whitespaces).prefix(60)),
                                                    url: String(url.trimmingCharacters(in: .whitespaces).prefix(2000))))
             } catch {
-                self.error = describe(error)
+                self.error = explain(error)
             }
             working = false
         }
