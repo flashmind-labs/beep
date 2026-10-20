@@ -81,7 +81,7 @@ an element it does not expect, so:
 
 - Requests may only gain trailing `#[serde(default)]` fields. A server skips
   trailing fields it does not know, so a newer app still works against it
-  (servers from before 76221f1 refuse them: deploy the server first).
+  (servers from before 196b52f refuse them: deploy the server first).
 - Replies, pushed `Notice`s and streamed enums never change shape. A new field
   or variant goes behind a new request, or behind a `Feature` the server checks
   with `cx.supports(...)` (mark a `wire_enum!` variant `since FEATURE`).
