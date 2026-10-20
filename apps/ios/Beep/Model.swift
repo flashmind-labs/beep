@@ -70,6 +70,8 @@ struct Chat: Equatable {
     var error = ""
     /// Messages waiting for the reply to finish, sent one by one.
     var queued: [QueuedMessage] = []
+    /// The chat's `updatedAt` when the history on screen was fetched, 0 before any was.
+    var historyAt: Int64 = 0
 
     /// A message waits to go out or a run is streaming.
     var busy: Bool { !requestId.isEmpty || !runId.isEmpty }
@@ -137,6 +139,9 @@ final class AppModel {
         identity = key
         accountName = Identity.name(key)
         onboarded = UserDefaults.standard.bool(forKey: "onboarded")
+        let list = ChatStore.loadList()
+        sessions = list.sessions
+        groups = list.groups
         location.onUpdate = { [weak self] fix in self?.sendLocation(fix) }
         location.onCross = { [weak self] id, crossing in self?.crossPlace(id, crossing) }
         notifier.model = self
@@ -210,6 +215,7 @@ final class AppModel {
     private func refreshAfterConnect() async {
         await refreshSessions()
         await refreshGroups()
+        if !chat.busy { await refreshOpenChat() }
         await loadStarters(refresh: false)
         models = try? await client?.getModels()
         await reportTimezone()
@@ -235,6 +241,8 @@ final class AppModel {
     func refreshSessions() async {
         guard let list = try? await api().listSessions() else { return }
         sessions = list
+        ChatStore.saveList(sessions: sessions, groups: groups)
+        ChatStore.prune(keep: Set(list.map(\.id)))
     }
 
     func newChat() {
@@ -246,7 +254,17 @@ final class AppModel {
         guard session.id != chat.id else { return }
         stopStreaming()
         chat = Chat(id: session.id, title: session.title)
-        Task { await loadHistory() }
+        if let cached = ChatStore.loadHistory(session.id) {
+            show(cached.entries, images: cached.images, at: cached.updatedAt)
+        }
+        Task { await refreshOpenChat() }
+    }
+
+    /// Fetches the open chat when the server has turns the copy on screen lacks.
+    private func refreshOpenChat() async {
+        guard let session = sessions.first(where: { $0.id == chat.id }) else { return }
+        guard chat.historyAt == 0 || session.updatedAt == 0 || chat.historyAt < session.updatedAt else { return }
+        await loadHistory()
     }
 
     func search(_ query: String) async -> [SessionMatch] {
@@ -343,14 +361,25 @@ final class AppModel {
     func finishMcpAuth(_ callback: McpCallback) async throws -> McpServer { try await api().finishMcpAuth(callback: callback) }
     func removeMcpServer(_ id: String) async throws { try await api().removeMcpServer(id: id) }
 
-    /// Loads the open chat from the server. Turns where the model only called tools
-    /// fold into the next reply with text, as on Android.
+    /// Loads the open chat from the server and saves it for the next time it opens.
     func loadHistory() async {
         let id = chat.id
+        // Taken before fetching, so the saved copy is never marked newer than it is.
+        let updatedAt = sessions.first { $0.id == id }?.updatedAt ?? 0
         guard let entries = try? await api().getSession(id: id), chat.id == id, !chat.busy else { return }
         // An older server has no pictures to give, which just means none show.
-        let pictures = picturesByMessage((try? await api().getSessionImages(id: id)) ?? [])
+        let images = (try? await api().getSessionImages(id: id)) ?? []
         guard chat.id == id, !chat.busy else { return }
+        show(entries, images: images, at: updatedAt)
+        ChatStore.saveHistory(id, HistoryCache(updatedAt: updatedAt, entries: entries, images: images))
+        if let session = sessions.first(where: { $0.id == id }) { remember(preview(entries), for: session) }
+    }
+
+    /// Puts a fetched or saved history on screen as the open chat's messages. Turns where
+    /// the model only called tools fold into the next reply with text, as on Android.
+    private func show(_ entries: [HistoryEntry], images: [SentImages], at updatedAt: Int64) {
+        let id = chat.id
+        let pictures = picturesByMessage(images)
         var pendingTools: [ToolCall] = []
         var pendingReasoning = ""
         var messages: [Message] = []
@@ -385,7 +414,7 @@ final class AppModel {
             }
         }
         chat.messages = keepingLocalPictures(messages)
-        if let session = sessions.first(where: { $0.id == id }) { remember(preview(entries), for: session) }
+        chat.historyAt = updatedAt
     }
 
     /// Carries pictures sent from this phone over to the reloaded history, matching user
@@ -442,6 +471,7 @@ final class AppModel {
     func refreshGroups() async {
         guard let list = try? await api().listGroups() else { return }
         groups = list
+        ChatStore.saveList(sessions: sessions, groups: groups)
     }
 
     func group(_ id: String) async throws -> GroupChat { try await api().getGroup(id: id) }
@@ -774,7 +804,7 @@ final class AppModel {
 
     /// A file Beep sent, downloaded once into the cache under its own name.
     func sentFile(id: String, name: String) async throws -> URL {
-        let url = SentFiles.local(id: id, name: name)
+        let url = SentFileCache.local(id: id, name: name)
         if FileManager.default.fileExists(atPath: url.path) { return url }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         _ = try await api().saveFile(id: id, path: url.path)
@@ -903,6 +933,7 @@ final class AppModel {
         starters = []
         previews = [:]
         ChatPreview.save(previews)
+        ChatStore.clear()
         // The new account has not been told the timezone, and the old one's places
         // must not keep their region monitors if the new list fails to load.
         reportedTimezone = nil
@@ -926,6 +957,9 @@ final class AppModel {
         // The server closes the connection; the next call signs in again.
         try? await Task.sleep(for: .milliseconds(1500))
         newChat()
+        sessions = []
+        groups = []
+        ChatStore.clear()
         await refreshAfterConnect()
     }
 

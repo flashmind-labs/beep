@@ -272,6 +272,8 @@ struct RootView: View {
         }
         switch defaults.string(forKey: "open") {
         case "chat", "newchat", "photos": openChat(nil)
+        // The newest chat from the saved list, without waiting for the server.
+        case "last": openChat(model.sessions.max { $0.updatedAt < $1.updatedAt })
         case "drawer":
             while !model.connected { try? await Task.sleep(for: .milliseconds(200)) }
             drawer = true

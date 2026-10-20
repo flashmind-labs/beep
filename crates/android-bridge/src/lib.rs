@@ -204,6 +204,50 @@ pub fn decode_list_cache(bytes: Vec<u8>) -> ListCache {
     rmp_serde::from_slice(&bytes).unwrap_or_default()
 }
 
+/// The chat list the phone last fetched, kept to show at once while it
+/// fetches it again.
+#[derive(uniffi::Record, Serialize, Deserialize, Default)]
+pub struct ChatListCache {
+    pub sessions: Vec<Session>,
+    pub groups: Vec<Group>,
+}
+
+/// `cache` as bytes for the phone to save.
+#[uniffi::export]
+pub fn encode_chat_list_cache(cache: ChatListCache) -> Vec<u8> {
+    rmp_serde::to_vec(&cache).unwrap_or_default()
+}
+
+/// The list `encode_chat_list_cache` saved, or an empty one when it was saved
+/// by a build whose records differ.
+#[uniffi::export]
+pub fn decode_chat_list_cache(bytes: Vec<u8>) -> ChatListCache {
+    rmp_serde::from_slice(&bytes).unwrap_or_default()
+}
+
+/// One chat's history as the phone last fetched it, with the chat's
+/// `Session::updated_at` then, so a chat that has not changed since is not
+/// fetched again.
+#[derive(uniffi::Record, Serialize, Deserialize)]
+pub struct HistoryCache {
+    pub updated_at: i64,
+    pub entries: Vec<HistoryEntry>,
+    pub images: Vec<SentImages>,
+}
+
+/// `cache` as bytes for the phone to save.
+#[uniffi::export]
+pub fn encode_history_cache(cache: HistoryCache) -> Vec<u8> {
+    rmp_serde::to_vec(&cache).unwrap_or_default()
+}
+
+/// The history `encode_history_cache` saved, or none when it was saved by a
+/// build whose records differ.
+#[uniffi::export]
+pub fn decode_history_cache(bytes: Vec<u8>) -> Option<HistoryCache> {
+    rmp_serde::from_slice(&bytes).ok()
+}
+
 /// The notice the server sealed to this phone and sent through Firebase.
 #[uniffi::export]
 pub fn open_notice(identity: Vec<u8>, sealed: String) -> Result<Notice, BeepError> {
@@ -1091,6 +1135,22 @@ mod tests {
         );
         assert!(decoded.memories.is_none());
         assert!(decode_list_cache(vec![0xc1]).models.is_none());
+    }
+
+    #[test]
+    fn history_cache_round_trips_and_forgets_what_it_cannot_read() {
+        let cache = HistoryCache {
+            updated_at: 42,
+            entries: vec![HistoryEntry::Scheduled {
+                label: "Morning".into(),
+                timestamp: 7,
+            }],
+            images: Vec::new(),
+        };
+        let decoded = decode_history_cache(encode_history_cache(cache)).expect("it was just saved");
+        assert_eq!(decoded.updated_at, 42);
+        assert_eq!(decoded.entries.len(), 1);
+        assert!(decode_history_cache(vec![0xc1]).is_none());
     }
 
     fn runtime() -> tokio::runtime::Runtime {
