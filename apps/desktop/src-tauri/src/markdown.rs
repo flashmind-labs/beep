@@ -5,7 +5,9 @@
 
 use std::ops::Range;
 
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd, html};
+use pulldown_cmark::{
+    CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd, TextMergeStream, html,
+};
 use pulldown_latex::{ParserError, RenderConfig, Storage, config::DisplayMode, push_mathml};
 
 use crate::products::{self, Product};
@@ -79,7 +81,8 @@ pub fn to_html(markdown: &str) -> String {
     let source = dollar_delimiters(&markdown.replace(ROW_MARK, ""));
     let mut rows = Vec::new();
     let parsed = Parser::new_ext(&source, options).into_offset_iter();
-    let events = product_rows(&source, parsed, &mut rows)
+    let events = product_rows(&source, parsed, &mut rows);
+    let events = autolink(TextMergeStream::new(events.into_iter()))
         .into_iter()
         .map(|event| {
             let (latex, display, delim) = match &event {
@@ -178,6 +181,81 @@ fn product_rows<'a>(
         }
     }
     out
+}
+
+/// Turns bare `http(s)://` addresses in text into links, as GitHub does.
+/// Text inside links, code and HTML stays as it is.
+fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
+    let mut out = Vec::new();
+    let mut in_link = 0usize;
+    let mut in_code = false;
+    for event in events {
+        match &event {
+            Event::Start(Tag::Link { .. }) => in_link += 1,
+            Event::End(TagEnd::Link) => in_link = in_link.saturating_sub(1),
+            Event::Start(Tag::CodeBlock(_)) => in_code = true,
+            Event::End(TagEnd::CodeBlock) => in_code = false,
+            Event::Text(text) if in_link == 0 && !in_code => {
+                let mut rest = text.as_ref();
+                if find_url(rest).is_none() {
+                    out.push(event);
+                    continue;
+                }
+                while let Some(found) = find_url(rest) {
+                    let url = &rest[found.clone()];
+                    if found.start > 0 {
+                        out.push(Event::Text(rest[..found.start].to_owned().into()));
+                    }
+                    out.push(Event::Start(Tag::Link {
+                        link_type: LinkType::Autolink,
+                        dest_url: url.to_owned().into(),
+                        title: CowStr::Borrowed(""),
+                        id: CowStr::Borrowed(""),
+                    }));
+                    out.push(Event::Text(url.to_owned().into()));
+                    out.push(Event::End(TagEnd::Link));
+                    rest = &rest[found.end..];
+                }
+                if !rest.is_empty() {
+                    out.push(Event::Text(rest.to_owned().into()));
+                }
+                continue;
+            }
+            _ => {}
+        }
+        out.push(event);
+    }
+    out
+}
+
+/// Where the first bare web address in `text` is. Trailing punctuation
+/// stays out, and so does a closing bracket the address did not open.
+fn find_url(text: &str) -> Option<Range<usize>> {
+    let start = ["https://", "http://"]
+        .iter()
+        .filter_map(|scheme| text.find(scheme))
+        .min()?;
+    let len = text[start..]
+        .find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '`'))
+        .unwrap_or(text.len() - start);
+    let mut url = &text[start..start + len];
+    loop {
+        let trimmed = url.trim_end_matches(['.', ',', ';', ':', '!', '?', '\'', '*', '_']);
+        let trimmed = match trimmed.strip_suffix(')') {
+            Some(inner) if inner.matches('(').count() < trimmed.matches(')').count() => inner,
+            _ => trimmed,
+        };
+        if trimmed == url {
+            break;
+        }
+        url = trimmed;
+    }
+    let scheme_only = url.ends_with("://");
+    if scheme_only {
+        let next = start + url.len();
+        return find_url(&text[next..]).map(|r| r.start + next..r.end + next);
+    }
+    Some(start..start + url.len())
 }
 
 /// Whether a fenced block's source ends with its closing fence.
@@ -419,6 +497,23 @@ mod tests {
         assert!(html.contains("<strong>hi</strong>"));
         assert!(!html.contains("script"));
         assert!(!html.contains("javascript:"));
+    }
+
+    #[test]
+    fn links_bare_addresses() {
+        let html = to_html(
+            "Join at https://zoom.us/j/9611?pwd=9k1o_HI.1. (see https://en.wikipedia.org/wiki/Foo_(bar))",
+        );
+        assert!(
+            html.contains(r#"<a href="https://zoom.us/j/9611?pwd=9k1o_HI.1" rel="noopener noreferrer">https://zoom.us/j/9611?pwd=9k1o_HI.1</a>. "#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#">https://en.wikipedia.org/wiki/Foo_(bar)</a>)"#),
+            "{html}"
+        );
+        let html = to_html("[site](https://a.com) and `https://b.com`\n\n```\nhttps://c.com\n```");
+        assert_eq!(html.matches("<a ").count(), 1, "{html}");
     }
 
     #[test]

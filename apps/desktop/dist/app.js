@@ -2010,6 +2010,10 @@ const A = { apps: null, error: "", connecting: null, poll: null, open: null, per
   // MCP servers added by URL: null until listed, the add form, and the one
   // whose sign-in is open in the browser.
   servers: null, adding: false, addError: "", waiting: null, busy: null,
+  // The server whose tools are open, its tools once listed, the tool
+  // waiting on the warning about going past the limit, and whether
+  // Remove waits for a second click.
+  server: null, tools: null, asking: null, unadd: false,
   // Fastmail's accounts by app slug, the agent's default first; missing
   // when the server is too old to list them. `removing` is the account
   // whose Remove waits for a second click.
@@ -2112,11 +2116,11 @@ function drawServers() {
     let end;
     if (A.waiting === m.id) end = waitingFor("data-mcancel");
     else if (A.busy === m.id) end = '<span class="dmuted"><span class="dspin"></span></span>';
-    else if (m.connected) end = `<span class="dtag ok">${m.tools.length === 1 ? "1 tool" : `${m.tools.length} tools`}</span><button class="dbtn quiet" data-mremove="${esc(m.id)}">Remove</button>`;
+    else if (m.connected) end = `<span class="dtag ok">${m.tools.length === 1 ? "1 tool" : `${m.tools.length} tools`}</span><span class="dmuted">${ICON.chev}</span>`;
     else end = `<span class="dtag ask">${m.sign_in ? "Sign-in expired" : "Not connected"}</span><button class="dbtn pri" data-mconnect="${esc(m.id)}">${m.sign_in ? "Sign in" : "Retry"}</button>`
       + `<button class="dbtn quiet" data-mremove="${esc(m.id)}">Remove</button>`;
-    const tools = m.connected && m.tools.length ? ` title="${esc(m.tools.join(", "))}"` : "";
-    return `<div class="dappr"${tools}><span class="dalogo">${esc(m.name.slice(0, 1).toUpperCase())}</span><span class="tt"><b>${esc(m.name)}</b><small>${esc(hostOf(m.url))}</small></span>${end}</div>`;
+    const open = m.connected && A.waiting !== m.id && A.busy !== m.id ? ` data-mopen="${esc(m.id)}" role="button" tabindex="0"` : "";
+    return `<div class="dappr${open ? " on" : ""}"${open}><span class="dalogo">${esc(m.name.slice(0, 1).toUpperCase())}</span><span class="tt"><b>${esc(m.name)}</b><small>${esc(hostOf(m.url))}</small></span>${end}</div>`;
   };
   let html = '<div class="dsec">Your MCP servers</div>' + A.servers.map(row).join("");
   if (A.adding) {
@@ -2176,7 +2180,7 @@ listen("mcp-signed-in", e => {
 });
 
 async function appsClick(e) {
-  const m = e.target.closest("[data-mnew],[data-mclose],[data-madd],[data-mcancel],[data-mconnect],[data-mremove]");
+  const m = e.target.closest("[data-mnew],[data-mclose],[data-madd],[data-mcancel],[data-mconnect],[data-mremove],[data-mopen]");
   if (m) {
     const d = m.dataset;
     if (d.mnew != null) { A.adding = true; A.addError = ""; drawApps(); return $("#mname")?.focus(); }
@@ -2185,6 +2189,7 @@ async function appsClick(e) {
     if (d.mcancel != null) { A.waiting = null; return drawApps(); }
     if (d.mconnect) return serverAction("connect", d.mconnect);
     if (d.mremove) return serverAction("remove", d.mremove);
+    if (d.mopen) return renderMcpServer(A.servers.find(s => s.id === d.mopen));
   }
   if (e.target.closest("[data-cancel]")) {
     invoke("cancel_app_sign_in").catch(() => {});
@@ -2223,6 +2228,86 @@ function stopConnecting() {
   A.poll = null;
   A.connecting = null;
   loadApps();
+}
+
+// ---------- An MCP server's tools ----------
+
+/// Opened from a connected server in Apps: its tools, each switched on or
+/// off, and Remove.
+async function renderMcpServer(server) {
+  if (!server) return;
+  S.view = "mcp";
+  Object.assign(A, { server, tools: null, asking: null, unadd: false, error: "" });
+  bar.innerHTML = `<div class="dhead"><span class="dalogo">${esc(server.name.slice(0, 1).toUpperCase())}</span><span class="tt"><b>${esc(server.name)}</b><small class="dmono">${esc(server.url)}</small></span></div>
+    <div class="dlist dapps" id="tlist"></div>${hints([["esc", "back"]])}`;
+  $("#tlist").addEventListener("click", mcpClick);
+  drawMcpTools();
+  try {
+    A.tools = await invoke("list_mcp_tools", { id: server.id });
+  } catch (e) {
+    A.error = String(e);
+  }
+  if (S.view === "mcp" && A.server === server) drawMcpTools();
+}
+
+/// "search_pages" reads as "Search pages", as on the phone.
+const mcpToolLabel = name => name.replace(/[_-]/g, " ").trim().replace(/^./, c => c.toUpperCase());
+
+function drawMcpTools() {
+  const list = $("#tlist"), t = A.tools;
+  if (!list) return;
+  let html = A.error ? `<div class="derr" style="padding:8px 10px">${esc(A.error)}</div>` : "";
+  if (!t && !A.error) html += '<div class="dmuted" style="padding:14px 10px"><span class="dspin"></span></div>';
+  if (t) {
+    const on = t.tools.filter(x => x.enabled).length;
+    html += `<div class="dsec dsplit"><span>Tools</span><span${on > t.limit ? ' class="over"' : ""}>${on} of ${t.limit} on</span></div>` + t.tools.map(tool => {
+      const name = esc(mcpToolLabel(tool.name)), title = tool.description ? ` title="${esc(tool.description)}"` : "";
+      if (A.asking === tool.name) return `<div class="daction"><span>${name}<small>More than ${t.limit} tools makes replies slower and tool picks worse</small></span>`
+        + `<button class="dbtn quiet" data-tno>Cancel</button><button class="dbtn pri" data-tyes>Turn on</button></div>`;
+      if (!tool.usable) return `<div class="daction off"${title}><span>${name}<small>Too large for Beep to use</small></span><button class="dswitch" role="switch" aria-checked="false" aria-label="Use ${name}" disabled></button></div>`;
+      return `<div class="daction"${title}><span>${name}</span><button class="dswitch" role="switch" aria-checked="${tool.enabled}" data-ttool="${esc(tool.name)}" aria-label="Use ${name}"></button></div>`;
+    }).join("");
+    html += `<div class="dmuted" style="padding:8px 10px;display:block">Beep uses up to ${t.limit} tools from a server, so turn on the ones you need. It asks before every tool on a server you add.</div>`;
+  }
+  html += `<div style="padding:6px 10px 2px;display:flex;gap:8px;align-items:center">${A.unadd
+    ? '<span class="dmuted">Beep stops using this server</span><button class="dbtn quiet" data-unremove>Cancel</button><button class="dbtn warn" data-mremove>Remove</button>'
+    : '<button class="dbtn warn" data-mremoving>Remove server</button>'}</div>`;
+  list.innerHTML = html;
+}
+
+async function setTool(name, enabled) {
+  const server = A.server;
+  A.asking = null;
+  try {
+    A.tools = await invoke("set_mcp_tool", { id: server.id, tool: name, enabled });
+    A.error = "";
+  } catch (e) {
+    A.error = String(e);
+  }
+  if (S.view === "mcp" && A.server === server) drawMcpTools();
+}
+
+async function mcpClick(e) {
+  const d = e.target.closest("[data-ttool],[data-tyes],[data-tno],[data-mremoving],[data-unremove],[data-mremove]")?.dataset;
+  if (!d || !A.tools && d.ttool) return;
+  if (d.ttool) {
+    const tool = A.tools.tools.find(x => x.name === d.ttool);
+    // Past the limit, the switch asks first, as the phone's does.
+    if (!tool.enabled && A.tools.tools.filter(x => x.enabled).length >= A.tools.limit) { A.asking = tool.name; return drawMcpTools(); }
+    return setTool(tool.name, !tool.enabled);
+  }
+  if (d.tyes != null) return setTool(A.asking, true);
+  if (d.tno != null) { A.asking = null; return drawMcpTools(); }
+  if (d.mremoving != null || d.unremove != null) { A.unadd = d.mremoving != null; return drawMcpTools(); }
+  if (d.mremove != null) {
+    try {
+      await invoke("remove_mcp_server", { id: A.server.id });
+    } catch (e) {
+      A.error = String(e);
+      return drawMcpTools();
+    }
+    return renderApps();
+  }
 }
 
 async function renderAppPermissions(app) {
@@ -3568,6 +3653,8 @@ function back() {
   if (S.view === "skills" && K.mode !== "list") return skillAction(K.mode === "edit" || K.mode === "vdelete" ? "view" : "list");
   if (S.view === "rnew") return renderRoutines();
   if (S.view === "appperms") return renderApps();
+  if (S.view === "mcp" && A.asking) { A.asking = null; return drawMcpTools(); }
+  if (S.view === "mcp") return renderApps();
   if (S.view === "apps" && A.adding) { A.adding = false; A.addError = ""; return drawApps(); }
   if (S.view === "apps") return renderSettings();
   if (S.view === "model") return S.session ? openSession(S.session) : renderChat();
