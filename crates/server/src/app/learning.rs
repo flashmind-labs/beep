@@ -1,9 +1,10 @@
-//! What the server adds to a turn after the model: the memory score and the
-//! calls it shows like the model's own.
+//! What the server adds to a turn after the model: Jev's scores for it and
+//! the calls it shows like the model's own.
 
 use super::App;
 use crate::{
     decision::Criteria,
+    followups,
     live::LiveRun,
     memories::{self, Exchange, Hit, Turn},
     protocol::RunEvent,
@@ -14,12 +15,12 @@ use flashmind::{
     core::{Conversation, ConversationEntry, EntryKind},
     types::ToolCall,
 };
-use std::{collections::HashSet, fmt::Write};
+use std::{collections::HashSet, fmt};
 use uuid::Uuid;
 
 /// Above this Jev score the learner reads the turn; below it nothing is stored.
 pub(super) const MEMORY_THRESHOLD: f64 = 0.6;
-const MEMORY_QUESTION: &str = "Does this exchange reveal something about the user worth remembering for future chats that is not already remembered?";
+const MEMORY_QUESTION: &str = "Does the latest turn reveal something about the user worth remembering for future chats that is not already remembered?";
 const MEMORY_CRITERIA: Criteria = Criteria {
     yes: "Anything lasting about the user, even mentioned in passing inside a request: plans and goals \
 (buying a home, changing jobs), preferences and dislikes, diet, beliefs, religion, politics, health, money \
@@ -41,50 +42,86 @@ taken or skipped",
 fact about the user or the world that does not change how the task is done",
 };
 
-impl App {
-    /// Asks Jev whether the turns in `state`, from [`correction_state`],
-    /// show the user correcting how Beep went about a task. False without
-    /// Jev.
-    pub(super) async fn corrected(&self, state: Option<String>) -> bool {
-        let (Some(decision), Some(state)) = (self.decision(), state) else {
-            return false;
-        };
-        match decision
-            .probability_with(&state, CORRECTION_QUESTION, &CORRECTION_CRITERIA)
-            .await
-        {
-            Ok(probability) => probability >= CORRECTION_THRESHOLD,
-            Err(error) => {
-                log::warn!("correction score failed: {error}");
-                false
-            }
-        }
-    }
+/// What Jev reads about a finished turn, and which of its questions apply.
+pub(super) struct TurnState<'a> {
+    /// The memories closest to the turn, from `related_memories`.
+    pub(super) known: &'a [Hit],
+    pub(super) exchange: &'a Exchange,
+    pub(super) follow_up: &'a followups::Input<'a>,
+    pub(super) kind: followups::Kind,
+}
 
-    /// Asks Jev how likely the exchange holds something worth remembering.
-    /// Shown under the reply while we compare it with what the learner saves.
-    pub(super) async fn memory_score(&self, state: String) -> Option<f64> {
-        let decision = self.decision()?;
-        match decision
-            .probability_with(&state, MEMORY_QUESTION, &MEMORY_CRITERIA)
-            .await
-        {
-            Ok(probability) => Some(probability),
-            Err(error) => {
-                log::warn!("memory score failed: {error}");
-                None
-            }
+impl fmt::Display for TurnState<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.follow_up.write_context(f)?;
+        // What is already remembered comes first, so a fact that is already
+        // known does not score high.
+        writeln!(f, "Already remembered:")?;
+        if self.known.is_empty() {
+            writeln!(f, "(nothing related)")?;
         }
+        for hit in self.known {
+            writeln!(f, "- {}", hit.content)?;
+        }
+        if let Some(earlier) = self.exchange.earlier.last() {
+            write!(f, "\nEarlier turn:\n{earlier}\n")?;
+        }
+        writeln!(f)?;
+        self.follow_up.write_results(f)?;
+        write!(f, "Latest turn:\n{}", self.exchange.latest)
     }
 }
 
-/// What Jev reads to tell whether `latest` corrects `earlier`, or `None`
-/// without an earlier turn to correct.
-pub(super) fn correction_state(earlier: Option<&Turn>, latest: &Turn) -> Option<String> {
-    Some(format!(
-        "Earlier turn:\n{}\n\nLatest turn:\n{latest}",
-        earlier?
-    ))
+/// Jev's answers about a finished turn.
+#[derive(Debug, Default)]
+pub(super) struct TurnScores {
+    /// How likely the turn holds something worth remembering.
+    pub(super) memory: Option<f64>,
+    /// Whether the user corrected how the earlier turn went about a task,
+    /// which is worth a skill review now.
+    pub(super) corrected: bool,
+    /// How likely the reply invites follow-ups. Asked only of a reply that
+    /// does not end on a question.
+    pub(super) follow_up: Option<f64>,
+}
+
+const MEMORY: &str = "memory";
+const CORRECTED: &str = "corrected";
+const FOLLOW_UP: &str = "follow_up";
+
+impl App {
+    /// Asks Jev everything it decides about a finished turn in one request.
+    /// Without Jev, or when it fails, nothing is scored.
+    pub(super) async fn score_turn(&self, state: &TurnState<'_>) -> TurnScores {
+        let Some(decision) = self.decision() else {
+            return TurnScores::default();
+        };
+        let mut questions = vec![(MEMORY, MEMORY_QUESTION, &MEMORY_CRITERIA)];
+        if !state.exchange.earlier.is_empty() {
+            questions.push((CORRECTED, CORRECTION_QUESTION, &CORRECTION_CRITERIA));
+        }
+        if state.kind == followups::Kind::FollowUps {
+            questions.push((FOLLOW_UP, followups::QUESTION, &followups::CRITERIA));
+        }
+        let answers = match decision.probabilities(&state.to_string(), &questions).await {
+            Ok(answers) => answers,
+            Err(error) => {
+                log::warn!("turn scores failed: {error:#}");
+                return TurnScores::default();
+            }
+        };
+        let follow_up = answers.get(FOLLOW_UP).copied();
+        if let Some(probability) = follow_up {
+            log::info!("follow-up score {probability:.2}");
+        }
+        TurnScores {
+            memory: answers.get(MEMORY).copied(),
+            corrected: answers
+                .get(CORRECTED)
+                .is_some_and(|probability| *probability >= CORRECTION_THRESHOLD),
+            follow_up,
+        }
+    }
 }
 
 /// A call the server made for the turn after the model finished, shown and
@@ -206,20 +243,6 @@ pub(super) fn drop_text_since(conversation: &mut Conversation, since: DateTime<U
     });
 }
 
-/// What Jev reads to score a turn: what is already remembered, then the
-/// exchange, so a fact that is already known does not score high.
-pub(super) fn memory_state(known: &[Hit], exchange: &Exchange) -> String {
-    let mut state = String::from("Already remembered:\n");
-    if known.is_empty() {
-        state.push_str("(nothing related)\n");
-    }
-    for hit in known {
-        let _ = writeln!(state, "- {}", hit.content);
-    }
-    let _ = write!(state, "\n{}", exchange.latest);
-    state
-}
-
 /// The last few turns before `turn_started`, oldest first, for the memory
 /// extractor to resolve references in the latest one.
 pub(super) fn earlier_turns(conversation: &Conversation, turn_started: DateTime<Utc>) -> Vec<Turn> {
@@ -259,6 +282,48 @@ mod tests {
             name: name.to_owned(),
             arguments: serde_json::json!({}),
         }
+    }
+
+    #[test]
+    fn jev_reads_what_is_known_before_the_turn() {
+        let turn = |message: &str, reply: &str| Turn {
+            message: message.to_owned(),
+            reply: reply.to_owned(),
+            actions: Vec::new(),
+        };
+        let exchange = Exchange {
+            session_id: "s1".to_owned(),
+            today: chrono::NaiveDate::from_ymd_opt(2026, 10, 21).unwrap(),
+            earlier: vec![turn("Find a bakery", "Try Manteigaria.")],
+            latest: turn("No, one that is gluten-free", "Try Zarzuela."),
+        };
+        let latest = &exchange.latest;
+        let input = followups::Input {
+            context: Some("It is Tuesday in Lisbon."),
+            earlier: None,
+            latest,
+            results: vec![followups::ToolOutput {
+                tool: "web_search",
+                output: "Zarzuela, gluten-free bakery",
+            }],
+        };
+        let state = TurnState {
+            known: &[],
+            exchange: &exchange,
+            follow_up: &input,
+            kind: followups::Kind::FollowUps,
+        }
+        .to_string();
+        let at = |text: &str| {
+            state
+                .find(text)
+                .unwrap_or_else(|| panic!("{text} in {state}"))
+        };
+        assert!(at("It is Tuesday") < at("Already remembered:\n(nothing related)"));
+        assert!(at("(nothing related)") < at("Earlier turn:"));
+        assert!(at("Manteigaria") < at("What its tools returned:"));
+        assert!(at("What its tools returned:") < at("Latest turn:"));
+        assert!(state.ends_with(&latest.to_string()));
     }
 
     #[test]

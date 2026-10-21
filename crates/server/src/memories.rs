@@ -89,6 +89,12 @@ const MAX_CORE: usize = 15;
 pub(crate) const MAX_FILED: usize = 200;
 pub(crate) const FILE_CONCURRENCY: usize = 8;
 pub(crate) const FILE_QUESTION: &str = "Which category does this memory about the user belong in? Pick the one a search for it would look in.";
+/// `FILE_QUESTION` for one of several numbered memories filed together.
+pub(crate) fn file_question_for(number: &str) -> String {
+    format!(
+        "Which category does memory {number} about the user belong in? Pick the one a search for it would look in."
+    )
+}
 /// What each of `MEMORY_CATEGORIES` holds, as Jev reads it.
 pub(crate) const FILING: [(&str, &str); 7] = [
     (
@@ -583,6 +589,17 @@ pub(crate) struct LearnOp {
 }
 
 impl LearnOp {
+    /// The fact to store or update, `None` for a forget or an empty one.
+    pub(crate) fn fact(&self) -> Option<&str> {
+        if self.op == LearnKind::Forget {
+            return None;
+        }
+        self.content
+            .as_deref()
+            .map(str::trim)
+            .filter(|content| !content.is_empty())
+    }
+
     pub(crate) fn validity(&self) -> Option<Validity> {
         validity(self.valid_from.as_deref(), self.valid_until.as_deref())
     }
