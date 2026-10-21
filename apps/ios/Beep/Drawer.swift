@@ -153,6 +153,12 @@ struct ChatsDrawer<Content: View>: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            if text.isEmpty { footer }
+        }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Mint.soft).frame(height: 1).padding(.horizontal, 20).padding(.vertical, 8)
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
