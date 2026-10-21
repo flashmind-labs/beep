@@ -710,7 +710,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                         leave?.let { "You stop getting the groups' messages." }).joinToString(" ")) },
                     containerColor = Surface)
             }
-            if (!bubble && !cover) {
+            // A search shows the chats alone.
+            val searching = historyQuery.isNotBlank()
+            if (!bubble && !cover && !searching) {
                 HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = Border)
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Memories; drawerOpen = false }
@@ -725,7 +727,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 }
                 Spacer(Modifier.height(8.dp))
             }
-            Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!searching) Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (!bubble) TextButton(onClick = { screen = Screen.Settings; drawerOpen = false }) {
                     Icon(Icons.Outlined.Settings, null, Modifier.size(18.dp), tint = TextMuted); Spacer(Modifier.width(8.dp))
                     Text("Settings", color = TextMuted)
