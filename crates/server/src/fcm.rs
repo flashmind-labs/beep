@@ -1,16 +1,14 @@
-//! Sends notices through Firebase Cloud Messaging when the server cannot
-//! reach a phone over iroh. Each notice is sealed to the phone's endpoint
-//! id, so Google carries it without reading it. A notice too big for a push
-//! waits on the server, and an empty push wakes the phone to fetch it over
-//! iroh.
+//! Sends notices to Android phones through Firebase Cloud Messaging. Each
+//! notice is sealed to the phone's endpoint id, so Google carries it without
+//! reading it. A notice too big for a push waits on the server, and an empty
+//! push wakes the phone to fetch it over iroh.
 
 use crate::{
     AsyncMutex,
-    app::App,
-    protocol::{Notice, seal},
+    protocol::Notice,
+    remote::{Delivery, seal_to_fit},
 };
 use anyhow::{Context, Result};
-use async_trait::async_trait;
 use iroh::EndpointId;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use reqwest::{Client, StatusCode};
@@ -20,7 +18,6 @@ use serde_json::{Value, json};
 use std::{
     fs,
     path::Path,
-    sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -30,25 +27,6 @@ const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const REFRESH_EARLY: Duration = Duration::from_secs(5 * 60);
 /// FCM takes 4096 bytes of data; this leaves room for the field name.
 const MAX_SEALED: usize = 4000;
-
-/// Reaches a phone the server cannot reach over iroh. `Firebase` in
-/// production, a recorder in tests.
-#[async_trait]
-pub trait Fallback: Send + Sync + 'static {
-    /// Sends `notice` to the phone. True when the push service took it.
-    async fn push(&self, phone: EndpointId, notice: &Notice) -> bool;
-    /// Wakes the phone to connect and take its queued notices.
-    async fn wake(&self, phone: EndpointId);
-}
-
-/// What a push to one token came to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Delivery {
-    Sent,
-    /// The app was uninstalled or the token rotated: forget it.
-    Gone,
-    Failed,
-}
 
 /// The fields used from a Google service account key file.
 #[derive(Deserialize)]
@@ -82,7 +60,6 @@ struct AccessToken {
 /// Sends data-only pushes through the FCM HTTP v1 API to the tokens the
 /// user's phones registered.
 pub struct Firebase {
-    app: Arc<App>,
     client: Client,
     account: ServiceAccount,
     key: EncodingKey,
@@ -91,7 +68,7 @@ pub struct Firebase {
 
 impl Firebase {
     /// Reads a service account key file downloaded from the Google Cloud console.
-    pub fn new(app: Arc<App>, key_file: &Path) -> Result<Self> {
+    pub fn new(key_file: &Path) -> Result<Self> {
         let data = fs::read(key_file).with_context(|| format!("reading {}", key_file.display()))?;
         let account: ServiceAccount = serde_json::from_slice(&data)
             .with_context(|| format!("{} is not a service account key", key_file.display()))?;
@@ -102,7 +79,6 @@ impl Firebase {
             account.client_email
         );
         Ok(Self {
-            app,
             client: Client::builder().timeout(Duration::from_secs(20)).build()?,
             account,
             key,
@@ -213,128 +189,30 @@ fn rejects_token(body: &str) -> bool {
 }
 
 impl Firebase {
-    /// Sends a push to each phone that registered with `phone`'s key. True
-    /// when one took it.
-    async fn send_all(&self, phone: EndpointId, android: Value, data: Value) -> bool {
-        let store = &self.app.store;
-        let tokens = match store.push_tokens(&phone).await {
-            Ok(tokens) => tokens,
-            Err(e) => {
-                log::warn!("fcm: reading tokens failed; user={phone} error={e:#}");
-                return false;
-            }
-        };
-        if tokens.is_empty() {
-            log::debug!("fcm: no tokens to push to; user={phone}");
-        }
-        let mut sent = false;
-        // The token itself is never logged: it is all anyone needs to push
-        // to that phone.
-        for token in tokens {
-            match self.send(&token, &android, &data).await {
-                Ok(Delivery::Sent) => sent = true,
-                Ok(Delivery::Gone) => {
-                    if let Err(e) = store.forget_push_token(&phone, &token).await {
-                        log::warn!("fcm: forgetting a token failed; user={phone} error={e:#}");
-                    }
-                }
-                Ok(Delivery::Failed) => {}
-                Err(e) => log::warn!("fcm: push failed; user={phone} error={e:#}"),
-            }
-        }
-        sent
-    }
-}
-
-/// `notice` sealed to `phone`, its body cut short to fit in a push. `None`
-/// when it does not fit even without a body.
-fn seal_to_fit(phone: &EndpointId, notice: &Notice) -> Result<Option<String>> {
-    let mut notice = notice.clone();
-    loop {
-        let sealed = seal::seal(phone, &notice)?;
-        if sealed.len() <= MAX_SEALED {
-            return Ok(Some(sealed));
-        }
-        if notice.body.is_empty() {
-            return Ok(None);
-        }
-        // Base64 grows the bytes by a third; cut that much and a little more.
-        let over = (sealed.len() - MAX_SEALED) * 3 / 4 + 16;
-        let mut keep = notice.body.len().saturating_sub(over);
-        while !notice.body.is_char_boundary(keep) {
-            keep -= 1;
-        }
-        notice.body.truncate(keep);
-        notice.body.truncate(notice.body.trim_end().len());
-        if !notice.body.is_empty() {
-            notice.body.push_str("...");
-        }
-    }
-}
-
-#[async_trait]
-impl Fallback for Firebase {
-    async fn push(&self, phone: EndpointId, notice: &Notice) -> bool {
-        let sealed = match seal_to_fit(&phone, notice) {
-            Ok(Some(sealed)) => sealed,
-            Ok(None) => return false,
-            Err(e) => {
-                log::warn!("fcm: sealing a notice failed; user={phone} error={e:#}");
-                return false;
-            }
+    /// Sends `notice` to the phone with `token`, sealed to its key `phone`.
+    pub async fn push(&self, phone: &EndpointId, token: &str, notice: &Notice) -> Result<Delivery> {
+        let Some(sealed) = seal_to_fit(phone, notice, MAX_SEALED)? else {
+            return Ok(Delivery::Failed);
         };
         // High priority reaches the phone in Doze. A changed chat shows
         // nothing, and Android demotes apps whose urgent pushes show nothing.
         let priority = if notice.changed { "NORMAL" } else { "HIGH" };
         let android = json!({ "priority": priority, "ttl": "86400s" });
-        let sent = self
-            .send_all(phone, android, json!({ "notice": sealed }))
-            .await;
-        if sent {
-            log::info!("fcm: pushed a notice; user={phone}");
-        }
-        sent
+        self.send(token, &android, &json!({ "notice": sealed }))
+            .await
     }
 
-    async fn wake(&self, phone: EndpointId) {
+    /// Wakes the phone to connect and take its queued notices.
+    pub async fn wake(&self, token: &str) -> Result<Delivery> {
         // Repeated wakes collapse into one.
         let android = json!({ "priority": "HIGH", "ttl": "600s", "collapse_key": "wake" });
-        if self.send_all(phone, android, json!({ "wake": "1" })).await {
-            log::info!("fcm: woke phone; user={phone}");
-        }
+        self.send(token, &android, &json!({ "wake": "1" })).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iroh::SecretKey;
-
-    fn notice(body: String) -> Notice {
-        Notice {
-            title: "Done".into(),
-            body,
-            session_id: "s1".into(),
-            app: None,
-            approval: None,
-            changed: false,
-            group: false,
-        }
-    }
-
-    #[test]
-    fn a_long_body_is_cut_to_fit_a_push() {
-        let phone = SecretKey::from_bytes(&[1; 32]);
-        let long = "é".repeat(5000);
-        let sealed = seal_to_fit(&phone.public(), &notice(long.clone()))
-            .unwrap()
-            .expect("a body can always be cut");
-        assert!(sealed.len() <= MAX_SEALED);
-        let opened = seal::open(&phone, &sealed).unwrap();
-        assert!(opened.body.ends_with("..."));
-        assert!(long.starts_with(opened.body.trim_end_matches("...")));
-        assert!(opened.body.len() > 2000);
-    }
 
     #[test]
     fn only_a_rejected_token_is_dropped() {
@@ -349,14 +227,5 @@ mod tests {
         assert!(rejects_token(&violation("message.token")));
         assert!(!rejects_token(&violation("message.data")));
         assert!(!rejects_token("not json"));
-    }
-
-    #[test]
-    fn a_short_body_is_kept_whole() {
-        let phone = SecretKey::from_bytes(&[1; 32]);
-        let sealed = seal_to_fit(&phone.public(), &notice("hi".into()))
-            .unwrap()
-            .unwrap();
-        assert_eq!(seal::open(&phone, &sealed).unwrap().body, "hi");
     }
 }

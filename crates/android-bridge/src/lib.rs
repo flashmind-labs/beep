@@ -7,20 +7,20 @@
 
 use beep_proto::{
     ActiveRun, AddAppAccount, AddMcpServer, Agents, AnswerApproval, AnswerGroupApproval, ApiError,
-    AppAccount, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun, Chat,
-    ClearMemories, ConnectApp, ConnectLink, ConnectMcpServer, CopyShare, CreateCron, CreateGroup,
-    Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory, DeletePlace, DeleteSession,
-    DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer, DeviceInvite,
-    DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth, FinishMcpAuth,
-    GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels,
-    GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetSessionImages,
-    GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder,
-    Health, HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup,
-    LinkDevice, LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices,
-    ListGroupReminders, ListGroups, ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads,
-    ListPlaces, ListSessions, ListSkills, McpCallback, McpConnect, McpServer, McpTools, Memory,
-    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession,
-    Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    ApnsEnvironment, AppAccount, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
+    Chat, ClearMemories, ConnectApp, ConnectLink, ConnectMcpServer, CopyShare, CreateCron,
+    CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory, DeletePlace,
+    DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
+    DeviceInvite, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
+    FinishMcpAuth, GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages,
+    GetModels, GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionFiles,
+    GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
+    GroupPreview, GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount, JoinGroup,
+    JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps, ListCrons,
+    ListDevices, ListGroupReminders, ListGroups, ListMcpServers, ListMcpTools, ListMemories,
+    ListMemoryReads, ListPlaces, ListSessions, ListSkills, McpCallback, McpConnect, McpServer,
+    McpTools, Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup,
+    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
     RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, RouteCard, Run, RunCron,
     SearchSessions, SendToGroup, SentFiles, SentImages, Session, SessionMatch, SetAgents,
     SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking, SetTimezone,
@@ -844,6 +844,22 @@ impl BeepClient {
         self.call(RegisterDevice {
             device_id,
             fcm_token,
+            apns: None,
+        })
+        .await
+    }
+
+    /// Registers an iPhone's APNs token, in hex as Apple gave it.
+    pub async fn register_apns(
+        &self,
+        device_id: String,
+        token: String,
+        environment: ApnsEnvironment,
+    ) -> Result<(), BeepError> {
+        self.call(RegisterDevice {
+            device_id,
+            fcm_token: token,
+            apns: Some(environment),
         })
         .await
     }
