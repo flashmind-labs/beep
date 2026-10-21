@@ -25,9 +25,9 @@ const MAX_CONTEXT_CHARS: usize = 1500;
 const MAX_RESULT_CHARS: usize = 600;
 const MAX_RESULTS: usize = 6;
 
-const QUESTION: &str = "Would the user likely want tappable follow-ups under this reply: a question to dig deeper into the topic, or something the assistant could do next with what it just said?";
+pub(crate) const QUESTION: &str = "Would the user likely want tappable follow-ups under the latest reply: a question to dig deeper into the topic, or something the assistant could do next with what it just said?";
 
-const CRITERIA: Criteria = Criteria {
+pub(crate) const CRITERIA: Criteria = Criteria {
     yes: "The reply explains a topic, answers a factual question, recommends or compares things, or finds something that leads to an action like a reminder, directions, a calendar event or a search.",
     no: "Small talk, thanks or goodbyes, a finished task with nothing left to do, or a reply that already asks the user a question.",
 };
@@ -166,30 +166,44 @@ impl<'a> Input<'a> {
     }
 }
 
-impl fmt::Display for Input<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(context) = self.context {
-            writeln!(
+impl Input<'_> {
+    /// What the assistant knew, as a paragraph, or nothing without it.
+    pub fn write_context(&self, f: &mut impl Write) -> fmt::Result {
+        match self.context {
+            Some(context) => writeln!(
                 f,
                 "What the assistant knew:\n{}\n",
                 clip(context, MAX_CONTEXT_CHARS)
+            ),
+            None => Ok(()),
+        }
+    }
+
+    /// What the turn's tools returned, as a paragraph, or nothing without any.
+    pub fn write_results(&self, f: &mut impl Write) -> fmt::Result {
+        if self.results.is_empty() {
+            return Ok(());
+        }
+        write!(f, "What its tools returned:")?;
+        for result in &self.results {
+            write!(
+                f,
+                "\n- {}: {}",
+                result.tool,
+                clip(result.output, MAX_RESULT_CHARS)
             )?;
         }
+        write!(f, "\n\n")
+    }
+}
+
+impl fmt::Display for Input<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.write_context(f)?;
         if let Some(turn) = self.earlier {
             writeln!(f, "Earlier:\n{turn}\n")?;
         }
-        if !self.results.is_empty() {
-            write!(f, "What its tools returned:")?;
-            for result in &self.results {
-                write!(
-                    f,
-                    "\n- {}: {}",
-                    result.tool,
-                    clip(result.output, MAX_RESULT_CHARS)
-                )?;
-            }
-            write!(f, "\n\n")?;
-        }
+        self.write_results(f)?;
         // The reply goes last, next to the line saying to write in its
         // language, so the tool results' language is further away.
         write!(f, "Now:\n{}", self.latest)?;
@@ -198,13 +212,15 @@ impl fmt::Display for Input<'_> {
 }
 
 /// The `suggest_replies` result to add under the reply, or `None` when the
-/// turn does not call for one or writing it failed.
+/// turn does not call for one or writing it failed. `score` is Jev's answer
+/// to [`QUESTION`], asked with the turn's other questions; follow-ups are
+/// written only with one.
 pub async fn write(
-    decision: &DecisionTool,
     generator: Generator<'_>,
     state: String,
     kind: Kind,
     reply: &str,
+    score: Option<f64>,
 ) -> Option<String> {
     match kind {
         Kind::Answers => {
@@ -215,7 +231,7 @@ pub async fn write(
             output
         }
         Kind::FollowUps => {
-            if score(decision, &state).await? < THRESHOLD {
+            if score? < THRESHOLD {
                 return None;
             }
             draft(generator, state, reply).await
@@ -223,7 +239,7 @@ pub async fn write(
     }
 }
 
-/// Jev's estimate that the turn calls for follow-ups.
+/// Jev's estimate that the turn calls for follow-ups, asked on its own.
 pub async fn score(decision: &DecisionTool, state: &str) -> Option<f64> {
     match decision.probability_with(state, QUESTION, &CRITERIA).await {
         Ok(probability) => {

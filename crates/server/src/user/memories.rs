@@ -106,20 +106,10 @@ impl User {
             let prompt = learn_prompt(known, &exchange);
             let answer = generator.text(LEARN_SYSTEM, prompt).await?;
             let ops = parse_learn_ops(&answer)?;
-            let mut learned = Vec::new();
-            for op in ops {
-                let origin = op.origin(&exchange.session_id);
-                // One op that fails leaves the others, and those already saved
-                // are still reported.
-                match self
-                    .apply_learned(known, op, MemorySource::Learned {}, origin)
-                    .await
-                {
-                    Ok(change) => learned.extend(change),
-                    Err(error) => log::warn!("memories: unable to learn: {error:#}; user={self}"),
-                }
-            }
-            anyhow::Ok(learned)
+            anyhow::Ok(
+                self.apply_all(known, ops, MemorySource::Learned {}, &exchange.session_id)
+                    .await,
+            )
         };
         settle(
             self.id(),
@@ -146,18 +136,11 @@ impl User {
             let answer = generator
                 .text(&system, reading_prompt(&known, reading))
                 .await?;
-            let mut learned = Vec::new();
-            for op in parse_learn_ops(&answer)? {
-                let origin = op.origin(&reading.id);
-                match self
-                    .apply_learned(&known, op, reading.kind.source(), origin)
-                    .await
-                {
-                    Ok(change) => learned.extend(change),
-                    Err(error) => log::warn!("memories: unable to learn: {error:#}; user={self}"),
-                }
-            }
-            anyhow::Ok(learned)
+            let ops = parse_learn_ops(&answer)?;
+            anyhow::Ok(
+                self.apply_all(&known, ops, reading.kind.source(), &reading.id)
+                    .await,
+            )
         };
         let learned = settle(
             self.id(),
@@ -172,12 +155,45 @@ impl User {
         learned
     }
 
+    /// Applies the learner's `ops` from the chat, email or thread named by
+    /// `reference`, filing their facts in one Jev request. One op that fails
+    /// leaves the others, and those already saved are still reported.
+    async fn apply_all(
+        &self,
+        known: &[Hit],
+        ops: Vec<LearnOp>,
+        source: MemorySource,
+        reference: &str,
+    ) -> Vec<Learned> {
+        let facts: Vec<&str> = ops.iter().filter_map(LearnOp::fact).collect();
+        let mut filed = self.file_each(&facts).await.into_iter();
+        let mut learned = Vec::new();
+        for op in ops {
+            let category = if op.fact().is_some() {
+                filed.next().flatten()
+            } else {
+                None
+            };
+            let origin = op.origin(reference);
+            match self
+                .apply_learned(known, op, source, origin, category)
+                .await
+            {
+                Ok(change) => learned.extend(change),
+                Err(error) => log::warn!("memories: unable to learn: {error:#}; user={self}"),
+            }
+        }
+        learned
+    }
+
+    /// `category` files the fact; `None` leaves it to Jev.
     async fn apply_learned(
         &self,
         known: &[Hit],
         op: LearnOp,
         source: MemorySource,
         origin: Origin,
+        category: Option<&str>,
     ) -> Result<Option<Learned>> {
         let shown = op
             .id
@@ -195,17 +211,12 @@ impl User {
                 content: hit.content.clone(),
             }));
         }
-        let Some(content) = op
-            .content
-            .as_deref()
-            .map(str::trim)
-            .filter(|c| !c.is_empty())
-        else {
+        let Some(content) = op.fact() else {
             return Ok(None);
         };
         let fact = Fact {
             content,
-            category: None,
+            category,
             source,
             valid: op.validity(),
             origin: Some(origin),

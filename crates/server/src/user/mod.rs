@@ -13,7 +13,10 @@ use crate::{
     decision::DecisionTool,
     feeds::{self, SYNC_SWEEP, mail::Mailbox},
     images::Picture,
-    memories::{CURATE_SWEEP, FILE_CONCURRENCY, FILE_QUESTION, FILING, MAX_FILED, profile},
+    memories::{
+        CURATE_SWEEP, FILE_CONCURRENCY, FILE_QUESTION, FILING, MAX_FILED, file_question_for,
+        profile,
+    },
     permissions::Rules,
     places::PlaceEvent,
     protocol::{
@@ -45,7 +48,7 @@ use iroh::EndpointId;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fmt,
+    fmt::{self, Write},
     sync::{Arc, Mutex, PoisonError, Weak},
     time::{Duration, Instant},
 };
@@ -569,22 +572,22 @@ impl User {
         Ok(saved)
     }
 
-    /// Stores a new memory, filed by Jev, and returns its id.
+    /// Stores a new memory, filed by Jev unless it comes with a category,
+    /// and returns its id.
     pub async fn add_memory(&self, fact: Fact<'_>) -> Result<String> {
-        let category = self.file(fact.content).await;
         let fact = Fact {
-            category: category.or(fact.category),
+            category: self.category_of(&fact).await,
             ..fact
         };
         self.store.add_memory(&self.key, fact).await
     }
 
-    /// Replaces a memory's text, and its days when given, and files it again.
-    /// A memory the user stated stays stated. Returns whether it exists.
+    /// Replaces a memory's text, and its days when given, and files it again
+    /// unless it comes with a category. A memory the user stated stays
+    /// stated. Returns whether it exists.
     pub async fn update_memory(&self, id: &str, fact: Fact<'_>) -> Result<bool> {
-        let category = self.file(fact.content).await;
         let fact = Fact {
-            category: category.or(fact.category),
+            category: self.category_of(&fact).await,
             ..fact
         };
         self.store.update_memory(&self.key, id, fact).await
@@ -597,6 +600,45 @@ impl User {
         self.store
             .edit_memory(&self.key, id, content, category)
             .await
+    }
+
+    /// The category `fact` came with, or else Jev's.
+    async fn category_of<'a>(&self, fact: &Fact<'a>) -> Option<&'a str> {
+        match fact.category {
+            Some(category) => Some(category),
+            None => self.file(fact.content).await,
+        }
+    }
+
+    /// Jev's category for each of `contents`, asked in one request. `None`
+    /// for each when Jev is not set up or failed.
+    async fn file_each(&self, contents: &[&str]) -> Vec<Option<&'static str>> {
+        let Some(decision) = self.decision.as_ref() else {
+            return vec![None; contents.len()];
+        };
+        match contents {
+            [] => return Vec::new(),
+            [content] => return vec![self.file(content).await],
+            _ => {}
+        }
+        let mut state = String::from("Memories about the user:");
+        for (number, content) in contents.iter().enumerate() {
+            let _ = write!(state, "\n{}. {content}", number + 1);
+        }
+        let keys: Vec<String> = (1..=contents.len()).map(|n| n.to_string()).collect();
+        let asked: Vec<String> = keys.iter().map(|key| file_question_for(key)).collect();
+        let questions: Vec<(&str, &str)> = keys
+            .iter()
+            .zip(&asked)
+            .map(|(key, question)| (key.as_str(), question.as_str()))
+            .collect();
+        match decision.choose_each(&state, &questions, &FILING).await {
+            Ok(filed) => keys.iter().map(|key| filed.get(key).copied()).collect(),
+            Err(error) => {
+                log::warn!("unable to file memories: {error}; user={self}");
+                vec![None; contents.len()]
+            }
+        }
     }
 
     /// Jev's category for a memory, `None` when Jev is not set up or failed.

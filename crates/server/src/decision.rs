@@ -160,6 +160,43 @@ impl DecisionTool {
             .ok_or_else(|| anyhow::anyhow!("Jev chose an unknown option: {picked}"))
     }
 
+    /// Jev's pick of one of `options` for each of `questions`, asked together
+    /// in one request about `state` and keyed as given. A question Jev left
+    /// unanswered, or answered with an unknown option, is missing.
+    pub async fn choose_each(
+        &self,
+        state: &str,
+        questions: &[(&str, &str)],
+        options: &[(&'static str, &str)],
+    ) -> Result<BTreeMap<String, &'static str>> {
+        let criteria: BTreeMap<String, String> = options
+            .iter()
+            .map(|(key, fits)| ((*key).to_owned(), (*fits).to_owned()))
+            .collect();
+        let asked = questions
+            .iter()
+            .map(|(key, instructions)| {
+                let question = JevQuestion::Choice {
+                    instructions: (*instructions).into(),
+                    criteria: criteria.clone(),
+                };
+                ((*key).to_owned(), question)
+            })
+            .collect();
+        let response = self.provider.decide(request(state, asked)).await?;
+        Ok(questions
+            .iter()
+            .filter_map(|(key, _)| {
+                let picked = choice(&response, key)?;
+                let option = options
+                    .iter()
+                    .map(|(option, _)| *option)
+                    .find(|o| *o == picked)?;
+                Some(((*key).to_owned(), option))
+            })
+            .collect())
+    }
+
     /// Jev's pick of one of `models` and a thinking level for the prompt in
     /// `state`. With a single model only the thinking is asked.
     pub async fn route<'a>(&self, state: &str, models: &'a [AutoModel]) -> Result<Routed<'a>> {
@@ -479,6 +516,23 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn chooses_for_each_question_in_one_request() {
+        let options = [("plan", "Trips"), ("work", "Jobs")];
+        let body =
+            r#"{"model":"jev-1.13","answers":{"1":{"choice":"plan"},"2":{"choice":"travel"}}}"#;
+        let (tool, mut requests) = mock("200 OK", body).await;
+        let questions = [("1", "Memory 1?"), ("2", "Memory 2?"), ("3", "Memory 3?")];
+        let filed = tool
+            .choose_each("1. Is in Lisbon.\n2. Works at Acme.", &questions, &options)
+            .await
+            .unwrap();
+        assert_eq!(filed, BTreeMap::from([("1".to_owned(), "plan")]));
+        let request = requests.recv().await.unwrap();
+        assert!(request.contains("Memory 3?"));
+        assert!(requests.try_recv().is_err(), "one request for all three");
     }
 
     #[tokio::test]

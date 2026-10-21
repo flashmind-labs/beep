@@ -5,8 +5,8 @@ use super::{
     auto::{AgentTurn, Prompt},
     device::Parked,
     learning::{
-        MEMORY_THRESHOLD, ServerCall, add_server_calls, correction_state, drop_follow_ups,
-        drop_text_since, earlier_turns, memory_state,
+        MEMORY_THRESHOLD, ServerCall, TurnState, add_server_calls, drop_follow_ups,
+        drop_text_since, earlier_turns,
     },
 };
 use crate::{
@@ -702,62 +702,61 @@ impl App {
                     actions,
                 },
             };
-            // Written alongside learning.
-            let follow_up = self.decision().map(|decision| {
-                (
-                    decision,
-                    followups::Input::new(
-                        &conversation,
-                        turn_from,
-                        &exchange.earlier,
-                        &exchange.latest,
-                    )
-                    .to_string(),
-                )
-            });
-            let correction =
-                self.corrected(correction_state(exchange.earlier.last(), &exchange.latest));
+            let follow_up = followups::Input::new(
+                &conversation,
+                turn_from,
+                &exchange.earlier,
+                &exchange.latest,
+            );
             let kind = followups::Kind::of(&exchange.latest.reply);
+            let known = user
+                .related_memories(&exchange)
+                .await
+                .unwrap_or_else(|error| {
+                    log::warn!(
+                        "unable to find related memories: {error}; run_id={}",
+                        run.id
+                    );
+                    Vec::new()
+                });
+            let scores = self
+                .score_turn(&TurnState {
+                    known: &known,
+                    exchange: &exchange,
+                    follow_up: &follow_up,
+                    kind,
+                })
+                .await;
+            if let Some(probability) = scores.memory {
+                live.push(RunEvent::MemoryScore { probability });
+            }
+            let follow_up = follow_up.to_string();
             let replied = exchange.latest.reply.clone();
+            // Follow-ups are written only with Jev set up.
             let follow_up = async {
-                let (decision, state) = follow_up?;
-                followups::write(decision, generator, state, kind, &replied).await
+                self.decision()?;
+                followups::write(generator, follow_up, kind, &replied, scores.follow_up).await
             };
+            // Without a score (Jev not configured or failing) every turn is read,
+            // and so is one that acted, since it may finish what a memory plans.
+            let acted = !exchange.latest.actions.is_empty();
             let learning = async {
-                let known = user
-                    .related_memories(&exchange)
-                    .await
-                    .unwrap_or_else(|error| {
-                        log::warn!(
-                            "unable to find related memories: {error}; run_id={}",
-                            run.id
-                        );
-                        Vec::new()
-                    });
-                let score = self.memory_score(memory_state(&known, &exchange)).await;
-                if let Some(probability) = score {
-                    live.push(RunEvent::MemoryScore { probability });
-                }
-                // Without a score (Jev not configured or failing) every turn is read,
-                // and so is one that acted, since it may finish what a memory plans.
-                let acted = !exchange.latest.actions.is_empty();
-                let learned = match score {
+                let learned = match scores.memory {
                     Some(probability) if probability < MEMORY_THRESHOLD && !acted => Vec::new(),
                     _ => user.learn(generator, exchange, &known).await,
                 };
-                if let Some(probability) = score {
+                if let Some(probability) = scores.memory {
                     log::info!(
                         "memory score {probability:.2}, {} change(s); run_id={}",
                         learned.len(),
                         run.id
                     );
                 }
-                (learned, score)
+                learned
             };
-            let ((learned, score), follow_up, correction) =
-                tokio::join!(learning, follow_up, correction);
-            memory_score = score;
-            corrected = correction;
+            let (learned, follow_up) = tokio::join!(learning, follow_up);
+            memory_score = scores.memory;
+            corrected = scores.corrected;
             let mut calls: Vec<ServerCall> = learned
                 .iter()
                 .map(|change| ServerCall {
