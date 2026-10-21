@@ -280,13 +280,13 @@ private struct SmallAccentButton: ButtonStyle {
         let shape = RoundedRectangle(cornerRadius: 12)
         let down: CGFloat = configuration.isPressed ? 3 : 0
         configuration.label
-            .font(.body(13, .semibold)).foregroundStyle(Mint.ink)
+            .font(.body(13, .semibold)).foregroundStyle(Mint.onAccent)
             .padding(.horizontal, 14).frame(minHeight: 34)
             .background(shape.fill(Mint.accent))
             .overlay(shape.stroke(Mint.ledge, lineWidth: 2))
             .offset(x: down, y: down)
             .animation(.sink, value: configuration.isPressed)
-            .background(shape.fill(Mint.ledge).offset(x: 3, y: 3))
+            .dropShadow(shape, fill: Mint.accent)
     }
 }
 
@@ -302,7 +302,7 @@ private struct SinkButton: ButtonStyle {
             .overlay(shape.stroke(Mint.ledge, lineWidth: 2))
             .offset(x: down, y: down)
             .animation(.sink, value: configuration.isPressed)
-            .background(shape.fill(Mint.ledge).offset(x: 3, y: 3))
+            .dropShadow(shape, fill: fill)
     }
 }
 

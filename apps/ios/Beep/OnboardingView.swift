@@ -17,22 +17,21 @@ struct OnboardingView: View {
                     .font(.display(24))
                     .frame(width: 56, height: 56)
                     .chunky(Mint.user, radius: 18)
-                Text("Almost ready.").font(.display(36)).foregroundStyle(Mint.ink)
-                (Text("You are ") + Text(model.accountName).fontWeight(.semibold).foregroundColor(Mint.ink)
-                    + Text(". Beep made a key for this iPhone and keeps it in the Keychain. Both permissions are optional."))
+                Text("Almost ready.".display).font(.display(36)).foregroundStyle(Mint.ink)
+                Text("A couple of permissions to make Beep more useful. You can skip any of these.")
                     .font(.body(15))
                     .foregroundStyle(Mint.muted)
                     .lineSpacing(4)
 
                 PermissionCard(
                     icon: "mappin.and.ellipse", tint: Mint.tints[0], title: "Location",
-                    detail: "Nearby places, weather and directions.", done: model.location.authorized
+                    detail: "Let Beep answer questions about nearby places, weather, and directions.", done: model.location.authorized
                 ) {
                     model.location.request()
                 }
                 PermissionCard(
                     icon: "bell", tint: Mint.tints[1], title: "Notifications",
-                    detail: "When a routine finishes or a tool needs your OK.", done: notificationsAllowed
+                    detail: "Get notified when scheduled routines finish or when Beep has something for you.", done: notificationsAllowed
                 ) {
                     Task {
                         let granted = try? await UNUserNotificationCenter.current()
@@ -42,11 +41,11 @@ struct OnboardingView: View {
                 }
                 PermissionCard(
                     icon: "key", tint: Mint.tints[2],
-                    title: imported ? "Signed in as \(model.accountName)" : "Already use Beep?",
+                    title: imported ? "Signed in as \(model.accountName)" : "Moving from another phone?",
                     detail: imported
-                        ? "From the key file. It replaces the new account."
-                        : "Import the key file saved from Settings on your other phone.",
-                    done: imported, action: "Import", busy: busy
+                        ? "From the key file. This replaces the new account on this phone."
+                        : "You are \(model.accountName). Import the key file you saved on your old phone to keep that account.",
+                    done: imported, action: "Import key", busy: busy
                 ) { importing = true }
                 ComputerCard()
                 if !error.isEmpty {
@@ -54,8 +53,11 @@ struct OnboardingView: View {
                 }
 
                 Spacer(minLength: 24)
-                Button("Continue") { model.onboarded = true }
+                Button("Continue to Beep") { model.onboarded = true }
                     .buttonStyle(PrimaryButton())
+                Button("Skip for now") { model.onboarded = true }
+                    .buttonStyle(TextAction(color: Mint.muted))
+                    .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 24)

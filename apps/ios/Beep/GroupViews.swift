@@ -1102,7 +1102,7 @@ struct GroupInfoView: View {
     @ViewBuilder private func content(_ group: Group) -> some View {
         VStack(spacing: 6) {
             ChatAvatar(text: groupInitials(group.name), fill: Mint.tint(for: group.id), size: 84)
-                .background(Circle().fill(Mint.ledge).offset(y: 3))
+                .dropShadow(Circle())
             Text(group.name).font(.display(28)).foregroundStyle(Mint.ink).multilineTextAlignment(.center)
             Text("Group · \(group.members.count + 1) members").font(.body(13)).foregroundStyle(Mint.muted)
         }
@@ -1138,7 +1138,7 @@ struct GroupInfoView: View {
             memberLine(GroupAvatar(letter: "b", color: Mint.brand, size: 36, beep: true),
                        "Beep", "Joins in when it can help, or when someone writes @beep")
             Button { invite(group) } label: {
-                Label("Invite with a code", systemImage: "link").frame(maxWidth: .infinity)
+                Label("Invite with a link", systemImage: "link").frame(maxWidth: .infinity)
             }
             .buttonStyle(PillButton())
         }

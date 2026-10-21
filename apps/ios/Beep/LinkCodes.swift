@@ -99,6 +99,10 @@ private struct Invited: Identifiable {
 /// own join code, for a new phone or computer to scan.
 struct ComputerCard: View {
     @Environment(AppModel.self) private var model
+    /// The Linked devices screen's buttons instead of the card.
+    var buttons = false
+    /// Called once a device linked or this phone joined another account.
+    var changed: () -> Void = {}
     @State private var scanning = false
     @State private var typing = false
     @State private var typed = ""
@@ -110,6 +114,61 @@ struct ComputerCard: View {
     @State private var done: (title: String, text: String)?
 
     var body: some View {
+        content
+            .qrScanner(isPresented: $scanning, found: read)
+            .alert("Type the code", isPresented: $typing) {
+                TextField("K7QM4-X9TRP", text: $typed)
+                    .font(.system(.body, design: .monospaced))
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                Button("Cancel", role: .cancel) {}
+                Button("Next") { read(typed) }
+            } message: {
+                Text("The code your other device shows under Settings, Devices.")
+            }
+            .sheet(item: $scanned) { offer in
+                LinkSheet(preview: offer.preview) { scanned = nil } link: {
+                    scanned = nil
+                    link(offer)
+                }
+            }
+            .sheet(isPresented: $showingCode, onDismiss: changed) { ShowCodeSheet() }
+            .sheet(item: $invited) { invite in
+                JoinSheet(preview: invite.preview) { invited = nil } join: {
+                    invited = nil
+                    join(invite)
+                }
+            }
+    }
+
+    @ViewBuilder private var content: some View {
+        if buttons { buttonStack } else { card }
+    }
+
+    private var buttonStack: some View {
+        VStack(spacing: 10) {
+            if let done {
+                Text(done.title).font(.body(14, .semibold)).foregroundStyle(Mint.ok)
+            }
+            if !error.isEmpty { Text(error).font(.body(12)).foregroundStyle(Mint.error) }
+            Button { scanning = true } label: {
+                Label("Scan a computer's code", systemImage: "laptopcomputer")
+            }
+            .buttonStyle(PrimaryButton())
+            .disabled(busy)
+            Button { showingCode = true } label: {
+                Label("Show a code for a new device", systemImage: "iphone")
+                    .font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .chunky(radius: 16)
+            }
+            .buttonStyle(.plain)
+            Button("Type a code instead") { typed = ""; typing = true }
+                .buttonStyle(TextAction(color: Mint.muted))
+        }
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 TintIcon(system: "laptopcomputer", tint: Mint.tints[1])
@@ -138,30 +197,6 @@ struct ComputerCard: View {
         }
         .padding(14)
         .card()
-        .qrScanner(isPresented: $scanning, found: read)
-        .alert("Type the code", isPresented: $typing) {
-            TextField("K7QM4-X9TRP", text: $typed)
-                .font(.system(.body, design: .monospaced))
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-            Button("Cancel", role: .cancel) {}
-            Button("Next") { read(typed) }
-        } message: {
-            Text("The code your other device shows under Settings, Devices.")
-        }
-        .sheet(item: $scanned) { offer in
-            LinkSheet(preview: offer.preview) { scanned = nil } link: {
-                scanned = nil
-                link(offer)
-            }
-        }
-        .sheet(isPresented: $showingCode) { ShowCodeSheet() }
-        .sheet(item: $invited) { invite in
-            JoinSheet(preview: invite.preview) { invited = nil } join: {
-                invited = nil
-                join(invite)
-            }
-        }
     }
 
     private func read(_ text: String) {
@@ -190,6 +225,7 @@ struct ComputerCard: View {
             do {
                 let device = try await model.linkDevice(offer.uri)
                 done = ("Linked \(device.name)", "It sees the chats and memories on this phone.")
+                changed()
             } catch {
                 self.error = describe(error)
             }
@@ -204,6 +240,7 @@ struct ComputerCard: View {
                 try await model.joinAccount(invite.code)
                 let name = invite.preview.name
                 done = ("On \(name)'s account", "This phone now shows \(name)'s chats and memories.")
+                changed()
             } catch {
                 self.error = joinMessage(error)
             }

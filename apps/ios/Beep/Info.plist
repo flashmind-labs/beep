@@ -45,6 +45,10 @@
 	<array>
 		<string>bricolage_grotesque.ttf</string>
 		<string>rubik.ttf</string>
+		<string>fredoka.ttf</string>
+		<string>nunito.ttf</string>
+		<string>sniglet_regular.ttf</string>
+		<string>sniglet_extrabold.ttf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
