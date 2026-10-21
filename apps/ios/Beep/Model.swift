@@ -49,6 +49,18 @@ struct Message: Identifiable, Equatable {
     var pictures: [Picture] = []
     /// Other files a user message carries, such as a PDF.
     var files: [SentFile] = []
+    /// The model an admin reran this prompt on, as a `ModelChoice` id, or the one that wrote
+    /// a reply from the history. Empty for the usual model.
+    var model = ""
+    /// The thinking an admin picked for that rerun; nil keeps their usual one.
+    var modelThinking: ReasoningLevel?
+    /// When the server saved this prompt, in epoch milliseconds; 0 until the chat reloads.
+    /// Names the turn to delete.
+    var sentAt: Int64 = 0
+    /// Jev's estimate that a reply's turn held something worth remembering.
+    var memoryScore: Double?
+    /// The specialized agent a reply ran as; empty for General.
+    var agent = ""
 }
 
 /// A message typed while a reply runs, sent as its own turn once the reply finishes.
@@ -71,6 +83,9 @@ struct Chat: Equatable {
     var pendingImages: [String] = []
     /// Files going out with `pendingText`.
     var pendingFiles: [SentFile] = []
+    /// The model and thinking an admin picked to rerun `pendingText` on.
+    var pendingModel = ""
+    var pendingThinking: ReasoningLevel?
     var thinking = ""
     var error = ""
     /// Messages waiting for the reply to finish, sent one by one.
@@ -80,6 +95,19 @@ struct Chat: Equatable {
 
     /// A message waits to go out or a run is streaming.
     var busy: Bool { !requestId.isEmpty || !runId.isEmpty }
+
+    /// The admin's pick for `pendingText`, as the server takes it.
+    var pendingRerun: Rerun? { pendingModel.isEmpty ? nil : Rerun(model: pendingModel, thinking: pendingThinking) }
+
+    /// Nothing waits to go out any more.
+    mutating func clearPending() {
+        requestId = ""
+        pendingText = ""
+        pendingImages = []
+        pendingFiles = []
+        pendingModel = ""
+        pendingThinking = nil
+    }
 }
 
 @MainActor
@@ -138,6 +166,10 @@ final class AppModel {
     let replyImages = ReplyImageCache()
     /// A page open_browser asked for, shown in Safari over the chat.
     var browsing: URL?
+    /// The APNs token iOS gave this install, in hex. The server gets it on every connect.
+    var pushToken: String? {
+        didSet { Task { await registerPush() } }
+    }
 
     init() {
         let key = Identity.loadOrCreate()
@@ -224,9 +256,32 @@ final class AppModel {
         await loadStarters(refresh: false)
         models = try? await client?.getModels()
         await reportTimezone()
+        await registerPush()
         location.refresh()
         await refreshPlaces()
         if chat.busy { launchRun() }
+    }
+
+    // MARK: Push
+
+    /// Names this install's push token to the server, so a notice it cannot send over the
+    /// connection goes through APNs.
+    private func registerPush() async {
+        guard connected, let client, let pushToken else { return }
+        try? await client.registerApns(deviceId: PushRegistration.deviceId, token: pushToken,
+                                       environment: PushRegistration.environment)
+    }
+
+    /// A background push: the server has notices it could not send. Connecting makes it send
+    /// them, and the notifier shows each as it comes.
+    func wake() async {
+        ensureConnected()
+        let deadline = Date.now.addingTimeInterval(20)
+        while !connected, Date.now < deadline {
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        // The server sends the queue as soon as the connection opens.
+        try? await Task.sleep(for: .seconds(3))
     }
 
     private func api() throws -> BeepClient {
@@ -393,15 +448,21 @@ final class AppModel {
         // An older server has no pictures to give, which just means none show.
         let images = (try? await api().getSessionImages(id: id)) ?? []
         let files = (try? await api().getSessionFiles(id: id)) ?? []
+        // Likewise a server from before it named agents.
+        let agents = (try? await api().getSessionAgents(id: id)) ?? []
         guard chat.id == id, !chat.busy else { return }
-        show(entries, images: images, files: files, at: updatedAt)
+        show(entries, images: images, files: files, agents: agents, at: updatedAt)
         ChatStore.saveHistory(id, HistoryCache(updatedAt: updatedAt, entries: entries, images: images, files: files))
         if let session = sessions.first(where: { $0.id == id }) { remember(preview(entries), for: session) }
     }
 
     /// Puts a fetched or saved history on screen as the open chat's messages. Turns where
     /// the model only called tools fold into the next reply with text, as on Android.
-    private func show(_ entries: [HistoryEntry], images: [SentImages], files: [SentFiles], at updatedAt: Int64) {
+    private func show(_ entries: [HistoryEntry], images: [SentImages], files: [SentFiles], agents: [TurnAgent] = [],
+                      at updatedAt: Int64) {
+        var agentByTurn: [Int64: String] = [:]
+        for turn in agents { agentByTurn[turn.message] = turn.agent ?? "" }
+        var turnAt: Int64 = 0
         let id = chat.id
         let pictures = picturesByMessage(images)
         var filesByMessage: [Int64: [SentFile]] = [:]
@@ -417,13 +478,14 @@ final class AppModel {
             case .user(let content, let timestamp, _):
                 pendingTools = []
                 pendingReasoning = ""
+                turnAt = timestamp
                 messages.append(Message(id: mid, role: .user, text: content, pictures: pictures[timestamp] ?? [],
-                                        files: filesByMessage[timestamp] ?? []))
-            case .scheduled(let label, _):
+                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp))
+            case .scheduled(let label, let timestamp):
                 pendingTools = []
                 pendingReasoning = ""
-                messages.append(Message(id: mid, role: .scheduled, text: label))
-            case .assistant(let content, _, let tools, _, let reasoning, _):
+                messages.append(Message(id: mid, role: .scheduled, text: label, sentAt: timestamp))
+            case .assistant(let content, _, let tools, let memoryScore, let reasoning, let model):
                 let calls = pendingTools + tools.map { ToolCall(id: $0.callId, name: $0.name, done: true, success: $0.success, output: $0.output) }
                 let thought = [pendingReasoning, reasoning].filter { !$0.isEmpty }.joined(separator: "\n\n")
                 if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -432,7 +494,8 @@ final class AppModel {
                 } else {
                     pendingTools = []
                     pendingReasoning = ""
-                    messages.append(Message(id: mid, role: .assistant, text: content, tools: calls, reasoning: thought))
+                    messages.append(Message(id: mid, role: .assistant, text: content, tools: calls, reasoning: thought,
+                                            model: model, memoryScore: memoryScore, agent: agentByTurn[turnAt] ?? ""))
                 }
             case .approval(let queryId, let approval):
                 messages.append(Message(
@@ -442,19 +505,24 @@ final class AppModel {
                 pendingReasoning = ""
             }
         }
-        chat.messages = keepingLocalPictures(messages)
+        chat.messages = keepingLocal(messages)
         chat.historyAt = updatedAt
     }
 
-    /// Carries pictures sent from this phone over to the reloaded history, matching user
-    /// messages by text in order, where the server gave none for that message.
-    private func keepingLocalPictures(_ fresh: [Message]) -> [Message] {
-        var local = chat.messages.filter { $0.role == .user && $0.pictures.contains { $0.dataUri != nil } }
+    /// Carries what only this phone knows over to the reloaded history, matching user messages
+    /// by text in order: pictures sent from here where the server gave none for that message,
+    /// and the model an admin reran it on.
+    private func keepingLocal(_ fresh: [Message]) -> [Message] {
+        var local = chat.messages.filter {
+            $0.role == .user && (!$0.model.isEmpty || $0.pictures.contains { $0.dataUri != nil })
+        }
         guard !local.isEmpty else { return fresh }
         var out = fresh
         for index in out.indices where out[index].role == .user {
             guard let match = local.firstIndex(where: { $0.text == out[index].text }) else { continue }
             if out[index].pictures.isEmpty { out[index].pictures = local[match].pictures }
+            out[index].model = local[match].model
+            out[index].modelThinking = local[match].modelThinking
             local.remove(at: match)
         }
         return out
@@ -574,14 +642,101 @@ final class AppModel {
         // The server needs words; a file sent on its own gets some, as Android does.
         if trimmed.isEmpty, !files.isEmpty { trimmed = files.count + images.count > 1 ? "Have a look at these files." : "Have a look at this file." }
         if chat.messages.isEmpty { chat.title = String((trimmed.isEmpty ? "Photo" : trimmed).prefix(44)) }
-        chat.messages.append(Message(id: UUID().uuidString, role: .user, text: trimmed,
-                                     pictures: images.map { Picture(dataUri: dataURI($0)) }, files: files))
+        startTurn(trimmed, images: images.map(dataURI), files: files)
+    }
+
+    /// Shows `text` as the user's next prompt and sends it, on `model` at `thinking` for a rerun.
+    private func startTurn(_ text: String, images: [String], files: [SentFile], model: String = "",
+                           thinking: ReasoningLevel? = nil) {
+        chat.messages.append(Message(id: UUID().uuidString, role: .user, text: text,
+                                     pictures: images.map { Picture(dataUri: $0) }, files: files,
+                                     model: model, modelThinking: thinking))
         chat.requestId = UUID().uuidString.lowercased()
-        chat.pendingText = trimmed
-        chat.pendingImages = images.map(dataURI)
+        chat.pendingText = text
+        chat.pendingImages = images
         chat.pendingFiles = files
+        chat.pendingModel = model
+        chat.pendingThinking = thinking
         chat.error = ""
         launchRun()
+    }
+
+    /// Sends the prompt behind `reply` again on another model, as if the first try never
+    /// happened: its turn and every turn after it leave the chat and the model's context.
+    /// Admins only.
+    func rerun(_ reply: Message, model: String, thinking: ReasoningLevel?) async {
+        guard let at = chat.messages.firstIndex(where: { $0.id == reply.id }),
+            let prompt = chat.messages[..<at].last(where: { $0.role != .assistant })
+        else { return }
+        await rerunPrompt(prompt, model: model, thinking: thinking)
+    }
+
+    /// Deletes the turn `prompt` started and everything after it, then sends it again on
+    /// `model`, thinking at `thinking` or, when nil, the admin's usual level.
+    func rerunPrompt(_ prompt: Message, model: String, thinking: ReasoningLevel?) async {
+        guard prompt.role == .user, !chat.busy else { return }
+        let id = chat.id
+        do {
+            // A prompt loaded from the server holds its pictures and files there, so read them back first.
+            var images: [String] = []
+            for picture in prompt.pictures {
+                if let uri = picture.dataUri {
+                    images.append(uri)
+                } else if let fileId = picture.fileId, let file = await pictureFile(fileId) {
+                    images.append("data:\(picture.mime);base64," + (try Data(contentsOf: file)).base64EncodedString())
+                } else {
+                    throw RerunFailure.picture
+                }
+            }
+            for file in prompt.files { _ = try await sentFile(file) }
+            try await deleteTurn(prompt, onward: true)
+            guard chat.id == id, !chat.busy else { return }
+            startTurn(prompt.text, images: images, files: prompt.files, model: model, thinking: thinking)
+        } catch {
+            if chat.id == id { chat.error = describe(error) }
+        }
+    }
+
+    private enum RerunFailure: LocalizedError {
+        case picture
+        var errorDescription: String? { "Couldn't load a picture from that message." }
+    }
+
+    /// `deleteTurn` from the message menu, showing a failure in the chat.
+    func delete(_ prompt: Message) async {
+        let id = chat.id
+        do {
+            try await deleteTurn(prompt)
+        } catch {
+            if chat.id == id { chat.error = describe(error) }
+        }
+    }
+
+    /// Removes `prompt` with the reply and tool calls that followed it, here and on the server.
+    /// With `onward`, every later turn goes too.
+    func deleteTurn(_ prompt: Message, onward: Bool = false) async throws {
+        let id = chat.id
+        guard !chat.busy else { return }
+        let sentAt = try await serverTime(prompt, in: id)
+        if sentAt != 0 { try await api().deleteTurn(sessionId: id, timestamp: sentAt, onward: onward) }
+        guard chat.id == id, let start = chat.messages.firstIndex(where: { $0.id == prompt.id }) else { return }
+        let end = onward ? chat.messages.endIndex
+            : chat.messages[(start + 1)...].firstIndex { $0.role != .assistant } ?? chat.messages.endIndex
+        chat.messages.removeSubrange(start..<end)
+    }
+
+    /// When the server saved `prompt`: its own time, or else the matching entry of the history.
+    private func serverTime(_ prompt: Message, in id: String) async throws -> Int64 {
+        if prompt.sentAt != 0 { return prompt.sentAt }
+        let nth = chat.messages.prefix { $0.id != prompt.id }.filter { $0.role == prompt.role && $0.text == prompt.text }.count
+        let times = try await api().getSession(id: id).compactMap { entry -> Int64? in
+            switch entry {
+            case .user(let content, let timestamp, _): prompt.role == .user && content == prompt.text ? timestamp : nil
+            case .scheduled(let label, let timestamp): prompt.role == .scheduled && label == prompt.text ? timestamp : nil
+            case .assistant, .approval: nil
+            }
+        }
+        return times.indices.contains(nth) ? times[nth] : 0
     }
 
     /// Holds a message until the running reply finishes.
@@ -610,6 +765,8 @@ final class AppModel {
         chat.pendingText = last.text
         chat.pendingImages = last.pictures.compactMap(\.dataUri)
         chat.pendingFiles = last.files
+        chat.pendingModel = last.model
+        chat.pendingThinking = last.modelThinking
         chat.error = ""
         launchRun()
     }
@@ -622,10 +779,7 @@ final class AppModel {
         let stopped = chat
         stopTask = Task { try? await stopRun(stopped) }
         chat.runId = ""
-        chat.requestId = ""
-        chat.pendingText = ""
-        chat.pendingImages = []
-        chat.pendingFiles = []
+        chat.clearPending()
         chat.thinking = ""
         chat.error = runEndError("cancelled", current: chat.error)
         finished(chat)
@@ -640,7 +794,7 @@ final class AppModel {
             // The same request finds the run it started, or starts it to be stopped.
             let stream = try await api.chat(
                 sessionId: chat.id, requestId: chat.requestId, message: chat.pendingText,
-                images: chat.pendingImages, files: try await uploads(chat.pendingFiles), rerun: nil)
+                images: chat.pendingImages, files: try await uploads(chat.pendingFiles), rerun: chat.pendingRerun)
             while runId.isEmpty, let received = try await stream.next() {
                 if case .runStarted(let started, _) = received.event { runId = started }
             }
@@ -700,7 +854,7 @@ final class AppModel {
                         await reportTimezone()
                         stream = try await api.chat(
                             sessionId: chatId, requestId: chat.requestId, message: chat.pendingText,
-                            images: chat.pendingImages, files: try await uploads(chat.pendingFiles), rerun: nil)
+                            images: chat.pendingImages, files: try await uploads(chat.pendingFiles), rerun: chat.pendingRerun)
                     } else {
                         stream = try await api.events(runId: chat.runId, after: chat.cursor)
                     }
@@ -709,10 +863,7 @@ final class AppModel {
                         guard !Task.isCancelled, chat.id == chatId else { return }
                         if case .runFinished(let status, _) = received.event, first, chat.runId.isEmpty {
                             // A resent message whose run already finished: its reply is in the history.
-                            chat.requestId = ""
-                            chat.pendingText = ""
-                            chat.pendingImages = []
-                            chat.pendingFiles = []
+                            chat.clearPending()
                             chat.error = runEndError(status)
                             await loadHistory()
                             break
@@ -745,10 +896,7 @@ final class AppModel {
         if case .runStarted(let runId, _) = received.event {
             chat.runId = runId
             chat.cursor = 0
-            chat.requestId = ""
-            chat.pendingText = ""
-            chat.pendingImages = []
-            chat.pendingFiles = []
+            chat.clearPending()
         }
         guard received.seq > chat.cursor else { return }
         guard received.seq == chat.cursor + 1 else { throw MissedEvent() }
@@ -785,10 +933,13 @@ final class AppModel {
             chat.thinking = ""
             chat.error = runEndError(status, current: chat.error)
             finished(chat)
+            labelAgent(chat.id, reply: mid)
             // Queued messages wait out a run that stopped or failed, so the user can decide.
             if chat.error.isEmpty { sendQueued() }
             Task { await refreshSessions() }
-        case .runStarted, .usage, .memoryScore, .autoPicked:
+        case .memoryScore(let probability):
+            updateReply(mid) { $0.memoryScore = probability }
+        case .runStarted, .usage, .autoPicked:
             break
         }
     }
@@ -865,6 +1016,16 @@ final class AppModel {
 
     /// Keeps the list's preview current, and when the app is in the background
     /// shows the reply as a notification, since only routines get notices.
+    /// Names on `reply` the specialized agent the newest turn of chat `id` ran as.
+    private func labelAgent(_ id: String, reply: String) {
+        Task {
+            guard let agent = try? await api().getSessionAgents(id: id).last?.agent, chat.id == id,
+                let index = chat.messages.firstIndex(where: { $0.id == reply })
+            else { return }
+            chat.messages[index].agent = agent
+        }
+    }
+
     private func finished(_ chat: Chat) {
         guard let reply = chat.messages.last(where: { $0.role == .assistant && !$0.text.isEmpty }) else { return }
         if let session = sessions.first(where: { $0.id == chat.id }) {
