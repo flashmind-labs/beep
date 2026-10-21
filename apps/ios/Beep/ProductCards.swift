@@ -179,7 +179,7 @@ struct ProductCard: View {
         .background(Mint.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Mint.ledge, lineWidth: 1.5))
-        .background(RoundedRectangle(cornerRadius: 16).fill(Mint.ledge).offset(y: 3))
+        .dropShadow(RoundedRectangle(cornerRadius: 16))
     }
 
     @ViewBuilder private var picture: some View {

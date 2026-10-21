@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 enum Route: Hashable {
     case groupInfo(String)
-    case settings, memories, routines, skills, places, locationAlways, apps
+    case settings, memories, routines, skills, places, locationAlways, apps, devices
     case skill(String)
     /// Memories, opened on the newest read.
     case latestRead
@@ -177,6 +177,7 @@ struct RootView: View {
                 sheet = .invite(id: $0.id, name: $0.name)
             }
         case .settings: SettingsView(path: $path)
+        case .devices: LinkedDevicesView(back: { path.removeLast() })
         case .apps: AppsView(back: { path.removeLast() })
         case .memories: MemoriesView(path: $path)
         case .latestRead: MemoriesView(path: $path, latestRead: true)
@@ -302,6 +303,7 @@ struct RootView: View {
             model.chat.messages = sampleCards(top: defaults.string(forKey: "open") == "cardstop")
         case "settings": path = [.settings]
         case "apps": path = [.apps]
+        case "devices": path = [.settings, .devices]
         case "shared":
             if let token = defaults.string(forKey: "token") { reading = token }
         case "memories": path = [.memories]

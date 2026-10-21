@@ -22,9 +22,19 @@ targets:
         buildPhase: resources
       - path: ../android/app/src/main/res/font/rubik.ttf
         buildPhase: resources
+      - path: ../android/app/src/main/res/font/fredoka.ttf
+        buildPhase: resources
+      - path: ../android/app/src/main/res/font/nunito.ttf
+        buildPhase: resources
+      - path: ../android/app/src/main/res/font/sniglet_regular.ttf
+        buildPhase: resources
+      - path: ../android/app/src/main/res/font/sniglet_extrabold.ttf
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.flashmind.beep
+        # The avatars other than the pager, picked in Settings.
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIcon-Clay AppIcon-Jelly
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"
@@ -36,6 +46,8 @@ targets:
         INFOPLIST_KEY_NSContactsUsageDescription: Beep looks up a contact when you ask it to.
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: Beep watches the places you saved, so a routine can start when you arrive or leave.
         INFOPLIST_KEY_NSCameraUsageDescription: Beep uses the camera to scan a Beep code, and while it's open in a chat to send a photo with your message.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Beep listens when you tap the mic, to write your message from what you say.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Beep turns what you say into text for your message.
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Beep shows your recent photos so you can send one with a message.
         SWIFT_INCLUDE_PATHS: $(PROJECT_DIR)/Generated
         HEADER_SEARCH_PATHS: $(PROJECT_DIR)/Generated
@@ -48,7 +60,7 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        UIAppFonts: [bricolage_grotesque.ttf, rubik.ttf]
+        UIAppFonts: [bricolage_grotesque.ttf, rubik.ttf, fredoka.ttf, nunito.ttf, sniglet_regular.ttf, sniglet_extrabold.ttf]
         NSUserActivityTypes: [INSendMessageIntent]
         # The ride apps a place card can open with the drop-off set.
         LSApplicationQueriesSchemes: [grab, lyft, uber]

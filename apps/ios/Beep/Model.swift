@@ -61,6 +61,8 @@ struct Message: Identifiable, Equatable {
     var memoryScore: Double?
     /// The specialized agent a reply ran as; empty for General.
     var agent = ""
+    /// The model and thinking Jev picked for this prompt under Auto; nil when it picked none.
+    var auto: AutoPick?
 }
 
 /// A message typed while a reply runs, sent as its own turn once the reply finishes.
@@ -475,12 +477,12 @@ final class AppModel {
         for (index, entry) in entries.enumerated() {
             let mid = "history-\(id)-\(index)"
             switch entry {
-            case .user(let content, let timestamp, _):
+            case .user(let content, let timestamp, let auto):
                 pendingTools = []
                 pendingReasoning = ""
                 turnAt = timestamp
                 messages.append(Message(id: mid, role: .user, text: content, pictures: pictures[timestamp] ?? [],
-                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp))
+                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp, auto: auto))
             case .scheduled(let label, let timestamp):
                 pendingTools = []
                 pendingReasoning = ""
@@ -939,7 +941,9 @@ final class AppModel {
             Task { await refreshSessions() }
         case .memoryScore(let probability):
             updateReply(mid) { $0.memoryScore = probability }
-        case .runStarted, .usage, .autoPicked:
+        case .autoPicked(let pick):
+            if let index = chat.messages.lastIndex(where: { $0.role == .user }) { chat.messages[index].auto = pick }
+        case .runStarted, .usage:
             break
         }
     }
@@ -1159,6 +1163,10 @@ final class AppModel {
 
     func peekInvite(_ code: String) async throws -> JoinPreview { try await api().peekInvite(code: code) }
 
+    func devices() async throws -> [LinkedDevice] { try await api().listDevices() }
+
+    func removeDevice(_ id: String) async throws { try await api().removeDevice(id: id) }
+
     func linkDevice(_ offerUri: String) async throws -> LinkedDevice { try await api().linkDevice(offerUri: offerUri) }
 
     /// A code a new phone or computer joins this account with.
@@ -1190,8 +1198,10 @@ final class AppModel {
         if let fresh = try? await api().setAutoModel(enabled: on) { models = fresh }
     }
 
-    /// Whether an admin turned agents on for everyone; false for anyone else.
-    func agentsOn() async -> Bool { (try? await api().getAgents().enabled) ?? false }
+    /// The agents Jev picks from and whether they are on; only admins get an answer.
+    func agents() async -> Agents? { try? await api().getAgents() }
+
+    func setAgents(_ on: Bool) async throws -> Agents { try await api().setAgents(enabled: on) }
 
     func memories() async throws -> [Memory] { try await api().listMemories() }
     /// Empty on servers from before reads were listed.

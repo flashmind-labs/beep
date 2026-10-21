@@ -14,6 +14,11 @@ struct ChatView: View {
     /// Messages already on screen when the chat opened, or already shown; these do not spring in.
     @State private var settled: Set<String> = []
     @State private var squish = false
+    /// Follows the reply until the user scrolls up; reaching the end again resumes it.
+    @State private var follow = true
+    /// Whether the chat is taller than the screen, which brings up the prompt map.
+    @State private var scrolls = false
+    @State private var voice = VoiceInput()
     @FocusState private var typing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -21,20 +26,25 @@ struct ChatView: View {
         VStack(spacing: 0) {
             chatBar
             ScrollViewReader { scroller in
+                let breaks = dayBreaks(model.chat.messages)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         if model.chat.messages.isEmpty {
-                            EmptyChat { model.send($0) } fill: { draft = $0; typing = true }
+                            EmptyChat { follow = true; model.send($0) } fill: { draft = $0; typing = true }
                         }
                         ForEach(Array(model.chat.messages.enumerated()), id: \.element.id) { index, message in
-                            MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
-                                        latest: index == model.chat.messages.count - 1, quote: quote)
-                                // A reply sits close under its own prompt; turns keep the full gap.
-                                .padding(.top, index > 0 && message.role == .assistant
-                                         && model.chat.messages[index - 1].role == .user ? -12 : 0)
-                                .popIn(play: !settled.contains(message.id),
-                                       anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
-                                .onAppear { settled.insert(message.id) }
+                            VStack(spacing: 12) {
+                                if let day = breaks[message.id] { DayMarker(day: day) }
+                                MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
+                                            latest: index == model.chat.messages.count - 1, quote: quote)
+                            }
+                            // A reply sits close under its own prompt; turns keep the full gap.
+                            .padding(.top, index > 0 && message.role == .assistant
+                                     && model.chat.messages[index - 1].role == .user ? -12 : 0)
+                            .popIn(play: !settled.contains(message.id),
+                                   anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
+                            .onAppear { settled.insert(message.id) }
+                            .id(message.id)
                         }
                         if model.chat.busy, !replyStarted {
                             working
@@ -42,12 +52,13 @@ struct ChatView: View {
                                 .transition(.opacity)
                         }
                         if !model.chat.error.isEmpty, !model.chat.busy {
-                            ErrorRow(text: model.chat.error, retry: { model.retry() }) {
+                            ErrorRow(text: model.chat.error, retry: { follow = true; model.retry() }) {
                                 // A stopped turn may have no reply to carry the rerun menu, so it sits here too.
                                 if let models = model.models, !models.choices.isEmpty,
                                     let prompt = model.chat.messages.last(where: { $0.role == .user }) {
                                     RerunButton(models: models, used: prompt.model.isEmpty ? nil : prompt.model,
                                                 color: Mint.error, prominent: true) { choice, thinking in
+                                        follow = true
                                         Task { await model.rerunPrompt(prompt, model: choice, thinking: thinking) }
                                     }
                                 }
@@ -64,16 +75,49 @@ struct ChatView: View {
                     .animation(.easeOut(duration: 0.2), value: model.chat.error)
                 }
                 .chatScrollAnchor()
+                .followLatest($follow, scrolls: $scrolls)
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: model.chat.messages) { old, new in
+                    // Sending always brings the end back.
+                    if new.count > old.count, new.last?.role == .user { follow = true }
+                    guard follow else { return }
                     // A new message glides into view; streamed text just keeps the end in sight.
                     let glide = old.count != new.count && !reduceMotion
                     withAnimation(glide ? .smooth : nil) { scroller.scrollTo("end", anchor: .bottom) }
                 }
                 .onChange(of: model.chat.id, initial: true) {
                     settled = Set(model.chat.messages.map(\.id))
+                    follow = true
                     scroller.scrollTo("end", anchor: .bottom)
                 }
+                .overlay(alignment: .trailing) {
+                    if scrolls {
+                        PromptMap(messages: model.chat.messages) { id in
+                            follow = false
+                            withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo(id, anchor: .top) }
+                        }
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if !follow, !model.chat.messages.isEmpty {
+                        Button {
+                            follow = true
+                            withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo("end", anchor: .bottom) }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.down").font(.system(size: 13, weight: .semibold))
+                                Text("Latest reply").font(.body(12, .medium))
+                            }
+                            .foregroundStyle(Mint.ink)
+                            .padding(.horizontal, 14).padding(.vertical, 7)
+                            .chunky(shape: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 8)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .animation(.snappy, value: follow)
             }
             composer
         }
@@ -91,7 +135,10 @@ struct ChatView: View {
             model.composeNext = false
             typing = true
         }
-        .onDisappear { if model.onScreen == model.chat.id { model.onScreen = nil } }
+        .onDisappear {
+            voice.stop()
+            if model.onScreen == model.chat.id { model.onScreen = nil }
+        }
         .safariSheet(Binding(get: { model.browsing }, set: { model.browsing = $0 }))
         .sheet(isPresented: $picking) {
             PhotoSheet(room: max(0, ChatPhotos.limit - photos.count)) { picked in
@@ -199,9 +246,10 @@ struct ChatView: View {
 
     private var composer: some View {
         let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty && files.isEmpty
-        let prompt = photos.count > 1 ? "Ask about the photos..." : !photos.isEmpty ? "Ask about the photo..."
-            : !files.isEmpty ? "Ask about the file..." : "Ask anything..."
+        let prompt = voice.listening ? "Speak now..." : photos.count > 1 ? "Ask about the photos..."
+            : !photos.isEmpty ? "Ask about the photo..." : !files.isEmpty ? "Ask about the file..." : "Ask anything..."
         return VStack(alignment: .leading, spacing: 0) {
+            if voice.listening { listeningRow.unfold() }
             if !model.chat.queued.isEmpty { queuedList.unfold() }
             if !photos.isEmpty { thumbnails.unfold() }
             if !files.isEmpty { fileChips.unfold() }
@@ -252,8 +300,22 @@ struct ChatView: View {
                             .accessibilityLabel("Stop reply")
                     }
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
+                } else if empty, voice.available {
+                    Button {
+                        if voice.listening {
+                            voice.stop()
+                        } else {
+                            typing = false
+                            Task { await voice.start { draft = $0 } }
+                        }
+                    } label: { Image(systemName: "mic") }
+                        .buttonStyle(ChunkyButton(fill: voice.listening ? Mint.accent : Mint.surface, size: 50, radius: 18))
+                        .background { if voice.listening { MicRing() } }
+                        .accessibilityLabel(voice.listening ? "Stop listening" : "Voice input")
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                 } else {
                     Button {
+                        voice.stop()
                         model.send(draft, images: photos, files: files)
                         draft = ""
                         photos = []
@@ -282,6 +344,15 @@ struct ChatView: View {
         .background(Mint.page)
         .animation(.bouncy, value: photos.count)
         .animation(.bouncy, value: files.count)
+    }
+
+    /// The pulsing dot over the composer while dictation listens.
+    private var listeningRow: some View {
+        HStack(spacing: 8) {
+            PulseDot()
+            Text("Listening...").font(.body(12, .medium)).foregroundStyle(Mint.muted)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 2)
     }
 
     /// Messages queued while the reply runs; each sends as its own turn once the one before
@@ -435,7 +506,7 @@ private struct EmptyChat: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            (Text("A little help.\n") + Text("Right here.").foregroundColor(Mint.ok))
+            (Text("A little help.\n".display) + Text("Right here.".display).foregroundColor(Mint.ok))
                 .font(.display(40)).foregroundStyle(Mint.ink)
                 .lineSpacing(0)
                 .popIn(anchor: .bottomLeading)
@@ -557,14 +628,18 @@ struct MessageView: View {
                 Menu {
                     promptMenu
                 } label: {
-                    userBubble
-                        .chunky(Mint.user, shape: UnevenRoundedRectangle(
-                            topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18))
+                    userBubble.userBubble(bubbleShape(user: true))
                 }
                 .buttonStyle(.plain)
                 .disabled(live)
                 if !message.model.isEmpty {
                     Text(rerunCaption).font(.body(11)).foregroundStyle(Mint.muted)
+                        .padding(.top, 4).padding(.trailing, 4)
+                }
+                // The model and thinking Jev picked under Auto. Everyone but an admin is on
+                // Auto for thinking only, so they see just the level.
+                if let auto = message.auto {
+                    Text(autoCaption(auto)).font(.body(11)).foregroundStyle(Mint.dim)
                         .padding(.top, 4).padding(.trailing, 4)
                 }
             }
@@ -585,7 +660,7 @@ struct MessageView: View {
                     ApprovalCard(prompt: prompt).padding(.bottom, 8)
                 }
                 if !message.text.isEmpty {
-                    Typewriter(text: message.text, streaming: live) { MarkdownText(text: $0) }
+                    Typewriter(text: message.text, streaming: live) { MarkdownText(text: $0) }.botBubble()
                 }
                 // A finished tool with something to show is a card, once the reply is done.
                 let cards = message.tools.compactMap(\.card).filter { if case .replies = $0 { false } else { true } }
@@ -630,7 +705,7 @@ struct MessageView: View {
 
     /// The text, with any pictures above it in a 220 point wide block as in the mock.
     @ViewBuilder private var userBubble: some View {
-        let text = Text(message.text).font(.body(15)).foregroundStyle(Mint.ink).lineSpacing(4).textSelection(.enabled)
+        let text = Text(message.text).font(.body(15)).foregroundStyle(Mint.onUser).lineSpacing(4).textSelection(.enabled)
         if !message.files.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 if !message.pictures.isEmpty { PictureGrid(pictures: message.pictures) }
@@ -658,6 +733,13 @@ struct MessageView: View {
     }
 
     /// Under a prompt an admin reran: the model, and the thinking when one was picked.
+    private func autoCaption(_ pick: AutoPick) -> String {
+        let thinking = "\(pick.thinking)"
+        guard let choices = model.models?.choices, !choices.isEmpty else { return thinking }
+        let name = choices.first { $0.id == pick.model }?.name ?? pick.model.split(separator: "/").last.map(String.init) ?? pick.model
+        return "\(name) · \(thinking)"
+    }
+
     private var rerunCaption: String {
         let name = model.models?.choices.first { $0.id == message.model }?.name ?? message.model
         return "Rerun on \(name)" + (message.modelThinking.map { " · \($0)" } ?? "")
@@ -1254,5 +1336,31 @@ extension View {
         } else {
             defaultScrollAnchor(.bottom)
         }
+    }
+}
+
+/// A dot fading in and out, while dictation listens.
+private struct PulseDot: View {
+    @State private var bright = false
+
+    var body: some View {
+        Circle().fill(Mint.accent).frame(width: 7, height: 7)
+            .opacity(bright ? 1 : 0.4)
+            .onAppear { withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) { bright = true } }
+    }
+}
+
+/// A ring spreading out from the mic button while it listens.
+private struct MicRing: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spread = false
+
+    var body: some View {
+        Circle().fill(Mint.accent.opacity(spread ? 0 : 0.45))
+            .scaleEffect(spread ? 1.7 : 1)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeOut(duration: 1.1).repeatForever(autoreverses: false)) { spread = true }
+            }
     }
 }

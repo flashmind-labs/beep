@@ -3,6 +3,9 @@ import SwiftUI
 struct RoutinesView: View {
     @Environment(AppModel.self) private var model
     @Binding var path: [Route]
+    /// Swiped away and waiting out the Undo bar.
+    @State private var pendingDelete: Cron?
+    @State private var undoTimer: Task<Void, Never>?
     @State private var crons: [Cron] = []
     @State private var loaded = false
     @State private var error = ""
@@ -52,6 +55,14 @@ struct RoutinesView: View {
             }
         }
         .background(Mint.page)
+        .overlay(alignment: .bottom) {
+            if pendingDelete != nil {
+                UndoBar(text: "Routine deleted", undo: undo)
+                    .padding(.horizontal, 16).padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .onDisappear { if let pendingDelete { send(pendingDelete) } }
         .task(id: model.connected) { if model.connected { await load() } }
         .sheet(isPresented: $creating) {
             NewRoutineView(places: model.places, place: startAt) { label, prompt, schedule in
@@ -87,12 +98,31 @@ struct RoutinesView: View {
         }
     }
 
+    /// Takes the routine off the list at once, and sends the delete once the Undo bar closes.
     private func delete(_ cron: Cron) {
+        if let earlier = pendingDelete { send(earlier) }
         withAnimation(.snappy) { crons.removeAll { $0.id == cron.id } }
+        pendingDelete = cron
+        undoTimer?.cancel()
+        undoTimer = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, pendingDelete?.id == cron.id else { return }
+            send(cron)
+        }
+    }
+
+    private func send(_ cron: Cron) {
+        withAnimation(.snappy) { pendingDelete = nil }
         Task {
             do { try await model.deleteCron(cron.id) } catch { self.error = describe(error) }
             await load()
         }
+    }
+
+    private func undo() {
+        undoTimer?.cancel()
+        withAnimation(.snappy) { pendingDelete = nil }
+        Task { await load() }
     }
 
     private func run(_ cron: Cron) {

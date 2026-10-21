@@ -440,7 +440,7 @@ private struct TileButton: ButtonStyle {
             .overlay(shape.stroke(Mint.ledge, lineWidth: 2))
             .offset(x: down, y: down)
             .animation(.sink, value: configuration.isPressed)
-            .background(shape.fill(Mint.ledge).offset(x: 3, y: 3))
+            .dropShadow(shape, fill: fill)
     }
 }
 
