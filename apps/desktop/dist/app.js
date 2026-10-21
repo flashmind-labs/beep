@@ -3788,6 +3788,10 @@ bar.addEventListener("click", e => {
     c.undo = setTimeout(() => { c.innerHTML = COPY_ICON; }, 1200);
     return;
   }
+  const img = e.target.closest(".reply img");
+  if (img && !img.closest("a, .dprods, .drecs")) {
+    return openViewer([{ url: img.currentSrc || img.src, caption: img.alt }], 0);
+  }
   const a = e.target.closest("a[href]");
   if (!a) return;
   e.preventDefault();
