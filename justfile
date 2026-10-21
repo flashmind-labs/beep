@@ -166,10 +166,12 @@ push-server-config:
     }
     sed -e 's|^secret_key = .*|secret_key = "/data/iroh-key"|' \
         -e 's|^log_dir = .*|log_dir = "/data/logs"|' -e '/^sandbox_dir = /d' \
-        -e 's|^fcm_credentials = .*|fcm_credentials = "/data/fcm-service-account.json"|' {{server_config}} \
+        -e 's|^fcm_credentials = .*|fcm_credentials = "/data/fcm-service-account.json"|' \
+        -e 's|^key_file = .*|key_file = "/data/apns-key.p8"|' {{server_config}} \
         | { echo 'sandbox_dir = "/data/sandboxes"'; cat; } | write config.toml
     write iroh-key < .dev/iroh-key
     if [ -f .dev/fcm-service-account.json ]; then write fcm-service-account.json < .dev/fcm-service-account.json; fi
+    if [ -f .dev/apns/key.p8 ]; then write apns-key.p8 < .dev/apns/key.p8; fi
 
 # Load the AppArmor profile that lets the server's sandbox use user namespaces
 install-apparmor:

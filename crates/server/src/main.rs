@@ -1,14 +1,16 @@
 use anyhow::{Context, Result};
 use beep_server::{
+    apns::Apns,
     app::{App, ServerTools, admin},
     apps::ComposioSettings,
     config::{self, Config},
     decision::DecisionTool,
-    fcm::{Fallback, Firebase},
+    fcm::Firebase,
     memories,
     metering::Metered,
     models::ModelChoices,
     push::Pusher,
+    remote::{Fallback, RemotePush},
     sandbox::Sandbox,
     search::SearchTool,
     store::Store,
@@ -129,13 +131,22 @@ async fn main() -> Result<()> {
 
     log::info!("iroh endpoint bound; node_id={}", endpoint.id());
 
-    let fallback = match &config.fcm_credentials {
-        Some(path) => Some(Arc::new(Firebase::new(app.clone(), path)?) as Arc<dyn Fallback>),
+    let firebase = match &config.fcm_credentials {
+        Some(path) => Some(Firebase::new(path)?),
         None => {
             log::info!("fcm_credentials not set: notices do not go through Firebase");
             None
         }
     };
+    let apns = match &config.apns {
+        Some(apns) => Some(Apns::new(apns)?),
+        None => {
+            log::info!("apns not set: notices do not go through APNs");
+            None
+        }
+    };
+    let fallback = (firebase.is_some() || apns.is_some())
+        .then(|| Arc::new(RemotePush::new(app.store.clone(), firebase, apns)) as Arc<dyn Fallback>);
     let pusher = Pusher::new(endpoint.clone(), Arc::new(app.store.clone()), fallback);
     pusher.start(notices);
     let handler = transport::BeepHandler::new(app.clone(), pusher);

@@ -4,7 +4,7 @@ use super::{Reply, found};
 use crate::{
     protocol::*,
     router::Cx,
-    store::{AccountKey, Inviter, LinkKey, Merge, MergeInto, NewKey, PushDevice},
+    store::{AccountKey, Inviter, LinkKey, Merge, MergeInto, NewKey, PushDevice, PushService},
 };
 use iroh::EndpointId;
 use std::time::{Duration, SystemTime};
@@ -17,10 +17,16 @@ const INVITE_TTL: Duration = Duration::from_secs(10 * 60);
 const REJOIN_AFTER: Duration = Duration::from_secs(1);
 
 pub(super) async fn register_device(cx: Cx, req: RegisterDevice) -> Reply<()> {
+    let service = match req.apns {
+        None => PushService::Fcm,
+        Some(ApnsEnvironment::Sandbox {}) => PushService::ApnsSandbox,
+        Some(ApnsEnvironment::Production {}) => PushService::ApnsProduction,
+    };
     let device = PushDevice {
         endpoint: cx.connection.remote_id(),
         device_id: &req.device_id,
-        fcm_token: &req.fcm_token,
+        token: &req.fcm_token,
+        service,
     };
     cx.user.register_device(device).await?;
     Ok(())

@@ -45,7 +45,7 @@ pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
-pub use devices::PushDevice;
+pub use devices::{PushDevice, PushService, PushToken};
 pub use digest::AttentionItem;
 pub use feeds::Feed;
 pub use files::{NewAttachment, NewFile, NewPicture, PicturesOf};
@@ -260,6 +260,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         41,
         "mcp tools",
         include_str!("../../migrations/0041_mcp_tools.sql"),
+    ),
+    (
+        42,
+        "push service",
+        include_str!("../../migrations/0042_push_service.sql"),
     ),
 ];
 

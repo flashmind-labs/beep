@@ -4,16 +4,17 @@
 //! the server dials the phone, which waits on its home relay with no
 //! connection open. A notice that can't be delivered is retried from time
 //! to time, and sent at once when the phone next connects. With a fallback,
-//! a notice iroh could not deliver goes through Firebase instead, and one
-//! Firebase could not take wakes the phone to come for it.
+//! a notice iroh could not deliver goes through the phone's push service
+//! (Firebase or APNs) instead, and one it could not take wakes the phone to
+//! come for it.
 
 use crate::{
     app::UserNotice,
-    fcm::Fallback,
     protocol::{
         Notice,
         wire::{PUSH_ALPN, framed},
     },
+    remote::Fallback,
     store::Store,
 };
 use anyhow::{Context, Result};

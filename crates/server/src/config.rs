@@ -72,6 +72,21 @@ pub struct Config {
     /// Firebase service account key file. With it, notices for phones the
     /// server cannot reach over iroh go through Firebase Cloud Messaging.
     pub fcm_credentials: Option<PathBuf>,
+    /// Apple Push Notification service key. With it, notices for iPhones the
+    /// server cannot reach over iroh go through APNs.
+    pub apns: Option<ApnsConfig>,
+}
+
+/// A token-based APNs key from the Apple Developer account.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApnsConfig {
+    /// The `.p8` key file.
+    pub key_file: PathBuf,
+    pub key_id: String,
+    pub team_id: String,
+    /// The app's bundle id.
+    pub topic: String,
 }
 
 impl Config {

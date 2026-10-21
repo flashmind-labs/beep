@@ -258,7 +258,14 @@ requests! {
     16 ToggleCron { id: String } => Call<bool>
     17 DeleteCron { id: String } => Call<()>
     18 UpdateCron { id: String, enabled: Option<bool>, label: Option<String>, schedule: Option<String> } => Call<()>
-    19 RegisterDevice { device_id: String, fcm_token: String } => Call<()>
+    /// `fcm_token` is the push token: Firebase's, or with `apns` set, the
+    /// one Apple gave an iPhone for that environment.
+    19 RegisterDevice {
+        device_id: String,
+        fcm_token: String,
+        #[serde(default)]
+        apns: Option<ApnsEnvironment>,
+    } => Call<()>
     20 UnregisterDevice { device_id: String } => Call<()>
     /// `place` is the phone's reverse-geocoded name for the fix, such as
     /// "Shinjuku, Tokyo, Japan", when it has one.
@@ -1682,6 +1689,17 @@ wire_enum! {
         0 Android {}
         1 Ios {}
         2 Macos {}
+    }
+}
+
+wire_enum! {
+    /// The APNs server an iPhone's push token belongs to. Builds run from
+    /// Xcode get sandbox tokens; TestFlight and App Store builds production ones.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ApnsEnvironment {
+        0 Sandbox {}
+        1 Production {}
     }
 }
 
