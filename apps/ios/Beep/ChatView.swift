@@ -42,7 +42,17 @@ struct ChatView: View {
                                 .transition(.opacity)
                         }
                         if !model.chat.error.isEmpty, !model.chat.busy {
-                            ErrorRow(text: model.chat.error) { model.retry() }.unfold()
+                            ErrorRow(text: model.chat.error, retry: { model.retry() }) {
+                                // A stopped turn may have no reply to carry the rerun menu, so it sits here too.
+                                if let models = model.models, !models.choices.isEmpty,
+                                    let prompt = model.chat.messages.last(where: { $0.role == .user }) {
+                                    RerunButton(models: models, used: prompt.model.isEmpty ? nil : prompt.model,
+                                                color: Mint.error, prominent: true) { choice, thinking in
+                                        Task { await model.rerunPrompt(prompt, model: choice, thinking: thinking) }
+                                    }
+                                }
+                            }
+                            .unfold()
                         } else if !model.chat.error.isEmpty {
                             Text(model.chat.error).font(.body(13)).foregroundStyle(Mint.muted).unfold()
                         }
@@ -390,15 +400,18 @@ struct ChatView: View {
     }
 }
 
-private struct ErrorRow: View {
+private struct ErrorRow<Extra: View>: View {
     let text: String
     let retry: () -> Void
+    /// Shown before Retry, such as an admin's Rerun.
+    @ViewBuilder var extra: Extra
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.circle").foregroundStyle(Mint.error)
             Text(text).font(.body(13)).foregroundStyle(Mint.ink)
             Spacer(minLength: 0)
+            extra
             Button("Retry", action: retry).buttonStyle(TextAction(color: Mint.error))
         }
         .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 4)
@@ -520,6 +533,10 @@ private struct ThinkingPreview: View {
     }
 }
 
+/// Mirrors the server's memory threshold as Android shows it: above it the learner reads the turn.
+private let memoryThreshold = 0.8
+private let memoryTools: Set<String> = ["memory_store", "memory_update", "memory_forget"]
+
 struct MessageView: View {
     @Environment(AppModel.self) private var model
     let message: Message
@@ -535,11 +552,24 @@ struct MessageView: View {
     var body: some View {
         switch message.role {
         case .user:
-            userBubble
-                .chunky(Mint.user, shape: UnevenRoundedRectangle(
-                    topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18))
-                .padding(.leading, 48)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            VStack(alignment: .trailing, spacing: 0) {
+                // A tap opens the menu (copy, quote, share, delete), as on Android.
+                Menu {
+                    promptMenu
+                } label: {
+                    userBubble
+                        .chunky(Mint.user, shape: UnevenRoundedRectangle(
+                            topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 6, topTrailingRadius: 18))
+                }
+                .buttonStyle(.plain)
+                .disabled(live)
+                if !message.model.isEmpty {
+                    Text(rerunCaption).font(.body(11)).foregroundStyle(Mint.muted)
+                        .padding(.top, 4).padding(.trailing, 4)
+                }
+            }
+            .padding(.leading, 48)
+            .frame(maxWidth: .infinity, alignment: .trailing)
         case .scheduled:
             HStack(spacing: 6) {
                 Image(systemName: "clock").font(.system(size: 11))
@@ -584,9 +614,23 @@ struct MessageView: View {
         }
     }
 
+    @ViewBuilder private var promptMenu: some View {
+        Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
+        Button { quote(message.text.trimmingCharacters(in: .whitespacesAndNewlines)) } label: {
+            Label("Quote in reply", systemImage: "quote.opening")
+        }
+        ShareLink(item: message.text) { Label("Share", systemImage: "square.and.arrow.up") }
+        // Takes the reply and its tool calls with it.
+        if !model.chat.busy {
+            Button(role: .destructive) {
+                Task { await model.delete(message) }
+            } label: { Label("Delete", systemImage: "trash") }
+        }
+    }
+
     /// The text, with any pictures above it in a 220 point wide block as in the mock.
     @ViewBuilder private var userBubble: some View {
-        let text = Text(message.text).font(.body(15)).foregroundStyle(Mint.ink).textSelection(.enabled)
+        let text = Text(message.text).font(.body(15)).foregroundStyle(Mint.ink).lineSpacing(4).textSelection(.enabled)
         if !message.files.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 if !message.pictures.isEmpty { PictureGrid(pictures: message.pictures) }
@@ -611,6 +655,24 @@ struct MessageView: View {
             .padding(4)
             .frame(width: 220)
         }
+    }
+
+    /// Under a prompt an admin reran: the model, and the thinking when one was picked.
+    private var rerunCaption: String {
+        let name = model.models?.choices.first { $0.id == message.model }?.name ?? message.model
+        return "Rerun on \(name)" + (message.modelThinking.map { " · \($0)" } ?? "")
+    }
+
+    /// The model this reply ran on. The server names it for turns it recorded; a reply from
+    /// this session ran on its prompt's model, or the user's own when it had none.
+    private func usedModel(_ models: Models) -> String? {
+        if !message.model.isEmpty { return message.model }
+        let messages = model.chat.messages
+        guard let at = messages.firstIndex(where: { $0.id == message.id }),
+            let prompt = messages[..<at].last(where: { $0.role == .user })
+        else { return nil }
+        if !prompt.model.isEmpty { return prompt.model }
+        return message.id.hasPrefix("history-") ? nil : models.selected
     }
 
     private var thoughts: some View {
@@ -683,10 +745,111 @@ struct MessageView: View {
                     Text("Quote").font(.body(11))
                 }
             }
+            // Admins get a rerun menu under each reply; the list is empty for everyone else.
+            if let models = model.models, !models.choices.isEmpty, !model.chat.busy {
+                RerunButton(models: models, used: usedModel(models)) { choice, thinking in
+                    Task { await model.rerun(message, model: choice, thinking: thinking) }
+                }
+            }
+            // The specialized agent that answered, for admins next to the memory score.
+            if model.models?.choices.isEmpty == false, !message.agent.isEmpty {
+                Text(message.agent).font(.body(11)).foregroundStyle(Mint.dim).padding(.leading, 8)
+            }
+            // Jev's estimate that this turn held something worth remembering.
+            if let score = message.memoryScore {
+                let saved = message.tools.contains { memoryTools.contains($0.name) }
+                let note = score >= memoryThreshold && !saved ? " · nothing new" : ""
+                Text("\(Int((score * 100).rounded()))%\(note)").font(.body(11)).foregroundStyle(Mint.dim)
+                    .padding(.leading, 8)
+            }
         }
         .buttonStyle(TextAction(color: Mint.muted))
         .padding(.leading, -8)
         .padding(.top, 2)
+    }
+}
+
+/// Admin only: runs the prompt behind a reply again on a model picked from the menu. Holding a
+/// model offers a thinking level for that one rerun; `pick` gets nil for a tap.
+struct RerunButton: View {
+    let models: Models
+    let used: String?
+    var color = Mint.muted
+    var prominent = false
+    let pick: (String, ReasoningLevel?) -> Void
+    @State private var open = false
+    @State private var held: String?
+
+    var body: some View {
+        Button { held = nil; open = true } label: {
+            HStack(spacing: prominent ? 2 : 6) {
+                if prominent {
+                    Text("Rerun").font(.body(14, .semibold))
+                } else {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 12))
+                    Text("Rerun").font(.body(11))
+                }
+                Image(systemName: "chevron.down").font(.system(size: prominent ? 11 : 9, weight: .semibold))
+            }
+        }
+        .buttonStyle(TextAction(color: color))
+        .accessibilityHint("Pick a model to run the prompt again on")
+        .popover(isPresented: $open) {
+            menu.presentationCompactAdaptation(.popover).presentationBackground(Mint.surface)
+        }
+    }
+
+    private var menu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(models.choices, id: \.id) { choice in
+                row(choice)
+                if held == choice.id { thinking(choice).transition(.opacity) }
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(width: 290)
+        .sensoryFeedback(.impact, trigger: held) { _, now in now != nil }
+    }
+
+    private func row(_ choice: ModelChoice) -> some View {
+        let isUsed = choice.id == used
+        let note = isUsed ? "Used for this reply"
+            : choice.id == models.selected ? "Your model"
+            : choice.default ? "Default" : choice.id
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(choice.name).font(.body(14, isUsed ? .semibold : .regular))
+                    .foregroundStyle(isUsed ? Mint.brand : Mint.ink)
+                Text(note).font(.body(11)).foregroundStyle(isUsed ? Mint.brand : Mint.muted)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+            if isUsed {
+                Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(Mint.brand)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .frame(minHeight: 48)
+        .background(isUsed ? Mint.brand.opacity(0.12) : .clear)
+        .contentShape(Rectangle())
+        .onTapGesture { open = false; pick(choice.id, nil) }
+        .onLongPressGesture { withAnimation(.snappy) { held = held == choice.id ? nil : choice.id } }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Rerun on \(choice.name)")
+        .accessibilityAction(named: "Pick thinking") { held = choice.id }
+    }
+
+    private func thinking(_ choice: ModelChoice) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Thinking for this rerun").font(.body(11)).foregroundStyle(Mint.muted)
+            HStack(spacing: 4) {
+                ForEach([ReasoningLevel.off, .low, .medium, .high], id: \.self) { level in
+                    FilterChip(label: "\(level)".capitalized, selected: false) { open = false; pick(choice.id, level) }
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.bottom, 8)
     }
 }
 
@@ -852,7 +1015,8 @@ struct MarkdownText: View {
     var color: Color = Mint.ink
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // As on Android: about one and a half lines per line, and a gap between paragraphs.
+        VStack(alignment: .leading, spacing: size >= 15 ? 10 : 6) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .bullet(let line):
@@ -885,7 +1049,7 @@ struct MarkdownText: View {
         }
         .font(.body(size))
         .foregroundStyle(color)
-        .lineSpacing(3)
+        .lineSpacing(size * 0.4)
         .textSelection(.enabled)
     }
 

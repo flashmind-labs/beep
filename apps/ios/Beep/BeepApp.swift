@@ -30,7 +30,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         if options?[.location] != nil { model.connect() }
+        // A token needs no permission; showing what it brings does, which onboarding asks.
+        application.registerForRemoteNotifications()
         return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        model.pushToken = token.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// A background push from the server: it has notices it could not send over the connection.
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        await model.wake()
+        return .newData
     }
 }
 

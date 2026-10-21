@@ -7,6 +7,8 @@ struct Picture: Identifiable, Equatable, Hashable {
     var dataUri: String?
     var width: UInt32 = 0
     var height: UInt32 = 0
+    /// The kept file's type, so a rerun can send it again as it was.
+    var mime = "image/jpeg"
 
     var id: String { fileId ?? dataUri.map { String($0.hashValue) } ?? "" }
 
@@ -14,6 +16,7 @@ struct Picture: Identifiable, Equatable, Hashable {
         fileId = ref.id
         width = ref.width
         height = ref.height
+        mime = ref.mime
     }
 
     init(dataUri: String) {

@@ -8,15 +8,9 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
     /// Set once by the model that owns this.
     @MainActor weak var model: AppModel?
 
-    /// One line of a notification: who said it, nil for Beep.
-    struct Line {
-        var sender: String?
-        var text: String
-    }
-
     private enum Key {
-        static let chat = "chat"
-        static let approval = "approval"
+        static let chat = NoticeAlert.Key.chat
+        static let approval = NoticeAlert.Key.approval
         static let reply = "reply"
         static let read = "read"
         static let allow = "allow"
@@ -52,71 +46,32 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
 
     @MainActor private func handle(_ notice: Notice) {
         guard let model else { return }
-        if notice.changed || notice.title.isEmpty {
+        guard let alert = NoticeAlert(notice) else {
             model.noticeChanged(notice)
             return
         }
         if notice.group { model.noticeChanged(notice) }
         let active = UIApplication.shared.applicationState == .active
-        if let approval = notice.approval {
-            // On screen, the card in the chat asks instead. A group's always asks here.
-            if !notice.group, active, model.onScreen == notice.sessionId { return }
-            post(threadId: notice.sessionId, title: notice.title, lines: [Line(sender: nil, text: notice.body)],
-                 group: notice.group, approval: approval)
-            return
-        }
-        if active, model.onScreen == notice.sessionId { return }
-        if notice.app != nil {
-            post(threadId: "apps", title: notice.title, lines: [Line(sender: nil, text: notice.body)], group: false)
-            return
-        }
-        // No chat, app or approval: a read of mail or a calendar finished.
-        if notice.sessionId.isEmpty, !notice.group {
-            post(threadId: "read", title: notice.title, lines: [Line(sender: nil, text: notice.body)], group: false)
-            return
-        }
-        post(threadId: notice.sessionId, title: notice.title, lines: [Self.line(notice.body, group: notice.group)],
-             group: notice.group)
-    }
-
-    /// A group notice's body is "Name: text".
-    private static func line(_ body: String, group: Bool) -> Line {
-        guard group, let colon = body.range(of: ": ") else { return Line(sender: nil, text: body) }
-        let name = String(body[..<colon.lowerBound])
-        return Line(sender: name == "Beep" ? nil : name, text: String(body[colon.upperBound...]))
+        // On screen, the chat shows it instead; an approval there gets its card. A group's
+        // approval always asks here.
+        if active, model.onScreen == notice.sessionId, notice.approval == nil || !notice.group { return }
+        post(alert)
     }
 
     /// A chat's reply the app produced itself, such as one finished in the background.
-    @MainActor func show(chatId: String, title: String, lines: [Line]) {
-        post(threadId: chatId, title: title, lines: lines, group: false)
+    @MainActor func show(chatId: String, title: String, lines: [NoticeAlert.Line]) {
+        post(NoticeAlert(threadId: chatId, title: title, lines: lines, group: false))
     }
 
-    @MainActor private func post(threadId: String, title: String, lines: [Line], group: Bool,
-                                 approval: PendingApproval? = nil) {
-        guard let last = lines.last else { return }
+    @MainActor private func post(_ alert: NoticeAlert) {
         let content = UNMutableNotificationContent()
-        content.title = title
-        // A chat with Beep shows only its latest reply; a group keeps who said what.
-        let shown = group ? lines : [last]
-        content.body = shown.map { line in
-            shown.count > 1 ? "\(line.sender ?? "Beep"): \(line.text)" : line.text
-        }.joined(separator: "\n")
-        content.threadIdentifier = threadId
-        content.sound = .default
-        content.categoryIdentifier = approval == nil ? Key.chat : Key.approval
-        var info: [String: Any] = ["thread": threadId, "group": group]
-        if let approval {
-            info["query"] = approval.queryId
-            content.body = "\(approval.approval.action) with \(approval.approval.app)?"
-        }
-        content.userInfo = info
-
-        let sender = last.sender == "You" ? nil : last.sender
+        alert.fill(content)
         let request: UNNotificationRequest
         // Only a group posts as a message from a person, with their avatar; Beep's own
         // notifications keep the app icon rather than a drawn "b".
-        if group, let message = try? content.updating(from: intent(threadId: threadId, title: title, sender: sender,
-                                                                   text: content.body, group: group)) {
+        if alert.group, let message = try? content.updating(from: intent(threadId: alert.threadId, title: alert.title,
+                                                                         sender: alert.sender, text: content.body,
+                                                                         group: true)) {
             request = UNNotificationRequest(identifier: UUID().uuidString, content: message, trigger: nil)
         } else {
             request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
@@ -172,11 +127,16 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
 
     // MARK: Delegate
 
-    /// In the foreground, a chat that is not on screen still shows a banner.
+    /// In the foreground, a chat that is not on screen still shows a banner. A push for the
+    /// chat on screen, sent while the connection was down, shows nothing.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
         async -> UNNotificationPresentationOptions
     {
-        [.banner, .list, .sound]
+        let content = notification.request.content
+        let thread = content.userInfo["thread"] as? String
+        let onScreen = await MainActor.run { model?.onScreen }
+        if thread != nil, thread == onScreen, content.categoryIdentifier != Key.approval { return [] }
+        return [.banner, .list, .sound]
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {

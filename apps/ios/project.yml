@@ -13,6 +13,7 @@ targets:
     platform: iOS
     dependencies:
       - target: BeepWidget
+      - target: BeepNotifications
     sources:
       - path: Beep
       - path: Generated
@@ -52,6 +53,8 @@ targets:
         # The ride apps a place card can open with the drop-off set.
         LSApplicationQueriesSchemes: [grab, lyft, uber]
         NSAlarmKitUsageDescription: Beep sets alarms in the Clock when you ask it to.
+        # A background push wakes the app to fetch notices the server could not send.
+        UIBackgroundModes: [remote-notification]
         # beep://new, from the widget.
         CFBundleURLTypes:
           - CFBundleURLName: com.flashmind.beep
@@ -59,7 +62,10 @@ targets:
     entitlements:
       path: Beep/Beep.entitlements
       properties:
+        aps-environment: development
         com.apple.developer.usernotifications.communication: true
+        # Shared with the notification extension, which opens pushes with the account key.
+        keychain-access-groups: [$(AppIdentifierPrefix)com.flashmind.beep]
   BeepWidget:
     type: app-extension
     platform: iOS
@@ -86,3 +92,39 @@ targets:
         UIAppFonts: [bricolage_grotesque.ttf, rubik.ttf]
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+  BeepNotifications:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Notifications
+        excludes: ["*.entitlements"]
+      - path: Beep/Identity.swift
+      - path: Beep/NoticeAlert.swift
+      - path: Generated
+        excludes: ["*.h", "module.modulemap"]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flashmind.beep.notifications
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Beep
+        SWIFT_INCLUDE_PATHS: $(PROJECT_DIR)/Generated
+        HEADER_SEARCH_PATHS: $(PROJECT_DIR)/Generated
+        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": $(PROJECT_DIR)/../../target/aarch64-apple-ios-sim/release
+        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": $(PROJECT_DIR)/../../target/aarch64-apple-ios/release
+        OTHER_LDFLAGS: -lbeep_android -framework SystemConfiguration -framework Security -framework Network
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: Notifications/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    entitlements:
+      path: Notifications/BeepNotifications.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)com.flashmind.beep]
