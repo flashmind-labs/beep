@@ -124,6 +124,7 @@ struct ProductRow: View {
                 .scrollTargetBehavior(.viewAligned)
                 .contentMargins(.horizontal, 0)
                 .padding(.horizontal, -18)
+                .blocksChatSwipe()
             }
         }
         .sheet(item: $open) { product in

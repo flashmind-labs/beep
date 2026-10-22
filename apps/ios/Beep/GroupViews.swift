@@ -364,7 +364,7 @@ struct GroupChatView: View {
                 .padding(.vertical, 14)
                 .frame(minHeight: 50)
                 .chunky()
-                .chatTextBox()
+                .blocksChatSwipe()
             Button(action: send) { Image(systemName: "paperplane") }
                 .buttonStyle(ChunkyButton(fill: Mint.accent, size: 50, radius: 18))
                 .opacity(empty ? 0.45 : 1)

@@ -280,7 +280,7 @@ struct ChatView: View {
                 .padding(.leading, 4).padding(.trailing, 12)
                 .frame(minHeight: 50)
                 .chunky()
-                .chatTextBox()
+                .blocksChatSwipe()
                 if model.chat.busy {
                     VStack(spacing: 8) {
                         if !empty {
@@ -1210,6 +1210,7 @@ struct MarkdownText: View {
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Mint.soft, lineWidth: 1))
             .padding(1)
         }
+        .blocksChatSwipe()
         .font(.body(size - 3))
         .lineSpacing(1)
     }

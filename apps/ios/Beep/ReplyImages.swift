@@ -142,6 +142,7 @@ struct ReplyGallery: View {
                     ForEach(pictures, id: \.self) { picture in tile(picture) }
                 }
             }
+            .blocksChatSwipe()
             .task(id: pictures) {
                 await withTaskGroup(of: Void.self) { group in
                     for picture in pictures {
