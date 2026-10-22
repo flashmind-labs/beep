@@ -456,8 +456,9 @@ struct SwipeChats<Content: View>: View {
     @State private var offset: CGFloat = 0
     /// Whether the drag going on is a sideways one; a mostly vertical one is left to the scroll.
     @State private var sideways: Bool?
-    /// Where the text box is on screen; a drag starting there selects text instead.
-    @State private var textBox: CGRect = .null
+    /// Where the text box and the sideways scrolling rows are on screen; a drag starting in
+    /// one selects text or scrolls the row instead.
+    @State private var noSwipe: [CGRect] = []
 
     private let trigger: CGFloat = 72
     private let limit: CGFloat = 110
@@ -478,11 +479,11 @@ struct SwipeChats<Content: View>: View {
                 .offset(x: offset)
                 .opacity(1 - progress * 0.25)
         }
-        .onPreferenceChange(TextBoxFrame.self) { textBox = $0 }
+        .onPreferenceChange(NoSwipeFrames.self) { noSwipe = $0 }
         .simultaneousGesture(DragGesture(minimumDistance: 20, coordinateSpace: .global)
             .onChanged { value in
                 if sideways == nil {
-                    sideways = !textBox.contains(value.startLocation)
+                    sideways = !noSwipe.contains { $0.contains(value.startLocation) }
                         && abs(value.translation.width) > abs(value.translation.height) * 1.5
                 }
                 guard sideways == true else { return }
@@ -500,16 +501,16 @@ struct SwipeChats<Content: View>: View {
     }
 }
 
-private struct TextBoxFrame: PreferenceKey {
-    static let defaultValue = CGRect.null
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = value.union(nextValue()) }
+private struct NoSwipeFrames: PreferenceKey {
+    static let defaultValue: [CGRect] = []
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
 }
 
 extension View {
-    /// Marks the chat's text box, so the chat swipes do not start in it.
-    func chatTextBox() -> some View {
+    /// Marks a view the chat swipes do not start in: the text box, or a row that scrolls sideways.
+    func blocksChatSwipe() -> some View {
         background(GeometryReader { proxy in
-            Color.clear.preference(key: TextBoxFrame.self, value: proxy.frame(in: .global))
+            Color.clear.preference(key: NoSwipeFrames.self, value: [proxy.frame(in: .global)])
         })
     }
 }

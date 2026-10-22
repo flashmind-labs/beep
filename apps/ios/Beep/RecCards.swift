@@ -147,6 +147,7 @@ struct RecRow: View {
             }
             .scrollTargetBehavior(.viewAligned)
             .padding(.horizontal, -18)
+            .blocksChatSwipe()
         }
     }
 }

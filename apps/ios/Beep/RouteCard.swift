@@ -37,6 +37,7 @@ struct RouteCardView: View {
                                 }
                             }
                         }
+                        .blocksChatSwipe()
                         .padding(.top, 8)
                     }
                     VStack(alignment: .leading, spacing: 8) {
