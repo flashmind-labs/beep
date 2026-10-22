@@ -63,7 +63,7 @@ targets:
         UIAppFonts: [bricolage_grotesque.ttf, rubik.ttf, fredoka.ttf, nunito.ttf, sniglet_regular.ttf, sniglet_extrabold.ttf]
         NSUserActivityTypes: [INSendMessageIntent]
         # The ride apps a place card can open with the drop-off set.
-        LSApplicationQueriesSchemes: [grab, lyft, uber]
+        LSApplicationQueriesSchemes: [comgooglemaps, grab, lyft, uber]
         NSAlarmKitUsageDescription: Beep sets alarms in the Clock when you ask it to.
         # A background push wakes the app to fetch notices the server could not send.
         UIBackgroundModes: [remote-notification]

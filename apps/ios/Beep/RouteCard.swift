@@ -57,12 +57,21 @@ struct RouteCardView: View {
                                 .chunky(Mint.accent, radius: 12)
                         }
                         .buttonStyle(.plain)
-                        Button { openMaps(route, directions: false) } label: {
-                            Label("Open in Maps", systemImage: "map").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
-                                .padding(.horizontal, 14).frame(minHeight: 42)
-                                .chunky(radius: 12)
+                        let label = HStack(spacing: 6) {
+                            Label("Open in Maps", systemImage: "map")
+                            if GoogleMaps.installed { Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)) }
                         }
-                        .buttonStyle(.plain)
+                        .font(.body(14, .semibold)).foregroundStyle(Mint.ink)
+                        .padding(.horizontal, 14).frame(minHeight: 42)
+                        .chunky(radius: 12)
+                        if GoogleMaps.installed {
+                            Menu {
+                                Button("Apple Maps") { openMaps(route, directions: false) }
+                                Button("Google Maps") { openGoogleMaps(route) }
+                            } label: { label }
+                        } else {
+                            Button { openMaps(route, directions: false) } label: { label }.buttonStyle(.plain)
+                        }
                     }
                     .padding(.top, 10)
                 }
@@ -103,6 +112,14 @@ struct RouteCardView: View {
             url.queryItems = [.init(name: "ll", value: point(last)), .init(name: "q", value: name.isEmpty ? point(last) : name)]
         }
         if let link = url.url { openURL(link) }
+    }
+
+    /// Google Maps at the route's end.
+    private func openGoogleMaps(_ route: RouteOption) {
+        guard let last = route.legs.flatMap(\.points).last else { return }
+        let end = LatLon(latitude: last.latitude, longitude: last.longitude)
+        let name = route.legs.last?.to ?? ""
+        openURL(GoogleMaps.search(name.isEmpty ? "\(last.latitude),\(last.longitude)" : name, at: end))
     }
 }
 
