@@ -325,6 +325,20 @@ private enum MapsLinks {
     }
 }
 
+/// Google Maps, offered next to Apple Maps when it is installed.
+enum GoogleMaps {
+    @MainActor static var installed: Bool { UIApplication.shared.canOpenURL(URL(string: "comgooglemaps://")!) }
+
+    /// A search for `query`, centred on `point` when there is one.
+    static func search(_ query: String, at point: LatLon? = nil) -> URL {
+        var link = URLComponents(string: "comgooglemaps://")!
+        var items: [URLQueryItem] = [.init(name: "q", value: query)]
+        if let point { items.append(.init(name: "center", value: "\(point.latitude),\(point.longitude)")) }
+        link.queryItems = items
+        return link.url!
+    }
+}
+
 /// A local ride app and the countries it runs in. iOS only says whether an app is installed for
 /// schemes listed in Info.plist, so only apps with a known drop-off link are here.
 private struct RideApp {
@@ -431,8 +445,14 @@ private struct PlaceMapCard: View {
                             } label: { CardButtonLabel(label: "Ride", icon: "car", trailing: "chevron.down") }
                         }
                     }
-                    CardButton(label: "Open in Maps", icon: "map") {
-                        openURL(MapsLinks.search(card.query, at: point, near: card.near))
+                    let apple = MapsLinks.search(card.query, at: point, near: card.near)
+                    if GoogleMaps.installed {
+                        Menu {
+                            Button("Apple Maps") { openURL(apple) }
+                            Button("Google Maps") { openURL(GoogleMaps.search(card.query, at: card.near ?? point)) }
+                        } label: { CardButtonLabel(label: "Open in Maps", icon: "map", trailing: "chevron.down") }
+                    } else {
+                        CardButton(label: "Open in Maps", icon: "map") { openURL(apple) }
                     }
                 }
                 .padding(.top, 9)
