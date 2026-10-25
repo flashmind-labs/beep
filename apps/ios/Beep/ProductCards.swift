@@ -1,4 +1,3 @@
-import SafariServices
 import SwiftUI
 
 /// One ```product block from a reply. Title and url are required, the rest is optional.
@@ -103,18 +102,18 @@ extension Product {
 
 /// Consecutive product blocks: a row of cards that scrolls sideways, or one card at full width.
 struct ProductRow: View {
+    @Environment(AppModel.self) private var model
     let products: [Product]
-    @State private var open: Product?
 
     var body: some View {
         SwiftUI.Group {
             if products.count == 1, let product = products.first {
-                ProductCard(product: product, open: { open = $0 })
+                ProductCard(product: product, open: { model.openBrowser($0.url) })
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 10) {
                         ForEach(products, id: \.self) { product in
-                            ProductCard(product: product, open: { open = $0 }).frame(width: 208)
+                            ProductCard(product: product, open: { model.openBrowser($0.url) }).frame(width: 208)
                         }
                     }
                     .scrollTargetLayout()
@@ -127,14 +126,7 @@ struct ProductRow: View {
                 .blocksChatSwipe()
             }
         }
-        .sheet(item: $open) { product in
-            SafariView(url: product.url).ignoresSafeArea()
-        }
     }
-}
-
-extension Product: Identifiable {
-    var id: URL { url }
 }
 
 struct ProductCard: View {
@@ -215,17 +207,4 @@ struct ProductCard: View {
             Text("See price on the site").font(.body(12.5)).foregroundStyle(Mint.muted)
         }
     }
-}
-
-/// Safari inside the app, for a card tap.
-struct SafariView: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        let controller = SFSafariViewController(url: url)
-        controller.preferredControlTintColor = UIColor(Mint.brand)
-        return controller
-    }
-
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }

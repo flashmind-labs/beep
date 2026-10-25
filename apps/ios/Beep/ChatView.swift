@@ -4,6 +4,8 @@ struct ChatView: View {
     @Environment(AppModel.self) private var model
     let menu: () -> Void
     let newChat: () -> Void
+    /// Shown in the browser screen's panel: no top bar, and the browser does not open again inside it.
+    var inBrowser = false
     @State private var draft = ""
     @State private var photos: [Data] = []
     @State private var files: [SentFile] = []
@@ -24,7 +26,7 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            chatBar
+            if !inBrowser { chatBar }
             ScrollViewReader { scroller in
                 let breaks = dayBreaks(model.chat.messages)
                 ScrollView {
@@ -137,9 +139,15 @@ struct ChatView: View {
         }
         .onDisappear {
             voice.stop()
-            if model.onScreen == model.chat.id { model.onScreen = nil }
+            // The chat under the browser is still on screen.
+            if !inBrowser, model.onScreen == model.chat.id { model.onScreen = nil }
         }
-        .safariSheet(Binding(get: { model.browsing }, set: { model.browsing = $0 }))
+        .fullScreenCover(isPresented: Binding(get: { !inBrowser && model.browserOpen },
+                                              set: { if !inBrowser { model.browserOpen = $0 } })) {
+            BrowserView(close: { model.browserOpen = false }) {
+                ChatView(menu: {}, newChat: {}, inBrowser: true)
+            }
+        }
         .sheet(isPresented: $picking) {
             PhotoSheet(room: max(0, ChatPhotos.limit - photos.count)) { picked in
                 picking = false
@@ -615,7 +623,6 @@ struct MessageView: View {
     /// The newest reply in the chat, which shows the suggested replies.
     var latest = false
     var quote: (String) -> Void = { _ in }
-    @State private var page: URL?
     @State private var showThoughts = false
     @State private var showAllTools = false
     @State private var copied = false
@@ -664,12 +671,12 @@ struct MessageView: View {
                 }
                 // A finished tool with something to show is a card, once the reply is done.
                 let cards = message.tools.compactMap(\.card).filter { if case .replies = $0 { false } else { true } }
-                if !live, !cards.isEmpty { ToolCards(cards: cards) { page = $0 }.padding(.top, 10) }
+                if !live, !cards.isEmpty { ToolCards(cards: cards) { model.openBrowser($0) }.padding(.top, 10) }
                 if !live, !message.text.isEmpty {
                     let shown = Set(cards.compactMap { if case .link(let url) = $0 { url } else { nil } })
                     let links = linksIn(message.text).filter { !shown.contains($0) }
                     if !links.isEmpty {
-                        VStack(spacing: 8) { ForEach(links, id: \.self) { LinkCard(url: $0) { page = $0 } } }
+                        VStack(spacing: 8) { ForEach(links, id: \.self) { LinkCard(url: $0) { model.openBrowser($0) } } }
                             .padding(.top, 8).padding(.trailing, 4)
                     }
                 }
@@ -682,7 +689,6 @@ struct MessageView: View {
                     SuggestedReplies(replies: replies) { model.send($0) }.padding(.top, 4)
                 }
             }
-            .safariSheet($page)
             .frame(maxWidth: .infinity, alignment: .leading)
             .animation(.easeOut(duration: 0.2), value: live)
             .animation(.bouncy, value: message.approvals.count)
