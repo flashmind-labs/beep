@@ -154,8 +154,8 @@ struct RecRow: View {
 
 private struct RecCardView: View {
     @Environment(\.openURL) private var openURL
+    @Environment(AppModel.self) private var model
     let card: RecCard
-    @State private var page: URL?
     @State private var addingEvent = false
 
     private var place: RecCard.Place? { card.kind == "place" ? card.place : nil }
@@ -165,7 +165,7 @@ private struct RecCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                if let place { openURL(mapsLink(place, directions: false)) } else { page = card.url }
+                if let place { openURL(mapsLink(place, directions: false)) } else { model.openBrowser(card.url) }
             } label: { content }
                 .buttonStyle(.plain)
                 .accessibilityHint(place != nil ? "Opens in Maps" : "Opens the page")
@@ -190,7 +190,6 @@ private struct RecCardView: View {
         .background(Mint.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .chunky(Mint.surface, radius: 16)
-        .safariSheet($page)
         .sheet(isPresented: $addingEvent) {
             if let event { EventEditor(title: card.title, event: event, notes: card.url, place: event.venue ?? card.subtitle) }
         }
@@ -247,11 +246,11 @@ private struct RecCardView: View {
         var out: [Action] = []
         if let place {
             out.append(Action(label: "Directions") { openURL(mapsLink(place, directions: true)) })
-            if let booking = place.bookingURL { out.append(Action(label: "Book") { page = booking }) }
+            if let booking = place.bookingURL { out.append(Action(label: "Book") { model.openBrowser(booking) }) }
         }
         if let event {
             out.append(Action(label: "Calendar") { addingEvent = true })
-            if let tickets = event.ticketsURL { out.append(Action(label: "Tickets") { page = tickets }) }
+            if let tickets = event.ticketsURL { out.append(Action(label: "Tickets") { model.openBrowser(tickets) }) }
         }
         if let media, let watch = media.watchURL {
             let name = media.watch.map { $0.hasPrefix("Rent on ") ? String($0.dropFirst(8)) : $0 } ?? "page"

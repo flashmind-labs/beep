@@ -398,15 +398,6 @@ struct SheetURL: Identifiable {
     var id: URL { url }
 }
 
-extension View {
-    /// The page in Safari inside the app while `url` is set.
-    func safariSheet(_ url: Binding<URL?>) -> some View {
-        sheet(item: Binding(get: { url.wrappedValue.map(SheetURL.init) }, set: { url.wrappedValue = $0?.url })) {
-            SafariView(url: $0.url).ignoresSafeArea()
-        }
-    }
-}
-
 /// The system share sheet.
 struct ActivitySheet: UIViewControllerRepresentable {
     let items: [Any]

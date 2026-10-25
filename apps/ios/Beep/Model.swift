@@ -166,8 +166,10 @@ final class AppModel {
     private var reportedTimezone: String?
     private let pictureCache = PictureCache()
     let replyImages = ReplyImageCache()
-    /// A page open_browser asked for, shown in Safari over the chat.
-    var browsing: URL?
+    /// The in-app web view, which Beep's browser tool drives and the browser screen shows.
+    let browser = PageBrowser()
+    /// Whether the browser screen is up over the chat.
+    var browserOpen = false
     /// The APNs token iOS gave this install, in hex. The server gets it on every connect.
     var pushToken: String? {
         didSet { Task { await registerPush() } }
@@ -975,7 +977,11 @@ final class AppModel {
             let answer: DeviceAnswer
             switch query {
             case .contacts(let name): answer = .ok(output: await PhoneContacts.search(name))
-            case .browser, .approve, .macFiles: answer = .err(message: "The iPhone app cannot do that yet.")
+            case .browser(let command):
+                // The page shows while Beep works in it, as on Android.
+                if case .navigate = command { browserOpen = true }
+                answer = .ok(output: await browser.run(command))
+            case .approve, .macFiles: answer = .err(message: "The iPhone app cannot do that yet.")
             }
             _ = try? await api().deviceResult(runId: runId, queryId: queryId, answer: answer)
         }
@@ -987,10 +993,16 @@ final class AppModel {
         guard UIApplication.shared.applicationState == .active else { return }
         switch call.card {
         case .openedApp(let app): PhoneApps.open(app: app.app, uri: app.uri, fallback: app.fallback)
-        case .link(let url): browsing = url
+        case .link(let url): openBrowser(url)
         case .alarm(let alarm): Task { await PhoneAlarms.set(alarm) }
         default: break
         }
+    }
+
+    /// Shows `url` in the browser screen, over the chat.
+    func openBrowser(_ url: URL) {
+        browser.open(url)
+        browserOpen = true
     }
 
     /// The bytes to send for `files`, read from the attached copy or downloaded again.
