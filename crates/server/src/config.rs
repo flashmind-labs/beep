@@ -25,8 +25,7 @@ pub struct Config {
     /// Postgres connection string. Falls back to `DATABASE_URL`.
     pub database_url: Option<SecretString>,
     pub model: String,
-    /// Models admins can pick for their own turns, besides `model`. Each must
-    /// cost at most `models::MAX_OUTPUT_PRICE`.
+    /// Models admins can pick for their own turns, besides `model`.
     #[serde(default)]
     pub model_choices: Vec<Model>,
     /// Models Jev may pick per prompt for an admin with Auto on, each with
