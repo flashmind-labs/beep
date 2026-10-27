@@ -170,6 +170,7 @@ function chatHints() {
   if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
+  if ($("#ask")?.value.trim()) return hints([[ICON.ret, "ask"], [`⌘⇧${ICON.ret}`, "research"], ["esc", "to hide"]], chip);
   if (!knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
 }
@@ -196,10 +197,11 @@ function renderChat() {
   drawQueue();
   drawAttached();
   const ask = $("#ask");
-  let multi = false;
+  let multi = false, typed = false;
   ask.addEventListener("input", () => {
     grow(ask);
     if (multi !== ask.value.includes("\n")) { multi = !multi; refreshHints(); }
+    if (typed !== !!ask.value.trim()) { typed = !typed; refreshHints(); }
   });
   focusAsk();
 }
@@ -260,6 +262,44 @@ function markMap() {
   let cur = 0;
   map.turns.forEach((t, i) => { if (t.offsetTop - b.offsetTop <= b.scrollTop + b.clientHeight / 3) cur = i; });
   [...map.children].forEach((tk, i) => tk.classList.toggle("on", i === cur));
+}
+
+// ---------- Research ----------
+
+/// Tools whose use marks a question worth researching properly.
+const RESEARCHY = new Set(["web_search", "web_scrape"]);
+/// Chats started as researches, which open in their own window.
+const RESEARCHES = new Set();
+async function loadResearches() {
+  const ids = await invoke("research_sessions").catch(() => []);
+  for (const id of ids) RESEARCHES.add(id);
+}
+
+/// Starts a research on `topic` in its own window.
+async function research(topic) {
+  topic = topic.trim();
+  if (!topic) return;
+  try {
+    const id = await invoke("research_begin", { topic });
+    RESEARCHES.add(id);
+    const ask = $("#ask");
+    if (ask && ask.value.trim() === topic) { ask.value = ""; grow(ask); refreshHints(); }
+  } catch (err) {
+    failed(newTurn(""), String(err));
+  }
+}
+
+/// Offers to research a quick answer's question properly, under the reply.
+function researchOffer(turn) {
+  body()?.querySelectorAll(".droffer").forEach(o => o.remove());
+  const topic = turn.querySelector(".ask")?.textContent ?? "";
+  if (!topic.trim()) return;
+  const row = h(`<div class="droffer"><span class="rav">L</span><span class="t"><b>Research this properly</b><small>A team of agents digs in and writes it up, about 15 minutes</small></span>
+    <button class="dbtn pri">Research it<kbd>⌘R</kbd></button></div>`);
+  row.querySelector("button").addEventListener("click", () => research(topic));
+  row.topic = topic;
+  const replies = turn.querySelector(".dreplies");
+  replies ? turn.insertBefore(row, replies) : turn.append(row);
 }
 
 function newTurn(question, images, files) {
@@ -368,6 +408,7 @@ function failed(turn, message) {
 function finish(id, turn) {
   touch(id);
   turn.done = true;
+  if (turn.searched && !turn.stopped && !turn.failed && !RESEARCHES.has(id)) researchOffer(turn);
   turn.querySelector(".caret")?.remove();
   for (const s of turn.steps) if (s.state === "run") s.state = "stop";
   turn.folded = true;
@@ -457,6 +498,7 @@ function follow(id, turn) {
         thinking(turn, ev.delta);
         break;
       case "tool_started":
+        if (RESEARCHY.has(ev.name)) turn.searched = true;
         if (QUIET_TOOLS.has(ev.name)) break;
         turn.steps.push({ id: ev.call_id, label: (DESCRIBED.has(ev.name) && ev.description) || toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
         drawSteps(turn, false);
@@ -802,7 +844,7 @@ function chatRow(c, i) {
   // A button cannot hold the action buttons, so the open row is a div.
   const tag = on && mode === "actions" ? "div" : "button";
   return `<${tag} class="dchat" role="option" aria-selected="${on}" data-i="${i}">
-      ${c.pinned ? `<span class="pin" aria-label="Pinned">${ICON.pin}</span>` : ""}${c.kind === "group" ? `<span class="grp" aria-label="Group">${ICON.group}</span>` : ""}
+      ${c.pinned ? `<span class="pin" aria-label="Pinned">${ICON.pin}</span>` : ""}${c.kind === "group" ? `<span class="grp" aria-label="Group">${ICON.group}</span>` : ""}${RESEARCHES.has(c.id) ? `<span class="grp" aria-label="Research">${ICON.doc}</span>` : ""}
       <span class="t"><span>${mark(c.title, query)}</span>${c.snippet ? `<small>${mark(c.snippet, query)}</small>` : ""}</span>${tail}</${tag}>`;
 }
 
@@ -835,6 +877,7 @@ function drawChats() {
 
 function openRow(c) {
   if (!c) return;
+  if (RESEARCHES.has(c.id)) return invoke("open_research", { session: c.id }).catch(() => openSession(c.id));
   return c.kind === "group" ? renderGroup(c.id) : openSession(c.id);
 }
 
@@ -1323,7 +1366,7 @@ function notice(text, { path, bad } = {}) {
 
 const SHORTCUTS = [
   ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines"], ["⌘L", "Skills"], ["⌘,", "Settings"], ["⌘Q", "Quit"]]],
-  ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
+  ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], [`⌘⇧${ICON.ret}`, "Research it"], ["⌘R", "Research the last answer"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
 ];
 
@@ -3389,6 +3432,7 @@ async function refreshStatus() {
 
 async function show(view) {
   const st = await refreshStatus();
+  loadResearches();
   if (S.link === "linked") loadModels();
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
@@ -3743,6 +3787,8 @@ document.addEventListener("keydown", e => {
     if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(e.altKey ? "always" : "allow"); }
     if (cmd && key === "d" && here()?.approval) { e.preventDefault(); return answer("deny"); }
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
+    if (cmd && e.shiftKey && e.key === "Enter" && e.target.id === "ask") { e.preventDefault(); return research(e.target.value); }
+    if (cmd && key === "r" && $(".droffer")) { e.preventDefault(); return research($(".droffer").topic); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
     if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
     if (e.key === "Backspace" && !cmd && e.target.id === "ask" && !e.target.value && attachedCount()) { e.preventDefault(); return unattach(attachedCount() - 1); }

@@ -69,6 +69,7 @@ pub async fn send_prompt(
         message,
         images,
         files,
+        research: false,
     };
     beep.send(session, sent, Pick::default(), on_event).await
 }
@@ -446,7 +447,7 @@ pub fn reveal_file(app: AppHandle, path: PathBuf) -> Result<()> {
 
 /// `name` in `dir`, or the first of `name 2`, `name 3` and so on that is
 /// free, the way Finder numbers a copy.
-fn free_name(dir: &Path, name: &str) -> PathBuf {
+pub(crate) fn free_name(dir: &Path, name: &str) -> PathBuf {
     let path = dir.join(name);
     if !path.exists() {
         return path;
@@ -492,7 +493,7 @@ fn image_mime(mime: &str) -> bool {
 }
 
 /// `name` without anything that would leave the file's folder.
-fn file_name(name: &str) -> String {
+pub(crate) fn file_name(name: &str) -> String {
     let base = Path::new(name)
         .file_name()
         .and_then(|n| n.to_str())

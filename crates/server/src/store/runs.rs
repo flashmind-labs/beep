@@ -100,7 +100,8 @@ impl Store {
         }
         tx.commit().await?;
         self.announce(&bumped);
-        Ok(())
+        // Their teams died with the last server too.
+        self.interrupt_researches().await
     }
 
     /// Saves the prompt of `run`, just started, so every device shows it

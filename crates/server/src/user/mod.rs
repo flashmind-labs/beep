@@ -23,15 +23,16 @@ use crate::{
         Cron, FilePart, ImageRef, Memory, RouteCard, Run, SentFiles, SentImages, Session,
         UpdatePage, Upload,
     },
+    research::pdf::{self, Paper, Pdf},
     starters::Cached,
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
         Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Invite, Join, JoinedGroup,
         LinkKey, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge, MergeInto,
         NewAttachment, NewFile, NewKey, NewMessage, NewPicture, NewPlace, NewPlaceRoutine,
-        PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice, RunStatus,
-        SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, Store, StoredContext,
-        StoredMessage, TurnAgentRow, TurnRecord, TurnsToDelete,
+        PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice, ResearchRow,
+        RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, Store,
+        StoredContext, StoredMessage, TurnAgentRow, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::Result;
@@ -272,6 +273,35 @@ impl User {
         self.store
             .run_for_request(self.key.as_str(), session, request, message)
             .await
+    }
+
+    /// The research `chat` runs, if it is one.
+    pub async fn research_in(&self, chat: Uuid) -> Result<Option<ResearchRow>> {
+        self.store.research_in(&self.key, chat).await
+    }
+
+    /// The paper of the research `chat` runs, typeset as a PDF. `None` when
+    /// the chat is not a research or its paper is not written yet.
+    pub(crate) async fn research_pdf(&self, chat: Uuid) -> Result<Option<Pdf>> {
+        let Some(research) = self.research_in(chat).await? else {
+            return Ok(None);
+        };
+        if research.draft.trim().is_empty() {
+            return Ok(None);
+        }
+        let sources = self.store.research_sources(research.id).await?;
+        let paper = Paper {
+            topic: research.topic,
+            draft: research.draft,
+            sources,
+            date: Utc::now().date_naive(),
+        };
+        pdf::render(paper).await.map(Some)
+    }
+
+    /// Makes `chat` a research on `topic`; a chat that is one keeps its own.
+    pub async fn start_research(&self, chat: Uuid, topic: &str) -> Result<ResearchRow> {
+        self.store.start_research(&self.key, chat, topic).await
     }
 
     /// The run with `id`, if it is the user's.

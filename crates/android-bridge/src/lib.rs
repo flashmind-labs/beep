@@ -477,6 +477,7 @@ impl BeepClient {
             thinking,
             platform: Some(PLATFORM),
             files,
+            research: false,
         };
         let replies = self.stream(chat).await?;
         Ok(EventStream::new(replies))

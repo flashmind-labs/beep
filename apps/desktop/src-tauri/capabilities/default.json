@@ -1,6 +1,6 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "windows": ["bar"],
-  "permissions": ["core:default", "notification:default"]
+  "windows": ["bar", "research-*"],
+  "permissions": ["core:default", "notification:default", "core:window:allow-start-dragging", "core:window:allow-close"]
 }

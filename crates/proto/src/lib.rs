@@ -222,7 +222,9 @@ requests! {
     /// reasons; only admins may set either. `platform` is the app sending it,
     /// missing from apps older than the field. `files` are other files sent
     /// with the message, which the model reads and `GetSessionFiles` lists;
-    /// older apps send none.
+    /// older apps send none. `research` starts a research in a new chat:
+    /// a lead agent plans it with the user, then a team of agents researches
+    /// it in the background (see `GetResearch`).
     2 Chat {
         session_id: Uuid,
         request_id: Uuid,
@@ -234,6 +236,8 @@ requests! {
         platform: Option<Platform>,
         #[serde(default)]
         files: Vec<Upload>,
+        #[serde(default)]
+        research: bool,
     } => Stream<Event>
     3 GetRun { id: String } => Call<Run>
     4 CancelRun { id: String } => Call<()>
@@ -493,6 +497,14 @@ requests! {
     /// Turns one of an added server's tools on or off for the agent. The
     /// server takes more than `McpTools::limit`; the app warns first.
     105 SetMcpTool { id: String, tool: String, enabled: bool } => Call<McpTools>
+    /// The research a chat runs, with its log entries after `after` (0 for
+    /// all), or `None` when the chat is not a research.
+    106 GetResearch { session_id: Uuid, after: i64 } => Call<Option<Research>>
+    /// Stops a research's agents. The chat and what they wrote stay.
+    107 StopResearch { session_id: Uuid } => Call<()>
+    /// A research's paper typeset as a PDF, with its sources. `NotFound`
+    /// when the chat is not a research or its paper is not written yet.
+    108 GetResearchPdf { session_id: Uuid } => Call<Upload>
 }
 
 /// The most a message's `files` may hold in all, so the request stays
@@ -551,6 +563,105 @@ pub struct McpServer {
     pub sign_in: bool,
     /// The tools Beep gets from it, as the server names them.
     pub tools: Vec<String>,
+}
+
+/// A research: a lead agent plans it in its chat, scouts research the
+/// plan's questions, a critic challenges them and a writer drafts a paper.
+/// The chat holds only the plan and the result; the agents' work is here.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Research {
+    pub id: Uuid,
+    pub topic: String,
+    pub status: ResearchStatus,
+    /// The team, lead first. Only the lead until the plan is approved.
+    pub agents: Vec<ResearchAgent>,
+    /// Log entries after the request's `after`, oldest first.
+    pub entries: Vec<ResearchEntry>,
+    /// Every source the scouts kept, numbered as the notes and draft cite them.
+    pub sources: Vec<ResearchSource>,
+    /// The writer's paper in Markdown, empty until it starts.
+    pub draft: String,
+    /// In milliseconds since the Unix epoch.
+    pub started_at: i64,
+    /// When the agents stopped, for any reason.
+    pub finished_at: Option<i64>,
+    /// The newest round, from 1: each follow-up the team researches is one.
+    pub round: u32,
+}
+
+wire_enum! {
+    /// `Planning` while the lead and the user agree on a plan; `Interrupted`
+    /// when the server restarted while the agents ran.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ResearchStatus {
+        0 Planning {}
+        1 Researching {}
+        2 Reviewing {}
+        3 Writing {}
+        4 Done {}
+        5 Failed {}
+        6 Stopped {}
+        7 Interrupted {}
+    }
+}
+
+/// One agent of a research.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchAgent {
+    /// `lead`, `scout-1`, ..., `critic` or `writer`.
+    pub id: String,
+    /// Like "Scout 1".
+    pub name: String,
+    /// What it does, like the question a scout works on.
+    pub role: String,
+    /// The display name of the model it runs on.
+    pub model: String,
+    /// The round a scout researched in; 0 for agents that work in every
+    /// round.
+    pub round: u32,
+}
+
+/// One thing an agent did or said.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchEntry {
+    /// Grows with each entry of the research.
+    pub seq: i64,
+    /// The agent's id.
+    pub agent: String,
+    pub body: ResearchEntryBody,
+    /// In milliseconds since the Unix epoch.
+    pub timestamp: i64,
+}
+
+wire_enum! {
+    /// `Said` is a message to the room, to one agent or to all when `to` is
+    /// `None`. `Step` is a tool the agent ran, in its own thread. `Note` is a
+    /// finding for the notes, citing source numbers.
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ResearchEntryBody {
+        0 Said { to: Option<String>, content: String }
+        1 Step { label: String, success: bool }
+        2 Note { content: String, sources: Vec<u32> }
+    }
+}
+
+/// A source a scout kept.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchSource {
+    /// From 1, as cited.
+    pub number: u32,
+    pub url: String,
+    pub title: String,
+    /// The passage it was kept for.
+    pub quote: String,
+    /// The agent that found it.
+    pub agent: String,
 }
 
 /// The tools of an added server, in the order it lists them.
@@ -1188,6 +1299,21 @@ impl ApprovalDecision {
             Self::Deny {} => "deny",
             Self::Allow {} => "allow",
             Self::Always {} => "always",
+        }
+    }
+}
+
+impl ResearchStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Planning {} => "planning",
+            Self::Researching {} => "researching",
+            Self::Reviewing {} => "reviewing",
+            Self::Writing {} => "writing",
+            Self::Done {} => "done",
+            Self::Failed {} => "failed",
+            Self::Stopped {} => "stopped",
+            Self::Interrupted {} => "interrupted",
         }
     }
 }
@@ -1979,6 +2105,7 @@ mod tests {
                 mime: "application/pdf".into(),
                 data: vec![1, 2, 3],
             }],
+            research: true,
         };
         let buf = rmp_serde::to_vec(&chat).unwrap();
         assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);

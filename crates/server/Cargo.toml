@@ -39,6 +39,14 @@ uuid = { version = "1", features = ["v4", "serde"] }
 html2text = "0.17"
 imagesize = "0.14"
 jsonwebtoken = "9.3"
+# A research's paper as a PDF: Markdown read with pulldown-cmark, its LaTeX math
+# turned into Typst's with mitex, typeset by Typst with its bundled fonts.
+pulldown-cmark = { version = "0.13", default-features = false }
+mitex = "0.2"
+typst = "0.15"
+typst-layout = "0.15"
+typst-pdf = "0.15"
+typst-kit = { version = "0.15", default-features = false, features = ["embedded-fonts"] }
 
 [dev-dependencies]
 async-stream = "0.3"

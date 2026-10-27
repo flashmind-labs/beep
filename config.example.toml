@@ -26,3 +26,12 @@ provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # when = "Anything no other agent clearly fits"
 # model = "openrouter:z-ai/glm-5.3-flash"
 # thinking = "low"
+# Optional: researches, started from the Mac. A lead plans with the user,
+# then scouts, a critic and a writer work in the background, each on its
+# own model. Every model must be offered.
+# [research]
+# lead = { model = "openrouter:anthropic/claude-sonnet-5.5", thinking = "medium" }
+# scout = { model = "openrouter:deepseek/deepseek-v4.1-flash-1017", thinking = "low" }
+# critic = { model = "openrouter:openai/gpt-6-luna" }
+# writer = { model = "openrouter:anthropic/claude-haiku-5.5" }
+# scout_choices = ["openrouter:z-ai/glm-5.3-flash"]

@@ -4,6 +4,7 @@
 use crate::{
     agents::{Agent, AgentConfig, AgentId},
     protocol::{ModelChoice, Models},
+    research::ResearchConfig,
 };
 use flashmind::types::{LlmProvider, Model, ModelInfo, ProviderPreferences, ReasoningLevel};
 use iroh::EndpointId;
@@ -31,6 +32,8 @@ pub struct ModelChoices {
     /// The agents Jev may pick per prompt, General first. Empty when the
     /// config has no usable General.
     agents: Vec<Agent>,
+    /// The models research roles run on; `None` turns research off.
+    research: Option<ResearchConfig>,
 }
 
 /// A model Jev may pick, with what it is good for.
@@ -64,6 +67,7 @@ impl ModelChoices {
             routing: HashMap::new(),
             auto: Vec::new(),
             agents: Vec::new(),
+            research: None,
         }
     }
 
@@ -121,6 +125,7 @@ impl ModelChoices {
             routing: HashMap::new(),
             auto: Vec::new(),
             agents: Vec::new(),
+            research: None,
         }
     }
 
@@ -184,6 +189,44 @@ impl ModelChoices {
         }
         self.agents = agents;
         self
+    }
+
+    /// Turns research on with these role models. Each must be offered: a
+    /// role whose model is not turns research off with a warning, and a
+    /// scout choice that is not is left out.
+    pub fn with_research(mut self, configured: Option<ResearchConfig>) -> Self {
+        let Some(mut config) = configured else {
+            return self;
+        };
+        let roles = [
+            ("lead", &config.lead),
+            ("scout", &config.scout),
+            ("critic", &config.critic),
+            ("writer", &config.writer),
+        ];
+        for (role, model) in roles {
+            if self.find(&model.model.to_string()).is_none() {
+                log::warn!(
+                    "research model is not a model choice; research is off; role={role} model={}",
+                    model.model
+                );
+                return self;
+            }
+        }
+        config.scout_choices.retain(|model| {
+            let offered = self.find(&model.to_string()).is_some();
+            if !offered {
+                log::warn!("research scout choice is not a model choice; model={model}");
+            }
+            offered
+        });
+        self.research = Some(config);
+        self
+    }
+
+    /// The research roles' models, when research is on.
+    pub fn research(&self) -> Option<&ResearchConfig> {
+        self.research.as_ref()
     }
 
     /// The agents Jev may pick, General first; empty when none are set up.

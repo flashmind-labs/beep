@@ -22,6 +22,7 @@ mod devices;
 mod groups;
 mod location;
 mod memories;
+mod research;
 mod sessions;
 mod settings;
 
@@ -42,6 +43,7 @@ use memories::{
     clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads, list_skills,
     undo_skill, update_memory, update_skill,
 };
+use research::{get_research, get_research_pdf, stop_research};
 use sessions::{
     copy_share, delete_session, delete_sessions, delete_turn, delete_turns_from, existing_sessions,
     get_file, get_route, get_route_card, get_session, get_session_agents, get_session_files,
@@ -160,6 +162,9 @@ pub fn router() -> Router {
         .call(undo_skill)
         .stream(stream_updates)
         .call(stock_chart)
+        .call(get_research)
+        .call(stop_research)
+        .call(get_research_pdf)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -187,6 +192,14 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         Some(id) => Some(cx.app.models.find(id).ok_or(ApiError::NotFound {})?.clone()),
         None => None,
     };
+    if req.research {
+        if cx.app.models.research().is_none() {
+            return Err(ApiError::bad_request(
+                "research is not set up on this server",
+            ));
+        }
+        cx.user.start_research(req.session_id, &req.message).await?;
+    }
     let message = Message {
         session_id: req.session_id,
         request_id: req.request_id,
@@ -204,6 +217,7 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         origin: cx.device,
         platform: req.platform,
         draws: draws(&cx),
+        finished_research: false,
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
@@ -381,6 +395,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         origin: cx.device,
         platform: None,
         draws: draws(&cx),
+        finished_research: false,
     };
     let conversation = cx.user.context(session_id).await?;
     let open = conversation.map(|context| permissions::open_calls(&context.conversation));

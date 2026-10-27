@@ -8,6 +8,7 @@ use super::{
         MEMORY_THRESHOLD, ServerCall, TurnState, add_server_calls, drop_follow_ups,
         drop_text_since, earlier_turns,
     },
+    research,
 };
 use crate::{
     agents::AgentId,
@@ -86,7 +87,7 @@ impl App {
         let cancel = &live.cancel;
         let is_cron = message.cron_id.is_some();
         // Nobody asked for a routine's or an event's turn.
-        let background = is_cron || message.woken.is_some();
+        let background = is_cron || message.woken.is_some() || message.finished_research;
         let mut timer = TurnTimer::start();
         if !background && message.answer.is_none() {
             user.forget_used_starter(&message.message).await;
@@ -94,6 +95,11 @@ impl App {
 
         let chat = Uuid::parse_str(&run.session_id)?;
         let answer = message.answer.as_ref();
+        // A research chat runs as its lead, on the research's own models.
+        let research = match self.models.research() {
+            Some(config) => user.research_in(chat).await?.map(|row| (row, config)),
+            None => None,
+        };
         // The model runs on the context, which may be compacted. The apps
         // read the turn's steps, saved as messages when it ends.
         let mut conversation = user
@@ -116,6 +122,9 @@ impl App {
         let one_off = message.model.is_some() || message.thinking.is_some();
         // The picks ask a model, so a stop does not wait for them.
         let picking = async {
+            if research.is_some() {
+                return (None, None);
+            }
             // With agents on, every chat turn runs as one: Jev picks it, and a
             // resumed turn keeps the one it started as. A routine runs as the
             // agent that set it up; other routines and woken turns as General.
@@ -159,18 +168,24 @@ impl App {
         };
         if let Some(turn) = &turn_agent {
             metering::turn_agent(turn.agent.id);
+        } else if research.is_some() {
+            metering::turn_agent(AgentId::Research);
         }
         // Always set the server-owned prompt, including when loading an older
         // conversation. It stays static per agent so the provider can cache it.
-        conversation.set_system(
-            turn_agent
+        conversation.set_system(match &research {
+            Some(_) => research::LEAD_PROMPT,
+            None => turn_agent
                 .as_ref()
                 .map_or(AgentId::General, |turn| turn.agent.id)
                 .prompt(),
-        );
-        let (model, thinking) = match &auto {
-            Some(auto) => (auto.model.clone(), auto.thinking),
-            None => (
+        });
+        let (model, thinking) = match (&auto, &research) {
+            (Some(auto), _) => (auto.model.clone(), auto.thinking),
+            (None, Some((_, config))) if !one_off => {
+                (config.lead.model.clone(), config.lead.thinking)
+            }
+            _ => (
                 match message.model.clone() {
                     Some(model) => model,
                     None => self.model_for(user).await,
@@ -224,6 +239,9 @@ impl App {
         if let Some(decision) = &self.tools.decision {
             registry.register(decision.clone());
         }
+        if let Some((row, _)) = &research {
+            research::register_lead(&mut registry, self, user, row.id);
+        }
         if let Some(transitous) = &self.tools.transitous {
             registry.register(Arc::new(tools::GetRouteTool {
                 user: user.clone(),
@@ -246,6 +264,7 @@ impl App {
             user: user.clone(),
             session_id: chat,
             sandbox: self.tools.sandbox.clone(),
+            paper: research.is_some(),
         }));
         registry.register(Arc::new(tools::SendImageTool {
             user: user.clone(),
@@ -359,9 +378,16 @@ impl App {
         let building = Instant::now();
         let apps = apps.unwrap_or_default();
         let building_context = self.build_context(user, &conversation, message, &apps);
-        let Some(context) = cancel.run_until_cancelled(building_context).await else {
+        let Some(mut context) = cancel.run_until_cancelled(building_context).await else {
             return self.stopped_early(user, run, live).await;
         };
+        if let Some((row, config)) = &research {
+            let block = self.research_context(row, config).await?;
+            context = Some(match context {
+                Some(context) => format!("{context}\n{block}"),
+                None => block,
+            });
+        }
         timer.context_built(building.elapsed());
 
         let mut agent = Agent::builder(self.provider.clone())
@@ -657,7 +683,7 @@ impl App {
         // A routine that found nothing to say leaves no trace in the chat.
         let silent = is_cron && status == RunStatus::Completed && !notify.load(Ordering::SeqCst);
         // A run that stops to ask notifies with the question instead.
-        if is_cron && status != RunStatus::Waiting && !silent {
+        if (is_cron || message.finished_research) && status != RunStatus::Waiting && !silent {
             self.notify_run_complete(user, run, status, &reply).await;
         }
 

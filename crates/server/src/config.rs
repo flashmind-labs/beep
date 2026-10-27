@@ -8,7 +8,10 @@ use std::{
     path::PathBuf,
 };
 
-use crate::agents::{AgentConfig, AgentId};
+use crate::{
+    agents::{AgentConfig, AgentId},
+    research::ResearchConfig,
+};
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
 use iroh::{EndpointId, SecretKey};
@@ -35,6 +38,8 @@ pub struct Config {
     /// must be one of `model_choices`, and `general` is required.
     #[serde(default)]
     pub agents: HashMap<AgentId, AgentConfig>,
+    /// The models research roles run on. Research is off without it.
+    pub research: Option<ResearchConfig>,
     /// Endpoint ids of the users who get admin features.
     #[serde(default)]
     pub admins: Vec<EndpointId>,

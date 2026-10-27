@@ -184,6 +184,7 @@ pub(crate) async fn submit(
         origin: DeviceKind::Phone {},
         platform: None,
         draws: Draws::default(),
+        finished_research: false,
     };
 
     let mut result = app
