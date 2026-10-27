@@ -3,11 +3,12 @@
 //! newest first. Copy an id into `model_choices` as `openrouter:<id>`.
 
 use anyhow::{Context, Result, ensure};
-use beep_server::models::MAX_OUTPUT_PRICE;
 use chrono::DateTime;
 use serde::Deserialize;
 
 const USAGE: &str = "usage: beep-models [MAX_OUTPUT_PRICE] [FILTER]; MAX_OUTPUT_PRICE in USD per million output tokens, FILTER matches part of the id";
+/// The price limit when none is given, in USD per million output tokens.
+const MAX_OUTPUT_PRICE: f64 = 4.0;
 const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
 
 #[derive(Deserialize)]

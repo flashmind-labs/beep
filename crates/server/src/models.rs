@@ -15,9 +15,6 @@ use std::{
     sync::{PoisonError, RwLock},
 };
 
-/// The most a pickable model may cost, in USD per million output tokens.
-pub const MAX_OUTPUT_PRICE: f64 = 4.0;
-
 pub struct ModelChoices {
     /// The keys the config names as admins.
     admin_keys: HashSet<String>,
@@ -72,9 +69,8 @@ impl ModelChoices {
     }
 
     /// Looks up names, prices and vision in the provider's model list. A
-    /// choice the provider does not list, or that costs more than
-    /// `MAX_OUTPUT_PRICE`, is left out with a warning. Without a list every
-    /// choice stays, unpriced.
+    /// choice the provider does not list is left out with a warning. Without
+    /// a list every choice stays, unpriced.
     pub async fn resolve(
         provider: &dyn LlmProvider,
         default: Model,
@@ -109,13 +105,6 @@ impl ModelChoices {
                     output_price: None,
                 },
             };
-            if !is_default && choice.output_price.is_some_and(|p| p > MAX_OUTPUT_PRICE) {
-                log::warn!(
-                    "model choice costs more than ${MAX_OUTPUT_PRICE}/M output tokens; model={}",
-                    choice.model
-                );
-                continue;
-            }
             choices.push(choice);
         }
         Self {
