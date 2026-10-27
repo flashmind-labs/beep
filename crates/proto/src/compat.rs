@@ -142,6 +142,7 @@ sample_struct! {
     RoutePoint { latitude, longitude }
     Research { id, topic, status, agents, entries, sources, draft, started_at, finished_at, round }
     ResearchAgent { id, name, role, model, round }
+    ResearchSummary { session_id, topic, status, round, sources, started_at, finished_at }
     ResearchEntry { seq, agent, body, timestamp }
     ResearchSource { number, url, title, quote, agent }
 }

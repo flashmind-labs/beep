@@ -418,9 +418,23 @@ impl Beep {
 
     /// Remembers that `session` is a research.
     pub fn add_research(&self, session: Uuid) {
+        self.add_researches(&[session]);
+    }
+
+    /// Remembers chats as researches, saving once.
+    pub fn add_researches(&self, sessions: &[Uuid]) {
+        let missing = {
+            let saved = self.saved();
+            sessions.iter().any(|id| !saved.researches.contains(id))
+        };
+        if !missing {
+            return;
+        }
         self.update_saved(|s| {
-            if !s.researches.contains(&session) {
-                s.researches.push(session);
+            for session in sessions {
+                if !s.researches.contains(session) {
+                    s.researches.push(*session);
+                }
             }
         });
     }

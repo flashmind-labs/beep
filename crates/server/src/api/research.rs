@@ -72,6 +72,28 @@ pub(super) async fn get_research(
     }))
 }
 
+pub(super) async fn list_researches(
+    cx: Cx,
+    ListResearches {}: ListResearches,
+) -> Reply<Vec<ResearchSummary>> {
+    let listed = cx.user.researches().await?;
+    Ok(listed
+        .into_iter()
+        .map(|listed| {
+            let research = listed.research;
+            ResearchSummary {
+                session_id: research.chat,
+                round: research.plan.as_ref().map_or(1, Plan::round),
+                topic: research.topic,
+                status: research.status.wire(),
+                sources: listed.sources,
+                started_at: research.created_at.timestamp_millis(),
+                finished_at: research.finished_at.map(|at| at.timestamp_millis()),
+            }
+        })
+        .collect())
+}
+
 pub(super) async fn stop_research(cx: Cx, StopResearch { session_id }: StopResearch) -> Reply<()> {
     let row = cx
         .user

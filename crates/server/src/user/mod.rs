@@ -28,11 +28,11 @@ use crate::{
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
         Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Invite, Join, JoinedGroup,
-        LinkKey, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge, MergeInto,
-        NewAttachment, NewFile, NewKey, NewMessage, NewPicture, NewPlace, NewPlaceRoutine,
-        PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice, ResearchRow,
-        RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, Store,
-        StoredContext, StoredMessage, TurnAgentRow, TurnRecord, TurnsToDelete,
+        LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge,
+        MergeInto, NewAttachment, NewFile, NewKey, NewMessage, NewPicture, NewPlace,
+        NewPlaceRoutine, PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice,
+        ResearchRow, RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow,
+        Store, StoredContext, StoredMessage, TurnAgentRow, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::Result;
@@ -278,6 +278,11 @@ impl User {
     /// The research `chat` runs, if it is one.
     pub async fn research_in(&self, chat: Uuid) -> Result<Option<ResearchRow>> {
         self.store.research_in(&self.key, chat).await
+    }
+
+    /// The user's researches, newest first.
+    pub(crate) async fn researches(&self) -> Result<Vec<ListedResearch>> {
+        self.store.list_researches(&self.key).await
     }
 
     /// The paper of the research `chat` runs, typeset as a PDF. `None` when
