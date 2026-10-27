@@ -9,7 +9,10 @@ use crate::{
     error::{DesktopError, Result},
     markdown,
 };
-use beep_proto::{GetResearch, GetResearchPdf, Research, ResearchEntryBody, StopResearch};
+use beep_proto::{
+    GetResearch, GetResearchPdf, ListResearches, Research, ResearchEntryBody, ResearchSummary,
+    StopResearch,
+};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -105,6 +108,41 @@ pub fn open_research(app: AppHandle, beep: Service<'_>, session: Uuid) -> Result
 #[tauri::command]
 pub fn research_sessions(beep: Service<'_>) -> Vec<Uuid> {
     beep.researches()
+}
+
+/// Every research of the account, newest first, wherever it started. Each
+/// is remembered here, so its chat opens in a research window.
+#[tauri::command]
+pub async fn list_researches(beep: Service<'_>) -> Result<Vec<ResearchItem>> {
+    let listed = beep.call(ListResearches {}).await?;
+    let sessions: Vec<Uuid> = listed.iter().map(|r| r.session_id).collect();
+    beep.add_researches(&sessions);
+    Ok(listed.into_iter().map(ResearchItem::from).collect())
+}
+
+#[derive(Serialize)]
+pub struct ResearchItem {
+    session: Uuid,
+    topic: String,
+    status: &'static str,
+    round: u32,
+    sources: u32,
+    started_at: i64,
+    finished_at: Option<i64>,
+}
+
+impl From<ResearchSummary> for ResearchItem {
+    fn from(research: ResearchSummary) -> Self {
+        Self {
+            session: research.session_id,
+            topic: research.topic,
+            status: research.status.as_str(),
+            round: research.round,
+            sources: research.sources,
+            started_at: research.started_at,
+            finished_at: research.finished_at,
+        }
+    }
 }
 
 /// The topic the window should send first, once.

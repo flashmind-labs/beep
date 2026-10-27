@@ -505,6 +505,8 @@ requests! {
     /// A research's paper typeset as a PDF, with its sources. `NotFound`
     /// when the chat is not a research or its paper is not written yet.
     108 GetResearchPdf { session_id: Uuid } => Call<Upload>
+    /// Every research of the account, newest first.
+    109 ListResearches {} => Call<Vec<ResearchSummary>>
 }
 
 /// The most a message's `files` may hold in all, so the request stays
@@ -605,6 +607,23 @@ wire_enum! {
         6 Stopped {}
         7 Interrupted {}
     }
+}
+
+/// A research as a list shows it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchSummary {
+    /// The chat the lead talks to the user in.
+    pub session_id: Uuid,
+    pub topic: String,
+    pub status: ResearchStatus,
+    /// The newest round, from 1.
+    pub round: u32,
+    /// How many sources the scouts kept.
+    pub sources: u32,
+    /// In milliseconds since the Unix epoch.
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
 }
 
 /// One agent of a research.

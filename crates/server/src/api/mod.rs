@@ -43,7 +43,7 @@ use memories::{
     clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads, list_skills,
     undo_skill, update_memory, update_skill,
 };
-use research::{get_research, get_research_pdf, stop_research};
+use research::{get_research, get_research_pdf, list_researches, stop_research};
 use sessions::{
     copy_share, delete_session, delete_sessions, delete_turn, delete_turns_from, existing_sessions,
     get_file, get_route, get_route_card, get_session, get_session_agents, get_session_files,
@@ -165,6 +165,7 @@ pub fn router() -> Router {
         .call(get_research)
         .call(stop_research)
         .call(get_research_pdf)
+        .call(list_researches)
 }
 
 type Reply<T> = Result<T, ApiError>;

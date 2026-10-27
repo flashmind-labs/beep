@@ -158,6 +158,7 @@ fn main() {
             research::research_begin,
             research::open_research,
             research::research_sessions,
+            research::list_researches,
             research::research_pending,
             research::research_history,
             research::research_send,
@@ -375,6 +376,7 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         ("memories", "Memories", "cmd+m"),
         ("routines", "Routines", "cmd+j"),
         ("skills", "Skills", "cmd+l"),
+        ("research", "Research", "cmd+r"),
     ] {
         menu.append(&MenuItem::with_id(app, id, title, linked, Some(keys))?)?;
     }
@@ -471,7 +473,7 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));
         }
-        view @ ("apps" | "link" | "memories" | "routines" | "skills" | "settings") => {
+        view @ ("apps" | "link" | "memories" | "research" | "routines" | "skills" | "settings") => {
             bar::show(app, Some(view))
         }
         "check-update" => {

@@ -170,7 +170,7 @@ function chatHints() {
   if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
-  if ($("#ask")?.value.trim()) return hints([[ICON.ret, "ask"], [`⌘⇧${ICON.ret}`, "research"], ["esc", "to hide"]], chip);
+  if ($("#ask")?.value.trim()) return hints([[ICON.ret, "ask"], ["⌘R", "research"], ["esc", "to hide"]], chip);
   if (!knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
 }
@@ -285,7 +285,143 @@ async function research(topic) {
     const ask = $("#ask");
     if (ask && ask.value.trim() === topic) { ask.value = ""; grow(ask); refreshHints(); }
   } catch (err) {
+    if (S.view === "research") { RL.error = String(err); return drawResearches(); }
     failed(newTurn(""), String(err));
+  }
+}
+
+/// The bar's Research view: every research on the account, newest first,
+/// from the server, so ones started on another computer show too. The field
+/// on top starts a new one; Return on a row opens its window.
+const RL = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
+const RSTATUS = {
+  planning: "Waiting for your go", researching: "Researching", reviewing: "Reviewing",
+  writing: "Writing", done: "Done", failed: "Failed", stopped: "Stopped", interrupted: "Interrupted",
+};
+const RUNNING = new Set(["researching", "reviewing", "writing"]);
+
+function renderResearches(topic = "") {
+  S.view = "research";
+  invoke("close_group").catch(() => {});
+  Object.assign(RL, { mode: "list", error: "", sel: 0 });
+  drawResearches();
+  const field = $("#rtopic");
+  if (field) { field.value = topic; field.focus(); }
+  loadResearchList();
+}
+
+async function loadResearchList() {
+  try {
+    RL.list = await invoke("list_researches");
+    for (const r of RL.list) RESEARCHES.add(r.session);
+    RL.loaded = true;
+    RL.error = "";
+  } catch (e) {
+    RL.error = String(e);
+  }
+  if (S.view === "research") drawResearches();
+}
+
+function researchLine(r) {
+  const parts = [RSTATUS[r.status] ?? r.status];
+  if (r.round > 1) parts.unshift(`Round ${r.round}`);
+  if (r.sources) parts.push(`${r.sources} source${r.sources === 1 ? "" : "s"}`);
+  parts.push(when(r.finished_at ?? r.started_at));
+  return parts.join(" · ");
+}
+
+function drawResearches() {
+  const typed = $("#rtopic")?.value ?? "";
+  const focused = document.activeElement?.id === "rtopic";
+  RL.sel = Math.max(0, Math.min(RL.sel, RL.list.length - 1));
+  const running = RL.list.filter(r => RUNNING.has(r.status)).length;
+  const waiting = RL.list.filter(r => r.status === "planning").length;
+  const sum = !RL.loaded ? "" : !RL.list.length ? "Nothing researched yet"
+    : [running && `${running} running`, waiting && `${waiting} waiting`].filter(Boolean).join(", ") || `${RL.list.length} researched`;
+  const head = `<div class="dhead"><span class="tt"><b>Research</b><small>${esc(sum)}</small></span></div>`;
+  const field = `<div class="dinput"><input id="rtopic" placeholder="What should the team research?" autocomplete="off" spellcheck="false"><kbd>⌘R</kbd></div>`;
+  const err = RL.error ? `<div class="derr" style="padding:8px 18px 0">${esc(RL.error)}</div>` : "";
+  if (RL.loaded && !RL.list.length) {
+    bar.innerHTML = field + head + err + `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${ICON.browser}</span>
+      <b style="font-size:14px">No research yet.</b><span class="dmuted" style="display:block">A team of agents digs into a question and writes it up as a paper.</span></div>`
+      + hints([[ICON.ret, "research"], ["esc", "back"]]);
+  } else {
+    const rows = RL.list.map((r, i) => {
+      const cur = i === RL.sel && !typed.trim();
+      const ic = RUNNING.has(r.status) ? '<span class="dspin"></span>'
+        : r.status === "planning" ? '<span class="ddot" style="background:var(--coral)"></span>'
+        : r.status === "done" ? `<span class="dok">${ICON.check}</span>` : ICON.doc;
+      const tail = cur && RL.mode === "actions" && r.sources
+        ? '<span class="acts"><button class="dbtn" data-rl="pdf">Export PDF</button></span>' : "";
+      const off = ["failed", "stopped", "interrupted"].includes(r.status);
+      return `<div class="drt${off ? " off" : ""}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${ic}</span>
+        <span class="tt"><b>${esc(r.topic)}</b><small>${esc(researchLine(r))}</small></span>${tail}</div>`;
+    }).join("");
+    const keys = typed.trim() ? [[ICON.ret, "research"], ["esc", "back"]]
+      : RL.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]]
+      : [["↑↓", "move"], [ICON.ret, "open"], ["tab", "actions"], ["esc", "back"]];
+    bar.innerHTML = field + head + err + `<div class="dlist" role="listbox" aria-label="Research" style="padding-top:8px">${rows}</div>` + hints(keys);
+    bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }
+  const input = $("#rtopic");
+  input.value = typed;
+  if (focused || !RL.list.length) input.focus();
+  input.oninput = () => { const at = input.selectionStart; drawResearches(); $("#rtopic").setSelectionRange(at, at); };
+  bar.onclick = researchClick;
+}
+
+function researchClick(e) {
+  if (S.view !== "research") return;
+  const btn = e.target.closest("[data-rl]");
+  const row = e.target.closest(".drt[data-i]");
+  if (row) RL.sel = Number(row.dataset.i);
+  if (btn) return researchListAction(btn.dataset.rl);
+  if (row) return researchListAction("open");
+}
+
+async function researchListAction(a) {
+  const r = RL.list[RL.sel];
+  if (!r) return;
+  try {
+    if (a === "open") return await invoke("open_research", { session: r.session });
+    if (a === "pdf") {
+      const to = await invoke("export_research", { session: r.session });
+      RL.error = "";
+      RL.mode = "list";
+      drawResearches();
+      return notice(`Saved ${to.split("/").pop()} to Downloads`, { path: to });
+    }
+  } catch (e) {
+    RL.error = String(e);
+    drawResearches();
+  }
+}
+
+/// Cmd-R: researches what is typed, or the offered question, and otherwise
+/// opens the Research view.
+function researchShortcut() {
+  const typed = (S.view === "chat" ? $("#ask") : S.view === "research" ? $("#rtopic") : null)?.value.trim();
+  if (typed) return research(typed);
+  if (S.view === "chat" && $(".droffer")) return research($(".droffer").topic);
+  if (S.view !== "research") return renderResearches();
+}
+
+function researchKeys(e) {
+  const typed = $("#rtopic")?.value.trim();
+  if (e.key === "Enter" && !e.isComposing) {
+    e.preventDefault();
+    return typed ? research(typed) : researchListAction("open");
+  }
+  if (typed) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    RL.sel = Math.max(0, Math.min(RL.list.length - 1, RL.sel + (e.key === "ArrowDown" ? 1 : -1)));
+    RL.mode = "list";
+    drawResearches();
+  } else if (e.key === "Tab") {
+    e.preventDefault();
+    RL.mode = RL.mode === "actions" ? "list" : "actions";
+    drawResearches();
   }
 }
 
@@ -1365,8 +1501,8 @@ function notice(text, { path, bad } = {}) {
 // ---------- Shortcuts ----------
 
 const SHORTCUTS = [
-  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines"], ["⌘L", "Skills"], ["⌘,", "Settings"], ["⌘Q", "Quit"]]],
-  ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], [`⌘⇧${ICON.ret}`, "Research it"], ["⌘R", "Research the last answer"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
+  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌘Q", "Quit"]]],
+  ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
 ];
 
@@ -3441,6 +3577,7 @@ async function show(view) {
   if (view === "memories") return renderMemories();
   if (view === "routines") return renderRoutines();
   if (view === "skills") return renderSkills();
+  if (view === "research") return renderResearches();
   if (view === "apps") return renderApps();
   // Back from the browser: look again at what is connected.
   if (S.view === "apps") return loadApps();
@@ -3694,6 +3831,7 @@ function back() {
   if (S.view === "group" && G.mention) return closeMention();
   if (S.view === "memories" && M.mode !== "list") { M.mode = "list"; drawMemories(); return $("#mfind")?.focus(); }
   if (S.view === "routines" && R.mode !== "list") return routineAction("list");
+  if (S.view === "research" && RL.mode !== "list") { RL.mode = "list"; return drawResearches(); }
   if (S.view === "skills" && K.mode !== "list") return skillAction(K.mode === "edit" || K.mode === "vdelete" ? "view" : "list");
   if (S.view === "rnew") return renderRoutines();
   if (S.view === "appperms") return renderApps();
@@ -3702,7 +3840,7 @@ function back() {
   if (S.view === "apps" && A.adding) { A.adding = false; A.addError = ""; return drawApps(); }
   if (S.view === "apps") return renderSettings();
   if (S.view === "model") return S.session ? openSession(S.session) : renderChat();
-  if ((S.view === "memories" || S.view === "routines" || S.view === "skills" || S.view === "settings") && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
+  if ((S.view === "memories" || S.view === "routines" || S.view === "skills" || S.view === "research" || S.view === "settings") && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
   if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id);
   if (S.view === "gnew") {
     if (J.mode === "join") return renderGroupNew("code");
@@ -3774,6 +3912,7 @@ document.addEventListener("keydown", e => {
   if (cmd && key === "m") { e.preventDefault(); return renderMemories(); }
   if (cmd && key === "j") { e.preventDefault(); return renderRoutines(); }
   if (cmd && key === "l") { e.preventDefault(); return renderSkills(); }
+  if (cmd && key === "r" && S.view !== "chats") { e.preventDefault(); return researchShortcut(); }
   if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
   if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
   if (cmd && key === "n") { e.preventDefault(); return newChat(); }
@@ -3788,7 +3927,6 @@ document.addEventListener("keydown", e => {
     if (cmd && key === "d" && here()?.approval) { e.preventDefault(); return answer("deny"); }
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (cmd && e.shiftKey && e.key === "Enter" && e.target.id === "ask") { e.preventDefault(); return research(e.target.value); }
-    if (cmd && key === "r" && $(".droffer")) { e.preventDefault(); return research($(".droffer").topic); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
     if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
     if (e.key === "Backspace" && !cmd && e.target.id === "ask" && !e.target.value && attachedCount()) { e.preventDefault(); return unattach(attachedCount() - 1); }
@@ -3796,6 +3934,7 @@ document.addEventListener("keydown", e => {
   if (S.view === "chats") return chatsKeys(e, cmd);
   if (S.view === "memories") return memKeys(e, cmd);
   if (S.view === "routines") return routineKeys(e, cmd);
+  if (S.view === "research") return researchKeys(e);
   if (S.view === "skills") return skillKeys(e, cmd);
   if (S.view === "group") return groupKeys(e, cmd);
   if (S.view === "gnew" && e.key === "Enter" && !e.isComposing && e.target.tagName === "INPUT") { e.preventDefault(); return groupFormGo(); }

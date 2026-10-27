@@ -47,6 +47,16 @@ pub struct SourceRow {
     pub member: Member,
 }
 
+/// A research with how many sources it kept, for a list.
+#[derive(Debug, Clone)]
+pub struct ListedResearch {
+    pub research: ResearchRow,
+    pub sources: u32,
+}
+
+/// The most researches a list returns.
+const MAX_LISTED: i64 = 200;
+
 /// A source a member found.
 pub struct NewSource<'a> {
     pub url: &'a str,
@@ -194,6 +204,28 @@ impl Store {
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(research_from).transpose()
+    }
+
+    /// The user's researches, newest first.
+    pub(crate) async fn list_researches(&self, user: &UserKey) -> Result<Vec<ListedResearch>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {COLUMNS},
+                    (SELECT COUNT(*) FROM research_sources s WHERE s.research_id = r.id)
+             FROM researches r WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2"
+        ))
+        .bind(user.as_str())
+        .bind(MAX_LISTED)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                let sources: i64 = row.try_get(9)?;
+                Ok(ListedResearch {
+                    research: research_from(row)?,
+                    sources: u32::try_from(sources)?,
+                })
+            })
+            .collect()
     }
 
     pub(crate) async fn research(&self, id: Uuid) -> Result<Option<ResearchRow>> {
@@ -521,6 +553,24 @@ mod tests {
         let sources = store.research_sources(id).await.unwrap();
         assert_eq!(sources.len(), 2);
         assert_eq!(sources[0].member, Member::Scout(1));
+
+        // The list counts them, newest research first, and only the user's.
+        let newer = store
+            .start_research(&user, Uuid::new_v4(), "newer")
+            .await
+            .unwrap();
+        store
+            .start_research(&UserKey::for_test("bob"), Uuid::new_v4(), "bob's")
+            .await
+            .unwrap();
+        let listed: Vec<_> = store
+            .list_researches(&user)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|listed| (listed.research.id, listed.sources))
+            .collect();
+        assert_eq!(listed, [(newer.id, 0), (id, 2)]);
 
         let said = Entry::Said {
             to: Some(Member::Scout(2)),
