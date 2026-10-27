@@ -26,6 +26,7 @@ pub mod profile;
 pub mod push;
 pub mod remote;
 pub mod repeat;
+pub mod research;
 pub mod router;
 pub mod sandbox;
 pub mod search;

@@ -7,6 +7,7 @@ mod group_reminders;
 mod group_tools;
 mod learning;
 mod notify;
+mod research;
 mod run;
 mod skills;
 mod starters;
@@ -88,6 +89,8 @@ pub struct App {
     group_actions: Mutex<HashMap<String, group_tools::GroupAction>>,
     /// Set once the server starts stopping.
     shutting_down: AtomicBool,
+    /// Research teams at work, by research id.
+    teams: AsyncMutex<HashMap<Uuid, CancellationToken>>,
 }
 
 /// Optional tools and integrations that need server credentials, as
@@ -189,6 +192,9 @@ pub struct Message {
     pub platform: Option<Platform>,
     /// What the app draws under a reply, so the run gets those tools.
     pub draws: Draws,
+    /// The lead's turn that tells the user a research ended. It runs in
+    /// the background and notifies like a routine.
+    pub finished_research: bool,
 }
 
 impl Message {
@@ -199,6 +205,7 @@ impl Message {
             && self.scheduled.is_none()
             && self.woken.is_none()
             && self.answer.is_none()
+            && !self.finished_research
     }
 }
 
@@ -280,6 +287,7 @@ impl App {
             groups_busy: Mutex::new(HashSet::new()),
             group_actions: Mutex::new(HashMap::new()),
             shutting_down: AtomicBool::new(false),
+            teams: AsyncMutex::new(HashMap::new()),
         })
     }
 
@@ -454,6 +462,7 @@ impl App {
     pub async fn shutdown(&self) {
         // Read by runs as they stop, so they end as interrupted, not cancelled.
         self.shutting_down.store(true, Ordering::Relaxed);
+        self.stop_teams().await;
         for live in self.runs.lock().await.values() {
             live.cancel.cancel();
         }

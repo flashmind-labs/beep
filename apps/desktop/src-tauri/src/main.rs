@@ -13,6 +13,7 @@ mod identity;
 mod mac_files;
 mod markdown;
 mod products;
+mod research;
 mod state;
 mod sync;
 mod update;
@@ -154,6 +155,15 @@ fn main() {
             commands::set_model,
             commands::set_thinking,
             commands::set_auto_model,
+            research::research_begin,
+            research::open_research,
+            research::research_sessions,
+            research::research_pending,
+            research::research_history,
+            research::research_send,
+            research::get_research,
+            research::stop_research,
+            research::export_research,
         ])
         .build(tauri::generate_context!())
         .expect("the app failed to start")
@@ -185,6 +195,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
     app.manage(beep.clone());
     app.manage(Recent::default());
+    app.manage(research::Pending::default());
     app.manage(apps::SignIn::default());
     app.manage(update::Updates::default());
 

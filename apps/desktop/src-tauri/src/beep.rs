@@ -161,6 +161,8 @@ pub struct Sent {
     pub message: String,
     pub images: Vec<DataImage>,
     pub files: Vec<FileUpload>,
+    /// Starts a research in the chat, which must be new.
+    pub research: bool,
 }
 
 /// The files as `Chat` takes them, or an error past `MAX_UPLOAD` in all.
@@ -409,6 +411,20 @@ impl Beep {
         self.update_saved(|s| s.session = session);
     }
 
+    /// The chats started here as researches.
+    pub fn researches(&self) -> Vec<Uuid> {
+        self.saved().researches.clone()
+    }
+
+    /// Remembers that `session` is a research.
+    pub fn add_research(&self, session: Uuid) {
+        self.update_saved(|s| {
+            if !s.researches.contains(&session) {
+                s.researches.push(session);
+            }
+        });
+    }
+
     pub fn group(&self) -> Option<String> {
         self.group
             .lock()
@@ -549,13 +565,26 @@ impl Beep {
         pick: Pick,
         channel: Channel<BarEvent>,
     ) -> Result<String> {
-        let images = image_uris(sent.images)?;
-        let files = uploads(sent.files)?;
         let session_id = match session.as_deref().map(Uuid::parse_str) {
             Some(Ok(id)) => id,
             _ => Uuid::new_v4(),
         };
         self.set_session(Some(session_id.to_string()));
+        self.post(session_id, sent, pick, channel).await?;
+        Ok(session_id.to_string())
+    }
+
+    /// Sends `sent` to `session_id` and streams the run into `channel`,
+    /// leaving the bar's chat as it is.
+    pub async fn post(
+        &self,
+        session_id: Uuid,
+        sent: Sent,
+        pick: Pick,
+        channel: Channel<BarEvent>,
+    ) -> Result<()> {
+        let images = image_uris(sent.images)?;
+        let files = uploads(sent.files)?;
         let replies = self
             .stream(Chat {
                 session_id,
@@ -566,10 +595,11 @@ impl Beep {
                 thinking: pick.thinking,
                 platform: Some(Platform::Macos {}),
                 files,
+                research: sent.research,
             })
             .await?;
         self.follow(replies, channel, Asked::Here).await;
-        Ok(session_id.to_string())
+        Ok(())
     }
 
     /// Sends the session's `index`th prompt again on `pick`, after removing
@@ -610,6 +640,7 @@ impl Beep {
             message,
             images: Vec::new(),
             files: Vec::new(),
+            research: false,
         };
         self.send(Some(session), sent, pick, channel).await?;
         Ok(())

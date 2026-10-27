@@ -301,6 +301,7 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         thinking: None,
         platform: None,
         files: Vec::new(),
+        research: false,
     };
     let mut replies = c.stream(&chat).await.unwrap();
     let run_id = started(&mut replies).await;
@@ -405,6 +406,7 @@ async fn cancellation_busy_session_and_invalid_input() {
         thinking: None,
         platform: None,
         files: Vec::new(),
+        research: false,
     };
     let mut slow_events = c.stream(&slow).await.unwrap();
     let slow_run = started(&mut slow_events).await;
@@ -418,6 +420,7 @@ async fn cancellation_busy_session_and_invalid_input() {
         thinking: None,
         platform: None,
         files: Vec::new(),
+        research: false,
     };
     let mut busy = c.stream(&busy).await.unwrap();
     assert!(matches!(
@@ -434,6 +437,7 @@ async fn cancellation_busy_session_and_invalid_input() {
         thinking: None,
         platform: None,
         files: Vec::new(),
+        research: false,
     };
     let mut empty = c.stream(&empty).await.unwrap();
     assert!(matches!(
@@ -759,6 +763,7 @@ async fn a_routine_runs_without_its_chats_history_and_replies_in_it() {
             thinking: None,
             platform: None,
             files: Vec::new(),
+            research: false,
         })
         .await
         .unwrap();
@@ -1043,6 +1048,7 @@ async fn a_linked_computer_shares_the_account_until_removed() {
         thinking: None,
         platform: None,
         files: Vec::new(),
+        research: false,
     };
     let mut replies = desk.stream(&chat).await.unwrap();
     drain(&mut replies).await;
@@ -1106,6 +1112,7 @@ async fn a_client_follows_its_log_and_fetches_only_what_is_new() {
             thinking: None,
             platform: None,
             files: Vec::new(),
+            research: false,
         })
         .await
         .unwrap();
@@ -1198,6 +1205,7 @@ async fn a_prompt_from_the_computer_shows_live_on_the_phone() {
         thinking: None,
         platform: None,
         files: Vec::new(),
+        research: false,
     };
     let mut asked = desk.stream(&ask).await.unwrap();
     let run_id = started(&mut asked).await;

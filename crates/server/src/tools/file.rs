@@ -16,10 +16,14 @@ pub(crate) struct SendFileTool {
     pub(crate) user: Arc<User>,
     pub(crate) session_id: Uuid,
     pub(crate) sandbox: Option<Arc<Sandbox>>,
+    /// The chat is a research, so its paper can be sent as a PDF.
+    pub(crate) paper: bool,
 }
 
 /// Where the file comes from, by which arguments were given.
 enum Source<'a> {
+    /// The research's paper, typeset.
+    Paper,
     Url(&'a str),
     Folder(&'a str),
     Fastmail {
@@ -42,9 +46,37 @@ impl Tool for SendFileTool {
         NAME
     }
     fn description(&self) -> &str {
+        if self.paper {
+            return "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `paper: true` for this research's paper as a typeset PDF, with its sources; `url` for a file at an https URL; `path` for a file in the user's file folder; or `email_id` with `blob_id` for a Fastmail attachment. Files up to 20 MiB.";
+        }
         "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `url` for a file at an https URL, such as the s3url GMAIL_GET_ATTACHMENT or OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT returns; `path` for a file in the user's file folder; or `email_id` with `blob_id` for a Fastmail attachment, as FASTMAIL_READ_EMAIL lists it. Files up to 20 MiB."
     }
     fn parameters(&self) -> Value {
+        let mut schema = self.schema();
+        if self.paper {
+            schema["properties"]["paper"] = json!({
+                "type": "boolean",
+                "description": "true to send this research's paper as a PDF"
+            });
+        }
+        schema
+    }
+    fn timeout_secs(&self) -> Option<u64> {
+        Some(120)
+    }
+    fn humanize(&self, args: &Value) -> String {
+        if args.get("paper").and_then(Value::as_bool) == Some(true) {
+            return "Typesetting the paper…".into();
+        }
+        "Sending file…".into()
+    }
+    async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+        self.send(ctx).await
+    }
+}
+
+impl SendFileTool {
+    fn schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
@@ -58,13 +90,8 @@ impl Tool for SendFileTool {
             "additionalProperties": false
         })
     }
-    fn timeout_secs(&self) -> Option<u64> {
-        Some(120)
-    }
-    fn humanize(&self, _args: &Value) -> String {
-        "Sending file…".into()
-    }
-    async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+
+    async fn send(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let arg = |key| {
             ctx.args
                 .get(key)
@@ -72,7 +99,15 @@ impl Tool for SendFileTool {
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
         };
+        let paper = self.paper && ctx.args.get("paper").and_then(Value::as_bool) == Some(true);
         let source = match (arg("url"), arg("path"), arg("email_id"), arg("blob_id")) {
+            (None, None, None, None) if paper => Source::Paper,
+            _ if paper => {
+                return Ok(ToolResult::failure(
+                    ctx.tool_call_id,
+                    "Give `paper` alone, or another source without it.",
+                ));
+            }
             (Some(url), None, None, None) => Source::Url(url),
             (None, Some(path), None, None) => Source::Folder(path),
             (None, None, Some(email_id), Some(blob_id)) => Source::Fastmail {
@@ -121,6 +156,18 @@ impl Tool for SendFileTool {
 impl SendFileTool {
     async fn load(&self, source: Source<'_>) -> Result<Loaded> {
         match source {
+            Source::Paper => {
+                let pdf = self
+                    .user
+                    .research_pdf(self.session_id)
+                    .await?
+                    .context("the paper is not written yet")?;
+                Ok(Loaded {
+                    name: pdf.name,
+                    mime: Some("application/pdf".to_owned()),
+                    data: pdf.data,
+                })
+            }
             Source::Url(url) => {
                 if !url.starts_with("https://") {
                     bail!("only https URLs are allowed");

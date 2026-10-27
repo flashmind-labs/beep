@@ -3,6 +3,7 @@
 use crate::sync;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -23,6 +24,9 @@ pub struct Saved {
     /// The chat the bar shows when it opens.
     #[serde(default)]
     pub session: Option<String>,
+    /// Chats started here as researches, which open in their own window.
+    #[serde(default)]
+    pub researches: Vec<Uuid>,
 }
 
 pub struct StateFile(PathBuf);

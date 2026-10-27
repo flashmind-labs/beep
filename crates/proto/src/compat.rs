@@ -140,6 +140,10 @@ sample_struct! {
     RouteOptionV1 { departs, arrives, minutes, transfers, live, legs }
     RouteLegV1 { mode, line, name, color, text_color, headsign, from, to, from_track, to_track, departs, arrives, minutes, stops, meters, points }
     RoutePoint { latitude, longitude }
+    Research { id, topic, status, agents, entries, sources, draft, started_at, finished_at, round }
+    ResearchAgent { id, name, role, model, round }
+    ResearchEntry { seq, agent, body, timestamp }
+    ResearchSource { number, url, title, quote, agent }
 }
 
 macro_rules! sample_values {
