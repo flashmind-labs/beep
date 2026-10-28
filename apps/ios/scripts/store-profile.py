@@ -83,7 +83,7 @@ def main():
             "identifier": bundle, "name": bundle.replace(".", " "), "platform": "IOS"}}})["data"]["id"]
 
     enabled = {c["attributes"]["capabilityType"]
-               for c in call("GET", f"/bundleIds/{bundle_id}/bundleIdCapabilities?limit=200")["data"]}
+               for c in call("GET", f"/bundleIds/{bundle_id}/bundleIdCapabilities")["data"]}
     for capability in capabilities:
         if capability not in enabled:
             call("POST", "/bundleIdCapabilities", {"data": {
