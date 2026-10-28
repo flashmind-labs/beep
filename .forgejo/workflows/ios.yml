@@ -123,8 +123,9 @@ jobs:
           store_profile() {
             local name=$1; shift
             local out="$RUNNER_TEMP/ios-$name-profile.mobileprovision" uuid
-            uuid=$(python3 apps/ios/scripts/store-profile.py "$1" "$(cat "$RUNNER_TEMP/ios-profile-path")" "$out" "${@:2}")
-            install -m 600 "$out" "$profile_dir/$uuid.mobileprovision"
+            # Called inside $(...), where set -e does not reach, so each step returns its failure.
+            uuid=$(python3 apps/ios/scripts/store-profile.py "$1" "$(cat "$RUNNER_TEMP/ios-profile-path")" "$out" "${@:2}") || return
+            install -m 600 "$out" "$profile_dir/$uuid.mobileprovision" || return
             printf '%s' "$profile_dir/$uuid.mobileprovision" > "$RUNNER_TEMP/ios-$name-profile-path"
             printf '%s' "$uuid"
           }
