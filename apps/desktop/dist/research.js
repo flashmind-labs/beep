@@ -139,7 +139,7 @@ function drawChat() {
         html += `<div class="racts"><button class="dbtn pri" data-act="go">Start<kbd>⌘${ICON.ret}</kbd></button></div>`;
       }
       if (i === last && st === "done" && R.sending === null) {
-        html += `<div class="racts"><button class="dbtn" data-act="tab:draft">Open the paper</button><button class="dbtn" data-act="export">Export PDF</button></div>`;
+        html += `<div class="racts"><button class="dbtn" data-act="tab:draft">Open the paper</button>${exportButton("dbtn")}</div>`;
       }
     }
   });
@@ -229,7 +229,7 @@ function drawWork() {
   const b = (id, label) => `<button role="tab" aria-selected="${t === id}" data-act="tab:${id}">${label}</button>`;
   const sources = r?.sources.length ? ` ${r.sources.length}` : "";
   $("#tabs").innerHTML = b("draft", "Draft") + b("notes", "Notes") + b("sources", `Sources${sources}`) + '<span class="sp"></span>'
-    + (r?.draft ? '<button class="dbtn quiet" data-act="copy">Copy</button><button class="dbtn quiet" data-act="export">Export PDF</button>' : "");
+    + (r?.draft ? '<button class="dbtn quiet" data-act="copy">Copy</button>' + exportButton("dbtn quiet") : "");
   let body;
   if (!r || (st === "planning" && !notes.length)) body = '<div class="dmuted rempty">The workspace fills in once the team starts.</div>';
   else if (t === "draft" && !r.draft) body = `<div class="dmuted rempty">${RUNNING.has(st) ? "The writer starts after the critic's review." : "No paper was written."}</div>`;
@@ -353,19 +353,99 @@ async function act(a, v) {
   if (a === "room") { if (!R.research || R.research.status === "planning") return; R.side = { view: "room", agent: null }; return drawSide(); }
   if (a === "back") { R.side = { view: "agents", agent: null }; return drawSide(); }
   if (a === "copy") return copy(R.research?.draft ?? "");
-  if (a === "export") {
-    R.note = "Typesetting the PDF";
-    drawChat();
-    try {
-      const path = await invoke("export_research", { session: SESSION });
-      R.note = `Saved ${path.split("/").pop()} to Downloads`;
-    } catch (err) {
-      R.note = "";
-      R.error = String(err);
-    }
-    return drawChat();
-  }
+  if (a === "export") return exportPdf();
+  if (a === "quote") return quote();
 }
+
+/// The Export PDF button, which shows the export while it runs.
+function exportButton(cls) {
+  return R.exporting
+    ? `<button class="${cls}" disabled><span class="dspin"></span>Exporting</button>`
+    : `<button class="${cls}" data-act="export">Export PDF</button>`;
+}
+
+async function exportPdf() {
+  if (R.exporting) return;
+  R.exporting = true;
+  notice("Typesetting the PDF", { busy: true });
+  draw();
+  try {
+    const path = await invoke("export_research", { session: SESSION });
+    notice(`Saved ${path.split("/").pop()} to Downloads`, { path });
+  } catch (err) {
+    notice(String(err), { bad: true });
+  }
+  R.exporting = false;
+  draw();
+}
+
+/// A short note over the workspace; one that names a saved file can show it
+/// in Finder. It goes after a while, unless it is waiting on something.
+let noticeTimer;
+function notice(text, { path, bad, busy } = {}) {
+  clearTimeout(noticeTimer);
+  $("#saved")?.remove();
+  const el = document.createElement("div");
+  el.className = `dsaved${bad ? " bad" : ""}`;
+  el.id = "saved";
+  el.setAttribute("role", "status");
+  el.innerHTML = `${busy ? '<span class="dspin"></span>' : ""}<span>${esc(text)}</span>${path ? '<button class="dbtn">Show in Finder</button>' : ""}`;
+  el.querySelector("button")?.addEventListener("click", () => invoke("reveal_file", { path }).catch(() => {}));
+  $(".rwork").append(el);
+  if (!busy) noticeTimer = setTimeout(() => el.remove(), bad ? 10000 : 6000);
+}
+
+// ---------- Quoting ----------
+
+/// The selected text in the workspace or an agent's thread, if any.
+function selectedText() {
+  const sel = getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return "";
+  const node = sel.getRangeAt(0).commonAncestorContainer;
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  if (!el?.closest("#work, #side, #chat") || el.closest(".dinput")) return "";
+  return sel.toString().trim();
+}
+
+/// Shows the Quote button over the selection, or hides it.
+function placeQuote() {
+  $("#quote")?.remove();
+  const text = selectedText();
+  if (!text) return;
+  const rect = getSelection().getRangeAt(0).getBoundingClientRect();
+  const b = document.createElement("button");
+  b.id = "quote";
+  b.className = "dbtn pri rquote";
+  b.dataset.act = "quote";
+  b.innerHTML = "Quote<kbd>⌘'</kbd>";
+  document.body.append(b);
+  const w = b.offsetWidth, h = b.offsetHeight;
+  const left = Math.max(8, Math.min(innerWidth - w - 8, rect.left + rect.width / 2 - w / 2));
+  const top = rect.top - h - 8 < 46 ? rect.bottom + 8 : rect.top - h - 8;
+  b.style.left = `${left}px`;
+  b.style.top = `${top}px`;
+}
+
+/// Adds the selection to the message as a quote and puts the cursor under
+/// it, so several quotes with replies make one message.
+function quote() {
+  const text = selectedText();
+  $("#quote")?.remove();
+  if (!text) return;
+  const quoted = text.split(/\n+/).map(line => `> ${line.trim()}`).filter(line => line !== ">").join("\n");
+  const before = ask.value.replace(/\s+$/, "");
+  ask.value = `${before ? before + "\n\n" : ""}${quoted}\n\n`;
+  getSelection().removeAllRanges();
+  ask.focus();
+  ask.setSelectionRange(ask.value.length, ask.value.length);
+  growAsk();
+}
+
+// Pressing the button must not clear the selection it quotes.
+document.addEventListener("mousedown", e => { if (e.target.closest("#quote")) e.preventDefault(); });
+document.addEventListener("mouseup", () => setTimeout(placeQuote));
+document.addEventListener("selectionchange", () => { if (!selectedText()) $("#quote")?.remove(); });
+for (const id of ["work", "side", "chat"]) document.getElementById(id).addEventListener("scroll", () => $("#quote")?.remove(), true);
 
 async function copy(text) {
   try {
@@ -378,8 +458,7 @@ async function copy(text) {
     document.execCommand("copy");
     t.remove();
   }
-  R.note = "Copied the paper as Markdown";
-  drawChat();
+  notice("Copied the paper as Markdown");
 }
 
 document.addEventListener("click", e => {
@@ -395,16 +474,19 @@ document.addEventListener("click", e => {
 });
 
 const ask = $("#ask");
-ask.addEventListener("input", () => {
+function growAsk() {
   ask.style.height = "auto";
-  ask.style.height = Math.min(ask.scrollHeight, 140) + "px";
-});
+  ask.style.height = Math.min(ask.scrollHeight, 220) + "px";
+  ask.scrollTop = ask.scrollHeight;
+}
+ask.addEventListener("input", growAsk);
 document.addEventListener("keydown", e => {
   if (e.metaKey && e.key === "Enter" && R.research?.status === "planning" && R.sending === null) {
     e.preventDefault();
     return void send("Go");
   }
   if (e.metaKey && e.key.toLowerCase() === "w") { e.preventDefault(); return window.close(); }
+  if (e.metaKey && e.key === "'" && selectedText()) { e.preventDefault(); return quote(); }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target === ask) {
     e.preventDefault();
     const text = ask.value;
