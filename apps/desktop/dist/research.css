@@ -55,3 +55,8 @@ html, body.rbody { background: var(--surface) }
 .rmsg b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
 .rmsg p { grid-column: 2; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere }
 .rmsg .to { color: var(--emerald) }
+.rwork { position: relative }
+.rwork .dsaved { bottom: 16px; white-space: nowrap }
+.rwork .dsaved .dspin { border-color: rgba(10, 14, 12, .3); border-top-color: var(--ink) }
+.rtabs .dbtn .dspin, .racts .dbtn .dspin { width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px }
+.rquote { position: fixed; z-index: 10; min-height: 26px; box-shadow: 0 4px 14px rgba(0, 0, 0, .45) }
