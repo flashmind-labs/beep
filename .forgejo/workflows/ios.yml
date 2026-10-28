@@ -116,15 +116,24 @@ jobs:
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: |
           set -euo pipefail
-          # The widget's profile comes from the API, signed by the same
-          # certificate as the app's profile in the secret.
+          # Each target's profile comes from the API, signed by the same
+          # certificate as the profile in the secret. The app's carries push
+          # and communication notifications, which the secret's lacks.
           profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
-          widget_profile="$RUNNER_TEMP/ios-widget-profile.mobileprovision"
-          widget_uuid=$(python3 apps/ios/scripts/store-profile.py com.flashmind.beep.widget \
-            "$(cat "$RUNNER_TEMP/ios-profile-path")" "$widget_profile")
-          install -m 600 "$widget_profile" "$profile_dir/$widget_uuid.mobileprovision"
-          printf '%s' "$profile_dir/$widget_uuid.mobileprovision" > "$RUNNER_TEMP/ios-widget-profile-path"
-          export IOS_WIDGET_PROFILE_UUID="$widget_uuid"
+          store_profile() {
+            local name=$1; shift
+            local out="$RUNNER_TEMP/ios-$name-profile.mobileprovision" uuid
+            uuid=$(python3 apps/ios/scripts/store-profile.py "$1" "$(cat "$RUNNER_TEMP/ios-profile-path")" "$out" "${@:2}")
+            install -m 600 "$out" "$profile_dir/$uuid.mobileprovision"
+            printf '%s' "$profile_dir/$uuid.mobileprovision" > "$RUNNER_TEMP/ios-$name-profile-path"
+            printf '%s' "$uuid"
+          }
+          # Assigned before exporting, so a failed call stops the job.
+          IOS_APP_PROFILE_UUID=$(store_profile app com.flashmind.beep \
+            PUSH_NOTIFICATIONS USERNOTIFICATIONS_COMMUNICATION)
+          IOS_WIDGET_PROFILE_UUID=$(store_profile widget com.flashmind.beep.widget)
+          IOS_NOTIFICATIONS_PROFILE_UUID=$(store_profile notifications com.flashmind.beep.notifications)
+          export IOS_APP_PROFILE_UUID IOS_WIDGET_PROFILE_UUID IOS_NOTIFICATIONS_PROFILE_UUID
           IOS_EXPORT_OPTIONS="$RUNNER_TEMP/ios-export-options.plist" python3 - <<'PY'
           import os
           import plistlib
@@ -135,8 +144,9 @@ jobs:
               "signingStyle": "manual",
               "signingCertificate": "Apple Distribution",
               "provisioningProfiles": {
-                  "com.flashmind.beep": os.environ["IOS_PROFILE_UUID"],
+                  "com.flashmind.beep": os.environ["IOS_APP_PROFILE_UUID"],
                   "com.flashmind.beep.widget": os.environ["IOS_WIDGET_PROFILE_UUID"],
+                  "com.flashmind.beep.notifications": os.environ["IOS_NOTIFICATIONS_PROFILE_UUID"],
               },
               "teamID": os.environ["IOS_TEAM_ID"],
               "manageAppVersionAndBuildNumber": False,
@@ -161,7 +171,7 @@ jobs:
             [[ "$current" == */ios-signing.keychain-db ]] || keychains+=("$current")
           done < <(security list-keychains -d user | sed 's/^ *"//; s/"$//')
           security list-keychains -d user -s "${keychains[@]}"
-          for saved in ios-profile-path ios-widget-profile-path; do
+          for saved in ios-profile-path ios-app-profile-path ios-widget-profile-path ios-notifications-profile-path; do
             if [[ -f "$RUNNER_TEMP/$saved" ]]; then
               rm -f "$(cat "$RUNNER_TEMP/$saved")"
             fi
@@ -170,4 +180,4 @@ jobs:
           rm -f "$RUNNER_TEMP/ios-api-key.p8" "$RUNNER_TEMP/ios-export-options.plist" \
             "$RUNNER_TEMP/ios-signing.p12" "$RUNNER_TEMP/ios-profile.mobileprovision" \
             "$RUNNER_TEMP/ios-profile-path" "$RUNNER_TEMP/ios-keychains.txt" \
-            "$RUNNER_TEMP/ios-widget-profile.mobileprovision" "$RUNNER_TEMP/ios-widget-profile-path"
+            "$RUNNER_TEMP"/ios-*-profile.mobileprovision "$RUNNER_TEMP"/ios-*-profile-path
