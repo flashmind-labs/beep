@@ -227,7 +227,7 @@ struct ChatView: View {
         return model.chat.messages[last]
     }
 
-    /// Under the newest reply: the research's next step, or an offer to research a quick answer that searched the web.
+    /// Under the newest reply: the research's next step.
     @ViewBuilder private func researchRow(after reply: Message) -> some View {
         // The lead's own suggested replies already say go.
         let offersReplies = reply.tools.contains { if case .replies = $0.card { true } else { false } }
@@ -235,9 +235,6 @@ struct ChatView: View {
             ResearchActions(live: live, go: { follow = true; model.send("Go") }, paper: { workspace(.paper) },
                             share: { paper.share(model, model.chat.id) })
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else if !inBrowser, !isResearch, live == nil, model.chat.error.isEmpty, reply.tools.contains(where: { researchyTools.contains($0.name) }),
-            let asked = model.chat.messages.last(where: { $0.role == .user })?.text, !asked.isEmpty {
-            ResearchOffer { model.startResearch(asked) }
         }
     }
 

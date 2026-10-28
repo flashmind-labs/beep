@@ -22,7 +22,6 @@ import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.*
@@ -291,31 +290,12 @@ internal fun ResearchProgressRow(live: ResearchLive, onOpen: () -> Unit, onStop:
     }
 }
 
-/** Under a quick answer that had to search the web: an offer to research the question properly. */
-@Composable
-internal fun ResearchOffer(onClick: () -> Unit) {
-    Row(Modifier.padding(top = 10.dp, end = 24.dp).fillMaxWidth()
-        .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())
-        .clickable(onClickLabel = "Research it", onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        AgentDot("lead")
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("Research this properly", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text("A team of agents digs in and writes it up, about 15 minutes", fontSize = 12.sp, lineHeight = 17.sp, color = TextMuted)
-        }
-        Icon(Icons.Outlined.Science, null, Modifier.size(20.dp), tint = Beep.colors.brand)
-    }
-}
-
 /**
  * What the chat screen needs to show research in it. [isResearch] says whether the chat is one; [live] is
- * that research once the server has it. A chat that is not one still gets this, to offer a research.
+ * that research once the server has it.
  */
 internal class ResearchChat(val isResearch: Boolean, val live: ResearchLive?, val onWorkspace: (WorkspaceTab?) -> Unit,
                             val onShare: () -> Unit, val onStop: () -> Unit)
-
-/** Tools that mean a quick answer had to look things up, so a research could do better. */
-internal val RESEARCHY_TOOLS = setOf("web_search", "web_scrape")
 
 // ---------- Sharing the paper ----------
 
