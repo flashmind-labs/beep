@@ -129,17 +129,18 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
 
     /// In the foreground, a chat that is not on screen still shows a banner. A push for the
     /// chat on screen, sent while the connection was down, shows nothing.
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
+    /// Both answers run on the main actor: iOS takes their completion from the thread they
+    /// finish on, and UIKit aborts when that is not the main thread.
+    @MainActor func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
         async -> UNNotificationPresentationOptions
     {
         let content = notification.request.content
         let thread = content.userInfo["thread"] as? String
-        let onScreen = await MainActor.run { model?.onScreen }
-        if thread != nil, thread == onScreen, content.categoryIdentifier != Key.approval { return [] }
+        if thread != nil, thread == model?.onScreen, content.categoryIdentifier != Key.approval { return [] }
         return [.banner, .list, .sound]
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    @MainActor func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
         guard let thread = info["thread"] as? String else { return }
         let group = info["group"] as? Bool ?? false
@@ -153,14 +154,12 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
             await reply(thread: thread, group: group, text: text)
         case Key.allow, Key.deny:
             guard let query = info["query"] as? String else { return }
-            await MainActor.run { clear(thread) }
+            clear(thread)
             await model?.answerFromNotice(sessionId: thread, queryId: query, group: group, allow: response.actionIdentifier == Key.allow)
         case UNNotificationDefaultActionIdentifier:
-            await MainActor.run {
-                guard thread != "apps" else { return }
-                if thread == "read" { model?.destination = .latestRead; return }
-                model?.destination = group ? .group(thread) : .chat(thread)
-            }
+            guard thread != "apps" else { return }
+            if thread == "read" { model?.destination = .latestRead; return }
+            model?.destination = group ? .group(thread) : .chat(thread)
         default:
             break
         }
