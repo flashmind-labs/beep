@@ -19,6 +19,8 @@ import com.flashmind.beep.ffi.BeepException
 import com.flashmind.beep.proto.DeviceInvite
 import com.flashmind.beep.proto.JoinPreview
 import com.flashmind.beep.proto.MemoryRead
+import com.flashmind.beep.proto.Research
+import com.flashmind.beep.proto.ResearchSummary
 import com.flashmind.beep.proto.RouteCard
 import com.flashmind.beep.ffi.ListCache
 import com.flashmind.beep.ffi.Rerun
@@ -473,7 +475,7 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     /** Shows [text] as the user's next prompt and marks the chat as sending it. */
     private fun startTurn(chat: Conversation, text: String, images: List<String>, model: String, thinking: String = "",
-                          files: List<ToolCard.File> = emptyList()) {
+                          files: List<ToolCard.File> = emptyList(), research: Boolean = false) {
         val request = UUID.randomUUID().toString()
         // A new message instead of an answer skips the call that waits on it.
         val skipped = chat.messages.flatMap { m -> m.approvals.filter { it.waiting } }
@@ -481,7 +483,35 @@ class ChatRepository(private val storage: LocalStorage) {
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
             messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model, modelThinking = thinking, files = files),
             requestId = request, pendingText = text.trim(), pendingImages = images, pendingFiles = files, pendingModel = model, pendingThinking = thinking,
-            status = "Sending…", error = "") }
+            pendingResearch = research, status = "Sending…", error = "") }
+    }
+    /** The chats that are researches: every one the server listed, and those started here since. */
+    val researches = MutableStateFlow(storage.loadResearches())
+    private fun markResearches(ids: Collection<String>) {
+        val next = researches.value + ids
+        if (next.size == researches.value.size) return
+        researches.value = next
+        storage.saveResearches(next)
+    }
+    /** Every research on the account, newest first. */
+    suspend fun listResearches(): List<ResearchSummary> = api().listResearches().also { list -> markResearches(list.map { it.sessionId }) }
+    /** Learns which chats are researches, for the drawer to mark them. */
+    fun refreshResearches() { if (settings.value.configured) scope.launch { runCatching { listResearches() } } }
+    /** The research in chat [id], with its log entries after [after]; null while the chat is not one yet. */
+    suspend fun research(id: String, after: Long): Research? = api().getResearch(id, after)?.also { markResearches(listOf(id)) }
+    suspend fun stopResearch(id: String) = api().stopResearch(id)
+    /** Writes the research's paper as a PDF into [dir] and returns the file's path. */
+    suspend fun saveResearchPdf(id: String, dir: String): String = api().saveResearchPdf(id, dir)
+    /** Reads chat [id]'s turns from the server again, as when the lead posts a result. */
+    fun reloadChat(id: String) { scope.launch { runCatching { loadHistory(id, settings.value) } } }
+    /** Opens a new chat whose first message hands [topic] to a research team. */
+    fun startResearch(topic: String) {
+        if (topic.isBlank() || !settings.value.configured) return
+        newChat()
+        val chat = state.value.current
+        markResearches(listOf(chat.id))
+        startTurn(chat, topic, emptyList(), "", research = true)
+        launchRun(chat.id)
     }
     /** Holds a message typed while [chatId]'s reply runs, after any already held; each sends as its own turn. */
     fun queue(text: String, images: List<String>, chatId: String = state.value.current.id, files: List<ToolCard.File> = emptyList()) {
@@ -623,7 +653,7 @@ class ChatRepository(private val storage: LocalStorage) {
         }
         api.cancelRun(runId)
     }
-    private suspend fun sendPending(api: BeepClient, chat: Conversation) = api.chat(chat.id, chat.requestId, chat.pendingText, chat.pendingImages,
+    private suspend fun sendPending(api: BeepClient, chat: Conversation) = if (chat.pendingResearch) api.startResearch(chat.id, chat.requestId, chat.pendingText) else api.chat(chat.id, chat.requestId, chat.pendingText, chat.pendingImages,
         withContext(Dispatchers.IO) { Attachments.uploads(chat.pendingFiles) },
         chat.pendingModel.takeIf { it.isNotEmpty() }?.let { Rerun(it, ReasoningLevel.entries.find { level -> level.name.equals(chat.pendingThinking, true) }) })
     /** What the chat shows under a run that ended with [status], given the error it already has. */

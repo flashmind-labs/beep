@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.flashmind.beep.proto.Models
 import com.flashmind.beep.proto.ReasoningLevel
+import com.flashmind.beep.proto.ResearchStatus
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Refresh
 import kotlin.math.roundToInt
@@ -112,7 +113,7 @@ private class DraftField<T>(private val read: () -> T, private val write: (T) ->
 internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier: Modifier, compact: Boolean,
                        focusInput: MutableState<Boolean> = mutableStateOf(false),
                        clipboardContent: MutableState<String?> = mutableStateOf(null),
-                       onExpand: (() -> Unit)? = null) {
+                       onExpand: (() -> Unit)? = null, research: ResearchChat? = null) {
     var draft by DraftField({ repository.draft(chat.id).text }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(text = it)) }
     var attachedImages by DraftField({ repository.draft(chat.id).images }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(images = it)) }
     var attachedFiles by DraftField({ repository.draft(chat.id).files }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(files = it)) }
@@ -126,6 +127,9 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
     }
     // Each chat gets its own list that opens at the latest message.
     val openLink = LocalOpenLink.current ?: repository::openBrowser
+    // The reply with text that ends the chat; a turn of only tool calls after it does not count.
+    val newestReply = chat.messages.indexOfLast { it.role == "assistant" && it.text.isNotBlank() }
+        .takeIf { at -> at >= 0 && chat.messages.drop(at).none { it.role == "user" } }?.let { chat.messages[it].id }
     val list = remember(chat.id) { LazyListState(chat.messages.lastIndex.coerceAtLeast(0)) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -178,7 +182,8 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
     // The first scroll of a chat jumps to the end, after the list has laid its messages out;
     // only what arrives later animates, so opening a chat does not scroll down from the top.
     var anchored by remember(chat.id) { mutableStateOf(false) }
-    LaunchedEffect(chat.id, chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status) {
+    // A research's chips under the newest reply arrive with its status, after the messages.
+    LaunchedEffect(chat.id, chat.messages.size, chat.messages.lastOrNull()?.text?.length, chat.status, research?.live?.status) {
         if (chat.messages.isEmpty() || !followLatest) return@LaunchedEffect
         list.awaitItems(chat.messages.size)
         list.scrollToEnd(animated = anchored)
@@ -464,6 +469,17 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                 SuggestedReplies(replies) { followLatest = true; repository.send(it) }
                             }
                         }
+                        if (message.id == newestReply && !chat.busy) {
+                            val live = research?.live
+                            // The lead's own suggested replies already say go.
+                            val offersReplies = toolCards.any { it.second is ToolCard.Replies }
+                            if (live != null && !(live.status == ResearchStatus.PLANNING && offersReplies)) ResearchActions(live, onGo = { followLatest = true; repository.send("Go", conversationId = chat.id) },
+                                onPaper = { research.onWorkspace(WorkspaceTab.PAPER) }, onShare = research.onShare)
+                            else if (research != null && live == null && !research.isResearch && chat.error.isEmpty() && message.toolCalls.any { it.name in RESEARCHY_TOOLS }) {
+                                val asked = chat.messages.lastOrNull { it.role == "user" }?.text.orEmpty()
+                                if (asked.isNotBlank()) ResearchOffer { repository.startResearch(asked) }
+                            }
+                        }
                     }
                 }
                 if (workingInline) item(key = "working") {
@@ -607,6 +623,9 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
         }
 
+        research?.live?.takeIf { it.running }?.let { live ->
+            ResearchProgressRow(live, onOpen = { research.onWorkspace(null) }, onStop = research.onStop)
+        }
         // Messages queued while the reply runs; each sends as its own turn once the one before finishes.
         AnimatedVisibility(visible = chat.hasQueued,
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
@@ -664,7 +683,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                 }
                 TextField(value = draftField, onValueChange = { if (it.text.toByteArray().size <= 32768) { draftField = it; draft = it.text } },
                     modifier = Modifier.weight(1f).focusRequester(inputFocusRequester),
-                    placeholder = { Text(if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else if (attachedFiles.isNotEmpty()) "Ask about the file..." else "Ask anything...", fontSize = 15.sp, color = TextDim) },
+                    placeholder = { Text(if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else if (attachedFiles.isNotEmpty()) "Ask about the file..." else if (research?.isResearch == true) research.live.hint() else "Ask anything...", fontSize = 15.sp, color = TextDim) },
                     textStyle = LocalTextStyle.current.copy(fontSize = 15.sp),
                     colors = TextFieldDefaults.colors(unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, cursorColor = TextPrimary),

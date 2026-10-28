@@ -296,7 +296,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Shared, GroupJoin, GroupInfo }
+internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Shared, GroupJoin, GroupInfo, Researches, Workspace }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -331,6 +331,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val cover = !bubble && LocalConfiguration.current.let { it.screenWidthDp < 480 && it.screenHeightDp < 480 }
     var historyQuery by rememberSaveable { mutableStateOf("") }
     var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
+    /** The tab the workspace opens on; null lets it follow the research. */
+    var workspaceTab by rememberSaveable { mutableStateOf<WorkspaceTab?>(null) }
+    val researchIds by repository.researches.collectAsState()
+    var researchNotice by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    val researchScope = rememberCoroutineScope()
     val places = remember(repository) { ServerPlaces(repository) }
     // Where "Not now" on the location screen goes back to.
     var beforeLocationAlways by rememberSaveable { mutableStateOf(Screen.Places) }
@@ -485,6 +490,18 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Places -> PlacesScreen(places, onBack = { screen = Screen.Chat },
                 onLocationAlways = { beforeLocationAlways = Screen.Places; screen = Screen.LocationAlways })
             Screen.LocationAlways -> BackgroundLocationScreen(onDone = { screen = beforeLocationAlways }, onPlaces = { screen = Screen.Places })
+            Screen.Researches -> ResearchListScreen(repository, onBack = { screen = Screen.Chat },
+                onOpen = { id -> openGroup = null; repository.select(id); screen = Screen.Chat },
+                onStart = { topic -> openGroup = null; repository.startResearch(topic); screen = Screen.Chat })
+            Screen.Workspace -> ResearchWorkspace(repository, state.current.id, workspaceTab, onBack = { screen = Screen.Chat }) { text ->
+                // Quotes pile up in the order they were picked, for one reply that answers them all.
+                val id = state.current.id
+                val quoted = text.trim().lines().joinToString("\n") { "> $it" } + "\n\n"
+                val before = repository.draft(id).text.trimEnd()
+                repository.setDraft(id, repository.draft(id).copy(text = if (before.isEmpty()) quoted else "$before\n\n$quoted"))
+                screen = Screen.Chat
+                focusInput.value = true
+            }
             Screen.Chat -> {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val focusManager = LocalFocusManager.current
@@ -494,7 +511,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             // The composer keeps focus behind the drawer otherwise, and the keyboard covers the list.
             focusManager.clearFocus()
             keyboard?.hide()
-            repository.refreshHistory(); repository.refreshGroups(); drawerState.open()
+            repository.refreshHistory(); repository.refreshGroups(); repository.refreshResearches(); drawerState.open()
         } else drawerState.close()
     }
     LaunchedEffect(drawerState.currentValue) { drawerOpen = drawerState.currentValue == DrawerValue.Open }
@@ -620,6 +637,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                                 Text(chatTime(chat.lastActive), fontSize = 12.sp, maxLines = 1,
                                     color = if (highlighted) Beep.colors.onUser.copy(alpha = 0.7f) else TextMuted)
                             }
+                            if (chat.id in researchIds && selecting == null) Icon(Icons.Outlined.Science, "Research", Modifier.size(16.dp),
+                                tint = if (highlighted) Beep.colors.onUser else TextMuted)
                             if (chat.pinned && selecting == null) Icon(Icons.Outlined.PushPin, "Pinned", Modifier.size(16.dp), tint = Moss)
                         }
                         DropdownMenu(expanded = contextMenuChat == chat.id, onDismissRequest = { contextMenuChat = null },
@@ -723,7 +742,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DrawerTile("Places", Icons.Outlined.Place, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Places; drawerOpen = false }
                     DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
-                    Spacer(Modifier.weight(1f))
+                    DrawerTile("Research", Icons.Outlined.Science, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Researches; drawerOpen = false }
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -745,7 +764,14 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             onInvite = { inviting = it }, onGone = { openGroup = null },
             onNewChat = { startNewChat() }, onPrevious = { openGroup = null },
             onExpand = if (bubble) { { onExpand(group) } } else null)
-        else Scaffold(containerColor = Ink, topBar = {
+        else {
+        val isResearch = !bubble && state.current.id in researchIds
+        val live = rememberResearch(repository, state.current.id, enabled = isResearch)
+        val researchChat = if (bubble) null else ResearchChat(isResearch, live,
+            onWorkspace = { tab -> workspaceTab = tab; screen = Screen.Workspace },
+            onShare = { val id = state.current.id; researchScope.launch { shareResearchPdf(context, repository, id) { text, bad -> researchNotice = text?.let { it to bad } } } },
+            onStop = { val id = state.current.id; researchScope.launch { runCatching { repository.stopResearch(id) }.onFailure { researchNotice = userMessage(it) to true } } })
+        Scaffold(containerColor = Ink, topBar = {
             // With the keyboard up the cover screen has room for the input alone, so the header steps aside.
             if (bubble || cover && !ComposeInsets.isImeVisible) {
                 Row(Modifier.fillMaxWidth().then(if (cover) Modifier.windowInsetsPadding(ComposeInsets.safeDrawing
@@ -767,7 +793,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 Column {
                     Text(state.current.title.ifEmpty { "Beep" }, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isResearch && live != null && connected) ResearchHeadline(live)
+                    else Row(verticalAlignment = Alignment.CenterVertically) {
                         ConnectionDot(connected, status)
                         Spacer(Modifier.width(6.dp))
                         if (!connected) Text("Tap to reconnect", fontSize = 12.sp, color = TextMuted,
@@ -784,6 +811,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                 }
             },
                 actions = {
+                    if (isResearch) WorkspaceButton { workspaceTab = null; screen = Screen.Workspace }
                     IconButton(onClick = { startNewChat() }, Modifier.padding(end = if (floating) 6.dp else 0.dp)) {
                         Icon(Icons.Outlined.Add, "New chat", tint = TextMuted)
                     }
@@ -797,9 +825,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     // The cover screen's cameras cut into its bottom edge, so the input sits above them.
                     ChatScreen(state.current, repository, Modifier.fillMaxSize().then(if (cover) Modifier.consumeWindowInsets(padding)
                         .windowInsetsPadding(ComposeInsets.safeDrawing.only(WindowInsetsSides.Bottom)) else Modifier), compact = bubble || cover, focusInput = focusInput, clipboardContent = clipboardContent,
-                        onExpand = if (bubble) { { onExpand(null) } } else null)
+                        onExpand = if (bubble) { { onExpand(null) } } else null, research = researchChat)
                 }
             }
+        }
         }
     } // end ModalNavigationDrawer
     } // end Screen.Chat
@@ -817,6 +846,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
         joinToken = it
         screen = Screen.GroupJoin
     })
+    LaunchedEffect(researchNotice) { if (researchNotice?.second == true) { delay(8_000); researchNotice = null } }
+    researchNotice?.let { (text, bad) ->
+        Box(Modifier.fillMaxSize().padding(bottom = 96.dp, start = 16.dp, end = 16.dp), contentAlignment = Alignment.BottomCenter) { Notice(text, bad) }
+    }
     inviting?.let { invite ->
         GroupInviteSheet(repository, invite.id, invite.name, onDismiss = { inviting = null })
     }
