@@ -419,10 +419,8 @@ struct ResearchWorkspace: View {
 
     private func header(_ live: ResearchLive?) -> some View {
         let agent: ResearchAgent? = if case .agent(let a) = opened { live?.agent(a) } else { nil }
-        return HStack(spacing: 14) {
-            Button { opened == nil ? back() : (opened = nil) } label: { Image(systemName: "arrow.left") }
-                .buttonStyle(ChunkyButton())
-                .accessibilityLabel("Back")
+        return HStack(spacing: 4) {
+            BackArrow { opened == nil ? back() : (opened = nil) }
             VStack(alignment: .leading, spacing: 2) {
                 Text(agent?.name ?? (opened == .room ? "Room" : live?.research.topic ?? "Research"))
                     .font(.body(16, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
@@ -445,7 +443,7 @@ struct ResearchWorkspace: View {
                 .accessibilityLabel("Share PDF")
             }
         }
-        .padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 10)
+        .padding(.leading, 6).padding(.trailing, 18).frame(minHeight: 56)
     }
 }
 
@@ -859,7 +857,7 @@ private struct ResearchRow: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 14).padding(.vertical, 12)
-            .chunky(radius: 12)
+            .card(radius: 12)
             .opacity(off ? 0.6 : 1)
         }
         .buttonStyle(.plain)

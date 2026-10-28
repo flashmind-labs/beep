@@ -93,7 +93,7 @@ private struct SkillCard: View {
                     .foregroundStyle(Mint.muted).padding(.top, 2)
             }
             .padding(14)
-            .chunky()
+            .card()
             .opacity(skill.enabled ? 1 : 0.65)
             .contentShape(Rectangle())
         }
@@ -113,20 +113,16 @@ struct SkillView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Button(action: back) { Image(systemName: "arrow.left") }
-                    .buttonStyle(ChunkyButton())
-                    .accessibilityLabel("Back")
+                BackArrow(action: back)
                 Text(skill?.name ?? "Skill").font(.display(20)).foregroundStyle(Mint.ink)
                     .lineLimit(1).truncationMode(.tail)
-                    .padding(.leading, 8)
                 Spacer()
                 if skill != nil {
                     iconButton("pencil", "Edit", color: Mint.ink) { editing = true }
                     iconButton("trash", "Delete", color: Mint.error) { confirmDelete = true }
                 }
             }
-            .padding(.leading, 18).padding(.trailing, 6)
-            .padding(.top, 6).padding(.bottom, 10)
+            .padding(.horizontal, 6).frame(minHeight: 56)
             if let skill {
                 ScrollView {
                     details(skill).padding(.horizontal, 16).padding(.vertical, 8)
@@ -171,7 +167,7 @@ struct SkillView: View {
             }
             .tint(Mint.ok)
             .padding(14)
-            .chunky()
+            .card()
             .padding(.trailing, 3).padding(.bottom, 3)
             VStack(alignment: .leading, spacing: 8) {
                 if !skill.body.hasPrefix("#") {

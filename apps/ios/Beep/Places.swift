@@ -274,7 +274,7 @@ struct PlacesView: View {
             .accessibilityLabel("Delete \(place.name)")
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .chunky()
+        .card()
     }
 
     private var hint: some View {

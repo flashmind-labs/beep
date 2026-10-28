@@ -187,7 +187,7 @@ private struct RoutineCard: View {
                     .tint(Mint.ok)
             }
             .padding(14)
-            .chunky()
+            .card()
             .offset(x: offset)
         }
         .padding(.trailing, 3).padding(.bottom, 3)

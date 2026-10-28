@@ -367,13 +367,12 @@ private struct AppPermissionsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Button(action: back) { Image(systemName: "arrow.left") }.buttonStyle(ChunkyButton())
-                    .accessibilityLabel("Back")
+                BackArrow(action: back)
                 AppLogo(slug: app.slug, name: app.name, logoUrl: app.logoUrl, size: 32)
                 Text(app.name).font(.body(20, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                 Spacer()
             }
-            .padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 10)
+            .padding(.leading, 6).padding(.trailing, 18).frame(minHeight: 56)
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     if !error.isEmpty { Text(error).font(.body(13)).foregroundStyle(Mint.error) }
@@ -544,13 +543,12 @@ private struct McpServerView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Button(action: back) { Image(systemName: "arrow.left") }.buttonStyle(ChunkyButton())
-                    .accessibilityLabel("Back")
+                BackArrow(action: back)
                 AppLogo(slug: server.id, name: server.name, size: 32)
                 Text(server.name).font(.body(20, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                 Spacer()
             }
-            .padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 10)
+            .padding(.leading, 6).padding(.trailing, 18).frame(minHeight: 56)
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(server.url).font(.system(size: 12, design: .monospaced)).foregroundStyle(Mint.ink).lineLimit(2)
