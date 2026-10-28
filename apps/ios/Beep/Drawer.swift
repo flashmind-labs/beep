@@ -67,6 +67,7 @@ struct ChatsDrawer<Content: View>: View {
             Task {
                 await model.refreshSessions()
                 await model.refreshGroups()
+                await model.refreshResearches()
             }
         }
         .task(id: query) {
@@ -169,7 +170,7 @@ struct ChatsDrawer<Content: View>: View {
                 HStack(spacing: 8) {
                     tile("Places", "mappin.and.ellipse", Mint.tints[1], .places)
                     tile("Apps", "puzzlepiece.extension", Mint.tints[0], .apps)
-                    Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                    tile("Research", "flask", Mint.tints[2], .researches)
                 }
             }
             .padding(.horizontal, 16).padding(.bottom, 8)
@@ -302,6 +303,9 @@ struct ChatsDrawer<Content: View>: View {
                         .foregroundStyle(current ? Mint.ink.opacity(0.7) : Mint.muted).lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                if model.researches.contains(session.id), picked == nil {
+                    Image(systemName: "flask").font(.system(size: 13)).foregroundStyle(Mint.muted).accessibilityLabel("Research")
+                }
                 if session.pinned, picked == nil {
                     Image(systemName: "pin").font(.system(size: 13)).foregroundStyle(Mint.brand).accessibilityLabel("Pinned")
                 }

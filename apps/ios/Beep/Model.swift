@@ -88,6 +88,8 @@ struct Chat: Equatable {
     /// The model and thinking an admin picked to rerun `pendingText` on.
     var pendingModel = ""
     var pendingThinking: ReasoningLevel?
+    /// Whether `pendingText` starts a research rather than asking Beep.
+    var pendingResearch = false
     var thinking = ""
     var error = ""
     /// Messages waiting for the reply to finish, sent one by one.
@@ -109,6 +111,7 @@ struct Chat: Equatable {
         pendingFiles = []
         pendingModel = ""
         pendingThinking = nil
+        pendingResearch = false
     }
 }
 
@@ -139,6 +142,10 @@ final class AppModel {
     var composeNext = false
     /// A member to @mention when the group chat shows again, from the member sheet.
     var pendingMention: String?
+    /// Text quoted from a research's workspace, for the chat's composer to take when it shows.
+    var pendingQuote: String?
+    /// The chats that are researches: every one the server listed, and those started here since.
+    private(set) var researches: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "researches") ?? [])
     /// The last line of each chat for the list, cached by the chat's update time.
     private(set) var previews: [String: ChatPreview] = ChatPreview.load()
     /// Saved places, from the server.
@@ -651,7 +658,7 @@ final class AppModel {
 
     /// Shows `text` as the user's next prompt and sends it, on `model` at `thinking` for a rerun.
     private func startTurn(_ text: String, images: [String], files: [SentFile], model: String = "",
-                           thinking: ReasoningLevel? = nil) {
+                           thinking: ReasoningLevel? = nil, research: Bool = false) {
         chat.messages.append(Message(id: UUID().uuidString, role: .user, text: text,
                                      pictures: images.map { Picture(dataUri: $0) }, files: files,
                                      model: model, modelThinking: thinking))
@@ -661,6 +668,7 @@ final class AppModel {
         chat.pendingFiles = files
         chat.pendingModel = model
         chat.pendingThinking = thinking
+        chat.pendingResearch = research
         chat.error = ""
         launchRun()
     }
@@ -796,9 +804,7 @@ final class AppModel {
         if runId.isEmpty {
             guard !chat.requestId.isEmpty else { return }
             // The same request finds the run it started, or starts it to be stopped.
-            let stream = try await api.chat(
-                sessionId: chat.id, requestId: chat.requestId, message: chat.pendingText,
-                images: chat.pendingImages, files: try await uploads(chat.pendingFiles), rerun: chat.pendingRerun)
+            let stream = try await sendPending(api, chat)
             while runId.isEmpty, let received = try await stream.next() {
                 if case .runStarted(let started, _) = received.event { runId = started }
             }
@@ -856,9 +862,7 @@ final class AppModel {
                     let stream: EventStream
                     if chat.runId.isEmpty {
                         await reportTimezone()
-                        stream = try await api.chat(
-                            sessionId: chatId, requestId: chat.requestId, message: chat.pendingText,
-                            images: chat.pendingImages, files: try await uploads(chat.pendingFiles), rerun: chat.pendingRerun)
+                        stream = try await sendPending(api, chat)
                     } else {
                         stream = try await api.events(runId: chat.runId, after: chat.cursor)
                     }
@@ -892,6 +896,62 @@ final class AppModel {
                 }
             }
         }
+    }
+
+    /// Sends `chat`'s pending message, or asks for the run it already started.
+    private func sendPending(_ api: BeepClient, _ chat: Chat) async throws -> EventStream {
+        if chat.pendingResearch {
+            return try await api.startResearch(sessionId: chat.id, requestId: chat.requestId, topic: chat.pendingText)
+        }
+        return try await api.chat(
+            sessionId: chat.id, requestId: chat.requestId, message: chat.pendingText,
+            images: chat.pendingImages, files: try await uploads(chat.pendingFiles), rerun: chat.pendingRerun)
+    }
+
+    // MARK: Research
+
+    private func markResearches(_ ids: [String]) {
+        let next = researches.union(ids)
+        guard next.count != researches.count else { return }
+        researches = next
+        UserDefaults.standard.set(Array(next), forKey: "researches")
+    }
+
+    /// Every research on the account, newest first.
+    func listResearches() async throws -> [ResearchSummary] {
+        let list = try await api().listResearches()
+        markResearches(list.map(\.sessionId))
+        return list
+    }
+
+    /// Learns which chats are researches, for the drawer to mark them.
+    func refreshResearches() async { _ = try? await listResearches() }
+
+    /// The research in chat `id`, with its log entries after `after`; nil while the chat is not one yet.
+    func research(_ id: String, after: Int64) async throws -> Research? {
+        let research = try await api().getResearch(sessionId: id, after: after)
+        if research != nil { markResearches([id]) }
+        return research
+    }
+
+    func stopResearch(_ id: String) async throws { try await api().stopResearch(sessionId: id) }
+
+    /// Fetches the research's paper as a PDF into a folder of its own and returns the file.
+    func researchPdf(_ id: String) async throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "research-\(id)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return URL(filePath: try await api().saveResearchPdf(sessionId: id, dir: dir.path(percentEncoded: false)))
+    }
+
+    /// Opens a new chat whose first message hands `topic` to a research team.
+    func startResearch(_ topic: String) {
+        let topic = topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !topic.isEmpty else { return }
+        openGroup = nil
+        newChat()
+        markResearches([chat.id])
+        chat.title = String(topic.prefix(44))
+        startTurn(topic, images: [], files: [], research: true)
     }
 
     private struct MissedEvent: Error {}

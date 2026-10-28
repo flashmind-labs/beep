@@ -55,6 +55,9 @@ enum Route: Hashable {
     case latestRead
     /// Routines with the new routine sheet open on arriving at a place.
     case placeRoutine(String)
+    case researches
+    /// A research chat's workspace, on a tab or the one that fits.
+    case workspace(String, WorkspaceTab?)
 }
 
 /// The app opens on a chat with Beep, as on Android. The chats and groups are in the drawer
@@ -159,7 +162,8 @@ struct RootView: View {
         } else {
             SwipeChats(canStartNew: !model.chat.messages.isEmpty, hasPrevious: previousChat != nil,
                        onNew: startNewChat, onBack: goBack) {
-                ChatView(menu: { drawer = true }, newChat: startNewChat)
+                ChatView(menu: { drawer = true }, newChat: startNewChat,
+                         workspace: { path.append(.workspace(model.chat.id, $0)) })
             }
         }
     }
@@ -189,6 +193,22 @@ struct RootView: View {
         case .places:
             PlacesView(back: { path.removeLast() }, always: { path.append(.locationAlways) }) { place in
                 path.append(.placeRoutine(place.id))
+            }
+        case .researches:
+            ResearchList(back: { path.removeLast() }, open: { id in
+                left = nil
+                model.openGroup = nil
+                model.openChat(id)
+                path = []
+            }, start: { topic in
+                left = nil
+                model.startResearch(topic)
+                path = []
+            })
+        case .workspace(let id, let tab):
+            ResearchWorkspace(id: id, start: tab, back: { path.removeLast() }) { text in
+                model.pendingQuote = text
+                path = []
             }
         case .locationAlways:
             LocationAlwaysView(close: { path.removeLast() }) { path = [.places] }
@@ -268,6 +288,8 @@ struct RootView: View {
     /// server's places for made up ones, and `placesave` shows a chat with a saved place card.
     /// `widget` takes the widget's path to a new chat with the keyboard up.
     /// `apps` opens the apps, `shared` with `-token t` the shared chat behind a link.
+    /// `researches` opens the research list, `research` and `workspace` the newest research, and
+    /// `-research "topic"` starts one.
     /// `-creategroup "name"` makes a group and `-leavegroup 1` leaves the first one.
     private func debugLaunch() async {
         let defaults = UserDefaults.standard
@@ -310,6 +332,15 @@ struct RootView: View {
         case "routines": path = [.routines]
         case "skills": path = [.skills]
         case "places": path = [.places]
+        case "researches": path = [.researches]
+        case "research", "workspace":
+            // The newest research's chat, or its workspace on `-tab paper|notes|sources|team`.
+            while !model.connected { try? await Task.sleep(for: .milliseconds(200)) }
+            guard let newest = try? await model.listResearches().first else { break }
+            model.openChat(newest.sessionId)
+            if defaults.string(forKey: "open") == "workspace" {
+                path = [.workspace(newest.sessionId, defaults.string(forKey: "tab").flatMap { WorkspaceTab(rawValue: $0.capitalized) })]
+            }
         case "placeroutine":
             while model.places.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }
             path = [.places, .placeRoutine(model.places[0].id)]
@@ -323,6 +354,11 @@ struct RootView: View {
             if defaults.string(forKey: "open") == "groupinfo" { path.append(.groupInfo(group.id)) }
             if defaults.string(forKey: "open") == "invite" { sheet = .invite(id: group.id, name: group.name) }
         default: break
+        }
+        if let topic = defaults.string(forKey: "research") {
+            while !model.connected { try? await Task.sleep(for: .milliseconds(200)) }
+            model.startResearch(topic)
+            return
         }
         guard let text = defaults.string(forKey: "send") else { return }
         while !model.connected { try? await Task.sleep(for: .milliseconds(200)) }

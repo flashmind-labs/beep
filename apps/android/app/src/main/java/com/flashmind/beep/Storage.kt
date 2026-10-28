@@ -87,6 +87,8 @@ data class Conversation(
     val pendingFiles: List<ToolCard.File> = emptyList(),
     val pendingModel: String = "",
     val pendingThinking: String = "",
+    /** Whether the pending message starts a research rather than asking Beep. */
+    val pendingResearch: Boolean = false,
     val status: String = "", val error: String = "",
     val tool: String = "", val pinned: Boolean = false,
     /** The model's reasoning for the current step, shown live and moved onto the reply once it moves on. Not saved. */
@@ -210,7 +212,7 @@ class LocalStorage(internal val context: Context) {
                     m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"), pictures = readPictures(m), agent = m.optString("agent"),
                     files = readFiles(m, "files"))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
-                pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingFiles = readFiles(c, "pendingFiles"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"),
+                pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingFiles = readFiles(c, "pendingFiles"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"), pendingResearch = c.optBoolean("pendingResearch"),
                 status = c.optString("status"), error = c.optString("error"), pinned = c.optBoolean("pinned"),
                 version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()),
                 updatedAt = c.optLong("updatedAt"), queued = readQueued(c))
@@ -242,6 +244,13 @@ class LocalStorage(internal val context: Context) {
 
     fun saveDrafts(drafts: Map<String, String>) {
         prefs.edit().putString("drafts", JSONObject(drafts).toString()).apply()
+    }
+
+    /** The chats known to be researches, so the list can mark them before the server is asked. */
+    fun loadResearches(): Set<String> = prefs.getStringSet("researches", null).orEmpty().toSet()
+
+    fun saveResearches(ids: Set<String>) {
+        prefs.edit().putStringSet("researches", ids).apply()
     }
 
     fun deviceId(): String {
@@ -343,6 +352,7 @@ class LocalStorage(internal val context: Context) {
                 .apply { if (c.pendingFiles.isNotEmpty()) put("pendingFiles", filesJson(c.pendingFiles)) }
                 .apply { if (c.pendingModel.isNotEmpty()) put("pendingModel", c.pendingModel) }
                 .apply { if (c.pendingThinking.isNotEmpty()) put("pendingThinking", c.pendingThinking) }
+                .apply { if (c.pendingResearch) put("pendingResearch", true) }
                 .put("status", c.status).apply { if (c.error.isNotEmpty()) put("error", c.error) }
                 .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt).put("updatedAt", c.updatedAt)
                 .apply {

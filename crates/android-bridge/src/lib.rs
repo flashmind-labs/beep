@@ -13,20 +13,21 @@ use beep_proto::{
     DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
     DeviceInvite, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
     FinishMcpAuth, GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages,
-    GetModels, GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionFiles,
-    GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink, GroupMessage,
-    GroupPreview, GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount, JoinGroup,
-    JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps, ListCrons,
-    ListDevices, ListGroupReminders, ListGroups, ListMcpServers, ListMcpTools, ListMemories,
-    ListMemoryReads, ListPlaces, ListSessions, ListSkills, McpCallback, McpConnect, McpServer,
-    McpTools, Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup,
-    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
-    RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, RouteCard, Run, RunCron,
+    GetModels, GetResearch, GetResearchPdf, GetRouteCard, GetRun, GetSession, GetSessionAgents,
+    GetSessionFiles, GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink,
+    GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount,
+    JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps,
+    ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMcpServers, ListMcpTools,
+    ListMemories, ListMemoryReads, ListPlaces, ListResearches, ListSessions, ListSkills,
+    McpCallback, McpConnect, McpServer, McpTools, Memory, MemoryRead, Models, Notice, PeekGroup,
+    PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
+    RemoveMcpServer, RenameSession, Research, ResearchSummary, RouteCard, Run, RunCron,
     SearchSessions, SendToGroup, SentFiles, SentImages, Session, SessionMatch, SetAgents,
     SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking, SetTimezone,
-    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, Stream,
-    SuggestPrompts, ToggleCron, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
-    UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload,
+    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, StopResearch,
+    Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession,
+    UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -37,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     future::Future,
     io,
+    path::Path,
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
@@ -163,6 +165,21 @@ where
     drop(file);
     fs::rename(partial, path).await.map_err(io_error)?;
     Ok(offset)
+}
+
+/// `name` without any folder in it, so a file saved under it stays in the
+/// folder it is saved in.
+fn file_name(name: &str) -> String {
+    let base = Path::new(name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .trim_start_matches('.');
+    if base.is_empty() {
+        "Research.pdf".into()
+    } else {
+        base.into()
+    }
 }
 
 fn secret_key(bytes: &[u8]) -> Result<SecretKey, BeepError> {
@@ -483,6 +500,30 @@ impl BeepClient {
         Ok(EventStream::new(replies))
     }
 
+    /// Like `chat`, but makes the new chat `session_id` a research on
+    /// `topic`: the lead agent answers with a plan, and the team starts
+    /// once the user says go (see `get_research`).
+    pub async fn start_research(
+        &self,
+        session_id: String,
+        request_id: String,
+        topic: String,
+    ) -> Result<Arc<EventStream>, BeepError> {
+        let chat = Chat {
+            session_id: uuid(&session_id)?,
+            request_id: uuid(&request_id)?,
+            message: topic,
+            images: Vec::new(),
+            model: None,
+            thinking: None,
+            platform: Some(PLATFORM),
+            files: Vec::new(),
+            research: true,
+        };
+        let replies = self.stream(chat).await?;
+        Ok(EventStream::new(replies))
+    }
+
     pub async fn get_run(&self, id: String) -> Result<Run, BeepError> {
         self.call(GetRun { id }).await
     }
@@ -721,6 +762,42 @@ impl BeepClient {
             })
         })
         .await
+    }
+
+    /// Every research of the account, newest first, from any device.
+    pub async fn list_researches(&self) -> Result<Vec<ResearchSummary>, BeepError> {
+        self.call(ListResearches {}).await
+    }
+
+    /// The research chat `session_id` runs, with its log entries after
+    /// `after` (0 for all), or `None` when the chat is not a research.
+    pub async fn get_research(
+        &self,
+        session_id: String,
+        after: i64,
+    ) -> Result<Option<Research>, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(GetResearch { session_id, after }).await
+    }
+
+    /// Stops a research's agents. The chat and what they wrote stay.
+    pub async fn stop_research(&self, session_id: String) -> Result<(), BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(StopResearch { session_id }).await
+    }
+
+    /// Saves a research's paper, typeset as a PDF by the server, in folder
+    /// `dir`, replacing a file of the same name. Returns its path.
+    pub async fn save_research_pdf(
+        &self,
+        session_id: String,
+        dir: String,
+    ) -> Result<String, BeepError> {
+        let session_id = uuid(&session_id)?;
+        let pdf = self.call(GetResearchPdf { session_id }).await?;
+        let path = Path::new(&dir).join(file_name(&pdf.name));
+        fs::write(&path, pdf.data).await.map_err(io_error)?;
+        Ok(path.to_string_lossy().into_owned())
     }
 
     /// Allows or denies an app action Beep asked to take for the user from a group.
@@ -1158,7 +1235,6 @@ impl EventStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn list_cache_round_trips_and_forgets_what_it_cannot_read() {
@@ -1256,6 +1332,17 @@ mod tests {
             [0, 0, 0, 0, 4, 4, 4, 4]
         );
         assert_eq!(files_beside(&path), ["file"]);
+    }
+
+    #[test]
+    fn a_pdf_name_stays_in_its_folder() {
+        assert_eq!(
+            file_name("Solid-state batteries.pdf"),
+            "Solid-state batteries.pdf"
+        );
+        assert_eq!(file_name("../../etc/passwd"), "passwd");
+        assert_eq!(file_name(".."), "Research.pdf");
+        assert_eq!(file_name(""), "Research.pdf");
     }
 
     /// The names of the files in `path`'s folder.

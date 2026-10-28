@@ -6,6 +6,10 @@ struct ChatView: View {
     let newChat: () -> Void
     /// Shown in the browser screen's panel: no top bar, and the browser does not open again inside it.
     var inBrowser = false
+    /// Opens the workspace of the research on screen, on a tab or the one that fits.
+    var workspace: (WorkspaceTab?) -> Void = { _ in }
+    @State private var research = ResearchWatch()
+    @State private var paper = PaperShare()
     @State private var draft = ""
     @State private var photos: [Data] = []
     @State private var files: [SentFile] = []
@@ -39,6 +43,9 @@ struct ChatView: View {
                                 if let day = breaks[message.id] { DayMarker(day: day) }
                                 MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
                                             latest: index == model.chat.messages.count - 1, quote: quote)
+                                if message.id == newestReply?.id, !model.chat.busy {
+                                    researchRow(after: message)
+                                }
                             }
                             // A reply sits close under its own prompt; turns keep the full gap.
                             .padding(.top, index > 0 && message.role == .assistant
@@ -87,6 +94,11 @@ struct ChatView: View {
                     let glide = old.count != new.count && !reduceMotion
                     withAnimation(glide ? .smooth : nil) { scroller.scrollTo("end", anchor: .bottom) }
                 }
+                .onChange(of: research.live?.status) {
+                    // The research's chips under the newest reply arrive after the chat scrolled to its end.
+                    guard follow else { return }
+                    withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo("end", anchor: .bottom) }
+                }
                 .onChange(of: model.chat.id, initial: true) {
                     settled = Set(model.chat.messages.map(\.id))
                     follow = true
@@ -132,6 +144,18 @@ struct ChatView: View {
             #endif
         }
         .onChange(of: model.chat.id) { model.onScreen = model.chat.id }
+        .task(id: isResearch ? model.chat.id : "") { if isResearch { await research.follow(model, model.chat.id) } }
+        .onChange(of: model.pendingQuote, initial: true) {
+            // Quotes from the workspace pile up in the order they were picked, for one reply to them all.
+            guard !inBrowser, let text = model.pendingQuote else { return }
+            model.pendingQuote = nil
+            let quoted = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n") + "\n\n"
+            let before = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft = before.isEmpty ? quoted : before + "\n\n" + quoted
+            typing = true
+        }
+        .paperShare(paper)
         .onChange(of: model.composeNext, initial: true) {
             guard model.composeNext else { return }
             model.composeNext = false
@@ -193,6 +217,30 @@ struct ChatView: View {
         }
     }
 
+    /// Whether the chat on screen is a research, whose lead answers in it.
+    private var isResearch: Bool { !inBrowser && model.researches.contains(model.chat.id) }
+    private var live: ResearchLive? { isResearch ? research.live : nil }
+    /// The reply with text that ends the chat; a turn of only tool calls after it does not count.
+    private var newestReply: Message? {
+        guard let last = model.chat.messages.lastIndex(where: { $0.role == .assistant && !$0.text.isEmpty }),
+            !model.chat.messages[last...].contains(where: { $0.role == .user }) else { return nil }
+        return model.chat.messages[last]
+    }
+
+    /// Under the newest reply: the research's next step, or an offer to research a quick answer that searched the web.
+    @ViewBuilder private func researchRow(after reply: Message) -> some View {
+        // The lead's own suggested replies already say go.
+        let offersReplies = reply.tools.contains { if case .replies = $0.card { true } else { false } }
+        if let live, !(live.status == .planning && offersReplies) {
+            ResearchActions(live: live, go: { follow = true; model.send("Go") }, paper: { workspace(.paper) },
+                            share: { paper.share(model, model.chat.id) })
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !inBrowser, !isResearch, live == nil, model.chat.error.isEmpty, reply.tools.contains(where: { researchyTools.contains($0.name) }),
+            let asked = model.chat.messages.last(where: { $0.role == .user })?.text, !asked.isEmpty {
+            ResearchOffer { model.startResearch(asked) }
+        }
+    }
+
     /// Whether the run's reply has text yet; until then the working row stands in for it.
     private var replyStarted: Bool {
         guard let last = model.chat.messages.last else { return false }
@@ -228,14 +276,25 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.chat.title.isEmpty ? "New conversation" : model.chat.title)
                     .font(.body(16, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
-                HStack(spacing: 6) {
+                if let live, model.connected {
+                    ResearchHeadline(live: live)
+                } else { HStack(spacing: 6) {
                     ConnectionDot(connected: model.connected)
                     Text(model.connected ? "Connected" : model.connecting ? "Connecting..." : "Tap to reconnect").font(.body(12, .medium)).foregroundStyle(Mint.muted)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { if !model.connected { model.connect() } }
+                }
             }
             Spacer(minLength: 0)
+            if isResearch {
+                Button {
+                    typing = false
+                    workspace(nil)
+                } label: { Image(systemName: "doc.text") }
+                    .buttonStyle(ChunkyButton())
+                    .accessibilityLabel("Workspace")
+            }
             Button {
                 typing = false
                 newChat()
@@ -255,9 +314,16 @@ struct ChatView: View {
     private var composer: some View {
         let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty && files.isEmpty
         let prompt = voice.listening ? "Speak now..." : photos.count > 1 ? "Ask about the photos..."
-            : !photos.isEmpty ? "Ask about the photo..." : !files.isEmpty ? "Ask about the file..." : "Ask anything..."
+            : !photos.isEmpty ? "Ask about the photo..." : !files.isEmpty ? "Ask about the file..." : isResearch ? researchHint(live) : "Ask anything..."
         return VStack(alignment: .leading, spacing: 0) {
             if voice.listening { listeningRow.unfold() }
+            if let live, live.running {
+                ResearchProgressRow(live: live, open: { workspace(nil) }) {
+                    let id = model.chat.id
+                    Task { try? await model.stopResearch(id) }
+                }
+                .unfold()
+            }
             if !model.chat.queued.isEmpty { queuedList.unfold() }
             if !photos.isEmpty { thumbnails.unfold() }
             if !files.isEmpty { fileChips.unfold() }
