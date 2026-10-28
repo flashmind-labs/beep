@@ -475,10 +475,6 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             val offersReplies = toolCards.any { it.second is ToolCard.Replies }
                             if (live != null && !(live.status == ResearchStatus.PLANNING && offersReplies)) ResearchActions(live, onGo = { followLatest = true; repository.send("Go", conversationId = chat.id) },
                                 onPaper = { research.onWorkspace(WorkspaceTab.PAPER) }, onShare = research.onShare)
-                            else if (research != null && live == null && !research.isResearch && chat.error.isEmpty() && message.toolCalls.any { it.name in RESEARCHY_TOOLS }) {
-                                val asked = chat.messages.lastOrNull { it.role == "user" }?.text.orEmpty()
-                                if (asked.isNotBlank()) ResearchOffer { repository.startResearch(asked) }
-                            }
                         }
                     }
                 }

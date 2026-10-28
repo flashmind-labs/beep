@@ -266,8 +266,6 @@ function markMap() {
 
 // ---------- Research ----------
 
-/// Tools whose use marks a question worth researching properly.
-const RESEARCHY = new Set(["web_search", "web_scrape"]);
 /// Chats started as researches, which open in their own window.
 const RESEARCHES = new Set();
 async function loadResearches() {
@@ -397,12 +395,10 @@ async function researchListAction(a) {
   }
 }
 
-/// Cmd-R: researches what is typed, or the offered question, and otherwise
-/// opens the Research view.
+/// Cmd-R: researches what is typed, and otherwise opens the Research view.
 function researchShortcut() {
   const typed = (S.view === "chat" ? $("#ask") : S.view === "research" ? $("#rtopic") : null)?.value.trim();
   if (typed) return research(typed);
-  if (S.view === "chat" && $(".droffer")) return research($(".droffer").topic);
   if (S.view !== "research") return renderResearches();
 }
 
@@ -423,19 +419,6 @@ function researchKeys(e) {
     RL.mode = RL.mode === "actions" ? "list" : "actions";
     drawResearches();
   }
-}
-
-/// Offers to research a quick answer's question properly, under the reply.
-function researchOffer(turn) {
-  body()?.querySelectorAll(".droffer").forEach(o => o.remove());
-  const topic = turn.querySelector(".ask")?.textContent ?? "";
-  if (!topic.trim()) return;
-  const row = h(`<div class="droffer"><span class="rav">L</span><span class="t"><b>Research this properly</b><small>A team of agents digs in and writes it up, about 15 minutes</small></span>
-    <button class="dbtn pri">Research it<kbd>⌘R</kbd></button></div>`);
-  row.querySelector("button").addEventListener("click", () => research(topic));
-  row.topic = topic;
-  const replies = turn.querySelector(".dreplies");
-  replies ? turn.insertBefore(row, replies) : turn.append(row);
 }
 
 function newTurn(question, images, files) {
@@ -544,7 +527,6 @@ function failed(turn, message) {
 function finish(id, turn) {
   touch(id);
   turn.done = true;
-  if (turn.searched && !turn.stopped && !turn.failed && !RESEARCHES.has(id)) researchOffer(turn);
   turn.querySelector(".caret")?.remove();
   for (const s of turn.steps) if (s.state === "run") s.state = "stop";
   turn.folded = true;
@@ -634,7 +616,6 @@ function follow(id, turn) {
         thinking(turn, ev.delta);
         break;
       case "tool_started":
-        if (RESEARCHY.has(ev.name)) turn.searched = true;
         if (QUIET_TOOLS.has(ev.name)) break;
         turn.steps.push({ id: ev.call_id, label: (DESCRIBED.has(ev.name) && ev.description) || toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
         drawSteps(turn, false);

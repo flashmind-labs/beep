@@ -156,9 +156,6 @@ func researchHint(_ live: ResearchLive?) -> String {
     }
 }
 
-/// Tools that mean a quick answer had to look things up, so a research could do better.
-let researchyTools: Set<String> = ["web_search", "web_scrape"]
-
 private func agentColor(_ id: String) -> Color {
     switch id {
     case "lead": Color(red: 0xF0 / 255, green: 0x7A / 255, blue: 0x6A / 255)
@@ -270,30 +267,6 @@ struct ResearchProgressRow: View {
         .padding(.leading, 14).padding(.trailing, 4)
         .chunky(radius: 12)
         .padding(.horizontal, 14).padding(.top, 6)
-    }
-}
-
-/// Under a quick answer that had to search the web: an offer to research the question properly.
-struct ResearchOffer: View {
-    let start: () -> Void
-
-    var body: some View {
-        Button(action: start) {
-            HStack(spacing: 12) {
-                AgentDot(id: "lead")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Research this properly").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
-                    Text("A team of agents digs in and writes it up, about 15 minutes")
-                        .font(.body(12)).foregroundStyle(Mint.muted).multilineTextAlignment(.leading)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "flask").font(.system(size: 18)).foregroundStyle(Mint.brand)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 12)
-            .chunky(radius: 12)
-        }
-        .buttonStyle(.plain)
-        .padding(.top, 10).padding(.trailing, 24)
     }
 }
 
