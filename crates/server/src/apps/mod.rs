@@ -52,6 +52,9 @@ pub(crate) struct CatalogApp {
 pub(crate) struct PickedTool {
     pub(crate) slug: &'static str,
     pub(crate) acts: Acts,
+    /// Whether `acts` holds even when Composio's tags say the tool creates
+    /// or destroys something.
+    pub(crate) over_hints: bool,
 }
 
 /// A tool that only reads.
@@ -59,6 +62,17 @@ const fn read(slug: &'static str) -> PickedTool {
     PickedTool {
         slug,
         acts: Acts::Never,
+        over_hints: false,
+    }
+}
+
+/// A read whose Composio tags say it creates something, when what it
+/// creates is no action of the user's.
+const fn read_over_hints(slug: &'static str) -> PickedTool {
+    PickedTool {
+        slug,
+        acts: Acts::Never,
+        over_hints: true,
     }
 }
 
@@ -68,6 +82,7 @@ const fn act(slug: &'static str) -> PickedTool {
     PickedTool {
         slug,
         acts: Acts::Always,
+        over_hints: false,
     }
 }
 
@@ -225,8 +240,8 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
             read("SLACK_FIND_CHANNELS"),
             read("SLACK_FIND_USERS"),
             // Only opens the DM channel a message to a person needs, so the
-            // approval comes once, at the send.
-            read("SLACK_OPEN_DM"),
+            // approval comes once, at the send. Composio tags it as creating.
+            read_over_hints("SLACK_OPEN_DM"),
             act("SLACK_SEND_MESSAGE"),
             act("SLACK_ADD_REACTION_TO_AN_ITEM"),
         ],

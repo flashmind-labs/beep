@@ -286,10 +286,16 @@ struct Shared {
 
 /// The app of `tool` and whether it acts, by the catalog or by its Composio
 /// tags in `hinted`, the slugs `hinted_to_act` picked out. Tags only add
-/// asking: a catalog action whose tags say update still asks.
+/// asking: a catalog action whose tags say update still asks. A catalog
+/// tool marked `over_hints` keeps its own answer.
 fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(ToolApp, Acts)> {
     let (app, acts) = lookup(tool)?;
-    if hinted.contains(&ToolSlug::new(tool)) {
+    let slug = ToolSlug::new(tool);
+    let over_hints = matches!(&app, ToolApp::Catalog(catalog) if catalog
+        .tools
+        .iter()
+        .any(|picked| picked.over_hints && picked.slug == slug.as_str()));
+    if hinted.contains(&slug) && !over_hints {
         return Some((app, Acts::Always));
     }
     Some((app, acts))
@@ -1126,6 +1132,9 @@ mod tests {
             classify("gmail_fetch_emails", &hinted).unwrap().1,
             Acts::Always
         );
+        // A read the catalog checked stays a read whatever its tags say.
+        let hinted: HashSet<ToolSlug> = [ToolSlug::new("SLACK_OPEN_DM")].into();
+        assert_eq!(classify("slack_open_dm", &hinted).unwrap().1, Acts::Never);
         // An update-only catalog action keeps asking without a hint.
         assert_eq!(
             classify("gmail_move_to_trash", &HashSet::new()).unwrap().1,
