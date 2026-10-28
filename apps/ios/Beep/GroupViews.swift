@@ -580,7 +580,7 @@ private struct MentionPicker: View {
                     }
                 }
                 .padding(.vertical, 6)
-                .chunky()
+                .card()
                 .padding(.horizontal, 14)
             }
         }
@@ -958,7 +958,7 @@ struct GroupJoinView: View {
             PrivacyLine(icon: "bell", text: "You get a notification for each new message.")
         }
         .padding(14)
-        .chunky()
+        .card()
         NameField(label: "Your name in the group", text: $name,
                   error: taken.map { "Someone in the group already goes by \($0)" },
                   hint: "The others see this name next to your messages")
@@ -1077,7 +1077,7 @@ struct GroupInfoView: View {
                 }
             }
             .padding(14)
-            .chunky()
+            .card()
             Button {
                 self.member = nil
                 mention(member.name)
@@ -1143,7 +1143,7 @@ struct GroupInfoView: View {
             .buttonStyle(PillButton())
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .chunky()
+        .card()
         section("Reminders")
         GroupRemindersCard(reminders: reminders, you: group.members.first { $0.you }?.name, delete: delete)
         if !error.isEmpty { Text(error).font(.body(12)).foregroundStyle(Mint.error) }
@@ -1162,14 +1162,14 @@ struct GroupInfoView: View {
         }
         .tint(Mint.ok)
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .chunky()
+        .card()
         section("Privacy")
         VStack(alignment: .leading, spacing: 10) {
             PrivacyLine(icon: "brain", text: "Beep reads every member's memories but never quotes them here. Memories from email and Slack stay out of groups.")
             PrivacyLine(icon: "shield", text: "Beep's thinking and tool calls are hidden in groups. Members only see its replies.")
         }
         .padding(14)
-        .chunky()
+        .card()
         Button { confirmLeave = true } label: {
             Label("Leave group", systemImage: "rectangle.portrait.and.arrow.right")
                 .font(.body(15, .semibold)).foregroundStyle(Mint.error)
@@ -1244,7 +1244,7 @@ private struct GroupRemindersCard: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .chunky()
+        .card()
     }
 
     private func row(_ reminder: GroupReminder, tint: Color) -> some View {

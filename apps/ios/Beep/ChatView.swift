@@ -1149,7 +1149,7 @@ struct ApprovalCard: View {
                 .padding(14)
             }
             .foregroundStyle(Mint.ink)
-            .chunky()
+            .card()
         }
     }
 

@@ -108,10 +108,8 @@ struct SharedChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                Button(action: back) { Image(systemName: "arrow.left") }
-                    .buttonStyle(ChunkyButton())
-                    .accessibilityLabel("Back")
+            HStack(spacing: 4) {
+                BackArrow(action: back)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(shared?.title ?? "Shared chat").font(.display(20)).foregroundStyle(Mint.ink).lineLimit(1)
                     if let shared {
@@ -122,7 +120,7 @@ struct SharedChatView: View {
                 }
                 Spacer()
             }
-            .padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 10)
+            .padding(.leading, 6).padding(.trailing, 18).frame(minHeight: 56)
             if gone {
                 Text("Not found.\nThe owner stopped sharing this chat, or deleted it.")
                     .font(.body(15)).foregroundStyle(Mint.muted).multilineTextAlignment(.center).lineSpacing(4)

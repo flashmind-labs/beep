@@ -191,7 +191,7 @@ private struct MemoryCard: View {
             .accessibilityLabel("Forget")
         }
         .padding(14)
-        .chunky()
+        .card()
         .contentShape(Rectangle())
         .onTapGesture(perform: edit)
     }

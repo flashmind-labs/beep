@@ -285,15 +285,10 @@ extension View {
         modifier(Chunky(fill: fill, shape: AnyShape(shape), drop: drop))
     }
 
-    /// A content card in the look's card style, which is quieter than `chunky` in some looks.
-    /// An outlined card without a shadow, or a ledge card in a look without outlines.
-    @ViewBuilder func card(_ fill: Color = Mint.surface, radius: CGFloat = 18) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius)
-        if Mint.outline > 0 {
-            background(shape.fill(fill)).overlay(shape.stroke(Mint.ledge, lineWidth: Mint.outline))
-        } else {
-            modifier(Chunky(fill: fill, shape: AnyShape(shape), look: .ledge))
-        }
+    /// A content card in the look's card style, as Android's `BeepCard`: a hairline in the
+    /// quiet looks, so only what you press or type into carries the chunky frame.
+    func card(_ fill: Color = Mint.surface, radius: CGFloat = 18) -> some View {
+        lookCard(fill, shape: RoundedRectangle(cornerRadius: radius))
     }
 
     /// A card framed exactly as the look frames its cards, hairline included.
@@ -362,23 +357,35 @@ struct TextAction: ButtonStyle {
     }
 }
 
-/// The Android top bar for pushed screens: chunky back button, title, trailing actions.
+/// The Android top bar for pushed screens: a plain back arrow, title, trailing actions.
 struct BackBar<Trailing: View>: View {
     let title: String
     let back: () -> Void
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        HStack(spacing: 14) {
-            Button(action: back) { Image(systemName: "arrow.left") }
-                .buttonStyle(ChunkyButton())
-            Text(title.display).font(.display(24)).foregroundStyle(Mint.ink)
+        HStack(spacing: 4) {
+            BackArrow(action: back)
+            Text(title.display).font(.display(24)).foregroundStyle(Mint.ink).lineLimit(1)
             Spacer()
             trailing
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 6)
-        .padding(.bottom, 10)
+        .padding(.leading, 6).padding(.trailing, 18)
+        .frame(minHeight: 56)
+    }
+}
+
+/// Android's back icon button: the arrow alone, with a full size touch target.
+struct BackArrow: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "arrow.left").font(.system(size: 20, weight: .medium)).foregroundStyle(Mint.ink)
+                .frame(width: 48, height: 48).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
     }
 }
 
