@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Fetch an App Store profile for a bundle ID, creating it when missing.
 
-Usage: store-profile.py BUNDLE_ID REFERENCE_PROFILE OUTPUT
+Usage: store-profile.py BUNDLE_ID REFERENCE_PROFILE OUTPUT [CAPABILITY...]
 
 The profile is signed by the same distribution certificate as
-REFERENCE_PROFILE (the app's own profile). It reads the App Store Connect key
+REFERENCE_PROFILE. Each CAPABILITY (an App Store Connect capability type such
+as PUSH_NOTIFICATIONS) is turned on for the bundle ID first; Apple then marks
+older profiles invalid, so a new one is made. It reads the App Store Connect key
 from IOS_API_KEY_PATH, APPLE_API_KEY_ID and APPLE_API_ISSUER_ID.
 """
 
@@ -69,7 +71,7 @@ def reference_certificates(path):
 
 
 def main():
-    bundle, reference, output = sys.argv[1:]
+    bundle, reference, output, *capabilities = sys.argv[1:]
     wanted = reference_certificates(reference)
 
     found = call("GET", f"/bundleIds?filter[identifier]={bundle}&limit=200")["data"]
@@ -79,6 +81,15 @@ def main():
     else:
         bundle_id = call("POST", "/bundleIds", {"data": {"type": "bundleIds", "attributes": {
             "identifier": bundle, "name": bundle.replace(".", " "), "platform": "IOS"}}})["data"]["id"]
+
+    enabled = {c["attributes"]["capabilityType"]
+               for c in call("GET", f"/bundleIds/{bundle_id}/bundleIdCapabilities?limit=200")["data"]}
+    for capability in capabilities:
+        if capability not in enabled:
+            call("POST", "/bundleIdCapabilities", {"data": {
+                "type": "bundleIdCapabilities",
+                "attributes": {"capabilityType": capability},
+                "relationships": {"bundleId": {"data": {"type": "bundleIds", "id": bundle_id}}}}})
 
     certificates = call("GET", "/certificates?filter[certificateType]=DISTRIBUTION,IOS_DISTRIBUTION&limit=200")
     certificate = next((c["id"] for c in certificates["data"]
