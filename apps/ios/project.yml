@@ -65,6 +65,8 @@ targets:
         # The ride apps a place card can open with the drop-off set.
         LSApplicationQueriesSchemes: [comgooglemaps, grab, lyft, uber]
         NSAlarmKitUsageDescription: Beep sets alarms in the Clock when you ask it to.
+        # Only standard TLS and QUIC to the server, so TestFlight builds skip the export question.
+        ITSAppUsesNonExemptEncryption: false
         # A background push wakes the app to fetch notices the server could not send.
         UIBackgroundModes: [remote-notification]
         # beep://new, from the widget.
