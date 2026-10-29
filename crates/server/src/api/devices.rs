@@ -3,6 +3,7 @@
 use super::{Reply, found};
 use crate::{
     protocol::*,
+    push::CLOSE_REVOKED,
     router::Cx,
     store::{AccountKey, Inviter, LinkKey, Merge, MergeInto, NewKey, PushDevice, PushService},
 };
@@ -79,6 +80,7 @@ pub(super) async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> 
     found(cx.user.revoke_key(&id).await?)?;
     cx.user.changed("");
     cx.pusher.forget(key);
+    cx.app.nodes.forget(&key, CLOSE_REVOKED);
     Ok(())
 }
 
@@ -152,6 +154,10 @@ pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> R
             cx.app.merged(cx.user.id(), &target).await?;
             if let Some(user) = cx.app.user(&target) {
                 user.changed("");
+            }
+            // A machine signs in again now, as the account it joined.
+            for key in keys.iter().filter_map(|key| key.parse::<EndpointId>().ok()) {
+                cx.app.nodes.forget(&key, 0);
             }
             let pusher = cx.pusher.clone();
             tokio::spawn(async move {

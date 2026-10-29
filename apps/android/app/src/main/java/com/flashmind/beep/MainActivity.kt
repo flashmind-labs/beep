@@ -296,7 +296,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Shared, GroupJoin, GroupInfo, Researches, Workspace }
+internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Machines, Shared, GroupJoin, GroupInfo, Researches, Workspace }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -456,7 +456,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val activeScreen = if (bubble) Screen.Chat else screen
     BackHandler(enabled = activeScreen != Screen.Chat) {
         screen = when (activeScreen) {
-            Screen.Devices -> Screen.Settings
+            Screen.Devices, Screen.Machines -> Screen.Settings
             Screen.LocationAlways -> beforeLocationAlways
             else -> Screen.Chat
         }
@@ -474,8 +474,10 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Skills -> SkillsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Chat },
-                onBubbleSettings = onBubbleSettings, onLinkedDevices = { screen = Screen.Devices })
+                onBubbleSettings = onBubbleSettings, onLinkedDevices = { screen = Screen.Devices },
+                onMachines = { screen = Screen.Machines })
             Screen.Devices -> LinkedDevicesScreen(repository, onBack = { screen = Screen.Settings })
+            Screen.Machines -> MachinesScreen(repository, onBack = { screen = Screen.Settings })
             Screen.GroupJoin -> joinToken?.let { token ->
                 GroupJoinScreen(repository, token, onJoined = { joinToken = null; openGroupChat(it) },
                     onBack = { joinToken = null; screen = Screen.Chat })

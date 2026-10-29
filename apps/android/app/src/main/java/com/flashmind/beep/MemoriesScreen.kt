@@ -2,6 +2,8 @@ package com.flashmind.beep
 
 import com.flashmind.beep.proto.MemoryRead
 import com.flashmind.beep.proto.MemorySource
+import com.flashmind.beep.proto.MemoryScope
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -53,6 +55,9 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
     var confirmClear by remember { mutableStateOf(false) }
     var reads by remember { mutableStateOf(emptyList<MemoryRead>()) }
     var readId by rememberSaveable { mutableStateOf<String?>(null) }
+    // What memories not about the user are about, by id, and the subject picked: null for everything, USER or a scopeKey.
+    var scopes by remember { mutableStateOf(emptyMap<String, MemoryScope>()) }
+    var about by rememberSaveable { mutableStateOf<String?>(null) }
     // The latest read is picked once; choosing All afterwards sticks through edits.
     var defaulted by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -61,6 +66,7 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
         try {
             memories = withContext(Dispatchers.IO) { repository.listMemories() }
             reads = withContext(Dispatchers.IO) { repository.listMemoryReads() }
+            scopes = withContext(Dispatchers.IO) { repository.memoryScopes() }
             if (latestRead && !defaulted) readId = reads.firstOrNull()?.id
             defaulted = true
         }
@@ -77,6 +83,7 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
     val inRead = read?.memories?.toSet()
     val groups = memories
         .filter { inRead == null || it.id in inRead }
+        .filter { memory -> about == null || (scopes[memory.id]?.let(::scopeKey) ?: USER) == about }
         .filter { query.isBlank() || it.content.contains(query, true) || it.category.contains(query, true) }
         .sortedByDescending { it.updated }
         .groupBy { it.category }
@@ -123,6 +130,23 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
                 ReadChip("All", null, read == null) { readId = null }
                 reads.take(3).forEach { r -> ReadChip(readLabel(r), r.memories.size, r.id == readId) { readId = r.id } }
             }
+            if (scopes.isNotEmpty()) {
+                val subjects = memories.map { scopes[it.id] }.groupingBy { it?.let(::scopeKey) ?: USER }.eachCount()
+                val named = scopes.values.associateBy(::scopeKey)
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ReadChip("Everything", null, about == null) { about = null }
+                    subjects[USER]?.let { ReadChip("You", it, about == USER) { about = USER } }
+                    named.entries.sortedBy { scopeLabel(it.value).lowercase() }.forEach { (key, scope) ->
+                        ReadChip(scopeLabel(scope), subjects[key], about == key) { about = key }
+                    }
+                }
+                about?.let { key ->
+                    val subject = if (key == USER) "you" else named[key]?.let(::scopeSubject) ?: "this"
+                    Text("What Beep knows about $subject.", fontSize = 12.sp, color = TextMuted,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+                }
+            }
             read?.let { Text("What Beep learned or confirmed reading ${it.source} ${readDate(it)}.", fontSize = 12.sp, color = TextMuted,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) }
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp))
@@ -135,11 +159,41 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
                         Text(category.replaceFirstChar { it.uppercase() }, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextDim,
                             modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 2.dp))
                     }
-                    items(list, key = { it.id }) { memory -> MemoryCard(memory, today, onEdit = { editing = memory }, onDelete = { act { repository.deleteMemory(memory.id) } }) }
+                    items(list, key = { it.id }) { memory -> MemoryCard(memory, scopes[memory.id], today, onEdit = { editing = memory }, onDelete = { act { repository.deleteMemory(memory.id) } }) }
                 }
             }
         }
     }
+}
+
+/** The subject filter for memories about the user, who has no scope. */
+private const val USER = "user"
+
+/** One key per subject, so memories about the same machine, project or account group together. */
+internal fun scopeKey(scope: MemoryScope): String = when (scope) {
+    is MemoryScope.Machine -> "machine:${scope.id}"
+    is MemoryScope.Project -> "project:${scope.name}"
+    is MemoryScope.Account -> "account:${scope.app}"
+}
+
+/** What a memory is about, as its card and chip say it: "build-box", "Project beep", "Github account". */
+internal fun scopeLabel(scope: MemoryScope): String = when (scope) {
+    is MemoryScope.Machine -> scope.name ?: "A machine"
+    is MemoryScope.Project -> "Project ${scope.name}"
+    is MemoryScope.Account -> "${scope.app.replaceFirstChar { it.uppercase() }} account"
+}
+
+/** The subject in a sentence: "the machine build-box". */
+private fun scopeSubject(scope: MemoryScope): String = when (scope) {
+    is MemoryScope.Machine -> scope.name?.let { "the machine $it" } ?: "a machine no longer linked"
+    is MemoryScope.Project -> "the project ${scope.name}"
+    is MemoryScope.Account -> "your ${scope.app.replaceFirstChar { it.uppercase() }} account"
+}
+
+private fun scopeIcon(scope: MemoryScope): ImageVector = when (scope) {
+    is MemoryScope.Machine -> Icons.Outlined.Dns
+    is MemoryScope.Project -> Icons.Outlined.Folder
+    is MemoryScope.Account -> Icons.Outlined.AccountCircle
 }
 
 /** A `YYYY-MM-DD` date as "9 Oct", with the year when it is not this year. */
@@ -150,7 +204,7 @@ private fun shortDate(date: String): String = try {
 } catch (_: Exception) { date }
 
 @Composable
-private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun MemoryCard(memory: ChatRepository.Memory, about: MemoryScope?, today: String, onEdit: () -> Unit, onDelete: () -> Unit) {
     val ended = memory.validUntil?.let { it < today } == true
     val starts = memory.validFrom?.takeIf { it > today }?.let { "Starts ${shortDate(it)}" }
     val expires = memory.validUntil?.let { if (ended) "Expired ${shortDate(it)}" else "Expires ${shortDate(it)}" }
@@ -165,6 +219,13 @@ private fun MemoryCard(memory: ChatRepository.Memory, today: String, onEdit: () 
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
                 Text(memory.content, fontSize = 13.sp, lineHeight = 19.sp, color = if (ended) TextMuted else Color.Unspecified)
+                about?.let { scope ->
+                    Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(scopeIcon(scope), null, Modifier.size(12.dp), tint = Beep.colors.ink)
+                        Spacer(Modifier.width(4.dp))
+                        Text(scopeLabel(scope), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 Text(details.joinToString(" \u00b7 "), fontSize = 11.sp, color = TextDim)
                 memory.quote?.let { quote ->

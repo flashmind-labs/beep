@@ -4,7 +4,7 @@ use crate::{
     AsyncMutex,
     app::App,
     protocol::{
-        ApiError, Call, ClientInfo, DeviceKind, Feature, Op, Stream,
+        ApiError, Call, ClientInfo, DeviceKind, Duplex, Feature, Op, Stream,
         wire::{Frame, Rx, Tx, framed},
     },
     push::Pusher,
@@ -14,7 +14,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use futures::future::BoxFuture;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use std::{collections::HashMap, future::Future, marker::PhantomData, sync::Arc};
 use tokio::time::timeout;
 
@@ -42,7 +42,7 @@ impl Cx {
     }
 }
 
-type Handler = Box<dyn Fn(Cx, Frame, Tx) -> BoxFuture<'static, Result<()>> + Send + Sync>;
+type Handler = Box<dyn Fn(Cx, Frame, Tx, Rx) -> BoxFuture<'static, Result<()>> + Send + Sync>;
 
 #[derive(Default)]
 pub struct Router {
@@ -58,7 +58,7 @@ impl Router {
         F: Fn(Cx, R) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<R::Reply, ApiError>> + Send + 'static,
     {
-        self.route(R::OP, move |cx, frame, mut tx| {
+        self.route(R::OP, move |cx, frame, mut tx, _rx| {
             let reply = frame.decode::<R>().map(|request| handler(cx, request));
             Box::pin(async move {
                 let reply = match reply {
@@ -82,7 +82,7 @@ impl Router {
         F: Fn(Cx, R, Sink<R::Reply>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), ApiError>> + Send + 'static,
     {
-        self.route(R::OP, move |cx, frame, tx| {
+        self.route(R::OP, move |cx, frame, tx, _rx| {
             let tx = Arc::new(AsyncMutex::new(tx));
             let sink = Sink {
                 tx: tx.clone(),
@@ -91,24 +91,39 @@ impl Router {
             let done = frame
                 .decode::<R>()
                 .map(|request| handler(cx, request, sink));
-            Box::pin(async move {
-                let done = match done {
-                    Ok(done) => done.await,
-                    Err(e) => Err(e),
-                };
-                let mut tx = tx.lock().await;
-                if let Err(e) = done {
-                    tx.err(&e).await?;
-                }
-                tx.finish()
-            })
+            Box::pin(finish_stream(done, tx))
+        })
+    }
+
+    /// Routes `R` to `handler`, which reads what the client sends after the
+    /// request from an `Uplink` and replies into a `Sink`.
+    pub fn duplex<R, F, Fut>(self, handler: F) -> Self
+    where
+        R: Duplex,
+        F: Fn(Cx, R, Uplink<R::Up>, Sink<R::Reply>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), ApiError>> + Send + 'static,
+    {
+        self.route(R::OP, move |cx, frame, tx, rx| {
+            let tx = Arc::new(AsyncMutex::new(tx));
+            let sink = Sink {
+                tx: tx.clone(),
+                _reply: PhantomData,
+            };
+            let uplink = Uplink {
+                rx,
+                _up: PhantomData,
+            };
+            let done = frame
+                .decode::<R>()
+                .map(|request| handler(cx, request, uplink, sink));
+            Box::pin(finish_stream(done, tx))
         })
     }
 
     fn route(
         mut self,
         op: Op,
-        handler: impl Fn(Cx, Frame, Tx) -> BoxFuture<'static, Result<()>> + Send + Sync + 'static,
+        handler: impl Fn(Cx, Frame, Tx, Rx) -> BoxFuture<'static, Result<()>> + Send + Sync + 'static,
     ) -> Self {
         if self.routes.insert(op, Box::new(handler)).is_some() {
             self.duplicates.push(op);
@@ -135,21 +150,59 @@ impl Router {
     pub async fn serve(&self, cx: Cx, send: SendStream, recv: RecvStream) -> Result<()> {
         let (tx, mut rx) = framed(send, recv);
         let frame = read_request(&mut rx).await?;
-        self.dispatch(cx, frame, tx).await
+        self.dispatch(cx, frame, tx, rx).await
     }
 
-    /// Runs the handler for a request already read.
-    pub async fn dispatch(&self, cx: Cx, frame: Frame, mut tx: Tx) -> Result<()> {
+    /// Runs the handler for a request already read. `rx` is the rest of the
+    /// client's side of the stream, which only a `Duplex` request reads.
+    pub async fn dispatch(&self, cx: Cx, frame: Frame, mut tx: Tx, rx: Rx) -> Result<()> {
         let handler = Op::try_from(frame.tag).and_then(|op| {
             self.routes
                 .get(&op)
                 .ok_or_else(|| ApiError::bad_request(format!("{op:?} is not served")))
         });
         match handler {
-            Ok(handler) => handler(cx, frame, tx).await,
+            Ok(handler) => handler(cx, frame, tx, rx).await,
             Err(e) => {
                 tx.err(&e).await?;
                 tx.finish()
+            }
+        }
+    }
+}
+
+/// Sends a stream handler's error, if any, and ends the stream.
+async fn finish_stream(
+    done: Result<impl Future<Output = Result<(), ApiError>>, ApiError>,
+    tx: Arc<AsyncMutex<Tx>>,
+) -> Result<()> {
+    let done = match done {
+        Ok(done) => done.await,
+        Err(e) => Err(e),
+    };
+    let mut tx = tx.lock().await;
+    if let Err(e) = done {
+        tx.err(&e).await?;
+    }
+    tx.finish()
+}
+
+/// What the client sends after a `Duplex` request.
+pub struct Uplink<T> {
+    rx: Rx,
+    _up: PhantomData<fn() -> T>,
+}
+
+impl<T: DeserializeOwned> Uplink<T> {
+    /// The next frame the client sent, `None` once it finished its side.
+    /// A frame that does not decode is the client's fault.
+    pub async fn next(&mut self) -> Result<Option<T>, ApiError> {
+        match self.rx.frame().await {
+            Ok(Some(frame)) => frame.decode().map(Some),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                log::debug!("uplink ended: {e:#}");
+                Ok(None)
             }
         }
     }

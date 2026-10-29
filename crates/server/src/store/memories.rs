@@ -1,20 +1,29 @@
 //! Memories live in a flashmind `MemoryStore`, in the same database.
 //! Every memory carries its owner in the `user` metadata key, and every call
 //! here filters on it, so one user's memories never reach another's.
+//!
+//! The user's memory is shared by every agent that works for them, so each
+//! memory also says what it is about: its `Scope`, the user, a machine, a
+//! project or an account.
+
+mod curation;
+mod history;
+
+pub use history::Superseded;
 
 use super::{
     MEMORY_CATEGORIES, MemoryRow, Origin, Store, UNFILED, Validity, format_date, parse_date,
-    seconds,
 };
 use crate::{
     protocol::{Memory, MemorySource},
     user::UserKey,
 };
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, ensure};
 use async_trait::async_trait;
-use chrono::{Days, NaiveDateTime, Utc};
+use chrono::{Days, Utc};
 use flashmind::memory::{EmbeddingProvider, MemoryRecord, MemorySearchResult};
-use std::{collections::HashMap, time::Duration};
+use iroh::EndpointId;
+use std::collections::HashMap;
 
 /// Memories whose days are over are kept this long, then deleted.
 const ENDED_KEPT_DAYS: u64 = 30;
@@ -34,6 +43,81 @@ const QUOTE: &str = "quote";
 const MAX_QUOTE_CHARS: usize = 200;
 /// `YYYY-MM-DD HH:MM:SS` in UTC of the last change.
 const UPDATED: &str = "updated";
+/// `Scope::stored`; missing for a memory about the user.
+const SCOPE: &str = "scope";
+/// How many close memories are read to find the closest in one scope.
+const CLOSEST_CANDIDATES: usize = 8;
+/// Longest project or account name in a scope.
+const MAX_SCOPE_NAME: usize = 100;
+
+/// What a memory is about. Memories from before scopes have none and are
+/// about the user.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub enum Scope {
+    #[default]
+    User,
+    /// A machine running beep-node, by its key, so renaming it keeps its
+    /// memories.
+    Machine(EndpointId),
+    /// A project, such as a repository, by the name Beep knows it by.
+    Project(String),
+    /// One of the user's accounts, by app, such as `github`.
+    Account(String),
+}
+
+impl Scope {
+    /// A project scope, its name trimmed and lowercased so "Beep" and "beep" are one.
+    pub fn project(name: &str) -> Result<Self> {
+        Ok(Self::Project(scope_name(name)?))
+    }
+
+    pub fn account(app: &str) -> Result<Self> {
+        Ok(Self::Account(scope_name(app)?))
+    }
+
+    /// What kind of scope it is, safe to log where its name is not.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Machine(_) => "machine",
+            Self::Project(_) => "project",
+            Self::Account(_) => "account",
+        }
+    }
+
+    /// The value kept in the `scope` metadata key, `None` for the user.
+    fn stored(&self) -> Option<String> {
+        match self {
+            Self::User => None,
+            Self::Machine(node) => Some(format!("machine:{node}")),
+            Self::Project(name) => Some(format!("project:{name}")),
+            Self::Account(app) => Some(format!("account:{app}")),
+        }
+    }
+
+    /// A stored scope. One this server cannot read counts as the user's, the
+    /// widest it can show.
+    fn from_stored(text: Option<&str>) -> Self {
+        let Some((kind, name)) = text.and_then(|text| text.split_once(':')) else {
+            return Self::User;
+        };
+        match kind {
+            "machine" => name.parse().map_or(Self::User, Self::Machine),
+            "project" => Self::Project(name.to_owned()),
+            "account" => Self::Account(name.to_owned()),
+            _ => Self::User,
+        }
+    }
+}
+
+fn scope_name(name: &str) -> Result<String> {
+    let name = name.trim().to_lowercase();
+    ensure!(
+        !name.is_empty() && name.chars().count() <= MAX_SCOPE_NAME && !name.contains(':'),
+        "a scope name has 1 to {MAX_SCOPE_NAME} characters and no colon"
+    );
+    Ok(name)
+}
 
 /// A fact to store or to replace a memory's text with.
 #[derive(Clone)]
@@ -46,6 +130,9 @@ pub struct Fact<'a> {
     pub valid: Option<Validity>,
     /// `None` keeps the current origin on an update.
     pub origin: Option<Origin>,
+    /// `None` keeps the current scope on an update, or makes a new memory
+    /// about the user.
+    pub scope: Option<Scope>,
 }
 
 /// A memory found by a search, with its relevance.
@@ -97,6 +184,7 @@ struct Meta<'a> {
     origin: Option<&'a Origin>,
     core: bool,
     updated: &'a str,
+    scope: &'a Scope,
 }
 
 impl<'a> Meta<'a> {
@@ -110,6 +198,7 @@ impl<'a> Meta<'a> {
             origin: row.origin.as_ref(),
             core: row.core,
             updated,
+            scope: &row.scope,
         }
     }
 
@@ -128,6 +217,9 @@ impl<'a> Meta<'a> {
         }
         if self.core {
             pairs.push((CORE, "1".to_owned()));
+        }
+        if let Some(scope) = self.scope.stored() {
+            pairs.push((SCOPE, scope));
         }
         if let Some(origin) = self.origin {
             pairs.push((ORIGIN, origin.reference.clone()));
@@ -162,6 +254,7 @@ fn row_from(id: String, content: String, meta: &[(String, String)]) -> MemoryRow
             quote: meta.get(QUOTE).map(|quote| quote.to_string()),
         }),
         core: meta.get(CORE) == Some(&"1"),
+        scope: Scope::from_stored(meta.get(SCOPE).copied()),
     }
 }
 
@@ -174,19 +267,6 @@ fn from_result(result: MemorySearchResult) -> Option<Scored> {
         score: result.score,
         row: row_from(result.id?, result.content, &result.meta),
     })
-}
-
-/// When a memory last changed by `now`, counting the start of the day after
-/// its last day as a change.
-fn last_change(row: &MemoryRow, now: NaiveDateTime) -> Option<NaiveDateTime> {
-    let updated = NaiveDateTime::parse_from_str(&row.updated_at, UPDATED_FORMAT).ok()?;
-    let ended = row
-        .valid
-        .until
-        .and_then(|until| until.succ_opt())
-        .and_then(|day| day.and_hms_opt(0, 0, 0))
-        .filter(|ended| *ended <= now);
-    Some(ended.map_or(updated, |ended| ended.max(updated)))
 }
 
 fn owned_by(record: &MemoryRecord, user: &UserKey) -> bool {
@@ -232,6 +312,7 @@ impl Store {
         let category = validate_category(fact.category)?;
         let valid = fact.valid.unwrap_or_default();
         let updated = now_text();
+        let scope = fact.scope.unwrap_or_default();
         let meta = Meta {
             user: user.as_str(),
             category: &category,
@@ -240,6 +321,7 @@ impl Store {
             origin: fact.origin.as_ref(),
             core: false,
             updated: &updated,
+            scope: &scope,
         };
         let mut builder = self
             .memories
@@ -260,19 +342,21 @@ impl Store {
             .filter(|record| owned_by(record, user)))
     }
 
-    /// Rewrites a memory the user owns. Returns whether it exists.
+    /// Rewrites a memory the user owns. Returns it as it was, `None` when
+    /// there is none.
     async fn rewrite(
         &self,
         user: &UserKey,
         id: &str,
         content: &str,
         change: impl FnOnce(&mut MemoryRow),
-    ) -> Result<bool> {
+    ) -> Result<Option<MemoryRow>> {
         check_memory(content)?;
         let Some(record) = self.owned_memory(user, id).await? else {
-            return Ok(false);
+            return Ok(None);
         };
-        let mut row = from_record(record);
+        let before = from_record(record);
+        let mut row = before.clone();
         change(&mut row);
         let updated = now_text();
         let pairs = Meta::of(user, &row, &updated).pairs();
@@ -285,7 +369,7 @@ impl Store {
                 Some(expiry(&row.valid)),
             )
             .await?;
-        Ok(true)
+        Ok(Some(before))
     }
 
     /// Replaces a memory's text, and its days when given. A memory the user
@@ -296,6 +380,11 @@ impl Store {
         id: &str,
         fact: Fact<'_>,
     ) -> Result<bool> {
+        Ok(self.revise(user, id, fact).await?.is_some())
+    }
+
+    /// `update_memory` that returns the memory as it was.
+    async fn revise(&self, user: &UserKey, id: &str, fact: Fact<'_>) -> Result<Option<MemoryRow>> {
         let category = fact
             .category
             .map(|c| validate_category(Some(c)))
@@ -313,12 +402,16 @@ impl Store {
             if let Some(origin) = fact.origin {
                 row.origin = Some(origin);
             }
+            if let Some(scope) = fact.scope {
+                row.scope = scope;
+            }
         })
         .await
     }
 
     /// Replaces a memory's text, and its category when given, as the user
     /// does from the Memories screen; it then counts as stated by the user.
+    /// The text it had is kept as history.
     pub(crate) async fn edit_memory(
         &self,
         user: &UserKey,
@@ -327,13 +420,21 @@ impl Store {
         category: Option<&str>,
     ) -> Result<bool> {
         let category = category.map(|c| validate_category(Some(c))).transpose()?;
-        self.rewrite(user, id, content, |row| {
-            row.source = MemorySource::User {};
-            if let Some(category) = category {
-                row.category = category;
-            }
-        })
-        .await
+        let before = self
+            .rewrite(user, id, content, |row| {
+                row.source = MemorySource::User {};
+                if let Some(category) = category {
+                    row.category = category;
+                }
+            })
+            .await?;
+        let Some(before) = before else {
+            return Ok(false);
+        };
+        if before.content != content {
+            self.supersede(user, &before, id).await?;
+        }
+        Ok(true)
     }
 
     /// Every memory of a user, most recently changed first.
@@ -349,45 +450,68 @@ impl Store {
         Ok(rows)
     }
 
-    /// The user's memories that best match `query`, by meaning and words.
+    /// The user's memories that best match `query`, by meaning and words,
+    /// in `scope` when given. Memories about the user carry no scope key to
+    /// filter on, so for those more are read and the rest dropped.
     pub(crate) async fn search_memories(
         &self,
         user: &UserKey,
         query: &str,
         category: Option<&str>,
+        scope: Option<&Scope>,
         limit: usize,
     ) -> Result<Vec<Scored>> {
+        let stored = scope.and_then(Scope::stored);
+        let read = if scope == Some(&Scope::User) {
+            limit * 3
+        } else {
+            limit
+        };
         let mut search = self
             .memories
             .search(query)
             .filter(USER, user.as_str())
-            .limit(limit);
+            .limit(read);
         if let Some(category) = category {
             search = search.filter(CATEGORY, category);
         }
-        Ok(search.await?.into_iter().filter_map(from_result).collect())
+        if let Some(stored) = &stored {
+            search = search.filter(SCOPE, stored);
+        }
+        Ok(search
+            .await?
+            .into_iter()
+            .filter_map(from_result)
+            .filter(|found| scope.is_none_or(|scope| found.row.scope == *scope))
+            .take(limit)
+            .collect())
     }
 
-    /// The user's memory closest in meaning to `text`, if it scores at least
-    /// `threshold`.
+    /// The user's memory in `scope` closest in meaning to `text`, with its
+    /// score, if it scores at least `threshold`. The same words about two
+    /// machines are two memories.
     pub(crate) async fn closest_memory(
         &self,
         user: &UserKey,
         text: &str,
+        scope: &Scope,
         threshold: f32,
-    ) -> Result<Option<MemoryRow>> {
-        let found = self
+    ) -> Result<Option<Scored>> {
+        let mut similar = self
             .memories
             .similar(text)
             .filter(USER, user.as_str())
             .threshold(threshold)
-            .limit(1)
-            .await?;
-        Ok(found
+            .limit(CLOSEST_CANDIDATES);
+        let stored = scope.stored();
+        if let Some(stored) = &stored {
+            similar = similar.filter(SCOPE, stored);
+        }
+        Ok(similar
+            .await?
             .into_iter()
-            .next()
-            .and_then(from_result)
-            .map(|s| s.row))
+            .filter_map(from_result)
+            .find(|found| found.row.scope == *scope))
     }
 
     /// Puts a memory in the profile or takes it out, keeping its last change
@@ -438,15 +562,19 @@ impl Store {
             return Ok(false);
         };
         self.memories.delete(&record.id).await?;
+        // Forgetting a memory forgets what it said before too.
+        self.forget_history(user, &record.id).await?;
         Ok(true)
     }
 
-    /// Deletes every memory of a user and returns how many there were.
+    /// Deletes every memory of a user, with their history, and returns how
+    /// many memories there were.
     pub(crate) async fn forget_all(&self, user: &UserKey) -> Result<u64> {
         let deleted = self
             .memories
             .delete_matching(&[(USER, user.as_str())])
             .await?;
+        self.forget_all_history(user).await?;
         Ok(deleted as u64)
     }
 
@@ -473,44 +601,6 @@ impl Store {
     pub async fn purge_ended_memories(&self) -> Result<u64> {
         Ok(self.memories.delete_expired().await? as u64)
     }
-
-    /// Whether the user's memories changed, or one of them ended, since they
-    /// were last curated, at most once per `every`. An ended memory is due so
-    /// curation can keep what lasts of it.
-    pub(crate) async fn curation_due(&self, user: &UserKey, every: Duration) -> Result<bool> {
-        let now = Utc::now().naive_utc();
-        let Some(changed) = self
-            .memory_rows(user)
-            .await?
-            .iter()
-            .filter_map(|row| last_change(row, now))
-            .max()
-        else {
-            return Ok(false);
-        };
-        let changed = changed.and_utc();
-        Ok(sqlx::query_scalar(
-            "SELECT NOT EXISTS (SELECT 1 FROM memory_curation WHERE user_id = $1)
-                 OR EXISTS (SELECT 1 FROM memory_curation WHERE user_id = $1
-                     AND curated_at <= now() - make_interval(secs => $2) AND curated_at < $3)",
-        )
-        .bind(user.as_str())
-        .bind(seconds(every))
-        .bind(changed)
-        .fetch_one(&self.pool)
-        .await?)
-    }
-
-    pub(crate) async fn mark_curated(&self, user: &UserKey) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO memory_curation (user_id, curated_at) VALUES ($1, now())
-             ON CONFLICT (user_id) DO UPDATE SET curated_at=excluded.curated_at",
-        )
-        .bind(user.as_str())
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -520,6 +610,26 @@ mod tests {
 
     fn date(text: &str) -> NaiveDate {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
+    }
+
+    #[test]
+    fn a_scope_reads_back_as_stored() {
+        let node = iroh::SecretKey::generate().public();
+        for scope in [
+            Scope::User,
+            Scope::Machine(node),
+            Scope::project(" Beep ").unwrap(),
+            Scope::account("GitHub").unwrap(),
+        ] {
+            assert_eq!(Scope::from_stored(scope.stored().as_deref()), scope);
+        }
+        assert_eq!(
+            Scope::project("Beep").unwrap(),
+            Scope::Project("beep".into())
+        );
+        assert!(Scope::project("a:b").is_err());
+        assert!(Scope::account(" ").is_err());
+        assert_eq!(Scope::from_stored(Some("planet:mars")), Scope::User);
     }
 
     #[test]
@@ -538,26 +648,5 @@ mod tests {
         };
         let expected = date("2026-02-01").and_hms_opt(0, 0, 0).unwrap();
         assert_eq!(expiry(&valid), Some(expected.and_utc().timestamp()));
-    }
-
-    #[test]
-    fn a_memory_changes_again_the_day_after_it_ends() {
-        let mut row = MemoryRow {
-            id: "t1".into(),
-            content: "Is in Lisbon.".into(),
-            category: "plan".into(),
-            source: MemorySource::Learned {},
-            updated_at: "2026-09-01 08:00:00".into(),
-            valid: Validity::default(),
-            origin: None,
-            core: false,
-        };
-        let at = |text| NaiveDateTime::parse_from_str(text, UPDATED_FORMAT).unwrap();
-        let now = at("2026-10-01 12:00:00");
-        assert_eq!(last_change(&row, now), Some(at("2026-09-01 08:00:00")));
-        row.valid.until = Some(date("2026-09-27"));
-        assert_eq!(last_change(&row, now), Some(at("2026-09-28 00:00:00")));
-        row.valid.until = Some(date("2026-10-05"));
-        assert_eq!(last_change(&row, now), Some(at("2026-09-01 08:00:00")));
     }
 }

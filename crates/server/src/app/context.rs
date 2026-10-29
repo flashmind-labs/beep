@@ -2,8 +2,9 @@
 
 use super::{App, Message};
 use crate::{
-    cron,
+    cron, events,
     memories::PROFILE_HEADER,
+    nodes::{self, MACHINES_HEADER},
     protocol::{AppIntegration, DeviceKind},
     skills::{self, INDEX_HEADER},
     store::Location,
@@ -56,6 +57,25 @@ impl App {
                  maps, contacts and opening apps are not available in this turn."
             );
         }
+        if message.voice.is_some() || message.spoken {
+            let _ = writeln!(
+                ctx,
+                "The user spoke this message and it was transcribed, so a word may be misheard: \
+                 read it for what they meant. Their app reads your reply aloud, so keep it short \
+                 and plain, without tables or links unless they ask for them."
+            );
+        }
+        // The background tools come with turns someone asked for, for admins.
+        let delegates = self.models.is_admin(user.id())
+            && message.cron_id.is_none()
+            && message.woken.is_none()
+            && !message.finished_research;
+        if message.spoken {
+            let _ = writeln!(ctx, "{}", live_line(delegates));
+        }
+        if delegates {
+            let _ = writeln!(ctx, "{DELEGATION}");
+        }
         if message.draws.charts {
             let _ = writeln!(
                 ctx,
@@ -92,8 +112,20 @@ impl App {
         if let Some(label) = message.scheduled.as_deref() {
             let _ = writeln!(ctx, "{}", cron::scheduled_context(label));
         }
-        if let Some(label) = message.woken.as_deref() {
-            let _ = writeln!(ctx, "{}", wake::woken_context(label));
+        if let Some(woken) = &message.woken {
+            let _ = writeln!(ctx, "{}", wake::woken_context(woken));
+        }
+        // What the event triage agent kept for later comes up once, in the
+        // user's next turn.
+        if message.is_prompt()
+            && events::enabled(self, user)
+            && let Some(waiting) = events::waiting_context(user).await
+        {
+            let _ = writeln!(ctx, "{waiting}");
+        }
+        // Results the turn claimed as it was created, before the user's text.
+        if let Some(results) = self.subagents.claimed_context(message.session_id) {
+            let _ = writeln!(ctx, "{results}");
         }
 
         // Ends in a blank line, which is where `last_index` stops reading.
@@ -106,6 +138,19 @@ impl App {
                 }
             }
             Err(error) => log::warn!("unable to list skills: {error}; user={user}"),
+        }
+
+        // Ends in a blank line, which is where `last_block` stops reading.
+        if self.models.is_admin(user.id()) {
+            match self.machines(user).await {
+                Ok(Some(machines))
+                    if last_block(chat, MACHINES_HEADER) != Some(machines.as_str()) =>
+                {
+                    let _ = writeln!(ctx, "{machines}\n");
+                }
+                Ok(_) => {}
+                Err(error) => log::warn!("unable to list machines: {error:#}; user={user}"),
+            }
         }
 
         // Last, so the profile a chat got runs to the end of its message.
@@ -121,13 +166,30 @@ impl App {
     }
 }
 
+impl App {
+    async fn machines(&self, user: &User) -> anyhow::Result<Option<String>> {
+        let nodes = user.nodes().await?;
+        if nodes.is_empty() {
+            return Ok(None);
+        }
+        let rows = user.memory_rows().await?;
+        Ok(nodes::machines(&nodes, &self.nodes, &rows))
+    }
+}
+
 /// The skill list the chat's context last carried.
 fn last_index(chat: &Conversation) -> Option<&str> {
+    last_block(chat, INDEX_HEADER)
+}
+
+/// The block starting at `header` that the chat's context last carried, up
+/// to the blank line after it.
+fn last_block<'a>(chat: &'a Conversation, header: &str) -> Option<&'a str> {
     chat.entries()
         .iter()
         .rev()
         .find_map(|entry| match &entry.kind {
-            EntryKind::Developer { content, .. } => content.find(INDEX_HEADER).map(|at| {
+            EntryKind::Developer { content, .. } => content.find(header).map(|at| {
                 let index = &content[at..];
                 index
                     .find("\n\n")
@@ -203,6 +265,33 @@ fn apps_line(apps: &[AppIntegration]) -> Option<String> {
     }
     Some(line)
 }
+
+/// For a message said in live mode, a spoken conversation: everything you
+/// write is read aloud as it comes. `delegates` adds the line about
+/// `spawn_agent`, for users who have that tool.
+fn live_line(delegates: bool) -> String {
+    let mut line = String::from(
+        "This is a live spoken conversation: every sentence you write is read aloud as it \
+         streams, including text between tool calls. Before using tools, say in one short \
+         sentence what you are about to do, in the user's language, such as \"Let me check \
+         build-box.\"",
+    );
+    if delegates {
+        line.push_str(
+            " Keep the conversation flowing: hand anything slow to the background as below \
+             and say in one sentence that it is on it.",
+        );
+    }
+    line
+}
+
+/// How to use the background tools, for turns that have them.
+const DELEGATION: &str = "Answer quick things directly. Hand slow work to the background \
+    and reply right away instead of making the user wait: spawn_agent for work of many steps \
+    (several lookups, going through a mailbox, coding, research), with a brief that is \
+    complete on its own since it cannot see this chat; run_in_background for one slow tool \
+    call. Use message_agent to steer an agent that is working or to ask one that reported \
+    for more. Results come back to this chat: relay them briefly, leading with the result.";
 
 #[cfg(test)]
 mod tests {
@@ -296,5 +385,16 @@ mod tests {
             last_profile(&chat),
             Some(format!("{PROFILE_HEADER}\n- Is called Sam.").as_str())
         );
+    }
+
+    #[test]
+    fn live_mode_says_what_it_does_and_delegates_only_with_the_tool() {
+        let plain = live_line(false);
+        assert!(plain.contains("read aloud"));
+        assert!(!plain.contains("background"));
+        assert!(live_line(true).contains("background"));
+        for tool in ["spawn_agent", "run_in_background", "message_agent"] {
+            assert!(DELEGATION.contains(tool));
+        }
     }
 }

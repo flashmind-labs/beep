@@ -17,7 +17,9 @@ use crate::{
     protocol::{ApiError, AppKind},
 };
 use anyhow::{Context, Result, bail};
-use flashmind::tools::composio::{ComposioClient, ComposioToolDef, SessionToolkits};
+use flashmind::tools::composio::{
+    ComposioClient, ComposioToolDef, ConnectedAccountInfo, SessionToolkits,
+};
 use futures::future::join_all;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -491,11 +493,23 @@ pub(crate) async fn connected_slugs(
     client: &ComposioClient,
     user: &str,
 ) -> Result<HashSet<String>> {
+    Ok(connected_accounts(client, user)
+        .await?
+        .iter()
+        .filter_map(|account| account.toolkit_slug().map(str::to_owned))
+        .collect())
+}
+
+/// The usable Composio accounts of `user`.
+pub(crate) async fn connected_accounts(
+    client: &ComposioClient,
+    user: &str,
+) -> Result<Vec<ConnectedAccountInfo>> {
     let accounts = client
         .list_connected_accounts_for_user(None, Some(user))
         .await?;
     Ok(accounts
-        .iter()
+        .into_iter()
         .filter(|account| account.user_id.as_deref().is_none_or(|id| id == user))
         .filter(|account| {
             account
@@ -503,7 +517,6 @@ pub(crate) async fn connected_slugs(
                 .as_deref()
                 .is_none_or(|status| !DEAD_STATES.contains(&status.to_ascii_uppercase().as_str()))
         })
-        .filter_map(|account| account.toolkit_slug().map(str::to_owned))
         .collect())
 }
 

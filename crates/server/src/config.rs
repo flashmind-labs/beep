@@ -10,7 +10,9 @@ use std::{
 
 use crate::{
     agents::{AgentConfig, AgentId},
+    events::EventsConfig,
     research::ResearchConfig,
+    voice::VoiceConfig,
 };
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
@@ -65,6 +67,9 @@ pub struct Config {
     /// OpenAI key for memory embeddings. Without it they go through OpenRouter.
     pub openai_key: Option<String>,
     pub composio_key: Option<String>,
+    /// Mistral key for live transcription (`[voice] realtime_model`).
+    /// Without it the apps' live voice says it is unavailable.
+    pub mistral_key: Option<SecretString>,
     /// Where Composio sends the browser after an app connects, for example a
     /// deep link back into the phone app. Composio shows its own page if unset.
     pub composio_callback_url: Option<String>,
@@ -79,6 +84,14 @@ pub struct Config {
     /// Apple Push Notification service key. With it, notices for iPhones the
     /// server cannot reach over iroh go through APNs.
     pub apns: Option<ApnsConfig>,
+    /// The models that speak notices as voice notes and transcribe spoken
+    /// replies. Defaults to Grok's speech and Voxtral's transcription.
+    #[serde(default)]
+    pub voice: VoiceConfig,
+    /// The model account events are triaged on (`triage_model`). Defaults
+    /// to Claude Haiku thinking little.
+    #[serde(default)]
+    pub events: EventsConfig,
 }
 
 /// A token-based APNs key from the Apple Developer account.

@@ -742,6 +742,8 @@ impl App {
             platform: None,
             draws: Draws::default(),
             finished_research: true,
+            voice: None,
+            spoken: false,
         };
         // The user may be talking to the lead; wait for that turn to end.
         for _ in 0..60 {

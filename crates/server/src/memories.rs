@@ -12,15 +12,26 @@
 //! under one of `MEMORY_CATEGORIES` when it is written; the models that write
 //! memories never pick one. After each chat a cheap model call reads the
 //! latest exchange, with the turns before it for context, and adds, corrects or
-//! forgets facts. Once a day a curation pass merges duplicates, settles
-//! contradictions and drops what went stale. Memory text is never logged.
+//! forgets facts. Curation merges duplicates, settles contradictions and
+//! drops what went stale, one scope at a time and only when that scope
+//! needs it (see `needs`). What a merge or rewrite replaces is kept as
+//! history of the memory that replaced it, hidden from recall and the
+//! profile. Memory text is never logged.
+
+mod needs;
+
+#[cfg(test)]
+pub(crate) use needs::ScopeNeed;
+pub(crate) use needs::{
+    MAX_SCOPES_PER_SWEEP, NEAR, ScopeState, Signal, crowded_scopes, curation_needs,
+};
 
 use crate::{
     app::App,
     config::Config,
     protocol::MemorySource,
     starters::unfence,
-    store::{MemoryRow, Origin, Validity},
+    store::{MemoryRow, Origin, Scope, Validity},
     tools::group_memory::shareable,
 };
 use anyhow::{Context, Result, ensure};
@@ -75,8 +86,7 @@ const MAX_TURN_CHARS: usize = 1500;
 /// Earlier turns the extractor sees to resolve "she" or "that place".
 pub const LEARN_CONTEXT_TURNS: usize = 3;
 const MAX_CONTEXT_CHARS: usize = 600;
-/// A user's memories are curated at most this often, and only after a change.
-pub(crate) const CURATE_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+/// How often each user's memories are filed and checked for curation needs.
 pub(crate) const CURATE_SWEEP: Duration = Duration::from_secs(60 * 60);
 /// Newest memories one curation pass reads.
 pub(crate) const MAX_CURATED: usize = 200;
@@ -144,11 +154,13 @@ pub struct Hit {
     pub valid: Validity,
     /// The words it was learned from, when known.
     pub quote: Option<String>,
+    pub scope: Scope,
 }
 
 impl Hit {
-    /// What `memory_recall` returns for this memory.
-    pub fn to_json(&self) -> Value {
+    /// What `memory_recall` returns for this memory, its scope as `scope`
+    /// names it.
+    pub fn to_json(&self, scope: Option<&str>) -> Value {
         let mut value = json!({
             "id": self.id,
             "content": self.content,
@@ -164,6 +176,9 @@ impl Hit {
         }
         if let Some(quote) = &self.quote {
             value["quote"] = json!(quote);
+        }
+        if let Some(scope) = scope {
+            value["scope"] = json!(scope);
         }
         value
     }
@@ -315,6 +330,7 @@ pub(crate) fn hit(row: MemoryRow) -> Hit {
         source: row.source,
         valid: row.valid,
         quote: row.origin.and_then(|origin| origin.quote),
+        scope: row.scope,
     }
 }
 
@@ -499,36 +515,69 @@ pub(crate) fn reading_prompt(known: &[Hit], reading: &Reading) -> String {
     text
 }
 
-pub(crate) const CURATE_SYSTEM: &str = "You tidy the long-term memory of Beep, a personal assistant app. \
-You get every memory about one user with its id, category, source, last change date and, for facts that only \
-hold for a while, their days. Source \"user\" means the user said it or asked Beep to remember it; \"learned\" \
+/// What curation is told the memories are about.
+fn curated_subject(scope: &Scope) -> &'static str {
+    match scope {
+        Scope::User => "one user",
+        Scope::Machine(_) => "one of the user's machines",
+        Scope::Project(_) => "one of the user's projects",
+        Scope::Account(_) => "one of the user's accounts",
+    }
+}
+
+const CURATE_RULES: &str = "Source \"user\" means the user said it or asked Beep to remember it; \"learned\" \
 means Beep picked it up from a chat; \"email\" means Beep read it in the user's email; \"slack\" means Beep \
 read it in the user's Slack.
 Clean it up:
 - Merge memories that say the same thing or are parts of one fact into one sentence, keeping every detail. \
 Only merge memories with the same days: a flight and the stay it starts are separate facts.
-- When two memories contradict each other, keep the newer one, unless the older was said by the user and the \
-newer was only learned; then merge them into one sentence that keeps the user's version.
-- Forget memories that are trivial, a one-off task, general knowledge rather than about the user, or a secret \
-such as a password or code. Never forget a memory said by the user unless its days are over.
-- A memory marked over has passed. When it still says something lasting about the user, like a place they went, \
+- When two memories contradict each other, keep the newer one and supersede the older with it, unless the older \
+was said by the user and the newer was only learned; then merge them into one sentence that keeps the user's version. \
+A superseded memory is kept as the newer one's history; never forget the losing side of a contradiction.
+- Forget memories that are trivial, a one-off task, general knowledge rather than about what these memories \
+are about, or a secret such as a password or code. Never forget a memory said by the user unless its days are over.
+- A memory marked over has passed. When it still says something lasting, like a place the user went, \
 someone they met or a job they did, update it into a lasting fact in the past tense that names the month and year, \
 like \"Went to Lisbon in October 2026.\", with no days. Forget it when nothing about it lasts, like an \
 appointment or a deadline.
 - Fix a memory that is unclear without context so it names its subject.
 Leave everything else alone; most memories need nothing. Each id may appear in at most one op.
-Then pick the profile: the ids of at most 15 memories that matter in nearly every chat, such as the user's \
+";
+
+const CURATE_PROFILE: &str = "Then pick the profile: the ids of at most 15 memories that matter in nearly every chat, such as the user's \
 name, how they want Beep to answer, their closest people, where they live and work, and their job, mostly from \
 identity, people, preference and work. Not projects, \
 passing interests or anything with days. Memories marked core are in it now; keep it stable and change it only \
 for a better pick. A merged memory is named by any of its ids.
-Write memories as one short self-contained sentence in third person. Never translate: keep a memory in the \
+";
+
+const CURATE_REPLY: &str = "Write memories as one short self-contained sentence in third person. Never translate: keep a memory in the \
 language it is already in, and write a merge in the language most of its memories are in, English when unsure.
 Reply with only JSON: {\"ops\": [{\"op\": \"merge\", \"ids\": [string], \"content\": string, \
 \"valid_from\": string, \"valid_until\": string} | {\"op\": \"update\", \"id\": string, \"content\": string, \
-\"valid_from\": string, \"valid_until\": string} | {\"op\": \"forget\", \"id\": string}]}. \
+\"valid_from\": string, \"valid_until\": string} | {\"op\": \"supersede\", \"id\": string, \"by\": string} | \
+{\"op\": \"forget\", \"id\": string}]}. \
 Leave out days for lasting facts. \
-At most 40 ops, [] when nothing needs doing. Add \"core\": [string], the profile's ids, next to \"ops\".";
+At most 40 ops, [] when nothing needs doing.";
+
+/// The curation instructions for the memories in `scope`. Only the user's
+/// own scope picks the profile.
+pub(crate) fn curate_system(scope: &Scope) -> String {
+    let mut text = format!(
+        "You tidy the long-term memory of Beep, a personal assistant app. \
+You get every memory about {} with its id, category, source, last change date and, for facts that only \
+hold for a while, their days. {CURATE_RULES}",
+        curated_subject(scope)
+    );
+    if *scope == Scope::User {
+        text.push_str(CURATE_PROFILE);
+    }
+    text.push_str(CURATE_REPLY);
+    if *scope == Scope::User {
+        text.push_str(" Add \"core\": [string], the profile's ids, next to \"ops\".");
+    }
+    text
+}
 
 pub(crate) fn curate_prompt(rows: &[MemoryRow], today: NaiveDate) -> String {
     let mut text = String::new();
@@ -644,6 +693,11 @@ pub(crate) enum CurateOp {
         #[serde(flatten)]
         text: CuratedText,
     },
+    /// `id` is out of date: `by` says what holds now.
+    Supersede {
+        id: String,
+        by: String,
+    },
     Forget {
         id: String,
     },
@@ -696,6 +750,9 @@ pub(crate) fn core_ids(
                     merged.insert(id.as_str(), keep.as_str());
                 }
             }
+            Step::Supersede { id, by } => {
+                merged.insert(id.as_str(), by.as_str());
+            }
         }
     }
     let mut ids = HashSet::new();
@@ -714,11 +771,12 @@ fn current(valid: &Validity, today: NaiveDate) -> bool {
 }
 
 /// The facts a profile is made of, in order: what holds right now, then the
-/// core memories, each with its days.
+/// core memories, each with its days. Only memories about the user: those
+/// about a machine, project or account come up where they are used.
 pub(crate) fn profile_facts(rows: &[MemoryRow], today: NaiveDate) -> Vec<String> {
-    let now = rows.iter().filter(|row| current(&row.valid, today));
-    let core = rows
-        .iter()
+    let about_user = || rows.iter().filter(|row| row.scope == Scope::User);
+    let now = about_user().filter(|row| current(&row.valid, today));
+    let core = about_user()
         .filter(|row| row.core && !row.valid.ended(today) && !current(&row.valid, today));
     now.chain(core)
         .map(|row| format!("{}{}", row.content, days(&row.valid)))
@@ -753,7 +811,10 @@ pub(crate) struct NewText {
 /// One checked curation change.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Step {
+    /// Deletes a memory: trivia, a one-off or a secret.
     Forget(String),
+    /// Keeps `id` as history of `by`, which contradicts and replaces it.
+    Supersede { id: String, by: String },
     /// Rewrites `keep` and deletes `drop`, which it now covers.
     Rewrite {
         keep: String,
@@ -838,6 +899,22 @@ pub(crate) fn plan_curation(
                     steps.push(Step::Forget(id));
                 }
             }
+            CurateOp::Supersede { id, by } => {
+                let (Some(old), Some(new)) = (rows.get(id.as_str()), rows.get(by.as_str())) else {
+                    continue;
+                };
+                // A learned memory does not overrule what the user said.
+                if id == by
+                    || (old.source == (MemorySource::User {})
+                        && new.source != (MemorySource::User {})
+                        && !old.valid.ended(today))
+                {
+                    continue;
+                }
+                if claim(slice::from_ref(&id)).is_some() {
+                    steps.push(Step::Supersede { id, by });
+                }
+            }
             CurateOp::Update { id, text: new } => {
                 let Some(found) = claim(slice::from_ref(&id)) else {
                     continue;
@@ -891,7 +968,37 @@ pub(crate) fn plan_curation(
             }
         }
     }
+    follow_supersedes(steps)
+}
+
+/// Points each supersede at the memory its `by` ends up as: the one it was
+/// merged into, or nothing when `by` itself is forgotten or superseded, in
+/// which case the older memory stays as it is.
+fn follow_supersedes(steps: Vec<Step>) -> Vec<Step> {
+    let mut gone = HashSet::new();
+    let mut merged = HashMap::new();
+    for step in &steps {
+        match step {
+            Step::Forget(id) | Step::Supersede { id, .. } => {
+                gone.insert(id.clone());
+            }
+            Step::Rewrite { keep, drop, .. } => {
+                for id in drop {
+                    merged.insert(id.clone(), keep.clone());
+                }
+            }
+        }
+    }
     steps
+        .into_iter()
+        .filter_map(|step| match step {
+            Step::Supersede { id, by } => {
+                let by = merged.get(&by).cloned().unwrap_or(by);
+                (!gone.contains(&by) && by != id).then_some(Step::Supersede { id, by })
+            }
+            other => Some(other),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -909,6 +1016,7 @@ mod tests {
             valid: Validity::default(),
             origin: None,
             core: false,
+            scope: Scope::User,
         }
     }
 
@@ -999,6 +1107,41 @@ mod tests {
     }
 
     #[test]
+    fn a_contradicted_memory_is_superseded_not_forgotten() {
+        let old = row("l1", "Works at Acme.");
+        let new = row("l2", "Works at Globex.");
+        let merged = row("l3", "Started at Globex in May.");
+        let mut stated = row("u1", "Lives in Porto.");
+        stated.source = MemorySource::User {};
+        let moved = row("l4", "Lives in Lisbon.");
+        let rows: HashMap<&str, &MemoryRow> = [&old, &new, &merged, &stated, &moved]
+            .into_iter()
+            .map(|r| (r.id.as_str(), r))
+            .collect();
+        let ops = parse_curation(
+            r#"{"ops":[
+            {"op":"supersede","id":"l1","by":"l2"},
+            {"op":"merge","ids":["l3","l2"],"content":"Works at Globex since May."},
+            {"op":"supersede","id":"u1","by":"l4"},
+            {"op":"supersede","id":"missing","by":"l4"}]}"#,
+        )
+        .unwrap()
+        .ops;
+        let steps = plan_curation(ops, &rows, day("2026-10-03"));
+        assert_eq!(
+            steps[0],
+            Step::Supersede {
+                id: "l1".into(),
+                by: "l3".into(),
+            },
+            "a supersede follows its newer memory into a merge"
+        );
+        assert_eq!(steps.len(), 2, "a learned memory never overrules the user");
+        let core = core_ids(vec!["l1".into()], &steps, &rows);
+        assert_eq!(core, HashSet::from(["l3".to_owned()]));
+    }
+
+    #[test]
     fn an_ended_memory_rewritten_without_days_lasts() {
         let mut trip = row("t1", "Is in Lisbon.");
         trip.valid = Validity {
@@ -1023,7 +1166,7 @@ mod tests {
             .into_iter()
             .map(|step| match step {
                 Step::Rewrite { fact, .. } => fact.valid,
-                Step::Forget(_) => panic!("unexpected forget"),
+                Step::Forget(_) | Step::Supersede { .. } => panic!("unexpected step"),
             })
             .collect();
         assert_eq!(valid, vec![Some(Validity::default()), None]);
@@ -1117,6 +1260,16 @@ mod tests {
         let core = core_ids(curation.core.unwrap(), &steps, &by_id);
         assert_eq!(core, HashSet::from(["a".to_owned()]));
         assert!(parse_curation(r#"{"ops":[]}"#).unwrap().core.is_none());
+    }
+
+    #[test]
+    fn only_the_user_scope_picks_a_profile() {
+        let user = curate_system(&Scope::User);
+        assert!(user.contains("pick the profile") && user.contains("\"core\""));
+        assert!(user.contains("about one user"));
+        let machine = curate_system(&Scope::Machine(iroh::SecretKey::generate().public()));
+        assert!(!machine.contains("profile") && !machine.contains("core"));
+        assert!(machine.contains("one of the user's machines"));
     }
 
     #[test]

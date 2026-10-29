@@ -204,6 +204,7 @@ function renderChat() {
     if (typed !== !!ask.value.trim()) { typed = !typed; refreshHints(); }
   });
   dragGrip(ask);
+  takeDraft(ask);
   focusAsk();
 }
 const ASK_HEIGHT = "bar.askHeight", ASK_MAX = 420;
@@ -673,6 +674,9 @@ function follow(id, turn) {
       case "replies":
         suggestions(turn, ev.replies);
         break;
+      case "transcript":
+        heard(turn, ev.text);
+        break;
       case "auto_picked":
         turn.model = ev.model;
         ranOn(turn, ev.model, ev.thinking);
@@ -887,6 +891,7 @@ function drawHistory(id, turns) {
   if (last) suggestions(last.turn, last.replies);
   scrollDown();
   loadAskFiles(id, body());
+  liveTranscript(id, body());
 }
 
 /// Puts the files sent in session `id` under their prompts, once the server
@@ -999,7 +1004,7 @@ function chatRow(c, i) {
   // A button cannot hold the action buttons, so the open row is a div.
   const tag = on && mode === "actions" ? "div" : "button";
   return `<${tag} class="dchat" role="option" aria-selected="${on}" data-i="${i}">
-      ${c.pinned ? `<span class="pin" aria-label="Pinned">${ICON.pin}</span>` : ""}${c.kind === "group" ? `<span class="grp" aria-label="Group">${ICON.group}</span>` : ""}${RESEARCHES.has(c.id) ? `<span class="grp" aria-label="Research">${ICON.doc}</span>` : ""}
+      ${c.pinned ? `<span class="pin" aria-label="Pinned">${ICON.pin}</span>` : ""}${c.kind === "group" ? `<span class="grp" aria-label="Group">${ICON.group}</span>` : ""}${RESEARCHES.has(c.id) ? `<span class="grp" aria-label="Research">${ICON.doc}</span>` : ""}${LIVE_CHATS.has(c.id) ? `<span class="grp vmic" aria-label="Spoken">${VOICE_ICON.mic}</span>` : ""}
       <span class="t"><span>${mark(c.title, query)}</span>${c.snippet ? `<small>${mark(c.snippet, query)}</small>` : ""}</span>${tail}</${tag}>`;
 }
 
@@ -1128,6 +1133,11 @@ const attachedCount = () => attached.pics.length + attached.files.length;
 /// An attached file's chip: its name and size, with a remove button while
 /// it waits in the prompt, as a button that opens it once it is kept.
 function fileChip(f, i) {
+  // A spoken message's recording, kept with it.
+  if (i === undefined && f.mime?.startsWith("audio/")) {
+    const tag = f.id ? "button" : "span";
+    return `<${tag} class="dachip dvclip" aria-label="Play your recording"><span class="vplay">${PLAY_ICON}</span>${wave(18, "", 3)}<span class="sz">Voice</span></${tag}>`;
+  }
   const about = [fileKind(f), fileSize(f.size)].filter(Boolean).join(", ");
   const remove = i === undefined ? "" : `<button aria-label="Remove ${esc(f.name)}" data-i="${i}">${ICON.x}</button>`;
   const tag = f.id ? "button" : "span";
@@ -1520,7 +1530,8 @@ function notice(text, { path, bad } = {}) {
 // ---------- Shortcuts ----------
 
 const SHORTCUTS = [
-  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌘Q", "Quit"]]],
+  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌥ ⌥ ⌥", "Live mode"], ["hold ⌥", "Talk, let go to send"], ["⌘Q", "Quit"]]],
+  ["In live mode", [["tap ⌥", "Interrupt Beep, or leave while listening"], ["esc", "Leave, keeping what was said"], ["“send”", "Send now"], ["“cancel”", "Drop what was said"], ["“scratch that”", "Remove the last sentence"], ["“stop”", "Stop Beep speaking"], ["“repeat that”", "Read the reply again"], ["“new chat”", "Start over"], ["“bye”", "Leave live mode"]]],
   ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
 ];
@@ -2118,6 +2129,36 @@ function renderRevoked() {
 
 // ---------- Settings ----------
 
+/// Settings, This Mac: the switch that lets Beep use this Mac, where its
+/// link stands, and the two permissions desktop control needs.
+function thisMac(mac) {
+  const p = mac.permissions;
+  const sub = !mac.enabled ? "Beep can see the screen, click, type and run commands here when you ask"
+    : mac.status === "not_allowed" ? "Only admins can use this for now"
+    : mac.status === "connected" ? (p.screen_recording && p.accessibility ? "Connected. Ask Beep to do something on this Mac" : "Connected. Allow both below so Beep can see and use the screen")
+    : "Connecting…";
+  const perm = (key, name, why, ok) => `<div class="dtoggle"><span><b>${name}</b><small>${why}</small></span>${ok
+    ? '<span class="dtag ok">Allowed</span>'
+    : `<button class="dbtn" data-allow="${key}">Allow…</button>`}</div>`;
+  const rows = mac.enabled && mac.status !== "not_allowed"
+    ? perm("ScreenRecording", "Screen Recording", "To see the screen", p.screen_recording)
+      + perm("Accessibility", "Accessibility", "To click, type and read app controls", p.accessibility)
+    : "";
+  return `<div class="dsec flat" style="padding-top:6px">This Mac</div>
+    <div class="dtoggle"><span><b>Let Beep use this Mac</b><small>${sub}</small></span>
+      <button class="dswitch" id="usemac" role="switch" aria-checked="${mac.enabled}" aria-label="Let Beep use this Mac"></button></div>${rows}`;
+}
+
+/// Settings, under Voice notes: what ends a spoken message in live mode.
+function sendRow(onPause) {
+  const why = onPause ? "Sends after a short pause. Saying “send” sends at once." : "Pauses never send. Say “send” when you are done.";
+  return `<div class="dtoggle"><span><b>When I stop talking</b><small>${why}</small></span></div>
+    <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:-6px 0 8px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
+}
+
+// Permissions are granted in System Settings; coming back shows them.
+window.addEventListener("focus", () => { if (S.view === "settings" && !$("#unlinkYes")) renderSettings(); });
+
 async function renderSettings(confirm = false) {
   S.view = "settings";
   let set;
@@ -2140,6 +2181,8 @@ async function renderSettings(confirm = false) {
     if (!A.apps) A.apps = await invoke("list_apps").catch(() => null);
     if (S.view !== "settings") return;
   }
+  const mac = linked ? await invoke("mac_control").catch(e => { console.warn(e); return null; }) : null;
+  if (S.view !== "settings") return;
   // Whether this Mac made the account, and so links and removes devices.
   const owner = devices.some(d => d.this_device && d.primary);
   const row = d => {
@@ -2162,10 +2205,12 @@ async function renderSettings(confirm = false) {
       <div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
     <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">
-      <div class="dsec flat">Devices</div>${link}${ask}${apps}
+      <div class="dsec flat">Devices</div>${link}${ask}${apps}${mac ? thisMac(mac) : ""}
       <div class="dsec flat" style="padding-top:6px">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
+      <div class="dtoggle"><span><b>Voice notes</b><small>Speak new notices when you are at this Mac and not on a call, then keep listening. Tap Option three times to talk live.</small></span>
+        <button class="dswitch" id="voiceNotes" role="switch" aria-checked="${set.voice_notes}" aria-label="Voice notes"></button></div>${sendRow(set.send_on_pause)}
     </div>${hints([["esc", "close"]])}`;
   $("#link")?.addEventListener("click", renderLink);
   $("#invite")?.addEventListener("click", renderInvitePhone);
@@ -2189,6 +2234,32 @@ async function renderSettings(confirm = false) {
       $("#unlinkErr").textContent = String(e);
     }
   });
+  $("#usemac")?.addEventListener("click", async e => {
+    const sw = e.currentTarget;
+    sw.disabled = true;
+    try {
+      await invoke("set_mac_control", { enabled: sw.getAttribute("aria-checked") !== "true" });
+    } catch (err) {
+      console.warn(err);
+    }
+    renderSettings();
+  });
+  bar.querySelectorAll("[data-allow]").forEach(b => b.addEventListener("click", () =>
+    invoke("allow_mac_permission", { permission: b.dataset.allow }).catch(e => console.warn(e))));
+  $("#voiceNotes").addEventListener("click", async e => {
+    const sw = e.currentTarget, on = sw.getAttribute("aria-checked") !== "true";
+    try {
+      await invoke("set_voice_notes", { enabled: on });
+      sw.setAttribute("aria-checked", on);
+      renderSettings();
+    } catch (err) {
+      console.warn(err);
+    }
+  });
+  bar.querySelectorAll("[data-pause]").forEach(b => b.addEventListener("click", async () => {
+    await invoke("set_send_on_pause", { enabled: b.dataset.pause === "1" }).catch(e => console.warn(e));
+    if (S.view === "settings") renderSettings();
+  }));
   $("#autostart").addEventListener("click", async e => {
     const sw = e.currentTarget, on = sw.getAttribute("aria-checked") !== "true";
     try {
@@ -3588,6 +3659,7 @@ async function refreshStatus() {
 async function show(view) {
   const st = await refreshStatus();
   loadResearches();
+  loadLiveChats();
   if (S.link === "linked") loadModels();
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
@@ -3609,11 +3681,214 @@ async function show(view) {
     else bar.querySelector("input")?.focus();
     return;
   }
+  // Live mode runs in the bar until it ends.
+  if (LV.on) return renderLive();
+  // A draft kept from live mode opens in its chat.
+  if (VN.draft && S.view === "voice") {
+    S.session = VN.draft.session;
+    return S.session ? openSession(S.session) : renderChat();
+  }
   if (S.view !== "chat" || !$("#ask")) {
     if (S.session) return openSession(S.session);
     return renderChat();
   }
   focusAsk();
+}
+
+// ---------- Live voice ----------
+
+// Live mode: an orb that follows the microphone while listening and Beep's
+// voice while speaking, one status word, and captions. Rust runs the
+// microphone, the server's live transcription and the player; this draws.
+const VOICE_ICON = {
+  speaker: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 010 6M19.5 6.5a8 8 0 010 11"/></svg>',
+  mic: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
+};
+/// `draft` holds the words live mode kept when it ended, { session, text },
+/// until a chat takes them, with `note` saying why.
+const VN = { draft: null, note: "" };
+/// The live view: the last view Rust sent, a toast, the pause bar and the
+/// message just sent.
+const LV = { on: false, view: null, toast: "", toastTimer: 0, soon: null, sent: "" };
+/// Chats live mode talked in, marked with a mic in the chat list.
+const LIVE_CHATS = new Set();
+async function loadLiveChats() {
+  const ids = await invoke("live_chats").catch(() => []);
+  for (const id of ids) LIVE_CHATS.add(id);
+}
+const LIVE_KEYS = [["tap ⌥", "stop"], ["hold ⌥", "talk, let go to send"], ["esc", "leave live"], ["⌘/", "what to say"]];
+/// Bars of a waveform, the same every time for a seed.
+function wave(n, cls = "", seed = 7) {
+  let a = seed;
+  const bars = Array.from({ length: n }, (_, i) => {
+    a = (a * 9301 + 49297) % 233280;
+    const tall = 4 + Math.round((a / 233280) * 18 * (0.55 + 0.45 * Math.sin(i / 3)));
+    return `<i style="height:${Math.max(3, tall)}px;animation-delay:${(i % 7) * -0.13}s"></i>`;
+  });
+  return `<span class="dwave ${cls}" aria-hidden="true">${bars.join("")}</span>`;
+}
+function liveTitle(v) {
+  if (v.title) return esc(v.title);
+  const c = v.session && S.cache.find(c => c.id === v.session);
+  return esc(c?.title || "New chat");
+}
+function renderLive() {
+  const v = LV.view;
+  if (!v) return;
+  S.view = "voice";
+  const mode = v.speaking || (v.phase === "speaking" && v.line) ? "speak" : v.phase === "thinking" ? "think" : "listen";
+  const holding = v.phase === "holding";
+  const word = { listen: ["Listening", "on"], think: ["Thinking", ""], speak: ["Speaking", "sp"] }[mode];
+  const orb = mode === "listen" ? (v.words ? "" : "idle") : mode;
+  const step = v.step ? `<span class="stepw"><span class="step"><span class="dspin"></span>${esc(v.step)}</span></span>` : "";
+  const prev = t => t ? `<span class="prev">${esc(t)}</span>` : "";
+  const cap = mode === "listen" ? `${prev(v.line)}${v.words ? esc(v.words) : '<span class="ph">Start talking…</span>'}`
+    : mode === "think" ? (v.step ? `${prev(LV.sent)}${step}` : prev(LV.sent))
+    : `${prev(v.prev ?? (v.phase === "thinking" ? LV.sent : ""))}${esc(v.line ?? "")}${v.phase === "thinking" ? step : ""}`;
+  const hint = holding ? "Let go of Option to send"
+    : mode === "listen" ? (v.pause_sends ? "Pause to send · Option to stop" : "Say “send” to send · Option to stop")
+    : mode === "think" ? "Option to skip the spoken answer"
+    : v.phase === "thinking" ? "Beep reads the answer when it is ready · Option to stop"
+    : "Say “stop” or tap Option to talk";
+  const keys = holding ? [["let go of ⌥", "send"], ["any key", "cancel"]]
+    : mode === "listen" ? LIVE_KEYS
+    : mode === "think" ? [["tap ⌥", "skip speaking"], ["esc", "leave live"]]
+    : [["tap ⌥", "interrupt"], ["hold ⌥", "reply"], ["esc", "leave live"]];
+  const left = LV.soon ? Math.max(0, LV.soon.until - Date.now()) : 0;
+  const soon = LV.soon && mode === "listen"
+    ? `<div class="dsoon" role="progressbar" aria-label="Sending after the pause"><i style="--from:${(left / LV.soon.total).toFixed(3)};animation-duration:${left}ms"></i></div>` : "";
+  bar.innerHTML = `<div class="dlv">
+    <div class="top"><span class="dlogo">b</span><span class="tt">${liveTitle(v)}</span><span class="live"><i></i>Live</span></div>
+    ${LV.toast ? `<div class="ltoast" role="status">${esc(LV.toast)}</div>` : ""}
+    <button class="dorb ${orb}" id="orb" aria-label="${mode === "speak" ? "Stop Beep speaking" : mode === "think" ? "Skip the spoken answer" : "Leave live mode"}"><span class="ring b"></span><span class="ring"></span><span class="core"></span></button>
+    <div class="word ${word[1]}">${word[0]}</div>
+    <div class="cap" aria-live="polite">${cap}</div>
+    ${soon}<div class="hint">${hint}</div>
+  </div>${hints(keys)}`;
+  $("#orb").addEventListener("click", () => invoke("live_tap").catch(() => {}));
+}
+/// Live mode ended with nothing to keep.
+function renderLeft(v) {
+  S.view = "voice";
+  const why = v.failure ?? (v.quiet ? "Live mode ended after 2 minutes quiet" : "Left live mode");
+  bar.innerHTML = `<div class="dvoice"><span class="dlogo">b</span><div class="vt"><small>${VOICE_ICON.mic}Live mode</small><span>${esc(why)}</span></div></div>
+    ${hints([["⌥ ⌥ ⌥", "talk again"], ["⌥ ⌥", "open Beep"]])}`;
+}
+/// Puts a kept draft in the open chat's prompt, after anything typed there.
+function takeDraft(ask) {
+  const d = VN.draft;
+  if (!d || !ask || (d.session ?? null) !== (S.session ?? null)) return;
+  VN.draft = null;
+  ask.value = ask.value.trim() ? `${ask.value.trimEnd()} ${d.text}` : d.text;
+  ask.dispatchEvent(new Event("input"));
+  if (VN.note) { notice(VN.note); VN.note = ""; }
+}
+/// Shows what the user said in place of the waiting prompt.
+function heard(turn, text) {
+  const ask = turn.querySelector(".ask") ?? h('<div class="ask"></div>');
+  if (!ask.isConnected) turn.prepend(ask);
+  ask.textContent = text;
+  ask.classList.remove("dmuted");
+  touch(S.session, text);
+}
+listen("live", e => {
+  const v = e.payload;
+  switch (v.kind) {
+    case "view":
+      if (!LV.on) barHeight = 0;
+      LV.on = true;
+      LV.view = v;
+      return renderLive();
+    case "level":
+      return $("#orb")?.style.setProperty("--lvl", Math.min(1, v.level).toFixed(3));
+    case "toast":
+      LV.toast = v.text;
+      clearTimeout(LV.toastTimer);
+      LV.toastTimer = setTimeout(() => { LV.toast = ""; if (LV.on) renderLive(); }, 1600);
+      return LV.on && renderLive();
+    case "soon":
+      LV.soon = v.ms == null ? null : { until: Date.now() + v.ms, total: Math.max(1, v.ms) };
+      return LV.on && renderLive();
+    case "sent":
+      LV.sent = v.text;
+      LV.soon = null;
+      LIVE_CHATS.add(v.session);
+      // The chat comes from the server when it is next opened.
+      live.delete(v.session);
+      touch(v.session, v.text);
+      return;
+    case "left":
+      LV.on = false;
+      LV.view = null;
+      LV.soon = null;
+      LV.toast = "";
+      // The bar, if Rust shows it next, opens on the chat live mode was in.
+      if (v.session) S.session = v.session;
+      if (v.draft) {
+        // Rust shows the bar next, which opens the chat with the draft.
+        VN.draft = { session: v.session ?? null, text: v.draft };
+        VN.note = v.failure ? `${v.failure} Your words are kept here.`
+          : v.quiet ? "Live mode ended after 2 minutes quiet. Your words are kept here."
+          : "Left live mode. Your words are kept here.";
+        return;
+      }
+      return renderLeft(v);
+  }
+});
+
+// ---------- Live transcript ----------
+
+/// Spoken turns less than this apart read as one live conversation.
+const LIVE_GAP = 10 * 60 * 1000;
+/// Lines a collapsed live conversation shows.
+const LIVE_SHOWN = 4;
+/// Turns of chat `id` said aloud become "Live conversation" blocks, once
+/// the server says which they are.
+async function liveTranscript(id, b) {
+  const spoken = await invoke("spoken_turns", { session: id }).catch(() => []);
+  if (!spoken.length || S.session !== id || body() !== b) return;
+  const said = new Set(spoken.map(String));
+  let run = [];
+  const flush = () => { if (run.length) transcriptBlock(id, run); run = []; };
+  for (const t of b.querySelectorAll(":scope > .turn")) {
+    const at = t.dataset.at;
+    if (!at || !said.has(at)) { flush(); continue; }
+    const before = run[run.length - 1];
+    if (before && +at - +before.dataset.at > LIVE_GAP) flush();
+    run.push(t);
+  }
+  flush();
+}
+function transcriptBlock(id, run) {
+  const time = ms => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const lines = [];
+  for (const t of run) {
+    const at = time(+t.dataset.at);
+    lines.push(["you", at, t.querySelector(".ask")?.textContent ?? ""]);
+    for (const s of t.steps ?? []) lines.push(["step", "", s.label]);
+    const said = t.querySelector(".reply")?.textContent.trim();
+    if (said) lines.push(["beep", at, said]);
+  }
+  const start = +run[0].dataset.at, end = +run[run.length - 1].dataset.at;
+  const mins = Math.max(1, Math.round((end - start) / 60000));
+  const el = h('<div class="dlt" role="group" aria-label="Live conversation"></div>');
+  const draw = all => {
+    const shown = all ? lines : lines.slice(0, LIVE_SHOWN);
+    const rows = shown.map(([who, at, text]) => who === "step"
+      ? `<div class="dlt-step"><i></i>${esc(text)}</div>`
+      : `<div class="dlt-line"><span class="who ${who}">${who === "you" ? "You" : "Beep"}</span><span class="txt">${esc(text)}</span><span class="at">${at}</span></div>`).join("");
+    const more = lines.length <= LIVE_SHOWN ? "<span></span>"
+      : `<button class="dlt-more" data-all="${all ? 0 : 1}">${all ? "Show less" : `Show all ${lines.length} lines`}</button>`;
+    el.innerHTML = `<div class="dlt-head"><span class="vmic">${VOICE_ICON.mic}</span><b>Live conversation</b>${time(start)} · ${mins} min</div>
+      <div class="dlt-body${all || lines.length <= LIVE_SHOWN ? "" : " cut"}">${rows}</div>
+      <div class="dlt-foot">${more}<button class="dbtn" data-live>Continue live<kbd>⌥ ⌥ ⌥</kbd></button></div>`;
+    el.querySelector("[data-all]")?.addEventListener("click", e => draw(e.currentTarget.dataset.all === "1"));
+    el.querySelector("[data-live]").addEventListener("click", () => invoke("continue_live", { session: id }).catch(err => notice(String(err), { bad: true })));
+  };
+  draw(false);
+  run[0].before(el);
+  // Kept, hidden, so the rest of the chat still finds them.
+  for (const t of run) t.style.display = "none";
 }
 
 // Only the Option double tap shows the bar without naming a view.
@@ -3918,6 +4193,7 @@ document.addEventListener("keydown", e => {
   const cmd = e.metaKey;
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (cmd && e.key === "/") { e.preventDefault(); return toggleKeys(); }
+  if (e.key === "Escape" && LV.on) { e.preventDefault(); return invoke("leave_live").catch(() => {}); }
   if (e.key === "Escape" && $("#keys")) { e.preventDefault(); return toggleKeys(); }
   if (e.key === "Escape" && closeRerunMenu()) { e.preventDefault(); return; }
   if (e.key === "Escape") {

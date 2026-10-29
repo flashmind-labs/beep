@@ -237,6 +237,8 @@ fn chat(session_id: Uuid, message: &str, research: bool) -> Chat {
         platform: None,
         files: Vec::new(),
         research,
+        voice: None,
+        spoken: false,
     }
 }
 

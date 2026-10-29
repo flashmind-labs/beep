@@ -212,6 +212,7 @@ internal fun toolIconFor(name: String): androidx.compose.ui.graphics.vector.Imag
         "memory" in lower || "remember" in lower -> Icons.Outlined.Psychology
         "file" in lower || "document" in lower || "read" in lower -> Icons.Outlined.Description
         "app" in lower || "launch" in lower -> Icons.Outlined.Launch
+        name == "node" -> Icons.Outlined.Dns
         "browser" in lower || "page" in lower || "browse" in lower -> Icons.Outlined.Language
         "clipboard" in lower || "copy" in lower -> Icons.Outlined.ContentCopy
         "image" in lower || "vision" in lower || "screenshot" in lower -> Icons.Outlined.Image

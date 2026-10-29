@@ -300,8 +300,11 @@ pub async fn research_send(
         images: Vec::new(),
         files: Vec::new(),
         research: start,
+        voice: None,
+        spoken: false,
     };
-    beep.post(session, sent, Pick::default(), on_event).await
+    beep.post(session, sent, Pick::default(), on_event).await?;
+    Ok(())
 }
 
 /// A research as the window draws it.

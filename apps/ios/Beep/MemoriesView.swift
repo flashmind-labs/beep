@@ -7,6 +7,10 @@ struct MemoriesView: View {
     @State private var memories: [Memory] = []
     @State private var reads: [MemoryRead] = []
     @State private var readId: String?
+    /// What memories not about the user are about, by id, and the subject picked:
+    /// nil for everything, `userSubject` or a `scopeKey`.
+    @State private var scopes: [String: MemoryScope] = [:]
+    @State private var about: String?
     @State private var loaded = false
     @State private var error = ""
     @State private var query = ""
@@ -47,6 +51,7 @@ struct MemoriesView: View {
                     .padding(.horizontal, 20)
                 }
             }
+            if !scopes.isEmpty { subjectChips }
             if let read {
                 Text("What Beep learned or confirmed reading \(read.source) \(readDate(read)).")
                     .font(.body(12)).foregroundStyle(Mint.muted)
@@ -74,7 +79,7 @@ struct MemoriesView: View {
                             Text(group.name).font(.body(12, .semibold)).foregroundStyle(Mint.dim)
                                 .padding(.leading, 4).padding(.top, 10).padding(.bottom, 2)
                             ForEach(group.items, id: \.id) { memory in
-                                MemoryCard(memory: memory) {
+                                MemoryCard(memory: memory, about: scopes[memory.id]) {
                                     text = memory.content
                                     editing = memory
                                 } forget: { delete(memory) }
@@ -117,9 +122,36 @@ struct MemoriesView: View {
 
     private var read: MemoryRead? { reads.first { $0.id == readId } }
 
+    private func subject(_ memory: Memory) -> String { scopes[memory.id].map(scopeKey) ?? userSubject }
+
+    @ViewBuilder private var subjectChips: some View {
+        let counts = Dictionary(grouping: memories, by: subject).mapValues(\.count)
+        let named = Dictionary(scopes.values.map { (scopeKey($0), $0) }, uniquingKeysWith: { first, _ in first })
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ReadChip(label: "Everything", count: nil, selected: about == nil) { about = nil }
+                if let mine = counts[userSubject] {
+                    ReadChip(label: "You", count: mine, selected: about == userSubject) { about = userSubject }
+                }
+                ForEach(named.sorted { scopeLabel($0.value).lowercased() < scopeLabel($1.value).lowercased() }, id: \.key) { entry in
+                    ReadChip(label: scopeLabel(entry.value), count: counts[entry.key], selected: about == entry.key) { about = entry.key }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .padding(.vertical, 4)
+        if let about {
+            let what = about == userSubject ? "you" : named[about].map(scopeSubject) ?? "this"
+            Text("What Beep knows about \(what).")
+                .font(.body(12)).foregroundStyle(Mint.muted)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 6)
+        }
+    }
+
     private var shown: [Memory] {
         let ids = read.map { Set($0.memories) }
-        let inRead = ids.map { ids in memories.filter { ids.contains($0.id) } } ?? memories
+        let inReadAll = ids.map { ids in memories.filter { ids.contains($0.id) } } ?? memories
+        let inRead = about.map { about in inReadAll.filter { subject($0) == about } } ?? inReadAll
         guard !query.isEmpty else { return inRead }
         return inRead.filter {
             $0.content.localizedCaseInsensitiveContains(query) || $0.category.localizedCaseInsensitiveContains(query)
@@ -141,6 +173,7 @@ struct MemoriesView: View {
         do {
             memories = try await model.memories()
             reads = await model.memoryReads()
+            scopes = await model.memoryScopes()
             if latestRead, readId == nil { readId = reads.first?.id }
             error = ""
         } catch {
@@ -162,6 +195,7 @@ struct MemoriesView: View {
 
 private struct MemoryCard: View {
     let memory: Memory
+    let about: MemoryScope?
     let edit: () -> Void
     let forget: () -> Void
 
@@ -173,6 +207,13 @@ private struct MemoryCard: View {
                 Text(memory.content).font(.body(13)).lineSpacing(4)
                     .foregroundStyle(ended ? Mint.muted : Mint.ink)
                     .multilineTextAlignment(.leading)
+                if let about {
+                    HStack(spacing: 4) {
+                        Image(systemName: scopeIcon(about)).font(.system(size: 10))
+                        Text(scopeLabel(about)).font(.body(11, .medium))
+                    }
+                    .foregroundStyle(Mint.ink)
+                }
                 Text(details(today: today)).font(.body(11)).foregroundStyle(Mint.dim)
                 if let until = memory.validUntil {
                     HStack(spacing: 4) {
@@ -206,6 +247,44 @@ private struct MemoryCard: View {
         var parts = [origin, shortDate(memory.updated)]
         if let from = memory.validFrom, from > today { parts.append("Starts " + shortDate(from)) }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// The subject filter for memories about the user, who has no scope.
+private let userSubject = "user"
+
+/// One key per subject, so memories about the same machine, project or account group together.
+private func scopeKey(_ scope: MemoryScope) -> String {
+    switch scope {
+    case .machine(let id, _): "machine:\(id)"
+    case .project(let name): "project:\(name)"
+    case .account(let app): "account:\(app)"
+    }
+}
+
+/// What a memory is about, as its card and chip say it: "build-box", "Project beep", "Github account".
+private func scopeLabel(_ scope: MemoryScope) -> String {
+    switch scope {
+    case .machine(_, let name): name ?? "A machine"
+    case .project(let name): "Project \(name)"
+    case .account(let app): "\(app.prefix(1).uppercased() + app.dropFirst()) account"
+    }
+}
+
+/// The subject in a sentence: "the machine build-box".
+private func scopeSubject(_ scope: MemoryScope) -> String {
+    switch scope {
+    case .machine(_, let name): name.map { "the machine \($0)" } ?? "a machine no longer linked"
+    case .project(let name): "the project \(name)"
+    case .account(let app): "your \(app.prefix(1).uppercased() + app.dropFirst()) account"
+    }
+}
+
+private func scopeIcon(_ scope: MemoryScope) -> String {
+    switch scope {
+    case .machine: "server.rack"
+    case .project: "folder"
+    case .account: "person.crop.circle"
     }
 }
 

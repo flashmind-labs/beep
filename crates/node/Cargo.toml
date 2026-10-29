@@ -1,0 +1,32 @@
+[package]
+name = "beep-node"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[features]
+default = ["cli"]
+# The command line; a host that embeds the node, such as the Mac app, leaves it out.
+cli = ["dep:clap", "dep:logforth"]
+
+[[bin]]
+name = "beep-node"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[dependencies]
+anyhow = "1"
+beep-proto = { path = "../proto" }
+clap = { version = "4", features = ["derive"], optional = true }
+dirs = "7"
+iroh = "1.3"
+libc = "0.2"
+log = "0.4"
+logforth = { version = "0.30", features = ["starter-log"], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+toml = "1"
+which = "5"

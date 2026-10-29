@@ -75,7 +75,8 @@ const OUTLOOK_FIELDS: &[&str] = &[
     "conversationId",
 ];
 /// Gmail's tabs for mail nobody wrote to the user in person.
-const BULK_LABELS: [&str; 3] = ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"];
+pub(crate) const BULK_LABELS: [&str; 3] =
+    ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"];
 /// Above this Jev score the learner reads the email.
 const MEMORY_THRESHOLD: f64 = 0.3;
 const EMAIL_QUESTION: &str = "Does this email show something about the user's own life that a personal assistant should know to help them?";
@@ -750,7 +751,7 @@ fn recipients(value: &Value) -> String {
 }
 
 /// Reads RFC 3339 dates and the Unix seconds or milliseconds some APIs use.
-fn timestamp(text: &str) -> Option<DateTime<Utc>> {
+pub(crate) fn timestamp(text: &str) -> Option<DateTime<Utc>> {
     if let Ok(date) = DateTime::parse_from_rfc3339(text) {
         return Some(date.with_timezone(&Utc));
     }

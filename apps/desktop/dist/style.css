@@ -479,3 +479,66 @@ button.dachip:hover { border-color: #3A4A41 }
 .dachips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end }
 .dachips .dachip { height: 40px; border-radius: 7px }
 
+
+/* Live mode: orb, status word, captions */
+.dvoice { display: flex; align-items: center; gap: 12px; padding: 14px 16px 10px }
+.dvoice .vt { flex: 1; min-width: 0; display: grid; gap: 2px }
+.dvoice .vt small { font-size: 11.5px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 6px }
+.dvoice .vt span { font-size: 15px; line-height: 21px }
+.dwave { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; height: 24px; overflow: hidden }
+.dwave i { width: 3px; flex: none; border-radius: 2px; background: var(--emerald); display: block }
+.dlv { flex: none; display: grid; justify-items: center; gap: 6px; padding: 18px 24px 14px; position: relative }
+.dlv .top { position: absolute; left: 14px; right: 14px; top: 12px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted) }
+.dlv .top .dlogo { width: 20px; height: 20px; font-size: 11px; border-radius: 6px }
+.dlv .top .tt { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dlv .top .live { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; font-size: 10.5px; color: var(--emerald) }
+.dlv .top .live i { width: 6px; height: 6px; border-radius: 50%; background: currentColor }
+.dorb { --lvl: 0; --c1: #A6EBCF; --c2: #3B9B7A; --c3: #0F3B2C; --glow: 59,155,122; width: 116px; height: 116px; margin-top: 10px; position: relative; display: grid; place-items: center; border: 0; padding: 0; background: none }
+.dorb:focus-visible { outline: 2px solid var(--emerald); outline-offset: 2px; border-radius: 50% }
+.dorb.speak { --c1: #FFD0C7; --c2: #F07A6A; --c3: #5A231C; --glow: 240,122,106 }
+.dorb.think { --c1: #7FBFA6; --c2: #2E6F59; --c3: #0D2A20; --glow: 59,155,122 }
+.dorb.idle { --c1: #6E8C7F; --c2: #2C3F36; --c3: #121916; --glow: 146,165,154 }
+.dorb .core { width: 76px; height: 76px; border-radius: 50%; background: radial-gradient(circle at 36% 30%, var(--c1) 0%, var(--c2) 46%, var(--c3) 100%);
+  transform: scale(calc(1 + var(--lvl) * .22)); box-shadow: 0 0 calc(18px + var(--lvl) * 44px) rgba(var(--glow), calc(.28 + var(--lvl) * .4)), inset 0 -6px 14px rgba(0,0,0,.35); transition: transform .08s linear, box-shadow .08s linear }
+.dorb .ring { position: absolute; inset: 20px; border-radius: 50%; border: 1.5px solid rgba(var(--glow), calc(.12 + var(--lvl) * .35)); transform: scale(calc(1.05 + var(--lvl) * .42)); transition: transform .12s linear }
+.dorb .ring.b { transform: scale(calc(1.18 + var(--lvl) * .7)); border-color: rgba(var(--glow), calc(.05 + var(--lvl) * .2)) }
+.dorb.think .core { animation: dbreath 2.4s ease-in-out infinite }
+.dorb.think .ring { animation: dbreath 2.4s ease-in-out infinite reverse }
+@keyframes dbreath { 0%,100% { transform: scale(.94) } 50% { transform: scale(1.06) } }
+.dlv .word { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 2px }
+.dlv .word.on { color: var(--emerald) } .dlv .word.sp { color: var(--coral) }
+.dlv .cap { width: 100%; max-width: 560px; min-height: 52px; max-height: 132px; overflow-y: auto; text-align: center; font-size: 19px; line-height: 26px; text-wrap: balance; color: var(--fg) }
+.dlv .cap .prev { display: block; font-size: 14px; line-height: 20px; color: var(--dim); margin-bottom: 2px }
+.dlv .cap .ph { color: var(--dim) }
+.dlv .stepw { display: flex; justify-content: center; margin-top: 6px }
+.dlv .step { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted) }
+.dlv .hint { font-size: 12px; color: var(--dim); text-align: center }
+.dlv .ltoast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 999px; background: var(--elev); border: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--fg); white-space: nowrap; animation: dover .22s var(--ease) }
+.dsoon { width: 140px; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden }
+.dsoon i { --from: 1; display: block; height: 100%; background: var(--emerald); transform-origin: left; animation: dsoon linear forwards }
+@keyframes dsoon { from { transform: scaleX(var(--from)) } to { transform: scaleX(0) } }
+@media (prefers-reduced-motion: reduce) {
+  .dorb .core, .dorb .ring { transition: none; transform: none !important; animation: none !important }
+  .dsoon i { animation: none }
+}
+
+/* A live conversation in a chat */
+.dlt { flex: none; border: 1px solid var(--border); border-radius: 12px; background: var(--elev); display: grid; overflow: hidden }
+.dlt-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--border) }
+.dlt-head b { color: var(--fg); font-weight: 600 }
+.dlt-head .vmic { display: grid; color: var(--emerald) }
+.dlt-body { display: grid; gap: 6px; padding: 10px 12px 4px; position: relative; user-select: text }
+.dlt-body.cut::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 28px; background: linear-gradient(transparent, var(--elev)) }
+.dlt-line { display: grid; grid-template-columns: 38px 1fr auto; gap: 8px; font-size: 13.5px; line-height: 19px }
+.dlt-line .who { font-size: 11.5px; font-weight: 600; color: var(--muted); padding-top: 1px }
+.dlt-line .who.beep { color: var(--emerald) }
+.dlt-line .at { font-size: 11px; color: var(--dim); padding-top: 1px; font-variant-numeric: tabular-nums }
+.dlt-step { display: flex; align-items: center; gap: 7px; margin-left: 46px; font-size: 12px; color: var(--dim) }
+.dlt-step i { width: 4px; height: 4px; border-radius: 50%; background: currentColor }
+.dlt-foot { display: flex; align-items: center; gap: 8px; padding: 6px 12px 9px }
+.dlt-more { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--muted) }
+.dlt-foot .dbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 6px }
+.dchat .grp.vmic { color: var(--emerald) }
+.dachip.dvclip { gap: 9px; padding: 4px 12px 4px 4px; border-radius: 999px; font-variant-numeric: tabular-nums }
+.dvclip .vplay { width: 24px; height: 24px; border-radius: 50%; background: var(--emerald); color: var(--ink); display: grid; place-items: center; flex: none }
+.dvclip .dwave { flex: none; width: 74px; height: 16px }

@@ -17,17 +17,18 @@ use beep_proto::{
     GetSessionFiles, GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink,
     GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount,
     JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps,
-    ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMcpServers, ListMcpTools,
-    ListMemories, ListMemoryReads, ListPlaces, ListResearches, ListSessions, ListSkills,
-    McpCallback, McpConnect, McpServer, McpTools, Memory, MemoryRead, Models, Notice, PeekGroup,
-    PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
-    RemoveMcpServer, RenameSession, Research, ResearchSummary, RouteCard, Run, RunCron,
-    SearchSessions, SendToGroup, SentFiles, SentImages, Session, SessionMatch, SetAgents,
-    SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking, SetTimezone,
-    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, StartAppAuth, StopResearch,
-    Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession,
-    UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload,
+    ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMachines, ListMcpServers,
+    ListMcpTools, ListMemories, ListMemoryReads, ListMemoryScopes, ListPlaces, ListResearches,
+    ListSessions, ListSkills, Machine, McpCallback, McpConnect, McpServer, McpTools, Memory,
+    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession,
+    Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, Research, ResearchSummary,
+    RouteCard, Run, RunCron, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages,
+    Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel,
+    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill,
+    StartAppAuth, StopResearch, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill,
+    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
+    UpdateSkill, Upload,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -495,6 +496,8 @@ impl BeepClient {
             platform: Some(PLATFORM),
             files,
             research: false,
+            voice: None,
+            spoken: false,
         };
         let replies = self.stream(chat).await?;
         Ok(EventStream::new(replies))
@@ -519,6 +522,8 @@ impl BeepClient {
             platform: Some(PLATFORM),
             files: Vec::new(),
             research: true,
+            voice: None,
+            spoken: false,
         };
         let replies = self.stream(chat).await?;
         Ok(EventStream::new(replies))
@@ -820,6 +825,16 @@ impl BeepClient {
     /// The reads of mail and calendars that found memories, newest first.
     pub async fn list_memory_reads(&self) -> Result<Vec<MemoryRead>, BeepError> {
         self.call(ListMemoryReads {}).await
+    }
+
+    /// What each memory that is not about the user is about.
+    pub async fn list_memory_scopes(&self) -> Result<Vec<ScopedMemory>, BeepError> {
+        self.call(ListMemoryScopes {}).await
+    }
+
+    /// The machines running beep-node on the account. Admins only.
+    pub async fn list_machines(&self) -> Result<Vec<Machine>, BeepError> {
+        self.call(ListMachines {}).await
     }
 
     pub async fn delete_memory(&self, id: String) -> Result<(), BeepError> {

@@ -1,6 +1,6 @@
 use crate::{
-    Call, Hello, Notice, Platform, Rpc, Stream, WIRE,
-    wire::{ALPN, PUSH_ALPN, Rx, framed},
+    Call, Duplex, Hello, Notice, Platform, Rpc, Stream, WIRE,
+    wire::{ALPN, PUSH_ALPN, Rx, Tx, framed},
 };
 use anyhow::{Context, Result};
 use iroh::{
@@ -191,6 +191,28 @@ impl Client {
         self.open(request).await
     }
 
+    /// Sends a request that keeps sending: `Uplink` carries what follows
+    /// it, and the replies arrive as they come.
+    pub async fn duplex<R: Duplex>(
+        &self,
+        request: &R,
+    ) -> Result<(Uplink<R::Up>, Replies<R::Reply>)> {
+        let busy = Busy::new(self.activity.clone());
+        let (send, recv) = self.connection.open_bi().await?;
+        let (mut tx, rx) = framed(send, recv);
+        tx.request(request).await?;
+        let uplink = Uplink {
+            tx,
+            _up: PhantomData,
+        };
+        let replies = Replies {
+            rx,
+            _busy: busy,
+            _reply: PhantomData,
+        };
+        Ok((uplink, replies))
+    }
+
     async fn open<R: Rpc, T>(&self, request: &R) -> Result<Replies<T>> {
         let busy = Busy::new(self.activity.clone());
         let (send, recv) = self.connection.open_bi().await?;
@@ -202,6 +224,23 @@ impl Client {
             _busy: busy,
             _reply: PhantomData,
         })
+    }
+}
+
+/// The sending side of a `Duplex` request. Finish it to say nothing more
+/// comes; dropping it does the same.
+pub struct Uplink<T> {
+    tx: Tx,
+    _up: PhantomData<fn(T)>,
+}
+
+impl<T: serde::Serialize> Uplink<T> {
+    pub async fn send(&mut self, up: &T) -> Result<()> {
+        self.tx.ok(up).await
+    }
+
+    pub fn finish(&mut self) -> Result<()> {
+        self.tx.finish()
     }
 }
 

@@ -20,7 +20,7 @@ use crate::{
     feeds::mail::{Mailbox, clip},
     protocol::{MemoryRead, MemorySource, Notice},
     starters::{Generator, unfence},
-    store::{Fact, MemoryRow, Origin, ProfileNote, Validity},
+    store::{Fact, MemoryRow, Origin, ProfileNote, Scope, Validity},
     user::User,
 };
 use anyhow::{Context, Result, bail};
@@ -547,6 +547,7 @@ async fn condense(generator: Generator<'_>, user: &User, source: Source) -> Resu
             source: MemorySource::Email {},
             valid: Some(valid),
             origin: Some(origin),
+            scope: Some(Scope::User),
         };
         match user.remember(fact).await {
             Ok(_) => saved += 1,
@@ -613,6 +614,7 @@ mod tests {
                 quote: None,
             }),
             core: false,
+            scope: Scope::User,
         }
     }
 

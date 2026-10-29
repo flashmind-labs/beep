@@ -25,6 +25,7 @@ private let toolLabels: [String: String] = [
     "set_alarm": "Setting an alarm",
     "open_browser": "Opening a page",
     "browser": "Browsing",
+    "node": "Using your machines",
     "mcp_search": "Finding the right app tool",
     "mcp": "Using a connected app",
     "open_maps": "Looking up a place",

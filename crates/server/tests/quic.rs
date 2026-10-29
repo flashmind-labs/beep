@@ -6,11 +6,12 @@ use beep_server::{
     models::ModelChoices,
     protocol::{
         ActiveRun, ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace,
-        DeleteSkill, DeviceKind, Event, ExistingSessions, GetEvents, GetRun, GetSession,
-        GetUpdates, Health, HistoryEntry, InviteDevice, LinkDevice, ListApps, ListCrons,
-        ListDevices, ListPlaces, ListSessions, ListSkills, MemorySource, MessageBody, Notice,
-        PeekInvite, RemoveDevice, RunEvent, Session, StartAppAuth, StreamUpdates, SuggestPrompts,
-        UndoSkill, Update, UpdateLocation, UpdatePlace, UpdateSkill,
+        DeleteSkill, DeviceKind, Event, ExistingSessions, Filler, GetEvents, GetRun, GetSession,
+        GetSessionFiles, GetUpdates, Health, HistoryEntry, InviteDevice, LinkDevice, ListApps,
+        ListCrons, ListDevices, ListPlaces, ListSessions, ListSkills, MAX_SAY_CHARS, MemorySource,
+        MessageBody, Notice, PeekInvite, RemoveDevice, RunEvent, Say, Session, SpeakNotice,
+        SpokenTurns, StartAppAuth, StreamUpdates, SuggestPrompts, UndoSkill, Update,
+        UpdateLocation, UpdatePlace, UpdateSkill, Upload,
         link::{LinkOffer, OFFER_TTL},
         wire::framed,
     },
@@ -25,7 +26,7 @@ use chrono::Utc;
 use flashmind::cron::{CronJob, JobSchedule};
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role,
-    StreamEvent,
+    StreamEvent, SttRequest, TtsRequest,
 };
 use iroh::SecretKey;
 use iroh::address_lookup::MemoryLookup;
@@ -70,6 +71,12 @@ impl LlmProvider for ProviderStub {
         if system.starts_with("You keep the long-term memory") {
             return Box::pin(async_stream::stream! {
                 yield Ok(StreamEvent::ContentDelta(r#"{"ops":[]}"#.into()));
+                yield Ok(StreamEvent::Finished(FinishReason::Stop));
+            });
+        }
+        if system.starts_with("You turn a message from Beep") {
+            return Box::pin(async_stream::stream! {
+                yield Ok(StreamEvent::ContentDelta("Your tea order is ready. Want me to pay?".into()));
                 yield Ok(StreamEvent::Finished(FinishReason::Stop));
             });
         }
@@ -119,6 +126,19 @@ impl LlmProvider for ProviderStub {
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 yield Ok(StreamEvent::ContentDelta(text.into()));
             }
+            yield Ok(StreamEvent::Finished(FinishReason::Stop));
+        })
+    }
+    fn text_to_speech(&self, request: TtsRequest) -> CompletionStream {
+        let input = request.input;
+        Box::pin(async_stream::stream! {
+            yield Ok(StreamEvent::AudioDelta { data: input.into_bytes(), format: "mp3".into() });
+            yield Ok(StreamEvent::Finished(FinishReason::Stop));
+        })
+    }
+    fn transcribe(&self, _request: SttRequest) -> CompletionStream {
+        Box::pin(async_stream::stream! {
+            yield Ok(StreamEvent::ContentDelta("Remember I prefer tea".into()));
             yield Ok(StreamEvent::Finished(FinishReason::Stop));
         })
     }
@@ -302,6 +322,8 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
         platform: None,
         files: Vec::new(),
         research: false,
+        voice: None,
+        spoken: false,
     };
     let mut replies = c.stream(&chat).await.unwrap();
     let run_id = started(&mut replies).await;
@@ -407,6 +429,8 @@ async fn cancellation_busy_session_and_invalid_input() {
         platform: None,
         files: Vec::new(),
         research: false,
+        voice: None,
+        spoken: false,
     };
     let mut slow_events = c.stream(&slow).await.unwrap();
     let slow_run = started(&mut slow_events).await;
@@ -421,6 +445,8 @@ async fn cancellation_busy_session_and_invalid_input() {
         platform: None,
         files: Vec::new(),
         research: false,
+        voice: None,
+        spoken: false,
     };
     let mut busy = c.stream(&busy).await.unwrap();
     assert!(matches!(
@@ -438,6 +464,8 @@ async fn cancellation_busy_session_and_invalid_input() {
         platform: None,
         files: Vec::new(),
         research: false,
+        voice: None,
+        spoken: false,
     };
     let mut empty = c.stream(&empty).await.unwrap();
     assert!(matches!(
@@ -495,6 +523,7 @@ async fn crash_recovery_and_memory_updates_are_durable_and_scoped() {
         source: MemorySource::User {},
         valid: None,
         origin: None,
+        scope: None,
     };
     let coffee = User::for_test(store.clone(), "alice")
         .add_memory(memory("coffee"))
@@ -764,6 +793,8 @@ async fn a_routine_runs_without_its_chats_history_and_replies_in_it() {
             platform: None,
             files: Vec::new(),
             research: false,
+            voice: None,
+            spoken: false,
         })
         .await
         .unwrap();
@@ -1049,6 +1080,8 @@ async fn a_linked_computer_shares_the_account_until_removed() {
         platform: None,
         files: Vec::new(),
         research: false,
+        voice: None,
+        spoken: false,
     };
     let mut replies = desk.stream(&chat).await.unwrap();
     drain(&mut replies).await;
@@ -1113,6 +1146,8 @@ async fn a_client_follows_its_log_and_fetches_only_what_is_new() {
             platform: None,
             files: Vec::new(),
             research: false,
+            voice: None,
+            spoken: false,
         })
         .await
         .unwrap();
@@ -1206,6 +1241,8 @@ async fn a_prompt_from_the_computer_shows_live_on_the_phone() {
         platform: None,
         files: Vec::new(),
         research: false,
+        voice: None,
+        spoken: false,
     };
     let mut asked = desk.stream(&ask).await.unwrap();
     let run_id = started(&mut asked).await;
@@ -1261,4 +1298,132 @@ async fn a_prompt_from_the_computer_shows_live_on_the_phone() {
             .any(|event| matches!(event, RunEvent::RunFinished { .. }))
     );
     assert_eq!(phone.call(&ActiveRun { session_id }).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn a_spoken_message_runs_as_its_transcript_and_is_marked_spoken() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let session = Uuid::new_v4();
+    let chat = Chat {
+        session_id: session,
+        request_id: Uuid::new_v4(),
+        message: String::new(),
+        images: Vec::new(),
+        model: None,
+        thinking: None,
+        platform: None,
+        files: Vec::new(),
+        research: false,
+        voice: Some(Upload {
+            name: "reply.wav".into(),
+            mime: "audio/wav".into(),
+            data: vec![1, 2, 3, 4],
+        }),
+        spoken: false,
+    };
+    let mut replies = c.stream(&chat).await.unwrap();
+    started(&mut replies).await;
+    let events = drain(&mut replies).await;
+    assert!(matches!(
+        events.first(),
+        Some(RunEvent::Transcript { text }) if text == "Remember I prefer tea"
+    ));
+    assert!(matches!(events.last(), Some(RunEvent::RunFinished { .. })));
+    let asked = h.provider.asked.lock().unwrap().clone();
+    assert!(asked.iter().any(|m| m.contains("Remember I prefer tea")));
+
+    let history = c
+        .call(&GetSession {
+            id: session.to_string(),
+        })
+        .await
+        .unwrap();
+    let Some(HistoryEntry::User {
+        content, timestamp, ..
+    }) = history.first()
+    else {
+        panic!("the prompt comes first");
+    };
+    assert_eq!(content, "Remember I prefer tea");
+    // The recording is not kept; the turn is marked spoken instead.
+    let files = c
+        .call(&GetSessionFiles {
+            session_id: session.to_string(),
+        })
+        .await
+        .unwrap();
+    assert!(files.iter().all(|sent| sent.files.is_empty()));
+    let spoken = c
+        .call(&SpokenTurns {
+            session_id: session,
+        })
+        .await
+        .unwrap();
+    assert_eq!(spoken, vec![*timestamp]);
+
+    // Something that is not audio is refused before anything runs.
+    let mut bad = chat.clone();
+    bad.request_id = Uuid::new_v4();
+    bad.voice = Some(Upload {
+        name: "notes.txt".into(),
+        mime: "text/plain".into(),
+        data: vec![1],
+    });
+    let err = c.stream(&bad).await.unwrap().next().await.unwrap_err();
+    assert!(matches!(api_error(err), ApiError::BadRequest { .. }));
+}
+
+#[tokio::test]
+async fn live_mode_reads_lines_and_says_what_it_does() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let said = c
+        .call(&Say {
+            text: "The root disk is 91% full.".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(said.text, "The root disk is 91% full.");
+    assert_eq!(said.audio.data, said.text.as_bytes());
+    let filler = c
+        .call(&Filler {
+            step: "Running df -h on build-box".into(),
+            said: "¿Está lleno el disco de build-box?".into(),
+            still: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(filler.text, "Voy a mirar build-box.");
+    let long = c
+        .call(&Say {
+            text: "a".repeat(MAX_SAY_CHARS + 1),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(api_error(long), ApiError::BadRequest { .. }));
+}
+
+#[tokio::test]
+async fn a_notice_comes_back_as_a_voice_note() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let note = c
+        .call(&SpeakNotice {
+            title: "Coffee shop".into(),
+            body: "**Order 12** is ready: https://shop.example/12".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(note.text, "Your tea order is ready. Want me to pay?");
+    assert_eq!(note.audio.mime, "audio/mpeg");
+    assert_eq!(note.audio.data, note.text.as_bytes());
+    let empty = c
+        .call(&SpeakNotice {
+            title: " ".into(),
+            body: String::new(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(api_error(empty), ApiError::BadRequest { .. }));
 }

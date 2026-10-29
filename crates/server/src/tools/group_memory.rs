@@ -4,7 +4,12 @@
 //! made, and default to the member who asked.
 
 use super::memory::{arg, fact, fact_schema, opt_arg, reply};
-use crate::{leak::Secret, protocol::MemorySource, store::MEMORY_CATEGORIES, user::User};
+use crate::{
+    leak::Secret,
+    protocol::MemorySource,
+    store::{MEMORY_CATEGORIES, Scope},
+    user::User,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use flashmind::types::{
@@ -88,7 +93,7 @@ impl Tool for GroupRecallTool {
             }
             let hits = member
                 .user
-                .search_memories(query, category, RECALL_LIMIT)
+                .search_memories(query, category, Some(&Scope::User), RECALL_LIMIT)
                 .await?;
             for hit in hits.into_iter().filter(|hit| shareable(hit.source)) {
                 found.push(json!({

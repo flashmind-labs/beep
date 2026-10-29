@@ -19,6 +19,8 @@ import com.flashmind.beep.ffi.BeepException
 import com.flashmind.beep.proto.DeviceInvite
 import com.flashmind.beep.proto.JoinPreview
 import com.flashmind.beep.proto.MemoryRead
+import com.flashmind.beep.proto.MemoryScope
+import com.flashmind.beep.proto.Machine
 import com.flashmind.beep.proto.Research
 import com.flashmind.beep.proto.ResearchSummary
 import com.flashmind.beep.proto.RouteCard
@@ -819,6 +821,9 @@ class ChatRepository(private val storage: LocalStorage) {
     /** The reads of mail and calendars that found memories, newest first. Empty on servers from before them. */
     suspend fun listMemoryReads(): List<MemoryRead> =
         try { api().listMemoryReads() } catch (e: BeepException) { emptyList() }
+    /** What each memory that is not about the user is about, by memory id. Empty on servers from before scopes. */
+    suspend fun memoryScopes(): Map<String, MemoryScope> =
+        try { api().listMemoryScopes().associate { it.id to it.scope } } catch (e: BeepException) { emptyMap() }
     suspend fun deleteMemory(id: String) {
         api().deleteMemory(id)
     }
@@ -910,6 +915,10 @@ class ChatRepository(private val storage: LocalStorage) {
         api().setAppPermissions(slug, level, allowed)
     /** The last model list the server sent, cached between launches. Its choices are empty unless the user is an admin. */
     val modelChoices = MutableStateFlow(lists.models)
+    /** The server sends model choices only to admins, so this says whether the user is one. */
+    val isAdmin: Boolean get() = modelChoices.value?.choices?.isNotEmpty() == true
+    /** The machines running beep-node on the account. Admins only. */
+    suspend fun listMachines(): List<Machine> = api().listMachines()
     suspend fun listDevices(): List<LinkedDevice> = api().listDevices()
     suspend fun linkDevice(offerUri: String): LinkedDevice = api().linkDevice(offerUri)
     suspend fun removeDevice(id: String) = api().removeDevice(id)
@@ -1536,7 +1545,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     val picked = prompt?.copy(autoModel = event.pick.model, autoThinking = event.pick.thinking.name.lowercase())
                     if (picked != null) next = next.copy(messages = next.messages.map { if (it.id == prompt.id) picked else it })
                 }
-                is RunEvent.Usage, is RunEvent.RunStarted -> {}
+                is RunEvent.Usage, is RunEvent.RunStarted, is RunEvent.Transcript -> {}
             }
             next
         }

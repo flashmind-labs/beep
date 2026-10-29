@@ -79,6 +79,7 @@ sample_struct! {
     TurnAgent { message, agent }
     FilePart { data, size }
     Upload { name, mime, data }
+    VoiceNote { text, audio }
     FileRef { id, name, mime, size }
     SentFiles { message, files }
     Approval { app, action, fields }
@@ -115,6 +116,11 @@ sample_struct! {
     Place { id, name, latitude, longitude, radius, address, created_at, here, last_here_at, routines }
     Cron { id, label, prompt, schedule, enabled, created_at, run_once, last_run_at, next_run_at }
     LinkedDevice { id, name, kind, primary, this_device, linked_at }
+    Machine { id, name, online, seen_at, version, env }
+    MachineEnv { os, os_version, arch, hostname, cpus, memory_mb, home, tools, logins, avds }
+    MachineTool { name, version }
+    MachineLogin { tool, signed_in, account }
+    ScopedMemory { id, scope }
     DeviceInvite { code, uri, expires_at }
     JoinPreview { name, kind }
     Group { id, name, members, last, updated_at, beep_typing, pinned, apps_shared }

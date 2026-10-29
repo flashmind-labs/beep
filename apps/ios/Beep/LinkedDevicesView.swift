@@ -7,6 +7,8 @@ struct LinkedDevicesView: View {
     @Environment(AppModel.self) private var model
     let back: () -> Void
     @State private var devices: [LinkedDevice]?
+    /// Keys that are machines running beep-node. Only admins can list them.
+    @State private var machines: Set<String> = []
     @State private var removing: LinkedDevice?
     @State private var error = ""
 
@@ -59,8 +61,11 @@ struct LinkedDevicesView: View {
 
     private func row(_ device: LinkedDevice, canRemove: Bool) -> some View {
         let computer = device.kind == .desktop
+        let machine = machines.contains(device.id)
         let note = if device.thisDevice {
             "This phone"
+        } else if machine {
+            "Machine, linked " + device.linkedAt.formatted(.relative(presentation: .named))
         } else if computer && device.primary {
             "Desktop"
         } else if computer {
@@ -69,10 +74,10 @@ struct LinkedDevicesView: View {
             "Phone"
         }
         return HStack(spacing: 14) {
-            Image(systemName: computer ? "laptopcomputer" : "iphone")
+            Image(systemName: machine ? "server.rack" : computer ? "laptopcomputer" : "iphone")
                 .font(.system(size: 18)).foregroundStyle(Mint.ink)
                 .frame(width: 40, height: 40)
-                .background(RoundedRectangle(cornerRadius: 11).fill(Mint.tints[computer ? 0 : 1]))
+                .background(RoundedRectangle(cornerRadius: 11).fill(Mint.tints[machine ? 2 : computer ? 0 : 1]))
             VStack(alignment: .leading, spacing: 1) {
                 Text(device.thisDevice && !computer ? UIDevice.current.name : device.name)
                     .font(.body(15, .medium)).foregroundStyle(Mint.ink)
@@ -94,6 +99,7 @@ struct LinkedDevicesView: View {
         do {
             devices = try await model.devices()
             error = ""
+            if model.isAdmin, let list = try? await model.machines() { machines = Set(list.map(\.id)) }
         } catch {
             self.error = describe(error)
         }
