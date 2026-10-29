@@ -187,7 +187,7 @@ function refreshHints() {
 
 function renderChat() {
   S.view = "chat";
-  bar.innerHTML = `<div class="dinput"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea></div>
+  bar.innerHTML = `<div class="dinput dgrow"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea><div class="dgrip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the prompt" title="Drag to resize, double-click to reset"></div></div>
     <div class="dbody" id="body"></div>${chatHints()}`;
   const kept = here()?.body;
   if (kept) $("#body").replaceWith(kept);
@@ -203,12 +203,50 @@ function renderChat() {
     if (multi !== ask.value.includes("\n")) { multi = !multi; refreshHints(); }
     if (typed !== !!ask.value.trim()) { typed = !typed; refreshHints(); }
   });
+  dragGrip(ask);
   focusAsk();
 }
-/// The prompt grows with its lines, up to six, then scrolls.
+const ASK_HEIGHT = "bar.askHeight", ASK_MAX = 420;
+/// A height the user dragged the bar's prompt to; null lets it follow its lines.
+let askHeight = null;
+try { askHeight = Number(localStorage.getItem(ASK_HEIGHT)) || null; } catch {}
+/// The prompt grows with its lines, up to six, then scrolls, unless the
+/// user dragged it to a height of their own.
 function grow(ask) {
+  if (askHeight && ask.id === "ask") {
+    ask.style.height = Math.min(askHeight, ASK_MAX) + "px";
+    return;
+  }
   ask.style.height = "auto";
   ask.style.height = Math.min(ask.scrollHeight, 156) + "px";
+}
+/// Dragging the grip under the prompt sets its height, kept for next time.
+function dragGrip(ask) {
+  const grip = $("#grip");
+  grip.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    grip.classList.add("on");
+    const startY = e.clientY, startH = ask.offsetHeight;
+    const move = m => {
+      askHeight = Math.max(26, Math.min(startH + m.clientY - startY, ASK_MAX));
+      grow(ask);
+    };
+    const up = () => {
+      grip.classList.remove("on");
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      try { if (askHeight) localStorage.setItem(ASK_HEIGHT, String(askHeight)); } catch {}
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+  });
+  grip.addEventListener("dblclick", () => {
+    askHeight = null;
+    try { localStorage.removeItem(ASK_HEIGHT); } catch {}
+    grow(ask);
+  });
+  grow(ask);
 }
 function focusAsk() { const ask = $("#ask"); if (ask) ask.focus(); }
 function body() { return $("#body"); }

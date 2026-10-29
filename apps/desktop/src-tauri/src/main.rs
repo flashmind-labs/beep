@@ -166,6 +166,7 @@ fn main() {
             research::research_history,
             research::research_send,
             research::get_research,
+            research::cached_research,
             research::stop_research,
             research::export_research,
         ])
@@ -200,6 +201,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(beep.clone());
     app.manage(Recent::default());
     app.manage(research::Pending::default());
+    app.manage(research::Cache::default());
     app.manage(apps::SignIn::default());
     app.manage(update::Updates::default());
 

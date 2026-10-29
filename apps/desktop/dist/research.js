@@ -6,8 +6,12 @@
 const { invoke, Channel } = window.__TAURI__.core;
 
 const SESSION = new URLSearchParams(location.search).get("session");
-/// How often the window asks for news while the team works, and otherwise.
-const POLL_BUSY = 2500, POLL_IDLE = 10000;
+/// How often the window asks for news while the team works, and once it
+/// has finished (a follow-up from another device can start a new round).
+const POLL_BUSY = 2500, POLL_IDLE = 30000;
+/// While the team works the lead's chat rarely changes, so it is read on
+/// every few polls, and whenever the research changes phase.
+const CHAT_EVERY = 4;
 const RUNNING = new Set(["researching", "reviewing", "writing"]);
 const SCOUT_COLORS = ["#5CC49C", "#8FB8E8", "#E8C46D", "#E89A6D", "#9AD0D8"];
 
@@ -15,6 +19,7 @@ const ICON = {
   check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   bad: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  down: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
   ret: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5v7a3 3 0 0 1-3 3H5m4-4l-4 4 4 4"/></svg>',
 };
 
@@ -27,6 +32,8 @@ const R = {
   after: 0,
   turns: [],
   side: { view: "agents", agent: null }, // or "thread" with an agent, or "room"
+  pick: null, // the round the agents panel shows; null follows the newest
+  rounds: false, // the round menu is open
   tab: null, // null follows the research: notes while it works, the draft once written
   sending: null, // the lead's reply streaming in, as HTML
   error: "",
@@ -202,6 +209,15 @@ async function send(text, start = false) {
 // ---------- Workspace ----------
 
 /// Turns "[3]" and "[1, 4]" in rendered text into citation marks.
+/// Citation numbers as links to their sources, which open in the browser.
+function sup(numbers) {
+  const links = numbers.map(n => {
+    const s = R.research?.sources.find(s => s.number === n);
+    return s ? `<a class="rcite" href="${esc(s.url)}" title="${esc(s.title)}">${n}</a>` : String(n);
+  });
+  return `<sup>${links.join(", ")}</sup>`;
+}
+
 function cite(html) {
   const t = document.createElement("template");
   t.innerHTML = html;
@@ -211,7 +227,7 @@ function cite(html) {
   for (const node of texts) {
     if (!/\[\d+(?:\s*,\s*\d+)*\]/.test(node.data)) continue;
     const span = document.createElement("span");
-    span.innerHTML = esc(node.data).replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, "<sup>$1</sup>");
+    span.innerHTML = esc(node.data).replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_, list) => sup(list.split(",").map(Number)));
     node.replaceWith(...span.childNodes);
   }
   return t.innerHTML;
@@ -238,7 +254,7 @@ function drawWork() {
     body = `<div class="rdoc"><span class="by">${by}</span>${cite(r.draft_html)}</div>`;
   } else if (t === "notes") {
     body = notes.length ? `<div class="rdoc">${notes.map(n => {
-      const src = n.sources.length ? ` <sup>${n.sources.join(", ")}</sup>` : "";
+      const src = n.sources.length ? ` ${sup(n.sources)}` : "";
       return `<div class="rnote" style="--c:${look(n.agent).c}"><b>${esc(nameOf(n.agent))}</b><span>${esc(n.content)}${src}</span></div>`;
     }).join("")}</div>` : '<div class="dmuted rempty">No notes yet.</div>';
   } else {
@@ -274,7 +290,7 @@ function drawSide() {
       if (e.kind === "step" && e.agent === a.id) {
         steps.push(`<div class="dstep"><span class="s">${e.success ? `<span class="dok">${ICON.check}</span>` : `<span class="dbad">${ICON.bad}</span>`}</span><span>${esc(e.label)}</span></div>`);
       } else if (e.kind === "said") { flush(); html += msg(e); }
-      else if (e.kind === "note") { flush(); html += `<div class="rnote" style="--c:${look(a.id).c}"><b>Note</b><span>${esc(e.content)}${e.sources.length ? ` <sup>${e.sources.join(", ")}</sup>` : ""}</span></div>`; }
+      else if (e.kind === "note") { flush(); html += `<div class="rnote" style="--c:${look(a.id).c}"><b>Note</b><span>${esc(e.content)}${e.sources.length ? ` ${sup(e.sources)}` : ""}</span></div>`; }
     }
     flush();
     const [now, st] = doing(a.id);
@@ -290,19 +306,22 @@ function drawSide() {
       const [now, st] = doing(a.id);
       return `<button class="rag" data-act="agent:${esc(a.id)}">${rav(a.id)}<b>${esc(a.name)}</b>${stateIcon(st)}<small>${esc(now || a.role)}</small><span class="model">${esc(a.model)}</span></button>`;
     };
-    // Each later round's scouts sit under a Round line; the critic and writer, who work in every round, come last.
+    // One round's scouts at a time, picked in the header; the lead, critic and writer work in every round.
     const agents = r?.agents ?? [{ id: "lead", name: "Lead", role: "Plans and coordinates", model: "", round: 0 }];
-    const later = agents.filter(a => (a.round ?? 0) > 1);
-    let rows = agents.filter(a => (a.round ?? 0) <= 1 && a.id !== "critic" && a.id !== "writer").map(row).join("");
-    for (let n = 2; n <= round(); n++) {
-      const of = later.filter(a => a.round === n);
-      if (of.length) rows += `<div class="rsec">Round ${n}</div>${of.map(row).join("")}`;
-    }
-    if (later.length) rows += '<div class="rhr"></div>';
-    rows += agents.filter(a => a.id === "critic" || a.id === "writer").map(row).join("");
+    const rounds = round(), pick = Math.min(R.pick ?? rounds, rounds);
+    const scoutOf = a => kind(a.id) === "scout" ? Math.max(a.round ?? 0, 1) : 0;
+    const rows = [
+      ...agents.filter(a => a.id === "lead"),
+      ...agents.filter(a => scoutOf(a) === pick),
+      ...agents.filter(a => a.id === "critic" || a.id === "writer"),
+    ].map(row).join("");
+    const count = n => { const k = agents.filter(a => scoutOf(a) === n).length; return `${k} scout${k === 1 ? "" : "s"}`; };
+    const menu = R.rounds ? `<span class="dmenu" role="menu">${Array.from({ length: rounds }, (_, i) => rounds - i).map(n =>
+      `<button class="mi" role="menuitemradio" aria-checked="${n === pick}" data-act="round:${n}"><b>Round ${n}</b>${n === pick ? `<span class="ok">${ICON.check}</span>` : ""}<small>${count(n)}</small></button>`).join("")}</span>` : "";
+    const picker = rounds > 1 ? `<span class="rround"><button class="dbtn" data-act="rounds" aria-haspopup="menu" aria-expanded="${R.rounds}">Round ${pick}${ICON.down}</button>${menu}</span>` : "";
     const said = R.entries.filter(e => e.kind === "said").length;
     const room = r && r.status !== "planning" ? `${said} message${said === 1 ? "" : "s"}` : "Opens when the team starts";
-    side.innerHTML = `<div class="rpane"><div class="rsec">Agents</div>${rows}<div class="rhr"></div>
+    side.innerHTML = `<div class="rpane"><div class="rsec rhead">Agents${picker}</div>${rows}<div class="rhr"></div>
       <button class="rag" data-act="room"><span class="rav" style="background:var(--elev);color:var(--fg)">#</span><b>Room</b><span></span><small>${room}</small></button></div>`;
   }
   const pane = side.querySelector(".thread");
@@ -318,26 +337,31 @@ function draw() {
 
 // ---------- Polling ----------
 
-let timer = null;
+/// Takes a research from Rust: the entries are only those after R.after.
+function take(r) {
+  R.entries.push(...r.entries);
+  if (r.entries.length) R.after = r.entries.at(-1).seq;
+  delete r.entries;
+  R.research = r;
+}
+
+let timer = null, polls = 0;
+const busy = () => !R.research || R.research.status === "planning" || RUNNING.has(R.research.status);
 async function poll(now = false) {
   clearTimeout(timer);
-  if (!now) await loadChat();
+  if (!now && (!busy() || ++polls % CHAT_EVERY === 0)) await loadChat();
   try {
     const r = await invoke("get_research", { session: SESSION, after: R.after });
     if (r) {
       const was = R.research?.status;
-      R.entries.push(...r.entries);
-      if (r.entries.length) R.after = r.entries.at(-1).seq;
-      delete r.entries;
-      R.research = r;
+      take(r);
       if (was && was !== r.status) await loadChat();
       draw();
     }
   } catch (err) {
     console.warn("research poll", err);
   }
-  const busy = !R.research || R.research.status === "planning" || RUNNING.has(R.research.status);
-  timer = setTimeout(poll, busy ? POLL_BUSY : POLL_IDLE);
+  timer = setTimeout(poll, busy() ? POLL_BUSY : POLL_IDLE);
 }
 
 // ---------- Input ----------
@@ -352,6 +376,8 @@ async function act(a, v) {
   if (a === "agent") { if (R.research?.status === "planning" && v !== "lead") return; R.side = { view: "thread", agent: v }; return drawSide(); }
   if (a === "room") { if (!R.research || R.research.status === "planning") return; R.side = { view: "room", agent: null }; return drawSide(); }
   if (a === "back") { R.side = { view: "agents", agent: null }; return drawSide(); }
+  if (a === "rounds") { R.rounds = !R.rounds; return drawSide(); }
+  if (a === "round") { R.pick = Number(v) === round() ? null : Number(v); R.rounds = false; return drawSide(); }
   if (a === "copy") return copy(R.research?.draft ?? "");
   if (a === "export") return exportPdf();
   if (a === "quote") return quote();
@@ -463,6 +489,7 @@ async function copy(text) {
 
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-act]");
+  if (R.rounds && b?.dataset.act !== "rounds" && !b?.dataset.act.startsWith("round:")) { R.rounds = false; drawSide(); }
   if (b) {
     const [a, v] = b.dataset.act.split(/:(.*)/);
     return void act(a, v);
@@ -519,6 +546,7 @@ document.addEventListener("keydown", e => {
     e.preventDefault();
     return void send("Go");
   }
+  if (e.key === "Escape" && R.rounds) { R.rounds = false; return drawSide(); }
   if (e.metaKey && e.key.toLowerCase() === "w") { e.preventDefault(); return window.close(); }
   if (e.metaKey && e.key === "'" && selectedText()) { e.preventDefault(); return quote(); }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target === ask) {
@@ -531,6 +559,9 @@ document.addEventListener("keydown", e => {
 });
 
 (async () => {
+  // What this Mac already holds draws at once; the poll adds what is new.
+  const cached = await invoke("cached_research", { session: SESSION }).catch(() => null);
+  if (cached) take(cached);
   draw();
   await loadChat();
   const topic = await invoke("research_pending", { session: SESSION }).catch(() => null);
