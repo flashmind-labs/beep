@@ -21,15 +21,20 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
 };
 use tauri::{
-    AppHandle, Manager, Runtime, State, TitleBarStyle, WebviewUrl, WebviewWindowBuilder,
-    ipc::Channel,
+    ActivationPolicy, AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State,
+    TitleBarStyle, WebviewUrl, WebviewWindowBuilder, ipc::Channel,
 };
 use uuid::Uuid;
 
 type Service<'a> = State<'a, Arc<Beep>>;
 
+/// Smallest size a new window opens at, before it is fitted to the screen.
 const WIDTH: f64 = 1080.0;
 const HEIGHT: f64 = 700.0;
+/// Share of the screen a new window takes.
+const SHARE: f64 = 0.82;
+/// Each window opened while others are open sits this much lower and right.
+const CASCADE: f64 = 28.0;
 
 /// Topics typed in the bar, waiting for their window to send them.
 #[derive(Default)]
@@ -51,8 +56,63 @@ impl Pending {
     }
 }
 
+const PREFIX: &str = "research-";
+
 fn label(session: Uuid) -> String {
-    format!("research-{}", session.simple())
+    format!("{PREFIX}{}", session.simple())
+}
+
+/// Research windows open, leaving out `closing`, which may still be listed.
+fn open_windows<R: Runtime>(app: &AppHandle<R>, closing: Option<&str>) -> usize {
+    app.webview_windows()
+        .keys()
+        .filter(|label| label.starts_with(PREFIX) && Some(label.as_str()) != closing)
+        .count()
+}
+
+/// Research windows are ordinary windows: while one is open Beep sits in
+/// the Dock and Cmd-Tab, and goes back to the menu bar once the last
+/// closes.
+pub fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    if label.starts_with(PREFIX)
+        && open_windows(app, Some(label)) == 0
+        && let Err(e) = app.set_activation_policy(ActivationPolicy::Accessory)
+    {
+        log::warn!("leaving the Dock: {e}");
+    }
+}
+
+/// Where a new window goes: most of the screen under the mouse, moved down
+/// and right for each window already open so none hides another.
+fn frame<R: Runtime>(
+    app: &AppHandle<R>,
+    open: usize,
+) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
+    let cursor = app.cursor_position().ok()?;
+    let monitor = app
+        .monitor_from_point(cursor.x, cursor.y)
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())?;
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    let (left, top) = (
+        f64::from(area.position.x) / scale,
+        f64::from(area.position.y) / scale,
+    );
+    let (full_w, full_h) = (
+        f64::from(area.size.width) / scale,
+        f64::from(area.size.height) / scale,
+    );
+    let width = (full_w * SHARE).max(WIDTH.min(full_w));
+    let height = (full_h * SHARE).max(HEIGHT.min(full_h));
+    let step = CASCADE * (open % 8) as f64;
+    let x = left + ((full_w - width) / 2.0 + step).min(full_w - width).max(0.0);
+    let y = top
+        + ((full_h - height) / 2.0 + step)
+            .min(full_h - height)
+            .max(0.0);
+    Some((LogicalPosition::new(x, y), LogicalSize::new(width, height)))
 }
 
 /// Shows the research window for `session`, opening it if needed.
@@ -62,14 +122,24 @@ fn open_window<R: Runtime>(app: &AppHandle<R>, session: Uuid) -> Result<()> {
         window.set_focus()?;
         return Ok(());
     }
+    if let Err(e) = app.set_activation_policy(ActivationPolicy::Regular) {
+        log::warn!("joining the Dock: {e}");
+    }
     let url = WebviewUrl::App(format!("research.html?session={session}").into());
-    let window = WebviewWindowBuilder::new(app, label(session), url)
+    let mut builder = WebviewWindowBuilder::new(app, label(session), url)
         .title("Research")
-        .inner_size(WIDTH, HEIGHT)
         .min_inner_size(820.0, 520.0)
+        .resizable(true)
+        .maximizable(true)
         .title_bar_style(TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .build()?;
+        .hidden_title(true);
+    builder = match frame(app, open_windows(app, None)) {
+        Some((position, size)) => builder
+            .position(position.x, position.y)
+            .inner_size(size.width, size.height),
+        None => builder.inner_size(WIDTH, HEIGHT).center(),
+    };
+    let window = builder.build()?;
     window.set_focus()?;
     Ok(())
 }

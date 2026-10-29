@@ -13,11 +13,12 @@
 <div class="rwin" role="main" aria-label="Research">
   <div class="tb" data-tauri-drag-region><span class="name" id="name" data-tauri-drag-region>Research</span><span class="stat" id="stat"></span><span id="stop"></span></div>
   <div class="rgrid" id="grid">
-    <section class="rmain"><div class="rpane dbody" id="chat"></div>
-      <div class="dinput small"><textarea id="ask" rows="1" placeholder="Message the lead" autocomplete="off" spellcheck="false"></textarea></div></section>
+    <section class="rmain"><div class="rpane dbody" id="chat"></div></section>
     <section class="rwork"><div class="rtabs" role="tablist" id="tabs"></div><div class="rpane dbody" id="work"></div></section>
     <section class="rside dim" id="side"></section>
   </div>
+  <div class="rask"><div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the message field" title="Drag to resize, double-click to reset"></div>
+    <div class="dinput small"><textarea id="ask" rows="1" placeholder="Message the lead" autocomplete="off" spellcheck="false"></textarea></div></div>
 </div>
 <script src="research.js"></script>
 </body>

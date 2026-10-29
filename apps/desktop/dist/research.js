@@ -474,12 +474,46 @@ document.addEventListener("click", e => {
 });
 
 const ask = $("#ask");
+const ASK_HEIGHT = "research.askHeight";
+// A height the user dragged the field to, kept for every research window.
+let askHeight = null;
+try { askHeight = Number(localStorage.getItem(ASK_HEIGHT)) || null; } catch {}
+function maxAsk() { return Math.round(innerHeight * 0.6); }
 function growAsk() {
+  if (askHeight) {
+    ask.style.height = Math.min(askHeight, maxAsk()) + "px";
+    return;
+  }
   ask.style.height = "auto";
   ask.style.height = Math.min(ask.scrollHeight, 220) + "px";
   ask.scrollTop = ask.scrollHeight;
 }
 ask.addEventListener("input", growAsk);
+addEventListener("resize", growAsk);
+const grip = $("#grip");
+grip.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  grip.setPointerCapture(e.pointerId);
+  grip.classList.add("on");
+  const startY = e.clientY, startH = ask.offsetHeight;
+  const move = m => {
+    askHeight = Math.max(20, Math.min(startH + startY - m.clientY, maxAsk()));
+    growAsk();
+  };
+  const up = () => {
+    grip.classList.remove("on");
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", up);
+    try { localStorage.setItem(ASK_HEIGHT, String(askHeight)); } catch {}
+  };
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", up);
+});
+grip.addEventListener("dblclick", () => {
+  askHeight = null;
+  try { localStorage.removeItem(ASK_HEIGHT); } catch {}
+  growAsk();
+});
 document.addEventListener("keydown", e => {
   if (e.metaKey && e.key === "Enter" && R.research?.status === "planning" && R.sending === null) {
     e.preventDefault();
@@ -491,7 +525,7 @@ document.addEventListener("keydown", e => {
     e.preventDefault();
     const text = ask.value;
     ask.value = "";
-    ask.style.height = "auto";
+    growAsk();
     return void send(text);
   }
 });

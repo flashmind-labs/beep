@@ -65,10 +65,13 @@ fn main() {
             None,
         ))
         .setup(|app| Ok(setup(app)?))
-        .on_window_event(|window, event| {
-            if let WindowEvent::Focused(false) = event {
+        .on_window_event(|window, event| match event {
+            // Only the bar is a popover; research windows stay put.
+            WindowEvent::Focused(false) if window.label() == bar::LABEL => {
                 let _ = window.hide();
             }
+            WindowEvent::Destroyed => research::closed(window.app_handle(), window.label()),
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::status,
