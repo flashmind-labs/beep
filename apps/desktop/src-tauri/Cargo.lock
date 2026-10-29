@@ -374,6 +374,7 @@ dependencies = [
  "iroh",
  "log",
  "objc2-app-kit",
+ "objc2-core-graphics",
  "pulldown-cmark",
  "pulldown-latex",
  "qrcode",
