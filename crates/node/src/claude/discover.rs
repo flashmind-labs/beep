@@ -1,0 +1,495 @@
+//! Finding Claude Code sessions on the machine: transcripts under
+//! `<config>/projects/`, and which of them a running `claude` has open.
+//!
+//! Claude Code keeps `<config>/sessions/<pid>.json` for each interactive
+//! process, naming its session and whether it is busy; that is the sure
+//! way to tie a process to a session. Without it (older versions), a
+//! `claude` running in a folder is taken to run that folder's newest
+//! session, and a transcript written in the last minutes counts as active.
+
+use super::{procs::Process, transcript};
+use beep_proto::node::agent::{ExternalSession, Presence};
+use serde::Deserialize;
+use std::{
+    cmp::Reverse,
+    collections::HashMap,
+    env, fs, io,
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+/// A transcript written this recently counts as active even when no
+/// process is found for it.
+const RECENT: Duration = Duration::from_secs(3 * 60);
+/// The most transcript files looked at in one listing.
+const MAX_FILES: usize = 20_000;
+/// The longest a pid file may be.
+const MAX_PID_FILE: u64 = 64 * 1024;
+
+/// Where Claude Code keeps its state, `~/.claude` unless
+/// `CLAUDE_CONFIG_DIR` says otherwise.
+#[derive(Debug, Clone)]
+pub(crate) struct Store {
+    root: PathBuf,
+}
+
+/// One transcript file.
+#[derive(Debug, Clone)]
+pub(super) struct Transcript {
+    pub(super) id: String,
+    pub(super) path: PathBuf,
+    pub(super) modified: SystemTime,
+    created: Option<SystemTime>,
+}
+
+/// What Claude Code says about one of its processes.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub(super) struct PidFile {
+    pub(super) pid: u32,
+    #[serde(rename = "sessionId")]
+    pub(super) session_id: String,
+    /// Such as `busy` or `idle`.
+    #[serde(default)]
+    pub(super) status: Option<String>,
+}
+
+/// The machine as a listing sees it.
+#[derive(Debug, Default)]
+pub(super) struct Snapshot {
+    pub(super) processes: Vec<Process>,
+    pub(super) pid_files: Vec<PidFile>,
+    /// Sessions this node runs: the agent's id to the node's.
+    pub(super) owned: HashMap<String, String>,
+    pub(super) now: Option<SystemTime>,
+}
+
+impl Store {
+    /// The store on this machine, when Claude Code has one.
+    pub(crate) fn locate() -> Option<Self> {
+        let root = match env::var_os("CLAUDE_CONFIG_DIR") {
+            Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+            _ => dirs::home_dir()?.join(".claude"),
+        };
+        root.join("projects").is_dir().then_some(Self { root })
+    }
+
+    #[cfg(test)]
+    pub(super) fn at(root: &Path) -> Self {
+        Self {
+            root: root.to_owned(),
+        }
+    }
+
+    /// Every top-level transcript, newest first.
+    pub(super) fn transcripts(&self) -> io::Result<Vec<Transcript>> {
+        let mut found = Vec::new();
+        for project in fs::read_dir(self.root.join("projects"))? {
+            let project = project?.path();
+            let Ok(files) = fs::read_dir(&project) else {
+                continue;
+            };
+            for file in files.flatten() {
+                if found.len() >= MAX_FILES {
+                    break;
+                }
+                let path = file.path();
+                if path.extension().is_none_or(|ext| ext != "jsonl") {
+                    continue;
+                }
+                let Some(id) = path
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .filter(|stem| is_session_id(stem))
+                    .map(str::to_owned)
+                else {
+                    continue;
+                };
+                let Ok(meta) = file.metadata() else {
+                    continue;
+                };
+                found.push(Transcript {
+                    id,
+                    path,
+                    modified: meta.modified().unwrap_or(UNIX_EPOCH),
+                    created: meta.created().ok(),
+                });
+            }
+        }
+        found.sort_by_key(|transcript| Reverse(transcript.modified));
+        Ok(found)
+    }
+
+    /// The transcript of session `id`.
+    pub(super) fn find(&self, id: &str) -> Option<PathBuf> {
+        if !is_session_id(id) {
+            return None;
+        }
+        let name = format!("{id}.jsonl");
+        fs::read_dir(self.root.join("projects"))
+            .ok()?
+            .flatten()
+            .map(|project| project.path().join(&name))
+            .find(|path| path.is_file())
+    }
+
+    /// The processes Claude Code says it runs, live or not.
+    pub(super) fn pid_files(&self) -> Vec<PidFile> {
+        let Ok(files) = fs::read_dir(self.root.join("sessions")) else {
+            return Vec::new();
+        };
+        files
+            .flatten()
+            .filter(|file| file.path().extension().is_some_and(|ext| ext == "json"))
+            .filter(|file| file.metadata().is_ok_and(|meta| meta.len() <= MAX_PID_FILE))
+            .filter_map(|file| {
+                let text = fs::read_to_string(file.path()).ok()?;
+                // Claude Code rewrites the file in place, so a shorter
+                // version can leave the end of a longer one after it.
+                serde_json::Deserializer::from_str(&text)
+                    .into_iter::<PidFile>()
+                    .next()?
+                    .ok()
+            })
+            .collect()
+    }
+}
+
+/// Claude Code's session ids are UUIDs; anything else is not looked up,
+/// so an id never walks out of the store.
+pub(super) fn is_session_id(id: &str) -> bool {
+    id.len() == 36
+        && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+        && id.matches('-').count() == 4
+}
+
+/// The folder name Claude Code files a folder's sessions under: every
+/// character other than a letter or digit becomes `-`.
+fn slug(folder: &Path) -> String {
+    folder
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// The newest `limit` sessions, or only `only`, newest first.
+pub(super) fn list(
+    store: &Store,
+    snapshot: &Snapshot,
+    limit: usize,
+    only: Option<&str>,
+) -> io::Result<Vec<ExternalSession>> {
+    let all = store.transcripts()?;
+    let newest_in_folder = newest_by_folder(&all);
+    let picked: Vec<&Transcript> = match only {
+        Some(id) => all.iter().filter(|t| t.id == id).collect(),
+        None => all.iter().take(limit).collect(),
+    };
+    let mut sessions = Vec::new();
+    for transcript in picked {
+        let newest = newest_in_folder
+            .get(folder_of(transcript))
+            .is_some_and(|id| *id == transcript.id);
+        sessions.push(describe(transcript, newest, snapshot)?);
+    }
+    Ok(sessions)
+}
+
+fn folder_of(transcript: &Transcript) -> &str {
+    transcript
+        .path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+}
+
+/// The newest session id in each project folder; `all` is newest first.
+fn newest_by_folder(all: &[Transcript]) -> HashMap<&str, &str> {
+    let mut newest = HashMap::new();
+    for transcript in all {
+        newest
+            .entry(folder_of(transcript))
+            .or_insert(transcript.id.as_str());
+    }
+    newest
+}
+
+fn describe(
+    transcript: &Transcript,
+    newest_in_folder: bool,
+    snapshot: &Snapshot,
+) -> io::Result<ExternalSession> {
+    let (digest, _) = transcript::digest_tail(&transcript.path, 0)?;
+    let started = transcript
+        .created
+        .map(unix)
+        .filter(|at| *at > 0)
+        .or(transcript::started_at(&transcript.path)?)
+        .unwrap_or(0);
+    let found = presence(
+        &Seen {
+            id: &transcript.id,
+            folder: folder_of(transcript),
+            modified: transcript.modified,
+            newest_in_folder,
+        },
+        snapshot,
+    );
+    Ok(ExternalSession {
+        id: transcript.id.clone(),
+        agent: "claude".to_owned(),
+        cwd: digest.cwd.clone().unwrap_or_default(),
+        title: digest.title().map(str::to_owned),
+        started_at: started,
+        last_activity: unix(transcript.modified),
+        presence: found.presence,
+        pid: found.pid,
+        last_prompt: digest.prompt().unwrap_or("").to_owned(),
+        last_message: digest.last_message.clone().unwrap_or_default(),
+        taken_over: snapshot.owned.get(&transcript.id).cloned(),
+    })
+}
+
+/// A transcript, as `presence` needs it.
+pub(super) struct Seen<'a> {
+    pub(super) id: &'a str,
+    /// Its project folder's name, the slug of the folder it ran in.
+    pub(super) folder: &'a str,
+    pub(super) modified: SystemTime,
+    pub(super) newest_in_folder: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Found {
+    pub(super) presence: Presence,
+    pub(super) pid: Option<u32>,
+}
+
+/// Whether a process runs the session `seen`, and what it is doing.
+pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot) -> Found {
+    let running = |pid: u32| snapshot.processes.iter().any(|p| p.pid == pid);
+    // Claude Code's own word, when its process still runs.
+    if let Some(file) = snapshot
+        .pid_files
+        .iter()
+        .find(|file| file.session_id == seen.id && running(file.pid))
+    {
+        let presence = match file.status.as_deref() {
+            Some("busy") => Presence::Working,
+            Some("idle") => Presence::Waiting,
+            _ => Presence::Running,
+        };
+        return Found {
+            presence,
+            pid: Some(file.pid),
+        };
+    }
+    // A `claude` without a pid file, in this session's folder.
+    let claimed = |pid: u32| {
+        snapshot
+            .pid_files
+            .iter()
+            .any(|file| file.pid == pid && running(file.pid))
+    };
+    if seen.newest_in_folder
+        && let Some(process) = snapshot.processes.iter().find(|process| {
+            !claimed(process.pid)
+                && process
+                    .cwd
+                    .as_deref()
+                    .is_some_and(|cwd| slug(cwd) == seen.folder)
+        })
+    {
+        return Found {
+            presence: Presence::Running,
+            pid: Some(process.pid),
+        };
+    }
+    let now = snapshot.now.unwrap_or_else(SystemTime::now);
+    let quiet = now.duration_since(seen.modified).unwrap_or_default();
+    Found {
+        presence: if quiet < RECENT {
+            Presence::Recent
+        } else {
+            Presence::Stopped
+        },
+        pid: None,
+    }
+}
+
+fn unix(at: SystemTime) -> u64 {
+    at.duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::claude::transcript::tests::FIXTURE;
+
+    const ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
+    const OTHER: &str = "7a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
+
+    fn seen(modified: SystemTime, newest: bool) -> Seen<'static> {
+        Seen {
+            id: ID,
+            folder: "-srv-project",
+            modified,
+            newest_in_folder: newest,
+        }
+    }
+
+    fn process(pid: u32, cwd: &str) -> Process {
+        Process {
+            pid,
+            cwd: Some(PathBuf::from(cwd)),
+        }
+    }
+
+    #[test]
+    fn a_pid_file_names_the_session_and_its_state() {
+        let now = SystemTime::now();
+        let snapshot = Snapshot {
+            processes: vec![process(41, "/elsewhere")],
+            pid_files: vec![PidFile {
+                pid: 41,
+                session_id: ID.into(),
+                status: Some("busy".into()),
+            }],
+            now: Some(now),
+            ..Snapshot::default()
+        };
+        let old = now - Duration::from_secs(3600);
+        assert_eq!(
+            presence(&seen(old, false), &snapshot),
+            Found {
+                presence: Presence::Working,
+                pid: Some(41)
+            }
+        );
+    }
+
+    #[test]
+    fn a_stale_pid_file_does_not_count() {
+        let now = SystemTime::now();
+        let snapshot = Snapshot {
+            pid_files: vec![PidFile {
+                pid: 41,
+                session_id: ID.into(),
+                status: Some("idle".into()),
+            }],
+            now: Some(now),
+            ..Snapshot::default()
+        };
+        let old = now - Duration::from_secs(3600);
+        assert_eq!(
+            presence(&seen(old, true), &snapshot).presence,
+            Presence::Stopped
+        );
+        let fresh = now - Duration::from_secs(30);
+        assert_eq!(
+            presence(&seen(fresh, true), &snapshot).presence,
+            Presence::Recent
+        );
+    }
+
+    #[test]
+    fn a_process_in_the_folder_runs_its_newest_session_only() {
+        let now = SystemTime::now();
+        let old = now - Duration::from_secs(3600);
+        let snapshot = Snapshot {
+            processes: vec![process(7, "/srv/project")],
+            now: Some(now),
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            presence(&seen(old, true), &snapshot),
+            Found {
+                presence: Presence::Running,
+                pid: Some(7)
+            }
+        );
+        assert_eq!(
+            presence(&seen(old, false), &snapshot).presence,
+            Presence::Stopped
+        );
+        // A process whose pid file names another session is not this one.
+        let claimed = Snapshot {
+            pid_files: vec![PidFile {
+                pid: 7,
+                session_id: OTHER.into(),
+                status: None,
+            }],
+            ..snapshot
+        };
+        assert_eq!(
+            presence(&seen(old, true), &claimed).presence,
+            Presence::Stopped
+        );
+    }
+
+    #[test]
+    fn folders_slug_like_claude_code() {
+        assert_eq!(
+            slug(Path::new("/srv/my_project/.worktrees/v2")),
+            "-srv-my-project--worktrees-v2"
+        );
+    }
+
+    #[test]
+    fn session_ids_must_be_uuids() {
+        assert!(is_session_id(ID));
+        assert!(!is_session_id("../../etc/passwd"));
+        assert!(!is_session_id("a3f9c1"));
+    }
+
+    #[test]
+    fn a_store_lists_sessions_newest_first_with_what_they_say() {
+        let root = std::env::temp_dir().join(format!("beep-claude-store-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let project = root.join("projects").join("-srv-project");
+        fs::create_dir_all(&project).unwrap();
+        let older = project.join(format!("{OTHER}.jsonl"));
+        fs::write(&older, "").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&older)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(600))
+            .unwrap();
+        fs::write(project.join(format!("{ID}.jsonl")), FIXTURE).unwrap();
+        fs::write(project.join("notes.jsonl"), "").unwrap();
+        fs::create_dir_all(root.join("sessions")).unwrap();
+        fs::write(
+            root.join("sessions").join("41.json"),
+            // Left over from a longer earlier version of the file.
+            format!(
+                r#"{{"pid":41,"sessionId":"{ID}","status":"idle","cwd":"/srv/project"}}t":1}}"#
+            ),
+        )
+        .unwrap();
+        let store = Store::at(&root);
+        let snapshot = Snapshot {
+            processes: vec![process(41, "/srv/project")],
+            pid_files: store.pid_files(),
+            owned: HashMap::from([(OTHER.to_owned(), "a3f9c1".to_owned())]),
+            now: None,
+        };
+        let sessions = list(&store, &snapshot, 10, None).unwrap();
+        assert_eq!(sessions.len(), 2);
+        let first = &sessions[0];
+        assert_eq!(first.id, ID);
+        assert_eq!(first.cwd, "/srv/project");
+        assert_eq!(first.title.as_deref(), Some("Fix the flaky test"));
+        assert_eq!(first.presence, Presence::Waiting);
+        assert_eq!(first.pid, Some(41));
+        assert_eq!(first.last_prompt, "now run the whole suite");
+        assert_eq!(first.last_message, "All 42 tests pass now.");
+        assert_eq!(sessions[1].taken_over.as_deref(), Some("a3f9c1"));
+        assert_eq!(list(&store, &snapshot, 10, Some(OTHER)).unwrap().len(), 1);
+        assert!(store.find(ID).is_some());
+        assert!(store.find("../x").is_none());
+        fs::remove_dir_all(&root).unwrap();
+    }
+}

@@ -52,6 +52,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Laptop
+import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.flashmind.beep.proto.Agents
@@ -71,6 +72,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onBubbleSettings: () -> Unit,
     onLinkedDevices: () -> Unit,
+    onMachines: () -> Unit,
 ) {
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(title = { Text(displayText("Settings"), style = displayStyle(24.sp)) },
@@ -93,6 +95,12 @@ fun SettingsScreen(
                 HorizontalDivider(color = Beep.colors.softLine)
                 SettingsRow(Icons.Outlined.Laptop, "Linked devices", "Use Beep from your computer", onLinkedDevices)
                 HorizontalDivider(color = Beep.colors.softLine)
+                // Nodes are for admins for now; the server sends model choices only to them.
+                val models by repository.modelChoices.collectAsState()
+                if (models?.choices?.isNotEmpty() == true) {
+                    SettingsRow(Icons.Outlined.Dns, "Machines", "Where Beep runs commands and coding agents", onMachines)
+                    HorizontalDivider(color = Beep.colors.softLine)
+                }
             }
         }
     }

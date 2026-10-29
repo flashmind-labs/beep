@@ -543,6 +543,7 @@ impl App {
                     .into_iter()
                     .filter(|row| shareable(row.source))
                     .collect();
+                // `profile_facts` keeps to memories about the member.
                 let facts = profile_facts(&rows, today);
                 if facts.is_empty() {
                     continue;

@@ -101,6 +101,8 @@ struct ComputerCard: View {
     @Environment(AppModel.self) private var model
     /// The Linked devices screen's buttons instead of the card.
     var buttons = false
+    /// One button that takes the link `beep-node link` prints, for the Machines screen.
+    var machine = false
     /// Called once a device linked or this phone joined another account.
     var changed: () -> Void = {}
     @State private var scanning = false
@@ -124,7 +126,7 @@ struct ComputerCard: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Next") { read(typed) }
             } message: {
-                Text("The code your other device shows under Settings, Devices.")
+                Text("The code your other device shows under Settings, Devices, or the link beep-node link prints.")
             }
             .sheet(item: $scanned) { offer in
                 LinkSheet(preview: offer.preview) { scanned = nil } link: {
@@ -142,7 +144,21 @@ struct ComputerCard: View {
     }
 
     @ViewBuilder private var content: some View {
-        if buttons { buttonStack } else { card }
+        if machine { machineButton } else if buttons { buttonStack } else { card }
+    }
+
+    private var machineButton: some View {
+        VStack(spacing: 10) {
+            if let done {
+                Text(done.title).font(.body(14, .semibold)).foregroundStyle(Mint.ok)
+            }
+            if !error.isEmpty { Text(error).font(.body(12)).foregroundStyle(Mint.error) }
+            Button { typed = ""; typing = true } label: {
+                Label("Link a machine", systemImage: "server.rack")
+            }
+            .buttonStyle(PrimaryButton())
+            .disabled(busy)
+        }
     }
 
     private var buttonStack: some View {
@@ -335,7 +351,7 @@ private struct LinkSheet: View {
 
     var body: some View {
         SheetBody {
-            SheetHeader(icon: "laptopcomputer", tint: Mint.tints[0], title: "Link \(preview.name)?", subtitle: "Desktop")
+            SheetHeader(icon: "laptopcomputer", tint: Mint.tints[0], title: "Link \(preview.name)?", subtitle: "Computer")
             Text("It will see your chats and memories.").font(.body(15)).foregroundStyle(Mint.ink)
             VStack(alignment: .leading, spacing: 4) {
                 row("Code") { Text(preview.code).font(.system(size: 13, design: .monospaced)).tracking(1.3) }

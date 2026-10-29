@@ -21,7 +21,7 @@ use crate::{
     places::PlaceEvent,
     protocol::{
         Cron, FilePart, ImageRef, Memory, RouteCard, Run, SentFiles, SentImages, Session,
-        UpdatePage, Upload,
+        UpdatePage, Upload, node::EnvReport,
     },
     research::pdf::{self, Paper, Pdf},
     starters::Cached,
@@ -29,10 +29,10 @@ use crate::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
         Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Invite, Join, JoinedGroup,
         LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge,
-        MergeInto, NewAttachment, NewFile, NewKey, NewMessage, NewPicture, NewPlace,
-        NewPlaceRoutine, PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice,
-        ResearchRow, RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow,
-        Store, StoredContext, StoredMessage, TurnAgentRow, TurnRecord, TurnsToDelete,
+        MergeInto, NewAttachment, NewFile, NewKey, NewMessage, NewNode, NewPicture, NewPlace,
+        NewPlaceRoutine, NodeRow, PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead,
+        PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch,
+        SkillRow, Store, StoredContext, StoredMessage, TurnAgentRow, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::Result;
@@ -60,11 +60,13 @@ use tokio::{
 use uuid::Uuid;
 
 mod apps;
+mod events;
 mod mcp;
 mod memories;
 mod starters;
 
 pub use apps::AppTools;
+pub use events::Topics;
 
 /// Proof that a store call is made for one user. Only `User` makes one.
 #[derive(Clone)]
@@ -208,7 +210,7 @@ impl User {
                     Ok(filed) => log::info!("filed {filed} memories; user={user}"),
                     Err(error) => log::warn!("unable to file memories: {error}; user={user}"),
                 }
-                user.curate_if_due(app.generator(user.id())).await;
+                user.curate_if_needed(app.generator(user.id())).await;
             }
         });
     }
@@ -271,7 +273,19 @@ impl User {
         message: &str,
     ) -> Result<Option<CreateRun>> {
         self.store
-            .run_for_request(self.key.as_str(), session, request, message)
+            .run_for_request(self.key.as_str(), session, request, Some(message))
+            .await
+    }
+
+    /// The run already started for `request` in `session`, whatever its
+    /// message, for a spoken message not yet transcribed.
+    pub(crate) async fn run_for_spoken(
+        &self,
+        session: Uuid,
+        request: &str,
+    ) -> Result<Option<CreateRun>> {
+        self.store
+            .run_for_request(self.key.as_str(), session, request, None)
             .await
     }
 
@@ -428,6 +442,15 @@ impl User {
             })
             .collect();
         self.store.save_attachments(&self.key, of, &files).await
+    }
+
+    pub(crate) async fn mark_spoken(&self, of: PicturesOf) -> Result<()> {
+        self.store.mark_spoken(&self.key, of).await
+    }
+
+    /// When each spoken prompt of a session was sent.
+    pub(crate) async fn spoken_turns(&self, session_id: Uuid) -> Result<Vec<i64>> {
+        self.store.spoken_turns(&self.key, session_id).await
     }
 
     /// The files other than pictures the user sent in a session, by turn.
@@ -764,11 +787,6 @@ impl User {
         self.store.list_memories(&self.key).await
     }
 
-    /// Records that the memories were just curated.
-    pub async fn mark_curated(&self) -> Result<()> {
-        self.store.mark_curated(&self.key).await
-    }
-
     /// The user's scheduled jobs, newest first.
     pub async fn list_crons(&self) -> Result<Vec<Cron>> {
         self.store.list_crons(&self.key).await
@@ -822,6 +840,18 @@ impl User {
     /// Links another device's key to this account.
     pub async fn link_key(&self, key: NewKey<'_>) -> Result<LinkKey> {
         self.store.link_key(&self.key, key).await
+    }
+
+    pub(crate) async fn node_connected(&self, node: NewNode<'_>) -> Result<()> {
+        self.store.node_connected(&self.key, node).await
+    }
+
+    pub(crate) async fn save_node_env(&self, node: &EndpointId, env: &EnvReport) -> Result<()> {
+        self.store.save_node_env(&self.key, node, env).await
+    }
+
+    pub async fn nodes(&self) -> Result<Vec<NodeRow>> {
+        self.store.nodes(&self.key).await
     }
 
     /// The account's primary key, then the keys linked to it.
@@ -1154,12 +1184,6 @@ impl User {
     /// Stops tracking a habit; `false` when the user has no such habit.
     pub async fn archive_habit(&self, habit_name: &str) -> Result<bool> {
         self.store.archive_habit(&self.key, habit_name).await
-    }
-
-    /// Whether the memories changed since they were last curated, at most
-    /// once every `every`.
-    pub async fn curation_due(&self, every: Duration) -> Result<bool> {
-        self.store.curation_due(&self.key, every).await
     }
 }
 

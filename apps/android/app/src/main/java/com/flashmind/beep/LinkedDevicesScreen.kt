@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Laptop
+import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -90,6 +91,8 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var devices by remember { mutableStateOf<List<LinkedDevice>?>(null) }
+    // Keys that are machines running beep-node. Only admins can list them.
+    var machines by remember { mutableStateOf(emptySet<String>()) }
     var removing by remember { mutableStateOf<LinkedDevice?>(null) }
     var showingCode by remember { mutableStateOf(false) }
 
@@ -97,6 +100,8 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
         runCatching { withContext(Dispatchers.IO) { repository.listDevices() } }
             .onSuccess { devices = it }
             .onFailure { Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
+        if (repository.isAdmin) runCatching { withContext(Dispatchers.IO) { repository.listMachines() } }
+            .onSuccess { list -> machines = list.map { it.id }.toSet() }
     }
     LaunchedEffect(Unit) { refresh() }
 
@@ -134,7 +139,7 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
                 Text("Devices on this account", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
                 Spacer(Modifier.height(4.dp))
                 val owner = devices.orEmpty().any { it.primary && it.thisDevice }
-                devices.orEmpty().forEach { device -> DeviceRow(device, canRemove = owner) { removing = device } }
+                devices.orEmpty().forEach { device -> DeviceRow(device, machine = device.id in machines, canRemove = owner) { removing = device } }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Beep.colors.softLine)
                 val linked = devices.orEmpty().size > 1
                 val joined = devices.orEmpty().firstOrNull { it.primary && !it.thisDevice }
@@ -165,18 +170,20 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
 }
 
 @Composable
-private fun DeviceRow(device: LinkedDevice, canRemove: Boolean, onRemove: () -> Unit) {
+private fun DeviceRow(device: LinkedDevice, machine: Boolean, canRemove: Boolean, onRemove: () -> Unit) {
     val computer = device.kind == DeviceKind.DESKTOP
     val name = if (device.thisDevice && !computer) Build.MODEL else device.name
+    val linked = DateUtils.getRelativeTimeSpanString(device.linkedAt.toEpochMilli())
     val note = when {
         device.thisDevice -> "This phone"
+        machine -> "Machine, linked $linked"
         computer && device.primary -> "Desktop"
-        computer -> "Desktop, linked " + DateUtils.getRelativeTimeSpanString(device.linkedAt.toEpochMilli())
+        computer -> "Desktop, linked $linked"
         else -> "Phone"
     }
     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        DeviceIcon(if (computer) Icons.Outlined.Laptop else Icons.Outlined.PhoneAndroid,
-            Beep.colors.tints[if (computer) 0 else 1], 40)
+        DeviceIcon(if (machine) Icons.Outlined.Dns else if (computer) Icons.Outlined.Laptop else Icons.Outlined.PhoneAndroid,
+            Beep.colors.tints[if (machine) 2 else if (computer) 0 else 1], 40)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
@@ -208,7 +215,7 @@ private fun LinkSheet(preview: LinkPreview, onCancel: () -> Unit, onLink: () -> 
             Spacer(Modifier.width(14.dp))
             Column {
                 Text("Link ${preview.name}?", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.ink)
-                Text("Desktop", fontSize = 13.sp, color = Beep.colors.muted)
+                Text("Computer", fontSize = 13.sp, color = Beep.colors.muted)
             }
         }
         Text("It will see your chats and memories.", fontSize = 15.sp, lineHeight = 22.sp, color = Beep.colors.ink)
@@ -376,7 +383,7 @@ internal fun LinkCodeSheets(codes: LinkCodes) {
         AlertDialog(
             onDismissRequest = { codes.typing = false },
             confirmButton = {
-                TextButton(onClick = { codes.typing = false; codes.read(text) }, enabled = joinCode(text) != null) { Text("Next") }
+                TextButton(onClick = { codes.typing = false; codes.read(text) }, enabled = isCode(text)) { Text("Next") }
             },
             dismissButton = { TextButton(onClick = { codes.typing = false }) { Text("Cancel") } },
             title = { Text("Type the code") },
@@ -385,12 +392,17 @@ internal fun LinkCodeSheets(codes: LinkCodes) {
                     OutlinedTextField(text, { text = it }, singleLine = true, placeholder = { Text("K7QM4-X9TRP") },
                         textStyle = TextStyle(fontFamily = FontFamily.Monospace),
                         shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth())
-                    Text("The code your other device shows under Settings, Devices.", fontSize = 12.sp, color = Beep.colors.muted)
+                    Text("The code your other device shows under Settings, Devices, or the link beep-node link prints.",
+                        fontSize = 12.sp, color = Beep.colors.muted)
                 }
             },
             containerColor = Beep.colors.surface)
     }
 }
+
+/** A join code, or a link code pasted whole, such as the one `beep-node link` prints. */
+private fun isCode(text: String): Boolean =
+    joinCode(text) != null || runCatching { linkPreview(text.trim()) }.isSuccess
 
 /**
  * A join code for a new phone or computer. Whatever scans or types it moves

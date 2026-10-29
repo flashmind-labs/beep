@@ -11,6 +11,7 @@ mod research;
 mod run;
 mod skills;
 mod starters;
+mod voice;
 
 pub(crate) use group::group_message;
 
@@ -29,9 +30,13 @@ use crate::{
     search::SearchTool,
     starters::Generator,
     store::{Account, CreateRun, RunStatus, SessionRef, SignIn, Store},
+    stt::{RealtimeStt, Unavailable},
     titles,
+    tool_images::{ToolImages, WithToolImages},
     tools::Transitous,
     user::{Shared, User},
+    voice::{Voice, VoiceConfig},
+    wake::Woken,
 };
 use anyhow::Result;
 use flashmind::{
@@ -91,6 +96,20 @@ pub struct App {
     shutting_down: AtomicBool,
     /// Research teams at work, by research id.
     teams: AsyncMutex<HashMap<Uuid, CancellationToken>>,
+    /// The nodes connected now.
+    pub nodes: crate::nodes::Nodes,
+    /// Images tools hand the model, such as node screenshots.
+    pub tool_images: Arc<ToolImages>,
+    /// Speaks voice notes and transcribes spoken replies.
+    voice: Voice,
+    /// Transcribes speech live, for `Transcribe`.
+    realtime: Arc<dyn RealtimeStt>,
+    /// Live transcriptions running at once, server-wide.
+    live_transcriptions: voice::LiveSlots,
+    /// Account events on their way to the agent (see `crate::events`).
+    pub events: crate::events::Hub,
+    /// Sub-agent runs outside the chats, such as event triage.
+    pub subagents: crate::subagents::Subagents,
 }
 
 /// Optional tools and integrations that need server credentials, as
@@ -111,6 +130,12 @@ pub struct ServerTools {
     pub sandbox: Option<Arc<Sandbox>>,
     /// Transit routes for `get_route`.
     pub transitous: Option<Arc<Transitous>>,
+    /// The models voice notes use.
+    pub voice: VoiceConfig,
+    /// Live transcription; `None` answers `Transcribe` with `Unavailable`.
+    pub realtime: Option<Arc<dyn RealtimeStt>>,
+    /// Mistral, which transcribes spoken replies when set.
+    pub mistral: Option<Arc<dyn LlmProvider>>,
 }
 
 /// The part of `ServerTools` a run registers itself.
@@ -176,10 +201,15 @@ pub struct Message {
     /// `notify_user`. Set for the evening digest only.
     pub always_sent: bool,
     /// An event's label when an event woke the agent (see `crate::wake`).
-    pub woken: Option<String>,
+    pub woken: Option<Woken>,
     pub images: Vec<String>,
     /// Other files sent with the message, such as a PDF.
     pub files: Vec<Upload>,
+    /// The recording a held reply came as. `message` holds its transcript;
+    /// the recording itself is not kept.
+    pub voice: Option<Upload>,
+    /// Said aloud in live mode; `message` is what was heard.
+    pub spoken: bool,
     /// Set when the run resumes a session that stopped to ask the user.
     pub answer: Option<Answer>,
     /// An admin's one-off model for this run, instead of their picked one.
@@ -206,6 +236,17 @@ impl Message {
             && self.woken.is_none()
             && self.answer.is_none()
             && !self.finished_research
+    }
+
+    /// The turn that hands background results back to its chat.
+    pub(crate) fn hands_back_work(&self) -> bool {
+        self.finished_research
+            && self.scheduled.as_deref() == Some(crate::subagents::tools::DELIVERY_LABEL)
+    }
+
+    /// A prompt said aloud, live or as a held reply.
+    fn is_spoken(&self) -> bool {
+        self.is_prompt() && (self.spoken || self.voice.is_some())
     }
 }
 
@@ -256,8 +297,14 @@ impl App {
             compaction_model,
             sandbox,
             transitous,
+            voice,
+            realtime,
+            mistral,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
+        let tool_images = Arc::new(ToolImages::default());
+        let provider: Arc<dyn LlmProvider> =
+            Arc::new(WithToolImages::new(provider, tool_images.clone()));
 
         let shared = Shared {
             store: store.clone(),
@@ -265,6 +312,9 @@ impl App {
             composio: composio.map(|settings| Arc::new(Composio::new(settings))),
             decision: decision.clone(),
         };
+        let voice = Voice::new(provider.clone(), mistral, voice);
+        let subagents =
+            crate::subagents::Subagents::new(provider.clone(), llm.clone(), notifications.clone());
         Arc::new(Self {
             store,
             notifications,
@@ -288,6 +338,13 @@ impl App {
             group_actions: Mutex::new(HashMap::new()),
             shutting_down: AtomicBool::new(false),
             teams: AsyncMutex::new(HashMap::new()),
+            nodes: crate::nodes::Nodes::default(),
+            tool_images,
+            voice,
+            realtime: realtime.unwrap_or_else(|| Arc::new(Unavailable)),
+            live_transcriptions: voice::LiveSlots::default(),
+            events: crate::events::Hub::default(),
+            subagents,
         })
     }
 
@@ -327,6 +384,30 @@ impl App {
                 })
             }
             SignIn::Revoked => None,
+        })
+    }
+
+    /// Who a key that must already be linked signs in as: `None` for a
+    /// revoked key or one nobody linked, which `sign_in` would give an
+    /// account of its own.
+    pub async fn sign_in_linked(
+        self: &Arc<Self>,
+        endpoint: &EndpointId,
+    ) -> Result<Option<SignedIn>> {
+        Ok(match self.store.linked_sign_in(endpoint).await? {
+            Some(SignIn::Account {
+                account,
+                device,
+                primary,
+            }) => {
+                self.models.admit(&account.id, &endpoint.to_string());
+                Some(SignedIn {
+                    user: self.start_user(&account),
+                    device,
+                    primary,
+                })
+            }
+            Some(SignIn::Revoked) | None => None,
         })
     }
 
@@ -385,16 +466,52 @@ impl App {
 
     pub async fn submit(self: &Arc<Self>, user: &Arc<User>, message: Message) -> Result<CreateRun> {
         // Serialize registration with cancellation so a newly created run can always be stopped.
-        let mut runs = self.runs.lock().await;
+        let runs = self.runs.lock().await;
+        self.submit_locked(runs, user, message).await
+    }
+
+    /// Starts a turn in `chat` that hands back the results of background
+    /// work waiting there, only when some are due. Under the same lock as
+    /// [`Self::submit`], so a turn of the user's created first claims them
+    /// and this one is never made empty.
+    pub(crate) async fn submit_delivery(
+        self: &Arc<Self>,
+        user: &Arc<User>,
+        message: Message,
+    ) -> Result<Option<CreateRun>> {
+        let runs = self.runs.lock().await;
+        if !self.subagents.work.due(message.session_id) {
+            return Ok(None);
+        }
+        self.submit_locked(runs, user, message).await.map(Some)
+    }
+
+    async fn submit_locked(
+        self: &Arc<Self>,
+        mut runs: tokio::sync::MutexGuard<'_, HashMap<String, Arc<LiveRun>>>,
+        user: &Arc<User>,
+        message: Message,
+    ) -> Result<CreateRun> {
         let result = user
             .create_run(message.session_id, &message.request(), &message.message)
             .await?;
         if let CreateRun::Created(run) = &result {
+            // A turn the user or a delivery starts carries the chat's
+            // waiting results; claimed while the lock holds, so a delivery
+            // racing it finds nothing left.
+            if message.is_prompt() || message.hands_back_work() {
+                self.subagents.work.claim(message.session_id);
+            }
             let live = Arc::new(LiveRun::new(CancellationToken::new()));
             live.push(RunEvent::RunStarted {
                 run_id: run.id.clone(),
                 session_id: run.session_id.clone(),
             });
+            if message.voice.is_some() {
+                live.push(RunEvent::Transcript {
+                    text: message.message.clone(),
+                });
+            }
             runs.insert(run.id.clone(), live.clone());
             drop(runs);
 
@@ -440,6 +557,8 @@ impl App {
                 }
                 app.runs.lock().await.remove(&run.id);
                 live.done.cancel();
+                // Results of background work wait for the chat to be free.
+                app.subagents.turn_ended();
             });
         }
         Ok(result)
@@ -462,6 +581,8 @@ impl App {
     pub async fn shutdown(&self) {
         // Read by runs as they stop, so they end as interrupted, not cancelled.
         self.shutting_down.store(true, Ordering::Relaxed);
+        self.events.stop();
+        self.subagents.stop();
         self.stop_teams().await;
         for live in self.runs.lock().await.values() {
             live.cancel.cancel();
@@ -554,6 +675,11 @@ impl App {
                 .notifications
                 .send(UserNotice::changed(&session.user, ""));
         }
+    }
+
+    /// The Composio account, when the server has a key.
+    pub(crate) fn composio(&self) -> Option<&Arc<Composio>> {
+        self.shared.composio.as_ref()
     }
 
     /// Jev, when the server has an OpenRouter key.

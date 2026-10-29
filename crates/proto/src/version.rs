@@ -11,7 +11,7 @@ use crate::{Hello, Platform};
 /// The newest wire revision this crate reads. Raise it together with a new
 /// `Feature`, and run the compat test with `BEEP_WIRE_BLESS=1` to freeze the
 /// new revision's fixtures.
-pub const WIRE: u32 = 4;
+pub const WIRE: u32 = 7;
 
 /// A reply shape newer than some clients: a streamed enum variant, or
 /// anything else only the `WIRE` it names can decode. Declare each as an
@@ -30,6 +30,18 @@ impl Feature {
 
     /// Answers `DeviceQuery::MacFiles`. Only the macOS app does.
     pub const MAC_FILES: Feature = Feature(4);
+
+    /// Plays voice notes: reads `RunEvent::Transcript`, which a run started
+    /// from a `Chat` with `voice` streams. Only the macOS app does.
+    pub const VOICE: Feature = Feature(5);
+
+    /// Asks `ListMachines` and `ListMemoryScopes`: shows the machines running
+    /// beep-node and what each memory is about.
+    pub const NODES: Feature = Feature(6);
+
+    /// Asks `Transcribe` for live words while the user talks. Only the
+    /// macOS app does.
+    pub const LIVE_VOICE: Feature = Feature(7);
 
     /// The first wire revision that reads it.
     pub const fn wire(self) -> u32 {

@@ -87,6 +87,7 @@ private val toolLabels = mapOf(
     "set_alarm" to "Setting an alarm",
     "open_browser" to "Opening a page",
     "browser" to "Browsing",
+    "node" to "Using your machines",
     "mcp_search" to "Finding the right app tool",
     "mcp" to "Using a connected app",
     "open_maps" to "Looking up a place",

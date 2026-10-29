@@ -1,22 +1,30 @@
 //! Beep for macOS. A tray app whose bar opens on a double tap of Option.
 
 mod apps;
+mod audio;
 mod bar;
 mod beep;
 mod cards;
 mod commands;
+mod desktop;
 mod devices;
 mod error;
 mod groups;
 mod hotkey;
 mod identity;
+mod listen;
+mod login_path;
 mod mac_files;
+mod machine;
 mod markdown;
+mod news;
+mod presence;
 mod products;
 mod research;
 mod state;
 mod sync;
 mod update;
+mod voice;
 
 use anyhow::Context;
 use beep::{Beep, Field, Notices};
@@ -41,6 +49,7 @@ use tauri::{
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_notification::NotificationExt;
+use voice::Voice;
 
 /// The server's node id, baked in by build.rs.
 const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
@@ -56,6 +65,8 @@ const CHAT_ITEM: &str = "chat:";
 struct Recent(Mutex<Vec<Session>>);
 
 fn main() {
+    // SAFETY: nothing else runs yet; Tauri starts its threads below.
+    unsafe { login_path::adopt() };
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
@@ -132,6 +143,16 @@ fn main() {
             devices::join_account,
             commands::settings,
             commands::set_autostart,
+            commands::mac_control,
+            commands::set_mac_control,
+            commands::allow_mac_permission,
+            commands::set_voice_notes,
+            commands::live_tap,
+            commands::leave_live,
+            commands::continue_live,
+            commands::set_send_on_pause,
+            commands::spoken_turns,
+            commands::live_chats,
             commands::start_over,
             commands::resize_bar,
             commands::hide_bar,
@@ -204,12 +225,20 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(research::Cache::default());
     app.manage(apps::SignIn::default());
     app.manage(update::Updates::default());
+    app.manage(machine::Machine::default());
+    app.state::<machine::Machine>().sync(&beep);
+    let voice = Voice::new(handle.clone(), beep.clone());
+    app.manage(voice.clone());
 
-    tauri::async_runtime::spawn(serve_notices(handle.clone(), beep.clone(), notices));
+    tauri::async_runtime::spawn(serve_notices(
+        handle.clone(),
+        beep.clone(),
+        voice.clone(),
+        notices,
+    ));
     tauri::async_runtime::spawn(sync::follow(handle.clone(), beep.clone()));
     tauri::async_runtime::spawn(update::follow(handle.clone()));
-    let toggle = handle.clone();
-    hotkey::start(move || bar::toggle(&toggle));
+    hotkey::start(move |input| voice.on_input(input));
 
     // Sign-ins come back as beep:// links, while running or as the reason
     // macOS started Beep.
@@ -246,7 +275,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
 
 /// The server pushes notices to every key on the account. The first one
 /// this key gets means the phone linked it.
-async fn serve_notices(app: AppHandle, beep: Arc<Beep>, mut notices: Notices) {
+async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut notices: Notices) {
     while let Some(notice) = notices.recv().await {
         if beep.link_state() == LinkState::Unlinked {
             beep.set_link_state(LinkState::Linked);
@@ -262,6 +291,10 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, mut notices: Notices) {
             continue;
         }
         if bar::is_open(&app) && beep.session().as_deref() == Some(notice.session_id.as_str()) {
+            continue;
+        }
+        if voice.wants(&notice) {
+            tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
             continue;
         }
         notify(&app, &notice);
@@ -441,6 +474,8 @@ fn refresh_tray(app: &AppHandle) {
 /// Tells the bar and the tray this Mac now signs into an account.
 pub fn became_linked(app: &AppHandle) {
     let _ = app.emit("link-state", LinkState::Linked);
+    app.state::<machine::Machine>()
+        .sync(&app.state::<Arc<Beep>>());
     refresh_tray(app);
     tauri::async_runtime::spawn(refresh_recent(app.clone()));
 }

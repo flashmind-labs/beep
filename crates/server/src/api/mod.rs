@@ -20,11 +20,14 @@ use uuid::Uuid;
 mod crons;
 mod devices;
 mod groups;
+mod live;
 mod location;
+mod machines;
 mod memories;
 mod research;
 mod sessions;
 mod settings;
+mod transcribe;
 
 use crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron};
 use devices::{
@@ -39,9 +42,10 @@ use groups::{
 use location::{
     cross_place, delete_place, list_places, set_timezone, update_location, update_place,
 };
+use machines::list_machines;
 use memories::{
-    clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads, list_skills,
-    undo_skill, update_memory, update_skill,
+    clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
+    list_memory_scopes, list_skills, undo_skill, update_memory, update_skill,
 };
 use research::{get_research, get_research_pdf, list_researches, stop_research};
 use sessions::{
@@ -166,6 +170,13 @@ pub fn router() -> Router {
         .call(stop_research)
         .call(get_research_pdf)
         .call(list_researches)
+        .call(speak_notice)
+        .call(list_machines)
+        .call(list_memory_scopes)
+        .duplex(transcribe::transcribe)
+        .call(live::spoken_turns)
+        .call(live::say)
+        .call(live::filler)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -180,9 +191,13 @@ async fn health(_: Cx, _: Health) -> Reply<()> {
     Ok(())
 }
 
-async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
-    if req.message.trim().is_empty() || req.message.len() > 32768 {
+async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> {
+    let untyped = req.message.trim().is_empty();
+    if (untyped && req.voice.is_none()) || req.message.len() > 32768 {
         return Err(ApiError::bad_request("message must be 1-32768 bytes"));
+    }
+    if req.voice.is_some() && req.research {
+        return Err(ApiError::bad_request("a research starts from text"));
     }
     check_images(&req.images)?;
     check_files(&req.files)?;
@@ -193,6 +208,23 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         Some(id) => Some(cx.app.models.find(id).ok_or(ApiError::NotFound {})?.clone()),
         None => None,
     };
+    // Transcribed last: a refused or retried message costs no transcription.
+    if let Some(voice) = &req.voice {
+        let request = req.request_id.to_string();
+        match cx.user.run_for_spoken(req.session_id, &request).await? {
+            Some(CreateRun::Created(run) | CreateRun::Existing(run)) => {
+                return follow(&cx, run, 0, &sink).await;
+            }
+            Some(CreateRun::Conflict) => {
+                return Err(ApiError::Conflict {
+                    message: "session busy".into(),
+                });
+            }
+            None => {}
+        }
+        let said = cx.app.transcribe(&cx.user, voice).await?;
+        req.message = spoken_message(&req.message, &said);
+    }
     if req.research {
         if cx.app.models.research().is_none() {
             return Err(ApiError::bad_request(
@@ -219,6 +251,8 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
         platform: req.platform,
         draws: draws(&cx),
         finished_research: false,
+        voice: req.voice,
+        spoken: req.spoken,
     };
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
@@ -226,6 +260,26 @@ async fn chat(cx: Cx, req: Chat, sink: Sink<Event>) -> Reply<()> {
             message: "session busy".into(),
         }),
     }
+}
+
+/// The message a spoken one runs as: the transcript, after anything typed
+/// with it.
+fn spoken_message(typed: &str, said: &str) -> String {
+    match typed.trim() {
+        "" => said.to_owned(),
+        typed => format!("{typed}\n\n{said}"),
+    }
+}
+
+/// A notice, or a reply, as a voice note.
+async fn speak_notice(cx: Cx, SpeakNotice { title, body }: SpeakNotice) -> Reply<VoiceNote> {
+    if title.len() + body.len() > 32768 {
+        return Err(ApiError::bad_request("a notice is at most 32768 bytes"));
+    }
+    if title.trim().is_empty() && body.trim().is_empty() {
+        return Err(ApiError::bad_request("nothing to say"));
+    }
+    cx.app.speak_notice(&cx.user, &title, &body).await
 }
 
 /// What a run started on this connection can show and reach. Only the macOS
@@ -354,6 +408,10 @@ async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>) -> Reply<
         }
 
         after = event.seq;
+        // Only an app that plays voice notes reads a transcript.
+        if matches!(event.event, RunEvent::Transcript { .. }) && !cx.supports(Feature::VOICE) {
+            continue;
+        }
         let finished = matches!(event.event, RunEvent::RunFinished { .. });
         sink.send(&event).await?;
         if finished {
@@ -376,6 +434,18 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         query_id,
         decision,
     } = req;
+    // A call of background work waits on its own; nothing resumes.
+    if cx
+        .app
+        .subagents
+        .approvals
+        .answer(&cx.user, &query_id, decision)
+        .await?
+    {
+        return Err(ApiError::Conflict {
+            message: "answered; the background work goes on".into(),
+        });
+    }
     let message = Message {
         session_id,
         request_id: Uuid::nil(),
@@ -397,6 +467,8 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         platform: None,
         draws: draws(&cx),
         finished_research: false,
+        voice: None,
+        spoken: false,
     };
     let conversation = cx.user.context(session_id).await?;
     let open = conversation.map(|context| permissions::open_calls(&context.conversation));

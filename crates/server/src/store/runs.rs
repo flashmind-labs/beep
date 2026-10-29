@@ -164,7 +164,10 @@ impl Store {
         message: &str,
     ) -> Result<CreateRun> {
         let user = user.as_str();
-        if let Some(found) = self.run_for_request(user, chat, request, message).await? {
+        if let Some(found) = self
+            .run_for_request(user, chat, request, Some(message))
+            .await?
+        {
             return Ok(found);
         }
         let mut tx = self.pool.begin().await?;
@@ -222,19 +225,21 @@ impl Store {
             return Ok(CreateRun::Created(run));
         }
         Ok(self
-            .run_for_request(user, chat, request, message)
+            .run_for_request(user, chat, request, Some(message))
             .await?
             .unwrap_or(CreateRun::Conflict))
     }
 
     /// The run already made for `request`: the same one again, or a
-    /// conflict when the request id was used for something else.
+    /// conflict when the request id was used for something else. `None`
+    /// for `message` only checks the chat, for a spoken message whose text
+    /// is not known yet.
     pub(crate) async fn run_for_request(
         &self,
         user: &str,
         chat: Uuid,
         request: &str,
-        message: &str,
+        message: Option<&str>,
     ) -> Result<Option<CreateRun>> {
         let row = sqlx::query(
             "SELECT id, chat_id, status, message FROM runs WHERE user_id=$1 AND request_id=$2",
@@ -247,7 +252,7 @@ impl Store {
             return Ok(None);
         };
         let original: String = row.try_get(3)?;
-        let same = row.try_get::<Uuid, _>(1)? == chat && original == message;
+        let same = row.try_get::<Uuid, _>(1)? == chat && message.is_none_or(|m| original == m);
         let run = run(&row)?;
         Ok(Some(if same {
             CreateRun::Existing(run)

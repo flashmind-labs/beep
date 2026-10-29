@@ -185,6 +185,8 @@ pub(crate) async fn submit(
         platform: None,
         draws: Draws::default(),
         finished_research: false,
+        voice: None,
+        spoken: false,
     };
 
     let mut result = app

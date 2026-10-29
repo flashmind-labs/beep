@@ -2,6 +2,10 @@
 //! that send, change or delete follow the app's level: ask first (the
 //! default), always allow, or read only. Under ask first the run ends on the
 //! open call, and the user's answer resumes the session from there.
+//!
+//! Background work (sub-agents and jobs) has no turn to end, so its calls
+//! pass a [`Gate`] instead: the same rules, and under ask first the same
+//! card, with only that call waiting for the answer.
 
 use crate::{
     apps::{
@@ -9,6 +13,7 @@ use crate::{
     },
     protocol::{AppAction, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel},
     store::AppPermissionRow,
+    subagents::Approvals,
     user::User,
 };
 use anyhow::Result;
@@ -17,7 +22,7 @@ use chrono::{DateTime, Utc};
 use flashmind::{
     core::{Conversation, EntryKind},
     types::{
-        ToolCall,
+        GateAsk, GateDecision, ToolCall, ToolGate,
         tool::{InterruptPayload, Tool, ToolContext, ToolResult},
     },
 };
@@ -26,7 +31,9 @@ use std::{
     any::Any,
     collections::{HashMap, HashSet},
     sync::Arc,
+    time::Duration,
 };
+use uuid::Uuid;
 
 /// Most argument fields shown on an approval, and the longest value.
 const MAX_FIELDS: usize = 8;
@@ -301,6 +308,28 @@ fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(ToolApp, Acts)> {
     Some((app, acts))
 }
 
+/// The catalog app of `tool` when no call of it can act, by the catalog and
+/// the tags in `hinted`; `None` for a tool that can act or that Beep does
+/// not know.
+pub(crate) fn read_tool_app(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<&'static str> {
+    match classify(tool, hinted)? {
+        (ToolApp::Catalog(app), Acts::Never) => Some(app.slug),
+        _ => None,
+    }
+}
+
+/// Only those of `tools` that Beep knows never act, for a turn that runs on
+/// untrusted text.
+pub(crate) fn read_tools_only(
+    tools: Vec<Arc<dyn Tool>>,
+    hinted: &HashSet<ToolSlug>,
+) -> Vec<Arc<dyn Tool>> {
+    tools
+        .into_iter()
+        .filter(|tool| read_tool_app(tool.name(), hinted).is_some())
+        .collect()
+}
+
 /// Puts the app tools under the user's rules: under read only the tools that
 /// always act are left out, and the rest that can act are wrapped so they
 /// ask first or refuse.
@@ -343,6 +372,100 @@ pub(crate) fn guard(
             }) as Arc<dyn Tool>)
         })
         .collect()
+}
+
+/// What the user's rules say about one call that acts.
+enum Check {
+    Run,
+    /// Not done, with the result the model reads.
+    Refuse(String),
+    /// Asks the user first, with this card.
+    Ask(Approval),
+}
+
+/// What the rules say about `tool`, of `app`, acting with `args`.
+fn check(rules: &Rules, app: &ToolApp, tool: &str, args: &Value) -> Check {
+    match rules.level(app.slug()) {
+        PermissionLevel::Allow {} => Check::Run,
+        PermissionLevel::ReadOnly {} => Check::Refuse(format!(
+            "{READ_ONLY} {} to read only. Tell them, and that they \
+             can change it under Apps in Beep's menu.",
+            app.name()
+        )),
+        PermissionLevel::Ask {} if rules.allows(app.slug(), ToolSlug::new(tool).as_str()) => {
+            Check::Run
+        }
+        PermissionLevel::Ask {} => Check::Ask(approval_for(app, tool, args)),
+    }
+}
+
+/// The app tools background work may have: under read only the tools that
+/// always act are left out. The rest are checked by a [`Gate`] as they run.
+pub(crate) fn for_gate(
+    tools: Vec<Arc<dyn Tool>>,
+    rules: &Rules,
+    hinted: &HashSet<ToolSlug>,
+) -> Vec<Arc<dyn Tool>> {
+    tools
+        .into_iter()
+        .filter(|tool| match classify(tool.name(), hinted) {
+            Some((app, Acts::Always)) => !rules.read_only(app.slug()),
+            _ => true,
+        })
+        .collect()
+}
+
+/// How long a background call waits for the user's answer before it is
+/// refused.
+pub(crate) const ASK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+/// The user's rules on the calls of background work in one chat. A call
+/// that asks first shows the user the same card a turn would, attributed
+/// to that chat, and waits for the answer without holding anything else up.
+pub(crate) struct Gate {
+    /// The rules when the work started, used when the current ones cannot
+    /// be read. Each call reads the user's rules again, so an Always or a
+    /// switch to read only reaches work already running.
+    pub(crate) rules: Rules,
+    pub(crate) hinted: HashSet<ToolSlug>,
+    pub(crate) user: Arc<User>,
+    /// The chat the work belongs to, which the card opens.
+    pub(crate) chat: Uuid,
+    pub(crate) approvals: Arc<Approvals>,
+}
+
+#[async_trait]
+impl ToolGate for Gate {
+    async fn check(&self, call: &ToolCall) -> GateDecision {
+        let Some((app, acts)) = classify(&call.name, &self.hinted) else {
+            return GateDecision::Allow;
+        };
+        if !acts.on(&call.arguments) {
+            return GateDecision::Allow;
+        }
+        let rules = match self.user.app_rules().await {
+            Ok(rules) => rules,
+            Err(error) => {
+                log::warn!(
+                    "permissions: unable to reload, using the rules work started with: {error:#}"
+                );
+                self.rules.clone()
+            }
+        };
+        match check(&rules, &app, &call.name, &call.arguments) {
+            Check::Run => GateDecision::Allow,
+            Check::Refuse(reason) => GateDecision::Deny(reason),
+            Check::Ask(mut approval) => {
+                approval.fields.extend(read_back(&self.user, call).await);
+                GateDecision::Ask(GateAsk {
+                    answer: self
+                        .approvals
+                        .ask(self.user.id(), self.chat, &call.name, approval),
+                    timeout: ASK_TIMEOUT,
+                })
+            }
+        }
+    }
 }
 
 /// Added to the description of a tool that waits for the user's OK.
@@ -608,9 +731,14 @@ pub(crate) async fn describe_call(
     if !shown.is_empty() {
         return shown;
     }
-    let Some(call) = find_call(call_id, conversation) else {
-        return Vec::new();
-    };
+    match find_call(call_id, conversation) {
+        Some(call) => read_back(user, call).await,
+        None => Vec::new(),
+    }
+}
+
+/// What the records `call` names are, read back with the app's own tool.
+pub(crate) async fn read_back(user: &User, call: &ToolCall) -> Vec<ApprovalField> {
     let tool = ToolSlug::new(&call.name);
     let Some(lookup) = LOOKUPS
         .iter()
@@ -948,31 +1076,16 @@ impl Tool for Guarded {
         if !self.acts.on(&ctx.args) {
             return self.tool.execute(ctx).await;
         }
-        let name = self.slug.as_str();
-        let rules = &self.shared.rules;
-        match rules.level(self.app.slug()) {
-            PermissionLevel::Allow {} => self.tool.execute(ctx).await,
-            PermissionLevel::ReadOnly {} => Ok(ToolResult::success(
-                ctx.tool_call_id,
-                format!(
-                    "{READ_ONLY} {} to read only. Tell them, and that they \
-                     can change it under Apps in Beep's menu.",
-                    self.app.name()
-                ),
-            )),
-            PermissionLevel::Ask {}
-                if rules.allows(self.app.slug(), name)
-                    || self.shared.approved.0.as_deref() == Some(ctx.tool_call_id) =>
-            {
+        match check(&self.shared.rules, &self.app, self.slug.as_str(), &ctx.args) {
+            Check::Run => self.tool.execute(ctx).await,
+            Check::Refuse(reason) => Ok(ToolResult::success(ctx.tool_call_id, reason)),
+            Check::Ask(_) if self.shared.approved.0.as_deref() == Some(ctx.tool_call_id) => {
                 self.tool.execute(ctx).await
             }
-            PermissionLevel::Ask {} => {
-                let approval = approval_for(&self.app, name, &ctx.args);
-                Ok(ToolResult::interrupt(
-                    ctx.tool_call_id,
-                    Arc::new(ApprovalPayload { approval }),
-                ))
-            }
+            Check::Ask(approval) => Ok(ToolResult::interrupt(
+                ctx.tool_call_id,
+                Arc::new(ApprovalPayload { approval }),
+            )),
         }
     }
 
@@ -1103,6 +1216,56 @@ mod tests {
         );
         assert!(call_acts("MCP_MY-NOTES_SEARCH_PAGES", &Value::Null).is_none());
         assert!(lookup("MCP_").is_none());
+    }
+
+    #[test]
+    fn only_tools_that_never_act_are_read_tools() {
+        let none = HashSet::new();
+        assert_eq!(read_tool_app("gmail_fetch_emails", &none), Some("gmail"));
+        assert_eq!(read_tool_app("GMAIL_SEND_EMAIL", &none), None);
+        assert_eq!(read_tool_app("FASTMAIL_UPDATE_EMAIL", &none), None);
+        assert_eq!(read_tool_app("MCP_MY-NOTES_SEARCH_PAGES", &none), None);
+        assert_eq!(read_tool_app("open_maps", &none), None);
+        let hinted = HashSet::from([ToolSlug::new("GMAIL_FETCH_EMAILS")]);
+        assert_eq!(read_tool_app("GMAIL_FETCH_EMAILS", &hinted), None);
+    }
+
+    /// A tool that is only its name.
+    struct Named(&'static str);
+
+    #[async_trait]
+    impl Tool for Named {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            ""
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object"})
+        }
+        async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::success(ctx.tool_call_id, ""))
+        }
+    }
+
+    #[test]
+    fn an_untrusted_turn_keeps_only_read_tools() {
+        let tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(Named("GMAIL_FETCH_EMAILS")),
+            Arc::new(Named("GMAIL_SEND_EMAIL")),
+            Arc::new(Named("FASTMAIL_UPDATE_EMAIL")),
+            Arc::new(Named("MCP_MY-NOTES_SEARCH_PAGES")),
+        ];
+        let kept: Vec<String> = read_tools_only(tools, &HashSet::new())
+            .iter()
+            .map(|tool| tool.name().to_owned())
+            .collect();
+        assert_eq!(kept, ["GMAIL_FETCH_EMAILS"]);
+        assert!(crate::wake::Rule::Accounts.untrusted());
+        assert!(crate::wake::Rule::Digest.untrusted());
+        assert!(crate::wake::Rule::Triaged.untrusted());
+        assert!(!crate::wake::Rule::Place.untrusted());
     }
 
     #[test]

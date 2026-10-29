@@ -155,8 +155,50 @@ fn distance_km(a: &Location, b: &Location) -> f64 {
 /// Starts the context line that marks a woken turn.
 const WOKEN: &str = "Woken by an event";
 
-/// How the model handles a woken turn.
-const WOKEN_RULE: &str = "The message is an event that just happened, not something the \
+/// How the agent is told to judge a woken turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rule {
+    /// The phone arrived somewhere new (see [`arrival`]).
+    Place,
+    /// Things happened in the user's connected accounts (see `crate::events`).
+    Accounts,
+    /// Account events the agent held earlier, handed back together.
+    Digest,
+    /// The event triage agent found account events that need the user now
+    /// (see `crate::events::triage`).
+    Triaged,
+}
+
+impl Rule {
+    /// Whether the turn starts on text from outside, such as an email or a
+    /// pull request, which could carry instructions the user never gave.
+    /// Such a turn only reads: no app tool that acts and no machine.
+    pub(crate) fn untrusted(self) -> bool {
+        match self {
+            Rule::Place => false,
+            Rule::Accounts | Rule::Digest | Rule::Triaged => true,
+        }
+    }
+
+    fn text(self) -> &'static str {
+        match self {
+            Rule::Place => PLACE_RULE,
+            Rule::Accounts => ACCOUNTS_RULE,
+            Rule::Digest => DIGEST_RULE,
+            Rule::Triaged => TRIAGED_RULE,
+        }
+    }
+}
+
+/// The label and rule of a woken turn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Woken {
+    pub label: String,
+    pub rule: Rule,
+}
+
+/// How the model handles a turn woken by the phone's place.
+const PLACE_RULE: &str = "The message is an event that just happened, not something the \
 user said, and nobody is watching this chat. Look up what you need to judge it, such as \
 memories, the calendar or connected apps, and search memories for what the event could \
 change (plans, routines, people), not only for its place or name. Notify only when the event meets something you \
@@ -170,11 +212,48 @@ user in one or two short, specific sentences of plain text, without Markdown, us
 facts from the context; it is sent as the notification. Otherwise do not call notify_user \
 and end with one line on why; the user never sees it.";
 
+/// How the model handles a turn woken by account events.
+const ACCOUNTS_RULE: &str = "The message lists things that just happened in the user's \
+connected accounts, not something the user said, and nobody is watching this chat. Decide \
+what deserves their attention. Read what you need with the app tools and memories, but do \
+not send, change or delete anything in this turn: the user decides that after reading your \
+message. Notify now when something needs them soon or they would clearly want to know: a \
+review request, a mention, a failed build of their work, mail from a real person that asks \
+something of them, a meeting moved, cancelled or about to start. Then call notify_user and \
+write one to three short sentences of plain text, without Markdown: what happened and what \
+you can do about it, offered as a question, such as \"Ana opened a PR on org/repo. Want me \
+to review it?\" or \"3 new emails: a lease renewal from Ana and two newsletters. Archive \
+the newsletters and draft a reply to Ana?\". Group related events in one message. Events \
+worth knowing but not now: call hold_events with their ids and they come back in a later \
+digest. Anything else is dropped: do nothing with it. Without notify_user the user never \
+sees this chat, so end with one line on what you decided.";
+
+/// How the model handles held account events handed back together.
+const DIGEST_RULE: &str = "The message lists account events you held earlier as worth \
+knowing but not urgent, not something the user said, and nobody is watching this chat. \
+Read what you need with the app tools, but do not send, change or delete anything in this \
+turn. If any still matter, call notify_user and write a short digest in plain text, without \
+Markdown: the ones that matter, most important first, one line each, ending with what you \
+can do about them as a question. If none matter any more, do not call notify_user and end \
+with one line on why; the user never sees it.";
+
+/// How the model handles what the event triage agent passed on.
+const TRIAGED_RULE: &str = "The message is a note from your event triage agent, which \
+read new events from the user's connected accounts and judged this worth telling them now. \
+It is not something the user said, and nobody is watching this chat. Check what you need \
+with the app tools and memories, using the ids listed, but do not send, change or delete \
+anything in this turn: the user decides that after reading your message. If it still \
+deserves their attention, call notify_user and write one to three short sentences of plain \
+text, without Markdown: what happened and what you can do about it, offered as a question. \
+Mention the earlier, less urgent items only when they fit in a short line. If it does not \
+deserve their attention after all, do not call notify_user and end with one line on why; \
+the user never sees it.";
+
 /// The context lines for a woken turn. History reads the label back with
 /// [`woken_label`] so clients show the turn like a routine's.
-pub(crate) fn woken_context(label: &str) -> String {
-    let label = label.replace('\n', " ");
-    format!("{WOKEN}: {}\n{WOKEN_RULE}", label.trim())
+pub(crate) fn woken_context(woken: &Woken) -> String {
+    let label = woken.label.replace('\n', " ");
+    format!("{WOKEN}: {}\n{}", label.trim(), woken.rule.text())
 }
 
 /// The event's label when `context` is a turn's context from
@@ -188,6 +267,16 @@ pub fn woken_label(context: &str) -> Option<&str> {
 /// Wakes the agent on `event` in a new chat, or returns `None` when no run
 /// was created.
 pub async fn wake(app: &Arc<App>, user: &Arc<User>, event: Event) -> Result<Option<Run>> {
+    wake_with(app, user, event, Rule::Place).await
+}
+
+/// Wakes the agent on `event` under `rule`, as [`wake`] does.
+pub async fn wake_with(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    event: Event,
+    rule: Rule,
+) -> Result<Option<Run>> {
     let message = Message {
         session_id: Uuid::new_v4(),
         request_id: Uuid::new_v4(),
@@ -196,7 +285,10 @@ pub async fn wake(app: &Arc<App>, user: &Arc<User>, event: Event) -> Result<Opti
         agent: None,
         scheduled: None,
         always_sent: false,
-        woken: Some(event.label),
+        woken: Some(Woken {
+            label: event.label,
+            rule,
+        }),
         images: Vec::new(),
         files: Vec::new(),
         answer: None,
@@ -206,6 +298,8 @@ pub async fn wake(app: &Arc<App>, user: &Arc<User>, event: Event) -> Result<Opti
         platform: None,
         draws: Draws::default(),
         finished_research: false,
+        voice: None,
+        spoken: false,
     };
     match app.submit(user, message).await? {
         CreateRun::Created(run) => {
@@ -277,10 +371,16 @@ mod tests {
 
     #[test]
     fn woken_context_reads_back_its_label() {
-        assert_eq!(
-            woken_label(&woken_context("Arrived in\nSingapore")),
-            Some("Arrived in Singapore")
-        );
+        for rule in [Rule::Place, Rule::Accounts, Rule::Digest, Rule::Triaged] {
+            let woken = Woken {
+                label: "Arrived in\nSingapore".to_owned(),
+                rule,
+            };
+            assert_eq!(
+                woken_label(&woken_context(&woken)),
+                Some("Arrived in Singapore")
+            );
+        }
         assert_eq!(woken_label("Time: Monday"), None);
         assert_eq!(woken_label(&crate::cron::scheduled_context("Plants")), None);
     }

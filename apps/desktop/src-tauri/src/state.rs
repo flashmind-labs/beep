@@ -17,7 +17,7 @@ pub enum LinkState {
     Revoked,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Saved {
     #[serde(default)]
     pub link: LinkState,
@@ -27,6 +27,36 @@ pub struct Saved {
     /// Chats started here as researches, which open in their own window.
     #[serde(default)]
     pub researches: Vec<Uuid>,
+    /// "Let Beep use this Mac": serve as a node with desktop control.
+    #[serde(default)]
+    pub use_mac: bool,
+    /// Speak new notices aloud while the user is here and not on a call.
+    #[serde(default = "on")]
+    pub voice_notes: bool,
+    /// In live mode a pause sends; otherwise only saying "send" does.
+    #[serde(default = "on")]
+    pub send_on_pause: bool,
+    /// Chats live mode talked in, newest last.
+    #[serde(default)]
+    pub live_chats: Vec<Uuid>,
+}
+
+fn on() -> bool {
+    true
+}
+
+impl Default for Saved {
+    fn default() -> Self {
+        Self {
+            link: LinkState::default(),
+            session: None,
+            researches: Vec::new(),
+            use_mac: false,
+            voice_notes: true,
+            send_on_pause: true,
+            live_chats: Vec::new(),
+        }
+    }
 }
 
 pub struct StateFile(PathBuf);

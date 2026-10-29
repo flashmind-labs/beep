@@ -6,9 +6,10 @@ use crate::{
     protocol::*,
     router::Cx,
     skills,
-    store::{SkillPatch, SkillRow},
+    store::{Scope, SkillPatch, SkillRow},
 };
 use chrono::{DateTime, SecondsFormat, Utc};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 pub(super) async fn list_memories(cx: Cx, _: ListMemories) -> Reply<Vec<Memory>> {
@@ -17,6 +18,43 @@ pub(super) async fn list_memories(cx: Cx, _: ListMemories) -> Reply<Vec<Memory>>
 
 pub(super) async fn list_memory_reads(cx: Cx, _: ListMemoryReads) -> Reply<Vec<MemoryRead>> {
     Ok(profile::memory_reads(&cx.user.memory_rows().await?))
+}
+
+/// Machines are named as the store last knew them, so a memory about a
+/// machine whose node row is gone has no name.
+pub(super) async fn list_memory_scopes(cx: Cx, _: ListMemoryScopes) -> Reply<Vec<ScopedMemory>> {
+    let rows = cx.user.memory_rows().await?;
+    let machines = rows
+        .iter()
+        .any(|row| matches!(row.scope, Scope::Machine(_)));
+    let names: HashMap<String, String> = if machines {
+        cx.user
+            .nodes()
+            .await?
+            .into_iter()
+            .map(|node| (node.endpoint, node.name))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let scope = match row.scope {
+                Scope::User => return None,
+                Scope::Machine(key) => {
+                    let id = key.to_string();
+                    MemoryScope::Machine {
+                        name: names.get(&id).cloned(),
+                        id,
+                    }
+                }
+                Scope::Project(name) => MemoryScope::Project { name },
+                Scope::Account(app) => MemoryScope::Account { app },
+            };
+            Some(ScopedMemory { id: row.id, scope })
+        })
+        .collect())
 }
 
 pub(super) async fn delete_memory(cx: Cx, DeleteMemory { id }: DeleteMemory) -> Reply<()> {

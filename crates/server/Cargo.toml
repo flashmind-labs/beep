@@ -15,6 +15,7 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", default-features = false, features = ["core", "llm", "mcp", "composio", "cron", "memory-postgres"] }
 futures = "0.3"
+serde_bytes = "0.11"
 rmp-serde = "1"
 iroh = "1.3"
 rust_decimal = "1"
@@ -31,8 +32,11 @@ sqlx-core = { version = "0.8.6", features = ["migrate"] }
 # flashmind's rusqlite over libsqlite3-sys.
 sqlx-postgres = { version = "0.8.6", features = ["chrono", "json", "migrate", "uuid"] }
 tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["codec"] }
+tokio-util = { version = "0.7", features = ["codec", "rt"] }
+# Composio trigger events arrive over a Pusher websocket.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 toml = "1"
+shlex = "1"
 log = "0.4"
 logforth = { version = "0.30", features = ["starter-log"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -50,6 +54,8 @@ typst-kit = { version = "0.15", default-features = false, features = ["embedded-
 
 [dev-dependencies]
 async-stream = "0.3"
+# The node tests run a real node against the server.
+beep-node = { path = "../node" }
 # Builds real MCP results to check how `send_file` reads them.
 rmcp = { version = "2.2", default-features = false }
 # The network tests make the TLS connections the server's endpoint sets up for.

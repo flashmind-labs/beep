@@ -68,13 +68,16 @@ const MOVED: &[(&str, &[&str])] = &[
     ("mail_seen", &["mailbox", "message_id"]),
     ("attention_items", &["mailbox", "message_id"]),
     ("profile_reads", &["source"]),
-    ("memory_curation", &[]),
+    ("memory_curation", &["scope"]),
     ("app_permissions", &["app"]),
     ("mcp_servers", &["name"]),
+    ("app_events", &["dedupe_key"]),
+    ("event_triage", &[]),
+    ("event_topics", &["topic"]),
+    ("event_triggers", &["slug", "account_id"]),
+    ("event_polls", &["source"]),
+    ("nodes", &[]),
 ];
-
-/// Tables keyed by user alone, where the joined account's row stays.
-const ONE_PER_USER: &[&str] = &["memory_curation"];
 
 impl Store {
     /// A new code for the account of `user`, shown by `endpoint`, which
@@ -180,12 +183,15 @@ impl Store {
         move_settings(&mut tx, source, &target).await?;
         move_places(&mut tx, source, &target).await?;
 
-        // Memories carry their owner in their metadata.
-        sqlx::query("UPDATE memory_meta SET value=$2 WHERE key='user' AND value=$1")
-            .bind(source)
-            .bind(&target)
-            .execute(&mut *tx)
-            .await?;
+        // Memories carry their owner in their metadata, and earlier
+        // versions of them in `history_of`.
+        sqlx::query(
+            "UPDATE memory_meta SET value=$2 WHERE key IN ('user', 'history_of') AND value=$1",
+        )
+        .bind(source)
+        .bind(&target)
+        .execute(&mut *tx)
+        .await?;
         let keys: Vec<String> = sqlx::query_scalar(
             "UPDATE user_keys SET user_id=$2, is_primary=false WHERE user_id=$1
              RETURNING endpoint_id",
@@ -301,7 +307,7 @@ async fn move_rows(
     source: &str,
     target: &str,
 ) -> Result<()> {
-    if !key.is_empty() || ONE_PER_USER.contains(&table) {
+    if !key.is_empty() {
         let same: String = key.iter().map(|c| format!(" AND t.{c}=s.{c}")).collect();
         sqlx::query(&format!(
             "DELETE FROM {table} s WHERE s.user_id=$1
@@ -600,5 +606,84 @@ mod tests {
             store.merge_into(&source_key, into).await.unwrap(),
             Merge::NoInvite
         );
+    }
+
+    #[tokio::test]
+    async fn events_and_machines_move_with_the_account() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("test store");
+        let (mac, phone, node) = (key(21), key(22), key(23));
+        let target = account(&store, &mac).await;
+        let source = account(&store, &phone).await;
+        let target_key = UserKey::for_test(&target);
+        let source_key = UserKey::for_test(&source);
+        let pool = &store.pool;
+        for (user, dedupe) in [(&source, "a"), (&source, "b"), (&target, "a")] {
+            sqlx::query(
+                "INSERT INTO app_events (user_id, app, kind, dedupe_key, summary, ids, raw, source, occurred_at)
+                 VALUES ($1, 'gmail', 'new_mail', $2, '', '{}', '{}', 'poll', now())",
+            )
+            .bind(user)
+            .bind(dedupe)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        for query in [
+            "INSERT INTO event_triage (user_id, decision, reason) VALUES ($1, 'ignore', '')",
+            "INSERT INTO event_topics (user_id, topic, enabled) VALUES ($1, 'github_ci', false)",
+            "INSERT INTO event_triggers (user_id, slug, account_id, trigger_id) VALUES ($1, 's', 'a', 't')",
+            "INSERT INTO event_polls (user_id, source, polled_at) VALUES ($1, 'github', now())",
+        ] {
+            sqlx::query(query)
+                .bind(&source)
+                .execute(pool)
+                .await
+                .unwrap();
+        }
+        store
+            .node_connected(
+                &source_key,
+                crate::store::NewNode {
+                    endpoint: node,
+                    name: "build box",
+                    version: "0.1.0",
+                },
+            )
+            .await
+            .unwrap();
+
+        let invite = store
+            .create_invite(&target_key, &mac, "MacBook", Duration::from_secs(600))
+            .await
+            .unwrap();
+        let into = MergeInto {
+            code: &invite.code,
+            target: &target,
+            adopt_external_id: false,
+        };
+        assert!(matches!(
+            store.merge_into(&source_key, into).await.unwrap(),
+            Merge::Merged { .. }
+        ));
+
+        for (table, rows) in [
+            ("app_events", 2),
+            ("event_triage", 1),
+            ("event_topics", 1),
+            ("event_triggers", 1),
+            ("event_polls", 1),
+            ("nodes", 1),
+        ] {
+            let query = format!("SELECT count(*) FROM {table} WHERE user_id=$1");
+            for (user, expected) in [(&source, 0), (&target, rows)] {
+                let count: i64 = sqlx::query_scalar(&query)
+                    .bind(user)
+                    .fetch_one(pool)
+                    .await
+                    .unwrap();
+                assert_eq!(count, expected, "{table} for {user}");
+            }
+        }
     }
 }

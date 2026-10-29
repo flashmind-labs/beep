@@ -5,7 +5,7 @@ use crate::{
     app::App,
     protocol::{
         ClientInfo, DeviceKind, Hello, Platform, Rpc,
-        wire::{Frame, Tx, framed},
+        wire::{Frame, Rx, Tx, framed},
     },
     push::{CLOSE_REVOKED, Pusher},
     router::{Cx, Router, read_request},
@@ -77,7 +77,7 @@ impl ProtocolHandler for BeepHandler {
         };
         let (client, first) = match opening {
             Opening::Hello(client) => (client, None),
-            Opening::Request { frame, tx } => (ClientInfo::LEGACY, Some((frame, tx))),
+            Opening::Request { frame, tx, rx } => (ClientInfo::LEGACY, Some((frame, tx, *rx))),
         };
         log::debug!(
             "client connected; user={} wire={} platform={:?} version={:?}",
@@ -109,7 +109,7 @@ impl ProtocolHandler for BeepHandler {
             client: Arc::new(client),
         };
         let streams = Arc::new(Semaphore::new(MAX_STREAMS));
-        if let Some((frame, tx)) = first {
+        if let Some((frame, tx, rx)) = first {
             let Ok(permit) = streams.clone().acquire_owned().await else {
                 return Ok(());
             };
@@ -117,7 +117,7 @@ impl ProtocolHandler for BeepHandler {
             let cx = cx.clone();
             tokio::spawn(async move {
                 let _permit = permit;
-                if let Err(e) = router.dispatch(cx, frame, tx).await {
+                if let Err(e) = router.dispatch(cx, frame, tx, rx).await {
                     log::debug!("stream ended: {e:#}");
                 }
             });
@@ -146,6 +146,7 @@ enum Opening {
     Request {
         frame: Frame,
         tx: Tx,
+        rx: Box<Rx>,
     },
 }
 
@@ -154,7 +155,11 @@ async fn open(send: SendStream, recv: RecvStream) -> Result<Opening> {
     let (mut tx, mut rx) = framed(send, recv);
     let frame = read_request(&mut rx).await?;
     if frame.tag != Hello::OP as u8 {
-        return Ok(Opening::Request { frame, tx });
+        return Ok(Opening::Request {
+            frame,
+            tx,
+            rx: Box::new(rx),
+        });
     }
     match frame.decode::<Hello>() {
         Ok(hello) => {

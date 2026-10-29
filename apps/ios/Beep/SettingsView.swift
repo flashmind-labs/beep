@@ -34,6 +34,13 @@ struct SettingsView: View {
                             row("laptopcomputer", "Linked devices", "Use Beep from your computer")
                         }
                         divider
+                        // Nodes are for admins for now.
+                        if model.isAdmin {
+                            Button { path.append(.machines) } label: {
+                                row("server.rack", "Machines", "Where Beep runs commands and coding agents")
+                            }
+                            divider
+                        }
                         Button { if !model.connected { model.connect() } } label: {
                             row("server.rack", "Server", model.connected ? "Connected"
                                 : (model.connectionError.isEmpty ? "Connecting" : model.connectionError),

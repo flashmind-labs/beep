@@ -17,6 +17,7 @@ mod cron_jobs;
 mod crons;
 mod devices;
 mod digest;
+mod events;
 mod feeds;
 mod files;
 mod groups;
@@ -26,6 +27,7 @@ mod location;
 mod memories;
 mod merge;
 mod messages;
+mod nodes;
 mod places;
 mod profile;
 mod research;
@@ -48,13 +50,15 @@ pub use blobs::{Blobs, PgBlobs};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::{PushDevice, PushService, PushToken};
 pub use digest::AttentionItem;
+pub use events::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow};
 pub use feeds::Feed;
 pub use files::{NewAttachment, NewFile, NewPicture, PicturesOf};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
-pub use memories::{Fact, Scored, WordEmbedder};
+pub use memories::{Fact, Scope, Scored, Superseded, WordEmbedder};
 pub use merge::{Invite, Inviter, Merge, MergeInto};
 pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnAgentRow, TurnRecord};
+pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
@@ -273,6 +277,32 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "research",
         include_str!("../../migrations/0043_research.sql"),
     ),
+    (44, "nodes", include_str!("../../migrations/0044_nodes.sql")),
+    (
+        45,
+        "memory curation scopes",
+        include_str!("../../migrations/0045_memory_curation_scopes.sql"),
+    ),
+    (
+        46,
+        "events",
+        include_str!("../../migrations/0046_events.sql"),
+    ),
+    (
+        47,
+        "event triage",
+        include_str!("../../migrations/0047_event_triage.sql"),
+    ),
+    (
+        48,
+        "spoken turns",
+        include_str!("../../migrations/0048_spoken_turns.sql"),
+    ),
+    (
+        49,
+        "event state time",
+        include_str!("../../migrations/0049_event_state_at.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them
@@ -369,6 +399,7 @@ pub struct MemoryRow {
     pub origin: Option<Origin>,
     /// Picked by curation as part of the profile every chat starts with.
     pub core: bool,
+    pub scope: Scope,
 }
 
 impl MemoryRow {

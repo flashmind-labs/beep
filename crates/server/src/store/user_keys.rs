@@ -126,6 +126,15 @@ impl Store {
         bail!("signing in {id} kept racing another connection")
     }
 
+    /// The account `endpoint` signs in as, or `None` for a key nobody
+    /// linked. Unlike `sign_in` it never makes an account.
+    pub async fn linked_sign_in(&self, endpoint: &EndpointId) -> Result<Option<SignIn>> {
+        Ok(self
+            .key_account(&endpoint.to_string())
+            .await?
+            .map(signed_in))
+    }
+
     async fn key_account(&self, endpoint_id: &str) -> Result<Option<SignInRow>> {
         Ok(sqlx::query_as(
             "SELECT u.id, u.external_id, k.kind, k.is_primary, k.revoked_at IS NOT NULL
@@ -196,6 +205,12 @@ impl Store {
             return Ok(false);
         }
         sqlx::query("DELETE FROM devices WHERE user_id=$1 AND endpoint_id=$2")
+            .bind(user.as_str())
+            .bind(endpoint_id)
+            .execute(&mut *tx)
+            .await?;
+        // A removed machine is no longer one the agent can run work on.
+        sqlx::query("DELETE FROM nodes WHERE user_id=$1 AND endpoint_id=$2")
             .bind(user.as_str())
             .bind(endpoint_id)
             .execute(&mut *tx)
@@ -301,12 +316,25 @@ mod tests {
 
         // Nor can the primary key be removed.
         assert!(!store.revoke_key(&owner, &phone.to_string()).await.unwrap());
+        // A removed machine stops being one the agent can use.
+        store
+            .node_connected(
+                &owner,
+                crate::store::NewNode {
+                    endpoint: desktop,
+                    name: "desk",
+                    version: "0.1.0",
+                },
+            )
+            .await
+            .unwrap();
         assert!(
             store
                 .revoke_key(&owner, &desktop.to_string())
                 .await
                 .unwrap()
         );
+        assert!(store.nodes(&owner).await.unwrap().is_empty());
         assert_eq!(store.sign_in(&desktop).await.unwrap(), SignIn::Revoked);
         assert_eq!(
             store.live_keys(&user).await.unwrap(),

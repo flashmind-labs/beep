@@ -198,6 +198,7 @@ mod tests {
                 max_completion_tokens: None,
                 capabilities: ModelCapabilities::default(),
                 categories: Vec::<ModelCategory>::new(),
+                created_at: None,
                 pricing: ModelPricing {
                     prompt: Some(Decimal::new(1, 6)),
                     completion: Some(Decimal::new(2, 6)),

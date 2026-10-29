@@ -9,17 +9,19 @@ use beep_server::{
     memories,
     metering::Metered,
     models::ModelChoices,
+    nodes,
     push::Pusher,
     remote::{Fallback, RemotePush},
     sandbox::Sandbox,
     search::SearchTool,
     store::Store,
+    stt::{MistralStt, RealtimeStt},
     tools::Transitous,
     transport,
 };
 use flashmind::{
-    llm::OpenRouterProvider,
-    types::{AgentLlmConfig, Model},
+    llm::{MistralProvider, OpenRouterProvider},
+    types::{AgentLlmConfig, LlmProvider, Model},
 };
 use iroh::{Endpoint, endpoint::presets, protocol::Router};
 use logforth::{
@@ -92,6 +94,10 @@ async fn main() -> Result<()> {
         }
         None => None,
     };
+    let mistral = config
+        .mistral_key
+        .clone()
+        .map(|key| Arc::new(MistralProvider::new(key)));
     let app = App::new(
         store,
         provider,
@@ -105,6 +111,9 @@ async fn main() -> Result<()> {
             compaction_model: config.compaction_model.clone(),
             sandbox,
             transitous: Some(Arc::new(Transitous::new()?)),
+            voice: config.voice.clone(),
+            realtime: realtime(mistral.as_ref(), &config),
+            mistral: mistral.map(|m| m as Arc<dyn LlmProvider>),
         },
         models,
     );
@@ -117,6 +126,13 @@ async fn main() -> Result<()> {
     beep_server::titles::start(app.clone());
     beep_server::memories::start_purge(app.clone());
     beep_server::store::start_pruning(app.store.clone());
+    beep_server::events::start(
+        &app,
+        beep_server::events::Settings {
+            triage: config.events.triage_model.clone(),
+            ..beep_server::events::Settings::default()
+        },
+    );
     let cron_runner = beep_server::cron::start(app.clone(), &config.log_dir());
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {
@@ -151,8 +167,10 @@ async fn main() -> Result<()> {
     let pusher = Pusher::new(endpoint.clone(), Arc::new(app.store.clone()), fallback);
     pusher.start(notices);
     let handler = transport::BeepHandler::new(app.clone(), pusher);
+    let node_handler = nodes::NodeHandler::new(app.clone(), endpoint.id());
     let router = Router::builder(endpoint)
         .accept(transport::ALPN, handler)
+        .accept(nodes::NODE_ALPN, node_handler)
         .spawn();
 
     log::info!("listening; addr={:?}", router.endpoint().addr());
@@ -161,6 +179,19 @@ async fn main() -> Result<()> {
     router.shutdown().await?;
     app.shutdown().await;
     Ok(())
+}
+
+/// Live transcription for `Transcribe`, through Mistral when the server has
+/// its key. Without it the apps hear that live voice is unavailable.
+fn realtime(
+    mistral: Option<&Arc<MistralProvider>>,
+    config: &Config,
+) -> Option<Arc<dyn RealtimeStt>> {
+    let mistral = mistral?;
+    Some(Arc::new(MistralStt::new(
+        mistral.clone(),
+        config.voice.realtime_model.clone(),
+    )))
 }
 
 /// Daily log files kept before the oldest is deleted.

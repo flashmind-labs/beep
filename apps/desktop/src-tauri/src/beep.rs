@@ -5,7 +5,9 @@ use crate::{
     cards,
     error::{DesktopError, Result},
     identity::{Identity, secret_key},
-    mac_files, markdown, products,
+    mac_files, markdown,
+    news::Teller,
+    products,
     state::{LinkState, Saved, StateFile},
     sync::Chats,
 };
@@ -15,11 +17,11 @@ use beep_proto::{
     DeviceAnswer, DeviceQuery, DeviceResult, Event, GetEvents, GetFile, GetSession,
     GetSessionImages, HistoryEntry, ImageRef, ListSessions, MAX_UPLOAD, Notice, Platform,
     ReasoningLevel, RemoveDevice, RunEvent, SearchSessions, SentImages, Session, SessionMatch,
-    Stream, Upload,
-    client::{Client, Node, OnNotice, Replies},
+    SpokenTurns, Stream, TRANSCRIBE_RATE, Transcribe, Transcription, Upload,
+    client::{Client, Node, OnNotice, Replies, Uplink},
     link::LinkOffer,
 };
-use iroh::EndpointId;
+use iroh::{Endpoint, EndpointId};
 use qrcode::{QrCode, render::svg::Color};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -38,6 +40,8 @@ pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 const NOT_HERE: &str = "not available on desktop";
+/// Chats remembered as live ones, for the mic in the chat list.
+const MAX_LIVE_CHATS: usize = 200;
 /// Images one message may carry, as many as the server takes.
 pub const MAX_IMAGES: usize = 8;
 /// The server saves follow-up replies as this tool's result.
@@ -122,6 +126,10 @@ pub enum BarEvent {
         model: String,
         thinking: ReasoningLevel,
     },
+    /// What the user said, once the server transcribed a spoken message.
+    Transcript {
+        text: String,
+    },
     Error {
         message: String,
     },
@@ -163,6 +171,20 @@ pub struct Sent {
     pub files: Vec<FileUpload>,
     /// Starts a research in the chat, which must be new.
     pub research: bool,
+    /// A spoken message, which the server transcribes into `message`.
+    pub voice: Option<Upload>,
+    /// Said aloud in live mode.
+    pub spoken: bool,
+}
+
+/// What live mode hears of a run it sent, to read the reply out as it
+/// streams.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunNews {
+    /// More of the reply's text, as the model writes it.
+    Text(String),
+    /// A tool step started, with its label.
+    Tool(String),
 }
 
 /// The files as `Chat` takes them, or an error past `MAX_UPLOAD` in all.
@@ -379,6 +401,23 @@ impl Beep {
         self.node.id()
     }
 
+    /// This Mac's iroh endpoint, which the node link shares.
+    pub fn endpoint(&self) -> &Endpoint {
+        self.node.endpoint()
+    }
+
+    pub fn server(&self) -> EndpointId {
+        self.server
+    }
+
+    pub fn use_mac(&self) -> bool {
+        self.saved().use_mac
+    }
+
+    pub fn set_use_mac(&self, on: bool) {
+        self.update_saved(|s| s.use_mac = on);
+    }
+
     /// The chats copied from the server.
     pub fn chats(&self) -> &Chats {
         &self.chats
@@ -436,6 +475,41 @@ impl Beep {
                     s.researches.push(*session);
                 }
             }
+        });
+    }
+
+    pub fn voice_notes(&self) -> bool {
+        self.saved().voice_notes
+    }
+
+    pub fn set_voice_notes(&self, on: bool) {
+        self.update_saved(|s| s.voice_notes = on);
+    }
+
+    /// Whether a pause sends in live mode, rather than only "send".
+    pub fn send_on_pause(&self) -> bool {
+        self.saved().send_on_pause
+    }
+
+    pub fn set_send_on_pause(&self, on: bool) {
+        self.update_saved(|s| s.send_on_pause = on);
+    }
+
+    /// Chats live mode talked in, newest last.
+    pub fn live_chats(&self) -> Vec<Uuid> {
+        self.saved().live_chats.clone()
+    }
+
+    /// Remembers that live mode talked in `session`.
+    pub fn add_live_chat(&self, session: Uuid) {
+        if self.saved().live_chats.last() == Some(&session) {
+            return;
+        }
+        self.update_saved(|s| {
+            s.live_chats.retain(|id| *id != session);
+            s.live_chats.push(session);
+            let over = s.live_chats.len().saturating_sub(MAX_LIVE_CHATS);
+            s.live_chats.drain(..over);
         });
     }
 
@@ -570,6 +644,36 @@ impl Beep {
             .collect())
     }
 
+    /// When each spoken prompt of chat `id` was sent. Empty from a server
+    /// that does not keep them.
+    pub async fn spoken_turns(&self, id: &str) -> Vec<i64> {
+        let Ok(session_id) = Uuid::parse_str(id) else {
+            return Vec::new();
+        };
+        match self.call(SpokenTurns { session_id }).await {
+            Ok(turns) => turns,
+            Err(e) => {
+                log::debug!("spoken turns of {id}: {e}");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Opens a live transcription: audio goes up `Uplink`, words come
+    /// back.
+    pub async fn transcribe(
+        &self,
+    ) -> Result<(Uplink<serde_bytes::ByteBuf>, Replies<Transcription>)> {
+        let client = self.client().await?;
+        let request = Transcribe {
+            sample_rate: TRANSCRIBE_RATE,
+        };
+        match client.duplex(&request).await {
+            Ok(opened) => Ok(opened),
+            Err(e) => Err(self.failed(e).await),
+        }
+    }
+
     /// Sends `message` and streams the run into `channel`. Returns the
     /// session the message went to.
     pub async fn send(
@@ -589,14 +693,27 @@ impl Beep {
     }
 
     /// Sends `sent` to `session_id` and streams the run into `channel`,
-    /// leaving the bar's chat as it is.
+    /// leaving the bar's chat as it is. Returns the reply's text.
     pub async fn post(
         &self,
         session_id: Uuid,
         sent: Sent,
         pick: Pick,
         channel: Channel<BarEvent>,
-    ) -> Result<()> {
+    ) -> Result<String> {
+        self.post_heard(session_id, sent, pick, channel, None).await
+    }
+
+    /// Like `post`, telling `news` of the reply's text and tool steps as
+    /// they come.
+    pub async fn post_heard(
+        &self,
+        session_id: Uuid,
+        sent: Sent,
+        pick: Pick,
+        channel: Channel<BarEvent>,
+        news: Option<Teller>,
+    ) -> Result<String> {
         let images = image_uris(sent.images)?;
         let files = uploads(sent.files)?;
         let replies = self
@@ -610,10 +727,13 @@ impl Beep {
                 platform: Some(Platform::Macos {}),
                 files,
                 research: sent.research,
+                voice: sent.voice,
+                spoken: sent.spoken,
             })
             .await?;
-        self.follow(replies, channel, Asked::Here).await;
-        Ok(())
+        Ok(self
+            .follow(replies, channel, Asked::Here, news.as_ref())
+            .await)
     }
 
     /// Sends the session's `index`th prompt again on `pick`, after removing
@@ -655,6 +775,8 @@ impl Beep {
             images: Vec::new(),
             files: Vec::new(),
             research: false,
+            voice: None,
+            spoken: false,
         };
         self.send(Some(session), sent, pick, channel).await?;
         Ok(())
@@ -683,7 +805,7 @@ impl Beep {
                 after: 0,
             })
             .await?;
-        self.follow(replies, channel, Asked::Here).await;
+        self.follow(replies, channel, Asked::Here, None).await;
         Ok(())
     }
 
@@ -698,7 +820,7 @@ impl Beep {
     /// asked in.
     pub async fn follow_run(&self, run_id: String, channel: Channel<BarEvent>) -> Result<()> {
         let replies = self.stream(GetEvents { run_id, after: 0 }).await?;
-        self.follow(replies, channel, Asked::Elsewhere).await;
+        self.follow(replies, channel, Asked::Elsewhere, None).await;
         Ok(())
     }
 
@@ -743,7 +865,21 @@ impl Beep {
         }
     }
 
-    async fn follow(&self, mut replies: Replies<Event>, channel: Channel<BarEvent>, asked: Asked) {
+    /// Streams the run into `channel` until it finishes, and returns the
+    /// reply's text.
+    async fn follow(
+        &self,
+        mut replies: Replies<Event>,
+        channel: Channel<BarEvent>,
+        asked: Asked,
+        news: Option<&Teller>,
+    ) -> String {
+        // Telling never waits, so live mode's reader never holds the bar up.
+        let tell = |item: RunNews| {
+            if let Some(news) = news {
+                news.tell(item);
+            }
+        };
         let mut text = String::new();
         let mut run_id = String::new();
         let mut seq = 0;
@@ -792,6 +928,7 @@ impl Beep {
                 }
                 RunEvent::TextDelta { delta } => {
                     text.push_str(&delta);
+                    tell(RunNews::Text(delta));
                     BarEvent::Text {
                         html: markdown::to_html(&text),
                     }
@@ -802,11 +939,14 @@ impl Beep {
                     name,
                     call_id,
                     description,
-                } => BarEvent::ToolStarted {
-                    call_id,
-                    name,
-                    description,
-                },
+                } => {
+                    tell(RunNews::Tool(description.clone()));
+                    BarEvent::ToolStarted {
+                        call_id,
+                        name,
+                        description,
+                    }
+                }
                 RunEvent::ToolResult { name, output, .. } if name == SUGGEST_REPLIES => {
                     match suggested_replies(&output) {
                         Some(replies) => BarEvent::Replies { replies },
@@ -870,6 +1010,7 @@ impl Beep {
                     model: pick.model,
                     thinking: pick.thinking,
                 },
+                RunEvent::Transcript { text } => BarEvent::Transcript { text },
                 RunEvent::Usage { .. } | RunEvent::MemoryScore { .. } => continue,
             };
             let finished = matches!(out, BarEvent::Finished { .. });
@@ -877,6 +1018,7 @@ impl Beep {
                 break;
             }
         }
+        text
     }
 }
 

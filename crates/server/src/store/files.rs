@@ -174,6 +174,35 @@ impl Store {
         Ok(())
     }
 
+    /// Marks the prompt `of.message` of `user`'s chat as said aloud.
+    pub(crate) async fn mark_spoken(&self, user: &UserKey, of: PicturesOf) -> Result<()> {
+        sqlx::query(
+            "UPDATE messages SET spoken = true
+             WHERE id = $1 AND chat_id = $2 AND author_id = $3",
+        )
+        .bind(of.message)
+        .bind(of.chat)
+        .bind(user.as_str())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// When each spoken prompt of `user`'s session `chat` was sent, in
+    /// milliseconds, oldest first.
+    pub(crate) async fn spoken_turns(&self, user: &UserKey, chat: Uuid) -> Result<Vec<i64>> {
+        Ok(sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM sent_at) * 1000)::bigint
+             FROM messages
+             WHERE chat_id = $1 AND author_id = $2 AND spoken
+             ORDER BY id",
+        )
+        .bind(chat)
+        .bind(user.as_str())
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// The files other than pictures `user` sent in session `chat`, by the
     /// time of the message they came with in milliseconds.
     pub(crate) async fn session_files(&self, user: &UserKey, chat: Uuid) -> Result<Vec<SentFiles>> {

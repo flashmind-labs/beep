@@ -14,7 +14,7 @@ use crate::{
     agents::AgentId,
     apps::{files, markdown},
     attachments::{self, Handed},
-    cron, followups, gates, images,
+    cron, events, followups, gates, images,
     live::LiveRun,
     memories::{Exchange, Turn},
     metering,
@@ -252,6 +252,36 @@ impl App {
         if let Some(sandbox) = &self.tools.sandbox {
             sandbox::register(&mut registry, sandbox, user);
         }
+        // A turn woken by account events reads text anyone can send, so it
+        // only reads: no machines, and below no app tool that acts.
+        let untrusted = message
+            .woken
+            .as_ref()
+            .is_some_and(|woken| woken.rule.untrusted());
+        if self.models.is_admin(user.id()) && !untrusted {
+            registry.register(Arc::new(tools::NodeTool {
+                app: self.clone(),
+                user: user.clone(),
+                chat,
+            }));
+        }
+        if events::enabled(self, user) {
+            registry.register(Arc::new(events::tools::EventTopicsTool {
+                user: user.clone(),
+            }));
+            registry.register(Arc::new(events::tools::RecentEventsTool {
+                user: user.clone(),
+            }));
+        }
+        if message
+            .woken
+            .as_ref()
+            .is_some_and(|woken| woken.rule == wake::Rule::Accounts)
+        {
+            registry.register(Arc::new(events::tools::HoldEventsTool {
+                user: user.clone(),
+            }));
+        }
         if message.draws.mac_files {
             registry.register(Arc::new(tools::MacFilesTool {
                 app: self.clone(),
@@ -305,11 +335,36 @@ impl App {
             log::warn!("permissions: unable to load, asking for everything: {error:#}");
             Rules::default()
         });
-        let tools = markdown::wrap(composio.tools.into_iter().chain(mcp).collect());
+        let app_tools: Vec<_> = composio.tools.into_iter().chain(mcp).collect();
+        let app_tools = if untrusted {
+            permissions::read_tools_only(app_tools, &composio.hinted)
+        } else {
+            app_tools
+        };
+        let tools = markdown::wrap(app_tools);
         let tools = match &self.tools.sandbox {
             Some(sandbox) => files::wrap(tools, sandbox, user),
             None => tools,
         };
+        // Sub-agents and jobs, for admins in turns someone asked for. They
+        // get the tools so far and the app tools under the same rules.
+        if !background && self.models.is_admin(user.id()) {
+            crate::subagents::tools::register(
+                &mut registry,
+                crate::subagents::tools::Setup {
+                    app: self.clone(),
+                    user: user.clone(),
+                    chat,
+                    model: crate::research::RoleModel {
+                        model: model.clone(),
+                        thinking,
+                    },
+                    app_tools: tools.clone(),
+                    rules: rules.clone(),
+                    hinted: composio.hinted.clone(),
+                },
+            );
+        }
         for tool in permissions::guard(tools, rules, approved, &composio.hinted) {
             registry.register(tool);
         }
@@ -907,6 +962,22 @@ impl App {
                 ),
             }
         }
+        // A held reply's recording is not kept: spoken turns are text.
+        if let Some(opened) = opened
+            && message.is_spoken()
+        {
+            let of = PicturesOf {
+                chat,
+                message: opened,
+            };
+            match user.mark_spoken(of).await {
+                Ok(()) => user.changed(&run.session_id),
+                Err(error) => log::warn!(
+                    "unable to mark the turn spoken: {error:#}; run_id={}",
+                    run.id
+                ),
+            }
+        }
         if let Some(opened) = opened
             && !message.files.is_empty()
         {
@@ -953,9 +1024,9 @@ impl App {
             status: status.as_str().to_owned(),
             updated_at: finished.map(|saved| SystemTime::from(saved.updated_at)),
         });
-        if let Some(label) = &message.woken {
+        if let Some(woken) = &message.woken {
             let finished = wake::Finished {
-                label,
+                label: &woken.label,
                 status,
                 notified: notify.load(Ordering::SeqCst),
                 reply: &reply,

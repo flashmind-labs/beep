@@ -591,6 +591,8 @@ impl Server {
             platform: None,
             files: Vec::new(),
             research: false,
+            voice: None,
+            spoken: false,
         };
         let mut replies = client.stream(&chat).await.expect("the chat starts");
         let mut events = Vec::new();
@@ -1011,6 +1013,7 @@ async fn seed(user: &User, memory: &Memory, today: NaiveDate) {
         source: MemorySource::User {},
         valid,
         origin: None,
+        scope: None,
     })
     .await
     .expect("the memory saves");

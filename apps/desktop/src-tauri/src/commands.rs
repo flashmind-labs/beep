@@ -8,8 +8,10 @@ use crate::{
     },
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
+    machine::{self, Machine},
     markdown,
     state::LinkState,
+    voice::Voice,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
@@ -21,7 +23,7 @@ use beep_proto::{
     PinSession, ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session,
     SessionMatch, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink,
     Skill, StockChart, ToggleCron, UndoSkill, UnshareSession, UpdateMemory, UpdateSkill,
-    format_group_code, group_code,
+    format_group_code, group_code, node::desktop::Permission,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -70,6 +72,8 @@ pub async fn send_prompt(
         images,
         files,
         research: false,
+        voice: None,
+        spoken: false,
     };
     beep.send(session, sent, Pick::default(), on_event).await
 }
@@ -509,6 +513,7 @@ pub(crate) fn file_name(name: &str) -> String {
 #[tauri::command]
 pub async fn unlink(app: AppHandle, beep: Service<'_>) -> Result<()> {
     beep.unlink().await?;
+    app.state::<Machine>().sync(&beep);
     let _ = app.emit("link-state", beep.link_state());
     crate::refresh_tray(&app);
     Ok(())
@@ -519,15 +524,65 @@ pub struct Settings {
     name: String,
     version: String,
     autostart: bool,
+    voice_notes: bool,
+    /// In live mode a pause sends, rather than only "send".
+    send_on_pause: bool,
 }
 
 #[tauri::command]
-pub fn settings(app: AppHandle) -> Settings {
+pub fn settings(app: AppHandle, beep: Service<'_>) -> Settings {
     Settings {
         name: crate::computer_name(),
         version: app.package_info().version.to_string(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
+        voice_notes: beep.voice_notes(),
+        send_on_pause: beep.send_on_pause(),
     }
+}
+
+#[tauri::command]
+pub fn set_voice_notes(beep: Service<'_>, enabled: bool) {
+    beep.set_voice_notes(enabled);
+}
+
+/// Whether a pause sends in live mode, rather than only saying "send".
+#[tauri::command]
+pub fn set_send_on_pause(beep: Service<'_>, voice: State<'_, Arc<Voice>>, enabled: bool) {
+    beep.set_send_on_pause(enabled);
+    voice.set_end_mode();
+}
+
+/// A tap in the live view: interrupts Beep, or leaves while listening.
+#[tauri::command]
+pub fn live_tap(voice: State<'_, Arc<Voice>>) {
+    voice.tap();
+}
+
+/// Leaves live mode, keeping what was said as a draft.
+#[tauri::command]
+pub fn leave_live(voice: State<'_, Arc<Voice>>) {
+    voice.leave_live();
+}
+
+/// Talks live in chat `session`.
+#[tauri::command]
+pub fn continue_live(voice: State<'_, Arc<Voice>>, session: String) -> Result<()> {
+    let session =
+        Uuid::parse_str(&session).map_err(|_| DesktopError::BadRequest("not a chat".into()))?;
+    voice.continue_live(session);
+    Ok(())
+}
+
+/// When each spoken prompt of chat `session` was sent, in ms.
+#[tauri::command]
+pub async fn spoken_turns(beep: Service<'_>, session: String) -> Result<Vec<i64>> {
+    Ok(beep.spoken_turns(&session).await)
+}
+
+/// Chats live mode talked in, for the mic in the chat list.
+#[tauri::command]
+pub fn live_chats(beep: Service<'_>) -> Vec<String> {
+    beep.live_chats().iter().map(Uuid::to_string).collect()
 }
 
 #[tauri::command]
@@ -539,6 +594,27 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<()> {
         manager.disable()
     };
     result.map_err(|e| DesktopError::Other(e.into()))
+}
+
+#[tauri::command]
+pub fn mac_control(beep: Service<'_>, machine: State<'_, Machine>) -> machine::View {
+    machine.view(&beep)
+}
+
+#[tauri::command]
+pub fn set_mac_control(
+    beep: Service<'_>,
+    machine: State<'_, Machine>,
+    enabled: bool,
+) -> machine::View {
+    beep.set_use_mac(enabled);
+    machine.sync(&beep);
+    machine.view(&beep)
+}
+
+#[tauri::command]
+pub fn allow_mac_permission(permission: Permission) {
+    machine::allow(permission);
 }
 
 /// Forgets this computer's key and starts again with a new one, the only

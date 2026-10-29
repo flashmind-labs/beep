@@ -1005,7 +1005,7 @@ final class AppModel {
             updateReply(mid) { $0.memoryScore = probability }
         case .autoPicked(let pick):
             if let index = chat.messages.lastIndex(where: { $0.role == .user }) { chat.messages[index].auto = pick }
-        case .runStarted, .usage:
+        case .runStarted, .usage, .transcript:
             break
         }
     }
@@ -1277,6 +1277,18 @@ final class AppModel {
 
     func memories() async throws -> [Memory] { try await api().listMemories() }
     /// Empty on servers from before reads were listed.
+    /// What each memory not about the user is about, by memory id. Empty on servers from before scopes.
+    func memoryScopes() async -> [String: MemoryScope] {
+        let list = (try? await api().listMemoryScopes()) ?? []
+        return Dictionary(list.map { ($0.id, $0.scope) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The machines running beep-node on the account. Admins only.
+    func machines() async throws -> [Machine] { try await api().listMachines() }
+
+    /// The server sends model choices only to admins.
+    var isAdmin: Bool { models?.choices.isEmpty == false }
+
     func memoryReads() async -> [MemoryRead] { (try? await api().listMemoryReads()) ?? [] }
     func updateMemory(_ id: String, _ content: String) async throws { try await api().updateMemory(id: id, content: content) }
     func deleteMemory(_ id: String) async throws { try await api().deleteMemory(id: id) }

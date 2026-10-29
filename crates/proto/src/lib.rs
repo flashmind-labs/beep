@@ -11,6 +11,7 @@
 pub mod client;
 pub mod link;
 pub mod names;
+pub mod node;
 pub mod seal;
 pub mod search;
 pub mod version;
@@ -125,6 +126,12 @@ pub trait Stream: Rpc {
     type Reply: Serialize + DeserializeOwned + Send + Sync + 'static;
 }
 
+/// A `Stream` request that also sends: after its request frame, the
+/// client sends any number of `Up` frames and finishes its side when done.
+pub trait Duplex: Stream {
+    type Up: Serialize + DeserializeOwned + Send + Sync + 'static;
+}
+
 /// Declares every request: its op, its fields and what it replies with.
 macro_rules! requests {
     ($($(#[$meta:meta])* $op:literal $name:ident { $($(#[$fmeta:meta])* $field:ident: $ty:ty),* $(,)? } => $kind:ident<$reply:ty>)*) => {
@@ -224,7 +231,13 @@ requests! {
     /// with the message, which the model reads and `GetSessionFiles` lists;
     /// older apps send none. `research` starts a research in a new chat:
     /// a lead agent plans it with the user, then a team of agents researches
-    /// it in the background (see `GetResearch`).
+    /// it in the background (see `GetResearch`). `voice` is a spoken message
+    /// of at most `MAX_VOICE` bytes, of one of `VOICE_TYPES`: the server
+    /// transcribes it, streams the transcript as `RunEvent::Transcript` and
+    /// runs it as the message, and keeps the recording with the turn like
+    /// `files`. `message` may then be empty. `spoken` marks a message said
+    /// in live mode, so the apps can show those turns as a transcript (see
+    /// `SpokenTurns`); a `voice` message is spoken either way.
     2 Chat {
         session_id: Uuid,
         request_id: Uuid,
@@ -238,6 +251,10 @@ requests! {
         files: Vec<Upload>,
         #[serde(default)]
         research: bool,
+        #[serde(default)]
+        voice: Option<Upload>,
+        #[serde(default)]
+        spoken: bool,
     } => Stream<Event>
     3 GetRun { id: String } => Call<Run>
     4 CancelRun { id: String } => Call<()>
@@ -507,6 +524,85 @@ requests! {
     108 GetResearchPdf { session_id: Uuid } => Call<Upload>
     /// Every research of the account, newest first.
     109 ListResearches {} => Call<Vec<ResearchSummary>>
+    /// A notice as a short voice note: `text` is it rewritten for listening,
+    /// with no markdown or links, and `audio` that spoken. The app sends the
+    /// `title` and `body` of a `Notice` it got, or a reply to read out with
+    /// an empty `title`.
+    110 SpeakNotice { title: String, body: String } => Call<VoiceNote>
+    /// The machines running beep-node on the account, by name. Admins only,
+    /// like nodes. A linked machine shows once it has connected.
+    111 ListMachines {} => Call<Vec<Machine>>
+    /// What each memory that is not about the user is about. Ids are the
+    /// ones `ListMemories` gives; a memory missing here is about the user.
+    112 ListMemoryScopes {} => Call<Vec<ScopedMemory>>
+    /// Transcribes speech as it is said. After this frame the client sends
+    /// the audio as more frames on the same stream, each a msgpack bin of
+    /// mono 16-bit little-endian PCM at `sample_rate` (only 16000 is taken),
+    /// and finishes its side when the speech ends. The server streams the
+    /// words back as `Transcription::Delta`, then one `Done`, or only
+    /// `Unavailable` when it has no live transcription. See `Duplex`.
+    113 Transcribe { sample_rate: u32 } => Stream<Transcription>
+    /// When each spoken prompt of the chat was sent: the `timestamp`s of
+    /// its `HistoryEntry::User`s that were said aloud, oldest first.
+    114 SpokenTurns { session_id: Uuid } => Call<Vec<i64>>
+    /// `text` spoken as it is, with no rewrite, for live mode to read a
+    /// reply out sentence by sentence. At most `MAX_SAY_CHARS` characters.
+    115 Say { text: String } => Call<VoiceNote>
+    /// A short line for live mode to say while a tool runs and the reply
+    /// has said nothing for a while, such as "Let me check build-box".
+    /// `step` is the tool step's label, `said` the user's message, whose
+    /// language the line is in. `still` asks for the line that says the
+    /// work goes on, after a long quiet.
+    116 Filler { step: String, said: String, still: bool } => Call<VoiceNote>
+}
+
+/// The longest text `Say` speaks.
+pub const MAX_SAY_CHARS: usize = 600;
+
+impl Duplex for Transcribe {
+    type Up = serde_bytes::ByteBuf;
+}
+
+/// The only rate `Transcribe` takes.
+pub const TRANSCRIBE_RATE: u32 = 16_000;
+/// The most audio one `Transcribe` may carry: five minutes at `TRANSCRIBE_RATE`.
+pub const MAX_TRANSCRIBE_BYTES: usize = 5 * 60 * 16_000 * 2;
+
+wire_enum! {
+    /// What `Transcribe` heard: each `Delta` adds `text` to the words so
+    /// far, and `Done` gives the whole text once the audio ended.
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum Transcription {
+        0 Delta { text: String }
+        1 Done { text: String }
+        2 Unavailable {}
+    }
+}
+
+/// The most a `Chat`'s `voice` may hold: a minute of 16 kHz mono WAV, with
+/// room to spare.
+pub const MAX_VOICE: usize = 3 * 1024 * 1024;
+
+/// The audio types a `Chat`'s `voice` may be.
+pub const VOICE_TYPES: &[&str] = &[
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/m4a",
+    "audio/aac",
+    "audio/ogg",
+    "audio/webm",
+    "audio/flac",
+];
+
+/// A notice read out: the words spoken and the audio, an MP3.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VoiceNote {
+    pub text: String,
+    pub audio: Upload,
 }
 
 /// The most a message's `files` may hold in all, so the request stays
@@ -1211,6 +1307,7 @@ wire_enum! {
         8 ReasoningDelta { delta: String }
         9 MemoryScore { probability: f64 }
         10 AutoPicked { pick: AutoPick }
+        11 Transcript { text: String } since VOICE
     }
 }
 
@@ -1874,6 +1971,84 @@ pub struct LinkedDevice {
     pub linked_at: SystemTime,
 }
 
+/// A machine running beep-node, and what it last reported.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Machine {
+    /// Its key, the `LinkedDevice::id` it signs in with.
+    pub id: String,
+    pub name: String,
+    /// Connected to the server now.
+    pub online: bool,
+    /// When it last connected or reported.
+    pub seen_at: SystemTime,
+    /// The beep-node version, such as "0.1.0".
+    pub version: String,
+    /// `None` until its first report.
+    pub env: Option<MachineEnv>,
+}
+
+/// What a machine reported about itself.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineEnv {
+    /// `linux` or `macos`.
+    pub os: String,
+    /// Such as "Ubuntu 24.04" or "macOS 26.3".
+    pub os_version: String,
+    pub arch: String,
+    pub hostname: String,
+    pub cpus: u32,
+    pub memory_mb: u64,
+    /// The folder commands start in.
+    pub home: String,
+    pub tools: Vec<MachineTool>,
+    pub logins: Vec<MachineLogin>,
+    /// Android virtual devices.
+    pub avds: Vec<String>,
+}
+
+/// A known tool found on a machine's `PATH`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineTool {
+    pub name: String,
+    /// The first line of its version output.
+    pub version: Option<String>,
+}
+
+/// Whether a CLI on a machine is signed in, such as `gh`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineLogin {
+    pub tool: String,
+    pub signed_in: bool,
+    pub account: Option<String>,
+}
+
+/// A memory that is about something other than the user.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScopedMemory {
+    /// The `Memory::id`.
+    pub id: String,
+    pub scope: MemoryScope,
+}
+
+wire_enum! {
+    /// What a memory is about when it is not the user: a machine by its key,
+    /// with its name while the machine is known; a project, such as a
+    /// repository, by the name Beep knows it by; or one of the user's
+    /// accounts by app, such as `github`.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum MemoryScope {
+        0 Machine { id: String, name: Option<String> }
+        1 Project { name: String }
+        2 Account { app: String }
+    }
+}
+
 /// A code that lets another device join the account.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2125,6 +2300,12 @@ mod tests {
                 data: vec![1, 2, 3],
             }],
             research: true,
+            voice: Some(Upload {
+                name: "reply.wav".into(),
+                mime: "audio/wav".into(),
+                data: vec![4, 5],
+            }),
+            spoken: true,
         };
         let buf = rmp_serde::to_vec(&chat).unwrap();
         assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);
