@@ -2,6 +2,7 @@
 
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Runtime, WebviewWindow};
 
+pub const LABEL: &str = "bar";
 pub const WIDTH: f64 = 680.0;
 const MIN_HEIGHT: f64 = 64.0;
 /// Share of the screen's height the bar may grow to.
@@ -10,7 +11,7 @@ const MAX_SHARE: f64 = 0.7;
 const TOP: f64 = 0.22;
 
 fn window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
-    app.get_webview_window("bar")
+    app.get_webview_window(LABEL)
 }
 
 /// Shows the bar on the screen under the mouse, or hides it if it is open.
@@ -31,7 +32,7 @@ pub fn show<R: Runtime>(app: &AppHandle<R>, view: Option<&str>) {
     }
     let _ = bar.show();
     let _ = bar.set_focus();
-    let _ = app.emit_to("bar", "bar-shown", view);
+    let _ = app.emit_to(LABEL, "bar-shown", view);
 }
 
 /// Whether the bar is on screen.
