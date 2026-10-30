@@ -14,6 +14,7 @@ use crate::{
     beep::{Beep, Pick, RunNews, Sent},
     hotkey::{self, Act, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW},
     news::{self, Heard},
+    orb,
     presence::Presence,
 };
 use anyhow::Context;
@@ -56,8 +57,6 @@ const SOUND_LEVEL: f32 = 0.12;
 const STT_TRIES: u32 = 3;
 /// Wait before opening a transcription again after one failed.
 const STT_RETRY: Duration = Duration::from_secs(1);
-/// How long a passive bar stays up after live mode ends with nothing kept.
-const LINGER: Duration = Duration::from_secs(3);
 const UNAVAILABLE: &str = "Voice is not available right now";
 const MIC_DENIED: &str =
     "Beep cannot hear you. Allow it in System Settings, Privacy & Security, Microphone.";
@@ -241,9 +240,12 @@ impl Voice {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Tells the bar and the orb about live mode.
     fn emit(&self, event: LiveEvent) {
-        if let Err(e) = self.app.emit_to(bar::LABEL, "live", event) {
-            log::debug!("telling the bar about live mode: {e}");
+        for label in [bar::LABEL, orb::LABEL] {
+            if let Err(e) = self.app.emit_to(label, "live", &event) {
+                log::debug!("telling the {label} about live mode: {e}");
+            }
         }
     }
 
@@ -277,9 +279,23 @@ impl Voice {
             .is_some_and(|s| s.id == id && s.note)
     }
 
-    /// A bar the user opened with two taps, not one up for a voice note.
+    /// Whether the bar is open, which only the user does.
     fn bar_open(&self) -> bool {
-        bar::is_open(&self.app) && !bar::is_passive()
+        bar::is_open(&self.app)
+    }
+
+    /// The bar was hidden during live mode: live mode carries on in the
+    /// orb. A voice note was never in the bar and only shows there.
+    pub fn minimize(&self) {
+        let id = match self.state().live.as_ref() {
+            Some(s) => s.id,
+            None => return,
+        };
+        if let Err(e) = orb::show(&self.app) {
+            log::warn!("showing the orb: {e}");
+        }
+        // A new orb has seen nothing yet.
+        self.show(id);
     }
 
     /// Whether `notice` should be spoken instead of shown as a banner: voice
@@ -410,7 +426,7 @@ impl Voice {
 
     /// The chat open in the bar, when the user has it up.
     fn open_chat(&self) -> Option<Uuid> {
-        if !bar::is_open(&self.app) || bar::is_passive() {
+        if !bar::is_open(&self.app) {
             return None;
         }
         self.beep.session().and_then(|s| Uuid::parse_str(&s).ok())
@@ -422,9 +438,6 @@ impl Voice {
         let id = self.lives.fetch_add(1, Ordering::Relaxed) + 1;
         let (mic, heard) = mpsc::channel(MIC_CHUNKS);
         let (opened, audio) = watch::channel(None);
-        // A tap asks for live mode; a hold or a spoken note comes while the
-        // user works elsewhere, so it leaves them the keyboard.
-        let focus = matches!(how, Start::Tap);
         let (live, effects, note) = match how {
             Start::Tap => {
                 let (live, effects) = Live::listening(mode, now);
@@ -489,15 +502,17 @@ impl Voice {
                 Err(e) => me.unavailable(id, format!("the audio did not start: {e}")),
             }
         });
-        if !bar::is_open(&self.app) {
-            bar::show_passive(&self.app, focus);
-        }
         self.watch_escape();
         if let Some((note, _)) = note {
             self.read_note(id, note);
         }
         self.apply(id, effects);
-        self.show(id);
+        // Only a voice note starts with the bar closed; it shows in the orb.
+        if bar::is_open(&self.app) {
+            self.show(id);
+        } else {
+            self.minimize();
+        }
     }
 
     fn watch_escape(self: &Arc<Self>) {
@@ -785,9 +800,10 @@ impl Voice {
         if let Some(chat) = chat {
             self.beep.set_session(Some(chat.to_string()));
         }
-        // The bar stays on the chat when the user had it up; a bar up only
-        // for live mode goes away, and a draft waits in the chat's box.
-        let reopen = bar::is_open(&self.app) && !bar::is_passive();
+        // The bar stays on the chat when the user has it up. From the orb,
+        // a draft waits in the chat's box for the next time it opens.
+        let reopen = bar::is_open(&self.app);
+        orb::hide(&self.app);
         self.emit(LiveEvent::Left {
             draft,
             session: chat.map(|c| c.to_string()),
@@ -799,20 +815,7 @@ impl Voice {
         drop(session);
         if reopen {
             bar::show(&self.app, None);
-        } else {
-            self.linger();
         }
-    }
-
-    /// Hides a passive bar a little after live mode ended.
-    fn linger(&self) {
-        let me = self.app.state::<Arc<Voice>>().inner().clone();
-        tauri::async_runtime::spawn(async move {
-            sleep(LINGER).await;
-            if !me.is_live() && bar::is_passive() {
-                bar::dismiss(&me.app);
-            }
-        });
     }
 
     /// Sends what was said, and reads the reply out as it streams.

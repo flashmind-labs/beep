@@ -644,6 +644,12 @@ pub fn hide_bar(app: AppHandle) {
     bar::dismiss(&app);
 }
 
+/// A click on the orb: the bar comes back in its place.
+#[tauri::command]
+pub fn show_bar(app: AppHandle) {
+    bar::show(&app, None);
+}
+
 /// The app has no menu bar of its own, so the bar handles ⌘Q.
 #[tauri::command]
 pub fn quit(app: AppHandle) {
