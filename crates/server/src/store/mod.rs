@@ -20,6 +20,7 @@ mod digest;
 mod events;
 mod feeds;
 mod files;
+mod findings;
 mod grants;
 mod groups;
 mod habits;
@@ -43,6 +44,7 @@ mod updates;
 mod usage;
 mod user_keys;
 mod users;
+mod watchers;
 
 pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
@@ -54,6 +56,7 @@ pub use digest::AttentionItem;
 pub use events::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow};
 pub use feeds::Feed;
 pub use files::{NewAttachment, NewFile, NewPicture, PicturesOf};
+pub use findings::{FindingRow, NewFinding, SeenIn, Sighting};
 pub(crate) use grants::{GrantRow, NewGrant};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
@@ -314,6 +317,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         51,
         "tool descriptions",
         include_str!("../../migrations/0051_tool_descriptions.sql"),
+    ),
+    (
+        52,
+        "watchers",
+        include_str!("../../migrations/0052_watchers.sql"),
     ),
 ];
 

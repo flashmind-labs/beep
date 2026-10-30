@@ -133,6 +133,10 @@ async fn main() -> Result<()> {
             ..beep_server::events::Settings::default()
         },
     );
+    beep_server::watchers::start(
+        &app,
+        beep_server::watchers::Settings::new(&config.watchers, app.llm()),
+    );
     let cron_runner = beep_server::cron::start(app.clone(), &config.log_dir());
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {
