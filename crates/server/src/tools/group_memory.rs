@@ -3,7 +3,7 @@
 //! against it. Facts can be stored for any member, such as a plan the group
 //! made, and default to the member who asked.
 
-use super::memory::{arg, fact, fact_schema, opt_arg, reply};
+use super::memory::{fact, fact_schema, opt_arg, reply};
 use crate::{
     leak::Secret,
     protocol::MemorySource,
@@ -38,14 +38,11 @@ pub(crate) fn shareable(source: MemorySource) -> bool {
     matches!(source, MemorySource::User {} | MemorySource::Learned {})
 }
 
-struct GroupRecallTool {
-    members: Arc<[Member]>,
-    secrets: Secrets,
-}
-
-struct GroupStoreTool {
+/// `memory` in a group: `recall` across the members, `store` for one.
+struct GroupMemoryTool {
     members: Arc<[Member]>,
     actor: Member,
+    secrets: Secrets,
 }
 
 /// Registers recall and store across `members`; `actor` asked.
@@ -55,11 +52,11 @@ pub fn register(
     actor: Member,
     secrets: Secrets,
 ) {
-    registry.register(Arc::new(GroupRecallTool {
-        members: members.clone(),
+    registry.register(Arc::new(GroupMemoryTool {
+        members,
+        actor,
         secrets,
     }));
-    registry.register(Arc::new(GroupStoreTool { members, actor }));
 }
 
 fn names(members: &[Member]) -> Vec<&str> {
@@ -67,22 +64,50 @@ fn names(members: &[Member]) -> Vec<&str> {
 }
 
 #[async_trait]
-impl Tool for GroupRecallTool {
+impl Tool for GroupMemoryTool {
     fn name(&self) -> &str {
-        "memory_recall"
+        super::memory::NAME
     }
     fn description(&self) -> &str {
-        "Search the members' private memories by meaning. Each result says who it is about. Use them to tailor suggestions, never state or hint at them in the chat. An empty query lists recent ones."
+        "The members' memories. `recall` searches their private memories by meaning; each result says who it is about. Use them to tailor suggestions, never state or hint at them in the chat. An empty query lists recent ones. `store` remembers a fact about a member: something they said in the chat, a plan the group agreed that involves them, or what they asked you to remember. One short self-contained sentence that names them. Store a shared plan once per member it involves. `about` defaults to the member who asked. Never store secrets, or guesses about someone."
     }
     fn parameters(&self) -> Value {
-        json!({"type":"object","properties":{
-            "query":{"type":"string"},
-            "about":{"type":"string","enum":names(&self.members),"description":"Only this member's memories."},
-            "category":{"type":"string","enum":MEMORY_CATEGORIES}
-        },"required":["query"],"additionalProperties":false})
+        let mut schema = fact_schema(
+            &["action"],
+            json!({
+                "action":{"type":"string","enum":["recall","store"]},
+                "query":{"type":"string","description":"recall: what to look for."},
+                "about":{"type":"string","enum":names(&self.members),"description":"recall: only this member's memories. store: whose memory this is, by default the member who asked."},
+                "category":{"type":"string","enum":MEMORY_CATEGORIES,"description":"recall: only this category."}
+            }),
+        );
+        if let Some(content) = schema.pointer_mut("/properties/content/description") {
+            *content = json!("store: one short self-contained sentence that names the member.");
+        }
+        schema
+    }
+    fn humanize(&self, args: &Value) -> String {
+        match opt_arg(args, "action") {
+            Some("store") => "Remembering",
+            _ => "Recalling memories",
+        }
+        .to_owned()
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        let query = arg(&ctx.args, "query")?;
+        match opt_arg(&ctx.args, "action") {
+            Some("recall") => self.recall(&ctx).await,
+            Some("store") => self.store(&ctx).await,
+            _ => Ok(ToolResult::failure(
+                ctx.tool_call_id,
+                "Give `action`: recall or store.",
+            )),
+        }
+    }
+}
+
+impl GroupMemoryTool {
+    async fn recall(&self, ctx: &ToolContext<'_>) -> Result<ToolResult> {
+        let query = opt_arg(&ctx.args, "query").unwrap_or_default();
         let about = opt_arg(&ctx.args, "about");
         let category = opt_arg(&ctx.args, "category");
         let mut found = Vec::new();
@@ -112,25 +137,10 @@ impl Tool for GroupRecallTool {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .extend(read);
-        reply(&ctx, Value::Array(found))
+        reply(ctx, Value::Array(found))
     }
-}
 
-#[async_trait]
-impl Tool for GroupStoreTool {
-    fn name(&self) -> &str {
-        "memory_store"
-    }
-    fn description(&self) -> &str {
-        "Remember a fact about a member: something they said in the chat, a plan the group agreed that involves them, or what they asked you to remember. One short self-contained sentence that names them. Store a shared plan once per member it involves. `about` defaults to the member who asked. Never store secrets, or guesses about someone."
-    }
-    fn parameters(&self) -> Value {
-        fact_schema(
-            &["content"],
-            json!({"about":{"type":"string","enum":names(&self.members),"description":"Whose memory this is. Defaults to the member who asked."}}),
-        )
-    }
-    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+    async fn store(&self, ctx: &ToolContext<'_>) -> Result<ToolResult> {
         let member = match opt_arg(&ctx.args, "about") {
             Some(name) => match self.members.iter().find(|m| m.name == name) {
                 Some(member) => member,
@@ -147,6 +157,6 @@ impl Tool for GroupStoreTool {
             .user
             .remember(fact(&ctx.args, MemorySource::Learned {}, None)?)
             .await?;
-        reply(&ctx, json!({"stored": true, "about": member.name}))
+        reply(ctx, json!({"stored": true, "about": member.name}))
     }
 }

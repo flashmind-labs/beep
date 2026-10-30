@@ -41,6 +41,7 @@ pub mod stt;
 pub mod subagents;
 pub mod timing;
 pub mod titles;
+pub mod tool_cost;
 pub mod tool_images;
 pub mod tools;
 pub mod transport;

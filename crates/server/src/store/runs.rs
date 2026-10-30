@@ -29,6 +29,9 @@ pub struct FinishedTurn<'a> {
     /// What the apps show of the turn, in order. Steps before the first that
     /// opens a turn carry on the latest one, as when an approval resumes it.
     pub steps: &'a [Step],
+    /// Whether steps that open no turn stand on their own instead, as a
+    /// routine's notice does, rather than carry on the latest turn.
+    pub stands_alone: bool,
     /// Added to the turn the steps carry on: its reasoning, and the memory
     /// score of a resumed turn.
     pub carried: TurnRecord,
@@ -308,13 +311,16 @@ impl Store {
             .bind(turn.prompt_tokens.map(i64::from))
             .execute(&mut *tx)
             .await?;
-            // Whatever the turn did answered or skipped the cards still asking.
-            bumped.extend(drop_approvals(&mut tx, chat).await?);
+            // Whatever the turn did answered or skipped the cards still
+            // asking; a turn that shows nothing did neither.
+            if !turn.steps.is_empty() {
+                bumped.extend(drop_approvals(&mut tx, chat).await?);
+            }
             let opens = turn
                 .steps
                 .first()
                 .is_some_and(|step| step.body.opens_turn());
-            let carried = if opens {
+            let carried = if opens || turn.stands_alone {
                 None
             } else {
                 latest_turn(&mut tx, chat).await?
@@ -334,7 +340,11 @@ impl Store {
             {
                 bumped.extend(patch_turn(&mut tx, chat, carried, &turn.carried).await?);
             }
-            touch(&mut tx, chat).await?;
+            // A turn that shows nothing, like a quiet routine's, leaves the
+            // chat where it was in the list.
+            if !turn.steps.is_empty() || prompt.is_some() {
+                touch(&mut tx, chat).await?;
+            }
             let updated_at: DateTime<Utc> =
                 sqlx::query_scalar("SELECT updated_at FROM chats WHERE id = $1")
                     .bind(chat)

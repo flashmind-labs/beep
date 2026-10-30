@@ -8,7 +8,7 @@
 //! a token budget, a time limit and a typed decision.
 //!
 //! A job is one slow tool call the main agent moved to the background
-//! (`run_in_background`). Sub-agents the main agent starts (`spawn_agent`)
+//! (`background run`). Sub-agents the main agent starts (`background spawn`)
 //! and jobs are listed together per chat (see [`work`]); when one ends its
 //! result goes back into the chat it came from, starting a new turn there
 //! once no turn is running.
@@ -18,7 +18,7 @@
 //!
 //! [`Subagents`] owns every task, bounded per user and per [`Pool`]. Event
 //! triage (`crate::events::triage`) and the general agent behind
-//! `spawn_agent` are the kinds so far.
+//! `background spawn` are the kinds so far.
 
 mod approvals;
 mod decision;
@@ -202,7 +202,7 @@ pub struct Subagents {
     pub approvals: Arc<Approvals>,
     /// Woken whenever a turn ends, so a waiting delivery tries again.
     pub(crate) turn_ended: Notify,
-    /// Sub-agents kept for `message_agent`.
+    /// Sub-agents kept for `background message`.
     pub(crate) kept: kept::KeptAgents<run::Session<tools::Report>>,
 }
 

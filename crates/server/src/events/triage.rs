@@ -485,7 +485,7 @@ pub async fn waiting_context(user: &User) -> Option<String> {
     Some(text)
 }
 
-/// The triage run for `rows`: their apps' read tools, `memory_recall`, and
+/// The triage run for `rows`: their apps' read tools, a read-only `memory`, and
 /// the user's topics, held events and memory profile as context.
 async fn spec(app: &App, user: &Arc<User>, rows: &[EventRow], model: &RoleModel) -> Spec<Triage> {
     Spec {
@@ -502,7 +502,7 @@ async fn spec(app: &App, user: &Arc<User>, rows: &[EventRow], model: &RoleModel)
     }
 }
 
-/// The read tools of the apps `rows` came from, and `memory_recall`.
+/// The read tools of the apps `rows` came from, and a read-only `memory`.
 async fn tools(user: &Arc<User>, rows: &[EventRow]) -> Vec<Arc<dyn Tool>> {
     let apps: Vec<&str> = pipeline::apps_of(rows)
         .into_iter()
