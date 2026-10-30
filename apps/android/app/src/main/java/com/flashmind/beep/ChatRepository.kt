@@ -21,6 +21,7 @@ import com.flashmind.beep.proto.JoinPreview
 import com.flashmind.beep.proto.MemoryRead
 import com.flashmind.beep.proto.MemoryScope
 import com.flashmind.beep.proto.Machine
+import com.flashmind.beep.proto.Grant
 import com.flashmind.beep.proto.PendingApproval
 import com.flashmind.beep.proto.WorkItem
 import com.flashmind.beep.proto.Research
@@ -871,6 +872,10 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun toggleCron(id: String, enabled: Boolean) {
         api().updateCron(id, enabled, null, null)
     }
+    /** What routines may do without asking; every grant ends on its own. */
+    suspend fun listGrants(): List<Grant> = api().listGrants()
+    /** Ends a grant, so its routine asks again. */
+    suspend fun revokeGrant(id: String) = api().revokeGrant(id)
 
     /** Set when a place routine was made while the phone can't watch places with the app closed; the app then asks once. */
     val askLocationAlways = MutableStateFlow(false)
