@@ -180,6 +180,8 @@ fn main() {
             commands::open_url,
             commands::group_typing,
             commands::list_memories,
+            commands::list_memory_scopes,
+            commands::list_memory_reads,
             commands::update_memory,
             commands::delete_memory,
             commands::clear_memories,

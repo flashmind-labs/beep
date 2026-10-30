@@ -19,11 +19,12 @@ use beep_proto::{
     ClearMemories, CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory,
     DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GetRouteCard,
     GetSessionFiles, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons,
-    ListGroupReminders, ListGroups, ListMemories, ListSkills, Memory, Models, PeekGroup, PinGroup,
-    PinSession, ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session,
-    SessionMatch, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink,
-    Skill, StockChart, ToggleCron, UndoSkill, UnshareSession, UpdateMemory, UpdateSkill,
-    format_group_code, group_code, node::desktop::Permission,
+    ListGroupReminders, ListGroups, ListMemories, ListMemoryReads, ListMemoryScopes, ListSkills,
+    Memory, MemoryRead, MemoryScope, Models, PeekGroup, PinGroup, PinSession, ReasoningLevel,
+    RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session, SessionMatch, SetAutoModel,
+    SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink, Skill, StockChart, ToggleCron,
+    UndoSkill, UnshareSession, UpdateMemory, UpdateSkill, format_group_code, group_code,
+    node::desktop::Permission,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -736,6 +737,62 @@ impl From<Memory> for MemoryView {
 pub async fn list_memories(beep: Service<'_>) -> Result<Vec<MemoryView>> {
     let memories = beep.call(ListMemories {}).await?;
     Ok(memories.into_iter().map(MemoryView::from).collect())
+}
+
+/// What a memory is about when it is not the user.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ScopeView {
+    /// A machine by its key, with its name while the machine is known.
+    Machine {
+        id: String,
+        name: Option<String>,
+    },
+    Project {
+        name: String,
+    },
+    /// One of the user's accounts, by app, such as `github`.
+    Account {
+        app: String,
+    },
+}
+
+impl From<MemoryScope> for ScopeView {
+    fn from(scope: MemoryScope) -> Self {
+        match scope {
+            MemoryScope::Machine { id, name } => Self::Machine { id, name },
+            MemoryScope::Project { name } => Self::Project { name },
+            MemoryScope::Account { app } => Self::Account { app },
+        }
+    }
+}
+
+/// A memory's subject, by `Memory::id`.
+#[derive(Serialize)]
+pub struct MemoryScopeView {
+    id: String,
+    scope: ScopeView,
+}
+
+/// What each memory that is not about the user is about. A memory missing
+/// here is about the user.
+#[tauri::command]
+pub async fn list_memory_scopes(beep: Service<'_>) -> Result<Vec<MemoryScopeView>> {
+    let scoped = beep.call(ListMemoryScopes {}).await?;
+    Ok(scoped
+        .into_iter()
+        .map(|memory| MemoryScopeView {
+            id: memory.id,
+            scope: memory.scope.into(),
+        })
+        .collect())
+}
+
+/// The reads of mail and calendars that added or confirmed memories, newest
+/// first.
+#[tauri::command]
+pub async fn list_memory_reads(beep: Service<'_>) -> Result<Vec<MemoryRead>> {
+    beep.call(ListMemoryReads {}).await
 }
 
 #[tauri::command]
