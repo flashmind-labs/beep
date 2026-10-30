@@ -121,6 +121,8 @@ sample_struct! {
     MachineTool { name, version }
     MachineLogin { tool, signed_in, account }
     ScopedMemory { id, scope }
+    WorkItem { id, kind, task, started_at, step, outcome }
+    WorkOutcome { ok, text }
     DeviceInvite { code, uri, expires_at }
     JoinPreview { name, kind }
     Group { id, name, members, last, updated_at, beep_typing, pinned, apps_shared }

@@ -8,27 +8,27 @@
 use beep_proto::{
     ActiveRun, AddAppAccount, AddMcpServer, Agents, AnswerApproval, AnswerGroupApproval, ApiError,
     ApnsEnvironment, AppAccount, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
-    Chat, ClearMemories, ConnectApp, ConnectLink, ConnectMcpServer, CopyShare, CreateCron,
-    CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory, DeletePlace,
-    DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
-    DeviceInvite, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
-    FinishMcpAuth, GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages,
-    GetModels, GetResearch, GetResearchPdf, GetRouteCard, GetRun, GetSession, GetSessionAgents,
-    GetSessionFiles, GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink,
-    GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount,
-    JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps,
-    ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMachines, ListMcpServers,
+    CancelWork, Chat, ClearMemories, ConnectApp, ConnectLink, ConnectMcpServer, CopyShare,
+    CreateCron, CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory,
+    DeletePlace, DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom,
+    DeviceAnswer, DeviceInvite, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart,
+    FinishAppAuth, FinishMcpAuth, GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup,
+    GetGroupImages, GetModels, GetResearch, GetResearchPdf, GetRouteCard, GetRun, GetSession,
+    GetSessionAgents, GetSessionFiles, GetSessionImages, GetShare, Group, GroupChat, GroupInvite,
+    GroupLink, GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, InviteDevice,
+    JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts,
+    ListApps, ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMachines, ListMcpServers,
     ListMcpTools, ListMemories, ListMemoryReads, ListMemoryScopes, ListPlaces, ListResearches,
-    ListSessions, ListSkills, Machine, McpCallback, McpConnect, McpServer, McpTools, Memory,
-    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession,
-    Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    ListSessions, ListSkills, ListWork, Machine, McpCallback, McpConnect, McpServer, McpTools,
+    Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup,
+    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
     RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, Research, ResearchSummary,
     RouteCard, Run, RunCron, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages,
     Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel,
     SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill,
-    StartAppAuth, StopResearch, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill,
-    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
-    UpdateSkill, Upload,
+    SpokenTurns, StartAppAuth, StopResearch, Stream, SuggestPrompts, ToggleCron, TurnAgent,
+    UndoSkill, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
+    UpdatePlace, UpdateSkill, Upload, WorkItem,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -542,6 +542,28 @@ impl BeepClient {
 
     pub async fn cancel_run(&self, id: String) -> Result<(), BeepError> {
         self.call(CancelRun { id }).await
+    }
+
+    /// The sub-agents and background jobs the agent started in `session_id`:
+    /// running ones first, then those that ended in the last hour. Servers
+    /// from before background work answer with an error.
+    pub async fn list_work(&self, session_id: String) -> Result<Vec<WorkItem>, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(ListWork { session_id }).await
+    }
+
+    /// Stops the running sub-agent or job `id` of `session_id`. `false` when
+    /// it had already ended.
+    pub async fn cancel_work(&self, session_id: String, id: String) -> Result<bool, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(CancelWork { session_id, id }).await
+    }
+
+    /// When each prompt of `session_id` that was said aloud in live mode was
+    /// sent: the `timestamp`s of those `HistoryEntry::User`s, oldest first.
+    pub async fn spoken_turns(&self, session_id: String) -> Result<Vec<i64>, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(SpokenTurns { session_id }).await
     }
 
     /// Resumes a run's events after `after`, the last `seq` seen. Like `chat`,
