@@ -37,23 +37,26 @@ FROM debian:trixie-slim AS node
 ARG AGENTS="@anthropic-ai/claude-code @agentclientprotocol/claude-agent-acp @openai/codex @agentclientprotocol/codex-acp"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates curl git openssh-client procps ripgrep \
+        ca-certificates curl git iproute2 openssh-client procps ripgrep \
         python3 python3-venv build-essential nodejs npm \
     && rm -rf /var/lib/apt/lists/* \
     && if [ -n "$AGENTS" ]; then npm install -g $AGENTS && npm cache clean --force; fi \
     && useradd --create-home --shell /bin/bash beep \
     && mkdir /work && chown beep:beep /work
 COPY --from=node-build /usr/local/bin/beep-node /usr/local/bin/
-USER beep
+COPY deploy/onprem/egress.sh /usr/local/bin/beep-egress
+COPY deploy/onprem/node-entrypoint.sh /usr/local/bin/beep-node-entrypoint
 WORKDIR /work
-ENTRYPOINT ["beep-node"]
+# Starts as root to cap outgoing traffic, then runs the node as beep.
+ENTRYPOINT ["beep-node-entrypoint"]
 CMD ["local", "--link", "/link"]
 
 FROM debian:trixie-slim
-# passt gives Drop its network, poppler-utils has pdftotext.
+# passt gives Drop its network, poppler-utils has pdftotext, iproute2 has the
+# tc that caps a deploy/onprem server's outgoing traffic.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates passt poppler-utils python3 python3-venv \
+        ca-certificates iproute2 passt poppler-utils python3 python3-venv \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --create-home beep \
     && mkdir /data && chown beep:beep /data
@@ -69,6 +72,7 @@ COPY --from=build /usr/local/bin/beep-server /usr/local/bin/beep-admin /usr/loca
 COPY deploy/entrypoint.sh /usr/local/bin/beep-entrypoint
 # deploy/onprem starts the server through this one instead.
 COPY deploy/onprem/entrypoint.sh /usr/local/bin/beep-onprem
+COPY deploy/onprem/egress.sh /usr/local/bin/beep-egress
 # Starts as root to prepare /etc for Drop, then runs the server as beep.
 WORKDIR /data
 # The server shuts down cleanly on ctrl-c only.

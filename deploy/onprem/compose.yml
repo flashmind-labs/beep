@@ -33,6 +33,10 @@ services:
         condition: service_healthy
     # The server only dials out (iroh relays and hole punching), so it
     # publishes no ports.
+    # NET_ADMIN only for the egress cap; the entrypoint drops every
+    # capability before the server starts.
+    cap_add:
+      - NET_ADMIN
     volumes:
       - data:/data
       - link:/link
@@ -54,6 +58,12 @@ services:
       - /link
       - --name
       - ${BEEP_NODE_NAME:-Beep server}
+    environment:
+      BEEP_EGRESS_LIMIT: ${BEEP_EGRESS_LIMIT:-}
+    # As for the server: only for the egress cap, dropped before the node
+    # runs anything.
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - server
     volumes:
