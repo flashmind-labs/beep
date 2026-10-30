@@ -207,6 +207,18 @@ impl Agents {
         )
     }
 
+    /// Closes every running session and waits until their agents have
+    /// stopped: for the node shutting down.
+    pub async fn shutdown(&self) {
+        let running: Vec<Arc<Session>> = self
+            .lock()
+            .values()
+            .filter(|session| session.live.borrow().status() != Status::Ended)
+            .cloned()
+            .collect();
+        futures::future::join_all(running.iter().map(|session| session.close())).await;
+    }
+
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Arc<Session>>> {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
     }

@@ -10,6 +10,7 @@ pub mod claude;
 pub mod env;
 pub mod files;
 pub mod link;
+mod process;
 pub mod service;
 mod shell;
 pub mod state;
