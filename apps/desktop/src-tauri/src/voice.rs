@@ -1,6 +1,7 @@
-//! Live voice. A tap of Option with the bar open, a held Option, or a voice note start
+//! Live voice. A tap or a held Option in a bar opened with two taps starts
 //! live mode: the bar shows an orb, the words as they are said, and Beep's
-//! answer read aloud sentence by sentence, then it listens again.
+//! answer read aloud sentence by sentence, then it listens again. A voice
+//! note is read out the same way but never listens.
 //!
 //! `beep_live::Live` decides; this runs its effects. The microphone and the
 //! player share one engine with echo cancellation (`audio`), the words
@@ -11,7 +12,7 @@ use crate::{
     audio::{Audio, MicChunk, MicDenied, Played},
     bar,
     beep::{Beep, Pick, RunNews, Sent},
-    hotkey::{self, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW},
+    hotkey::{self, Act, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW},
     news::{self, Heard},
     presence::Presence,
 };
@@ -121,6 +122,8 @@ struct Session {
     live: Live,
     chat: Option<Uuid>,
     title: Option<String>,
+    /// A voice note read out: no transcription, and it ends when read.
+    note: bool,
     /// The engine once it opened.
     audio: watch::Receiver<Option<Arc<Audio>>>,
     /// Microphone sound for the transcription that runs.
@@ -249,6 +252,28 @@ impl Voice {
         self.state().live.is_some()
     }
 
+    /// What live mode is doing, for the Option keys.
+    fn voice(&self) -> hotkey::Voice {
+        match self.state().live.as_ref() {
+            None => hotkey::Voice::Off,
+            Some(s) if s.note => hotkey::Voice::Note,
+            Some(_) => hotkey::Voice::Live,
+        }
+    }
+
+    /// Whether session `id` reads a voice note.
+    fn is_note(&self, id: u64) -> bool {
+        self.state()
+            .live
+            .as_ref()
+            .is_some_and(|s| s.id == id && s.note)
+    }
+
+    /// A bar the user opened with two taps, not one up for a voice note.
+    fn bar_open(&self) -> bool {
+        bar::is_open(&self.app) && !bar::is_passive()
+    }
+
     /// Whether `notice` should be spoken instead of shown as a banner: voice
     /// notes are on, the bar is closed, live mode is off, and the user is
     /// here and not on a call.
@@ -302,6 +327,9 @@ impl Voice {
 
     /// A tap from the bar, such as a click on the orb.
     pub fn tap(self: &Arc<Self>) {
+        if self.voice() == hotkey::Voice::Note {
+            return self.leave_live();
+        }
         self.input_now(Input::Tap);
     }
 
@@ -367,6 +395,7 @@ impl Voice {
                 live,
                 chat,
                 title: note.as_ref().map(|(_, title)| title.clone()),
+                note: note.is_some(),
                 audio,
                 stt: None,
                 stt_run: 0,
@@ -459,6 +488,8 @@ impl Voice {
         for effect in effects {
             log::debug!("live {id}: {}", effect.name());
             match effect {
+                // A voice note is only read out: nothing listens.
+                Effect::Transcribe if self.is_note(id) => {}
                 Effect::Transcribe => self.transcribe(id),
                 Effect::EndTranscription => self.end_transcription(id),
                 Effect::Send { text, new_chat } => self.send(id, text, new_chat),
@@ -832,7 +863,8 @@ impl Voice {
             });
             let (_, ticks) = watch::channel(0);
             me.play(id, rx, ticks, &voiced, false).await;
-            me.input(id, Input::SpeakDone);
+            // Read: it ends here rather than listening for an answer.
+            me.input(id, Input::Escape);
         };
         if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
             s.reader.start(reader);
@@ -1136,7 +1168,7 @@ impl Voice {
 
     /// `HOLD` after Option went down: talk while it stays down.
     fn on_hold_timer(self: &Arc<Self>, press: u64) {
-        let live = self.is_live();
+        let act = hotkey::on_held(self.voice(), self.bar_open());
         let step = self
             .state()
             .hold
@@ -1144,16 +1176,18 @@ impl Voice {
         if step != HoldStep::Start {
             return;
         }
-        if live {
-            self.input_now(Input::HoldStart);
-        } else {
-            let chat = self.open_chat();
-            self.start(Start::Hold, chat);
+        match act {
+            Act::Live => self.input_now(Input::HoldStart),
+            Act::Start => {
+                let chat = self.open_chat();
+                self.start(Start::Hold, chat);
+            }
+            Act::EndNote | Act::Nothing => {}
         }
     }
 
-    /// A single tap stood alone: interrupt or leave live mode, or start it
-    /// when the user has the bar open.
+    /// A single tap stood alone: interrupt or leave live mode, stop a voice
+    /// note, or start live mode in a bar the user opened.
     fn on_tap_timer(self: &Arc<Self>, press: u64) {
         let step = self
             .state()
@@ -1162,11 +1196,14 @@ impl Voice {
         if step != HoldStep::Single {
             return;
         }
-        if self.is_live() {
-            self.input_now(Input::Tap);
-        } else if bar::is_open(&self.app) && !bar::is_passive() {
-            let chat = self.open_chat();
-            self.start(Start::Tap, chat);
+        match hotkey::on_single(self.voice(), self.bar_open()) {
+            Act::Live => self.input_now(Input::Tap),
+            Act::EndNote => self.leave_live(),
+            Act::Start => {
+                let chat = self.open_chat();
+                self.start(Start::Tap, chat);
+            }
+            Act::Nothing => {}
         }
     }
 }
