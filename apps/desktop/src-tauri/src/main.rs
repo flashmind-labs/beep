@@ -80,8 +80,17 @@ fn main() {
         ))
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| match event {
-            // Only the bar is a popover; research windows stay put.
-            WindowEvent::Focused(false) if window.label() == bar::LABEL => {
+            // Only the bar is a popover; research windows stay put. The bar
+            // stays while live mode listens, so the orb never goes away with
+            // the microphone still on.
+            WindowEvent::Focused(false)
+                if window.label() == bar::LABEL
+                    && !bar::is_passive()
+                    && !window
+                        .app_handle()
+                        .try_state::<Arc<Voice>>()
+                        .is_some_and(|voice| voice.is_live()) =>
+            {
                 let _ = window.hide();
             }
             WindowEvent::Destroyed => research::closed(window.app_handle(), window.label()),

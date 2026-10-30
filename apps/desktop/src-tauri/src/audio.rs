@@ -253,12 +253,26 @@ mod engine {
                 Command::StopPlaying => unsafe { player.stop() },
             }
         }
-        // SAFETY: the engine and its nodes were made on this thread and
-        // the tap was installed on bus 0 of the input node.
+        // SAFETY: the player belongs to this thread's engine.
+        unsafe { player.stop() };
+        tear_down(&engine);
+    }
+
+    /// Stops `engine`, removes its microphone tap and turns voice processing
+    /// off. Left on, voice processing holds the devices and the next engine,
+    /// even one without it, hears nothing.
+    fn tear_down(engine: &AVAudioEngine) {
+        // SAFETY: the engine was made on this thread, and the tap, when
+        // there is one, is on bus 0 of its input node.
         unsafe {
-            player.stop();
-            engine.inputNode().removeTapOnBus(0);
+            let input = engine.inputNode();
+            input.removeTapOnBus(0);
             engine.stop();
+            if input.isVoiceProcessingEnabled()
+                && let Err(e) = input.setVoiceProcessingEnabled_error(false)
+            {
+                log::warn!("voice processing stayed on: {}", e.localizedDescription());
+            }
         }
     }
 
@@ -318,12 +332,14 @@ mod engine {
                 // Voice processing wants the output at the microphone's
                 // rate; left alone it takes the speakers' rate, and when
                 // the two differ the engine does not start.
-                let output = AVAudioFormat::initStandardFormatWithSampleRate_channels(
+                let Some(output) = AVAudioFormat::initStandardFormatWithSampleRate_channels(
                     AVAudioFormat::alloc(),
                     rate,
                     2,
-                )
-                .context("no output format at the microphone's rate")?;
+                ) else {
+                    tear_down(&engine);
+                    return Err(anyhow!("no output format at {rate} Hz"));
+                };
                 engine.connect_to_format(
                     &engine.mainMixerNode(),
                     &engine.outputNode(),
@@ -332,13 +348,7 @@ mod engine {
             }
             engine.prepare();
             if let Err(e) = engine.startAndReturnError() {
-                input.removeTapOnBus(0);
-                engine.stop();
-                // Left on, it holds the devices and the next engine, even
-                // one without it, hears nothing.
-                if voice_processing && let Err(e) = input.setVoiceProcessingEnabled_error(false) {
-                    log::warn!("voice processing stayed on: {}", e.localizedDescription());
-                }
+                tear_down(&engine);
                 return Err(anyhow!(
                     "the microphone could not start: {}",
                     e.localizedDescription()

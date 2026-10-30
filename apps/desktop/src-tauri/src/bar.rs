@@ -11,8 +11,7 @@ const MAX_SHARE: f64 = 0.7;
 /// Where the bar's top sits, as a share of the screen's height.
 const TOP: f64 = 0.22;
 
-/// The bar is up for a voice note without taking focus, so whatever the
-/// user is typing in keeps the keyboard.
+/// The bar is up only for live mode, not opened by the user.
 static PASSIVE: AtomicBool = AtomicBool::new(false);
 
 fn window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
@@ -23,7 +22,7 @@ fn window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
 pub fn toggle<R: Runtime>(app: &AppHandle<R>) {
     let Some(bar) = window(app) else { return };
     if bar.is_visible().unwrap_or(false) && !is_passive() {
-        hide(app);
+        dismiss(app);
     } else {
         show(app, None);
     }
@@ -64,9 +63,11 @@ fn activate() {
 #[cfg(not(target_os = "macos"))]
 fn activate() {}
 
-/// Shows the bar for a voice note without taking focus. Does nothing when
-/// the bar is already open for the user. True when the bar is up passively.
-pub fn show_passive<R: Runtime>(app: &AppHandle<R>) -> bool {
+/// Shows the bar for live mode, marked as up only for live mode, so it goes
+/// away when live mode ends. With `focus` it takes the keyboard so Escape
+/// and typing reach it. Does nothing when the bar is already open for the
+/// user. True when the bar is up passively.
+pub fn show_passive<R: Runtime>(app: &AppHandle<R>, focus: bool) -> bool {
     let Some(bar) = window(app) else { return false };
     if is_passive() {
         return true;
@@ -77,9 +78,13 @@ pub fn show_passive<R: Runtime>(app: &AppHandle<R>) -> bool {
     if let Err(e) = place(app, &bar) {
         log::warn!("placing the bar: {e}");
     }
-    let _ = bar.set_focusable(false);
+    let _ = bar.set_focusable(focus);
     PASSIVE.store(true, Ordering::Relaxed);
     let _ = bar.show();
+    if focus {
+        activate();
+        let _ = bar.set_focus();
+    }
     true
 }
 
@@ -101,6 +106,31 @@ pub fn hide<R: Runtime>(app: &AppHandle<R>) {
         let _ = bar.hide();
     }
 }
+
+/// Hides the bar the user is done with. It took focus when it opened, so
+/// focus goes back to the app the user was in, unless a research window is
+/// still up.
+pub fn dismiss<R: Runtime>(app: &AppHandle<R>) {
+    let focused = window(app).is_some_and(|bar| bar.is_focused().unwrap_or(false));
+    hide(app);
+    let others = app
+        .webview_windows()
+        .into_values()
+        .any(|w| w.label() != LABEL && w.is_visible().unwrap_or(false));
+    if focused && !others {
+        give_back_focus(app);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn give_back_focus<R: Runtime>(app: &AppHandle<R>) {
+    if let Err(e) = app.hide() {
+        log::warn!("handing focus back: {e}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn give_back_focus<R: Runtime>(_: &AppHandle<R>) {}
 
 fn place<R: Runtime>(app: &AppHandle<R>, bar: &WebviewWindow<R>) -> tauri::Result<()> {
     let cursor = app.cursor_position()?;

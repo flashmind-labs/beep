@@ -1,12 +1,14 @@
-//! Tapping Option: twice opens the bar, three times starts live mode. An AppKit monitor for modifier changes sees
+//! Tapping Option twice opens the bar, and one more tap with the bar open
+//! starts live mode. An AppKit monitor for modifier changes sees
 //! Option go down and up in any app, and macOS hands those out without the
 //! Input Monitoring permission that watching every key would need. Keys and
 //! clicks never reach that monitor, so when Option comes up we ask the event
 //! source how long ago the last one was: Option used to type a character or
 //! jump a word is not a tap.
 //!
-//! Holding Option on its own talks to Beep in live mode, and in live mode
-//! a single tap interrupts Beep or leaves. The same monitor drives both, through
+//! Holding Option on its own talks to Beep from any app, and letting go
+//! sends what was said. A single tap starts live mode when the bar is open,
+//! and in live mode interrupts Beep or leaves. The same monitor drives both, through
 //! `Hold`.
 
 use std::time::{Duration, Instant};
@@ -31,11 +33,8 @@ pub enum Input {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TapStep {
     Nothing,
-    /// Two taps: call `Taps::on_timer` with this run after `WINDOW`, once a
-    /// third can no longer follow. Then it opens or hides the bar.
-    Two(u64),
-    /// Three taps: live mode.
-    Three,
+    /// Two taps: open or hide the bar.
+    Two,
 }
 
 /// Counts quick Option taps in a row. Anything else between them, or a
@@ -45,8 +44,6 @@ pub struct Taps {
     down_at: Option<Instant>,
     last_tap: Option<Instant>,
     count: u32,
-    /// Counted, so a timer from an earlier run does nothing.
-    run: u64,
 }
 
 impl Taps {
@@ -69,21 +66,15 @@ impl Taps {
                 let follows = self.last_tap.is_some_and(|last| {
                     down.duration_since(last) <= WINDOW && pressed.is_none_or(|p| p < last)
                 });
-                if follows {
-                    self.count += 1;
-                } else {
+                if !follows {
                     self.count = 1;
-                    self.run += 1;
+                    self.last_tap = Some(now);
+                    return TapStep::Nothing;
                 }
-                self.last_tap = Some(now);
-                match self.count {
-                    2 => TapStep::Two(self.run),
-                    3 => {
-                        self.forget();
-                        TapStep::Three
-                    }
-                    _ => TapStep::Nothing,
-                }
+                // A third tap starts a run of its own: the single tap that
+                // starts live mode once the bar is open.
+                self.forget();
+                TapStep::Two
             }
             Input::Other => {
                 self.down_at = None;
@@ -91,16 +82,6 @@ impl Taps {
                 TapStep::Nothing
             }
         }
-    }
-
-    /// `WINDOW` after the second tap of `run`: true when no third came, so
-    /// the two taps stand.
-    pub fn on_timer(&mut self, run: u64) -> bool {
-        if run != self.run || self.count != 2 || self.down_at.is_some() {
-            return false;
-        }
-        self.forget();
-        true
     }
 
     fn forget(&mut self) {
@@ -190,9 +171,18 @@ impl Hold {
         }
     }
 
-    /// `HOLD` after press `press`. `armed` says whether holding talks now.
-    pub fn on_timer(&mut self, press: u64, armed: bool, now: Instant) -> HoldStep {
-        if press != self.press || !self.held || !armed || self.recording_since.is_some() {
+    /// `HOLD` after press `press`. `since_press` is how long ago a key or
+    /// mouse button last went down: Option held to type a character or jump
+    /// a word is not a hold.
+    pub fn on_timer(&mut self, press: u64, since_press: Duration, now: Instant) -> HoldStep {
+        if press != self.press || !self.held || self.recording_since.is_some() {
+            return HoldStep::Nothing;
+        }
+        let pressed = now.checked_sub(since_press);
+        if self
+            .down_at
+            .is_some_and(|down| pressed.is_some_and(|p| p >= down))
+        {
             return HoldStep::Nothing;
         }
         self.recording_since = Some(now);
@@ -399,43 +389,28 @@ mod tests {
     }
 
     #[test]
-    fn two_quick_taps_wait_for_a_third_then_stand() {
+    fn two_quick_taps_open_the_bar_at_once() {
         let t = Instant::now();
         let mut tap = Taps::default();
-        let steps = taps(&mut tap, t, &[0, 200]);
-        let TapStep::Two(run) = steps[1] else {
-            panic!("two taps should wait for a third");
-        };
-        assert_eq!(steps[0], TapStep::Nothing);
-        assert!(tap.on_timer(run));
-        // It fires once.
-        assert!(!tap.on_timer(run));
+        assert_eq!(
+            taps(&mut tap, t, &[0, 200]),
+            vec![TapStep::Nothing, TapStep::Two]
+        );
     }
 
     #[test]
-    fn three_quick_taps_are_live_mode_and_not_two() {
+    fn a_third_tap_starts_over() {
         let t = Instant::now();
         let mut tap = Taps::default();
-        let steps = taps(&mut tap, t, &[0, 200, 400]);
-        let TapStep::Two(run) = steps[1] else {
-            panic!("two taps should wait for a third");
-        };
-        assert_eq!(steps[2], TapStep::Three);
-        assert!(!tap.on_timer(run));
-        // A fourth tap starts over.
-        assert_eq!(taps(&mut tap, t, &[600]), vec![TapStep::Nothing]);
-    }
-
-    #[test]
-    fn a_third_tap_still_down_at_the_timer_holds_off_the_two() {
-        let t = Instant::now();
-        let mut tap = Taps::default();
-        let TapStep::Two(run) = taps(&mut tap, t, &[0, 200])[1] else {
-            panic!("two taps should wait for a third");
-        };
-        tap.on_event(Input::OptionDown, ms(t, 500));
-        assert!(!tap.on_timer(run));
-        assert_eq!(tap.on_event(UP, ms(t, 560)), TapStep::Three);
+        assert_eq!(
+            taps(&mut tap, t, &[0, 200, 400, 600]),
+            vec![
+                TapStep::Nothing,
+                TapStep::Two,
+                TapStep::Nothing,
+                TapStep::Two
+            ]
+        );
     }
 
     #[test]
@@ -500,7 +475,10 @@ mod tests {
         let HoldStep::Wait(press) = hold.on_event(Input::OptionDown, t) else {
             panic!("a press should wait for the timer");
         };
-        assert_eq!(hold.on_timer(press, true, ms(t, 400)), HoldStep::Start);
+        assert_eq!(
+            hold.on_timer(press, Duration::MAX, ms(t, 400)),
+            HoldStep::Start
+        );
         assert_eq!(
             hold.on_event(up_after_press(5000), ms(t, 2000)),
             HoldStep::Send
@@ -508,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn a_short_press_or_an_unarmed_hold_records_nothing() {
+    fn a_short_press_records_nothing() {
         let t = Instant::now();
         let mut hold = Hold::default();
         let HoldStep::Wait(press) = hold.on_event(Input::OptionDown, t) else {
@@ -516,13 +494,10 @@ mod tests {
         };
         // A short press is a tap instead.
         assert_eq!(hold.on_event(UP, ms(t, 100)), HoldStep::Tap(press));
-        assert_eq!(hold.on_timer(press, true, ms(t, 400)), HoldStep::Nothing);
-
-        let HoldStep::Wait(press) = hold.on_event(Input::OptionDown, ms(t, 1000)) else {
-            panic!("a press should wait for the timer");
-        };
-        assert_eq!(hold.on_timer(press, false, ms(t, 1400)), HoldStep::Nothing);
-        assert_eq!(hold.on_event(UP, ms(t, 2000)), HoldStep::Nothing);
+        assert_eq!(
+            hold.on_timer(press, Duration::MAX, ms(t, 400)),
+            HoldStep::Nothing
+        );
     }
 
     #[test]
@@ -534,7 +509,10 @@ mod tests {
         };
         hold.on_event(UP, ms(t, 100));
         hold.on_event(Input::OptionDown, ms(t, 300));
-        assert_eq!(hold.on_timer(first, true, ms(t, 400)), HoldStep::Nothing);
+        assert_eq!(
+            hold.on_timer(first, Duration::MAX, ms(t, 400)),
+            HoldStep::Nothing
+        );
     }
 
     #[test]
@@ -544,7 +522,7 @@ mod tests {
         let HoldStep::Wait(press) = hold.on_event(Input::OptionDown, t) else {
             panic!("a press should wait for the timer");
         };
-        hold.on_timer(press, true, ms(t, 400));
+        hold.on_timer(press, Duration::MAX, ms(t, 400));
         // A key went down at 900, during the recording.
         assert_eq!(
             hold.on_event(up_after_press(100), ms(t, 1000)),
@@ -554,7 +532,7 @@ mod tests {
         let HoldStep::Wait(press) = hold.on_event(Input::OptionDown, ms(t, 2000)) else {
             panic!("a press should wait for the timer");
         };
-        hold.on_timer(press, true, ms(t, 2400));
+        hold.on_timer(press, Duration::MAX, ms(t, 2400));
         assert_eq!(hold.on_event(Input::Other, ms(t, 2500)), HoldStep::Cancel);
         assert_eq!(hold.on_event(UP, ms(t, 2600)), HoldStep::Nothing);
     }
@@ -575,10 +553,7 @@ mod tests {
         tap.on_event(Input::OptionDown, t);
         tap.on_event(up_after_press(100), ms(t, 50));
         tap.on_event(Input::OptionDown, ms(t, 150));
-        assert!(matches!(
-            tap.on_event(up_after_press(300), ms(t, 200)),
-            TapStep::Two(_)
-        ));
+        assert_eq!(tap.on_event(up_after_press(300), ms(t, 200)), TapStep::Two);
     }
 
     fn tap(hold: &mut Hold, at: Instant) -> HoldStep {
@@ -605,7 +580,10 @@ mod tests {
         let HoldStep::Wait(press) = hold.on_event(Input::OptionDown, ms(t, 2000)) else {
             panic!("a press should wait for the timer");
         };
-        assert_eq!(hold.on_timer(press, true, ms(t, 2400)), HoldStep::Start);
+        assert_eq!(
+            hold.on_timer(press, Duration::MAX, ms(t, 2400)),
+            HoldStep::Start
+        );
         assert_eq!(hold.on_event(UP, ms(t, 3000)), HoldStep::Send);
         let HoldStep::Tap(press) = tap(&mut hold, ms(t, 4000)) else {
             panic!("a tap should wait for a second one");
@@ -631,6 +609,21 @@ mod tests {
     }
 
     #[test]
+    fn a_tap_after_a_double_tap_is_single() {
+        let t = ms(Instant::now(), 1000);
+        let mut hold = Hold::default();
+        tap(&mut hold, t);
+        tap(&mut hold, ms(t, 200));
+        let HoldStep::Tap(third) = tap(&mut hold, ms(t, 400)) else {
+            panic!("a third tap should be a tap of its own");
+        };
+        assert_eq!(
+            hold.on_tap_timer(third, Duration::MAX, ms(t, 800)),
+            HoldStep::Single
+        );
+    }
+
+    #[test]
     fn a_tap_that_typed_is_not_single() {
         let t = ms(Instant::now(), 1000);
         let mut hold = Hold::default();
@@ -651,13 +644,30 @@ mod tests {
     }
 
     #[test]
-    fn a_hold_is_not_a_tap() {
+    fn option_held_to_type_or_jump_words_is_not_a_hold() {
         let t = ms(Instant::now(), 1000);
         let mut hold = Hold::default();
         let HoldStep::Wait(press) = hold.on_event(Input::OptionDown, t) else {
             panic!("a press should wait for the timer");
         };
-        assert_eq!(hold.on_timer(press, false, ms(t, 400)), HoldStep::Nothing);
+        // A key went down 100 ms after Option, 300 ms before the timer.
+        assert_eq!(
+            hold.on_timer(press, Duration::from_millis(300), ms(t, 400)),
+            HoldStep::Nothing
+        );
+        assert_eq!(
+            hold.on_event(up_after_press(50), ms(t, 600)),
+            HoldStep::Nothing
+        );
+    }
+
+    #[test]
+    fn a_hold_is_not_a_tap() {
+        let t = ms(Instant::now(), 1000);
+        let mut hold = Hold::default();
+        let HoldStep::Wait(_) = hold.on_event(Input::OptionDown, t) else {
+            panic!("a press should wait for the timer");
+        };
         assert_eq!(hold.on_event(UP, ms(t, 900)), HoldStep::Nothing);
     }
 }
