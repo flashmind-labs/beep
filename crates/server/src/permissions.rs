@@ -11,6 +11,7 @@ use crate::{
     apps::{
         CATALOG, CatalogApp, catalog_app, custom_mcp::PREFIX as ADDED_PREFIX, mcp::FASTMAIL_TOOLS,
     },
+    grants::RoutineGrants,
     protocol::{AppAction, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel},
     store::AppPermissionRow,
     subagents::Approvals,
@@ -118,7 +119,7 @@ impl ToolApp {
 /// as `GMAIL_SEND_EMAIL`, MCP tools such as `FASTMAIL_DELETE_EMAIL`, in
 /// either case, and tools of added servers such as `MCP_MY-NOTES_SEARCH`.
 /// An added server says nothing Beep trusts about its tools, so they all act.
-fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
+pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     let tool = ToolSlug::new(tool);
     let tool = tool.as_str();
     for app in CATALOG {
@@ -176,7 +177,7 @@ fn action_tools(app: &CatalogApp) -> Vec<String> {
 }
 
 /// "send email" for `GMAIL_SEND_EMAIL`.
-fn action_name(app: &ToolApp, tool: &str) -> String {
+pub(crate) fn action_name(app: &ToolApp, tool: &str) -> String {
     let prefix = format!("{}_", app.slug().to_uppercase());
     tool.strip_prefix(&prefix)
         .unwrap_or(tool)
@@ -184,7 +185,7 @@ fn action_name(app: &ToolApp, tool: &str) -> String {
         .replace('_', " ")
 }
 
-fn capitalize(text: &str) -> String {
+pub(crate) fn capitalize(text: &str) -> String {
     let mut chars = text.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
@@ -289,6 +290,8 @@ pub(crate) struct Approved(pub(crate) Option<String>);
 struct Shared {
     rules: Rules,
     approved: Approved,
+    /// The grants of the routine whose run this is, tried before asking.
+    grants: Option<Arc<RoutineGrants>>,
 }
 
 /// The app of `tool` and whether it acts, by the catalog or by its Composio
@@ -332,14 +335,20 @@ pub(crate) fn read_tools_only(
 
 /// Puts the app tools under the user's rules: under read only the tools that
 /// always act are left out, and the rest that can act are wrapped so they
-/// ask first or refuse.
+/// ask first or refuse. In a routine's run, a call that would ask first
+/// runs without asking when one of the routine's `grants` lets it through.
 pub(crate) fn guard(
     tools: Vec<Arc<dyn Tool>>,
     rules: Rules,
     approved: Approved,
     hinted: &HashSet<ToolSlug>,
+    grants: Option<Arc<RoutineGrants>>,
 ) -> Vec<Arc<dyn Tool>> {
-    let shared = Arc::new(Shared { rules, approved });
+    let shared = Arc::new(Shared {
+        rules,
+        approved,
+        grants,
+    });
     tools
         .into_iter()
         .filter_map(|tool| {
@@ -432,6 +441,9 @@ pub(crate) struct Gate {
     /// The chat the work belongs to, which the card opens.
     pub(crate) chat: Uuid,
     pub(crate) approvals: Arc<Approvals>,
+    /// The grants of the routine whose run started the work, tried before
+    /// asking; `None` outside a routine's run.
+    pub(crate) grants: Option<Arc<RoutineGrants>>,
 }
 
 #[async_trait]
@@ -456,6 +468,14 @@ impl ToolGate for Gate {
             Check::Run => GateDecision::Allow,
             Check::Refuse(reason) => GateDecision::Deny(reason),
             Check::Ask(mut approval) => {
+                if let Some(grants) = &self.grants
+                    && let Some(grant) = grants.claim(&call.name, &call.arguments, &call.id).await
+                {
+                    // The gate cannot see the result, so the user hears of
+                    // the call as it is let through.
+                    grants.report(&grant, &call.name, &call.arguments);
+                    return GateDecision::Allow;
+                }
                 approval.fields.extend(read_back(&self.user, call).await);
                 GateDecision::Ask(GateAsk {
                     answer: self
@@ -1015,7 +1035,7 @@ fn fields(args: &Value) -> Vec<ApprovalField> {
 }
 
 /// `text` cut to `max` characters, with "..." when something was cut.
-fn shorten(text: &str, max: usize) -> String {
+pub(crate) fn shorten(text: &str, max: usize) -> String {
     match text.char_indices().nth(max) {
         Some((end, _)) => format!("{}...", &text[..end]),
         None => text.to_owned(),
@@ -1038,7 +1058,7 @@ fn address(item: &Value) -> Option<String> {
 /// An argument's name as the user reads it: `recipient_email` becomes
 /// "Recipient email", and a list of IDs is named by what it lists, so
 /// `addLabelIds` becomes "Add labels".
-fn field_label(key: &str) -> String {
+pub(crate) fn field_label(key: &str) -> String {
     let mut words = String::new();
     for c in key.chars() {
         if c == '_' {
@@ -1062,7 +1082,7 @@ fn field_label(key: &str) -> String {
 /// An argument that only names a record, such as `message_id` or `emailId`,
 /// whose value means nothing to the user. Label IDs are names like `TRASH`
 /// or `INBOX`, so they are shown.
-fn is_id(key: &str) -> bool {
+pub(crate) fn is_id(key: &str) -> bool {
     if key.to_ascii_lowercase().contains("label") {
         return false;
     }
@@ -1095,10 +1115,24 @@ impl Tool for Guarded {
             Check::Ask(_) if self.shared.approved.0.as_deref() == Some(ctx.tool_call_id) => {
                 self.tool.execute(ctx).await
             }
-            Check::Ask(approval) => Ok(ToolResult::interrupt(
-                ctx.tool_call_id,
-                Arc::new(ApprovalPayload { approval }),
-            )),
+            Check::Ask(approval) => {
+                if let Some(grants) = &self.shared.grants
+                    && let Some(grant) = grants
+                        .claim(self.slug.as_str(), &ctx.args, ctx.tool_call_id)
+                        .await
+                {
+                    let args = ctx.args.clone();
+                    let result = self.tool.execute(ctx).await?;
+                    if result.is_success() && went_through(&result.output()) {
+                        grants.report(&grant, self.slug.as_str(), &args);
+                    }
+                    return Ok(result);
+                }
+                Ok(ToolResult::interrupt(
+                    ctx.tool_call_id,
+                    Arc::new(ApprovalPayload { approval }),
+                ))
+            }
         }
     }
 
@@ -1163,7 +1197,7 @@ pub(crate) fn actions_since(conversation: &Conversation, since: DateTime<Utc>) -
 }
 
 /// Whether a tool result says the call did what it was asked.
-fn went_through(output: &str) -> bool {
+pub(crate) fn went_through(output: &str) -> bool {
     if output == DENIED || output == SKIPPED || output.starts_with(READ_ONLY) {
         return false;
     }

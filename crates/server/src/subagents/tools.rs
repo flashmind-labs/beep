@@ -18,6 +18,7 @@ use super::{
 };
 use crate::{
     app::{App, Draws, Message},
+    grants::RoutineGrants,
     nodes::head_and_tail,
     permissions::{self, Gate, Rules, ToolSlug},
     protocol::DeviceKind,
@@ -110,6 +111,8 @@ pub(crate) struct Setup {
     pub(crate) app_tools: Vec<Arc<dyn Tool>>,
     pub(crate) rules: Rules,
     pub(crate) hinted: HashSet<ToolSlug>,
+    /// The grants of the routine whose run this is, if it is one.
+    pub(crate) grants: Option<Arc<RoutineGrants>>,
 }
 
 /// One chat's background work: who it is for, and the tools it may call.
@@ -135,6 +138,7 @@ pub(crate) fn register(registry: &mut ToolRegistry, setup: Setup) {
         app_tools,
         rules,
         hinted,
+        grants,
     } = setup;
     let mut tools = registry.clone();
     tools.retain(|name| !TURN_ONLY.contains(&name) && name != NAME);
@@ -147,6 +151,7 @@ pub(crate) fn register(registry: &mut ToolRegistry, setup: Setup) {
         user: user.clone(),
         chat,
         approvals: app.subagents.approvals.clone(),
+        grants,
     });
     tools.set_gate(gate.clone());
     let background = Arc::new(Background {
@@ -887,6 +892,7 @@ mod tests {
                 user: self.user.clone(),
                 chat: self.chat,
                 approvals: self.subagents.approvals.clone(),
+                grants: None,
             })
         }
 
