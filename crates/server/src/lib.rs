@@ -49,6 +49,7 @@ pub mod transport;
 pub mod user;
 pub mod voice;
 pub mod wake;
+pub mod watchers;
 
 pub use beep_proto::{self as protocol, client};
 

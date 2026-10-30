@@ -142,8 +142,14 @@ impl User {
             let answer = generator.text(LEARN_SYSTEM, prompt).await?;
             let ops = parse_learn_ops(&answer)?;
             anyhow::Ok(
-                self.apply_all(known, ops, MemorySource::Learned {}, &exchange.session_id)
-                    .await,
+                self.apply_all(
+                    known,
+                    ops,
+                    MemorySource::Learned {},
+                    &exchange.session_id,
+                    &|_| None,
+                )
+                .await,
             )
         };
         settle(
@@ -178,7 +184,7 @@ impl User {
                 .await?;
             let ops = parse_learn_ops(&answer)?;
             anyhow::Ok(
-                self.apply_all(&known, ops, reading.kind.source(), &reading.id)
+                self.apply_all(&known, ops, reading.kind.source(), &reading.id, &|_| None)
                     .await,
             )
         };
@@ -196,14 +202,17 @@ impl User {
     }
 
     /// Applies the learner's `ops` from the chat, email or thread named by
-    /// `reference`, filing their facts in one Jev request. One op that fails
-    /// leaves the others, and those already saved are still reported.
-    async fn apply_all(
+    /// `reference`, filing their facts in one Jev request. `scope` says what
+    /// each op's fact is about; `None` keeps an updated memory's scope and
+    /// makes a new one about the user. One op that fails leaves the others,
+    /// and those already saved are still reported.
+    pub(crate) async fn apply_all(
         &self,
         known: &[Hit],
         ops: Vec<LearnOp>,
         source: MemorySource,
         reference: &str,
+        scope: &(dyn Fn(&LearnOp) -> Option<Scope> + Sync),
     ) -> Vec<Learned> {
         let facts: Vec<&str> = ops.iter().filter_map(LearnOp::fact).collect();
         let mut filed = self.file_each(&facts).await.into_iter();
@@ -215,8 +224,9 @@ impl User {
                 None
             };
             let origin = op.origin(reference);
+            let scope = scope(&op);
             match self
-                .apply_learned(known, op, source, origin, category)
+                .apply_learned(known, op, source, origin, category, scope)
                 .await
             {
                 Ok(change) => learned.extend(change),
@@ -234,6 +244,7 @@ impl User {
         source: MemorySource,
         origin: Origin,
         category: Option<&str>,
+        scope: Option<Scope>,
     ) -> Result<Option<Learned>> {
         let shown = op
             .id
@@ -260,7 +271,7 @@ impl User {
             source,
             valid: op.validity(),
             origin: Some(origin),
-            scope: None,
+            scope,
         };
         // An update of a memory it was not shown is a new fact.
         if let Some(hit) = shown
