@@ -3327,8 +3327,52 @@ const PLAY_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="current
 const MEM_SOURCE = { user: "You told Beep", learned: "Learned in a chat", email: "From your email", slack: "From Slack" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// mode: list | edit | clear
-const M = { all: [], list: [], sel: 0, query: "", mode: "list", error: "", loaded: false };
+// mode: list | edit | clear. filter: all | you | scope:<key> | read:<id>
+const M = { all: [], list: [], sel: 0, query: "", mode: "list", error: "", loaded: false, scopes: new Map(), reads: [], filter: "all" };
+const SCOPE_ICON = {
+  machine: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
+  project: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M3 6.5A1.5 1.5 0 014.5 5H9l2 2.5h8.5A1.5 1.5 0 0121 9v9.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/></svg>',
+  account: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18.5a6.5 6.5 0 0111 0"/></svg>',
+};
+/// A subject as the phone writes it: the machine's name, "Project atlas", "Github account".
+function scopeLabel(sc) {
+  if (sc.kind === "machine") return sc.name || "A machine";
+  return sc.kind === "project" ? `Project ${sc.name}` : `${cap(sc.app)} account`;
+}
+function scopeSubject(sc) {
+  if (sc.kind === "machine") return sc.name ? `the machine ${sc.name}` : "a machine";
+  return sc.kind === "project" ? `the project ${sc.name}` : `your ${cap(sc.app)} account`;
+}
+const scopeKey = sc => `scope:${sc.kind}:${sc.id ?? sc.name ?? sc.app}`;
+const scopeTag = sc => `<span class="dscope">${SCOPE_ICON[sc.kind] ?? ""}${esc(scopeLabel(sc))}</span>`;
+/// "today", "yesterday" or "28 Oct", for a read's chip.
+function readDay(at) {
+  const day = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const ago = Math.round((day(new Date()) - day(at)) / 86400000);
+  return ago === 0 ? "today" : ago === 1 ? "yesterday" : `${at.getDate()} ${MONTHS[at.getMonth()]}`;
+}
+/// The chips over the list: everything, the user, each subject by name, then
+/// the latest reads that added or confirmed memories. Empty when there is
+/// nothing to pick between.
+function memFilters() {
+  const subjects = new Map();
+  for (const sc of M.scopes.values()) {
+    const key = scopeKey(sc), f = subjects.get(key) ?? { key, label: scopeLabel(sc), about: `What Beep knows about ${scopeSubject(sc)}.`, ids: new Set() };
+    subjects.set(key, f);
+  }
+  for (const m of M.all) { const sc = M.scopes.get(m.id); if (sc) subjects.get(scopeKey(sc)).ids.add(m.id); }
+  const have = new Set(M.all.map(m => m.id));
+  const reads = M.reads.filter(r => r.memories.some(id => have.has(id))).slice(0, 3).map(r => {
+    const at = new Date(r.finished_at), day = readDay(at);
+    const when = day === "today" || day === "yesterday" ? day : `on ${day}`;
+    return { key: `read:${r.id}`, label: `${r.source}, ${day}`, read: true, ids: new Set(r.memories.filter(id => have.has(id))),
+      about: `What Beep learned or confirmed reading ${r.source} ${when} at ${clock(at.getHours(), at.getMinutes())}.` };
+  });
+  const scoped = [...subjects.values()].filter(f => f.ids.size).sort((a, b) => a.label.toLowerCase() < b.label.toLowerCase() ? -1 : 1);
+  if (!scoped.length && !reads.length) return [];
+  const you = new Set(M.all.filter(m => !M.scopes.has(m.id)).map(m => m.id));
+  return [{ key: "all", label: "Everything" }, { key: "you", label: "You", about: "What Beep knows about you.", ids: you }, ...scoped, ...reads];
+}
 
 /// "2 Sep" from `YYYY-MM-DD`.
 function shortDate(day) {
@@ -3339,20 +3383,29 @@ function shortDate(day) {
 function renderMemories() {
   S.view = "memories";
   invoke("close_group").catch(() => {});
-  Object.assign(M, { sel: 0, query: "", mode: "list", error: "" });
+  Object.assign(M, { sel: 0, query: "", mode: "list", error: "", filter: "all" });
   bar.innerHTML = `<div class="dinput"><input id="mfind" placeholder="Search memories" autocomplete="off" spellcheck="false"><span class="dmuted" id="mcount"></span><kbd>⌘M</kbd></div>
-    <div class="dlist" id="mlist" role="listbox" aria-label="Memories" style="border-top:1px solid var(--border);padding-top:2px"></div><div id="mhints"></div>`;
+    <div id="mchips" style="border-top:1px solid var(--border)"></div>
+    <div class="dlist" id="mlist" role="listbox" aria-label="Memories" style="padding-top:2px"></div><div id="mhints"></div>`;
   const find = $("#mfind");
   find.focus();
   find.addEventListener("input", () => { M.query = find.value.trim(); M.sel = 0; M.mode = "list"; drawMemories(); });
   $("#mlist").addEventListener("click", memClick);
+  $("#mchips").addEventListener("click", e => {
+    const chip = e.target.closest("[data-mf]");
+    if (chip) { M.filter = chip.dataset.mf; M.sel = 0; M.mode = "list"; drawMemories(); $("#mfind")?.focus(); }
+  });
   drawMemories();
   loadMemories();
 }
 
 async function loadMemories() {
   try {
-    M.all = await invoke("list_memories");
+    // Subjects and reads only add the chips; a server without them still lists memories.
+    const [all, scopes, reads] = await Promise.all([invoke("list_memories"), invoke("list_memory_scopes").catch(() => []), invoke("list_memory_reads").catch(() => [])]);
+    M.all = all;
+    M.scopes = new Map(scopes.map(x => [x.id, x.scope]));
+    M.reads = reads;
     M.loaded = true;
     M.error = "";
   } catch (e) {
@@ -3365,12 +3418,22 @@ function drawMemories() {
   const list = $("#mlist");
   if (!list) return;
   const q = M.query.toLowerCase();
-  M.list = M.all.filter(m => !q || [m.content, m.category, m.quote].some(t => t?.toLowerCase().includes(q)));
+  // A search looks through everything, so the chips go while it is on.
+  const filters = q ? [] : memFilters(), picked = filters.find(f => f.key === M.filter) ?? filters[0];
+  if (!picked || picked.key === "all") M.filter = "all";
+  M.list = M.all.filter(m => (!q || [m.content, m.category, m.quote].some(t => t?.toLowerCase().includes(q))) && (!picked?.ids || picked.ids.has(m.id)));
+  const chips = $("#mchips");
+  if (chips) {
+    const chip = f => `<button class="dchip" aria-pressed="${f === picked}" data-mf="${esc(f.key)}">${esc(f.label)}${f.ids ? ` <span style="color:var(--muted)">${f.ids.size}</span>` : ""}</button>`;
+    const firstRead = filters.findIndex(f => f.read);
+    chips.innerHTML = filters.length ? `<div class="dchips" style="padding:8px 16px 2px">${filters.map((f, i) => (i === firstRead ? '<span class="dsep"></span>' : "") + chip(f)).join("")}</div>`
+      + (picked?.about ? `<div class="dmuted" style="padding:2px 18px 4px">${esc(picked.about)}</div>` : "") : "";
+  }
   // Grouped by category; the server lists newest first, so each group keeps that order.
   const cats = [...new Set(M.list.map(m => m.category || "Other"))];
   M.list = cats.flatMap(c => M.list.filter(m => (m.category || "Other") === c));
   M.sel = Math.max(0, Math.min(M.sel, M.list.length - 1));
-  $("#mcount").textContent = M.loaded ? (q ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
+  $("#mcount").textContent = M.loaded ? (q || M.filter !== "all" ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   let html = M.error ? `<div class="derr" style="padding:8px 10px">${esc(M.error)}</div>` : "";
@@ -3390,16 +3453,17 @@ function drawMemories() {
         const on = i === M.sel, ended = m.valid_until && m.valid_until < today;
         const meta = [MEM_SOURCE[m.source] ?? "", shortDate(m.updated)].filter(Boolean).join(" · ")
           + (m.valid_from || m.valid_until ? ` · ${m.valid_from ? shortDate(m.valid_from) : ""} to ${m.valid_until ? shortDate(m.valid_until) : ""}` : "");
+        const sc = M.scopes.get(m.id), about = sc ? scopeTag(sc) + " · " : "";
         if (on && M.mode === "edit") {
           html += `<div class="dmem" aria-selected="true" data-i="${i}"><div class="top"><textarea id="medit" rows="2" aria-label="Memory">${esc(m.content)}</textarea>
-            <span style="font-size:12px;color:var(--muted);flex:none;display:inline-flex;gap:4px;align-items:center">${ICON.ret} save</span></div><div class="m">${esc(meta)}</div></div>`;
+            <span style="font-size:12px;color:var(--muted);flex:none;display:inline-flex;gap:4px;align-items:center">${ICON.ret} save</span></div><div class="m">${about}${esc(meta)}</div></div>`;
         } else {
           const acts = on ? `<span class="acts"><button class="dbtn" data-m="edit">Edit</button><button class="dbtn warn" data-m="forget">Forget<kbd>⌘⌫</kbd></button></span>` : "";
           html += `<div class="dmem${ended ? " ended" : ""}" role="option" aria-selected="${on}" data-i="${i}"><div class="top"><span class="c">${mark(m.content, M.query)}</span>${acts}</div>
-            <div class="m">${esc(meta)}</div>${m.quote ? `<q>${mark(m.quote, M.query)}</q>` : ""}</div>`;
+            <div class="m">${about}${esc(meta)}</div>${m.quote ? `<q>${mark(m.quote, M.query)}</q>` : ""}</div>`;
       }
     });
-    if (M.all.length && !M.query) html += `<div style="padding:6px 10px 4px"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`;
+    if (M.all.length && !M.query && M.filter === "all") html += `<div style="padding:6px 10px 4px"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`;
   }
   list.innerHTML = html;
   list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
@@ -3407,7 +3471,7 @@ function drawMemories() {
   if (edit) { edit.focus(); edit.setSelectionRange(edit.value.length, edit.value.length); }
   $("#mhints").innerHTML = M.mode === "edit"
     ? hints([[ICON.ret, "save"], [`⇧${ICON.ret}`, "new line"], ["esc", "cancel"]])
-    : hints([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ["esc", "back"]]);
+    : hints([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ...(filters.length ? [["tab", "filter"]] : []), ["esc", "back"]]);
 }
 
 function memClick(e) {
@@ -3469,7 +3533,15 @@ function memKeys(e, cmd) {
     if (e.key === "Enter") { e.preventDefault(); memAction("clear-yes"); }
     return;
   }
-  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const filters = M.query ? [] : memFilters();
+    if (!filters.length) return;
+    const at = Math.max(0, filters.findIndex(f => f.key === M.filter));
+    M.filter = filters[(at + (e.shiftKey ? filters.length - 1 : 1)) % filters.length].key;
+    M.sel = 0;
+    drawMemories();
+  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     M.sel = Math.max(0, Math.min(M.list.length - 1, M.sel + (e.key === "ArrowDown" ? 1 : -1)));
     drawMemories();
