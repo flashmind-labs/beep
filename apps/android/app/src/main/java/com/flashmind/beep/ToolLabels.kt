@@ -80,6 +80,7 @@ private val toolLabels = mapOf(
     "cron_list" to "Checking reminders",
     "cron_delete" to "Deleting a reminder",
     "cron_history" to "Checking past reminders",
+    "request_grant" to "Asking to allow a routine",
     // Names from before the server folded each family into one tool, still in older chats.
     "spawn_agent" to "Starting an agent",
     "run_in_background" to "Running a job",
@@ -173,5 +174,5 @@ private val pastTense = mapOf(
     "logging" to "Logged", "suggesting" to "Suggested", "starting" to "Started", "showing" to "Showed",
     "moving" to "Moved", "waiting" to "Waited", "stopping" to "Stopped", "messaging" to "Messaged", "holding" to "Held",
     "charting" to "Charted", "drawing" to "Drew", "planning" to "Planned", "downloading" to "Downloaded",
-    "ending" to "Ended", "adding" to "Added", "researching" to "Researched", "typesetting" to "Typeset",
+    "ending" to "Ended", "asking" to "Asked", "adding" to "Added", "researching" to "Researched", "typesetting" to "Typeset",
 )

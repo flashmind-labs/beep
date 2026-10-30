@@ -41,10 +41,12 @@ import androidx.compose.ui.unit.sp
 fun ApprovalCard(prompt: ApprovalPrompt, onAnswer: (String) -> Unit, modifier: Modifier = Modifier) {
     val t = Beep.colors
     val approval = prompt.approval
+    // A routine's grant has no Always: it always ends on its own.
+    val grant = isRoutineGrant(approval.action)
     if (!prompt.waiting) {
         val outcome = when (prompt.answer) {
             "always" -> "Allowed, and always allowed from now on"
-            "allow" -> "Allowed once"
+            "allow" -> if (grant) "Allowed for this routine" else "Allowed once"
             "deny" -> "Denied"
             RESOLVED -> "No longer waiting"
             else -> "Not answered, you wrote again, so not done"
@@ -80,7 +82,8 @@ fun ApprovalCard(prompt: ApprovalPrompt, onAnswer: (String) -> Unit, modifier: M
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.weight(1f).heightIn(min = 40.dp)
+                if (grant) Spacer(Modifier.weight(1f))
+                else Row(Modifier.weight(1f).heightIn(min = 40.dp)
                     .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Checkbox) { always = !always },
                     verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(18.dp).clip(RoundedCornerShape(5.dp))
@@ -94,7 +97,7 @@ fun ApprovalCard(prompt: ApprovalPrompt, onAnswer: (String) -> Unit, modifier: M
                 ChunkyButton(onClick = { onAnswer("deny") }, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
                     Text("Deny", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
-                ChunkyButton(onClick = { onAnswer(if (always) "always" else "allow") }, color = t.accent, contentColor = t.onAccent,
+                ChunkyButton(onClick = { onAnswer(if (always && !grant) "always" else "allow") }, color = t.accent, contentColor = t.onAccent,
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
                     Text("Allow", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }

@@ -5,6 +5,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,6 +32,7 @@ import androidx.compose.ui.draw.scale
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.OffsetDateTime
@@ -51,13 +53,16 @@ private val TextDim: Color @Composable @ReadOnlyComposable get() = Beep.colors.d
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBeep: () -> Unit, onOpenChat: (String) -> Unit) {
+internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBeep: () -> Unit, onOpenChat: (String) -> Unit,
+    onGrants: (String) -> Unit) {
     val cached = remember { repository.cachedCrons() }
     var crons by remember { mutableStateOf(cached.orEmpty()) }
     var loading by remember { mutableStateOf(cached == null) }
     var error by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
     var places by remember { mutableStateOf(emptyList<Place>()) }
+    // When each routine's grants end, by routine id.
+    var grantEnds by remember { mutableStateOf(emptyMap<String, List<Instant>>()) }
     // Swiped away and waiting out the Undo bar; the delete is only sent once it closes.
     var hidden by remember { mutableStateOf(setOf<String>()) }
     val snackbar = remember { SnackbarHostState() }
@@ -92,6 +97,9 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
     LaunchedEffect(Unit) {
         refresh()
         places = runCatching { withContext(Dispatchers.IO) { repository.listPlaces() } }.getOrDefault(emptyList())
+        // Grants only add a line to a card; without them the list still works.
+        runCatching { withContext(Dispatchers.IO) { repository.listGrants() } }
+            .onSuccess { list -> grantEnds = list.groupBy({ it.routineId }, { it.expiresAt }) }
     }
     val placeNames = remember(places) { places.associate { it.id to it.name } }
     if (showCreate) {
@@ -117,7 +125,8 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
             else if (crons.isEmpty()) Text("No routines yet.\nSchedule tasks for Beep to run on a timer.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
             else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(crons.filter { it.id !in hidden }, key = { it.id }) { cron ->
-                    RoutineCard(cron, placeNames, Modifier.animateItem(), onRun = { run(cron) }, onDelete = { delete(cron) }, onToggle = { enabled ->
+                    val grantsLine = grantEnds[cron.id]?.let { routineGrantsLine(it, Instant.now()) }
+                    RoutineCard(cron, placeNames, Modifier.animateItem(), grantsLine, onGrants = { onGrants(cron.id) }, onRun = { run(cron) }, onDelete = { delete(cron) }, onToggle = { enabled ->
                         scope.launch {
                             try { withContext(Dispatchers.IO) { repository.toggleCron(cron.id, enabled) }; refresh() }
                             catch (e: Exception) { error = userMessage(e) }
@@ -135,7 +144,8 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
 
 /** A routine that runs when swiped right and is deleted when swiped left. */
 @Composable
-private fun RoutineCard(cron: ChatRepository.Cron, placeNames: Map<String, String>, modifier: Modifier, onRun: () -> Unit, onDelete: () -> Unit, onToggle: (Boolean) -> Unit) {
+private fun RoutineCard(cron: ChatRepository.Cron, placeNames: Map<String, String>, modifier: Modifier, grantsLine: String?, onGrants: () -> Unit,
+    onRun: () -> Unit, onDelete: () -> Unit, onToggle: (Boolean) -> Unit) {
     val state = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
         when (value) {
             // Running is not a dismissal: start it and let the card spring back.
@@ -182,6 +192,12 @@ private fun RoutineCard(cron: ChatRepository.Cron, placeNames: Map<String, Strin
                     Text(place?.let { describePlaceSchedule(it, placeNames) } ?: describeSchedule(cron.schedule), fontSize = 11.sp, color = TextDim)
                     if (cron.enabled && onceAt(cron.schedule) == null) cron.nextRunAt?.let(::describeNextRun)?.let {
                         Text(it, fontSize = 11.sp, color = TextDim)
+                    }
+                    // Grants the routine holds; tapping opens them.
+                    if (grantsLine != null) Row(Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onGrants).padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Outlined.Shield, null, Modifier.size(14.dp), tint = Moss)
+                        Text(grantsLine, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Moss)
                     }
                 }
                 Switch(checked = cron.enabled, onCheckedChange = onToggle, modifier = Modifier.height(28.dp),

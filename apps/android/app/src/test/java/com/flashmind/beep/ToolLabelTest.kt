@@ -37,6 +37,8 @@ class ToolLabelTest {
     fun everyKnownToolHasAWordedLabel() {
         assertEquals("Drew a chart", doneToolLabel(history("show_chart", "{}")))
         assertEquals("Planned a route", doneToolLabel(history("get_route", "")))
+        assertEquals("Asking to allow a routine", callLabel(live("request_grant", "")))
+        assertEquals("Asked to allow a routine", doneToolLabel(history("request_grant", "")))
         assertEquals("Gmail: send email", doneToolLabel(history("GMAIL_SEND_EMAIL", "")))
     }
 }

@@ -51,6 +51,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Laptop
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.runtime.LaunchedEffect
@@ -73,6 +74,7 @@ fun SettingsScreen(
     onBubbleSettings: () -> Unit,
     onLinkedDevices: () -> Unit,
     onMachines: () -> Unit,
+    onGrants: () -> Unit,
 ) {
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(title = { Text(displayText("Settings"), style = displayStyle(24.sp)) },
@@ -94,6 +96,8 @@ fun SettingsScreen(
                 AccountRow(repository)
                 HorizontalDivider(color = Beep.colors.softLine)
                 SettingsRow(Icons.Outlined.Laptop, "Linked devices", "Use Beep from your computer", onLinkedDevices)
+                HorizontalDivider(color = Beep.colors.softLine)
+                SettingsRow(Icons.Outlined.Shield, "Routine grants", "What routines may do without asking", onGrants)
                 HorizontalDivider(color = Beep.colors.softLine)
                 // Nodes are for admins for now; the server sends model choices only to them.
                 val models by repository.modelChoices.collectAsState()
