@@ -196,18 +196,24 @@ impl Store {
 
     /// `user`'s updates after `after`, oldest first, as many as fit a page.
     /// A client behind the tombstones already dropped gets everything again
-    /// with `reset`. A negative cursor continues a rebuild below the reset
-    /// threshold; clients pass it back unchanged, just like any other cursor.
+    /// with `reset`, and so does one ahead of the log: its copy came from
+    /// another database, such as the server this one was moved from. A
+    /// negative cursor continues a rebuild below the reset threshold;
+    /// clients pass it back unchanged, just like any other cursor.
     pub(crate) async fn updates_page(&self, user: &UserKey, after: i64) -> Result<UpdatePage> {
         let rebuilding = after < 0;
         let after = after.saturating_abs();
-        let pruned_below: Option<i64> =
-            sqlx::query_scalar("SELECT pruned_below FROM sync_counters WHERE user_id = $1")
+        let counters =
+            sqlx::query("SELECT last, pruned_below FROM sync_counters WHERE user_id = $1")
                 .bind(user.as_str())
                 .fetch_optional(&self.pool)
                 .await?;
-        let pruned_below = pruned_below.unwrap_or(0);
-        let reset = !rebuilding && after > 0 && after < pruned_below - 1;
+        let (last, pruned_below): (i64, i64) = match counters {
+            Some(row) => (row.try_get(0)?, row.try_get(1)?),
+            None => (0, 0),
+        };
+        let behind = after > 0 && after < pruned_below - 1;
+        let reset = !rebuilding && (behind || after > last);
         let after = if reset { 0 } else { after };
         // Each write holds the user's counter until it commits, so whatever
         // is visible here has no gaps below it still to fill in.
@@ -499,8 +505,10 @@ mod tests {
         assert_eq!(labels(&behind), ["chat", "user:two", "beep:re: two"]);
         let current = store.updates_page(&alice, last).await.unwrap();
         assert!(!current.reset && current.updates.is_empty());
-        let ahead = store.updates_page(&alice, i64::MAX).await.unwrap();
-        assert!(!ahead.reset && ahead.updates.is_empty());
+        // A copy from another database is ahead of this log.
+        let ahead = store.updates_page(&alice, last + 1).await.unwrap();
+        assert!(ahead.reset);
+        assert_eq!(labels(&ahead), labels(&behind));
         assert!(!store.updates_page(&alice, 0).await.unwrap().reset);
     }
 
