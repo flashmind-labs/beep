@@ -43,9 +43,10 @@ use uuid::Uuid;
 /// The tool the agent asks for a grant with.
 pub(crate) const REQUEST_GRANT: &str = "request_grant";
 
-/// How long a grant lasts unless the agent asks for less.
-const DEFAULT_DAYS: u32 = 30;
-const MAX_DAYS: u32 = 90;
+/// How long a grant lasts unless the agent asks for another span. Every
+/// grant expires: the longest is a week.
+const DEFAULT_HOURS: u32 = 8;
+const MAX_HOURS: u32 = 7 * 24;
 /// Most calls one run may make under one grant.
 const MAX_PER_RUN: u32 = 5;
 const MAX_RECIPIENTS: usize = 10;
@@ -348,7 +349,7 @@ struct Request {
     #[serde(default)]
     per_run: Option<u32>,
     #[serde(default)]
-    days: Option<u32>,
+    hours: Option<u32>,
 }
 
 /// A request that can be granted, with the card that asks.
@@ -357,7 +358,7 @@ struct Asked {
     tool: ToolSlug,
     constraints: Constraints,
     per_run: u32,
-    days: u32,
+    hours: u32,
     card: Approval,
 }
 
@@ -383,7 +384,7 @@ impl Tool for RequestGrantTool {
          routine that will send, with the routine's id. The user sees a card with exactly what \
          is allowed and answers once. Each run of the routine may then make `per_run` calls \
          of `tool` without asking, only to `recipients` and only with the `exact` values; any \
-         other call asks as usual. It ends when the routine ends, after `days`, or when the \
+         other call asks as usual. It ends when the routine ends, after `hours`, or when the \
          user revokes it. Tools: GMAIL_REPLY_TO_THREAD (exact must pin thread_id), \
          GMAIL_SEND_EMAIL, OUTLOOK_SEND_EMAIL, FASTMAIL_SEND_EMAIL (may pin mode, emailId, \
          account)."
@@ -418,11 +419,11 @@ impl Tool for RequestGrantTool {
                     "maximum": MAX_PER_RUN,
                     "description": "Calls each run may make. Default 1."
                 },
-                "days": {
+                "hours": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": MAX_DAYS,
-                    "description": "Days until it expires. Default 30."
+                    "maximum": MAX_HOURS,
+                    "description": "Hours until it expires. Default 8, at most a week."
                 }
             },
             "required": ["routine", "tool", "recipients"],
@@ -456,7 +457,7 @@ impl Tool for RequestGrantTool {
                 per_run: asked.per_run,
                 shown: serde_json::to_value(&asked.card.fields)?,
                 call_id: id,
-                expires_at: Utc::now() + Duration::days(i64::from(asked.days)),
+                expires_at: Utc::now() + Duration::hours(i64::from(asked.hours)),
             })
             .await?;
         Ok(ToolResult::success(
@@ -493,9 +494,9 @@ async fn prepare(user: &User, request: &Request) -> Result<Result<Asked, String>
     if !(1..=MAX_PER_RUN).contains(&per_run) {
         return Ok(Err(format!("per_run must be 1 to {MAX_PER_RUN}.")));
     }
-    let days = request.days.unwrap_or(DEFAULT_DAYS);
-    if !(1..=MAX_DAYS).contains(&days) {
-        return Ok(Err(format!("days must be 1 to {MAX_DAYS}.")));
+    let hours = request.hours.unwrap_or(DEFAULT_HOURS);
+    if !(1..=MAX_HOURS).contains(&hours) {
+        return Ok(Err(format!("hours must be 1 to {MAX_HOURS}.")));
     }
     let constraints = match Constraints::new(spec, &request.recipients, &request.exact) {
         Ok(constraints) => constraints,
@@ -514,7 +515,7 @@ async fn prepare(user: &User, request: &Request) -> Result<Result<Asked, String>
         Card {
             routine: label,
             per_run,
-            days,
+            hours,
         },
     )
     .await;
@@ -523,7 +524,7 @@ async fn prepare(user: &User, request: &Request) -> Result<Result<Asked, String>
         tool,
         constraints,
         per_run,
-        days,
+        hours,
         card,
     }))
 }
@@ -532,7 +533,7 @@ async fn prepare(user: &User, request: &Request) -> Result<Result<Asked, String>
 struct Card<'a> {
     routine: &'a str,
     per_run: u32,
-    days: u32,
+    hours: u32,
 }
 
 /// The card that asks for a grant: the routine, what each run may do, to
@@ -615,15 +616,31 @@ async fn card(
         };
         fields.extend(permissions::read_back(user, &named).await);
     }
-    let ends = (Utc::now() + Duration::days(i64::from(about.days))).format("%-d %b %Y");
     fields.push(ApprovalField {
         label: "Ends".to_owned(),
-        value: format!("When the routine ends, or on {ends}"),
+        value: format!("When the routine ends, or in {}", span(about.hours)),
     });
     Approval {
         app,
         action: format!("{action} for a routine"),
         fields,
+    }
+}
+
+/// A grant's lifetime as the card says it: "8 hours", "1 day", "2 days and
+/// 6 hours".
+fn span(hours: u32) -> String {
+    let unit = |n: u32, one: &str| {
+        if n == 1 {
+            format!("1 {one}")
+        } else {
+            format!("{n} {one}s")
+        }
+    };
+    match (hours / 24, hours % 24) {
+        (0, h) => unit(h, "hour"),
+        (d, 0) => unit(d, "day"),
+        (d, h) => format!("{} and {}", unit(d, "day"), unit(h, "hour")),
     }
 }
 
@@ -974,6 +991,14 @@ mod tests {
     }
 
     #[test]
+    fn a_span_reads_in_days_and_hours() {
+        assert_eq!(span(1), "1 hour");
+        assert_eq!(span(8), "8 hours");
+        assert_eq!(span(24), "1 day");
+        assert_eq!(span(54), "2 days and 6 hours");
+    }
+
+    #[test]
     fn every_grantable_tool_acts() {
         for spec in GRANTABLE {
             let (app, acts) = permissions::lookup(spec.tool).expect("a known tool");
@@ -1089,6 +1114,10 @@ mod tests {
                 shown.contains(&("Allows", "1 reply each time it runs, without asking")),
                 "{shown:?}"
             );
+            assert!(
+                shown.contains(&("Ends", "When the routine ends, or in 8 hours")),
+                "{shown:?}"
+            );
             // Asking saves nothing.
             let after = self.user.live_grants().await.expect("grants").len();
             assert_eq!(after, before);
@@ -1104,6 +1133,11 @@ mod tests {
             assert!(saved.is_success(), "{}", saved.output());
             let grants = self.user.live_grants().await.expect("grants");
             assert_eq!(grants.len(), 1);
+            let lasts = grants[0].expires_at - Utc::now();
+            assert!(
+                lasts > Duration::hours(7) && lasts <= Duration::hours(8),
+                "a grant lasts 8 hours by default: {lasts}"
+            );
             grants[0].id
         }
 
@@ -1300,6 +1334,13 @@ mod tests {
             refused(
                 json!({"routine": routine, "tool": REPLY, "recipients": ["ana@example.com"],
             "exact": {"thread_id": THREAD}, "per_run": 50})
+            )
+            .await
+        );
+        assert!(
+            refused(
+                json!({"routine": routine, "tool": REPLY, "recipients": ["ana@example.com"],
+            "exact": {"thread_id": THREAD}, "hours": MAX_HOURS + 1})
             )
             .await
         );

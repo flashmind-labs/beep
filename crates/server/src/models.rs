@@ -248,6 +248,16 @@ impl ModelChoices {
             .contains(user)
     }
 
+    /// Every account admitted as an admin so far.
+    pub fn admins(&self) -> Vec<String> {
+        self.admins
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .cloned()
+            .collect()
+    }
+
     /// Makes account `user` an admin when `key`, one of its keys, is an
     /// admin key in the config.
     pub fn admit(&self, user: &str, key: &str) {
