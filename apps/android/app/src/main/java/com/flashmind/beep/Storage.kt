@@ -76,6 +76,11 @@ data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: 
     /** This prompt was said aloud in live mode, so the chat shows it in a live transcript. */
     val spoken: Boolean = false)
 
+/** The newest reply of the chat's own turns. A card asked by background work is not one: it sits at the end of the chat. */
+internal fun List<ChatMessage>.lastReply(): ChatMessage? = lastOrNull { m -> m.role == "assistant" && m.approvals.none { it.background } }
+/** The newest message of the chat's own turns, prompt or reply, past any card asked by background work. */
+internal fun List<ChatMessage>.lastOfTurns(): ChatMessage? = lastOrNull { m -> m.approvals.none { it.background } }
+
 /** A tool call the server holds until the user allows it. `answer` is empty while it waits. */
 data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "",
     /** Asked by a sub-agent or job, not by the turn: it never holds the chat, and a new message does not skip it. */

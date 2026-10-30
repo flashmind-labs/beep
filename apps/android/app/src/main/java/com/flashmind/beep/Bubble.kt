@@ -579,7 +579,7 @@ private data class Callout(val conversationId: String, val title: String, val te
         /** Null for a run the user stopped, one waiting on an approval card, or one with nothing to say. */
         fun of(chat: Conversation): Callout? {
             if (chat.error == "Stopped") return null
-            val reply = chat.messages.lastOrNull { it.role == "assistant" }
+            val reply = chat.messages.lastReply()
             if (reply?.approvals?.any { it.waiting } == true) return null
             val failed = chat.error.isNotEmpty()
             val text = if (failed) chat.error else preview(reply?.text.orEmpty())
