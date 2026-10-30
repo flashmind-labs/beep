@@ -91,6 +91,7 @@ const TOOL_LABELS = {
   research_more: "Asking the research for more",
   stop_research: "Stopping the research",
   end_routine: "Ending this routine",
+  request_grant: "Asking to allow a routine",
   // Names from before the fold, still in older chats.
   memory_history: "Checking how a memory changed",
   spawn_agent: "Starting an agent",
@@ -226,8 +227,11 @@ function hints(items, extra = "") {
 function chatHints() {
   const e = here();
   const chip = modelChip();
-  if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
-  if (!e?.run && waitingQuestion(S.session)) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
+  const asking = e?.approval ?? (!e?.run && waitingQuestion(S.session));
+  if (asking) {
+    const grant = e?.approval ? e.approval.grant : forRoutine(asking.action);
+    return hints([[`⌘${ICON.ret}`, "allow"], ...(grant ? [] : [[`⌥⌘${ICON.ret}`, "always"]]), ["⌘D", "deny"], ["esc", "to hide"]], chip);
+  }
   if (e?.run) return hints([[ICON.ret, "queue"], ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
@@ -598,16 +602,21 @@ function thinking(turn, delta) {
   row.querySelector(".think").textContent += delta;
 }
 
+/// A routine asking for a grant (`request_grant`). A grant always ends, so
+/// its card has no Always, and the Always key allows it.
+const forRoutine = action => /for a routine$/.test(action ?? "");
+
 function approvalCard(id, turn, { query_id, app, action, fields }) {
+  const grant = forRoutine(action);
   const card = h(`<div class="dcard">
     <div class="head"><span class="dapp">${esc((app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
     ${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button><button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
+    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
   </div>`);
   card.querySelectorAll("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d)));
   turn.append(card);
   const e = entry(id);
-  e.approval = { queryId: query_id, turn, card };
+  e.approval = { queryId: query_id, turn, card, grant };
   e.body ??= turn.parentElement;
   if (id === S.session) refreshHints();
 }
@@ -840,7 +849,10 @@ async function answer(decision) {
   const id = S.session, e = live.get(id), pending = e?.approval;
   if (!pending) return;
   e.approval = null;
-  const said = { allow: "Allowed once", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
+  if (pending.grant && decision === "always") decision = "allow";
+  const said = pending.grant
+    ? { allow: "Allowed for this routine", deny: "Denied" }[decision]
+    : { allow: "Allowed once", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
   pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
   const turn = pending.turn;
   turn.done = false;
@@ -1597,7 +1609,7 @@ function notice(text, { path, bad } = {}) {
 // ---------- Shortcuts ----------
 
 const SHORTCUTS = [
-  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌥ ⌥ ⌥", "Live mode"], ["hold ⌥", "Talk, let go to send"], ["⌘Q", "Quit"]]],
+  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines, then ⌘G for grants"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌥ ⌥ ⌥", "Live mode"], ["hold ⌥", "Talk, let go to send"], ["⌘Q", "Quit"]]],
   ["In live mode", [["tap ⌥", "Interrupt Beep, or leave while listening"], ["esc", "Leave, keeping what was said"], ["“send”", "Send now"], ["“cancel”", "Drop what was said"], ["“scratch that”", "Remove the last sentence"], ["“stop”", "Stop Beep speaking"], ["“repeat that”", "Read the reply again"], ["“new chat”", "Start over"], ["“bye”", "Leave live mode"]]],
   ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
@@ -3521,6 +3533,8 @@ function renderRoutines() {
 }
 
 async function loadRoutines() {
+  // The header's Grants count; a failure leaves it out.
+  invoke("list_grants").then(list => { GR.list = list; GR.loaded = true; if (S.view === "routines") drawRoutines(); }).catch(() => {});
   try {
     R.list = await invoke("list_crons");
     R.loaded = true;
@@ -3535,7 +3549,7 @@ function drawRoutines() {
   R.sel = Math.max(0, Math.min(R.sel, R.list.length - 1));
   const on = R.list.filter(c => c.enabled).length, off = R.list.length - on;
   const sum = !R.loaded ? "" : !R.list.length ? "Nothing scheduled" : [on && `${on} on`, off && `${off} paused`].filter(Boolean).join(", ");
-  const head = `<div class="dhead"><span class="tt"><b>Routines</b><small>${sum}</small></span><button class="dbtn" data-r="new">${PLUS_ICON}New<kbd>⌘N</kbd></button></div>`;
+  const head = `<div class="dhead"><span class="tt"><b>Routines</b><small>${sum}</small></span><button class="dbtn" data-r="grants">Grants${GR.list.length ? ` <span style="color:var(--muted)">${GR.list.length}</span>` : ""}<kbd>⌘G</kbd></button><button class="dbtn" data-r="new">${PLUS_ICON}New<kbd>⌘N</kbd></button></div>`;
   const err = R.error ? `<div class="derr" style="padding:8px 18px 0">${esc(R.error)}</div>` : "";
   if (R.loaded && !R.list.length) {
     bar.innerHTML = head + err + `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${CLOCK_ICON}</span>
@@ -3556,7 +3570,7 @@ function drawRoutines() {
         <span class="tt"><b>${label}</b><span>${esc(c.prompt)}</span><small>${esc([routineWhen(c.schedule), next].filter(Boolean).join(" · "))}</small></span>${tail}</div>`;
     }).join("");
     bar.innerHTML = head + err + `<div class="dlist" id="rlist" role="listbox" aria-label="Routines" style="padding-top:8px">${rows}</div>`
-      + hints(R.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["esc", "back"]]);
+      + hints(R.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["⌘G", "grants"], ["esc", "back"]]);
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
   bar.onclick = routineClick;
@@ -3578,6 +3592,7 @@ function routineClick(e) {
 async function routineAction(a) {
   const c = R.list[R.sel];
   if (a === "new") return renderRoutineNew();
+  if (a === "grants") return renderGrants();
   if (a === "list" || a === "actions" || a === "delete") {
     if (!c && a !== "list") return;
     R.mode = a;
@@ -3711,6 +3726,110 @@ async function createRoutine() {
     NR.error = String(e);
     NR.busy = false;
     if (S.view === "rnew") drawRoutineNew();
+  }
+}
+
+// ---------- Routine grants ----------
+
+// What routines may do without asking (ListGrants). mode: list | confirm
+const GR = { list: [], sel: 0, mode: "list", error: "", loaded: false };
+const SHIELD_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>';
+
+/// "40 min", "5 h" or "6 d".
+function span(ms) {
+  const min = Math.max(1, Math.round(Math.abs(ms) / 60000));
+  return min < 60 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.round(min / 1440)} d`;
+}
+
+function renderGrants() {
+  S.view = "grants";
+  invoke("close_group").catch(() => {});
+  Object.assign(GR, { sel: 0, mode: "list", error: "" });
+  drawGrants();
+  loadGrants();
+}
+
+async function loadGrants() {
+  try {
+    GR.list = await invoke("list_grants");
+    GR.loaded = true;
+    GR.error = "";
+  } catch (e) {
+    GR.error = String(e);
+  }
+  if (S.view === "grants") drawGrants();
+  else if (S.view === "routines") drawRoutines();
+}
+
+function drawGrants() {
+  GR.sel = Math.max(0, Math.min(GR.sel, GR.list.length - 1));
+  const head = `<div class="dhead"><span class="tt"><b>Routine grants</b><small>${GR.loaded && !GR.list.length ? "Nothing granted" : "What routines may do without asking. Each ends on its own."}</small></span></div>`;
+  const err = GR.error ? `<div class="derr" style="padding:8px 18px 0">${esc(GR.error)}</div>` : "";
+  if (GR.loaded && !GR.list.length) {
+    bar.innerHTML = head + err + `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${SHIELD_ICON}</span>
+      <b style="font-size:14px">No routine grants.</b><span class="dmuted" style="display:block">When a routine needs to act without asking, Beep asks you once in a chat.</span></div>` + hints([["esc", "back"]]);
+  } else {
+    const now = Date.now();
+    const rows = GR.list.map((g, i) => {
+      const on = i === GR.sel, short = g.action.replace(/ for a routine$/, "");
+      if (on && GR.mode === "confirm") {
+        return `<div class="drt" aria-selected="true" data-i="${i}"><span class="tt"><span style="font-size:14px">Revoke? <b>${esc(g.routine)}</b> will ask before each ${esc(short)} again.</span></span>
+          <span class="acts"><button class="dbtn warn" data-g="revoke-yes">Revoke</button><button class="dbtn" data-g="list">Cancel</button></span></div>`;
+      }
+      const per = g.per_run === 1 ? "1 each run" : `up to ${g.per_run} each run`;
+      const ends = g.expires_at > now ? `Ends in ${span(g.expires_at - now)}` : "Ended";
+      const used = g.last_used_at ? `Last used ${span(now - g.last_used_at)} ago` : "Not used yet";
+      const acts = on ? `<span class="acts"><button class="dbtn warn" data-g="revoke">Revoke<kbd>⌘⌫</kbd></button></span>` : "";
+      const kv = on && g.fields.length ? `<span class="dgkv">${g.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</span>` : "";
+      return `<div class="drt" role="option" aria-selected="${on}" data-i="${i}" style="align-items:flex-start"><span class="dapp" style="margin-top:2px">${esc((g.app || "?")[0].toUpperCase())}</span>
+        <span class="tt"><b>${esc(g.routine)}</b><span>${esc(`${g.app}: ${short}`)}, ${per}</span><small>${ends} · ${used}</small>${kv}</span>${acts}</div>`;
+    }).join("");
+    bar.innerHTML = head + err + `<div class="dlist" id="glist" role="listbox" aria-label="Routine grants" style="padding-top:8px">${rows}</div>`
+      + hints(GR.mode === "confirm" ? [[ICON.ret, "revoke"], ["esc", "cancel"]] : [["↑↓", "move"], ["⌘⌫", "revoke"], ["esc", "back"]]);
+    bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }
+  bar.onclick = grantClick;
+}
+
+function grantClick(e) {
+  if (S.view !== "grants") return;
+  const btn = e.target.closest("[data-g]"), row = e.target.closest(".drt[data-i]");
+  if (row) GR.sel = Number(row.dataset.i);
+  if (btn) return grantAction(btn.dataset.g);
+  if (row && GR.mode === "list") drawGrants();
+}
+
+async function grantAction(a) {
+  const g = GR.list[GR.sel];
+  if (!g) return;
+  if (a === "list" || a === "revoke") {
+    GR.mode = a === "revoke" ? "confirm" : "list";
+    return drawGrants();
+  }
+  if (a !== "revoke-yes") return;
+  try {
+    await invoke("revoke_grant", { id: g.id });
+    GR.list = GR.list.filter(x => x.id !== g.id);
+    GR.error = "";
+  } catch (e) {
+    GR.error = String(e);
+  }
+  GR.mode = "list";
+  if (S.view === "grants") drawGrants();
+}
+
+function grantKeys(e, cmd) {
+  if (GR.mode === "confirm") {
+    if (e.key === "Enter") { e.preventDefault(); grantAction("revoke-yes"); }
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    GR.sel = Math.max(0, Math.min(GR.list.length - 1, GR.sel + (e.key === "ArrowDown" ? 1 : -1)));
+    drawGrants();
+  } else if (cmd && e.key === "Backspace" && GR.list.length) {
+    e.preventDefault();
+    grantAction("revoke");
   }
 }
 
@@ -4050,14 +4169,14 @@ function drawWorkQuestions() {
   b.querySelector(".dworkq")?.remove();
   const qs = WORK.get(S.session)?.questions ?? [];
   if (!qs.length) return;
-  const said = { allow: "Allowed once. The work goes on.", always: "Allowed, and always allowed from now on. The work goes on.", deny: "Denied. The work goes on without it." };
+  const said = { allow: "Allowed once. The work goes on.", always: "Allowed, and always allowed from now on. The work goes on.", deny: "Denied. The work goes on without it.", grant: "Allowed for this routine. The work goes on." };
   const first = waitingQuestion(S.session);
   const card = q => q.withdrawn || q.answer
-    ? `<div class="dmuted">${esc(q.withdrawn ? `${q.action} with ${q.app}: no longer waiting` : said[q.answer])}</div>`
+    ? `<div class="dmuted">${esc(q.withdrawn ? `${q.action} with ${q.app}: no longer waiting` : said[forRoutine(q.action) && q.answer === "allow" ? "grant" : q.answer])}</div>`
     : `<div class="dcard" data-q="${esc(q.query_id)}">
     <div class="head"><span class="dapp">${esc((q.app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(q.action)}?</b><small>Background work asks first</small></div></div>
     ${q.fields.length ? `<div class="kv">${q.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts">${[["allow", "Allow", "pri", `⌘${ICON.ret}`], ["always", "Always", "", `⌥⌘${ICON.ret}`], ["deny", "Deny", "warn", "⌘D"]].map(([d, t, cls, k]) =>
+    <div class="acts">${[["allow", "Allow", "pri", `⌘${ICON.ret}`], ["always", "Always", "", `⌥⌘${ICON.ret}`], ["deny", "Deny", "warn", "⌘D"]].filter(([d]) => d !== "always" || !forRoutine(q.action)).map(([d, t, cls, k]) =>
       `<button class="dbtn ${cls}" data-d="${d}">${t}${q === first && !here()?.approval ? `<kbd>${k}</kbd>` : ""}</button>`).join("")}</div></div>`;
   const box = h(`<div class="dworkq" style="display:grid;gap:8px"><div class="dmuted" style="justify-content:center;font-size:11.5px;color:var(--dim)">${first ? "Background work is waiting for you" : "Background work"}</div>${qs.map(card).join("")}</div>`);
   box.querySelectorAll(".dcard").forEach(c => c.querySelectorAll("[data-d]").forEach(btn => btn.addEventListener("click", () =>
@@ -4068,6 +4187,7 @@ function drawWorkQuestions() {
 
 async function answerWork(id, q, decision) {
   if (!q || q.answer || q.withdrawn) return;
+  if (decision === "always" && forRoutine(q.action)) decision = "allow";
   q.answer = decision;
   if (id === S.session) { drawWorkQuestions(); refreshHints(); }
   try {
@@ -4331,6 +4451,8 @@ function back() {
   if (S.view === "group" && G.mention) return closeMention();
   if (S.view === "memories" && M.mode !== "list") { M.mode = "list"; drawMemories(); return $("#mfind")?.focus(); }
   if (S.view === "routines" && R.mode !== "list") return routineAction("list");
+  if (S.view === "grants" && GR.mode !== "list") { GR.mode = "list"; return drawGrants(); }
+  if (S.view === "grants") return renderRoutines();
   if (S.view === "research" && RL.mode !== "list") { RL.mode = "list"; return drawResearches(); }
   if (S.view === "skills" && K.mode !== "list") return skillAction(K.mode === "edit" || K.mode === "vdelete" ? "view" : "list");
   if (S.view === "rnew") return renderRoutines();
@@ -4417,6 +4539,7 @@ document.addEventListener("keydown", e => {
   if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
   if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
   if (cmd && key === "n") { e.preventDefault(); return newChat(); }
+  if (cmd && key === "g" && S.view === "routines") { e.preventDefault(); return renderGrants(); }
   if (cmd && key === "g") { e.preventDefault(); J.error = ""; J.name = ""; return renderGroupNew("new"); }
   if (cmd && key === "k") { e.preventDefault(); return S.view === "chats" ? null : renderChats(); }
   if (cmd && key === "i" && (S.view === "group" || S.view === "invite")) { e.preventDefault(); return renderGroupInfo(); }
@@ -4438,6 +4561,7 @@ document.addEventListener("keydown", e => {
   if (S.view === "chats") return chatsKeys(e, cmd);
   if (S.view === "memories") return memKeys(e, cmd);
   if (S.view === "routines") return routineKeys(e, cmd);
+  if (S.view === "grants") return grantKeys(e, cmd);
   if (S.view === "research") return researchKeys(e);
   if (S.view === "skills") return skillKeys(e, cmd);
   if (S.view === "group") return groupKeys(e, cmd);
