@@ -51,6 +51,8 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
             return
         }
         if notice.group { model.noticeChanged(notice) }
+        // Background work asks only through notices; its chat keeps a card for the question.
+        model.askedInBackground(notice)
         let active = UIApplication.shared.applicationState == .active
         // On screen, the chat shows it instead; an approval there gets its card. A group's
         // approval always asks here.
