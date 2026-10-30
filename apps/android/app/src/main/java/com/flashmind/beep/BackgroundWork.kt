@@ -41,6 +41,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.flashmind.beep.proto.WorkItem
 import com.flashmind.beep.proto.WorkKind
 import kotlinx.coroutines.delay
@@ -67,11 +70,16 @@ internal fun BackgroundWork(repository: ChatRepository, chat: Conversation, comp
     var open by remember(chat.id) { mutableStateOf(false) }
     var refresh by remember(chat.id) { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(chat.id, chat.busy, started, refresh) {
-        while (true) {
-            items = repository.listWork(chat.id)
-            if (items.none { it.outcome == null }) break
-            delay(WORK_POLL_MS)
+        // Reads only while the app is in the foreground; coming back reads again at once.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                // A read that fails keeps the last list, so one dropped poll does not hide the strip.
+                repository.listWork(chat.id)?.let { items = it }
+                if (items.none { it.outcome == null }) break
+                delay(WORK_POLL_MS)
+            }
         }
     }
     val running = items.count { it.outcome == null }
