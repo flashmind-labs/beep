@@ -91,6 +91,7 @@ const TOOL_LABELS = {
   research_more: "Asking the research for more",
   stop_research: "Stopping the research",
   end_routine: "Ending this routine",
+  request_grant: "Asking to allow a routine",
   // Names from before the fold, still in older chats.
   memory_history: "Checking how a memory changed",
   spawn_agent: "Starting an agent",
@@ -226,8 +227,11 @@ function hints(items, extra = "") {
 function chatHints() {
   const e = here();
   const chip = modelChip();
-  if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
-  if (!e?.run && waitingQuestion(S.session)) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
+  const asking = e?.approval ?? (!e?.run && waitingQuestion(S.session));
+  if (asking) {
+    const grant = e?.approval ? e.approval.grant : forRoutine(asking.action);
+    return hints([[`⌘${ICON.ret}`, "allow"], ...(grant ? [] : [[`⌥⌘${ICON.ret}`, "always"]]), ["⌘D", "deny"], ["esc", "to hide"]], chip);
+  }
   if (e?.run) return hints([[ICON.ret, "queue"], ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
@@ -598,16 +602,21 @@ function thinking(turn, delta) {
   row.querySelector(".think").textContent += delta;
 }
 
+/// A routine asking for a grant (`request_grant`). A grant always ends, so
+/// its card has no Always, and the Always key allows it.
+const forRoutine = action => /for a routine$/.test(action ?? "");
+
 function approvalCard(id, turn, { query_id, app, action, fields }) {
+  const grant = forRoutine(action);
   const card = h(`<div class="dcard">
     <div class="head"><span class="dapp">${esc((app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
     ${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button><button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
+    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
   </div>`);
   card.querySelectorAll("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d)));
   turn.append(card);
   const e = entry(id);
-  e.approval = { queryId: query_id, turn, card };
+  e.approval = { queryId: query_id, turn, card, grant };
   e.body ??= turn.parentElement;
   if (id === S.session) refreshHints();
 }
@@ -634,6 +643,7 @@ function finish(id, turn) {
   turn.folded = true;
   drawSteps(turn, true);
   replyActs(turn);
+  if (turn.user) loadTurnAgent(id, turn);
   const e = live.get(id);
   if (e) {
     e.run = null;
@@ -840,7 +850,10 @@ async function answer(decision) {
   const id = S.session, e = live.get(id), pending = e?.approval;
   if (!pending) return;
   e.approval = null;
-  const said = { allow: "Allowed once", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
+  if (pending.grant && decision === "always") decision = "allow";
+  const said = pending.grant
+    ? { allow: "Allowed for this routine", deny: "Denied" }[decision]
+    : { allow: "Allowed once", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
   pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
   const turn = pending.turn;
   turn.done = false;
@@ -957,6 +970,7 @@ function drawHistory(id, turns) {
   if (last) suggestions(last.turn, last.replies);
   scrollDown();
   loadAskFiles(id, body());
+  loadAgents(id, body());
   liveTranscript(id, body());
   keepWaitingQuestions(id);
 }
@@ -971,6 +985,25 @@ async function loadAskFiles(id, b) {
     if (!turn || turn.querySelector(".dachips")) continue;
     (turn.querySelector(".dpics") ?? turn.querySelector(".ask"))?.after(askFiles(files));
   }
+}
+
+/// Names the agent that answered each turn of session `id`, from the
+/// server's list. General and turns without agents show nothing.
+async function loadAgents(id, b) {
+  const agents = await invoke("session_agents", { id }).catch(() => []);
+  if (S.session !== id || body() !== b) return;
+  for (const { message, agent } of agents) {
+    const turn = agent && b.querySelector(`.turn[data-at="${message}"]`);
+    if (turn) { turn.agent = agent; replyActs(turn); }
+  }
+}
+/// The same for a turn that just finished live: it is the newest one listed.
+async function loadTurnAgent(id, turn) {
+  const agents = await invoke("session_agents", { id }).catch(() => []);
+  const agent = agents.at(-1)?.agent;
+  if (!agent || !turn.isConnected || turn !== [...body().querySelectorAll(".turn")].findLast(t => t.user)) return;
+  turn.agent = agent;
+  replyActs(turn);
 }
 
 // ---------- Chats ----------
@@ -1597,7 +1630,7 @@ function notice(text, { path, bad } = {}) {
 // ---------- Shortcuts ----------
 
 const SHORTCUTS = [
-  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌥ ⌥ ⌥", "Live mode"], ["hold ⌥", "Talk, let go to send"], ["⌘Q", "Quit"]]],
+  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines, then ⌘G for grants"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌥ ⌥ ⌥", "Live mode"], ["hold ⌥", "Talk, let go to send"], ["⌘Q", "Quit"]]],
   ["In live mode", [["tap ⌥", "Interrupt Beep, or leave while listening"], ["esc", "Leave, keeping what was said"], ["“send”", "Send now"], ["“cancel”", "Drop what was said"], ["“scratch that”", "Remove the last sentence"], ["“stop”", "Stop Beep speaking"], ["“repeat that”", "Read the reply again"], ["“new chat”", "Start over"], ["“bye”", "Leave live mode"]]],
   ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
@@ -2250,6 +2283,10 @@ async function renderSettings(confirm = false) {
   }
   const mac = linked ? await invoke("mac_control").catch(e => { console.warn(e); return null; }) : null;
   if (S.view !== "settings") return;
+  // Only admins may list machines; for anyone else the row stays out.
+  MC.list = linked ? await invoke("list_machines").catch(() => null) : null;
+  if (S.view !== "settings") return;
+  const machines = MC.list ? `<div class="dtoggle"><span><b>Other machines</b><small>${MC.list.length ? esc(`${MC.list.length} linked: ${MC.list.map(m => m.name).join(", ")}`) : "None linked yet"}</small></span><button class="dbtn" id="machines">Show…</button></div>` : "";
   // Whether this Mac made the account, and so links and removes devices.
   const owner = devices.some(d => d.this_device && d.primary);
   const row = d => {
@@ -2272,7 +2309,7 @@ async function renderSettings(confirm = false) {
       <div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
     <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">
-      <div class="dsec flat">Devices</div>${link}${ask}${apps}${mac ? thisMac(mac) : ""}
+      <div class="dsec flat">Devices</div>${link}${ask}${apps}${mac ? thisMac(mac) : ""}${machines}
       <div class="dsec flat" style="padding-top:6px">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
@@ -2282,6 +2319,7 @@ async function renderSettings(confirm = false) {
   $("#link")?.addEventListener("click", renderLink);
   $("#invite")?.addEventListener("click", renderInvitePhone);
   $("#apps")?.addEventListener("click", renderApps);
+  $("#machines")?.addEventListener("click", renderMachines);
   bar.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", async () => {
     b.disabled = true;
     try {
@@ -3143,7 +3181,8 @@ function routeClick(e) {
 /// The caller's model settings. `choices` is empty unless they are an
 /// admin, and then the bar shows no chip, no model view and no rerun.
 /// `agents` is whether an admin turned agents on for everyone.
-const MODELS = { info: null, sel: 0, agents: false };
+/// `list` names the agents set up, General first; empty when there are none.
+const MODELS = { info: null, sel: 0, agents: false, list: [] };
 const THINKING = ["off", "low", "medium", "high"];
 
 function isAdmin() { return !!MODELS.info?.choices.length; }
@@ -3156,7 +3195,9 @@ async function loadModels() {
   refreshHints();
   if (!isAdmin()) return;
   try {
-    MODELS.agents = (await invoke("get_agents")).enabled;
+    const agents = await invoke("get_agents");
+    MODELS.agents = agents.enabled;
+    MODELS.list = agents.agents.map(a => a.name);
   } catch {
     return;
   }
@@ -3197,9 +3238,14 @@ function drawModel() {
   const rows = m.choices.map((c, i) => `<button class="drt dmrow" role="option" data-pick="${i}" aria-selected="${i === MODELS.sel}"><span class="tt"><b>${esc(c.name)}</b><span>${esc(modelPrice(c))}</span></span>${c.id === m.selected ? `<span class="dok">${ICON.check}</span>` : ""}</button>`).join("");
   const picker = agentPicks ? "" : `<div class="dlist" style="padding:0" role="listbox" aria-label="Models">${rows}</div>
       <div class="dfield"><span>Thinking</span><div class="dchips">${THINKING.map(l => `<button class="dchip" data-level="${l}" aria-pressed="${l === m.thinking}">${cap(l)}</button>`).join("")}</div></div>`;
+  // Agents apply to everyone, so they sit apart from the caller's own model.
+  const agentSec = MODELS.list.length ? `<div class="dsec flat dagents">Agents <span class="dtag">Admin</span></div>
+      <div class="dtoggle"><span><b>Agents</b><small>${agents ? "On for everyone: Jev picks an agent for each prompt" : "Off: everyone uses the general assistant"}</small></span><button class="dswitch" data-act="agents" role="switch" aria-checked="${agents}" aria-label="Agents"></button></div>
+      <div class="dmuted dagentlist"${agents ? "" : ' style="opacity:.6"'}>${esc(MODELS.list.join(", "))}</div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Model</b><small>${agents ? "Your own turns only." : "Your own turns only. Everyone else stays on the default."}</small></span></div>
-    <div class="dform" style="padding-top:12px">${auto}
+    <div class="dform dmodelform" style="padding-top:12px">${auto}
       ${picker}
+      ${agentSec}
       <div class="derr" id="modelErr"></div>
     </div>${hints(agentPicks ? [["esc", "back"]] : [["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]])}`;
 }
@@ -3219,6 +3265,19 @@ function modelClick(e) {
   const level = e.target.closest("[data-level]");
   if (level) return changeModel("set_thinking", { level: level.dataset.level });
   if (e.target.closest('[data-act="auto"]')) return changeModel("set_auto_model", { enabled: !MODELS.info.auto });
+  if (e.target.closest('[data-act="agents"]')) return setAgents(!MODELS.agents);
+}
+async function setAgents(enabled) {
+  try {
+    const agents = await invoke("set_agents", { enabled });
+    MODELS.agents = agents.enabled;
+    MODELS.list = agents.agents.map(a => a.name);
+  } catch (e) {
+    const err = $("#modelErr");
+    if (err) err.textContent = String(e);
+    return;
+  }
+  if (S.view === "model") drawModel();
 }
 function modelKeys(e) {
   if (MODELS.agents && MODELS.info.auto_available && MODELS.info.auto) return;
@@ -3233,13 +3292,15 @@ function modelKeys(e) {
 
 // ---------- Reply actions ----------
 
-/// Copy, and for admins Rerun, under a finished reply.
+/// Copy, and for admins Rerun, under a finished reply, then the agent that
+/// answered it when there was one.
 function replyActs(turn) {
   turn.querySelector(".dreplyacts")?.remove();
   const text = turn.querySelector(".reply")?.innerText.trim();
   const rerun = isAdmin() && turn.user;
-  if (!text && !rerun) return;
-  const row = h(`<div class="dreplyacts">${text ? `<button class="dcopy" data-act="copyReply">${COPY_ICON}Copy</button>` : ""}${rerun ? `<span class="drerun"><button class="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded="false">${PLAY_ICON}Rerun<span class="dchev">${ICON.chev}</span></button></span>` : ""}</div>`);
+  if (!text && !rerun && !turn.agent) return;
+  const agent = turn.agent ? `<span class="dagent" title="The agent that answered">${esc(turn.agent)}</span>` : "";
+  const row = h(`<div class="dreplyacts">${text ? `<button class="dcopy" data-act="copyReply">${COPY_ICON}Copy</button>` : ""}${rerun ? `<span class="drerun"><button class="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded="false">${PLAY_ICON}Rerun<span class="dchev">${ICON.chev}</span></button></span>` : ""}${agent}</div>`);
   const replies = turn.querySelector(".dreplies");
   replies ? turn.insertBefore(row, replies) : turn.append(row);
 }
@@ -3315,8 +3376,52 @@ const PLAY_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="current
 const MEM_SOURCE = { user: "You told Beep", learned: "Learned in a chat", email: "From your email", slack: "From Slack" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// mode: list | edit | clear
-const M = { all: [], list: [], sel: 0, query: "", mode: "list", error: "", loaded: false };
+// mode: list | edit | clear. filter: all | you | scope:<key> | read:<id>
+const M = { all: [], list: [], sel: 0, query: "", mode: "list", error: "", loaded: false, scopes: new Map(), reads: [], filter: "all" };
+const SCOPE_ICON = {
+  machine: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
+  project: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M3 6.5A1.5 1.5 0 014.5 5H9l2 2.5h8.5A1.5 1.5 0 0121 9v9.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/></svg>',
+  account: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18.5a6.5 6.5 0 0111 0"/></svg>',
+};
+/// A subject as the phone writes it: the machine's name, "Project atlas", "Github account".
+function scopeLabel(sc) {
+  if (sc.kind === "machine") return sc.name || "A machine";
+  return sc.kind === "project" ? `Project ${sc.name}` : `${cap(sc.app)} account`;
+}
+function scopeSubject(sc) {
+  if (sc.kind === "machine") return sc.name ? `the machine ${sc.name}` : "a machine";
+  return sc.kind === "project" ? `the project ${sc.name}` : `your ${cap(sc.app)} account`;
+}
+const scopeKey = sc => `scope:${sc.kind}:${sc.id ?? sc.name ?? sc.app}`;
+const scopeTag = sc => `<span class="dscope">${SCOPE_ICON[sc.kind] ?? ""}${esc(scopeLabel(sc))}</span>`;
+/// "today", "yesterday" or "28 Oct", for a read's chip.
+function readDay(at) {
+  const day = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const ago = Math.round((day(new Date()) - day(at)) / 86400000);
+  return ago === 0 ? "today" : ago === 1 ? "yesterday" : `${at.getDate()} ${MONTHS[at.getMonth()]}`;
+}
+/// The chips over the list: everything, the user, each subject by name, then
+/// the latest reads that added or confirmed memories. Empty when there is
+/// nothing to pick between.
+function memFilters() {
+  const subjects = new Map();
+  for (const sc of M.scopes.values()) {
+    const key = scopeKey(sc), f = subjects.get(key) ?? { key, label: scopeLabel(sc), about: `What Beep knows about ${scopeSubject(sc)}.`, ids: new Set() };
+    subjects.set(key, f);
+  }
+  for (const m of M.all) { const sc = M.scopes.get(m.id); if (sc) subjects.get(scopeKey(sc)).ids.add(m.id); }
+  const have = new Set(M.all.map(m => m.id));
+  const reads = M.reads.filter(r => r.memories.some(id => have.has(id))).slice(0, 3).map(r => {
+    const at = new Date(r.finished_at), day = readDay(at);
+    const when = day === "today" || day === "yesterday" ? day : `on ${day}`;
+    return { key: `read:${r.id}`, label: `${r.source}, ${day}`, read: true, ids: new Set(r.memories.filter(id => have.has(id))),
+      about: `What Beep learned or confirmed reading ${r.source} ${when} at ${clock(at.getHours(), at.getMinutes())}.` };
+  });
+  const scoped = [...subjects.values()].filter(f => f.ids.size).sort((a, b) => a.label.toLowerCase() < b.label.toLowerCase() ? -1 : 1);
+  if (!scoped.length && !reads.length) return [];
+  const you = new Set(M.all.filter(m => !M.scopes.has(m.id)).map(m => m.id));
+  return [{ key: "all", label: "Everything" }, { key: "you", label: "You", about: "What Beep knows about you.", ids: you }, ...scoped, ...reads];
+}
 
 /// "2 Sep" from `YYYY-MM-DD`.
 function shortDate(day) {
@@ -3327,20 +3432,29 @@ function shortDate(day) {
 function renderMemories() {
   S.view = "memories";
   invoke("close_group").catch(() => {});
-  Object.assign(M, { sel: 0, query: "", mode: "list", error: "" });
+  Object.assign(M, { sel: 0, query: "", mode: "list", error: "", filter: "all" });
   bar.innerHTML = `<div class="dinput"><input id="mfind" placeholder="Search memories" autocomplete="off" spellcheck="false"><span class="dmuted" id="mcount"></span><kbd>⌘M</kbd></div>
-    <div class="dlist" id="mlist" role="listbox" aria-label="Memories" style="border-top:1px solid var(--border);padding-top:2px"></div><div id="mhints"></div>`;
+    <div id="mchips" style="border-top:1px solid var(--border)"></div>
+    <div class="dlist" id="mlist" role="listbox" aria-label="Memories" style="padding-top:2px"></div><div id="mhints"></div>`;
   const find = $("#mfind");
   find.focus();
   find.addEventListener("input", () => { M.query = find.value.trim(); M.sel = 0; M.mode = "list"; drawMemories(); });
   $("#mlist").addEventListener("click", memClick);
+  $("#mchips").addEventListener("click", e => {
+    const chip = e.target.closest("[data-mf]");
+    if (chip) { M.filter = chip.dataset.mf; M.sel = 0; M.mode = "list"; drawMemories(); $("#mfind")?.focus(); }
+  });
   drawMemories();
   loadMemories();
 }
 
 async function loadMemories() {
   try {
-    M.all = await invoke("list_memories");
+    // Subjects and reads only add the chips; a server without them still lists memories.
+    const [all, scopes, reads] = await Promise.all([invoke("list_memories"), invoke("list_memory_scopes").catch(() => []), invoke("list_memory_reads").catch(() => [])]);
+    M.all = all;
+    M.scopes = new Map(scopes.map(x => [x.id, x.scope]));
+    M.reads = reads;
     M.loaded = true;
     M.error = "";
   } catch (e) {
@@ -3353,12 +3467,22 @@ function drawMemories() {
   const list = $("#mlist");
   if (!list) return;
   const q = M.query.toLowerCase();
-  M.list = M.all.filter(m => !q || [m.content, m.category, m.quote].some(t => t?.toLowerCase().includes(q)));
+  // A search looks through everything, so the chips go while it is on.
+  const filters = q ? [] : memFilters(), picked = filters.find(f => f.key === M.filter) ?? filters[0];
+  if (!picked || picked.key === "all") M.filter = "all";
+  M.list = M.all.filter(m => (!q || [m.content, m.category, m.quote].some(t => t?.toLowerCase().includes(q))) && (!picked?.ids || picked.ids.has(m.id)));
+  const chips = $("#mchips");
+  if (chips) {
+    const chip = f => `<button class="dchip" aria-pressed="${f === picked}" data-mf="${esc(f.key)}">${esc(f.label)}${f.ids ? ` <span style="color:var(--muted)">${f.ids.size}</span>` : ""}</button>`;
+    const firstRead = filters.findIndex(f => f.read);
+    chips.innerHTML = filters.length ? `<div class="dchips" style="padding:8px 16px 2px">${filters.map((f, i) => (i === firstRead ? '<span class="dsep"></span>' : "") + chip(f)).join("")}</div>`
+      + (picked?.about ? `<div class="dmuted" style="padding:2px 18px 4px">${esc(picked.about)}</div>` : "") : "";
+  }
   // Grouped by category; the server lists newest first, so each group keeps that order.
   const cats = [...new Set(M.list.map(m => m.category || "Other"))];
   M.list = cats.flatMap(c => M.list.filter(m => (m.category || "Other") === c));
   M.sel = Math.max(0, Math.min(M.sel, M.list.length - 1));
-  $("#mcount").textContent = M.loaded ? (q ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
+  $("#mcount").textContent = M.loaded ? (q || M.filter !== "all" ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   let html = M.error ? `<div class="derr" style="padding:8px 10px">${esc(M.error)}</div>` : "";
@@ -3378,16 +3502,17 @@ function drawMemories() {
         const on = i === M.sel, ended = m.valid_until && m.valid_until < today;
         const meta = [MEM_SOURCE[m.source] ?? "", shortDate(m.updated)].filter(Boolean).join(" · ")
           + (m.valid_from || m.valid_until ? ` · ${m.valid_from ? shortDate(m.valid_from) : ""} to ${m.valid_until ? shortDate(m.valid_until) : ""}` : "");
+        const sc = M.scopes.get(m.id), about = sc ? scopeTag(sc) + " · " : "";
         if (on && M.mode === "edit") {
           html += `<div class="dmem" aria-selected="true" data-i="${i}"><div class="top"><textarea id="medit" rows="2" aria-label="Memory">${esc(m.content)}</textarea>
-            <span style="font-size:12px;color:var(--muted);flex:none;display:inline-flex;gap:4px;align-items:center">${ICON.ret} save</span></div><div class="m">${esc(meta)}</div></div>`;
+            <span style="font-size:12px;color:var(--muted);flex:none;display:inline-flex;gap:4px;align-items:center">${ICON.ret} save</span></div><div class="m">${about}${esc(meta)}</div></div>`;
         } else {
           const acts = on ? `<span class="acts"><button class="dbtn" data-m="edit">Edit</button><button class="dbtn warn" data-m="forget">Forget<kbd>⌘⌫</kbd></button></span>` : "";
           html += `<div class="dmem${ended ? " ended" : ""}" role="option" aria-selected="${on}" data-i="${i}"><div class="top"><span class="c">${mark(m.content, M.query)}</span>${acts}</div>
-            <div class="m">${esc(meta)}</div>${m.quote ? `<q>${mark(m.quote, M.query)}</q>` : ""}</div>`;
+            <div class="m">${about}${esc(meta)}</div>${m.quote ? `<q>${mark(m.quote, M.query)}</q>` : ""}</div>`;
       }
     });
-    if (M.all.length && !M.query) html += `<div style="padding:6px 10px 4px"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`;
+    if (M.all.length && !M.query && M.filter === "all") html += `<div style="padding:6px 10px 4px"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`;
   }
   list.innerHTML = html;
   list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
@@ -3395,7 +3520,7 @@ function drawMemories() {
   if (edit) { edit.focus(); edit.setSelectionRange(edit.value.length, edit.value.length); }
   $("#mhints").innerHTML = M.mode === "edit"
     ? hints([[ICON.ret, "save"], [`⇧${ICON.ret}`, "new line"], ["esc", "cancel"]])
-    : hints([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ["esc", "back"]]);
+    : hints([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ...(filters.length ? [["tab", "filter"]] : []), ["esc", "back"]]);
 }
 
 function memClick(e) {
@@ -3457,7 +3582,15 @@ function memKeys(e, cmd) {
     if (e.key === "Enter") { e.preventDefault(); memAction("clear-yes"); }
     return;
   }
-  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const filters = M.query ? [] : memFilters();
+    if (!filters.length) return;
+    const at = Math.max(0, filters.findIndex(f => f.key === M.filter));
+    M.filter = filters[(at + (e.shiftKey ? filters.length - 1 : 1)) % filters.length].key;
+    M.sel = 0;
+    drawMemories();
+  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     M.sel = Math.max(0, Math.min(M.list.length - 1, M.sel + (e.key === "ArrowDown" ? 1 : -1)));
     drawMemories();
@@ -3474,8 +3607,10 @@ function memKeys(e, cmd) {
 
 // mode: list | actions | delete
 const R = { list: [], sel: 0, mode: "list", error: "", loaded: false };
-// The new routine form. repeat: day | weekdays | week | hour | once | cron
-const NR = { label: "", prompt: "", repeat: "day", days: [1], time: "08:00", date: "", cron: "", error: "", busy: false };
+// The routine form, new or editing `edit` (a cron). repeat: day | weekdays |
+// week | hour | once | cron, or place for a routine a place starts, which
+// the form leaves as it is.
+const NR = { edit: null, label: "", prompt: "", repeat: "day", days: [1], time: "08:00", date: "", cron: "", error: "", busy: false };
 const CRON_DAYS = [1, 2, 3, 4, 5, 6, 0];
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -3521,6 +3656,8 @@ function renderRoutines() {
 }
 
 async function loadRoutines() {
+  // The header's Grants count; a failure leaves it out.
+  invoke("list_grants").then(list => { GR.list = list; GR.loaded = true; if (S.view === "routines") drawRoutines(); }).catch(() => {});
   try {
     R.list = await invoke("list_crons");
     R.loaded = true;
@@ -3535,7 +3672,7 @@ function drawRoutines() {
   R.sel = Math.max(0, Math.min(R.sel, R.list.length - 1));
   const on = R.list.filter(c => c.enabled).length, off = R.list.length - on;
   const sum = !R.loaded ? "" : !R.list.length ? "Nothing scheduled" : [on && `${on} on`, off && `${off} paused`].filter(Boolean).join(", ");
-  const head = `<div class="dhead"><span class="tt"><b>Routines</b><small>${sum}</small></span><button class="dbtn" data-r="new">${PLUS_ICON}New<kbd>⌘N</kbd></button></div>`;
+  const head = `<div class="dhead"><span class="tt"><b>Routines</b><small>${sum}</small></span><button class="dbtn" data-r="grants">Grants${GR.list.length ? ` <span style="color:var(--muted)">${GR.list.length}</span>` : ""}<kbd>⌘G</kbd></button><button class="dbtn" data-r="new">${PLUS_ICON}New<kbd>⌘N</kbd></button></div>`;
   const err = R.error ? `<div class="derr" style="padding:8px 18px 0">${esc(R.error)}</div>` : "";
   if (R.loaded && !R.list.length) {
     bar.innerHTML = head + err + `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${CLOCK_ICON}</span>
@@ -3550,13 +3687,13 @@ function drawRoutines() {
       }
       const next = c.enabled ? (c.next_run_at && !c.run_once ? "Next: " + describeDay(new Date(c.next_run_at)) : "") : "Paused";
       const tail = cur && R.mode === "actions"
-        ? `<span class="acts"><button class="dbtn" data-r="run">${PLAY_ICON}Run now</button><button class="dbtn warn" data-r="delete">Delete<kbd>⌘⌫</kbd></button></span>`
+        ? `<span class="acts"><button class="dbtn" data-r="run">${PLAY_ICON}Run now</button><button class="dbtn" data-r="edit">Edit<kbd>⌘E</kbd></button><button class="dbtn warn" data-r="delete">Delete<kbd>⌘⌫</kbd></button></span>`
         : `<button class="dswitch" role="switch" aria-checked="${c.enabled}" aria-label="${label} on" data-r="toggle" data-i="${i}"></button>`;
       return `<div class="drt${c.enabled ? "" : " off"}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${CLOCK_ICON}</span>
         <span class="tt"><b>${label}</b><span>${esc(c.prompt)}</span><small>${esc([routineWhen(c.schedule), next].filter(Boolean).join(" · "))}</small></span>${tail}</div>`;
     }).join("");
     bar.innerHTML = head + err + `<div class="dlist" id="rlist" role="listbox" aria-label="Routines" style="padding-top:8px">${rows}</div>`
-      + hints(R.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["esc", "back"]]);
+      + hints(R.mode === "actions" ? [["⌘E", "edit"], ["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["⌘G", "grants"], ["esc", "back"]]);
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
   bar.onclick = routineClick;
@@ -3578,6 +3715,8 @@ function routineClick(e) {
 async function routineAction(a) {
   const c = R.list[R.sel];
   if (a === "new") return renderRoutineNew();
+  if (a === "grants") return renderGrants();
+  if (a === "edit") return c && renderRoutineEdit(c);
   if (a === "list" || a === "actions" || a === "delete") {
     if (!c && a !== "list") return;
     R.mode = a;
@@ -3647,8 +3786,40 @@ function routineSchedule() {
 function renderRoutineNew() {
   S.view = "rnew";
   const today = new Date();
-  Object.assign(NR, { label: "", prompt: "", repeat: "day", days: [1], time: "08:00", cron: "", error: "", busy: false,
+  Object.assign(NR, { edit: null, label: "", prompt: "", repeat: "day", days: [1], time: "08:00", cron: "", error: "", busy: false,
     date: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}` });
+  drawRoutineNew();
+  $("#nrlabel").focus();
+}
+
+const pad2 = n => String(n).padStart(2, "0");
+const dateValue = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+/// The form fields for `schedule`, the shapes routineSchedule writes read
+/// back. A place trigger stays as it is, anything else shows as cron.
+function routineFields(schedule) {
+  if (/^(arrive|leave):/.test(schedule)) return { repeat: "place" };
+  if (/^\d{4}-\d\d-\d\dT/.test(schedule)) {
+    const at = new Date(schedule);
+    if (!isNaN(at)) return { repeat: "once", date: dateValue(at), time: `${pad2(at.getHours())}:${pad2(at.getMinutes())}` };
+  }
+  const p = schedule.trim().split(/\s+/);
+  const cron = { repeat: "cron", cron: schedule };
+  if (p.length !== 5 || p[2] !== "*" || p[3] !== "*" || !/^\d+$/.test(p[0])) return cron;
+  if (p[1] === "*") return p[4] === "*" ? { repeat: "hour", time: `00:${pad2(p[0])}` } : cron;
+  if (!/^\d+$/.test(p[1])) return cron;
+  const time = `${pad2(p[1])}:${pad2(p[0])}`;
+  if (p[4] === "*") return { repeat: "day", time };
+  if (p[4] === "1-5") return { repeat: "weekdays", time };
+  if (/^[0-6](,[0-6])*$/.test(p[4])) return { repeat: "week", time, days: p[4].split(",").map(Number) };
+  return cron;
+}
+
+/// Edits routine `c`'s name and schedule. What it does stays as it is.
+function renderRoutineEdit(c) {
+  S.view = "rnew";
+  Object.assign(NR, { edit: c, label: c.label, prompt: c.prompt, repeat: "day", days: [1], time: "08:00", cron: "", error: "", busy: false,
+    date: dateValue(new Date()) }, routineFields(c.schedule));
   drawRoutineNew();
   $("#nrlabel").focus();
 }
@@ -3663,18 +3834,26 @@ function drawRoutineNew() {
     : NR.repeat === "once"
       ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="dfield"><span>Date</span><input id="nrdate" type="date" value="${esc(NR.date)}"></label>${time.replace(' style="max-width:140px"', "")}</div>`
       : (NR.repeat === "week" ? `<div class="dchips">${days}</div>` : "") + time;
-  const missing = NR.error === "prompt";
-  bar.innerHTML = `<div class="dhead"><span class="tt"><b>New routine</b><small>Runs on this account, phone or computer off</small></span></div>
-    <div class="dform" style="padding-top:12px;flex:1;min-height:0;overflow:auto;scrollbar-width:none">
+  const missing = NR.error === "prompt", edit = NR.edit;
+  const text = t => `<div class="dmuted" style="display:block;font-size:13.5px;color:var(--fg)">${esc(t)}</div>`;
+  const task = edit
+    ? `<div class="dfield"><span>What Beep does</span>${text(NR.prompt)}</div>`
+    : `<label class="dfield${missing ? " err" : ""}"><span>${missing ? "Tell Beep what to do" : "What should Beep do?"}</span>
+        <textarea id="nrprompt" rows="2" placeholder="Summarise my calendar and the weather">${esc(NR.prompt)}</textarea></label>`;
+  const schedule = NR.repeat === "place"
+    ? `<div class="dfield"><span>Starts</span>${text(routineWhen(edit.schedule))}<span>Change the place in a chat.</span></div>`
+    : `<div class="dfield"><span>Repeat</span><div class="dchips">${chip("day", "Every day")}${chip("weekdays", "Weekdays")}${chip("week", "Weekly")}${chip("hour", "Every hour")}${chip("once", "Once")}${chip("cron", "Cron")}</div></div>
+      ${when}`;
+  const go = edit ? "Save" : "Create";
+  bar.innerHTML = `<div class="dhead"><span class="tt"><b>${edit ? "Edit routine" : "New routine"}</b><small>${edit ? esc(edit.label || "Reminder") : "Runs on this account, phone or computer off"}</small></span></div>
+    <div class="dform" style="padding-top:12px;flex:1;min-height:0;overflow:auto;scrollbar-width:none;align-content:start">
       <label class="dfield"><span>Name</span><input id="nrlabel" placeholder="Morning briefing" value="${esc(NR.label)}"></label>
-      <label class="dfield${missing ? " err" : ""}"><span>${missing ? "Tell Beep what to do" : "What should Beep do?"}</span>
-        <textarea id="nrprompt" rows="2" placeholder="Summarise my calendar and the weather">${esc(NR.prompt)}</textarea></label>
-      <div class="dfield"><span>Repeat</span><div class="dchips">${chip("day", "Every day")}${chip("weekdays", "Weekdays")}${chip("week", "Weekly")}${chip("hour", "Every hour")}${chip("once", "Once")}${chip("cron", "Cron")}</div></div>
-      ${when}
+      ${task}
+      ${schedule}
       ${NR.error && !missing ? `<div class="derr">${esc(NR.error)}</div>` : ""}
-      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" id="nrgo"${NR.busy ? " disabled" : ""}>Create<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" id="nrno">Cancel</button>
-        <span class="dmuted" style="margin-left:auto">Or just tell Beep in a chat</span></div>
-    </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "create"], ["esc", "cancel"]])}`;
+      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" id="nrgo"${NR.busy ? " disabled" : ""}>${go}<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" id="nrno">Cancel</button>
+        <span class="dmuted" style="margin-left:auto">${edit ? "To change what it does, ask Beep in a chat" : "Or just tell Beep in a chat"}</span></div>
+    </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, go.toLowerCase()], ["esc", "cancel"]])}`;
   const bind = (id, key) => $(id)?.addEventListener("input", e => { NR[key] = e.target.value; if (id === "#nrcron") cronSays(); });
   bind("#nrlabel", "label"); bind("#nrprompt", "prompt"); bind("#nrtime", "time"); bind("#nrdate", "date"); bind("#nrcron", "cron");
   cronSays();
@@ -3700,6 +3879,7 @@ function cronSays() {
 
 async function createRoutine() {
   if (NR.busy) return;
+  if (NR.edit) return saveRoutine();
   const prompt = NR.prompt.trim(), schedule = routineSchedule();
   NR.error = !prompt ? "prompt" : !schedule ? (NR.repeat === "week" ? "Pick at least one day" : "Set when it runs") : "";
   if (NR.error) return drawRoutineNew();
@@ -3712,6 +3892,190 @@ async function createRoutine() {
     NR.busy = false;
     if (S.view === "rnew") drawRoutineNew();
   }
+}
+
+/// Whether two schedules are the same, a one-off in the same minute
+/// written another way included.
+function sameSchedule(a, b) {
+  if (a === b) return true;
+  const iso = /^\d{4}-\d\d-\d\dT/;
+  // The form keeps minutes only.
+  const minute = s => Math.floor(new Date(s).getTime() / 60000);
+  return iso.test(a) && iso.test(b) && minute(a) === minute(b);
+}
+
+/// Saves the name and schedule of the routine being edited, sending only
+/// what changed.
+async function saveRoutine() {
+  const c = NR.edit;
+  const schedule = NR.repeat === "place" ? c.schedule : routineSchedule();
+  NR.error = !schedule ? (NR.repeat === "week" ? "Pick at least one day" : "Set when it runs") : "";
+  if (NR.error) return drawRoutineNew();
+  const label = NR.label.trim();
+  const changed = { label: label && label !== c.label ? label : null, schedule: sameSchedule(schedule, c.schedule) ? null : schedule };
+  if (changed.label == null && changed.schedule == null) return renderRoutines();
+  NR.busy = true;
+  try {
+    await invoke("update_cron", { id: c.id, ...changed });
+    if (S.view === "rnew") renderRoutines();
+  } catch (e) {
+    NR.error = String(e);
+    NR.busy = false;
+    if (S.view === "rnew") drawRoutineNew();
+  }
+}
+
+// ---------- Routine grants ----------
+
+// What routines may do without asking (ListGrants). mode: list | confirm
+const GR = { list: [], sel: 0, mode: "list", error: "", loaded: false };
+const SHIELD_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>';
+
+/// "40 min", "5 h" or "6 d".
+function span(ms) {
+  const min = Math.max(1, Math.round(Math.abs(ms) / 60000));
+  return min < 60 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.round(min / 1440)} d`;
+}
+
+function renderGrants() {
+  S.view = "grants";
+  invoke("close_group").catch(() => {});
+  Object.assign(GR, { sel: 0, mode: "list", error: "" });
+  drawGrants();
+  loadGrants();
+}
+
+async function loadGrants() {
+  try {
+    GR.list = await invoke("list_grants");
+    GR.loaded = true;
+    GR.error = "";
+  } catch (e) {
+    GR.error = String(e);
+  }
+  if (S.view === "grants") drawGrants();
+  else if (S.view === "routines") drawRoutines();
+}
+
+function drawGrants() {
+  GR.sel = Math.max(0, Math.min(GR.sel, GR.list.length - 1));
+  const head = `<div class="dhead"><span class="tt"><b>Routine grants</b><small>${GR.loaded && !GR.list.length ? "Nothing granted" : "What routines may do without asking. Each ends on its own."}</small></span></div>`;
+  const err = GR.error ? `<div class="derr" style="padding:8px 18px 0">${esc(GR.error)}</div>` : "";
+  if (GR.loaded && !GR.list.length) {
+    bar.innerHTML = head + err + `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${SHIELD_ICON}</span>
+      <b style="font-size:14px">No routine grants.</b><span class="dmuted" style="display:block">When a routine needs to act without asking, Beep asks you once in a chat.</span></div>` + hints([["esc", "back"]]);
+  } else {
+    const now = Date.now();
+    const rows = GR.list.map((g, i) => {
+      const on = i === GR.sel, short = g.action.replace(/ for a routine$/, "");
+      if (on && GR.mode === "confirm") {
+        return `<div class="drt" aria-selected="true" data-i="${i}"><span class="tt"><span style="font-size:14px">Revoke? <b>${esc(g.routine)}</b> will ask before each ${esc(short)} again.</span></span>
+          <span class="acts"><button class="dbtn warn" data-g="revoke-yes">Revoke</button><button class="dbtn" data-g="list">Cancel</button></span></div>`;
+      }
+      const per = g.per_run === 1 ? "1 each run" : `up to ${g.per_run} each run`;
+      const ends = g.expires_at > now ? `Ends in ${span(g.expires_at - now)}` : "Ended";
+      const used = g.last_used_at ? `Last used ${span(now - g.last_used_at)} ago` : "Not used yet";
+      const acts = on ? `<span class="acts"><button class="dbtn warn" data-g="revoke">Revoke<kbd>⌘⌫</kbd></button></span>` : "";
+      const kv = on && g.fields.length ? `<span class="dgkv">${g.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</span>` : "";
+      return `<div class="drt" role="option" aria-selected="${on}" data-i="${i}" style="align-items:flex-start"><span class="dapp" style="margin-top:2px">${esc((g.app || "?")[0].toUpperCase())}</span>
+        <span class="tt"><b>${esc(g.routine)}</b><span>${esc(`${g.app}: ${short}`)}, ${per}</span><small>${ends} · ${used}</small>${kv}</span>${acts}</div>`;
+    }).join("");
+    bar.innerHTML = head + err + `<div class="dlist" id="glist" role="listbox" aria-label="Routine grants" style="padding-top:8px">${rows}</div>`
+      + hints(GR.mode === "confirm" ? [[ICON.ret, "revoke"], ["esc", "cancel"]] : [["↑↓", "move"], ["⌘⌫", "revoke"], ["esc", "back"]]);
+    bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }
+  bar.onclick = grantClick;
+}
+
+function grantClick(e) {
+  if (S.view !== "grants") return;
+  const btn = e.target.closest("[data-g]"), row = e.target.closest(".drt[data-i]");
+  if (row) GR.sel = Number(row.dataset.i);
+  if (btn) return grantAction(btn.dataset.g);
+  if (row && GR.mode === "list") drawGrants();
+}
+
+async function grantAction(a) {
+  const g = GR.list[GR.sel];
+  if (!g) return;
+  if (a === "list" || a === "revoke") {
+    GR.mode = a === "revoke" ? "confirm" : "list";
+    return drawGrants();
+  }
+  if (a !== "revoke-yes") return;
+  try {
+    await invoke("revoke_grant", { id: g.id });
+    GR.list = GR.list.filter(x => x.id !== g.id);
+    GR.error = "";
+  } catch (e) {
+    GR.error = String(e);
+  }
+  GR.mode = "list";
+  if (S.view === "grants") drawGrants();
+}
+
+function grantKeys(e, cmd) {
+  if (GR.mode === "confirm") {
+    if (e.key === "Enter") { e.preventDefault(); grantAction("revoke-yes"); }
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    GR.sel = Math.max(0, Math.min(GR.list.length - 1, GR.sel + (e.key === "ArrowDown" ? 1 : -1)));
+    drawGrants();
+  } else if (cmd && e.key === "Backspace" && GR.list.length) {
+    e.preventDefault();
+    grantAction("revoke");
+  }
+}
+
+// ---------- Machines ----------
+
+// The machines running beep-node (ListMachines), from Settings. Admins only.
+const MC = { list: null, error: "" };
+const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
+/// The coding agents Beep can drive on a machine; its other tools follow them.
+const CODERS = new Set(["claude", "codex", "gemini", "opencode", "cursor-agent", "amp", "aider"]);
+
+async function renderMachines() {
+  S.view = "machines";
+  invoke("close_group").catch(() => {});
+  drawMachines();
+  try {
+    MC.list = await invoke("list_machines");
+    MC.error = "";
+  } catch (e) {
+    MC.error = String(e);
+  }
+  if (S.view === "machines") drawMachines();
+}
+
+function machineCard(m) {
+  const env = m.env, now = Date.now();
+  const tag = m.online ? '<span class="dtag ok">Online</span>' : `<span class="dtag">Seen ${span(now - m.seen_at)} ago</span>`;
+  const version = /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
+  if (!env) return `<div class="dmach"><span class="nm">${esc(m.name)}${tag}</span><small>${esc(version)} · No report yet</small></div>`;
+  const coders = env.tools.filter(t => CODERS.has(t.name)), rest = env.tools.filter(t => !CODERS.has(t.name)).map(t => t.name);
+  const logins = env.logins.filter(l => l.signed_in).map(l => l.account ? `${l.tool} as ${l.account}` : `${l.tool} signed in`);
+  const also = [rest.length ? `Also ${rest.join(", ")}` : "", logins.join(", ")].filter(Boolean).join(" · ");
+  return `<div class="dmach"><span class="nm">${esc(m.name)}${tag}</span>
+    <small>${esc(`${env.os_version}, ${env.arch} · ${env.cpus} CPUs, ${Math.round(env.memory_mb / 1024)} GB · ${version}`)}</small>
+    <span class="cd">${coders.length ? esc("Coding: " + coders.map(t => t.version ? `${t.name} ${t.version}` : t.name).join(", ")) : '<span style="color:var(--muted)">No coding tools</span>'}</span>
+    ${also ? `<small>${esc(also)}</small>` : ""}</div>`;
+}
+
+function drawMachines() {
+  const list = MC.list ?? [], on = list.filter(m => m.online).length;
+  const sum = !MC.list ? "Where Beep runs commands and coding agents" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
+  const head = `<div class="dhead"><span class="tt"><b>Machines</b><small>${esc(sum || "Where Beep runs commands and coding agents")}</small></span></div>`;
+  const err = MC.error ? `<div class="derr" style="padding:8px 18px 0">${esc(MC.error)}</div>` : "";
+  const link = '<code>beep-node link</code>';
+  bar.innerHTML = head + err + (MC.list && !list.length
+    ? `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${SERVER_ICON}</span><b style="font-size:14px">No machines yet.</b>
+      <span class="dmuted" style="display:block">Run ${link} on a server and paste the link into Beep, or turn on Let Beep use this Mac in Settings.</span></div>`
+    : `<div class="dlist" style="padding-top:6px">${list.map(machineCard).join("")}</div>
+      ${MC.list ? `<div class="dmuted" style="display:block;padding:0 18px 12px">To add one, run ${link} on it and paste the link into Beep.</div>` : ""}`)
+    + hints([["esc", "back"]]);
 }
 
 // ---------- State ----------
@@ -4050,14 +4414,14 @@ function drawWorkQuestions() {
   b.querySelector(".dworkq")?.remove();
   const qs = WORK.get(S.session)?.questions ?? [];
   if (!qs.length) return;
-  const said = { allow: "Allowed once. The work goes on.", always: "Allowed, and always allowed from now on. The work goes on.", deny: "Denied. The work goes on without it." };
+  const said = { allow: "Allowed once. The work goes on.", always: "Allowed, and always allowed from now on. The work goes on.", deny: "Denied. The work goes on without it.", grant: "Allowed for this routine. The work goes on." };
   const first = waitingQuestion(S.session);
   const card = q => q.withdrawn || q.answer
-    ? `<div class="dmuted">${esc(q.withdrawn ? `${q.action} with ${q.app}: no longer waiting` : said[q.answer])}</div>`
+    ? `<div class="dmuted">${esc(q.withdrawn ? `${q.action} with ${q.app}: no longer waiting` : said[forRoutine(q.action) && q.answer === "allow" ? "grant" : q.answer])}</div>`
     : `<div class="dcard" data-q="${esc(q.query_id)}">
     <div class="head"><span class="dapp">${esc((q.app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(q.action)}?</b><small>Background work asks first</small></div></div>
     ${q.fields.length ? `<div class="kv">${q.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts">${[["allow", "Allow", "pri", `⌘${ICON.ret}`], ["always", "Always", "", `⌥⌘${ICON.ret}`], ["deny", "Deny", "warn", "⌘D"]].map(([d, t, cls, k]) =>
+    <div class="acts">${[["allow", "Allow", "pri", `⌘${ICON.ret}`], ["always", "Always", "", `⌥⌘${ICON.ret}`], ["deny", "Deny", "warn", "⌘D"]].filter(([d]) => d !== "always" || !forRoutine(q.action)).map(([d, t, cls, k]) =>
       `<button class="dbtn ${cls}" data-d="${d}">${t}${q === first && !here()?.approval ? `<kbd>${k}</kbd>` : ""}</button>`).join("")}</div></div>`;
   const box = h(`<div class="dworkq" style="display:grid;gap:8px"><div class="dmuted" style="justify-content:center;font-size:11.5px;color:var(--dim)">${first ? "Background work is waiting for you" : "Background work"}</div>${qs.map(card).join("")}</div>`);
   box.querySelectorAll(".dcard").forEach(c => c.querySelectorAll("[data-d]").forEach(btn => btn.addEventListener("click", () =>
@@ -4068,6 +4432,7 @@ function drawWorkQuestions() {
 
 async function answerWork(id, q, decision) {
   if (!q || q.answer || q.withdrawn) return;
+  if (decision === "always" && forRoutine(q.action)) decision = "allow";
   q.answer = decision;
   if (id === S.session) { drawWorkQuestions(); refreshHints(); }
   try {
@@ -4331,6 +4696,8 @@ function back() {
   if (S.view === "group" && G.mention) return closeMention();
   if (S.view === "memories" && M.mode !== "list") { M.mode = "list"; drawMemories(); return $("#mfind")?.focus(); }
   if (S.view === "routines" && R.mode !== "list") return routineAction("list");
+  if (S.view === "grants" && GR.mode !== "list") { GR.mode = "list"; return drawGrants(); }
+  if (S.view === "grants") return renderRoutines();
   if (S.view === "research" && RL.mode !== "list") { RL.mode = "list"; return drawResearches(); }
   if (S.view === "skills" && K.mode !== "list") return skillAction(K.mode === "edit" || K.mode === "vdelete" ? "view" : "list");
   if (S.view === "rnew") return renderRoutines();
@@ -4338,7 +4705,7 @@ function back() {
   if (S.view === "mcp" && A.asking) { A.asking = null; return drawMcpTools(); }
   if (S.view === "mcp") return renderApps();
   if (S.view === "apps" && A.adding) { A.adding = false; A.addError = ""; return drawApps(); }
-  if (S.view === "apps") return renderSettings();
+  if (S.view === "apps" || S.view === "machines") return renderSettings();
   if (S.view === "model") return S.session ? openSession(S.session) : renderChat();
   if ((S.view === "memories" || S.view === "routines" || S.view === "skills" || S.view === "research" || S.view === "settings") && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
   if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id);
@@ -4417,6 +4784,8 @@ document.addEventListener("keydown", e => {
   if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
   if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
   if (cmd && key === "n") { e.preventDefault(); return newChat(); }
+  if (cmd && key === "e" && S.view === "routines" && R.list.length) { e.preventDefault(); return routineAction("edit"); }
+  if (cmd && key === "g" && S.view === "routines") { e.preventDefault(); return renderGrants(); }
   if (cmd && key === "g") { e.preventDefault(); J.error = ""; J.name = ""; return renderGroupNew("new"); }
   if (cmd && key === "k") { e.preventDefault(); return S.view === "chats" ? null : renderChats(); }
   if (cmd && key === "i" && (S.view === "group" || S.view === "invite")) { e.preventDefault(); return renderGroupInfo(); }
@@ -4438,6 +4807,7 @@ document.addEventListener("keydown", e => {
   if (S.view === "chats") return chatsKeys(e, cmd);
   if (S.view === "memories") return memKeys(e, cmd);
   if (S.view === "routines") return routineKeys(e, cmd);
+  if (S.view === "grants") return grantKeys(e, cmd);
   if (S.view === "research") return researchKeys(e);
   if (S.view === "skills") return skillKeys(e, cmd);
   if (S.view === "group") return groupKeys(e, cmd);

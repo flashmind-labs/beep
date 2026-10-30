@@ -9,6 +9,7 @@ mod commands;
 mod desktop;
 mod devices;
 mod error;
+mod grants;
 mod groups;
 mod hotkey;
 mod identity;
@@ -16,6 +17,7 @@ mod logfile;
 mod login_path;
 mod mac_files;
 mod machine;
+mod machines;
 mod markdown;
 mod news;
 mod presence;
@@ -134,6 +136,9 @@ fn main() {
             work::cancel_work,
             work::answer_work,
             work::list_questions,
+            grants::list_grants,
+            grants::revoke_grant,
+            machines::list_machines,
             commands::open_file,
             commands::picture,
             commands::save_file,
@@ -177,12 +182,15 @@ fn main() {
             commands::open_url,
             commands::group_typing,
             commands::list_memories,
+            commands::list_memory_scopes,
+            commands::list_memory_reads,
             commands::update_memory,
             commands::delete_memory,
             commands::clear_memories,
             commands::list_crons,
             commands::create_cron,
             commands::toggle_cron,
+            commands::update_cron,
             commands::delete_cron,
             commands::run_cron,
             commands::list_skills,
@@ -190,6 +198,8 @@ fn main() {
             commands::delete_skill,
             commands::undo_skill,
             commands::get_agents,
+            commands::set_agents,
+            commands::session_agents,
             commands::get_models,
             commands::stock_chart,
             commands::route_card,
