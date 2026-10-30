@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -162,14 +162,32 @@ pub fn legacy_scheduled_label(content: &str) -> Option<&str> {
     Some(label)
 }
 
+/// What a routine's run does when its chat is busy with another run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhenBusy {
+    /// Waits for that run to end, then starts in the chat. The scheduler
+    /// does, so its notice still lands where the user set it up.
+    Wait,
+    /// Starts nothing, as when the user asks for a run now.
+    GiveUp,
+}
+
+/// How long a routine waits for its chat: a run lasts 15 minutes at most.
+const BUSY_WAIT: Duration = Duration::from_secs(16 * 60);
+
 /// Starts a run for `job` and returns it, or `None` when none was created.
 /// The scheduler calls it when the job is due, and the API when the user
 /// runs it early.
-pub async fn run_job(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Result<Option<Run>> {
+pub async fn run_job(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    job: &CronJob,
+    busy: WhenBusy,
+) -> Result<Option<Run>> {
     if digest::is_digest(job) {
-        return digest::run(app, user, job).await;
+        return digest::run(app, user, job, busy).await;
     }
-    submit(app, user, job, &job.task).await
+    submit(app, user, job, &job.task, busy).await
 }
 
 /// Wakes the agent with `task` as `job`'s run.
@@ -178,6 +196,7 @@ pub(crate) async fn submit(
     user: &Arc<User>,
     job: &CronJob,
     task: &str,
+    busy: WhenBusy,
 ) -> Result<Option<Run>> {
     let label = job
         .metadata
@@ -203,13 +222,14 @@ pub(crate) async fn submit(
             claimed
         }
     };
+    let chat = origin.unwrap_or_else(Uuid::new_v4);
     let agent = job
         .metadata
         .get("agent")
         .and_then(|v| v.as_str())
         .and_then(|v| v.parse().ok());
-    let msg = |session_id| Message {
-        session_id,
+    let msg = || Message {
+        session_id: chat,
         request_id: Uuid::new_v4(),
         message: task.to_owned(),
         cron_id: Some(job.id.to_string()),
@@ -230,18 +250,20 @@ pub(crate) async fn submit(
         spoken: false,
     };
 
-    let mut result = app
-        .submit(user, msg(origin.unwrap_or_else(Uuid::new_v4)))
-        .await;
-    // The chat is busy with another run: go ahead in a new one rather than
-    // drop the reminder.
-    if origin.is_some() && matches!(result, Ok(CreateRun::Conflict)) {
-        result = app.submit(user, msg(Uuid::new_v4())).await;
+    let mut result = app.submit(user, msg()).await;
+    // The chat is busy with another run, maybe this routine's last one.
+    // Waiting keeps the notice in its chat, where a run in a new chat would
+    // leave it with nothing around it, and runs of one routine one at a time.
+    if busy == WhenBusy::Wait
+        && matches!(result, Ok(CreateRun::Conflict))
+        && app.run_ended(user, chat, BUSY_WAIT).await?
+    {
+        result = app.submit(user, msg()).await;
     }
     match result {
         Ok(CreateRun::Created(run)) => Ok(Some(run)),
         Ok(_) => {
-            log::debug!("cron run not created (conflict); job_id={}", job.id);
+            log::info!("cron run not created, its chat is busy; job_id={}", job.id);
             Ok(None)
         }
         Err(e) => {
@@ -337,7 +359,7 @@ impl CronHandler for BeepCronHandler {
                 .await?;
             return Ok(None);
         }
-        let run = run_job(&self.app, &user, job).await?;
+        let run = run_job(&self.app, &user, job, WhenBusy::Wait).await?;
         Ok(run.map(|run| run.id))
     }
 }
