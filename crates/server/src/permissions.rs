@@ -20,7 +20,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use flashmind::{
-    core::{Conversation, EntryKind},
+    core::{Conversation, ConversationEntry, EntryKind},
     types::{
         GateAsk, GateDecision, ToolCall, ToolGate,
         tool::{InterruptPayload, Tool, ToolContext, ToolResult},
@@ -505,6 +505,11 @@ pub(crate) const DENIED: &str =
 pub(crate) const SKIPPED: &str = "Not done: the user sent a new message instead of answering. \
      Do not retry unless they ask.";
 
+/// The result recorded for a call left unanswered when a routine's turn
+/// showed in the chat, which takes its card away.
+pub(crate) const SUPERSEDED: &str = "Not done: a routine ran in this chat before the user \
+     answered, and the question was dropped. Do not retry unless they ask.";
+
 /// How the result of a call refused under read only starts.
 const READ_ONLY: &str = "Not done: the user set";
 
@@ -536,6 +541,14 @@ pub(crate) fn open_calls(conversation: &Conversation) -> Vec<ToolCall> {
         .filter(|call| !answered.contains(call.id.as_str()))
         .cloned()
         .collect()
+}
+
+/// Records `output` as the result of every open call of `conversation`, so
+/// none is left without one once its card is gone.
+pub(crate) fn close_open_calls(conversation: &mut Conversation, output: &str) {
+    for call in open_calls(conversation) {
+        conversation.add(ConversationEntry::tool(&call.id, output));
+    }
 }
 
 /// The card for the call the session stopped on to ask, when it has one:
@@ -1392,6 +1405,31 @@ mod tests {
         conversation.add(ConversationEntry::tool("b", "sent"));
         conversation.add(ConversationEntry::tool("c", "sent"));
         assert!(open_calls(&conversation).is_empty());
+    }
+
+    #[test]
+    fn closing_open_calls_gives_each_a_result() {
+        let call = |id: &str| ToolCall {
+            id: id.into(),
+            name: "GMAIL_SEND_EMAIL".into(),
+            arguments: json!({}),
+        };
+        let mut conversation = Conversation::new();
+        conversation.add(ConversationEntry::user("hi"));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![call("a"), call("b")],
+            None,
+        ));
+        conversation.add(ConversationEntry::tool("a", "sent"));
+        close_open_calls(&mut conversation, SUPERSEDED);
+        assert!(open_calls(&conversation).is_empty());
+        // Sanitizing for the model keeps the call now that it has a result.
+        conversation.sanitize();
+        let kept = conversation.entries().iter().any(|entry| {
+            matches!(&entry.kind, EntryKind::Tool { call_id, output } if call_id == "b" && output == SUPERSEDED)
+        });
+        assert!(kept);
     }
 
     #[test]

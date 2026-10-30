@@ -975,6 +975,10 @@ impl App {
         // A routine's turn joins the chat's context, unless it stayed silent.
         let stored = chat_context.map(|mut chat_context| {
             if !silent {
+                // Showing the turn drops the chat's waiting card, so the
+                // call it asked about is answered as not done rather than
+                // left open, which the model would never hear of.
+                permissions::close_open_calls(&mut chat_context, permissions::SUPERSEDED);
                 conversation
                     .entries()
                     .iter()
