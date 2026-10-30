@@ -337,7 +337,7 @@ pub(crate) fn hit(row: MemoryRow) -> Hit {
 }
 
 /// How a memory's days read in a prompt, empty for a lasting fact.
-fn days(valid: &Validity) -> String {
+pub(crate) fn days(valid: &Validity) -> String {
     match (valid.from, valid.until) {
         (None, None) => String::new(),
         (Some(from), None) => format!(" (from {from})"),
@@ -637,6 +637,10 @@ pub(crate) struct LearnOp {
     pub(crate) valid_until: Option<String>,
     #[serde(default)]
     pub(crate) quote: Option<String>,
+    /// What the fact is about, as the memory watcher names it, such as
+    /// `project:beep`. The other learners leave it out.
+    #[serde(default)]
+    pub(crate) scope: Option<String>,
 }
 
 impl LearnOp {

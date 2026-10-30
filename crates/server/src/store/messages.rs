@@ -626,6 +626,29 @@ impl Store {
         self.complete(rows).await
     }
 
+    /// At most `limit` messages of `chat` after the message `after`, oldest
+    /// first, leaving out those sent before `since`.
+    pub(crate) async fn chat_messages_after(
+        &self,
+        chat: Uuid,
+        after: i64,
+        since: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<StoredMessage>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {COLUMNS} FROM {JOINS}
+             WHERE m.chat_id = $1 AND m.id > $2 AND m.sent_at >= $3
+             ORDER BY m.id LIMIT $4"
+        ))
+        .bind(chat)
+        .bind(after)
+        .bind(since)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        self.complete(rows).await
+    }
+
     /// The messages with `ids` that still exist, by id.
     pub(crate) async fn messages_by_id(&self, ids: &[i64]) -> Result<Vec<StoredMessage>> {
         if ids.is_empty() {

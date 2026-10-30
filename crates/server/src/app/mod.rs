@@ -110,6 +110,8 @@ pub struct App {
     pub events: crate::events::Hub,
     /// Sub-agent runs outside the chats, such as event triage.
     pub subagents: crate::subagents::Subagents,
+    /// Agents that read finished chats over (see `crate::watchers`).
+    pub watchers: crate::watchers::Hub,
 }
 
 /// Optional tools and integrations that need server credentials, as
@@ -345,6 +347,7 @@ impl App {
             live_transcriptions: voice::LiveSlots::default(),
             events: crate::events::Hub::default(),
             subagents,
+            watchers: crate::watchers::Hub::default(),
         })
     }
 
@@ -597,6 +600,7 @@ impl App {
         // Read by runs as they stop, so they end as interrupted, not cancelled.
         self.shutting_down.store(true, Ordering::Relaxed);
         self.events.stop();
+        self.watchers.stop();
         self.subagents.stop();
         self.stop_teams().await;
         for live in self.runs.lock().await.values() {
@@ -708,6 +712,24 @@ impl App {
             provider: self.provider.as_ref(),
             model: self.compaction_model.as_ref().unwrap_or(&self.llm.model),
         }
+    }
+
+    /// Plain completions on `llm` for `user`, metered to them.
+    pub(crate) fn generator_on<'a>(
+        &'a self,
+        user: &'a str,
+        llm: &'a AgentLlmConfig,
+    ) -> Generator<'a> {
+        Generator {
+            provider: self.provider.as_ref(),
+            llm,
+            user,
+        }
+    }
+
+    /// The assistant's model settings, such as its provider routing.
+    pub fn llm(&self) -> &AgentLlmConfig {
+        &self.llm
     }
 
     /// Plain completions on the assistant's model for `user`.

@@ -13,25 +13,25 @@ use beep_proto::{
     CreateCron, CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory,
     DeletePlace, DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom,
     DeviceAnswer, DeviceInvite, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart,
-    Filler as FillerLine, FinishAppAuth, FinishMcpAuth, GetAgents, GetAppPermissions, GetEvents,
-    GetFile, GetGroup, GetGroupImages, GetModels, GetResearch, GetResearchPdf, GetRouteCard,
-    GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetSessionImages, GetShare,
-    GetToolLabels, Grant, Group, GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview,
-    GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview,
-    LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices,
-    ListGrants, ListGroupReminders, ListGroups, ListMachines, ListMcpServers, ListMcpTools,
-    ListMemories, ListMemoryReads, ListMemoryScopes, ListPlaces, ListQuestions, ListResearches,
-    ListSessions, ListSkills, ListWork, Machine, McpCallback, McpConnect, McpServer, McpTools,
-    Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite, PendingApproval, PermissionLevel,
-    PinGroup, PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel,
-    RegisterDevice, RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, Research,
-    ResearchSummary, RevokeGrant, RouteCard, Run, RunCron, Say, ScopedMemory, SearchSessions,
-    SendToGroup, SentFiles, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions,
-    SetAutoModel, SetMcpTool, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession,
-    SharedLink, SharedSession, Skill, SpokenTurns, StartAppAuth, StopResearch, Stream,
-    SuggestPrompts, TRANSCRIBE_RATE, ToggleCron, ToolLabel, Transcribe, Transcription, TurnAgent,
-    UndoSkill, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory,
-    UpdatePlace, UpdateSkill, Upload, WorkItem,
+    Filler as FillerLine, Finding, FindingStatus, FinishAppAuth, FinishMcpAuth, GetAgents,
+    GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetResearch,
+    GetResearchPdf, GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionFiles,
+    GetSessionImages, GetShare, GetToolLabels, Grant, Group, GroupChat, GroupInvite, GroupLink,
+    GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount,
+    JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps,
+    ListCrons, ListDevices, ListFindings, ListGrants, ListGroupReminders, ListGroups, ListMachines,
+    ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads, ListMemoryScopes, ListPlaces,
+    ListQuestions, ListResearches, ListSessions, ListSkills, ListWork, Machine, McpCallback,
+    McpConnect, McpServer, McpTools, Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite,
+    PendingApproval, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
+    RemoveMcpServer, RenameSession, Research, ResearchSummary, RevokeGrant, RouteCard, Run,
+    RunCron, Say, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages, Session,
+    SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking,
+    SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, SpokenTurns,
+    StartAppAuth, StopResearch, Stream, SuggestPrompts, TRANSCRIBE_RATE, ToggleCron, ToolLabel,
+    Transcribe, Transcription, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
+    UpdateFinding, UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload, WorkItem,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -1017,6 +1017,24 @@ impl BeepClient {
     /// Ends a grant, so its routine asks again.
     pub async fn revoke_grant(&self, id: String) -> Result<(), BeepError> {
         self.call(RevokeGrant { id }).await
+    }
+
+    /// Where Beep failed users, as the improvement watcher found it, most
+    /// recently seen first; only those with `status` when given. Admins only.
+    pub async fn list_findings(
+        &self,
+        status: Option<FindingStatus>,
+    ) -> Result<Vec<Finding>, BeepError> {
+        self.call(ListFindings { status }).await
+    }
+
+    /// Resolves, dismisses or reopens a finding. Admins only.
+    pub async fn update_finding(
+        &self,
+        id: String,
+        status: FindingStatus,
+    ) -> Result<Finding, BeepError> {
+        self.call(UpdateFinding { id, status }).await
     }
 
     /// Runs a cron now and returns the session the run went to.
