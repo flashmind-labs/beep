@@ -15,22 +15,23 @@ use beep_proto::{
     DeviceAnswer, DeviceInvite, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart,
     Filler as FillerLine, FinishAppAuth, FinishMcpAuth, GetAgents, GetAppPermissions, GetEvents,
     GetFile, GetGroup, GetGroupImages, GetModels, GetResearch, GetResearchPdf, GetRouteCard,
-    GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetSessionImages, GetShare, Group,
-    GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health,
+    GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetSessionImages, GetShare, Grant,
+    Group, GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health,
     HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice,
-    LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices, ListGroupReminders,
-    ListGroups, ListMachines, ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads,
-    ListMemoryScopes, ListPlaces, ListQuestions, ListResearches, ListSessions, ListSkills,
-    ListWork, Machine, McpCallback, McpConnect, McpServer, McpTools, Memory, MemoryRead, Models,
-    Notice, PeekGroup, PeekInvite, PendingApproval, PermissionLevel, PinGroup, PinSession, Place,
-    PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount,
-    RemoveDevice, RemoveMcpServer, RenameSession, Research, ResearchSummary, RouteCard, Run,
-    RunCron, Say, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages, Session,
-    SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking,
-    SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, SpokenTurns,
-    StartAppAuth, StopResearch, Stream, SuggestPrompts, TRANSCRIBE_RATE, ToggleCron, Transcribe,
-    Transcription, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
-    UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload, WorkItem,
+    LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices, ListGrants,
+    ListGroupReminders, ListGroups, ListMachines, ListMcpServers, ListMcpTools, ListMemories,
+    ListMemoryReads, ListMemoryScopes, ListPlaces, ListQuestions, ListResearches, ListSessions,
+    ListSkills, ListWork, Machine, McpCallback, McpConnect, McpServer, McpTools, Memory,
+    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PendingApproval, PermissionLevel, PinGroup,
+    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, Research, ResearchSummary,
+    RevokeGrant, RouteCard, Run, RunCron, Say, ScopedMemory, SearchSessions, SendToGroup,
+    SentFiles, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel,
+    SetMcpTool, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
+    SharedSession, Skill, SpokenTurns, StartAppAuth, StopResearch, Stream, SuggestPrompts,
+    TRANSCRIBE_RATE, ToggleCron, Transcribe, Transcription, TurnAgent, UndoSkill, UnregisterDevice,
+    UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload,
+    WorkItem,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -997,6 +998,16 @@ impl BeepClient {
 
     pub async fn delete_cron(&self, id: String) -> Result<(), BeepError> {
         self.call(DeleteCron { id }).await
+    }
+
+    /// The routines' grants that have not ended.
+    pub async fn list_grants(&self) -> Result<Vec<Grant>, BeepError> {
+        self.call(ListGrants {}).await
+    }
+
+    /// Ends a grant, so its routine asks again.
+    pub async fn revoke_grant(&self, id: String) -> Result<(), BeepError> {
+        self.call(RevokeGrant { id }).await
     }
 
     /// Runs a cron now and returns the session the run went to.
