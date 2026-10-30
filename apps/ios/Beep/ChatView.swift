@@ -24,6 +24,8 @@ struct ChatView: View {
     @State private var follow = true
     /// Whether the chat is taller than the screen, which brings up the prompt map.
     @State private var scrolls = false
+    /// The spoken stretches showing all their lines, by their first message's id.
+    @State private var openStretches: Set<String> = []
     @State private var voice = VoiceInput()
     @FocusState private var typing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -41,11 +43,13 @@ struct ChatView: View {
                         }
                         ForEach(Array(model.chat.messages.enumerated()), id: \.element.id) { index, message in
                             // A spoken stretch draws once, as a transcript, from its first message.
-                            if !spoken.hidden.contains(message.id) {
+                            if !spoken.isHidden(message.id) {
                                 VStack(spacing: 12) {
                                     if let day = breaks[message.id] { DayMarker(day: day) }
                                     if let stretch = spoken.byFirst[message.id] {
-                                        LiveTranscript(messages: stretch)
+                                        LiveTranscript(messages: stretch, showAll: Binding(
+                                            get: { openStretches.contains(message.id) },
+                                            set: { if $0 { openStretches.insert(message.id) } else { openStretches.remove(message.id) } }))
                                     } else {
                                         MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
                                                     latest: index == model.chat.messages.count - 1, quote: quote)
@@ -119,7 +123,20 @@ struct ChatView: View {
                     if scrolls {
                         PromptMap(messages: model.chat.messages) { id in
                             follow = false
-                            withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo(id, anchor: .top) }
+                            guard let first = spoken.firstOf[id] else {
+                                withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo(id, anchor: .top) }
+                                return
+                            }
+                            // A spoken prompt inside a stretch is a line of its block: open the block if
+                            // the line is cut off, bring the block in so the line exists, then go to it.
+                            if let stretch = spoken.byFirst[first], LiveTranscript.cuts(id, in: stretch) {
+                                openStretches.insert(first)
+                            }
+                            scroller.scrollTo(first, anchor: .top)
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(100))
+                                withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo(id, anchor: .top) }
+                            }
                         }
                     }
                 }
