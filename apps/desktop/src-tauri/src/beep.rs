@@ -16,9 +16,9 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     ActiveRun, AnswerApproval, ApprovalDecision, ApprovalField, Call, Chart, Chat, DeleteTurnsFrom,
     DeviceAnswer, DeviceQuery, DeviceResult, Event, GetEvents, GetFile, GetSession,
-    GetSessionImages, HistoryEntry, ImageRef, ListSessions, MAX_UPLOAD, Notice, Platform,
-    ReasoningLevel, RemoveDevice, RunEvent, SearchSessions, SentImages, Session, SessionMatch,
-    SpokenTurns, Stream, TRANSCRIBE_RATE, Transcribe, Transcription, Upload,
+    GetSessionImages, GetToolLabels, HistoryEntry, ImageRef, ListSessions, MAX_UPLOAD, Notice,
+    Platform, ReasoningLevel, RemoveDevice, RunEvent, SearchSessions, SentImages, Session,
+    SessionMatch, SpokenTurns, Stream, TRANSCRIBE_RATE, Transcribe, Transcription, Upload,
     client::{Client, Node, OnNotice, Replies, Uplink},
     link::LinkOffer,
 };
@@ -282,9 +282,13 @@ pub enum Turn {
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolStep {
     pub name: String,
-    /// What a tool that takes an `action` did, read from its result, since
-    /// a saved step keeps no arguments.
-    pub label: Option<&'static str>,
+    /// What the step showed while it ran, from `GetToolLabels`. For a step
+    /// the server kept none for, what a tool that takes an `action` did,
+    /// read from its result.
+    pub label: Option<String>,
+    /// The call's id, to match the step with its `GetToolLabels` entry.
+    #[serde(skip)]
+    call_id: String,
     pub success: bool,
     pub file: Option<SentFile>,
     /// A `send_image` result's pictures.
@@ -639,21 +643,41 @@ impl Beep {
     }
 
     pub async fn history(&self, id: String) -> Result<Vec<Turn>> {
-        if let Some(turns) = Uuid::parse_str(&id)
-            .ok()
-            .and_then(|id| self.chats.session(id))
-        {
-            return Ok(turns);
+        let session_id = Uuid::parse_str(&id).ok();
+        if let Some(turns) = session_id.and_then(|id| self.chats.session(id)) {
+            let labels = self.tool_labels(session_id).await;
+            return Ok(with_labels(turns, labels));
         }
-        let (entries, images) = join!(
+        let (entries, images, labels) = join!(
             self.call(GetSession { id: id.clone() }),
             self.call(GetSessionImages { session_id: id }),
+            self.tool_labels(session_id),
         );
         let mut pictures = Pictures::new(images);
-        Ok(entries?
+        let turns = entries?
             .into_iter()
             .map(|entry| turn(entry, &mut pictures))
-            .collect())
+            .collect();
+        Ok(with_labels(turns, labels))
+    }
+
+    /// What each tool step of chat `session_id` showed while it ran, by
+    /// call id. Empty from a server that does not keep them, and then the
+    /// steps keep the labels read from their results.
+    async fn tool_labels(&self, session_id: Option<Uuid>) -> HashMap<String, String> {
+        let Some(session_id) = session_id else {
+            return HashMap::new();
+        };
+        match self.call(GetToolLabels { session_id }).await {
+            Ok(labels) => labels
+                .into_iter()
+                .map(|label| (label.call_id, label.description))
+                .collect(),
+            Err(e) => {
+                log::debug!("tool labels of {session_id}: {e}");
+                HashMap::new()
+            }
+        }
     }
 
     /// When each spoken prompt of chat `id` was sent. Empty from a server
@@ -1055,7 +1079,8 @@ pub fn tool_step(name: &str, call_id: &str, output: &str, success: bool) -> Tool
     ToolStep {
         route: (name == GET_ROUTE && success && !call_id.is_empty()).then(|| call_id.to_owned()),
         name: name.to_owned(),
-        label: tool_labels::action_label(name, output),
+        label: tool_labels::action_label(name, output).map(str::to_owned),
+        call_id: call_id.to_owned(),
         success,
         file: sent_file(name, output),
         images: sent_images(name, output),
@@ -1139,6 +1164,25 @@ pub fn qr_svg(data: &str) -> Result<String> {
         .build())
 }
 
+/// `turns` with each tool step labelled as it showed while it ran, where
+/// `labels` has its call.
+fn with_labels(mut turns: Vec<Turn>, labels: HashMap<String, String>) -> Vec<Turn> {
+    if labels.is_empty() {
+        return turns;
+    }
+    for turn in &mut turns {
+        let Turn::Assistant { tools, .. } = turn else {
+            continue;
+        };
+        for step in tools {
+            if let Some(label) = labels.get(&step.call_id) {
+                step.label = Some(label.clone());
+            }
+        }
+    }
+    turns
+}
+
 fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
     match entry {
         HistoryEntry::User {
@@ -1191,6 +1235,25 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn with_labels_prefers_the_live_description() {
+        let turns = vec![Turn::Assistant {
+            html: String::new(),
+            tools: vec![
+                tool_step("memory", "c1", r#"{"stored":true}"#, true),
+                tool_step("memory", "c2", r#"{"stored":true}"#, true),
+            ],
+            replies: Vec::new(),
+            model: String::new(),
+        }];
+        let labels = HashMap::from([("c1".to_owned(), "Remembering your flight".to_owned())]);
+        let Turn::Assistant { tools, .. } = &with_labels(turns, labels)[0] else {
+            panic!("an assistant turn stays one");
+        };
+        assert_eq!(tools[0].label.as_deref(), Some("Remembering your flight"));
+        assert_eq!(tools[1].label.as_deref(), Some("Remembering"));
+    }
 
     #[test]
     fn sent_file_reads_send_file_results_only() {
