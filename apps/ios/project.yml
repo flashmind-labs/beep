@@ -70,6 +70,8 @@ targets:
         # A background push wakes the app to fetch notices the server could not send, and live
         # voice keeps talking when the screen locks.
         UIBackgroundModes: [remote-notification, audio]
+        # A live voice session shows in the Dynamic Island and on the Lock Screen.
+        NSSupportsLiveActivities: true
         # beep://new, from the widget.
         CFBundleURLTypes:
           - CFBundleURLName: com.flashmind.beep
@@ -91,6 +93,7 @@ targets:
       - path: Widget
       # The control and the widget's button run the app's intent.
       - path: Beep/Live/TalkToBeepIntent.swift
+      - path: Beep/Live/LiveActivity.swift
       - path: ../android/app/src/main/res/font/bricolage_grotesque.ttf
         buildPhase: resources
       - path: ../android/app/src/main/res/font/rubik.ttf

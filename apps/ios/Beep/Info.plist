@@ -53,6 +53,8 @@
 		<string>sniglet_regular.ttf</string>
 		<string>sniglet_extrabold.ttf</string>
 	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
