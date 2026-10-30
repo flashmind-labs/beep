@@ -21,7 +21,7 @@ use crate::{
     places::PlaceEvent,
     protocol::{
         Cron, FilePart, ImageRef, Memory, RouteCard, Run, SentFiles, SentImages, Session,
-        UpdatePage, Upload, node::EnvReport,
+        ToolLabel, UpdatePage, Upload, node::EnvReport,
     },
     research::pdf::{self, Paper, Pdf},
     starters::Cached,
@@ -602,6 +602,15 @@ impl User {
             return Ok(None);
         }
         Ok(Some(self.store.turn_agents(session).await?))
+    }
+
+    /// What each tool step of a session the user owns showed while it ran,
+    /// oldest first. `None` when they have no such session.
+    pub async fn tool_labels(&self, session: Uuid) -> Result<Option<Vec<ToolLabel>>> {
+        if !self.store.owns_session(&self.key, session).await? {
+            return Ok(None);
+        }
+        Ok(Some(self.store.tool_labels(session).await?))
     }
 
     /// What the newest turn of a session ran with.

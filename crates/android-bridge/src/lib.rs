@@ -15,22 +15,22 @@ use beep_proto::{
     DeviceAnswer, DeviceInvite, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart,
     Filler as FillerLine, FinishAppAuth, FinishMcpAuth, GetAgents, GetAppPermissions, GetEvents,
     GetFile, GetGroup, GetGroupImages, GetModels, GetResearch, GetResearchPdf, GetRouteCard,
-    GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetSessionImages, GetShare, Group,
-    GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health,
-    HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice,
-    LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices, ListGroupReminders,
-    ListGroups, ListMachines, ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads,
-    ListMemoryScopes, ListPlaces, ListQuestions, ListResearches, ListSessions, ListSkills,
-    ListWork, Machine, McpCallback, McpConnect, McpServer, McpTools, Memory, MemoryRead, Models,
-    Notice, PeekGroup, PeekInvite, PendingApproval, PermissionLevel, PinGroup, PinSession, Place,
-    PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount,
-    RemoveDevice, RemoveMcpServer, RenameSession, Research, ResearchSummary, RouteCard, Run,
-    RunCron, Say, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages, Session,
-    SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking,
-    SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, SpokenTurns,
-    StartAppAuth, StopResearch, Stream, SuggestPrompts, TRANSCRIBE_RATE, ToggleCron, Transcribe,
-    Transcription, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
-    UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload, WorkItem,
+    GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetSessionImages, GetShare,
+    GetToolLabels, Group, GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview,
+    GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview,
+    LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices,
+    ListGroupReminders, ListGroups, ListMachines, ListMcpServers, ListMcpTools, ListMemories,
+    ListMemoryReads, ListMemoryScopes, ListPlaces, ListQuestions, ListResearches, ListSessions,
+    ListSkills, ListWork, Machine, McpCallback, McpConnect, McpServer, McpTools, Memory,
+    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PendingApproval, PermissionLevel, PinGroup,
+    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, Research, ResearchSummary,
+    RouteCard, Run, RunCron, Say, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages,
+    Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel,
+    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill,
+    SpokenTurns, StartAppAuth, StopResearch, Stream, SuggestPrompts, TRANSCRIBE_RATE, ToggleCron,
+    ToolLabel, Transcribe, Transcription, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession,
+    UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload, WorkItem,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -713,6 +713,15 @@ impl BeepClient {
     /// The specialized agent each turn of a session ran as, oldest first.
     pub async fn get_session_agents(&self, id: String) -> Result<Vec<TurnAgent>, BeepError> {
         self.call(GetSessionAgents { session_id: id }).await
+    }
+
+    /// What each tool step of a session showed while it ran, such as
+    /// "Recalling memories", by `HistoryTool::call_id`. Steps saved before
+    /// the server kept it are missing. Servers from before it answer with an
+    /// error.
+    pub async fn get_tool_labels(&self, session_id: String) -> Result<Vec<ToolLabel>, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(GetToolLabels { session_id }).await
     }
 
     /// The routes a `get_route` call found, for its card.
