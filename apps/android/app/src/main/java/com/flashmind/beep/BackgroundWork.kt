@@ -52,7 +52,7 @@ import java.time.Duration
 import java.time.Instant
 
 /** Tools of a turn that start or change background work; when one finishes, the chat lists its work again. */
-internal val WORK_TOOLS = setOf("spawn_agent", "run_in_background", "message_agent", "cancel_job")
+internal val WORK_TOOLS = setOf("background", "spawn_agent", "run_in_background", "message_agent", "cancel_job")
 
 /** How often the list is read again while something runs. */
 private const val WORK_POLL_MS = 4_000L

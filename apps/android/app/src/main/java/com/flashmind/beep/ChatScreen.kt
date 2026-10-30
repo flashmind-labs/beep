@@ -98,6 +98,7 @@ private val TextDim: Color @Composable @ReadOnlyComposable get() = Beep.colors.d
 
 /** Mirrors the server's MEMORY_THRESHOLD: above it the learner reads the turn. */
 private const val MEMORY_THRESHOLD = 0.8
+/** Memory tools that change what Beep knows; the folded memory tool changes it when its output is an object. */
 private val MEMORY_TOOLS = setOf("memory_store", "memory_update", "memory_forget")
 
 /** How many tool chips a message shows before folding the earlier ones away. */
@@ -468,7 +469,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                 Text(message.agent, fontSize = 11.sp, color = TextDim, modifier = Modifier.padding(start = 8.dp))
                             // Jev's estimate that this turn held something worth remembering.
                             message.memoryScore?.let { score ->
-                                val saved = message.toolCalls.any { it.name in MEMORY_TOOLS }
+                                val saved = message.toolCalls.any { it.name in MEMORY_TOOLS || it.name == MEMORY_TOOL && it.result.trimStart().startsWith("{") }
                                 val note = if (score >= MEMORY_THRESHOLD && !saved) " · nothing new" else ""
                                 Text("${(score * 100).roundToInt()}%$note", fontSize = 11.sp, color = TextDim,
                                     modifier = Modifier.padding(start = 8.dp))
