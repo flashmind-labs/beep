@@ -633,7 +633,8 @@ impl App {
                     Rules::default()
                 });
                 let tools = markdown::wrap(composio.tools.into_iter().chain(mcp).collect());
-                for tool in permissions::guard(tools, rules, Approved(None), &composio.hinted) {
+                for tool in permissions::guard(tools, rules, Approved(None), &composio.hinted, None)
+                {
                     registry.register(tool);
                 }
             }

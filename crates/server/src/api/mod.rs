@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 mod crons;
 mod devices;
+mod grants;
 mod groups;
 mod live;
 mod location;
@@ -34,6 +35,7 @@ use devices::{
     invite_device, join_account, link_device, list_devices, peek_invite, register_device,
     remove_device, unregister_device,
 };
+use grants::{list_grants, revoke_grant};
 use groups::{
     answer_group_approval, create_group, delete_group_reminder, get_group, get_group_images,
     group_invite, join_group, leave_group, list_group_reminders, list_groups, peek_group,
@@ -177,6 +179,8 @@ pub fn router() -> Router {
         .call(live::spoken_turns)
         .call(live::say)
         .call(live::filler)
+        .call(list_grants)
+        .call(revoke_grant)
 }
 
 type Reply<T> = Result<T, ApiError>;

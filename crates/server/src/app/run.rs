@@ -14,7 +14,9 @@ use crate::{
     agents::AgentId,
     apps::{files, markdown},
     attachments::{self, Handed},
-    cron, events, followups, gates, images,
+    cron, events, followups, gates,
+    grants::{RequestGrantTool, RoutineGrants},
+    images,
     live::LiveRun,
     memories::{Exchange, Turn},
     metering,
@@ -341,6 +343,14 @@ impl App {
                 .filter(|answer| answer.decision != (ApprovalDecision::Deny {}))
                 .map(|answer| answer.call_id.clone()),
         );
+        // A routine's run may act without asking where a grant of the
+        // routine lets the call through.
+        let routine_grants = message
+            .cron_id
+            .as_deref()
+            .filter(|_| is_cron && answer.is_none())
+            .and_then(|id| id.parse::<Uuid>().ok())
+            .map(|routine| Arc::new(RoutineGrants::new(user.clone(), routine, &run.id, chat)));
 
         let loading = async { tokio::join!(user.app_tools(), user.mcp_tools(), user.apps()) };
         let Some((composio, mcp, apps)) = cancel.run_until_cancelled(loading).await else {
@@ -377,10 +387,25 @@ impl App {
                     app_tools: tools.clone(),
                     rules: rules.clone(),
                     hinted: composio.hinted.clone(),
+                    grants: routine_grants.clone(),
                 },
             );
         }
-        for tool in permissions::guard(tools, rules, approved, &composio.hinted) {
+        // Grants are asked for where routines are set up. A routine's own
+        // run and a turn on untrusted text never ask for one.
+        if !is_cron && !untrusted && registry.contains("cron_create") {
+            registry.register(Arc::new(RequestGrantTool {
+                user: user.clone(),
+                approved: approved.0.clone(),
+            }));
+        }
+        for tool in permissions::guard(
+            tools,
+            rules,
+            approved,
+            &composio.hinted,
+            routine_grants.clone(),
+        ) {
             registry.register(tool);
         }
         let refusals = repeat::guard_tool_calls(&mut registry);
@@ -750,10 +775,18 @@ impl App {
             status = RunStatus::Waiting;
         }
 
-        // A routine that found nothing to say leaves no trace in the chat.
-        let silent = is_cron && status == RunStatus::Completed && !notify.load(Ordering::SeqCst);
+        // What grants let the run do without asking. Each use already sent
+        // its own notification; the chat keeps it as a message.
+        let used = routine_grants
+            .as_ref()
+            .map(|grants| grants.take_used())
+            .unwrap_or_default();
+        // A routine that found nothing to say and did nothing leaves no
+        // trace in the chat.
+        let quiet = is_cron && status == RunStatus::Completed && !notify.load(Ordering::SeqCst);
+        let silent = quiet && used.is_empty();
         // A run that stops to ask notifies with the question instead.
-        if (is_cron || message.finished_research) && status != RunStatus::Waiting && !silent {
+        if (is_cron || message.finished_research) && status != RunStatus::Waiting && !quiet {
             self.notify_run_complete(user, run, status, &reply).await;
         }
 
@@ -912,7 +945,7 @@ impl App {
         // the user something shows only what it told them, as a message of
         // its own: no routine turn, and nothing of how it checked.
         let notice_only = is_cron && status == RunStatus::Completed;
-        let mut saved = if silent {
+        let mut saved = if quiet {
             steps::Steps::default()
         } else if notice_only {
             steps::last_reply(steps::steps(
@@ -929,6 +962,15 @@ impl App {
                 &turns,
             )
         };
+        // What grants let through comes first, so the reply after it reads
+        // in order.
+        saved.steps.splice(
+            0..0,
+            used.into_iter().map(|used| Step {
+                sent_at: used.at,
+                body: StepBody::Assistant { content: used.text },
+            }),
+        );
         // A call that only names its records, such as a message ID, says what
         // they are, so the user knows what it acts on.
         if let Some(parked) = &mut parked {
