@@ -296,7 +296,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Machines, Shared, GroupJoin, GroupInfo, Researches, Workspace }
+internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Machines, Shared, GroupJoin, GroupInfo, Researches, Workspace, Grants }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -339,6 +339,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val places = remember(repository) { ServerPlaces(repository) }
     // Where "Not now" on the location screen goes back to.
     var beforeLocationAlways by rememberSaveable { mutableStateOf(Screen.Places) }
+    // The routine whose grants are open, or null for every grant from Settings.
+    var grantsRoutine by rememberSaveable { mutableStateOf<String?>(null) }
     // The first place routine made without location all the time opens the screen that asks for it.
     val askLocationAlways by repository.askLocationAlways.collectAsStateWithLifecycle()
     LaunchedEffect(askLocationAlways, bubble) {
@@ -457,6 +459,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     BackHandler(enabled = activeScreen != Screen.Chat) {
         screen = when (activeScreen) {
             Screen.Devices, Screen.Machines -> Screen.Settings
+            Screen.Grants -> if (grantsRoutine != null) Screen.Crons else Screen.Settings
             Screen.LocationAlways -> beforeLocationAlways
             else -> Screen.Chat
         }
@@ -470,12 +473,16 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             Screen.Memories -> MemoriesScreen(repository, latestRead = showLatestRead, onBack = { showLatestRead = false; screen = Screen.Chat })
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat },
                 onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat },
-                onOpenChat = { id -> repository.select(id); screen = Screen.Chat })
+                onOpenChat = { id -> repository.select(id); screen = Screen.Chat },
+                onGrants = { id -> grantsRoutine = id; screen = Screen.Grants })
             Screen.Skills -> SkillsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Chat },
                 onBubbleSettings = onBubbleSettings, onLinkedDevices = { screen = Screen.Devices },
-                onMachines = { screen = Screen.Machines })
+                onMachines = { screen = Screen.Machines },
+                onGrants = { grantsRoutine = null; screen = Screen.Grants })
+            Screen.Grants -> GrantsScreen(repository, grantsRoutine,
+                onBack = { screen = if (grantsRoutine != null) Screen.Crons else Screen.Settings })
             Screen.Devices -> LinkedDevicesScreen(repository, onBack = { screen = Screen.Settings })
             Screen.Machines -> MachinesScreen(repository, onBack = { screen = Screen.Settings })
             Screen.GroupJoin -> joinToken?.let { token ->
