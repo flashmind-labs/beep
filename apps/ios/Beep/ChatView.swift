@@ -675,6 +675,9 @@ private struct ThinkingPreview: View {
     }
 }
 
+/// The label of the scheduled turn that hands background results back to its chat, as the server names it.
+let backgroundWorkLabel = "Background work"
+
 /// Mirrors the server's memory threshold as Android shows it: above it the learner reads the turn.
 private let memoryThreshold = 0.8
 private let memoryTools: Set<String> = ["memory_store", "memory_update", "memory_forget"]
@@ -717,8 +720,14 @@ struct MessageView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .scheduled:
             HStack(spacing: 6) {
-                Image(systemName: "clock").font(.system(size: 11))
-                Text(message.text.isEmpty ? "Scheduled" : "Scheduled · \(message.text)").lineLimit(1)
+                // The turn that hands back what helper agents and background jobs found.
+                if message.text == backgroundWorkLabel {
+                    Image(systemName: "arrow.uturn.backward").font(.system(size: 11))
+                    Text("Background work came back").lineLimit(1)
+                } else {
+                    Image(systemName: "clock").font(.system(size: 11))
+                    Text(message.text.isEmpty ? "Scheduled" : "Scheduled · \(message.text)").lineLimit(1)
+                }
             }
             .font(.body(11)).foregroundStyle(Mint.dim)
             .frame(maxWidth: .infinity)
