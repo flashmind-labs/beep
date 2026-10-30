@@ -10,6 +10,11 @@
 //! on, shows a join code instead (`InviteDevice`). The phone scans or types
 //! it and sends `JoinAccount`, which moves the phone's own account into the
 //! computer's.
+//!
+//! A server that runs for one person shows its own offer when it starts: a
+//! `LinkOffer` it signed for itself, naming its own key as both device and
+//! server. An app that scans one learns which server to connect to (see
+//! `LinkOffer::server`); the first account to connect owns that server.
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use iroh::{EndpointId, SecretKey, Signature};
@@ -88,6 +93,22 @@ impl LinkOffer {
             return Err(LinkError::Expired);
         }
         Ok(())
+    }
+
+    /// A server's offer of itself, for an app that has no server yet.
+    pub fn for_server(
+        identity: &SecretKey,
+        name: &str,
+        now: SystemTime,
+    ) -> Result<Self, LinkError> {
+        Self::sign(identity, identity.public(), name, now)
+    }
+
+    /// The server to connect to, when this is a server's offer of itself
+    /// (see `for_server`) signed within `OFFER_TTL` of `now`. `None` for a
+    /// device's offer, which only verifies for the server it was made for.
+    pub fn server(&self, now: SystemTime) -> Option<EndpointId> {
+        self.verify(self.device, now).ok().map(|()| self.device)
     }
 
     /// Six characters both screens show, such as `7K4 PQ2`, so the user can
@@ -243,6 +264,19 @@ mod tests {
         assert_eq!(format_join_code("K7QM4X9TRP"), "K7QM4-X9TRP");
         assert_eq!(join_code("beep-link:abc"), None);
         assert_eq!(join_code("short"), None);
+    }
+
+    #[test]
+    fn a_server_offer_names_the_server() {
+        let (device, server) = keys();
+        let now = SystemTime::now();
+        let own = LinkOffer::for_server(&device, "Beep", now).unwrap();
+        let parsed = LinkOffer::parse(&own.to_uri()).unwrap();
+        assert_eq!(parsed.server(now), Some(device.public()));
+        // A device's offer for another server is not a server's.
+        let offer = LinkOffer::sign(&device, server, "MacBook", now).unwrap();
+        assert_eq!(offer.server(now), None);
+        assert_eq!(own.server(now + OFFER_TTL + Duration::from_secs(1)), None);
     }
 
     #[test]
