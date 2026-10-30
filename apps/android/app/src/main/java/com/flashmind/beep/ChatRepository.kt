@@ -241,6 +241,7 @@ class ChatRepository(private val storage: LocalStorage) {
         if (known) scope.launch {
             val config = settings.value
             runCatching { loadHistory(id, config) }
+            loadQuestions(id, config)
             followElsewhere(id, config)
         } else refreshHistory()
     }
@@ -427,6 +428,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     resumePending()
                     pushChanges()
                     runCatching { syncHistory(settings.value) }
+                    state.value.current.id.takeIf { it.isNotEmpty() }?.let { loadQuestions(it, settings.value) }
                     refreshGroups()
                     syncPlaces()
                     return@launch
@@ -929,9 +931,23 @@ class ChatRepository(private val storage: LocalStorage) {
         if (state.value.conversations.none { it.id == conversationId }) return
         updateChat(conversationId) { chat ->
             if (chat.messages.any { m -> m.approvals.any { it.queryId == pending.queryId } }) chat
-            else chat.copy(messages = chat.messages + ChatMessage("approval-${pending.queryId}", "assistant", "",
-                approvals = listOf(ApprovalPrompt(pending.queryId, pending.approval, background = true))))
+            else chat.copy(messages = chat.messages + questionCard(pending))
         }
+    }
+    /** Background question [queryId] of [conversationId] stopped waiting: answered on some device, or withdrawn. */
+    fun resolveQuestion(conversationId: String, queryId: String) {
+        ApprovalNotifications.cancel(storage.context, queryId)
+        if (state.value.conversations.none { it.id == conversationId }) return
+        updateChat(conversationId) { chat -> chat.copy(messages = markResolved(chat.messages, queryId)) }
+    }
+    /**
+     * Reads the background questions chat [id] waits on, so their cards survive a restart and show on
+     * every device; cards it no longer lists stop waiting. Servers from before questions list none.
+     */
+    private suspend fun loadQuestions(id: String, config: ConnectionSettings) {
+        val waiting = try { api(config).listQuestions(id) } catch (e: BeepException) { return }
+        if (settings.value != config) return
+        updateChat(id) { chat -> chat.copy(messages = syncQuestions(chat.messages, waiting)) }
     }
     /** The machines running beep-node on the account. Admins only. */
     suspend fun listMachines(): List<Machine> = api().listMachines()
