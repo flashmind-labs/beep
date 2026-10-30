@@ -49,6 +49,8 @@ objc2-application-services = { version = "0.3", default-features = false, featur
 objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2-core-audio-types"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes", "CGImage", "CGRemoteOperation", "CGSession", "CGWindow"] }
+# Live mode: asking for the microphone before the engine opens it.
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
 # Live mode: microphone with echo cancellation, and the player, in one engine.
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "block2", "AVAudioBuffer", "AVAudioEngine", "AVAudioFile", "AVAudioFormat", "AVAudioIONode", "AVAudioMixerNode", "AVAudioNode", "AVAudioPlayerNode", "AVAudioTime", "AVAudioTypes"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSOperation", "NSURL"] }
