@@ -33,27 +33,35 @@ struct ChatView: View {
             if !inBrowser { chatBar }
             ScrollViewReader { scroller in
                 let breaks = dayBreaks(model.chat.messages)
+                let spoken = SpokenStretches(model.chat.messages)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         if model.chat.messages.isEmpty {
                             EmptyChat { follow = true; model.send($0) } fill: { draft = $0; typing = true }
                         }
                         ForEach(Array(model.chat.messages.enumerated()), id: \.element.id) { index, message in
-                            VStack(spacing: 12) {
-                                if let day = breaks[message.id] { DayMarker(day: day) }
-                                MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
-                                            latest: index == model.chat.messages.count - 1, quote: quote)
-                                if message.id == newestReply?.id, !model.chat.busy {
-                                    researchRow(after: message)
+                            // A spoken stretch draws once, as a transcript, from its first message.
+                            if !spoken.hidden.contains(message.id) {
+                                VStack(spacing: 12) {
+                                    if let day = breaks[message.id] { DayMarker(day: day) }
+                                    if let stretch = spoken.byFirst[message.id] {
+                                        LiveTranscript(messages: stretch)
+                                    } else {
+                                        MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
+                                                    latest: index == model.chat.messages.count - 1, quote: quote)
+                                    }
+                                    if message.id == newestReply?.id, !model.chat.busy {
+                                        researchRow(after: message)
+                                    }
                                 }
+                                // A reply sits close under its own prompt; turns keep the full gap.
+                                .padding(.top, index > 0 && message.role == .assistant
+                                         && model.chat.messages[index - 1].role == .user ? -12 : 0)
+                                .popIn(play: !settled.contains(message.id),
+                                       anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
+                                .onAppear { settled.insert(message.id) }
+                                .id(message.id)
                             }
-                            // A reply sits close under its own prompt; turns keep the full gap.
-                            .padding(.top, index > 0 && message.role == .assistant
-                                     && model.chat.messages[index - 1].role == .user ? -12 : 0)
-                            .popIn(play: !settled.contains(message.id),
-                                   anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
-                            .onAppear { settled.insert(message.id) }
-                            .id(message.id)
                         }
                         if let asked = model.waitingWork[model.chat.id], !asked.isEmpty {
                             BackgroundQuestions(prompts: asked).popIn(anchor: .bottomLeading)

@@ -68,6 +68,10 @@ struct Message: Identifiable, Equatable {
     var agent = ""
     /// The model and thinking Jev picked for this prompt under Auto; nil when it picked none.
     var auto: AutoPick?
+    /// A prompt said aloud in live mode on the Mac, which the chat shows as a transcript.
+    var spoken = false
+    /// When the server saved a reply from the history, in epoch milliseconds; 0 otherwise.
+    var repliedAt: Int64 = 0
 }
 
 /// A message typed while a reply runs, sent as its own turn once the reply finishes.
@@ -142,6 +146,8 @@ final class AppModel {
     /// Questions from background work by chat id, shown at the end of their chat. Ones still
     /// waiting stay across history reloads; answered ones go with the next reload.
     private(set) var waitingWork: [String: [ApprovalPrompt]] = [:]
+    /// The `sentAt` of each chat's spoken prompts, by chat id, as of the last history fetch.
+    private var spokenTurns: [String: Set<Int64>] = [:]
     /// Where a tapped notification wants to go; the root view follows it and clears it.
     var destination: Destination?
     /// The group chat on screen instead of the one to one chat, if any.
@@ -469,6 +475,7 @@ final class AppModel {
         let files = (try? await api().getSessionFiles(id: id)) ?? []
         // Likewise a server from before it named agents.
         let agents = (try? await api().getSessionAgents(id: id)) ?? []
+        spokenTurns[id] = await spokenTurnTimes(id)
         guard chat.id == id, !chat.busy else { return }
         show(entries, images: images, files: files, agents: agents, at: updatedAt)
         ChatStore.saveHistory(id, HistoryCache(updatedAt: updatedAt, entries: entries, images: images, files: files))
@@ -488,6 +495,7 @@ final class AppModel {
         for sent in files {
             filesByMessage[sent.message] = sent.files.map { SentFile(id: $0.id, name: $0.name, mime: $0.mime, size: Int64($0.size)) }
         }
+        let spoken = spokenTurns[id] ?? []
         var pendingTools: [ToolCall] = []
         var pendingReasoning = ""
         var messages: [Message] = []
@@ -499,12 +507,13 @@ final class AppModel {
                 pendingReasoning = ""
                 turnAt = timestamp
                 messages.append(Message(id: mid, role: .user, text: content, pictures: pictures[timestamp] ?? [],
-                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp, auto: auto))
+                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp, auto: auto,
+                                        spoken: spoken.contains(timestamp)))
             case .scheduled(let label, let timestamp):
                 pendingTools = []
                 pendingReasoning = ""
                 messages.append(Message(id: mid, role: .scheduled, text: label, sentAt: timestamp))
-            case .assistant(let content, _, let tools, let memoryScore, let reasoning, let model):
+            case .assistant(let content, let timestamp, let tools, let memoryScore, let reasoning, let model):
                 let calls = pendingTools + tools.map { ToolCall(id: $0.callId, name: $0.name, done: true, success: $0.success, output: $0.output) }
                 let thought = [pendingReasoning, reasoning].filter { !$0.isEmpty }.joined(separator: "\n\n")
                 if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -514,7 +523,8 @@ final class AppModel {
                     pendingTools = []
                     pendingReasoning = ""
                     messages.append(Message(id: mid, role: .assistant, text: content, tools: calls, reasoning: thought,
-                                            model: model, memoryScore: memoryScore, agent: agentByTurn[turnAt] ?? ""))
+                                            model: model, memoryScore: memoryScore, agent: agentByTurn[turnAt] ?? "",
+                                            repliedAt: timestamp))
                 }
             case .approval(let queryId, let approval):
                 messages.append(Message(
@@ -1480,5 +1490,19 @@ func describe(_ error: Error) -> String {
     case BeepError.NotFound: "Not found."
     case BeepError.Internal: "Something went wrong on the server."
     default: error.localizedDescription
+    }
+}
+
+// MARK: Bridge calls v2 still needs
+
+// TODO(v2 bridge): every call in this extension uses a `BeepClient` function the uniffi bridge in
+// crates/android-bridge does not export yet. It is written against the name and shape the
+// request has in crates/proto, so it builds once the bridge adds it.
+extension AppModel {
+    /// When each spoken prompt of a chat was sent: `SpokenTurns` (request 114). Needs
+    /// `BeepClient.spokenTurns(sessionId: String) async throws -> [Int64]`. Empty on servers from
+    /// before spoken turns, which just means every turn shows as typed.
+    func spokenTurnTimes(_ sessionId: String) async -> Set<Int64> {
+        Set((try? await api().spokenTurns(sessionId: sessionId)) ?? [])
     }
 }
