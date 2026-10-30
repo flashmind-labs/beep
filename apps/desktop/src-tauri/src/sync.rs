@@ -349,11 +349,21 @@ pub fn write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 
 /// A session's messages as the bar draws them: each turn's tool steps and
 /// suggested replies sit on its last reply, or on an empty one when it has
-/// none, and a waiting approval follows its turn.
+/// none, and a waiting approval follows its turn. A step from another turn
+/// than the open one, such as a routine's notice with no turn, closes it, so
+/// the turn before keeps its own reply and tools.
 fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
     let mut out = Vec::new();
     let mut open = OpenTurn::default();
     for message in messages {
+        let opens = matches!(
+            message.body,
+            MessageBody::User { .. } | MessageBody::Scheduled { .. }
+        );
+        if !opens && message.turn_id != open.id {
+            open.finish(&mut out);
+            open.id = message.turn_id;
+        }
         match &message.body {
             MessageBody::User {
                 content,
@@ -361,6 +371,7 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
                 turn,
             } => {
                 open.finish(&mut out);
+                open.id = message.turn_id;
                 open.model = turn.model.clone();
                 out.push(Turn::User {
                     text: content.clone(),
@@ -376,6 +387,7 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
             }
             MessageBody::Scheduled { label, turn } => {
                 open.finish(&mut out);
+                open.id = message.turn_id;
                 open.model = turn.model.clone();
                 out.push(Turn::Scheduled {
                     label: label.clone(),
@@ -420,6 +432,8 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
 
 #[derive(Default)]
 struct OpenTurn {
+    /// The message that opened the turn, `None` for steps outside any turn.
+    id: Option<i64>,
     /// Where the turn's latest reply is in the output.
     reply: Option<usize>,
     tools: Vec<beep::ToolStep>,
@@ -506,6 +520,9 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
 
 async fn follow_once(app: &AppHandle, beep: &Beep) -> Result<()> {
     let mut newest = beep.stream(StreamUpdates {}).await?;
+    // Connected again: what the bar shows from outside the log, such as
+    // questions from background work, may have changed meanwhile.
+    let _ = app.emit("reconnected", ());
     while let Some(last) = newest.next().await? {
         if last != beep.chats().last() {
             catch_up(app, beep).await?;
@@ -554,19 +571,30 @@ mod tests {
     }
 
     fn user(id: i64, content: &str) -> ChatMessage {
-        message(
+        in_turn(
             id,
-            MessageBody::User {
-                content: content.into(),
-                images: Vec::new(),
-                turn: TurnInfo {
-                    model: String::new(),
-                    auto: None,
-                    reasoning: String::new(),
-                    memory_score: None,
+            message(
+                id,
+                MessageBody::User {
+                    content: content.into(),
+                    images: Vec::new(),
+                    turn: TurnInfo {
+                        model: String::new(),
+                        auto: None,
+                        reasoning: String::new(),
+                        memory_score: None,
+                    },
                 },
-            },
+            ),
         )
+    }
+
+    /// `message` as a step of the turn `turn` opened.
+    fn in_turn(turn: i64, message: ChatMessage) -> ChatMessage {
+        ChatMessage {
+            turn_id: Some(turn),
+            ..message
+        }
     }
 
     fn tool(id: i64, name: &str, output: &str) -> ChatMessage {
@@ -620,11 +648,14 @@ mod tests {
     fn tools_and_replies_sit_on_the_turns_last_reply() {
         let messages = [
             user(1, "Where is lunch?"),
-            tool(2, "open_maps", "{}"),
-            reply(3, "Here it is."),
-            tool(4, beep::SUGGEST_REPLIES, r#"{"replies":["Thanks"]}"#),
+            in_turn(1, tool(2, "open_maps", "{}")),
+            in_turn(1, reply(3, "Here it is.")),
+            in_turn(
+                1,
+                tool(4, beep::SUGGEST_REPLIES, r#"{"replies":["Thanks"]}"#),
+            ),
             user(5, "Remind me"),
-            tool(6, "cron_create", "failed"),
+            in_turn(5, tool(6, "cron_create", "failed")),
         ];
         let turns = turns(&messages);
         let [
@@ -643,6 +674,30 @@ mod tests {
         assert_eq!(replies, &["Thanks"]);
         assert!(html.is_empty());
         assert_eq!(last[0].name, "cron_create");
+    }
+
+    #[test]
+    fn a_step_outside_the_turn_leaves_its_tools_alone() {
+        let messages = [
+            user(1, "Where is lunch?"),
+            in_turn(1, tool(2, "open_maps", "{}")),
+            in_turn(1, reply(3, "Here it is.")),
+            reply(4, "Your routine ran."),
+        ];
+        let turns = turns(&messages);
+        let [
+            Turn::User { .. },
+            Turn::Assistant { tools, .. },
+            Turn::Assistant {
+                html, tools: none, ..
+            },
+        ] = turns.as_slice()
+        else {
+            panic!("unexpected turns: {turns:?}");
+        };
+        assert_eq!(tools[0].name, "open_maps");
+        assert!(html.contains("routine ran"));
+        assert!(none.is_empty());
     }
 
     #[test]
