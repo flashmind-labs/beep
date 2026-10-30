@@ -454,6 +454,7 @@ impl Voice {
 
     fn apply(self: &Arc<Self>, id: u64, effects: Vec<Effect>) {
         for effect in effects {
+            log::debug!("live {id}: {}", effect.name());
             match effect {
                 Effect::Transcribe => self.transcribe(id),
                 Effect::EndTranscription => self.end_transcription(id),
@@ -586,12 +587,15 @@ impl Voice {
             Err(e) => return self.stt_failed(id, run, e.to_string()),
         };
         let up = tauri::async_runtime::spawn(async move {
+            let mut sent = 0usize;
             while let Some(pcm) = sound.recv().await {
+                sent += pcm.len();
                 if let Err(e) = uplink.send(&ByteBuf::from(pcm)).await {
                     log::debug!("live audio stopped going up: {e}");
                     return;
                 }
             }
+            log::info!("live transcription {run}: {sent} bytes of audio sent");
             if let Err(e) = uplink.finish() {
                 log::debug!("ending live audio: {e}");
             }

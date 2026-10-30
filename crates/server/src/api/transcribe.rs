@@ -78,6 +78,8 @@ pub(super) async fn relay(
     let Session { audio, mut heard } = session;
     let mut audio = Some(audio);
     let mut total = 0usize;
+    // The loudest sample, to tell silence from speech nobody understood.
+    let mut peak = 0u16;
     loop {
         let event = match audio.as_ref() {
             Some(to) => tokio::select! {
@@ -88,6 +90,12 @@ pub(super) async fn relay(
                     match chunk? {
                         Some(chunk) => {
                             total += chunk.len();
+                            peak = chunk
+                                .as_chunks::<2>()
+                                .0
+                                .iter()
+                                .map(|s| i16::from_le_bytes(*s).unsigned_abs())
+                                .fold(peak, u16::max);
                             if total > MAX_TRANSCRIBE_BYTES {
                                 return Err(ApiError::bad_request("too much audio"));
                             }
@@ -116,6 +124,10 @@ pub(super) async fn relay(
         match event {
             Some(Ok(Heard::Delta(text))) => words.say(Transcription::Delta { text }).await?,
             Some(Ok(Heard::Done(text))) => {
+                log::info!(
+                    "live transcription done: {total} bytes of audio, peak {peak}, {} chars heard",
+                    text.chars().count()
+                );
                 words.say(Transcription::Done { text }).await?;
                 return Ok(());
             }

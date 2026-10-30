@@ -131,6 +131,24 @@ pub enum Effect {
     Show,
 }
 
+impl Effect {
+    /// The effect without what it carries, for the log: no words said.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Transcribe => "transcribe",
+            Self::EndTranscription => "end transcription",
+            Self::Send { .. } => "send",
+            Self::Speak => "speak",
+            Self::Repeat => "repeat",
+            Self::StopSpeaking => "stop speaking",
+            Self::Leave { .. } => "leave",
+            Self::Toast(_) => "toast",
+            Self::Soon(_) => "soon",
+            Self::Show => "show",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Live {
     phase: Phase,

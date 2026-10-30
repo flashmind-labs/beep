@@ -13,6 +13,7 @@ mod groups;
 mod hotkey;
 mod identity;
 mod listen;
+mod logfile;
 mod login_path;
 mod mac_files;
 mod machine;
@@ -65,6 +66,8 @@ const CHAT_ITEM: &str = "chat:";
 struct Recent(Mutex<Vec<Session>>);
 
 fn main() {
+    logfile::start();
+    log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
     unsafe { login_path::adopt() };
     tauri::Builder::default()

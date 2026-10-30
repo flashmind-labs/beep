@@ -95,14 +95,18 @@ mod engine {
     use objc2::{AllocAnyThread, rc::Retained, runtime::Bool};
     use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
     use objc2_avf_audio::{
-        AVAudioEngine, AVAudioFile, AVAudioPCMBuffer, AVAudioPlayerNode,
+        AVAudioEngine, AVAudioFile, AVAudioFormat, AVAudioPCMBuffer, AVAudioPlayerNode,
         AVAudioPlayerNodeCompletionCallbackType, AVAudioTime,
     };
     use objc2_foundation::{NSString, NSURL};
     use std::{
         path::{Path, PathBuf},
         ptr::NonNull,
-        sync::{Mutex, PoisonError, mpsc},
+        sync::{
+            Mutex, PoisonError,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
         thread,
         time::Duration,
     };
@@ -224,6 +228,7 @@ mod engine {
             });
         let (engine, player) = match built {
             Ok(built) => {
+                log::info!("microphone running");
                 // `open` waits for this, so it is there to hear it.
                 let _ = ready.send(Ok(()));
                 built
@@ -274,8 +279,17 @@ mod engine {
             }
             let format = input.outputFormatForBus(0);
             let rate = format.sampleRate();
+            log::info!(
+                "microphone at {rate} Hz, {} channel(s), voice processing {}",
+                format.channelCount(),
+                if voice_processing { "on" } else { "off" }
+            );
+            let heard = AtomicBool::new(false);
             let tap = RcBlock::new(
                 move |buffer: NonNull<AVAudioPCMBuffer>, _: NonNull<AVAudioTime>| {
+                    if !heard.swap(true, Ordering::Relaxed) {
+                        log::info!("first sound from the microphone");
+                    }
                     // SAFETY: AVFoundation passes a live buffer for the length
                     // of the call.
                     let buffer = buffer.as_ref();
@@ -300,9 +314,31 @@ mod engine {
             let player = AVAudioPlayerNode::new();
             engine.attachNode(&player);
             engine.connect_to_format(&player, &engine.mainMixerNode(), None);
+            if voice_processing {
+                // Voice processing wants the output at the microphone's
+                // rate; left alone it takes the speakers' rate, and when
+                // the two differ the engine does not start.
+                let output = AVAudioFormat::initStandardFormatWithSampleRate_channels(
+                    AVAudioFormat::alloc(),
+                    rate,
+                    2,
+                )
+                .context("no output format at the microphone's rate")?;
+                engine.connect_to_format(
+                    &engine.mainMixerNode(),
+                    &engine.outputNode(),
+                    Some(&output),
+                );
+            }
             engine.prepare();
             if let Err(e) = engine.startAndReturnError() {
                 input.removeTapOnBus(0);
+                engine.stop();
+                // Left on, it holds the devices and the next engine, even
+                // one without it, hears nothing.
+                if voice_processing && let Err(e) = input.setVoiceProcessingEnabled_error(false) {
+                    log::warn!("voice processing stayed on: {}", e.localizedDescription());
+                }
                 return Err(anyhow!(
                     "the microphone could not start: {}",
                     e.localizedDescription()
