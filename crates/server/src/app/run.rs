@@ -1083,10 +1083,11 @@ impl App {
             updated_at: finished.map(|saved| SystemTime::from(saved.updated_at)),
         });
         // A chat made for a routine's run that found nothing is not kept,
-        // so the user never sees an empty one.
+        // so the user never sees an empty one. Another run may have started
+        // in it since this one was saved, so it goes only while still empty.
         if silent
             && fresh_chat
-            && let Err(error) = user.delete_session(chat).await
+            && let Err(error) = user.delete_empty_session(chat).await
         {
             log::warn!(
                 "unable to delete a quiet routine's chat: {error:#}; run_id={}",
