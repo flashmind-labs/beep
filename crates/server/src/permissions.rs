@@ -1677,10 +1677,13 @@ mod tests {
             "addLabelIds": ["TRASH"],
             "removeLabelIds": [],
         }));
-        let shown: Vec<(&str, &str)> = shown
+        // Fields follow the map's key order, which depends on whether
+        // serde_json keeps insertion order in this build.
+        let mut shown: Vec<(&str, &str)> = shown
             .iter()
             .map(|field| (field.label.as_str(), field.value.as_str()))
             .collect();
+        shown.sort_unstable();
         assert_eq!(shown, [("Add labels", "TRASH"), ("Messages", "3")]);
         assert!(record_ids(&json!({"addLabelIds": ["TRASH"], "messageIds": ["M1"]})) == ["M1"]);
     }
