@@ -54,8 +54,8 @@ use research::{get_research, get_research_pdf, list_researches, stop_research};
 use sessions::{
     copy_share, delete_session, delete_sessions, delete_turn, delete_turns_from, existing_sessions,
     get_file, get_route, get_route_card, get_session, get_session_agents, get_session_files,
-    get_session_images, get_share, list_sessions, pin_session, rename_session, search_sessions,
-    share_session, unshare_session,
+    get_session_images, get_share, get_tool_labels, list_sessions, pin_session, rename_session,
+    search_sessions, share_session, unshare_session,
 };
 use settings::{
     add_app_account, add_mcp_server, connect_app, connect_mcp_server, disconnect_app,
@@ -152,6 +152,7 @@ pub fn router() -> Router {
         .call(get_session_images)
         .call(get_session_files)
         .call(get_session_agents)
+        .call(get_tool_labels)
         .call(get_route)
         .call(get_route_card)
         .call(list_mcp_servers)
