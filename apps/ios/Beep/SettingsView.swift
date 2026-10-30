@@ -35,6 +35,10 @@ struct SettingsView: View {
                             row("laptopcomputer", "Linked devices", "Use Beep from your computer")
                         }
                         divider
+                        Button { path.append(.grants(nil)) } label: {
+                            row("checkmark.shield", "Routine grants", "What routines may do without asking")
+                        }
+                        divider
                         // Nodes are for admins for now.
                         if model.isAdmin {
                             Button { path.append(.machines) } label: {

@@ -88,6 +88,7 @@ private let toolLabels: [String: String] = [
     "cron_list": "Checking reminders",
     "cron_delete": "Deleting a reminder",
     "end_routine": "Ending this routine",
+    "request_grant": "Asking to allow a routine",
     "get_route": "Planning a route",
     "send_image": "Sending pictures",
     "send_file": "Sending a file",
@@ -140,5 +141,5 @@ private let pastTense: [String: String] = [
     "adding": "Added", "writing": "Wrote", "researching": "Researched", "working": "Worked",
     "tracking": "Tracked", "deciding": "Decided", "typesetting": "Typeset", "linking": "Linked",
     "following": "Followed", "unfollowing": "Unfollowed", "taking": "Took", "answering": "Answered",
-    "clicking": "Clicked", "typing": "Typed", "pressing": "Pressed", "scrolling": "Scrolled",
+    "asking": "Asked", "clicking": "Clicked", "typing": "Typed", "pressing": "Pressed", "scrolling": "Scrolled",
 ]
