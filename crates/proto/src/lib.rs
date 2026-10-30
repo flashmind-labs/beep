@@ -554,6 +554,51 @@ requests! {
     /// language the line is in. `still` asks for the line that says the
     /// work goes on, after a long quiet.
     116 Filler { step: String, said: String, still: bool } => Call<VoiceNote>
+    /// The sub-agents and background jobs the agent started in the chat:
+    /// running ones first, with what they did last, then those that ended
+    /// in the last hour, newest first.
+    117 ListWork { session_id: Uuid } => Call<Vec<WorkItem>>
+    /// Stops a running sub-agent or job of the chat, and nothing comes back
+    /// from it. `false` when it had already ended; `NotFound` when the chat
+    /// has no such id.
+    118 CancelWork { session_id: Uuid, id: String } => Call<bool>
+}
+
+/// A sub-agent or background job of a chat, as `ListWork` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkItem {
+    /// As the agent writes it, such as "w12". `CancelWork` takes it.
+    pub id: String,
+    pub kind: WorkKind,
+    /// What it was asked to do, cut short.
+    pub task: String,
+    pub started_at: SystemTime,
+    /// What it did last, such as the tool it called. Empty before its
+    /// first step.
+    pub step: String,
+    /// How it ended; `None` while it runs.
+    pub outcome: Option<WorkOutcome>,
+}
+
+/// How a sub-agent or job ended.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkOutcome {
+    pub ok: bool,
+    /// Its report or result, or why it failed.
+    pub text: String,
+}
+
+wire_enum! {
+    /// What runs in the background: a sub-agent the agent started, or one
+    /// slow tool call it moved there.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum WorkKind {
+        0 Agent {}
+        1 Job {}
+    }
 }
 
 /// The longest text `Say` speaks.

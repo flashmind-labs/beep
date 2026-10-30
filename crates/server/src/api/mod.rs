@@ -28,6 +28,7 @@ mod research;
 mod sessions;
 mod settings;
 mod transcribe;
+mod work;
 
 use crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron};
 use devices::{
@@ -177,6 +178,8 @@ pub fn router() -> Router {
         .call(live::spoken_turns)
         .call(live::say)
         .call(live::filler)
+        .call(work::list_work)
+        .call(work::cancel_work)
 }
 
 type Reply<T> = Result<T, ApiError>;
