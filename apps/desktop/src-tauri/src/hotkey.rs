@@ -6,10 +6,11 @@
 //! source how long ago the last one was: Option used to type a character or
 //! jump a word is not a tap.
 //!
-//! Holding Option on its own talks to Beep from any app, and letting go
-//! sends what was said. A single tap starts live mode when the bar is open,
-//! and in live mode interrupts Beep or leaves. The same monitor drives both, through
-//! `Hold`.
+//! Only two taps open Beep. With the bar open, a single tap starts live
+//! mode and holding Option talks until it is let go; in live mode a tap
+//! interrupts Beep or leaves. Anywhere else Option alone does nothing, since
+//! it is held for menus, Option-drag and Option-click. The same monitor
+//! drives both, through `Hold`, and `on_single` and `on_held` decide.
 
 use std::time::{Duration, Instant};
 
@@ -212,6 +213,68 @@ impl Hold {
     }
 }
 
+/// What live mode is doing, as Option sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Voice {
+    Off,
+    /// Live mode the user started from the bar.
+    Live,
+    /// A voice note being read out, which does not listen.
+    Note,
+}
+
+/// What a lone tap or a hold of Option does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Act {
+    Nothing,
+    /// Start live mode in the chat the bar shows.
+    Start,
+    /// Hand the key to live mode: a tap interrupts or leaves, a hold talks.
+    Live,
+    /// Stop the voice note.
+    EndNote,
+}
+
+/// What two taps of Option do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Two {
+    /// Open the bar, or hide it.
+    Toggle,
+    /// Bring the bar back over the orb, live mode still running.
+    ShowBar,
+    /// Leave live mode, or stop the voice note, and open the bar on the chat.
+    Leave,
+}
+
+/// Two taps. `bar_open` is whether the bar is on screen.
+pub fn on_two(voice: Voice, bar_open: bool) -> Two {
+    match voice {
+        Voice::Off => Two::Toggle,
+        Voice::Live if !bar_open => Two::ShowBar,
+        Voice::Live | Voice::Note => Two::Leave,
+    }
+}
+
+/// A lone tap. `bar_open` is a bar the user opened with two taps.
+pub fn on_single(voice: Voice, bar_open: bool) -> Act {
+    match voice {
+        Voice::Off if bar_open => Act::Start,
+        Voice::Off => Act::Nothing,
+        Voice::Live => Act::Live,
+        Voice::Note => Act::EndNote,
+    }
+}
+
+/// Option held alone. `bar_open` is a bar the user opened with two taps.
+pub fn on_held(voice: Voice, bar_open: bool) -> Act {
+    match voice {
+        Voice::Off if bar_open => Act::Start,
+        Voice::Live => Act::Live,
+        // A note never starts listening on its own.
+        Voice::Off | Voice::Note => Act::Nothing,
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod monitor {
     use super::Input;
@@ -306,36 +369,24 @@ mod monitor {
         std::mem::forget(local);
     }
 
-    /// Calls `on` when Escape goes down, until `unwatch_escape`: in another
-    /// app, and in Beep while no bar page has the keyboard (the live bar does
-    /// not take it). Other apps' keys only reach Beep with the Accessibility
-    /// permission; without it Escape works in Beep alone. Call on the main
-    /// thread.
-    pub fn watch_escape(on: impl Fn() + 'static) {
-        let on = Rc::new(on);
-        let global = on.clone();
-        let global = RcBlock::new(move |event: NonNull<NSEvent>| {
-            // SAFETY: AppKit passes a live event for the length of the call.
-            if unsafe { event.as_ref() }.keyCode() == ESCAPE {
-                global();
-            }
-        });
+    /// Calls `on` when Escape goes down in one of Beep's windows, until
+    /// `unwatch_escape`. Escape in another app never reaches it. `on` says
+    /// whether it handled the key; an unhandled Escape goes on to the
+    /// window. Call on the main thread.
+    pub fn watch_escape(on: impl Fn() -> bool + 'static) {
         let local = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
             // SAFETY: AppKit passes a live event for the length of the call.
-            if unsafe { event.as_ref() }.keyCode() == ESCAPE {
-                on();
-                // Handled: the bar would otherwise leave live mode again.
+            if unsafe { event.as_ref() }.keyCode() == ESCAPE && on() {
+                // Handled: the bar would otherwise act on it again.
                 return std::ptr::null_mut();
             }
             event.as_ptr()
         });
-        let global =
-            NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &global);
         // SAFETY: the block returns the event it was given or nothing.
         let local = unsafe {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &local)
         };
-        let old = ESCAPE_MONITORS.with(|m| m.replace(global.into_iter().chain(local).collect()));
+        let old = ESCAPE_MONITORS.with(|m| m.replace(local.into_iter().collect()));
         for monitor in old {
             remove(&monitor);
         }
@@ -659,6 +710,36 @@ mod tests {
             hold.on_event(up_after_press(50), ms(t, 600)),
             HoldStep::Nothing
         );
+    }
+
+    #[test]
+    fn option_alone_starts_nothing_without_the_bar() {
+        assert_eq!(on_single(Voice::Off, false), Act::Nothing);
+        assert_eq!(on_held(Voice::Off, false), Act::Nothing);
+        assert_eq!(on_single(Voice::Off, true), Act::Start);
+        assert_eq!(on_held(Voice::Off, true), Act::Start);
+    }
+
+    #[test]
+    fn live_mode_takes_taps_and_holds_with_the_bar_hidden() {
+        assert_eq!(on_single(Voice::Live, false), Act::Live);
+        assert_eq!(on_held(Voice::Live, false), Act::Live);
+    }
+
+    #[test]
+    fn a_voice_note_never_starts_listening() {
+        assert_eq!(on_single(Voice::Note, false), Act::EndNote);
+        assert_eq!(on_held(Voice::Note, false), Act::Nothing);
+        assert_eq!(on_held(Voice::Note, true), Act::Nothing);
+    }
+
+    #[test]
+    fn two_taps_bring_back_the_bar_over_the_orb() {
+        assert_eq!(on_two(Voice::Off, false), Two::Toggle);
+        assert_eq!(on_two(Voice::Off, true), Two::Toggle);
+        assert_eq!(on_two(Voice::Live, false), Two::ShowBar);
+        assert_eq!(on_two(Voice::Live, true), Two::Leave);
+        assert_eq!(on_two(Voice::Note, false), Two::Leave);
     }
 
     #[test]

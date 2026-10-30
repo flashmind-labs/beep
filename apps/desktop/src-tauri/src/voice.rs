@@ -1,6 +1,7 @@
-//! Live voice. A tap of Option with the bar open, a held Option, or a voice note start
+//! Live voice. A tap or a held Option in a bar opened with two taps starts
 //! live mode: the bar shows an orb, the words as they are said, and Beep's
-//! answer read aloud sentence by sentence, then it listens again.
+//! answer read aloud sentence by sentence, then it listens again. A voice
+//! note is read out the same way but never listens.
 //!
 //! `beep_live::Live` decides; this runs its effects. The microphone and the
 //! player share one engine with echo cancellation (`audio`), the words
@@ -11,13 +12,16 @@ use crate::{
     audio::{Audio, MicChunk, MicDenied, Played},
     bar,
     beep::{Beep, Pick, RunNews, Sent},
-    hotkey::{self, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW},
+    hotkey::{self, Act, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW},
     news::{self, Heard},
+    orb,
     presence::Presence,
 };
 use anyhow::Context;
 use beep_live::{Effect, EndMode, Filler, Fillers, Input, Leaving, Live, Phase, Reading};
-use beep_proto::{Filler as FillerLine, Notice, Say, SpeakNotice, Transcription, VoiceNote};
+use beep_proto::{
+    CancelRun, Filler as FillerLine, Notice, Say, SpeakNotice, Transcription, VoiceNote,
+};
 use serde::Serialize;
 use serde_bytes::ByteBuf;
 use std::{
@@ -53,8 +57,6 @@ const SOUND_LEVEL: f32 = 0.12;
 const STT_TRIES: u32 = 3;
 /// Wait before opening a transcription again after one failed.
 const STT_RETRY: Duration = Duration::from_secs(1);
-/// How long a passive bar stays up after live mode ends with nothing kept.
-const LINGER: Duration = Duration::from_secs(3);
 const UNAVAILABLE: &str = "Voice is not available right now";
 const MIC_DENIED: &str =
     "Beep cannot hear you. Allow it in System Settings, Privacy & Security, Microphone.";
@@ -98,6 +100,8 @@ enum LiveEvent {
         draft: Option<String>,
         session: Option<String>,
         quiet: bool,
+        /// The reply was cancelled.
+        cancelled: bool,
         failure: Option<String>,
     },
 }
@@ -121,6 +125,8 @@ struct Session {
     live: Live,
     chat: Option<Uuid>,
     title: Option<String>,
+    /// A voice note read out: no transcription, and it ends when read.
+    note: bool,
     /// The engine once it opened.
     audio: watch::Receiver<Option<Arc<Audio>>>,
     /// Microphone sound for the transcription that runs.
@@ -129,6 +135,10 @@ struct Session {
     stt_run: u64,
     stt_failures: u32,
     failure: Option<String>,
+    /// The run answering the last message, once it started.
+    run: Option<String>,
+    /// Left by cancelling a reply.
+    cancelled: bool,
     /// Reading a reply or a note aloud.
     reader: Reader,
     playing: Option<Playing>,
@@ -230,9 +240,12 @@ impl Voice {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Tells the bar and the orb about live mode.
     fn emit(&self, event: LiveEvent) {
-        if let Err(e) = self.app.emit_to(bar::LABEL, "live", event) {
-            log::debug!("telling the bar about live mode: {e}");
+        for label in [bar::LABEL, orb::LABEL] {
+            if let Err(e) = self.app.emit_to(label, "live", &event) {
+                log::debug!("telling the {label} about live mode: {e}");
+            }
         }
     }
 
@@ -247,6 +260,42 @@ impl Voice {
     /// Whether live mode is on.
     pub fn is_live(&self) -> bool {
         self.state().live.is_some()
+    }
+
+    /// What live mode is doing, for the Option keys.
+    fn voice(&self) -> hotkey::Voice {
+        match self.state().live.as_ref() {
+            None => hotkey::Voice::Off,
+            Some(s) if s.note => hotkey::Voice::Note,
+            Some(_) => hotkey::Voice::Live,
+        }
+    }
+
+    /// Whether session `id` reads a voice note.
+    fn is_note(&self, id: u64) -> bool {
+        self.state()
+            .live
+            .as_ref()
+            .is_some_and(|s| s.id == id && s.note)
+    }
+
+    /// Whether the bar is open, which only the user does.
+    fn bar_open(&self) -> bool {
+        bar::is_open(&self.app)
+    }
+
+    /// The bar was hidden during live mode: live mode carries on in the
+    /// orb. A voice note was never in the bar and only shows there.
+    pub fn minimize(&self) {
+        let id = match self.state().live.as_ref() {
+            Some(s) => s.id,
+            None => return,
+        };
+        if let Err(e) = orb::show(&self.app) {
+            log::warn!("showing the orb: {e}");
+        }
+        // A new orb has seen nothing yet.
+        self.show(id);
     }
 
     /// Whether `notice` should be spoken instead of shown as a banner: voice
@@ -302,12 +351,69 @@ impl Voice {
 
     /// A tap from the bar, such as a click on the orb.
     pub fn tap(self: &Arc<Self>) {
+        if self.voice() == hotkey::Voice::Note {
+            return self.leave_live();
+        }
         self.input_now(Input::Tap);
     }
 
     /// Leaves live mode, keeping what was said as a draft.
     pub fn leave_live(self: &Arc<Self>) {
         self.input_now(Input::Escape);
+    }
+
+    /// Esc or Cancel. While a reply is being written or read out, stops it
+    /// on the server as well and leaves with the message that asked for it
+    /// as the draft. Otherwise leaves, keeping what was said.
+    pub fn cancel(self: &Arc<Self>) {
+        let cancelled =
+            {
+                let mut state = self.state();
+                let Some(s) = state.live.as_mut().filter(|s| {
+                    !s.note && matches!(s.live.phase(), Phase::Thinking | Phase::Speaking)
+                }) else {
+                    drop(state);
+                    return self.leave_live();
+                };
+                s.cancelled = true;
+                let said = (!s.said.is_empty()).then(|| s.said.clone());
+                let effects = s
+                    .live
+                    .input(Input::Escape, Instant::now())
+                    .into_iter()
+                    .map(|effect| match effect {
+                        Effect::Leave { draft: None, why } => Effect::Leave {
+                            draft: said.clone(),
+                            why,
+                        },
+                        effect => effect,
+                    })
+                    .collect::<Vec<_>>();
+                (s.id, s.chat, s.run.take(), effects)
+            };
+        let (id, chat, run, effects) = cancelled;
+        self.cancel_run(chat, run);
+        self.apply(id, effects);
+    }
+
+    /// Cancels run `run` on the server, or the run going on in `chat` when
+    /// it had not started yet as far as live mode heard.
+    fn cancel_run(&self, chat: Option<Uuid>, run: Option<String>) {
+        let beep = self.beep.clone();
+        tauri::async_runtime::spawn(async move {
+            let run = match (run, chat) {
+                (Some(run), _) => run,
+                (None, Some(chat)) => match beep.active_run(&chat.to_string()).await {
+                    Ok(Some(run)) => run,
+                    Ok(None) => return,
+                    Err(e) => return log::warn!("finding the reply to cancel: {e}"),
+                },
+                (None, None) => return,
+            };
+            if let Err(e) = beep.call(CancelRun { id: run }).await {
+                log::warn!("cancelling a spoken reply: {e}");
+            }
+        });
     }
 
     /// The pause setting changed.
@@ -320,7 +426,7 @@ impl Voice {
 
     /// The chat open in the bar, when the user has it up.
     fn open_chat(&self) -> Option<Uuid> {
-        if !bar::is_open(&self.app) || bar::is_passive() {
+        if !bar::is_open(&self.app) {
             return None;
         }
         self.beep.session().and_then(|s| Uuid::parse_str(&s).ok())
@@ -332,9 +438,6 @@ impl Voice {
         let id = self.lives.fetch_add(1, Ordering::Relaxed) + 1;
         let (mic, heard) = mpsc::channel(MIC_CHUNKS);
         let (opened, audio) = watch::channel(None);
-        // A tap asks for live mode; a hold or a spoken note comes while the
-        // user works elsewhere, so it leaves them the keyboard.
-        let focus = matches!(how, Start::Tap);
         let (live, effects, note) = match how {
             Start::Tap => {
                 let (live, effects) = Live::listening(mode, now);
@@ -367,11 +470,14 @@ impl Voice {
                 live,
                 chat,
                 title: note.as_ref().map(|(_, title)| title.clone()),
+                note: note.is_some(),
                 audio,
                 stt: None,
                 stt_run: 0,
                 stt_failures: 0,
                 failure: None,
+                run: None,
+                cancelled: false,
                 reader: Reader::default(),
                 playing: None,
                 mic_level: 0.0,
@@ -396,21 +502,31 @@ impl Voice {
                 Err(e) => me.unavailable(id, format!("the audio did not start: {e}")),
             }
         });
-        if !bar::is_open(&self.app) {
-            bar::show_passive(&self.app, focus);
-        }
         self.watch_escape();
         if let Some((note, _)) = note {
             self.read_note(id, note);
         }
         self.apply(id, effects);
-        self.show(id);
+        // Only a voice note starts with the bar closed; it shows in the orb.
+        if bar::is_open(&self.app) {
+            self.show(id);
+        } else {
+            self.minimize();
+        }
     }
 
     fn watch_escape(self: &Arc<Self>) {
         let me = self.clone();
         let watched = self.app.run_on_main_thread(move || {
-            hotkey::watch_escape(move || me.leave_live());
+            // Only in the bar: Escape in another app, or in a research
+            // window, is not meant for live mode.
+            hotkey::watch_escape(move || {
+                let focused = bar::is_focused(&me.app);
+                if focused {
+                    me.cancel();
+                }
+                focused
+            });
         });
         if let Err(e) = watched {
             log::warn!("watching Escape: {e}");
@@ -459,6 +575,8 @@ impl Voice {
         for effect in effects {
             log::debug!("live {id}: {}", effect.name());
             match effect {
+                // A voice note is only read out: nothing listens.
+                Effect::Transcribe if self.is_note(id) => {}
                 Effect::Transcribe => self.transcribe(id),
                 Effect::EndTranscription => self.end_transcription(id),
                 Effect::Send { text, new_chat } => self.send(id, text, new_chat),
@@ -690,33 +808,22 @@ impl Voice {
         if let Some(chat) = chat {
             self.beep.set_session(Some(chat.to_string()));
         }
-        // The bar stays on the chat when the user had it up; a bar up only
-        // for live mode goes away, and a draft waits in the chat's box.
-        let reopen = bar::is_open(&self.app) && !bar::is_passive();
+        // The bar stays on the chat when the user has it up. From the orb,
+        // a draft waits in the chat's box for the next time it opens.
+        let reopen = bar::is_open(&self.app);
+        orb::hide(&self.app);
         self.emit(LiveEvent::Left {
             draft,
             session: chat.map(|c| c.to_string()),
             quiet: why == Leaving::Quiet,
+            cancelled: session.cancelled,
             failure: session.failure.take(),
         });
         // Dropping the session closes the microphone.
         drop(session);
         if reopen {
             bar::show(&self.app, None);
-        } else {
-            self.linger();
         }
-    }
-
-    /// Hides a passive bar a little after live mode ended.
-    fn linger(&self) {
-        let me = self.app.state::<Arc<Voice>>().inner().clone();
-        tauri::async_runtime::spawn(async move {
-            sleep(LINGER).await;
-            if !me.is_live() && bar::is_passive() {
-                bar::dismiss(&me.app);
-            }
-        });
     }
 
     /// Sends what was said, and reads the reply out as it streams.
@@ -733,6 +840,7 @@ impl Voice {
             };
             s.chat = Some(chat);
             s.title = None;
+            s.run = None;
             text.clone_into(&mut s.said);
             s.last_reply.clear();
             s.prev = None;
@@ -832,7 +940,8 @@ impl Voice {
             });
             let (_, ticks) = watch::channel(0);
             me.play(id, rx, ticks, &voiced, false).await;
-            me.input(id, Input::SpeakDone);
+            // Read: it ends here rather than listening for an answer.
+            me.input(id, Input::Escape);
         };
         if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
             s.reader.start(reader);
@@ -881,6 +990,7 @@ impl Voice {
         loop {
             tokio::select! {
                 news = heard.recv() => match news {
+                    Some(RunNews::Started(run)) => self.set_run(id, run),
                     Some(RunNews::Text(delta)) => {
                         for line in reading.push(&delta) {
                             if lines.send(queue(Line::Answer(line))).await.is_err() {
@@ -1078,6 +1188,12 @@ impl Voice {
         opened.clone()
     }
 
+    fn set_run(&self, id: u64, run: String) {
+        if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
+            s.run = Some(run);
+        }
+    }
+
     fn set_step(&self, id: u64, step: Option<String>) {
         if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
             s.step = step;
@@ -1121,22 +1237,25 @@ impl Voice {
         }
     }
 
-    /// Two taps: open or hide the bar. In live mode it leaves, and the bar
-    /// opens on the chat.
+    /// Two taps: open or hide the bar. Over the orb they bring the bar back
+    /// with live mode still running; with the bar up they leave live mode,
+    /// and the bar opens on the chat.
     fn on_two_taps(self: &Arc<Self>) {
-        if self.is_live() {
-            self.leave_live();
-            if !self.is_live() {
-                bar::show(&self.app, None);
+        match hotkey::on_two(self.voice(), self.bar_open()) {
+            hotkey::Two::Toggle => bar::toggle(&self.app),
+            hotkey::Two::ShowBar => bar::show(&self.app, None),
+            hotkey::Two::Leave => {
+                self.leave_live();
+                if !self.is_live() {
+                    bar::show(&self.app, None);
+                }
             }
-            return;
         }
-        bar::toggle(&self.app);
     }
 
     /// `HOLD` after Option went down: talk while it stays down.
     fn on_hold_timer(self: &Arc<Self>, press: u64) {
-        let live = self.is_live();
+        let act = hotkey::on_held(self.voice(), self.bar_open());
         let step = self
             .state()
             .hold
@@ -1144,16 +1263,18 @@ impl Voice {
         if step != HoldStep::Start {
             return;
         }
-        if live {
-            self.input_now(Input::HoldStart);
-        } else {
-            let chat = self.open_chat();
-            self.start(Start::Hold, chat);
+        match act {
+            Act::Live => self.input_now(Input::HoldStart),
+            Act::Start => {
+                let chat = self.open_chat();
+                self.start(Start::Hold, chat);
+            }
+            Act::EndNote | Act::Nothing => {}
         }
     }
 
-    /// A single tap stood alone: interrupt or leave live mode, or start it
-    /// when the user has the bar open.
+    /// A single tap stood alone: interrupt or leave live mode, stop a voice
+    /// note, or start live mode in a bar the user opened.
     fn on_tap_timer(self: &Arc<Self>, press: u64) {
         let step = self
             .state()
@@ -1162,11 +1283,14 @@ impl Voice {
         if step != HoldStep::Single {
             return;
         }
-        if self.is_live() {
-            self.input_now(Input::Tap);
-        } else if bar::is_open(&self.app) && !bar::is_passive() {
-            let chat = self.open_chat();
-            self.start(Start::Tap, chat);
+        match hotkey::on_single(self.voice(), self.bar_open()) {
+            Act::Live => self.input_now(Input::Tap),
+            Act::EndNote => self.leave_live(),
+            Act::Start => {
+                let chat = self.open_chat();
+                self.start(Start::Tap, chat);
+            }
+            Act::Nothing => {}
         }
     }
 }
