@@ -643,6 +643,7 @@ function finish(id, turn) {
   turn.folded = true;
   drawSteps(turn, true);
   replyActs(turn);
+  if (turn.user) loadTurnAgent(id, turn);
   const e = live.get(id);
   if (e) {
     e.run = null;
@@ -969,6 +970,7 @@ function drawHistory(id, turns) {
   if (last) suggestions(last.turn, last.replies);
   scrollDown();
   loadAskFiles(id, body());
+  loadAgents(id, body());
   liveTranscript(id, body());
   keepWaitingQuestions(id);
 }
@@ -983,6 +985,25 @@ async function loadAskFiles(id, b) {
     if (!turn || turn.querySelector(".dachips")) continue;
     (turn.querySelector(".dpics") ?? turn.querySelector(".ask"))?.after(askFiles(files));
   }
+}
+
+/// Names the agent that answered each turn of session `id`, from the
+/// server's list. General and turns without agents show nothing.
+async function loadAgents(id, b) {
+  const agents = await invoke("session_agents", { id }).catch(() => []);
+  if (S.session !== id || body() !== b) return;
+  for (const { message, agent } of agents) {
+    const turn = agent && b.querySelector(`.turn[data-at="${message}"]`);
+    if (turn) { turn.agent = agent; replyActs(turn); }
+  }
+}
+/// The same for a turn that just finished live: it is the newest one listed.
+async function loadTurnAgent(id, turn) {
+  const agents = await invoke("session_agents", { id }).catch(() => []);
+  const agent = agents.at(-1)?.agent;
+  if (!agent || !turn.isConnected || turn !== [...body().querySelectorAll(".turn")].findLast(t => t.user)) return;
+  turn.agent = agent;
+  replyActs(turn);
 }
 
 // ---------- Chats ----------
@@ -3160,7 +3181,8 @@ function routeClick(e) {
 /// The caller's model settings. `choices` is empty unless they are an
 /// admin, and then the bar shows no chip, no model view and no rerun.
 /// `agents` is whether an admin turned agents on for everyone.
-const MODELS = { info: null, sel: 0, agents: false };
+/// `list` names the agents set up, General first; empty when there are none.
+const MODELS = { info: null, sel: 0, agents: false, list: [] };
 const THINKING = ["off", "low", "medium", "high"];
 
 function isAdmin() { return !!MODELS.info?.choices.length; }
@@ -3173,7 +3195,9 @@ async function loadModels() {
   refreshHints();
   if (!isAdmin()) return;
   try {
-    MODELS.agents = (await invoke("get_agents")).enabled;
+    const agents = await invoke("get_agents");
+    MODELS.agents = agents.enabled;
+    MODELS.list = agents.agents.map(a => a.name);
   } catch {
     return;
   }
@@ -3214,9 +3238,14 @@ function drawModel() {
   const rows = m.choices.map((c, i) => `<button class="drt dmrow" role="option" data-pick="${i}" aria-selected="${i === MODELS.sel}"><span class="tt"><b>${esc(c.name)}</b><span>${esc(modelPrice(c))}</span></span>${c.id === m.selected ? `<span class="dok">${ICON.check}</span>` : ""}</button>`).join("");
   const picker = agentPicks ? "" : `<div class="dlist" style="padding:0" role="listbox" aria-label="Models">${rows}</div>
       <div class="dfield"><span>Thinking</span><div class="dchips">${THINKING.map(l => `<button class="dchip" data-level="${l}" aria-pressed="${l === m.thinking}">${cap(l)}</button>`).join("")}</div></div>`;
+  // Agents apply to everyone, so they sit apart from the caller's own model.
+  const agentSec = MODELS.list.length ? `<div class="dsec flat dagents">Agents <span class="dtag">Admin</span></div>
+      <div class="dtoggle"><span><b>Agents</b><small>${agents ? "On for everyone: Jev picks an agent for each prompt" : "Off: everyone uses the general assistant"}</small></span><button class="dswitch" data-act="agents" role="switch" aria-checked="${agents}" aria-label="Agents"></button></div>
+      <div class="dmuted dagentlist"${agents ? "" : ' style="opacity:.6"'}>${esc(MODELS.list.join(", "))}</div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Model</b><small>${agents ? "Your own turns only." : "Your own turns only. Everyone else stays on the default."}</small></span></div>
-    <div class="dform" style="padding-top:12px">${auto}
+    <div class="dform dmodelform" style="padding-top:12px">${auto}
       ${picker}
+      ${agentSec}
       <div class="derr" id="modelErr"></div>
     </div>${hints(agentPicks ? [["esc", "back"]] : [["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]])}`;
 }
@@ -3236,6 +3265,19 @@ function modelClick(e) {
   const level = e.target.closest("[data-level]");
   if (level) return changeModel("set_thinking", { level: level.dataset.level });
   if (e.target.closest('[data-act="auto"]')) return changeModel("set_auto_model", { enabled: !MODELS.info.auto });
+  if (e.target.closest('[data-act="agents"]')) return setAgents(!MODELS.agents);
+}
+async function setAgents(enabled) {
+  try {
+    const agents = await invoke("set_agents", { enabled });
+    MODELS.agents = agents.enabled;
+    MODELS.list = agents.agents.map(a => a.name);
+  } catch (e) {
+    const err = $("#modelErr");
+    if (err) err.textContent = String(e);
+    return;
+  }
+  if (S.view === "model") drawModel();
 }
 function modelKeys(e) {
   if (MODELS.agents && MODELS.info.auto_available && MODELS.info.auto) return;
@@ -3250,13 +3292,15 @@ function modelKeys(e) {
 
 // ---------- Reply actions ----------
 
-/// Copy, and for admins Rerun, under a finished reply.
+/// Copy, and for admins Rerun, under a finished reply, then the agent that
+/// answered it when there was one.
 function replyActs(turn) {
   turn.querySelector(".dreplyacts")?.remove();
   const text = turn.querySelector(".reply")?.innerText.trim();
   const rerun = isAdmin() && turn.user;
-  if (!text && !rerun) return;
-  const row = h(`<div class="dreplyacts">${text ? `<button class="dcopy" data-act="copyReply">${COPY_ICON}Copy</button>` : ""}${rerun ? `<span class="drerun"><button class="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded="false">${PLAY_ICON}Rerun<span class="dchev">${ICON.chev}</span></button></span>` : ""}</div>`);
+  if (!text && !rerun && !turn.agent) return;
+  const agent = turn.agent ? `<span class="dagent" title="The agent that answered">${esc(turn.agent)}</span>` : "";
+  const row = h(`<div class="dreplyacts">${text ? `<button class="dcopy" data-act="copyReply">${COPY_ICON}Copy</button>` : ""}${rerun ? `<span class="drerun"><button class="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded="false">${PLAY_ICON}Rerun<span class="dchev">${ICON.chev}</span></button></span>` : ""}${agent}</div>`);
   const replies = turn.querySelector(".dreplies");
   replies ? turn.insertBefore(row, replies) : turn.append(row);
 }

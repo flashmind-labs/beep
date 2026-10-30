@@ -197,6 +197,8 @@ fn main() {
             commands::delete_skill,
             commands::undo_skill,
             commands::get_agents,
+            commands::set_agents,
+            commands::session_agents,
             commands::get_models,
             commands::stock_chart,
             commands::route_card,

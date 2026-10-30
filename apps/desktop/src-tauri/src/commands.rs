@@ -18,13 +18,13 @@ use beep_proto::{
     Agents, AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, Chart, ChartRange,
     ClearMemories, CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory,
     DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GetRouteCard,
-    GetSessionFiles, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons,
-    ListGroupReminders, ListGroups, ListMemories, ListMemoryReads, ListMemoryScopes, ListSkills,
-    Memory, MemoryRead, MemoryScope, Models, PeekGroup, PinGroup, PinSession, ReasoningLevel,
-    RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session, SessionMatch, SetAutoModel,
-    SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink, Skill, StockChart, ToggleCron,
-    UndoSkill, UnshareSession, UpdateMemory, UpdateSkill, format_group_code, group_code,
-    node::desktop::Permission,
+    GetSessionAgents, GetSessionFiles, GroupInvite, GroupPreview, GroupReminder, JoinGroup,
+    LeaveGroup, ListCrons, ListGroupReminders, ListGroups, ListMemories, ListMemoryReads,
+    ListMemoryScopes, ListSkills, Memory, MemoryRead, MemoryScope, Models, PeekGroup, PinGroup,
+    PinSession, ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session,
+    SessionMatch, SetAgents, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession,
+    SharedLink, Skill, StockChart, ToggleCron, TurnAgent, UndoSkill, UnshareSession, UpdateMemory,
+    UpdateSkill, format_group_code, group_code, node::desktop::Permission,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -905,6 +905,18 @@ pub async fn undo_skill(beep: Service<'_>, id: String) -> Result<SkillView> {
 #[tauri::command]
 pub async fn get_agents(beep: Service<'_>) -> Result<Agents> {
     beep.call(GetAgents {}).await
+}
+
+/// Turns agents on or off for everyone. Admins only.
+#[tauri::command]
+pub async fn set_agents(beep: Service<'_>, enabled: bool) -> Result<Agents> {
+    beep.call(SetAgents { enabled }).await
+}
+
+/// The agent each turn of session `id` ran as, by the `at` of its user turn.
+#[tauri::command]
+pub async fn session_agents(beep: Service<'_>, id: String) -> Result<Vec<TurnAgent>> {
+    beep.call(GetSessionAgents { session_id: id }).await
 }
 
 /// The caller's model settings. `choices` is empty unless they are an
