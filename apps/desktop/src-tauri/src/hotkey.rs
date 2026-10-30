@@ -6,10 +6,11 @@
 //! source how long ago the last one was: Option used to type a character or
 //! jump a word is not a tap.
 //!
-//! Holding Option on its own talks to Beep from any app, and letting go
-//! sends what was said. A single tap starts live mode when the bar is open,
-//! and in live mode interrupts Beep or leaves. The same monitor drives both, through
-//! `Hold`.
+//! Only two taps open Beep. With the bar open, a single tap starts live
+//! mode and holding Option talks until it is let go; in live mode a tap
+//! interrupts Beep or leaves. Anywhere else Option alone does nothing, since
+//! it is held for menus, Option-drag and Option-click. The same monitor
+//! drives both, through `Hold`, and `on_single` and `on_held` decide.
 
 use std::time::{Duration, Instant};
 
@@ -209,6 +210,48 @@ impl Hold {
     /// The last tap was part of two or three, so it does not stand alone.
     pub fn forget_tap(&mut self) {
         self.tapped_at = None;
+    }
+}
+
+/// What live mode is doing, as Option sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Voice {
+    Off,
+    /// Live mode the user started from the bar.
+    Live,
+    /// A voice note being read out, which does not listen.
+    Note,
+}
+
+/// What a lone tap or a hold of Option does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Act {
+    Nothing,
+    /// Start live mode in the chat the bar shows.
+    Start,
+    /// Hand the key to live mode: a tap interrupts or leaves, a hold talks.
+    Live,
+    /// Stop the voice note.
+    EndNote,
+}
+
+/// A lone tap. `bar_open` is a bar the user opened with two taps.
+pub fn on_single(voice: Voice, bar_open: bool) -> Act {
+    match voice {
+        Voice::Off if bar_open => Act::Start,
+        Voice::Off => Act::Nothing,
+        Voice::Live => Act::Live,
+        Voice::Note => Act::EndNote,
+    }
+}
+
+/// Option held alone. `bar_open` is a bar the user opened with two taps.
+pub fn on_held(voice: Voice, bar_open: bool) -> Act {
+    match voice {
+        Voice::Off if bar_open => Act::Start,
+        Voice::Live => Act::Live,
+        // A note never starts listening on its own.
+        Voice::Off | Voice::Note => Act::Nothing,
     }
 }
 
@@ -659,6 +702,27 @@ mod tests {
             hold.on_event(up_after_press(50), ms(t, 600)),
             HoldStep::Nothing
         );
+    }
+
+    #[test]
+    fn option_alone_starts_nothing_without_the_bar() {
+        assert_eq!(on_single(Voice::Off, false), Act::Nothing);
+        assert_eq!(on_held(Voice::Off, false), Act::Nothing);
+        assert_eq!(on_single(Voice::Off, true), Act::Start);
+        assert_eq!(on_held(Voice::Off, true), Act::Start);
+    }
+
+    #[test]
+    fn live_mode_takes_taps_and_holds_with_the_bar_hidden() {
+        assert_eq!(on_single(Voice::Live, false), Act::Live);
+        assert_eq!(on_held(Voice::Live, false), Act::Live);
+    }
+
+    #[test]
+    fn a_voice_note_never_starts_listening() {
+        assert_eq!(on_single(Voice::Note, false), Act::EndNote);
+        assert_eq!(on_held(Voice::Note, false), Act::Nothing);
+        assert_eq!(on_held(Voice::Note, true), Act::Nothing);
     }
 
     #[test]
