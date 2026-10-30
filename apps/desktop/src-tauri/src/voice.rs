@@ -8,7 +8,7 @@
 //! reply is spoken through `Say` as it streams in.
 
 use crate::{
-    audio::{Audio, MicChunk, Played},
+    audio::{Audio, MicChunk, MicDenied, Played},
     bar,
     beep::{Beep, Pick, RunNews, Sent},
     hotkey::{self, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW},
@@ -56,6 +56,8 @@ const STT_RETRY: Duration = Duration::from_secs(1);
 /// How long a passive bar stays up after live mode ends with nothing kept.
 const LINGER: Duration = Duration::from_secs(3);
 const UNAVAILABLE: &str = "Voice is not available right now.";
+const MIC_DENIED: &str =
+    "Beep cannot hear you. Allow it in System Settings, Privacy & Security, Microphone.";
 
 /// What the bar hears about live mode, as the `live` event.
 #[derive(Debug, Clone, Serialize)]
@@ -386,6 +388,7 @@ impl Voice {
                     // Nobody waiting means live mode already ended.
                     let _ = opened.send(Some(Arc::new(audio)));
                 }
+                Ok(Err(e)) if e.is::<MicDenied>() => me.fail(id, MIC_DENIED, format!("{e:#}")),
                 Ok(Err(e)) => me.unavailable(id, format!("{e:#}")),
                 Err(e) => me.unavailable(id, format!("the audio did not start: {e}")),
             }
@@ -648,9 +651,14 @@ impl Voice {
     /// The microphone or the transcription cannot work: leave, keeping
     /// what was said.
     fn unavailable(self: &Arc<Self>, id: u64, why: String) {
+        self.fail(id, UNAVAILABLE, why);
+    }
+
+    /// Leaves live mode, telling the user `failure`.
+    fn fail(self: &Arc<Self>, id: u64, failure: &str, why: String) {
         log::warn!("live mode is unavailable: {why}");
         if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
-            s.failure = Some(UNAVAILABLE.into());
+            s.failure = Some(failure.into());
         }
         self.input(id, Input::Escape);
     }

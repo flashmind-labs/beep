@@ -18,6 +18,11 @@ pub struct MicChunk {
     pub level: f32,
 }
 
+/// The user has not let Beep use the microphone.
+#[derive(Debug, thiserror::Error)]
+#[error("Beep is not allowed to use the microphone")]
+pub struct MicDenied;
+
 /// An answer that started playing.
 #[derive(Debug, Clone, Default)]
 pub struct Played {
@@ -84,10 +89,11 @@ pub fn envelope(samples: &[f32], rate: f64) -> Vec<f32> {
 
 #[cfg(target_os = "macos")]
 mod engine {
-    use super::{MicChunk, Played, RATE, envelope, level, pcm16, resample};
+    use super::{MicChunk, MicDenied, Played, RATE, envelope, level, pcm16, resample};
     use anyhow::{Context, anyhow};
     use block2::RcBlock;
-    use objc2::{AllocAnyThread, rc::Retained};
+    use objc2::{AllocAnyThread, rc::Retained, runtime::Bool};
+    use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
     use objc2_avf_audio::{
         AVAudioEngine, AVAudioFile, AVAudioPCMBuffer, AVAudioPlayerNode,
         AVAudioPlayerNodeCompletionCallbackType, AVAudioTime,
@@ -121,8 +127,9 @@ mod engine {
     impl Audio {
         /// Opens the microphone with echo cancellation and starts sending
         /// it to `mic`. The first time, macOS asks the user. Blocks until
-        /// the engine runs.
+        /// the engine runs, or fails with `MicDenied` when not allowed.
         pub fn open(mic: Sender<MicChunk>) -> anyhow::Result<Self> {
+            allowed()?;
             let (commands, inbox) = mpsc::channel();
             let (ready, opened) = mpsc::channel();
             thread::Builder::new()
@@ -156,6 +163,37 @@ mod engine {
         pub fn stop_playing(&self) {
             // A stopped thread plays nothing already.
             let _ = self.commands.send(Command::StopPlaying);
+        }
+    }
+
+    /// Asks the user for the microphone when macOS has not yet, and waits
+    /// for the answer. An engine started before that hears only silence, or
+    /// does not start at all.
+    fn allowed() -> anyhow::Result<()> {
+        // SAFETY: AVMediaTypeAudio is a constant AVFoundation defines.
+        let audio = unsafe { AVMediaTypeAudio }.context("AVFoundation has no audio media type")?;
+        // SAFETY: a class method safe to call from any thread.
+        let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(audio) };
+        match status {
+            AVAuthorizationStatus::Authorized => Ok(()),
+            AVAuthorizationStatus::NotDetermined => {
+                let (answer, answered) = mpsc::channel();
+                let asked = RcBlock::new(move |granted: Bool| {
+                    // `allowed` waits for this, so it is there to hear it.
+                    let _ = answer.send(granted.as_bool());
+                });
+                // SAFETY: the handler may run on any thread, which the
+                // channel allows.
+                unsafe {
+                    AVCaptureDevice::requestAccessForMediaType_completionHandler(audio, &asked)
+                };
+                match answered.recv() {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(MicDenied.into()),
+                    Err(_) => Err(anyhow!("macOS did not answer the microphone request")),
+                }
+            }
+            _ => Err(MicDenied.into()),
         }
     }
 
