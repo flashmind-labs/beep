@@ -95,31 +95,10 @@ impl Store {
                 return Ok(signed_in(row));
             }
             let user = Uuid::new_v4().simple().to_string();
-            let name = username(endpoint);
             let mut tx = self.pool.begin().await?;
-            sqlx::query("INSERT INTO users (id, name, external_id) VALUES ($1, $2, $1)")
-                .bind(&user)
-                .bind(&name)
-                .execute(&mut *tx)
-                .await?;
-            let made = sqlx::query(
-                "INSERT INTO user_keys (endpoint_id, user_id, name, kind, is_primary)
-                 VALUES ($1, $2, $3, $4, true) ON CONFLICT (endpoint_id) DO NOTHING",
-            )
-            .bind(&id)
-            .bind(&user)
-            .bind(&name)
-            .bind(DeviceKind::Phone {}.as_str())
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-            if made > 0 {
+            if insert_account(&mut tx, &user, endpoint).await? {
                 tx.commit().await?;
-                return Ok(SignIn::Account {
-                    account: Account::new(&user),
-                    device: DeviceKind::Phone {},
-                    primary: true,
-                });
+                return Ok(new_account(&user));
             }
             tx.rollback().await?;
         }
@@ -237,6 +216,42 @@ impl Store {
         .bind(user)
         .fetch_all(&self.pool)
         .await?)
+    }
+}
+
+/// Makes account `user` with `endpoint` as its primary key, unless the key
+/// already signs into one: false then, and the transaction must roll back.
+pub(super) async fn insert_account(
+    tx: &mut sqlx::PgConnection,
+    user: &str,
+    endpoint: &EndpointId,
+) -> Result<bool> {
+    let name = username(endpoint);
+    sqlx::query("INSERT INTO users (id, name, external_id) VALUES ($1, $2, $1)")
+        .bind(user)
+        .bind(&name)
+        .execute(&mut *tx)
+        .await?;
+    let made = sqlx::query(
+        "INSERT INTO user_keys (endpoint_id, user_id, name, kind, is_primary)
+         VALUES ($1, $2, $3, $4, true) ON CONFLICT (endpoint_id) DO NOTHING",
+    )
+    .bind(endpoint.to_string())
+    .bind(user)
+    .bind(&name)
+    .bind(DeviceKind::Phone {}.as_str())
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    Ok(made > 0)
+}
+
+/// How a key that just made account `user` signs in.
+pub(super) fn new_account(user: &str) -> SignIn {
+    SignIn::Account {
+        account: Account::new(user),
+        device: DeviceKind::Phone {},
+        primary: true,
     }
 }
 

@@ -1,0 +1,81 @@
+# Beep for one person, on their own machine: the server, its Postgres and a
+# node that runs shell commands and coding agents for the agent. Settings
+# come from .env (copy .env.example). See README.md.
+name: beep
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: beep
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: beep
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "beep"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  server:
+    image: ${BEEP_SERVER_IMAGE:-beep-server:local}
+    build:
+      context: ../..
+    restart: unless-stopped
+    # Writes the config from .env, then runs the server as `beep`.
+    entrypoint: ["beep-onprem"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://beep:${POSTGRES_PASSWORD}@postgres:5432/beep
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The server only dials out (iroh relays and hole punching), so it
+    # publishes no ports.
+    # NET_ADMIN only for the egress cap; the entrypoint drops every
+    # capability before the server starts.
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - data:/data
+      - link:/link
+      - ./local:/local:ro
+    # The server shuts down cleanly on ctrl-c only.
+    stop_signal: SIGINT
+
+  node:
+    image: ${BEEP_NODE_IMAGE:-beep-node:local}
+    build:
+      context: ../..
+      target: node
+    restart: unless-stopped
+    command:
+      - --dir
+      - /home/beep/.config/beep-node
+      - local
+      - --link
+      - /link
+      - --name
+      - ${BEEP_NODE_NAME:-Beep server}
+    environment:
+      BEEP_EGRESS_LIMIT: ${BEEP_EGRESS_LIMIT:-}
+    # As for the server: only for the egress cap, dropped before the node
+    # runs anything.
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - server
+    volumes:
+      # The node's key, and the coding agents' logins.
+      - node-home:/home/beep
+      # Where the agent works.
+      - work:/work
+      - link:/link
+
+volumes:
+  postgres:
+  data:
+  link:
+  node-home:
+  work:

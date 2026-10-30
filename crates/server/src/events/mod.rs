@@ -13,7 +13,8 @@
 //! passes on as urgent wakes the main agent, which decides what to tell the
 //! user; what can wait comes up in the next wake or conversation.
 //!
-//! Admins only for now: other users get no triggers, polls or wakes.
+//! Admins only for now: other users get no triggers, polls or wakes. A
+//! single-user server can turn them off for its owner too.
 
 pub(crate) mod limit;
 mod model;
@@ -31,9 +32,9 @@ pub use pipeline::{Accepted, Hub, Settings, accept, start, submit};
 pub use realtime::deliver;
 pub use triage::{EventsConfig, Urgency, Verdict, waiting_context};
 
-use crate::{app::App, user::User};
+use crate::{app::App, instance::Privilege, user::User};
 
 /// Whether `user` gets account events.
 pub fn enabled(app: &App, user: &User) -> bool {
-    app.models.is_admin(user.id())
+    app.allows(Privilege::Events, user)
 }

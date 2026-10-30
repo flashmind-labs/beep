@@ -1,6 +1,6 @@
-# Checks every push and pull request, then builds the server image on pushes
-# to main and puts it in the private registry, tagged with the commit and
-# `latest`. `just deploy-server` runs it.
+# Checks every push and pull request, then builds the server and node images
+# on pushes to main and puts them in the private registry, tagged with the
+# commit and `latest`. `just deploy-server` runs it.
 #
 # The registry host and account are repository variables and the token a
 # repository secret, so nothing about the box is written down here. `runs-on:
@@ -60,6 +60,15 @@ jobs:
           set -euo pipefail
           IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-server'
           docker build -t "${IMAGE}:${{ github.sha }}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:latest"
+
+      # The node bundled with deploy/onprem.
+      - name: Build and push the node
+        run: |
+          set -euo pipefail
+          IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-node'
+          docker build --target node -t "${IMAGE}:${{ github.sha }}" -t "${IMAGE}:latest" .
           docker push "${IMAGE}:${{ github.sha }}"
           docker push "${IMAGE}:latest"
 

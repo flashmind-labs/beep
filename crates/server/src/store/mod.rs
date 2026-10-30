@@ -24,6 +24,7 @@ mod findings;
 mod grants;
 mod groups;
 mod habits;
+mod instance;
 pub(crate) use habits::DuplicateHabit;
 mod location;
 mod memories;

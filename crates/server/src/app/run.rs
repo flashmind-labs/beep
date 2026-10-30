@@ -17,6 +17,7 @@ use crate::{
     cron, events, followups, gates,
     grants::{RequestGrantTool, RoutineGrants},
     images,
+    instance::Privilege,
     live::LiveRun,
     memories::{Exchange, Turn},
     metering,
@@ -275,7 +276,7 @@ impl App {
             .woken
             .as_ref()
             .is_some_and(|woken| woken.rule.untrusted());
-        if self.models.is_admin(user.id()) && !untrusted {
+        if self.allows(Privilege::Nodes, user) && !untrusted {
             registry.register(Arc::new(tools::NodeTool {
                 app: self.clone(),
                 user: user.clone(),
@@ -373,7 +374,7 @@ impl App {
         };
         // Sub-agents and jobs, for admins in turns someone asked for. They
         // get the tools so far and the app tools under the same rules.
-        if !background && self.models.is_admin(user.id()) {
+        if !background && self.allows(Privilege::Background, user) {
             crate::subagents::tools::register(
                 &mut registry,
                 crate::subagents::tools::Setup {

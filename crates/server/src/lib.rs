@@ -17,6 +17,7 @@ pub mod followups;
 pub mod gates;
 pub mod grants;
 pub mod images;
+pub mod instance;
 pub mod leak;
 pub mod live;
 pub mod memories;

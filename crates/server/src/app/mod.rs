@@ -22,6 +22,7 @@ use crate::{
     compaction::{self, Summarizer},
     decision::DecisionTool,
     images::Describer,
+    instance::{Instance, InstanceConfig, Privilege},
     live::LiveRun,
     metering,
     models::ModelChoices,
@@ -29,7 +30,7 @@ use crate::{
     sandbox::Sandbox,
     search::SearchTool,
     starters::Generator,
-    store::{Account, CreateRun, RunStatus, SessionRef, SignIn, Store},
+    store::{Account, CreateRun, LinkKey, NewKey, RunStatus, SessionRef, SignIn, Store},
     stt::{RealtimeStt, Unavailable},
     titles,
     tool_images::{ToolImages, WithToolImages},
@@ -110,12 +111,14 @@ pub struct App {
     pub events: crate::events::Hub,
     /// Sub-agent runs outside the chats, such as event triage.
     pub subagents: crate::subagents::Subagents,
+    /// Set when the server runs for one owner (see `crate::instance`).
+    instance: Option<Instance>,
     /// Agents that read finished chats over (see `crate::watchers`).
     pub watchers: crate::watchers::Hub,
 }
 
-/// Optional tools and integrations that need server credentials, as
-/// `App::new` takes them.
+/// Optional tools and integrations that need server credentials, and the
+/// single-user instance settings, as `App::new` takes them.
 #[derive(Default)]
 pub struct ServerTools {
     pub search: Option<Arc<SearchTool>>,
@@ -138,6 +141,8 @@ pub struct ServerTools {
     pub realtime: Option<Arc<dyn RealtimeStt>>,
     /// Mistral, which transcribes spoken replies when set.
     pub mistral: Option<Arc<dyn LlmProvider>>,
+    /// Runs the server for one owner; `None` serves everyone.
+    pub instance: Option<InstanceConfig>,
 }
 
 /// The part of `ServerTools` a run registers itself.
@@ -155,6 +160,15 @@ pub struct SignedIn {
     pub device: DeviceKind,
     /// The key that made the account, which may link and remove others.
     pub primary: bool,
+}
+
+/// How a connection's key may use the server.
+pub enum Admission {
+    SignedIn(SignedIn),
+    /// The key was linked and then removed.
+    Revoked,
+    /// A single-user server's key that is not one of its owner's.
+    NotInvited,
 }
 
 /// A `Notice` addressed to one user's open notification streams.
@@ -302,6 +316,7 @@ impl App {
             voice,
             realtime,
             mistral,
+            instance,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
         let tool_images = Arc::new(ToolImages::default());
@@ -347,6 +362,7 @@ impl App {
             live_transcriptions: voice::LiveSlots::default(),
             events: crate::events::Hub::default(),
             subagents,
+            instance: instance.map(Instance::new),
             watchers: crate::watchers::Hub::default(),
         })
     }
@@ -371,52 +387,227 @@ impl App {
     }
 
     /// The user `endpoint` is, made and started on its first connection.
-    /// `None` for a key that was linked and then removed.
+    /// `None` for a key that was linked and then removed, or one a
+    /// single-user server refuses.
     pub async fn sign_in(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Option<SignedIn>> {
-        Ok(match self.store.sign_in(endpoint).await? {
+        Ok(match self.admit(endpoint).await? {
+            Admission::SignedIn(signed_in) => Some(signed_in),
+            Admission::Revoked | Admission::NotInvited => None,
+        })
+    }
+
+    /// Who `endpoint` signs in as. A key nobody linked makes its own
+    /// account, except on a single-user server, where only the first one
+    /// may, and only when the config names no other owner.
+    pub async fn admit(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Admission> {
+        let Some(instance) = &self.instance else {
+            return Ok(match self.store.sign_in(endpoint).await? {
+                SignIn::Account {
+                    account,
+                    device,
+                    primary,
+                } => Admission::SignedIn(self.signed_in(&account, endpoint, device, primary)),
+                SignIn::Revoked => Admission::Revoked,
+            });
+        };
+        let sign_in = match self.store.linked_sign_in(endpoint).await? {
+            Some(sign_in) => sign_in,
+            None => match self.claim_new(instance, endpoint).await? {
+                Some(sign_in) => sign_in,
+                None => return Ok(Admission::NotInvited),
+            },
+        };
+        Ok(match sign_in {
             SignIn::Account {
                 account,
                 device,
                 primary,
             } => {
-                self.models.admit(&account.id, &endpoint.to_string());
-                Some(SignedIn {
-                    user: self.start_user(&account),
-                    device,
-                    primary,
-                })
+                if !self.owns(instance, &account, endpoint).await? {
+                    return Ok(Admission::NotInvited);
+                }
+                Admission::SignedIn(self.signed_in(&account, endpoint, device, primary))
             }
-            SignIn::Revoked => None,
+            SignIn::Revoked => Admission::Revoked,
         })
     }
 
     /// Who a key that must already be linked signs in as: `None` for a
     /// revoked key or one nobody linked, which `sign_in` would give an
-    /// account of its own.
+    /// account of its own. On a single-user server the bundled node is
+    /// linked to the owner here, and only the owner's keys sign in.
     pub async fn sign_in_linked(
         self: &Arc<Self>,
         endpoint: &EndpointId,
     ) -> Result<Option<SignedIn>> {
-        Ok(match self.store.linked_sign_in(endpoint).await? {
+        let mut sign_in = self.store.linked_sign_in(endpoint).await?;
+        if let Some(instance) = &self.instance
+            && sign_in.is_none()
+            && self.link_local_node(instance, endpoint).await?
+        {
+            sign_in = self.store.linked_sign_in(endpoint).await?;
+        }
+        Ok(match sign_in {
             Some(SignIn::Account {
                 account,
                 device,
                 primary,
             }) => {
-                self.models.admit(&account.id, &endpoint.to_string());
-                Some(SignedIn {
-                    user: self.start_user(&account),
-                    device,
-                    primary,
-                })
+                if let Some(instance) = &self.instance
+                    && !self.owns(instance, &account, endpoint).await?
+                {
+                    return Ok(None);
+                }
+                Some(self.signed_in(&account, endpoint, device, primary))
             }
             Some(SignIn::Revoked) | None => None,
         })
     }
 
+    fn signed_in(
+        self: &Arc<Self>,
+        account: &Account,
+        endpoint: &EndpointId,
+        device: DeviceKind,
+        primary: bool,
+    ) -> SignedIn {
+        self.models.admit(&account.id, &endpoint.to_string());
+        SignedIn {
+            user: self.start_user(account),
+            device,
+            primary,
+        }
+    }
+
+    /// Whether `user` gets `privilege`: an admin, and on a single-user
+    /// server only while its settings leave it on.
+    pub fn allows(&self, privilege: Privilege, user: &User) -> bool {
+        self.models.is_admin(user.id())
+            && self
+                .instance
+                .as_ref()
+                .is_none_or(|instance| instance.allows(privilege))
+    }
+
+    /// Whether agents are on before anyone changes it: on a single-user
+    /// server whose settings allow them.
+    pub(crate) fn agents_by_default(&self) -> bool {
+        self.instance
+            .as_ref()
+            .is_some_and(|instance| instance.allows(Privilege::Agents))
+    }
+
+    /// The single-user settings, when the server runs for one owner.
+    pub fn instance(&self) -> Option<&Instance> {
+        self.instance.as_ref()
+    }
+
+    /// The instance owner's account, read once and then kept.
+    pub async fn instance_owner(&self) -> Result<Option<String>> {
+        let Some(instance) = &self.instance else {
+            return Ok(None);
+        };
+        if let Some(owner) = instance.owner() {
+            return Ok(Some(owner));
+        }
+        let owner = self.store.instance_owner().await?;
+        if let Some(owner) = &owner {
+            self.owner_known(instance, owner);
+        }
+        Ok(owner)
+    }
+
+    fn owner_known(&self, instance: &Instance, owner: &str) {
+        instance.set_owner(owner);
+        self.models.make_admin(owner);
+    }
+
+    /// Makes `endpoint`, which no account has, the owner's new account when
+    /// nobody owns the instance yet and the config names no other key.
+    async fn claim_new(
+        &self,
+        instance: &Instance,
+        endpoint: &EndpointId,
+    ) -> Result<Option<SignIn>> {
+        if instance.owner_key().is_some_and(|key| key != endpoint)
+            || self.instance_owner().await?.is_some()
+        {
+            log::info!("refused a key that is not the owner's; key={endpoint}");
+            return Ok(None);
+        }
+        let claimed = self.store.claim_instance_new(endpoint).await?;
+        if let Some(SignIn::Account { account, .. }) = &claimed {
+            log::info!("instance claimed; user={} key={endpoint}", account.id);
+            self.owner_known(instance, &account.id);
+        }
+        Ok(claimed)
+    }
+
+    /// Whether `account`, which `endpoint` signs into, owns the instance. An
+    /// account made before the server ran for one owner claims it when
+    /// nobody has, if the config names no owner or names this key.
+    async fn owns(
+        &self,
+        instance: &Instance,
+        account: &Account,
+        endpoint: &EndpointId,
+    ) -> Result<bool> {
+        if let Some(owner) = self.instance_owner().await? {
+            return Ok(owner == account.id);
+        }
+        if instance.owner_key().is_some_and(|key| key != endpoint) {
+            return Ok(false);
+        }
+        if self.store.claim_instance(&account.id, endpoint).await? {
+            log::info!("instance claimed; user={} key={endpoint}", account.id);
+            self.owner_known(instance, &account.id);
+            return Ok(true);
+        }
+        // Another key claimed it a moment ago.
+        Ok(self.instance_owner().await?.as_deref() == Some(account.id.as_str()))
+    }
+
+    /// Links `endpoint` to the owner when it is the bundled node's key.
+    /// False when it is not, or nobody owns the instance yet.
+    async fn link_local_node(
+        self: &Arc<Self>,
+        instance: &Instance,
+        endpoint: &EndpointId,
+    ) -> Result<bool> {
+        let Some(node) = instance.local_node()? else {
+            return Ok(false);
+        };
+        if node.endpoint != *endpoint {
+            return Ok(false);
+        }
+        let Some(owner) = self.instance_owner().await? else {
+            log::info!("the bundled node waits for the instance to have an owner");
+            return Ok(false);
+        };
+        let Some(account) = self.store.account(&owner).await? else {
+            return Ok(false);
+        };
+        let key = NewKey {
+            endpoint: node.endpoint,
+            name: &node.name,
+            kind: DeviceKind::Desktop {},
+        };
+        let user = self.start_user(&account);
+        match user.link_key(key).await? {
+            LinkKey::Linked(_) => {
+                log::info!("bundled node linked; user={owner} key={endpoint}");
+                user.changed("");
+                Ok(true)
+            }
+            LinkKey::Taken => Ok(false),
+        }
+    }
+
     /// Starts every user that signed in before, so their crons and feeds
     /// run without a connection.
     pub async fn start_users(self: &Arc<Self>) -> Result<()> {
+        // The owner is an admin before any of their background work runs.
+        self.instance_owner().await?;
         for account in self.store.accounts().await? {
             for key in self.store.live_keys(&account.id).await? {
                 self.models.admit(&account.id, &key);
