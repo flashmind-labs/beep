@@ -60,9 +60,70 @@ const TOOL_LABELS = {
   habit_log: "Logging a habit",
   habit_status: "Checking habits",
   habit_delete: "Deleting a habit",
+  // One tool per family with an action argument. While it runs the server's
+  // own description names the action; a saved step carries a label read from
+  // its result, and these cover the rest.
+  memory: "Checking memories",
+  skill: "Loading a skill",
+  habit: "Checking habits",
+  background: "Checking background work",
+  reminder: "Setting a reminder",
+  node: "Using your machines",
+  get_route: "Planning a route",
+  send_image: "Sending pictures",
+  chat_search: "Searching this chat",
+  chat_read: "Reading this chat",
+  place_save: "Saving a place",
+  place_list: "Checking your places",
+  place_delete: "Forgetting a place",
+  place_routine: "Setting up a place routine",
+  event_topics: "Checking which updates you get",
+  hold_events: "Holding updates for later",
+  recent_events: "Checking recent updates",
+  execute_code: "Running code",
+  download_file: "Downloading a file",
+  web_scrape: "Reading a page",
+  web_extract: "Reading a page",
+  web_map: "Mapping a site",
+  web_crawl: "Reading a site",
+  web_search_read: "Reading search results",
+  start_research: "Starting research",
+  research_more: "Asking the research for more",
+  stop_research: "Stopping the research",
+  end_routine: "Ending this routine",
+  // Names from before the fold, still in older chats.
+  memory_history: "Checking how a memory changed",
+  spawn_agent: "Starting an agent",
+  message_agent: "Messaging an agent",
+  run_in_background: "Moving work to the background",
+  jobs: "Checking background work",
+  wait_job: "Waiting for background work",
+  cancel_job: "Stopping background work",
 };
-// Tools whose own description says more than their name, such as "Reading lease.pdf".
-const DESCRIBED = new Set(["mac_files"]);
+// Tools whose own description says more than their name, such as "Reading
+// lease.pdf" or which action of a folded tool runs.
+const DESCRIBED = new Set(["mac_files", "memory", "skill", "habit", "background", "reminder", "node"]);
+/// A finished step's label in the past tense, as on the phone: "Recalling
+/// memories" becomes "Recalled memories". Unknown verbs stay as they are.
+const PAST = {
+  searching: "Searched", reading: "Read", checking: "Checked", looking: "Looked", fetching: "Fetched",
+  opening: "Opened", saving: "Saved", finding: "Found", getting: "Got", creating: "Created",
+  updating: "Updated", deleting: "Deleted", sending: "Sent", setting: "Set", using: "Used",
+  remembering: "Remembered", loading: "Loaded", browsing: "Browsed", scheduling: "Scheduled",
+  running: "Ran", weighing: "Weighed", recalling: "Recalled", forgetting: "Forgot", changing: "Changed",
+  logging: "Logged", suggesting: "Suggested", showing: "Showed", starting: "Started", messaging: "Messaged",
+  moving: "Moved", waiting: "Waited", stopping: "Stopped", holding: "Held", planning: "Planned",
+  drawing: "Drew", downloading: "Downloaded", mapping: "Mapped", asking: "Asked", ending: "Ended",
+  following: "Followed", unfollowing: "Unfollowed", taking: "Took", answering: "Answered",
+  clicking: "Clicked", typing: "Typed", pressing: "Pressed", scrolling: "Scrolled", writing: "Wrote",
+  linking: "Linked",
+};
+function doneLabel(label) {
+  const text = String(label).replace(/[.\u2026\s]+$/, "");
+  const head = text.split(" ", 1)[0];
+  const past = PAST[head.toLowerCase()];
+  return past ? past + text.slice(head.length) : text;
+}
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 function toolLabel(name) {
   if (TOOL_LABELS[name]) return TOOL_LABELS[name];
@@ -166,6 +227,7 @@ function chatHints() {
   const e = here();
   const chip = modelChip();
   if (e?.approval) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
+  if (!e?.run && waitingQuestion(S.session)) return hints([[`⌘${ICON.ret}`, "allow"], [`⌥⌘${ICON.ret}`, "always"], ["⌘D", "deny"], ["esc", "to hide"]], chip);
   if (e?.run) return hints([[ICON.ret, "queue"], ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
@@ -195,6 +257,7 @@ function renderChat() {
   b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; drawLatest(); markMap(); };
   drawLatest();
   drawQueue();
+  drawWork();
   drawAttached();
   const ask = $("#ask");
   let multi = false, typed = false;
@@ -500,7 +563,7 @@ function drawSteps(turn, done) {
     const reply = turn.querySelector(".reply, .dcard, .derr");
     reply ? turn.insertBefore(box, reply) : turn.append(box);
   }
-  const rows = s => s.map(t => `<div class="dstep${t.state === "run" ? " run" : ""}"><span class="s">${stepIcon(t.state)}</span><span>${esc(t.label)}</span></div>`).join("");
+  const rows = s => s.map(t => `<div class="dstep${t.state === "run" ? " run" : ""}"><span class="s">${stepIcon(t.state)}</span><span>${esc(t.state === "ok" || t.state === "bad" ? doneLabel(t.label) : t.label)}</span></div>`).join("");
   const n = turn.steps.length;
   if (done) {
     const label = n === 1 ? "1 step" : `${n} steps`;
@@ -669,6 +732,7 @@ function follow(id, turn) {
         if (ev.cards) productRow(turn, ev.cards);
         if (ev.chart) chartRow(turn, ev.chart);
         if (ev.name === "get_route" && ev.success && ev.call_id) routeRow(turn, ev.call_id);
+        if (WORK_TOOLS.has(ev.name) && id === S.session) refreshWork(id);
         break;
       }
       case "replies":
@@ -818,6 +882,8 @@ async function newChat() {
 
 async function openSession(id) {
   S.session = id;
+  refreshWork(id);
+  loadQuestions(id);
   // A chat still answering keeps its body; anything else comes from the server.
   const running = live.get(id)?.run;
   if (!running) live.delete(id);
@@ -862,7 +928,7 @@ function drawHistory(id, turns) {
       if (turn.user) ranOn(turn, t.model, t.thinking);
     } else if (t.role === "assistant") {
       turn ??= newTurn("");
-      turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
+      turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map(x => ({ id: "", label: x.label || toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
       if (t.html) reply(turn).innerHTML += t.html;
       for (const x of t.tools) {
         if (x.file) sentFile(turn, x.file);
@@ -892,6 +958,7 @@ function drawHistory(id, turns) {
   scrollDown();
   loadAskFiles(id, body());
   liveTranscript(id, body());
+  keepWaitingQuestions(id);
 }
 
 /// Puts the files sent in session `id` under their prompts, once the server
@@ -3928,6 +3995,137 @@ listen("sessions-changed", e => {
   if (listIdle()) loadChats("");
 });
 
+// ---------- Background work ----------
+
+// Agents and jobs a chat started keep running after its turn. A strip above
+// the field counts those running and opens to list them, each with Stop.
+// One that needs an OK asks through a notice, so its card sits at the end of
+// its chat until it is answered.
+const WORK = new Map(); // session id -> { items: [], open, questions: [{ query_id, app, action, fields, answer, withdrawn }] }
+const WORK_POLL_MS = 4000;
+/// Tools whose step starts or changes background work.
+const WORK_TOOLS = new Set(["background", "spawn_agent", "run_in_background", "message_agent", "cancel_job"]);
+function workOf(id) {
+  if (!WORK.has(id)) WORK.set(id, { items: [], open: false, questions: [], poll: 0 });
+  return WORK.get(id);
+}
+const waitingQuestion = id => WORK.get(id)?.questions.find(q => !q.answer && !q.withdrawn);
+
+/// Lists chat `id`'s background work again, and again every few seconds
+/// while some of it runs and the chat is open.
+async function refreshWork(id) {
+  if (!id) return;
+  const w = workOf(id);
+  clearTimeout(w.poll);
+  w.items = await invoke("list_work", { session: id }).catch(() => w.items);
+  if (id !== S.session || S.view !== "chat") return;
+  drawWork();
+  if (w.items.some(x => !x.outcome)) w.poll = setTimeout(() => refreshWork(id), WORK_POLL_MS);
+}
+
+function drawWork() {
+  const old = $("#work"), w = WORK.get(S.session);
+  const running = w?.items.filter(x => !x.outcome).length ?? 0;
+  if (S.view !== "chat" || !running) return old?.remove();
+  const mins = ms => `${Math.max(1, Math.round((Date.now() - ms) / 60000))} min`;
+  const row = x => `<div class="dwi"><span class="s">${x.outcome ? (x.outcome.ok ? `<span class="dok">${ICON.check}</span>` : `<span class="dbad">${ICON.x}</span>`) : '<span class="dspin"></span>'}</span>
+    <span class="tt"><small>${x.agent ? "Agent" : "Tool call"}</small><b>${esc(x.task)}</b><span>${esc(x.outcome ? x.outcome.text : `${x.step || "Starting"} · ${mins(x.started_at)}`)}</span></span>
+    ${x.outcome ? "" : `<button class="dbtn warn" data-stop="${esc(x.id)}">Stop</button>`}</div>`;
+  const el = h(`<div class="dwork" id="work"><button class="drow" aria-expanded="${w.open}"><span class="dspin"></span><span style="flex:1">${running} working in the background</span><span class="chev">${ICON.chev}</span></button>${w.open ? w.items.map(row).join("") : ""}</div>`);
+  const id = S.session;
+  el.querySelector(".drow").addEventListener("click", () => { w.open = !w.open; drawWork(); });
+  el.querySelectorAll("[data-stop]").forEach(b => b.addEventListener("click", async () => {
+    b.disabled = true;
+    await invoke("cancel_work", { session: id, id: b.dataset.stop }).catch(err => notice(String(err), { bad: true }));
+    refreshWork(id);
+  }));
+  if (old) old.replaceWith(el);
+  else ($("#queue") ?? $(".dhints")).before(el);
+}
+
+/// The open chat's questions from background work, at the end of its body.
+function drawWorkQuestions() {
+  const b = body();
+  if (S.view !== "chat" || !b) return;
+  b.querySelector(".dworkq")?.remove();
+  const qs = WORK.get(S.session)?.questions ?? [];
+  if (!qs.length) return;
+  const said = { allow: "Allowed once. The work goes on.", always: "Allowed, and always allowed from now on. The work goes on.", deny: "Denied. The work goes on without it." };
+  const first = waitingQuestion(S.session);
+  const card = q => q.withdrawn || q.answer
+    ? `<div class="dmuted">${esc(q.withdrawn ? `${q.action} with ${q.app}: no longer waiting` : said[q.answer])}</div>`
+    : `<div class="dcard" data-q="${esc(q.query_id)}">
+    <div class="head"><span class="dapp">${esc((q.app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(q.action)}?</b><small>Background work asks first</small></div></div>
+    ${q.fields.length ? `<div class="kv">${q.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
+    <div class="acts">${[["allow", "Allow", "pri", `⌘${ICON.ret}`], ["always", "Always", "", `⌥⌘${ICON.ret}`], ["deny", "Deny", "warn", "⌘D"]].map(([d, t, cls, k]) =>
+      `<button class="dbtn ${cls}" data-d="${d}">${t}${q === first && !here()?.approval ? `<kbd>${k}</kbd>` : ""}</button>`).join("")}</div></div>`;
+  const box = h(`<div class="dworkq" style="display:grid;gap:8px"><div class="dmuted" style="justify-content:center;font-size:11.5px;color:var(--dim)">${first ? "Background work is waiting for you" : "Background work"}</div>${qs.map(card).join("")}</div>`);
+  box.querySelectorAll(".dcard").forEach(c => c.querySelectorAll("[data-d]").forEach(btn => btn.addEventListener("click", () =>
+    answerWork(S.session, qs.find(q => q.query_id === c.dataset.q), btn.dataset.d))));
+  b.append(box);
+  keepDown();
+}
+
+async function answerWork(id, q, decision) {
+  if (!q || q.answer || q.withdrawn) return;
+  q.answer = decision;
+  if (id === S.session) { drawWorkQuestions(); refreshHints(); }
+  try {
+    if (await invoke("answer_work", { session: id, queryId: q.query_id, decision }) === "withdrawn") {
+      q.answer = null;
+      q.withdrawn = true;
+    }
+  } catch (err) {
+    q.answer = null;
+    if (id === S.session) notice(String(err), { bad: true });
+  }
+  if (id === S.session) { drawWorkQuestions(); refreshHints(); refreshWork(id); }
+}
+
+/// After the chat is drawn again from the server: answered questions go,
+/// ones still waiting stay at the end.
+function keepWaitingQuestions(id) {
+  const w = WORK.get(id);
+  if (w) w.questions = w.questions.filter(q => !q.answer && !q.withdrawn);
+  drawWorkQuestions();
+}
+
+/// Loads the questions chat `id`'s background work still waits on, so cards
+/// outlive a restart and show on every device. Ones answered here stay to say
+/// so; ones no longer listed went elsewhere and leave quietly.
+async function loadQuestions(id) {
+  if (!id) return;
+  const listed = await invoke("list_questions", { session: id }).catch(() => null);
+  if (!listed) return;
+  const w = workOf(id), known = new Map(w.questions.map(q => [q.query_id, q]));
+  w.questions = [
+    ...w.questions.filter(q => q.answer && !listed.some(x => x.query_id === q.query_id)),
+    ...listed.map(q => known.get(q.query_id) ?? { ...q, answer: null, withdrawn: false }),
+  ];
+  if (id === S.session && S.view === "chat") { drawWorkQuestions(); refreshHints(); }
+}
+
+// A question answered on another device, or whose work stopped. One this
+// bar answered already says how.
+listen("work-resolved", e => {
+  const { session_id, query_id } = e.payload;
+  const q = WORK.get(session_id)?.questions.find(x => x.query_id === query_id);
+  if (!q || q.answer || q.withdrawn) return;
+  q.withdrawn = true;
+  if (session_id === S.session && S.view === "chat") { drawWorkQuestions(); refreshHints(); }
+});
+
+listen("reconnected", () => {
+  if (S.view === "chat" && S.session) { loadQuestions(S.session); refreshWork(S.session); }
+});
+
+listen("work-question", e => {
+  const q = e.payload, w = workOf(q.session_id);
+  if (w.questions.some(x => x.query_id === q.query_id)) return;
+  w.questions.push({ ...q, answer: null, withdrawn: false });
+  if (q.session_id === S.session && S.view === "chat") { drawWorkQuestions(); refreshHints(); refreshWork(q.session_id); }
+});
+
 // ---------- Skills ----------
 
 // How the user, or a group, likes a task done. Beep writes them on its own;
@@ -4228,6 +4426,9 @@ document.addEventListener("keydown", e => {
   if (S.view === "chat") {
     if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(e.altKey ? "always" : "allow"); }
     if (cmd && key === "d" && here()?.approval) { e.preventDefault(); return answer("deny"); }
+    const asked = !here()?.approval && S.view === "chat" && waitingQuestion(S.session);
+    if (cmd && e.key === "Enter" && asked) { e.preventDefault(); return answerWork(S.session, asked, e.altKey ? "always" : "allow"); }
+    if (cmd && key === "d" && asked) { e.preventDefault(); return answerWork(S.session, asked, "deny"); }
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (cmd && e.shiftKey && e.key === "Enter" && e.target.id === "ask") { e.preventDefault(); return research(e.target.value); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }

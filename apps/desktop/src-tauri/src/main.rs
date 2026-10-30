@@ -23,8 +23,10 @@ mod products;
 mod research;
 mod state;
 mod sync;
+mod tool_labels;
 mod update;
 mod voice;
+mod work;
 
 use anyhow::Context;
 use beep::{Beep, Field, Notices};
@@ -128,6 +130,10 @@ fn main() {
             commands::list_group_reminders,
             commands::delete_group_reminder,
             commands::answer_group_approval,
+            work::list_work,
+            work::cancel_work,
+            work::answer_work,
+            work::list_questions,
             commands::open_file,
             commands::picture,
             commands::save_file,
@@ -292,6 +298,15 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
             beep.set_link_state(LinkState::Linked);
             became_linked(&app);
         }
+        // Checked before `changed`, which a resolved question also sets.
+        if let Some(query_id) = notice.resolved_question() {
+            let resolved = work::Resolved {
+                session_id: notice.session_id.clone(),
+                query_id: query_id.to_owned(),
+            };
+            let _ = app.emit("work-resolved", resolved);
+            continue;
+        }
         if notice.group {
             group_notice(&app, &beep, notice);
             continue;
@@ -300,6 +315,13 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
             let _ = app.emit("sessions-changed", notice.session_id);
             tauri::async_runtime::spawn(refresh_recent(app.clone()));
             continue;
+        }
+        // Background work asks only through a notice, so its chat keeps a
+        // card for the question.
+        if let Some(question) =
+            work::WorkQuestion::from_notice(&notice.session_id, notice.approval.as_ref())
+        {
+            let _ = app.emit("work-question", question);
         }
         if bar::is_open(&app) && beep.session().as_deref() == Some(notice.session_id.as_str()) {
             continue;

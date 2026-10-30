@@ -10,6 +10,7 @@ use crate::{
     products,
     state::{LinkState, Saved, StateFile},
     sync::Chats,
+    tool_labels,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
@@ -273,6 +274,9 @@ pub enum Turn {
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolStep {
     pub name: String,
+    /// What a tool that takes an `action` did, read from its result, since
+    /// a saved step keeps no arguments.
+    pub label: Option<&'static str>,
     pub success: bool,
     pub file: Option<SentFile>,
     /// A `send_image` result's pictures.
@@ -1043,6 +1047,7 @@ pub fn tool_step(name: &str, call_id: &str, output: &str, success: bool) -> Tool
     ToolStep {
         route: (name == GET_ROUTE && success && !call_id.is_empty()).then(|| call_id.to_owned()),
         name: name.to_owned(),
+        label: tool_labels::action_label(name, output),
         success,
         file: sent_file(name, output),
         images: sent_images(name, output),
