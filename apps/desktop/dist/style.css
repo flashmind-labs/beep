@@ -350,6 +350,15 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dq { display: flex; align-items: center; gap: 10px; font-size: 13.5px; line-height: 22px }
 .dq .n { width: 14px; flex: none; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums }
 .dq .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+/* Background work: a strip above the field while agents or jobs run; it opens to list them. */
+.dwork { flex: none; display: grid; gap: 2px; max-height: 220px; overflow-y: auto; scrollbar-width: none; padding: 8px 12px 8px 16px; border-top: 1px solid var(--border) }
+.dwork > .drow { gap: 9px; min-height: 22px; width: 100% }
+.dwi { display: flex; align-items: flex-start; gap: 9px; padding: 6px 0; border-top: 1px solid var(--border) }
+.dwi .s { width: 16px; height: 20px; display: grid; place-items: center; flex: none }
+.dwi .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
+.dwi small { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim) }
+.dwi b { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.dwi .tt > span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dcopy { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 3px 6px; border-radius: 6px }
 .dcopy:hover { color: var(--fg); background: var(--elev) }
 .dcopy .dchev { display: grid; transform: rotate(90deg) }
