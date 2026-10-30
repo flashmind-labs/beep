@@ -6,6 +6,7 @@
 use super::{App, learning::earlier_turns};
 use crate::{
     agents::{Agent, AgentId, router_state},
+    instance::Privilege,
     memories::clip,
     models::AutoModel,
     store::TurnRecord,
@@ -116,15 +117,26 @@ impl App {
         }
     }
 
-    /// Whether agents are set up and an admin turned them on.
+    /// Whether agents are set up and an admin turned them on. On a
+    /// single-user server they start on, unless its settings turn them off.
     pub(super) async fn agents_on(&self) -> bool {
         if self.decision().is_none() || self.models.agents().is_empty() {
             return false;
         }
-        self.store.agents_enabled().await.unwrap_or_else(|error| {
-            log::warn!("reading the agents setting failed: {error:#}");
-            false
-        })
+        if self
+            .instance()
+            .is_some_and(|instance| !instance.allows(Privilege::Agents))
+        {
+            return false;
+        }
+        let default = self.agents_by_default();
+        self.store
+            .agents_enabled(default)
+            .await
+            .unwrap_or_else(|error| {
+                log::warn!("reading the agents setting failed: {error:#}");
+                false
+            })
     }
 
     /// Jev's agent for `prompt`, told which agent the chat is on. General

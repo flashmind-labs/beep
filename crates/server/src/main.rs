@@ -6,7 +6,7 @@ use beep_server::{
     config::{self, Config},
     decision::DecisionTool,
     fcm::Firebase,
-    memories,
+    instance, memories,
     metering::Metered,
     models::ModelChoices,
     nodes,
@@ -29,14 +29,20 @@ use logforth::{
     filter::rustlog::RustLogFilterBuilder,
 };
 use secrecy::SecretString;
-use std::{env, fs, num::NonZeroUsize, path::Path, sync::Arc};
+use std::{env, fs, num::NonZeroUsize, path::Path, sync::Arc, time::SystemTime};
 
+/// `beep-server [config]` serves; `beep-server link [config]` prints the
+/// code the apps scan to connect to this server.
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config_path = env::args().nth(1).unwrap_or_else(|| "config.toml".into());
-    let config: Config = toml::from_str(
-        &fs::read_to_string(&config_path).with_context(|| format!("reading {config_path}"))?,
-    )?;
+    let mut args = env::args().skip(1);
+    let first = args.next();
+    if first.as_deref() == Some("link") {
+        let config_path = args.next().unwrap_or_else(|| "config.toml".into());
+        return print_link(&read_config(&config_path)?);
+    }
+    let config_path = first.unwrap_or_else(|| "config.toml".into());
+    let config = read_config(&config_path)?;
     start_logging(&config)?;
 
     let model: Model = config.model.parse()?;
@@ -114,6 +120,7 @@ async fn main() -> Result<()> {
             voice: config.voice.clone(),
             realtime: realtime(mistral.as_ref(), &config),
             mistral: mistral.map(|m| m as Arc<dyn LlmProvider>),
+            instance: config.instance.clone(),
         },
         models,
     );
@@ -142,11 +149,21 @@ async fn main() -> Result<()> {
 
     let secret_key = config::load_secret_key(config.secret_key.as_deref())?;
     let endpoint = Endpoint::builder(presets::N0)
-        .secret_key(secret_key)
+        .secret_key(secret_key.clone())
         .bind()
         .await?;
 
     log::info!("iroh endpoint bound; node_id={}", endpoint.id());
+    if let Some(instance) = app.instance() {
+        instance.announce(endpoint.id())?;
+        // First run: nobody owns it yet, so show how to connect.
+        if app.instance_owner().await?.is_none() {
+            println!(
+                "{}",
+                instance::link_code(&secret_key, instance.name(), SystemTime::now())?
+            );
+        }
+    }
 
     let firebase = match &config.fcm_credentials {
         Some(path) => Some(Firebase::new(path)?),
@@ -178,6 +195,23 @@ async fn main() -> Result<()> {
     tokio::signal::ctrl_c().await?;
     router.shutdown().await?;
     app.shutdown().await;
+    Ok(())
+}
+
+fn read_config(path: &str) -> Result<Config> {
+    let text = fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
+    toml::from_str(&text).with_context(|| format!("reading {path}"))
+}
+
+/// Prints the link code for the server's key, making the key if missing.
+fn print_link(config: &Config) -> Result<()> {
+    let path = config
+        .secret_key
+        .as_deref()
+        .context("set secret_key in the config, or the server's key changes on every start")?;
+    let key = config::load_secret_key(Some(path))?;
+    let name = config.instance.as_ref().map_or("Beep", |i| i.name.as_str());
+    println!("{}", instance::link_code(&key, name, SystemTime::now())?);
     Ok(())
 }
 
