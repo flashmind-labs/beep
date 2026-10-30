@@ -1474,6 +1474,10 @@ final class AppModel {
     }
     func deleteCron(_ id: String) async throws { try await api().deleteCron(id: id) }
 
+    /// What routines may do without asking, until each grant ends.
+    func grants() async throws -> [Grant] { try await api().listGrants() }
+    func revokeGrant(_ id: String) async throws { try await api().revokeGrant(id: id) }
+
     /// Runs a routine now and opens the chat it ran in.
     func runCron(_ id: String) async throws {
         let sessionId = try await api().runCron(id: id)

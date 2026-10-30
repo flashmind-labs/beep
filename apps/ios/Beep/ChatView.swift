@@ -1155,6 +1155,10 @@ struct ApprovalCard: View {
     @Environment(AppModel.self) private var model
     let prompt: ApprovalPrompt
 
+    /// A card asking for a routine's grant. Allow already saves the grant, which ends on its
+    /// own, so Always has nothing more to give and is left off.
+    private var forRoutine: Bool { prompt.approval.action.hasSuffix("for a routine") }
+
     var body: some View {
         if prompt.withdrawn {
             Label("\(prompt.approval.action) with \(prompt.approval.app): no longer waiting", systemImage: "shield.slash")
@@ -1172,7 +1176,9 @@ struct ApprovalCard: View {
                         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Mint.ledge, lineWidth: 2))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(prompt.approval.action) with \(prompt.approval.app)?").font(.body(15, .semibold))
-                        Text("\(prompt.approval.app) asks before it does this").font(.body(12)).foregroundStyle(Mint.muted)
+                        Text(forRoutine ? "Each run does this without asking until it ends"
+                             : "\(prompt.approval.app) asks before it does this")
+                            .font(.body(12)).foregroundStyle(Mint.muted)
                     }
                 }
                 .padding(.horizontal, 14).padding(.vertical, 12)
@@ -1194,7 +1200,9 @@ struct ApprovalCard: View {
                         .font(.body(14, .semibold)).foregroundStyle(.white)
                         .padding(.horizontal, 20).frame(minHeight: 44)
                         .chunky(Mint.ok, radius: 12)
-                    Button("Always") { model.answer(prompt, .always) }.buttonStyle(PillButton())
+                    if !forRoutine {
+                        Button("Always") { model.answer(prompt, .always) }.buttonStyle(PillButton())
+                    }
                     Spacer()
                     Button("Deny") { model.answer(prompt, .deny) }
                         .font(.body(14, .medium)).foregroundStyle(Mint.error)
@@ -1208,7 +1216,7 @@ struct ApprovalCard: View {
 
     private func answerText(_ answer: ApprovalDecision) -> String {
         switch answer {
-        case .allow: "Allowed once"
+        case .allow: forRoutine ? "Allowed for the routine" : "Allowed once"
         case .always: "Always allowed for \(prompt.approval.app)"
         case .deny: "Denied"
         }
