@@ -20,6 +20,7 @@ mod machine;
 mod machines;
 mod markdown;
 mod news;
+mod orb;
 mod presence;
 mod products;
 mod research;
@@ -83,18 +84,17 @@ fn main() {
         ))
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| match event {
-            // Only the bar is a popover; research windows stay put. The bar
-            // stays while live mode listens, so the orb never goes away with
-            // the microphone still on.
+            // Only the bar is a popover; research windows stay put. Live
+            // mode goes on in the orb, so the microphone never runs unseen.
             WindowEvent::Focused(false)
-                if window.label() == bar::LABEL
-                    && !bar::is_passive()
-                    && !window
-                        .app_handle()
-                        .try_state::<Arc<Voice>>()
-                        .is_some_and(|voice| voice.is_live()) =>
+                if window.label() == bar::LABEL && window.is_visible().unwrap_or(false) =>
             {
                 let _ = window.hide();
+                if let Some(voice) = window.app_handle().try_state::<Arc<Voice>>()
+                    && voice.is_live()
+                {
+                    voice.minimize();
+                }
             }
             WindowEvent::Destroyed => research::closed(window.app_handle(), window.label()),
             _ => {}
@@ -172,6 +172,7 @@ fn main() {
             commands::live_tap,
             commands::leave_live,
             commands::cancel_live,
+            commands::show_bar,
             commands::continue_live,
             commands::set_send_on_pause,
             commands::spoken_turns,
