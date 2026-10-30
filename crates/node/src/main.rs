@@ -6,6 +6,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use logforth::{append::Stderr, filter::rustlog::RustLogFilterBuilder};
 use std::path::PathBuf;
+use tokio::signal::unix::{SignalKind, signal};
 
 #[derive(Parser)]
 #[command(version, about = "Lets Beep run work on this machine")]
@@ -79,6 +80,17 @@ enum ServiceAction {
     Uninstall,
 }
 
+/// Finishes on Ctrl-C or SIGTERM, which a service manager sends to stop.
+fn stopped() -> Result<impl Future<Output = ()>> {
+    let mut term = signal(SignalKind::terminate())?;
+    Ok(async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     logforth::starter_log::builder()
@@ -99,10 +111,7 @@ async fn main() -> Result<()> {
         }
         Command::Run => {
             let state = state::State::load(&dir)?;
-            tokio::select! {
-                result = link::serve(state) => result,
-                _ = tokio::signal::ctrl_c() => Ok(()),
-            }
+            link::serve(state, stopped()?).await
         }
         Command::Service {
             action: ServiceAction::Install,

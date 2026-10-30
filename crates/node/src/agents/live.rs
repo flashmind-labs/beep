@@ -2,6 +2,15 @@
 //! built from the agent's `session/update` notifications, and the
 //! transcript, which stays here.
 
+use super::acp::wire_name;
+use agent_client_protocol::schema::{
+    MaybeUndefined,
+    v1::{
+        ContentBlock, PlanEntryStatus, RequestPermissionRequest, SessionUpdate,
+        ToolCall as AcpToolCall, ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus,
+        ToolCallUpdate, ToolKind,
+    },
+};
 use beep_proto::node::agent::{
     AnswerOption, Entry, EntryKind, OptionKind, PlanEntry, PlanStatus, Question, SessionInfo,
     Status, StopReason,
@@ -25,7 +34,7 @@ const MAX_PLAN: usize = 30;
 const MAX_LINE: usize = 300;
 
 /// ACP tool kinds that change files.
-const EDIT_KINDS: &[&str] = &["edit", "delete", "move"];
+const EDIT_KINDS: &[ToolKind] = &[ToolKind::Edit, ToolKind::Delete, ToolKind::Move];
 
 #[derive(Debug, Default)]
 pub(crate) struct Live {
@@ -39,7 +48,7 @@ pub(crate) struct Live {
     /// Entries dropped from the front of `transcript`.
     dropped: u64,
     /// The tool calls seen, by ACP id.
-    tools: HashMap<String, ToolCall>,
+    tools: HashMap<ToolCallId, ToolCall>,
     /// The last agent message is still arriving in chunks.
     in_message: bool,
 }
@@ -49,9 +58,10 @@ struct ToolCall {
     /// Its entry, counted from the start of the session.
     entry: u64,
     title: String,
-    kind: String,
-    status: String,
+    kind: ToolKind,
+    status: ToolCallStatus,
     paths: Vec<String>,
+    /// What it showed, already cut to an entry's length.
     output: String,
 }
 
@@ -103,32 +113,32 @@ impl Live {
     }
 
     /// The question the agent asked in `session/request_permission`.
-    pub(crate) fn question(&self, id: u32, params: &Value) -> Question {
-        let call = &params["toolCall"];
-        let known = call["toolCallId"]
-            .as_str()
-            .and_then(|id| self.tools.get(id));
-        let text = call["title"]
-            .as_str()
-            .map(str::to_owned)
+    pub(crate) fn question(&self, id: u32, request: &RequestPermissionRequest) -> Question {
+        let call = &request.tool_call;
+        let known = self.tools.get(&call.tool_call_id);
+        let text = call
+            .fields
+            .title
+            .clone()
             .or_else(|| known.map(|tool| tool.title.clone()))
             .unwrap_or_else(|| "Use a tool".into());
-        let options = params["options"]
-            .as_array()
-            .map(Vec::as_slice)
-            .unwrap_or_default()
+        let options = request
+            .options
             .iter()
-            .filter_map(|option| {
-                Some(AnswerOption {
-                    id: option["optionId"].as_str()?.to_owned(),
-                    name: option["name"].as_str().unwrap_or_default().to_owned(),
-                    kind: OptionKind::from_acp(option["kind"].as_str().unwrap_or_default()),
-                })
+            .map(|option| AnswerOption {
+                id: option.option_id.0.to_string(),
+                name: option.name.clone(),
+                kind: OptionKind::from_acp(&wire_name(&option.kind)),
             })
             .collect();
         let text = cut(&text, MAX_LINE);
         // Some agents title the question with the command itself.
-        let detail = detail(&call["rawInput"]).filter(|detail| *detail != text);
+        let detail = call
+            .fields
+            .raw_input
+            .as_ref()
+            .and_then(detail)
+            .filter(|detail| *detail != text);
         Question {
             id,
             text,
@@ -140,41 +150,39 @@ impl Live {
     /// Applies one `session/update`. True when the compact state changed,
     /// so the server should hear of it; transcript changes alone are not
     /// sent.
-    pub(crate) fn apply(&mut self, update: &Value) -> bool {
+    pub(crate) fn apply(&mut self, update: &SessionUpdate) -> bool {
         let before = self.info.state.clone();
         let title = self.info.title.clone();
-        match update["sessionUpdate"].as_str().unwrap_or_default() {
-            "agent_message_chunk" => {
-                if let Some(text) = text_of(&update["content"]) {
-                    self.message_chunk(text);
+        match update {
+            SessionUpdate::AgentMessageChunk(chunk) => {
+                if let ContentBlock::Text(text) = &chunk.content {
+                    self.message_chunk(&text.text);
                 }
             }
-            "agent_thought_chunk" => {
+            SessionUpdate::AgentThoughtChunk(_) => {
                 if self.info.state.summary.is_empty() {
                     self.info.state.summary = "Thinking".into();
                 }
             }
-            "tool_call" => self.tool_call(update),
-            "tool_call_update" => self.tool_call_update(update),
-            "plan" => {
-                self.info.state.plan = update["entries"]
-                    .as_array()
-                    .map(Vec::as_slice)
-                    .unwrap_or_default()
+            SessionUpdate::ToolCall(call) => self.tool_call(call),
+            SessionUpdate::ToolCallUpdate(update) => self.tool_call_update(update),
+            SessionUpdate::Plan(plan) => {
+                self.info.state.plan = plan
+                    .entries
                     .iter()
                     .take(MAX_PLAN)
                     .map(|entry| PlanEntry {
-                        content: cut(entry["content"].as_str().unwrap_or_default(), MAX_LINE),
-                        status: match entry["status"].as_str() {
-                            Some("in_progress") => PlanStatus::InProgress,
-                            Some("completed") => PlanStatus::Completed,
+                        content: cut(&entry.content, MAX_LINE),
+                        status: match entry.status {
+                            PlanEntryStatus::InProgress => PlanStatus::InProgress,
+                            PlanEntryStatus::Completed => PlanStatus::Completed,
                             _ => PlanStatus::Pending,
                         },
                     })
                     .collect();
             }
-            "session_info_update" => {
-                if let Some(new) = update["title"].as_str() {
+            SessionUpdate::SessionInfoUpdate(info) => {
+                if let MaybeUndefined::Value(new) = &info.title {
                     self.info.title = Some(cut(new, MAX_LINE));
                 }
             }
@@ -197,64 +205,58 @@ impl Live {
         push_cut(&mut self.info.last_message, text, MAX_LAST_MESSAGE);
     }
 
-    fn tool_call(&mut self, update: &Value) {
-        let Some(id) = update["toolCallId"].as_str() else {
-            return;
-        };
+    fn tool_call(&mut self, call: &AcpToolCall) {
         self.in_message = false;
         let mut tool = ToolCall {
             entry: 0,
-            title: update["title"].as_str().unwrap_or("Tool").to_owned(),
-            kind: update["kind"].as_str().unwrap_or("other").to_owned(),
-            status: update["status"].as_str().unwrap_or("pending").to_owned(),
-            paths: paths(update),
-            output: String::new(),
+            title: call.title.clone(),
+            kind: call.kind,
+            status: call.status,
+            paths: paths(&call.locations, call.raw_input.as_ref()),
+            output: output(&call.content),
         };
         tool.entry = self.push_entry(EntryKind::Tool, tool.entry_text());
         self.info.state.summary = cut(&tool.title, MAX_LINE);
         self.finish_tool(&tool);
-        self.tools.insert(id.to_owned(), tool);
+        self.tools.insert(call.tool_call_id.clone(), tool);
     }
 
-    fn tool_call_update(&mut self, update: &Value) {
-        let Some(id) = update["toolCallId"].as_str() else {
+    fn tool_call_update(&mut self, update: &ToolCallUpdate) {
+        let Some(mut call) = self.tools.remove(&update.tool_call_id) else {
             return;
         };
-        let Some(mut call) = self.tools.remove(id) else {
-            return;
-        };
-        if let Some(title) = update["title"].as_str() {
-            call.title = title.to_owned();
+        let fields = &update.fields;
+        if let Some(title) = &fields.title {
+            call.title.clone_from(title);
             self.info.state.summary = cut(title, MAX_LINE);
         }
-        if let Some(kind) = update["kind"].as_str() {
-            call.kind = kind.to_owned();
+        if let Some(kind) = fields.kind {
+            call.kind = kind;
         }
-        if let Some(status) = update["status"].as_str() {
-            call.status = status.to_owned();
+        if let Some(status) = fields.status {
+            call.status = status;
         }
-        let more = paths(update);
+        let more = paths(
+            fields.locations.as_deref().unwrap_or_default(),
+            fields.raw_input.as_ref(),
+        );
         if !more.is_empty() {
             call.paths = more;
         }
-        if let Some(content) = update["content"].as_array() {
-            call.output = content
-                .iter()
-                .filter_map(content_text)
-                .collect::<Vec<_>>()
-                .join("\n");
+        if let Some(content) = &fields.content {
+            call.output = output(content);
         }
         let text = call.entry_text();
         if let Some(entry) = self.entry_mut(call.entry) {
             entry.text = text;
         }
         self.finish_tool(&call);
-        self.tools.insert(id.to_owned(), call);
+        self.tools.insert(update.tool_call_id.clone(), call);
     }
 
     /// Notes the files a finished edit changed.
     fn finish_tool(&mut self, tool: &ToolCall) {
-        if tool.status != "completed" || !EDIT_KINDS.contains(&tool.kind.as_str()) {
+        if tool.status != ToolCallStatus::Completed || !EDIT_KINDS.contains(&tool.kind) {
             return;
         }
         let cwd = Path::new(&self.info.cwd);
@@ -273,7 +275,7 @@ impl Live {
 
 impl ToolCall {
     fn entry_text(&self) -> String {
-        let mut text = format!("{} [{}]", self.title, self.status);
+        let mut text = format!("{} [{}]", self.title, wire_name(&self.status));
         if !self.output.is_empty() {
             text.push('\n');
             text.push_str(&self.output);
@@ -282,35 +284,33 @@ impl ToolCall {
     }
 }
 
-/// The text of an ACP content block, when it is text.
-fn text_of(content: &Value) -> Option<&str> {
-    (content["type"] == "text").then(|| content["text"].as_str())?
-}
-
-/// The text of one entry in a tool call's `content`.
-fn content_text(item: &Value) -> Option<String> {
-    match item["type"].as_str()? {
-        "content" => text_of(&item["content"]).map(str::to_owned),
-        "diff" => Some(format!(
-            "(changed {})",
-            item["path"].as_str().unwrap_or("a file")
-        )),
-        "terminal" => Some("(ran in a terminal)".into()),
-        _ => None,
-    }
+/// The text a tool call's `content` shows, cut to an entry's length.
+fn output(content: &[ToolCallContent]) -> String {
+    let text = content
+        .iter()
+        .filter_map(|item| match item {
+            ToolCallContent::Content(content) => match &content.content {
+                ContentBlock::Text(text) => Some(text.text.clone()),
+                _ => None,
+            },
+            ToolCallContent::Diff(diff) => Some(format!("(changed {})", diff.path.display())),
+            ToolCallContent::Terminal(_) => Some("(ran in a terminal)".into()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    cut(&text, MAX_ENTRY)
 }
 
 /// The files a tool call names, in `locations` or its input.
-fn paths(update: &Value) -> Vec<String> {
-    let mut found: Vec<String> = update["locations"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default()
+fn paths(locations: &[ToolCallLocation], input: Option<&Value>) -> Vec<String> {
+    let mut found: Vec<String> = locations
         .iter()
-        .filter_map(|location| location["path"].as_str().map(str::to_owned))
+        .map(|location| location.path.display().to_string())
         .collect();
-    if found.is_empty() {
-        let input = &update["rawInput"];
+    if found.is_empty()
+        && let Some(input) = input
+    {
         found.extend(
             ["file_path", "path", "notebook_path"]
                 .iter()
@@ -357,6 +357,14 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn update(value: Value) -> SessionUpdate {
+        serde_json::from_value(value).expect("a valid update")
+    }
+
+    fn permission(value: Value) -> RequestPermissionRequest {
+        serde_json::from_value(value).expect("a valid permission request")
+    }
+
     fn live() -> Live {
         Live::new(SessionInfo {
             cwd: "/srv/project".into(),
@@ -368,7 +376,11 @@ mod tests {
     fn message_chunks_join_into_one_entry() {
         let mut live = live();
         live.prompted("hi");
-        let chunk = |text: &str| json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}});
+        let chunk = |text: &str| {
+            update(
+                json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}),
+            )
+        };
         assert!(!live.apply(&chunk("Hel")), "chunks alone are not sent");
         live.apply(&chunk("lo"));
         assert_eq!(live.info.last_message, "Hello");
@@ -385,22 +397,22 @@ mod tests {
     #[test]
     fn a_finished_edit_counts_its_file_relative_to_the_folder() {
         let mut live = live();
-        assert!(live.apply(&json!({
+        assert!(live.apply(&update(json!({
             "sessionUpdate": "tool_call",
             "toolCallId": "t1",
             "title": "Edit src/main.rs",
             "kind": "edit",
             "status": "pending",
             "locations": [{"path": "/srv/project/src/main.rs"}]
-        })));
+        }))));
         assert_eq!(live.info.state.summary, "Edit src/main.rs");
         assert!(live.info.state.files_touched.is_empty());
-        live.apply(&json!({
+        live.apply(&update(json!({
             "sessionUpdate": "tool_call_update",
             "toolCallId": "t1",
             "status": "completed",
             "content": [{"type": "content", "content": {"type": "text", "text": "done"}}]
-        }));
+        })));
         assert_eq!(live.info.state.files_touched, ["src/main.rs"]);
         let (entries, _) = live.transcript(1);
         assert_eq!(entries[0].text, "Edit src/main.rs [completed]\ndone");
@@ -409,13 +421,13 @@ mod tests {
     #[test]
     fn a_plan_replaces_the_last() {
         let mut live = live();
-        assert!(live.apply(&json!({
+        assert!(live.apply(&update(json!({
             "sessionUpdate": "plan",
             "entries": [
                 {"content": "Read", "priority": "high", "status": "completed"},
                 {"content": "Write", "priority": "high", "status": "in_progress"}
             ]
-        })));
+        }))));
         assert_eq!(live.info.state.plan[1].status, PlanStatus::InProgress);
     }
 
@@ -424,14 +436,14 @@ mod tests {
         let live = live();
         let question = live.question(
             2,
-            &json!({
+            &permission(json!({
                 "sessionId": "s",
                 "toolCall": {"toolCallId": "t9", "title": "Run cargo test", "rawInput": {"command": "cargo test"}},
                 "options": [
                     {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
                     {"optionId": "reject", "name": "Reject", "kind": "reject_once"}
                 ]
-            }),
+            })),
         );
         assert_eq!(question.id, 2);
         assert_eq!(question.text, "Run cargo test");
@@ -439,7 +451,7 @@ mod tests {
         assert_eq!(question.options[1].kind, OptionKind::RejectOnce);
         let titled_by_command = live.question(
             3,
-            &json!({"toolCall": {"title": "ls", "rawInput": {"command": "ls"}}, "options": []}),
+            &permission(json!({"sessionId": "s", "toolCall": {"toolCallId": "t2", "title": "ls", "rawInput": {"command": "ls"}}, "options": []})),
         );
         assert_eq!(titled_by_command.detail, None);
     }

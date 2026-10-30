@@ -1,6 +1,7 @@
 //! `shell/1` sessions: one bash per stream, kept between commands so `cd`
 //! and `export` carry over.
 
+use crate::process::{GroupLeader, STOP_GRACE};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -13,7 +14,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, ChildStdout, Command},
+    process::{ChildStdin, ChildStdout, Command},
     time::timeout,
 };
 
@@ -39,7 +40,10 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
             Some(request) => request,
             None => match rx.recv::<Request>().await? {
                 Some(request) => request,
-                None => return Ok(()),
+                None => {
+                    stop(&mut shell).await;
+                    return Ok(());
+                }
             },
         };
         let Request::Run {
@@ -61,19 +65,23 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
             tokio::pin!(run);
             loop {
                 tokio::select! {
-                    ended = &mut run => break match ended {
+                    ended = &mut run => break Some(match ended {
                         Ok(end) => end?,
                         Err(_) => End::TimedOut,
-                    },
+                    }),
                     next = rx.recv::<Request>() => match next {
                         Ok(Some(request)) if waiting.len() < MAX_WAITING => waiting.push_back(request),
                         Ok(Some(_)) => log::debug!("dropped a request: {MAX_WAITING} already wait"),
                         // The server closed the stream, which cancels the
-                        // command: returning drops the shell and stops its group.
-                        Ok(None) | Err(_) => return Ok(()),
+                        // command and stops the shell's group.
+                        Ok(None) | Err(_) => break None,
                     },
                 }
             }
+        };
+        let Some(end) = end else {
+            stop(&mut shell).await;
+            return Ok(());
         };
         let truncated = out.finish().await?;
         let done = match end {
@@ -85,8 +93,8 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
                 truncated,
             },
             End::ShellEnded | End::TimedOut => {
-                // Dropping the shell stops it and everything it started.
-                shell = None;
+                // Stops the shell and everything it started.
+                stop(&mut shell).await;
                 Event::Done {
                     exit_code: None,
                     timed_out: matches!(end, End::TimedOut),
@@ -100,6 +108,13 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     }
 }
 
+/// Stops the shell, if one runs, and what it started: gently, then hard.
+async fn stop(shell: &mut Option<Shell>) {
+    if let Some(mut old) = shell.take() {
+        old.child.stop(STOP_GRACE).await;
+    }
+}
+
 enum End {
     Finished { exit_code: i32, cwd: String },
     ShellEnded,
@@ -107,7 +122,8 @@ enum End {
 }
 
 struct Shell {
-    child: Child,
+    /// Dropping it kills the shell's group; `stop` ends it gently first.
+    child: GroupLeader,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     /// Ends each command's output. Unguessable, so output cannot fake it.
@@ -139,7 +155,7 @@ impl Shell {
         let stdout = child.stdout.take().context("the shell has no stdout")?;
         stdin.write_all(b"exec 2>&1\n").await?;
         Ok(Self {
-            child,
+            child: GroupLeader::new(child),
             stdin,
             stdout: BufReader::new(stdout),
             mark: mark(),
@@ -168,53 +184,6 @@ impl Shell {
             }
             out.push(&held).await?;
             held = text.into_owned();
-        }
-    }
-}
-
-impl Drop for Shell {
-    fn drop(&mut self) {
-        kill_group(&self.child);
-    }
-}
-
-/// A child that leads its own process group: dropping it stops the group.
-pub(crate) struct GroupLeader(Child);
-
-impl GroupLeader {
-    pub(crate) fn new(child: Child) -> Self {
-        Self(child)
-    }
-
-    pub(crate) fn child_mut(&mut self) -> &mut Child {
-        &mut self.0
-    }
-}
-
-impl Drop for GroupLeader {
-    fn drop(&mut self) {
-        kill_group(&self.0);
-    }
-}
-
-/// Stops `child` and everything in its process group, so a command or
-/// agent still running goes too. `child` must lead its own group. Only a
-/// signal is sent, so it is fine on an async worker and in `Drop`.
-pub(crate) fn kill_group(child: &Child) {
-    let Some(pid) = child.id() else {
-        // Already reaped: the group leader is gone.
-        return;
-    };
-    let Ok(pid) = libc::pid_t::try_from(pid) else {
-        return;
-    };
-    // SAFETY: killpg takes two integers and only sends a signal; it reads
-    // and writes no memory of this process.
-    let result = unsafe { libc::killpg(pid, libc::SIGKILL) };
-    if result != 0 {
-        let error = std::io::Error::last_os_error();
-        if error.raw_os_error() != Some(libc::ESRCH) {
-            log::warn!("could not stop process group {pid}: {error}");
         }
     }
 }
@@ -312,29 +281,6 @@ impl<'a, S: Sink> Output<'a, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn dropping_a_group_leader_stops_what_it_started() {
-        use tokio::io::AsyncReadExt;
-        // The background sleep keeps stdout open: it reads to its end only
-        // once the sleep is gone as well as the shell.
-        let mut child = Command::new("sh")
-            .args(["-c", "sleep 300 & echo started; wait"])
-            .stdout(Stdio::piped())
-            .process_group(0)
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).await.unwrap();
-        assert_eq!(line, "started\n");
-        drop(GroupLeader::new(child));
-        let mut rest = Vec::new();
-        timeout(Duration::from_secs(10), stdout.read_to_end(&mut rest))
-            .await
-            .expect("the whole group stopped")
-            .unwrap();
-    }
 
     #[test]
     fn the_mark_line_gives_the_exit_code_and_folder() {
