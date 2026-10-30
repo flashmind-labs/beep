@@ -87,6 +87,19 @@ struct Credentials {
 #[derive(Deserialize)]
 struct ChannelAuth {
     auth: String,
+    /// Composio signs the channel as a presence channel: the signature
+    /// covers this too, so the subscribe must carry it unchanged.
+    #[serde(default)]
+    channel_data: Option<String>,
+}
+
+/// The frame that subscribes to `channel` with Composio's signature.
+fn subscribe_frame(channel: &str, auth: ChannelAuth) -> Value {
+    let mut data = json!({"auth": auth.auth, "channel": channel});
+    if let Some(channel_data) = auth.channel_data {
+        data["channel_data"] = Value::String(channel_data);
+    }
+    json!({"event": "pusher:subscribe", "data": data})
 }
 
 /// One connection, from credentials to the moment it drops.
@@ -145,10 +158,7 @@ async fn listen(app: &App, composio: &Composio) -> Result<()> {
         .json()
         .await
         .context("invalid channel auth")?;
-    let subscribe = json!({
-        "event": "pusher:subscribe",
-        "data": {"auth": auth.auth, "channel": channel},
-    });
+    let subscribe = subscribe_frame(&channel, auth);
     socket.send(Frame::text(subscribe.to_string())).await?;
 
     let mut chunks = Chunks::default();
@@ -385,5 +395,21 @@ mod tests {
             "wss://ws-mt1.pusher.com/app/abc123?protocol=7&client=beep-server&version=1.0&flash=false"
         );
         assert!(pusher_url(&credentials("evil.example.com/x")).is_err());
+    }
+
+    #[test]
+    fn the_subscribe_carries_the_signed_channel_data() {
+        let auth: ChannelAuth =
+            serde_json::from_str(r#"{"auth":"key:sig","channel_data":"{\"user_id\":\"p1\"}"}"#)
+                .expect("Composio's auth reply");
+        let frame = subscribe_frame("private-p1_triggers", auth);
+        assert_eq!(frame["event"], "pusher:subscribe");
+        assert_eq!(frame["data"]["auth"], "key:sig");
+        assert_eq!(frame["data"]["channel_data"], r#"{"user_id":"p1"}"#);
+
+        let auth: ChannelAuth =
+            serde_json::from_str(r#"{"auth":"key:sig"}"#).expect("a plain private auth");
+        let frame = subscribe_frame("private-p1_triggers", auth);
+        assert!(frame["data"].get("channel_data").is_none());
     }
 }
