@@ -11,6 +11,7 @@ use std::{
 use crate::{
     agents::{AgentConfig, AgentId},
     events::EventsConfig,
+    instance::InstanceConfig,
     research::ResearchConfig,
     voice::VoiceConfig,
     watchers::WatchersConfig,
@@ -93,6 +94,9 @@ pub struct Config {
     /// to Claude Haiku thinking little.
     #[serde(default)]
     pub events: EventsConfig,
+    /// Runs the server for one owner (see `crate::instance`). Without it
+    /// every key that connects gets an account.
+    pub instance: Option<InstanceConfig>,
     /// The agents that read finished chats: their model (`model`, a cheap
     /// one by default), how long a chat stays quiet first (`quiet_minutes`),
     /// how many run at once (`concurrency`), and per watcher (`[watchers.memory]`,
@@ -230,6 +234,27 @@ mod tests {
         .expect("the config is valid");
         assert_eq!(config.admins, [admin]);
         assert_eq!(config.model_choices[0].name(), "openai/gpt-6-luna");
+    }
+
+    #[test]
+    fn reads_an_instance_table() {
+        let owner = SecretKey::generate().public();
+        let config: Config = toml::from_str(&format!(
+            r#"
+            model = "openrouter:z-ai/glm-5.3-flash"
+            [instance]
+            owner = "{owner}"
+            events = false
+            local_node = "/link"
+            "#
+        ))
+        .expect("the config is valid");
+        let instance = config.instance.expect("an instance table");
+        assert_eq!(instance.owner, Some(owner));
+        assert!(!instance.events && instance.nodes);
+        let config: Config = toml::from_str(r#"model = "openrouter:z-ai/glm-5.3-flash""#)
+            .expect("the config is valid");
+        assert!(config.instance.is_none());
     }
 
     #[test]

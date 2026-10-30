@@ -29,6 +29,9 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 pub const IDLE_CLOSE: u32 = 0x1d1e;
 /// Close code the server gives a key the account removed.
 pub const CLOSE_REVOKED: u32 = 403;
+/// Close code a single-user server gives a key that is not one of its
+/// owner's. The owner links more devices with `LinkDevice`.
+pub const CLOSE_NOT_INVITED: u32 = 4403;
 
 /// Called with each notice the server sends. Returns false if the notice
 /// was not handled, so the server keeps it and sends it again later.

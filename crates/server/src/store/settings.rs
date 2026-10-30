@@ -8,14 +8,14 @@ use serde_json::Value;
 const AGENTS: &str = "agents";
 
 impl Store {
-    /// Whether an admin turned agents on. Off until one does.
-    pub(crate) async fn agents_enabled(&self) -> Result<bool> {
+    /// Whether an admin turned agents on; `default` until one changes it.
+    pub(crate) async fn agents_enabled(&self, default: bool) -> Result<bool> {
         let value: Option<Value> =
             sqlx::query_scalar("SELECT value FROM server_settings WHERE key = $1")
                 .bind(AGENTS)
                 .fetch_optional(&self.pool)
                 .await?;
-        Ok(value.and_then(|value| value.as_bool()).unwrap_or(false))
+        Ok(value.and_then(|value| value.as_bool()).unwrap_or(default))
     }
 
     /// Turns agents on or off for everyone, recording which admin did.

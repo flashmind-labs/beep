@@ -1,6 +1,6 @@
 //! The `beep-node` command line.
 
-use beep_node::{agents::Agents, claude::hooks, env, link, service, state};
+use beep_node::{agents::Agents, claude::hooks, env, link, local, service, state};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -31,6 +31,17 @@ enum Command {
     },
     /// Connects to the server and serves Beep until stopped.
     Run,
+    /// Runs as the node bundled with a single-user server: reads the
+    /// server's key from a folder both share, leaves this node's key there
+    /// for the server to link to its owner, then serves like `run`.
+    Local {
+        /// The folder shared with the server.
+        #[arg(long)]
+        link: PathBuf,
+        /// What to call this machine.
+        #[arg(long, default_value = "Beep server")]
+        name: String,
+    },
     /// Prints what this machine would report.
     Env,
     /// Runs the node as a systemd user service (Linux).
@@ -112,6 +123,14 @@ async fn main() -> Result<()> {
         Command::Run => {
             let state = state::State::load(&dir)?;
             link::serve(state, stopped()?).await
+        }
+        Command::Local { link: shared, name } => {
+            let mut stop = Box::pin(stopped()?);
+            let state = tokio::select! {
+                state = local::prepare(&dir, &shared, &name) => state?,
+                () = &mut stop => return Ok(()),
+            };
+            link::serve(state, stop).await
         }
         Command::Service {
             action: ServiceAction::Install,

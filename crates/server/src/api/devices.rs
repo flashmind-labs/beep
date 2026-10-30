@@ -40,9 +40,16 @@ pub(super) async fn unregister_device(cx: Cx, req: UnregisterDevice) -> Reply<()
 /// Links a computer whose offer the caller scanned. Any key of the account
 /// may link others.
 pub(super) async fn link_device(cx: Cx, LinkDevice { offer }: LinkDevice) -> Reply<LinkedDevice> {
+    let server = cx.pusher.server_id();
     offer
-        .verify(cx.pusher.server_id(), SystemTime::now())
+        .verify(server, SystemTime::now())
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    // The server's own code verifies too; it names the server, not a device.
+    if offer.device == server {
+        return Err(ApiError::bad_request(
+            "that is this server's own code, not a device's",
+        ));
+    }
     let key = NewKey {
         endpoint: offer.device,
         name: offer.name.trim(),
