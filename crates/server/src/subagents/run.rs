@@ -154,6 +154,7 @@ impl Subagents {
             }));
         }
         let refusals = repeat::guard_tool_calls(&mut registry);
+        crate::tool_cost::log(kind.name, &registry);
         if let Some(gate) = gate {
             registry.set_gate(gate);
         }

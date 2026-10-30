@@ -26,7 +26,7 @@ pub(crate) mod suggest;
 pub(crate) use file::SendFileTool;
 pub(crate) use image::SendImageTool;
 pub(crate) use mac_files::MacFilesTool;
-pub(crate) use memory::recall_tool;
+pub(crate) use memory::{NAME as MEMORY, recall_tool};
 pub(crate) use node::NodeTool;
 pub(crate) use notify_user::NotifyUserTool;
 pub(crate) use route::GetRouteTool;
@@ -68,9 +68,10 @@ pub fn registry(
     let run_id = run.id.as_str();
     let mut registry = ToolRegistry::new();
     memory::register(&mut registry, user, &run.session_id);
-    registry.register(Arc::new(skills::SkillViewTool {
+    registry.register(Arc::new(skills::SkillTool {
         store: app.store.clone(),
         owner: user.skill_owner(),
+        writes: true,
     }));
     registry.register(Arc::new(TimeTool));
     if let Ok(chat) = run.session_id.parse() {
@@ -96,12 +97,7 @@ pub fn registry(
     if draws.cards {
         registry.register(Arc::new(cards::ShowCardsTool { user: user.clone() }));
     }
-    for kind in habits::HabitToolKind::ALL {
-        registry.register(Arc::new(habits::HabitTool {
-            user: user.clone(),
-            kind,
-        }));
-    }
+    registry.register(Arc::new(habits::HabitTool { user: user.clone() }));
     for kind in places::PlaceToolKind::ALL {
         registry.register(Arc::new(places::PlaceTool {
             user: user.clone(),

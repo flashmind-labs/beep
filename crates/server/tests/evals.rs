@@ -153,7 +153,7 @@ const AGENT_CASES: &[AgentCase] = &[
         case: Case {
             name: "agents: shared: general saves a memory",
             message: "Remember that I'm allergic to peanuts",
-            checks: &[Check::Calls("memory_store")],
+            checks: &[Check::Calls("memory")],
         },
     },
     AgentCase {
@@ -249,7 +249,7 @@ const AGENT_CASES: &[AgentCase] = &[
         case: Case {
             name: "agents: shared: shopping saves a memory",
             message: "Remember that I only buy fragrance-free laundry detergent, then find me one",
-            checks: &[Check::Calls("memory_store"), Check::Calls("show_products")],
+            checks: &[Check::Calls("memory"), Check::Calls("show_products")],
         },
     },
     AgentCase {
@@ -297,7 +297,7 @@ const AGENT_CASES: &[AgentCase] = &[
         case: Case {
             name: "agents: shared: going out saves a memory",
             message: "Remember that my partner is vegetarian, and pick a dinner place in Lisbon's Chiado for tonight",
-            checks: &[Check::Calls("memory_store"), Check::Calls("web_search")],
+            checks: &[Check::Calls("memory"), Check::Calls("web_search")],
         },
     },
     AgentCase {
@@ -430,7 +430,7 @@ impl Turn {
                 RunEvent::ToolStarted {
                     name, description, ..
                 } if name != "suggest_replies" => {
-                    if name == "memory_recall" {
+                    if name == "memory" {
                         turn.recalled.push(description);
                     }
                     turn.tools.push(name.clone());
@@ -445,7 +445,7 @@ impl Turn {
                         .map(|s| s.replies);
                 }
                 RunEvent::ToolResult { name, output, .. } => {
-                    if name == "memory_recall" {
+                    if name == "memory" {
                         turn.recalled.push(output);
                     }
                     if let Some(at) = running.iter().position(|n| *n == name) {

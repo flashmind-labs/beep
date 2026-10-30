@@ -25,7 +25,7 @@ use crate::{
     steps::{self, TurnsByTime},
     store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, Step, StepBody, TurnRecord},
     timing::{Output, TurnTimer},
-    tools,
+    tool_cost, tools,
     user::User,
     wake,
 };
@@ -112,6 +112,10 @@ impl App {
         // in the chat knows what it said.
         let chat_context = (is_cron && answer.is_none())
             .then(|| mem::replace(&mut conversation, Conversation::new()));
+        // A routine's chat that holds nothing yet was made for this run.
+        let fresh_chat = chat_context
+            .as_ref()
+            .is_some_and(|context| context.entries().is_empty());
 
         let prompt = Prompt {
             message: &message.message,
@@ -228,6 +232,17 @@ impl App {
         if is_cron {
             for name in cron::CHANGING_TOOLS {
                 registry.remove(name);
+            }
+            // A watch ends itself once it has told the user; the digest is
+            // always sent and never ends.
+            if !message.always_sent
+                && let Some(routine) = message.cron_id.as_deref().and_then(|id| id.parse().ok())
+            {
+                registry.register(Arc::new(cron::EndRoutineTool::new(
+                    self.store.clone(),
+                    user.id(),
+                    routine,
+                )));
             }
         }
         if let Some(search) = &self.tools.search {
@@ -369,6 +384,16 @@ impl App {
             registry.register(tool);
         }
         let refusals = repeat::guard_tool_calls(&mut registry);
+        let kind = if research.is_some() {
+            "research"
+        } else if is_cron {
+            "routine"
+        } else if background {
+            "background"
+        } else {
+            "coordinator"
+        };
+        tool_cost::log(kind, &registry);
         let can_map = gates::MAP_TOOLS.iter().any(|tool| registry.contains(tool));
         let can_schedule = gates::SCHEDULE_TOOLS
             .iter()
@@ -841,7 +866,7 @@ impl App {
             let mut calls: Vec<ServerCall> = learned
                 .iter()
                 .map(|change| ServerCall {
-                    name: change.change.tool().to_owned(),
+                    name: tools::MEMORY.to_owned(),
                     arguments: change.arguments(),
                     description: change.content.clone(),
                     output: change.output(),
@@ -893,9 +918,19 @@ impl App {
         {
             turns.insert(asked.timestamp.timestamp_millis(), record);
         }
-        // A routine that found nothing to say shows nothing.
+        // A routine that found nothing to say shows nothing. One that told
+        // the user something shows only what it told them, as a message of
+        // its own: no routine turn, and nothing of how it checked.
+        let notice_only = is_cron && status == RunStatus::Completed;
         let mut saved = if silent {
             steps::Steps::default()
+        } else if notice_only {
+            steps::last_reply(steps::steps(
+                conversation.entries(),
+                Some(turn_started),
+                &failed_tools,
+                &turns,
+            ))
         } else {
             steps::steps(
                 conversation.entries(),
@@ -934,6 +969,7 @@ impl App {
             context: stored.as_ref().unwrap_or(&conversation),
             prompt_tokens: stored.is_none().then_some(prompt_tokens),
             steps: &saved.steps,
+            stands_alone: notice_only,
             carried: TurnRecord {
                 reasoning: saved.carried_reasoning.clone(),
                 memory_score: if answer.is_some() { memory_score } else { None },
@@ -1024,6 +1060,17 @@ impl App {
             status: status.as_str().to_owned(),
             updated_at: finished.map(|saved| SystemTime::from(saved.updated_at)),
         });
+        // A chat made for a routine's run that found nothing is not kept,
+        // so the user never sees an empty one.
+        if silent
+            && fresh_chat
+            && let Err(error) = user.delete_session(chat).await
+        {
+            log::warn!(
+                "unable to delete a quiet routine's chat: {error:#}; run_id={}",
+                run.id
+            );
+        }
         if let Some(woken) = &message.woken {
             let finished = wake::Finished {
                 label: &woken.label,

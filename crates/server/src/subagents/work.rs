@@ -1,7 +1,7 @@
 //! The sub-agents and jobs the main agent started, per chat, and their
 //! results on the way back to it.
 //!
-//! A result goes back once: to `wait_job` when the agent waited for it, or
+//! A result goes back once: to `background wait` when the agent waited for it, or
 //! to the next turn of its chat. A turn claims every result waiting in its
 //! chat as it is created (see [`Work::claim`]), so a message the user sends
 //! carries them in its context. When the chat is idle a delivery starts a
@@ -44,7 +44,7 @@ impl std::str::FromStr for WorkId {
 
 /// No sub-agent or job of this chat has that id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("no agent or job of this chat has that id; `jobs` lists them")]
+#[error("no agent or job of this chat has that id; `background list` lists them")]
 pub struct UnknownWork;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
@@ -72,7 +72,7 @@ pub struct Outcome {
     pub text: String,
 }
 
-/// One line of `jobs`.
+/// One line of `background list`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Listing {
     pub id: WorkId,
@@ -97,7 +97,7 @@ pub struct Finished {
 const KEPT: Duration = Duration::from_secs(60 * 60);
 /// Most finished items one chat keeps listed.
 const KEPT_PER_CHAT: usize = 20;
-/// The longest `wait_job` waits.
+/// The longest `background wait` waits.
 pub const MAX_WAIT: Duration = Duration::from_secs(120);
 
 struct Item {
