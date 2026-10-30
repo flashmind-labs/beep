@@ -633,7 +633,7 @@ pub fn resize_bar(app: AppHandle, height: f64) -> Result<()> {
 
 #[tauri::command]
 pub fn hide_bar(app: AppHandle) {
-    bar::hide(&app);
+    bar::dismiss(&app);
 }
 
 /// The app has no menu bar of its own, so the bar handles ⌘Q.

@@ -2209,7 +2209,7 @@ async function renderSettings(confirm = false) {
       <div class="dsec flat" style="padding-top:6px">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
-      <div class="dtoggle"><span><b>Voice notes</b><small>Speak new notices when you are at this Mac and not on a call, then keep listening. Tap Option three times to talk live.</small></span>
+      <div class="dtoggle"><span><b>Voice notes</b><small>Speak new notices when you are at this Mac and not on a call, then keep listening. Tap Option twice to open Beep, then once more to talk live. Hold Option to talk while it is held.</small></span>
         <button class="dswitch" id="voiceNotes" role="switch" aria-checked="${set.voice_notes}" aria-label="Voice notes"></button></div>${sendRow(set.send_on_pause)}
     </div>${hints([["esc", "close"]])}`;
   $("#link")?.addEventListener("click", renderLink);
@@ -3684,8 +3684,9 @@ async function show(view) {
   // Live mode runs in the bar until it ends.
   if (LV.on) return renderLive();
   // A draft kept from live mode opens in its chat.
-  if (VN.draft && S.view === "voice") {
-    S.session = VN.draft.session;
+  if (VN.open !== null && S.view === "voice") {
+    S.session = VN.open || null;
+    VN.open = null;
     return S.session ? openSession(S.session) : renderChat();
   }
   if (S.view !== "chat" || !$("#ask")) {
@@ -3704,9 +3705,10 @@ const VOICE_ICON = {
   speaker: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 010 6M19.5 6.5a8 8 0 010 11"/></svg>',
   mic: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
 };
-/// `draft` holds the words live mode kept when it ended, { session, text },
-/// until a chat takes them, with `note` saying why.
-const VN = { draft: null, note: "" };
+/// `drafts` holds the words live mode kept when it ended, by chat ("" for a
+/// new one), until that chat takes them; `open` is the chat the last one went
+/// to, and `note` says why.
+const VN = { drafts: new Map(), open: null, note: "" };
 /// The live view: the last view Rust sent, a toast, the pause bar and the
 /// message just sent.
 const LV = { on: false, view: null, toast: "", toastTimer: 0, soon: null, sent: "" };
@@ -3767,19 +3769,21 @@ function renderLive() {
   </div>${hints(keys)}`;
   $("#orb").addEventListener("click", () => invoke("live_tap").catch(() => {}));
 }
-/// Live mode ended with nothing to keep.
+/// Live mode ended, shown briefly before the bar goes away.
 function renderLeft(v) {
   S.view = "voice";
   const why = v.failure ?? (v.quiet ? "Live mode ended after 2 minutes quiet" : "Left live mode");
-  bar.innerHTML = `<div class="dvoice"><span class="dlogo">b</span><div class="vt"><small>${VOICE_ICON.mic}Live mode</small><span>${esc(why)}</span></div></div>
-    ${hints([["⌥ ⌥ ⌥", "talk again"], ["⌥ ⌥", "open Beep"]])}`;
+  const kept = v.draft ? " Your words are kept in the chat." : "";
+  bar.innerHTML = `<div class="dvoice"><span class="dlogo">b</span><div class="vt"><small>${VOICE_ICON.mic}Live mode</small><span>${esc(why + kept)}</span></div></div>
+    ${hints([["⌥ ⌥", "open Beep"], ["hold ⌥", "talk"]])}`;
 }
 /// Puts a kept draft in the open chat's prompt, after anything typed there.
 function takeDraft(ask) {
-  const d = VN.draft;
-  if (!d || !ask || (d.session ?? null) !== (S.session ?? null)) return;
-  VN.draft = null;
-  ask.value = ask.value.trim() ? `${ask.value.trimEnd()} ${d.text}` : d.text;
+  const key = S.session ?? "";
+  const text = VN.drafts.get(key);
+  if (!text || !ask) return;
+  VN.drafts.delete(key);
+  ask.value = ask.value.trim() ? `${ask.value.trimEnd()} ${text}` : text;
   ask.dispatchEvent(new Event("input"));
   if (VN.note) { notice(VN.note); VN.note = ""; }
 }
@@ -3825,12 +3829,16 @@ listen("live", e => {
       // The bar, if Rust shows it next, opens on the chat live mode was in.
       if (v.session) S.session = v.session;
       if (v.draft) {
-        // Rust shows the bar next, which opens the chat with the draft.
-        VN.draft = { session: v.session ?? null, text: v.draft };
+        // The chat takes the draft the next time it opens.
+        // A second draft for the same chat joins the first instead of
+        // replacing it.
+        const key = v.session ?? "";
+        const kept = VN.drafts.get(key);
+        VN.drafts.set(key, kept ? `${kept} ${v.draft}` : v.draft);
+        VN.open = key;
         VN.note = v.failure ? `${v.failure} Your words are kept here.`
           : v.quiet ? "Live mode ended after 2 minutes quiet. Your words are kept here."
           : "Left live mode. Your words are kept here.";
-        return;
       }
       return renderLeft(v);
   }

@@ -1,4 +1,4 @@
-//! Live voice. Three taps of Option, a held Option, or a voice note start
+//! Live voice. A tap of Option with the bar open, a held Option, or a voice note start
 //! live mode: the bar shows an orb, the words as they are said, and Beep's
 //! answer read aloud sentence by sentence, then it listens again.
 //!
@@ -332,6 +332,9 @@ impl Voice {
         let id = self.lives.fetch_add(1, Ordering::Relaxed) + 1;
         let (mic, heard) = mpsc::channel(MIC_CHUNKS);
         let (opened, audio) = watch::channel(None);
+        // A tap asks for live mode; a hold or a spoken note comes while the
+        // user works elsewhere, so it leaves them the keyboard.
+        let focus = matches!(how, Start::Tap);
         let (live, effects, note) = match how {
             Start::Tap => {
                 let (live, effects) = Live::listening(mode, now);
@@ -394,7 +397,7 @@ impl Voice {
             }
         });
         if !bar::is_open(&self.app) {
-            bar::show_passive(&self.app);
+            bar::show_passive(&self.app, focus);
         }
         self.watch_escape();
         if let Some((note, _)) = note {
@@ -687,9 +690,9 @@ impl Voice {
         if let Some(chat) = chat {
             self.beep.set_session(Some(chat.to_string()));
         }
-        // The bar opens on the chat when there is a draft to edit or the
-        // user had it up; a bar up only for live mode goes away.
-        let reopen = draft.is_some() || (bar::is_open(&self.app) && !bar::is_passive());
+        // The bar stays on the chat when the user had it up; a bar up only
+        // for live mode goes away, and a draft waits in the chat's box.
+        let reopen = bar::is_open(&self.app) && !bar::is_passive();
         self.emit(LiveEvent::Left {
             draft,
             session: chat.map(|c| c.to_string()),
@@ -711,7 +714,7 @@ impl Voice {
         tauri::async_runtime::spawn(async move {
             sleep(LINGER).await;
             if !me.is_live() && bar::is_passive() {
-                bar::hide(&me.app);
+                bar::dismiss(&me.app);
             }
         });
     }
@@ -1094,21 +1097,8 @@ impl Voice {
             }
             (taps, hold)
         };
-        match taps {
-            TapStep::Two(run) => {
-                let me = self.clone();
-                tauri::async_runtime::spawn(async move {
-                    sleep(WINDOW).await;
-                    me.on_two_taps(run);
-                });
-            }
-            TapStep::Three => {
-                if !self.is_live() {
-                    let chat = self.open_chat();
-                    self.start(Start::Tap, chat);
-                }
-            }
-            TapStep::Nothing => {}
+        if taps == TapStep::Two {
+            self.on_two_taps();
         }
         match hold {
             HoldStep::Wait(press) => {
@@ -1131,12 +1121,9 @@ impl Voice {
         }
     }
 
-    /// Two taps stood: open or hide the bar. In live mode it leaves, and
-    /// the bar opens on the chat.
-    fn on_two_taps(self: &Arc<Self>, run: u64) {
-        if !self.state().taps.on_timer(run) {
-            return;
-        }
+    /// Two taps: open or hide the bar. In live mode it leaves, and the bar
+    /// opens on the chat.
+    fn on_two_taps(self: &Arc<Self>) {
         if self.is_live() {
             self.leave_live();
             if !self.is_live() {
@@ -1150,8 +1137,10 @@ impl Voice {
     /// `HOLD` after Option went down: talk while it stays down.
     fn on_hold_timer(self: &Arc<Self>, press: u64) {
         let live = self.is_live();
-        let armed = live || (bar::is_open(&self.app) && !bar::is_passive());
-        let step = self.state().hold.on_timer(press, armed, Instant::now());
+        let step = self
+            .state()
+            .hold
+            .on_timer(press, hotkey::since_press(), Instant::now());
         if step != HoldStep::Start {
             return;
         }
@@ -1163,14 +1152,21 @@ impl Voice {
         }
     }
 
-    /// A single tap stood alone: interrupt or leave live mode.
+    /// A single tap stood alone: interrupt or leave live mode, or start it
+    /// when the user has the bar open.
     fn on_tap_timer(self: &Arc<Self>, press: u64) {
         let step = self
             .state()
             .hold
             .on_tap_timer(press, hotkey::since_press(), Instant::now());
-        if step == HoldStep::Single {
+        if step != HoldStep::Single {
+            return;
+        }
+        if self.is_live() {
             self.input_now(Input::Tap);
+        } else if bar::is_open(&self.app) && !bar::is_passive() {
+            let chat = self.open_chat();
+            self.start(Start::Tap, chat);
         }
     }
 }
