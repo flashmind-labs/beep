@@ -58,8 +58,9 @@ pub fn print_offer(state: &State) -> Result<()> {
     Ok(())
 }
 
-/// Stays connected until the process stops, waiting longer after each failed try.
-pub async fn serve(state: State) -> Result<()> {
+/// Stays connected, waiting longer after each failed try, until `stop`
+/// finishes; then closes the agent sessions and returns.
+pub async fn serve(state: State, stop: impl Future<Output = ()>) -> Result<()> {
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(state.key.clone())
         .bind()
@@ -84,18 +85,27 @@ pub async fn serve(state: State) -> Result<()> {
             log::warn!("not taking Claude Code hooks: {e:#}");
         }
     }));
-    let mut wait = FIRST_RETRY;
-    loop {
-        match connect(&endpoint, state.server.into(), &state.name, &offers).await {
-            Ok(()) => {
-                log::info!("the server closed the connection");
-                wait = FIRST_RETRY;
+    let stay = async {
+        let mut wait = FIRST_RETRY;
+        loop {
+            match connect(&endpoint, state.server.into(), &state.name, &offers).await {
+                Ok(()) => {
+                    log::info!("the server closed the connection");
+                    wait = FIRST_RETRY;
+                }
+                Err(e) => log::warn!("connection lost: {e:#}"),
             }
-            Err(e) => log::warn!("connection lost: {e:#}"),
+            sleep(wait).await;
+            wait = (wait * 2).min(LAST_RETRY);
         }
-        sleep(wait).await;
-        wait = (wait * 2).min(LAST_RETRY);
+    };
+    tokio::select! {
+        () = stay => {}
+        () = stop => {}
     }
+    log::info!("stopping the agent sessions");
+    offers.agents.shutdown().await;
+    Ok(())
 }
 
 /// One connection to `server`, served until it closes: the hello, the

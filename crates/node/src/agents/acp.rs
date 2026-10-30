@@ -1,130 +1,55 @@
-//! The little of JSON-RPC 2.0 that ACP needs: one message per line on the
-//! adapter's stdio.
+//! What the node needs around the official ACP crate: the requests it
+//! sends, and the transport over the adapter's stdio, which caps each
+//! message and skips lines that are not JSON-RPC.
 
-use serde_json::{Value, json};
-
-/// The ACP version this client speaks.
-pub(super) const PROTOCOL_VERSION: u64 = 1;
-
-const METHOD_NOT_FOUND: i64 = -32601;
-
-/// A line the agent sent.
-#[derive(Debug, PartialEq)]
-pub(super) enum Incoming {
-    /// The answer to one of our requests.
-    Response {
-        id: u64,
-        result: Result<Value, String>,
+use agent_client_protocol::{
+    Lines,
+    schema::{
+        ProtocolVersion,
+        v1::{
+            ContentBlock, Implementation, InitializeRequest, InitializeResponse,
+            PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
+            SelectedPermissionOutcome, SessionId, TextContent,
+        },
     },
-    /// The agent asks us something; `id` goes back in the answer as is.
-    Request {
-        id: Value,
-        method: String,
-        params: Value,
-    },
-    Notification {
-        method: String,
-        params: Value,
-    },
-}
+};
+use futures::{Sink, Stream, sink, stream};
+use serde::Serialize;
+use std::io;
+use tokio::{
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
+    process::{ChildStdin, ChildStdout},
+    sync::mpsc,
+};
 
-/// Reads one line, `None` when it is not a JSON-RPC message.
-pub(super) fn parse(line: &str) -> Option<Incoming> {
-    let mut message: Value = serde_json::from_str(line.trim()).ok()?;
-    let params = message.get_mut("params").map(Value::take);
-    match message.get("method").and_then(Value::as_str) {
-        Some(method) => {
-            let method = method.to_owned();
-            let params = params.unwrap_or(Value::Null);
-            Some(match message.get_mut("id").map(Value::take) {
-                Some(id) if !id.is_null() => Incoming::Request { id, method, params },
-                _ => Incoming::Notification { method, params },
-            })
-        }
-        None => {
-            let id = message.get("id")?.as_u64()?;
-            let result = match message.get_mut("error") {
-                Some(error) => Err(error_text(error)),
-                None => Ok(message
-                    .get_mut("result")
-                    .map(Value::take)
-                    .unwrap_or_default()),
-            };
-            Some(Incoming::Response { id, result })
-        }
-    }
-}
-
-fn error_text(error: &Value) -> String {
-    let message = error
-        .get("message")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown error");
-    match error.get("data") {
-        Some(Value::String(data)) => format!("{message}: {data}"),
-        Some(data) if !data.is_null() => format!("{message}: {data}"),
-        _ => message.to_owned(),
-    }
-}
-
-pub(super) fn request(id: u64, method: &str, params: Value) -> String {
-    line(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
-}
-
-pub(super) fn notification(method: &str, params: Value) -> String {
-    line(json!({ "jsonrpc": "2.0", "method": method, "params": params }))
-}
-
-pub(super) fn response(id: &Value, result: Value) -> String {
-    line(json!({ "jsonrpc": "2.0", "id": id, "result": result }))
-}
-
-/// Refuses a request this client does not serve.
-pub(super) fn not_supported(id: &Value, method: &str) -> String {
-    line(json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "error": { "code": METHOD_NOT_FOUND, "message": format!("{method} is not supported") }
-    }))
-}
-
-fn line(message: Value) -> String {
-    let mut text = message.to_string();
-    text.push('\n');
-    text
-}
+/// The longest message read from an agent; a longer one is dropped.
+pub(super) const MAX_MESSAGE: usize = 16 * 1024 * 1024;
 
 /// What `initialize` sends: this client reads and writes no files and runs
-/// no terminals for the agent, so it does that work itself.
-pub(super) fn initialize() -> Value {
-    json!({
-        "protocolVersion": PROTOCOL_VERSION,
-        "clientCapabilities": {
-            "fs": { "readTextFile": false, "writeTextFile": false },
-            "terminal": false
-        },
-        "clientInfo": { "name": "beep-node", "version": env!("CARGO_PKG_VERSION") }
-    })
+/// no terminals for the agent (the crate's defaults), so it does that work
+/// itself.
+pub(super) fn initialize() -> InitializeRequest {
+    InitializeRequest::new(ProtocolVersion::V1)
+        .client_info(Implementation::new("beep-node", env!("CARGO_PKG_VERSION")))
 }
 
-pub(super) fn new_session(cwd: &str) -> Value {
-    json!({ "cwd": cwd, "mcpServers": [] })
+/// How an agent resumes a session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ResumeMethod {
+    /// `session/resume`, which replays nothing.
+    Resume,
+    /// `session/load`, which replays the history.
+    Load,
 }
 
-/// The params of `session/resume` or `session/load` for `session`.
-pub(super) fn resume_session(session: &str, cwd: &str) -> Value {
-    json!({ "sessionId": session, "cwd": cwd, "mcpServers": [] })
-}
-
-/// How the agent the `initialize` answer describes resumes a session:
-/// `session/resume`, which replays nothing, or else `session/load`, which
-/// replays the history; `None` when it does neither.
-pub(super) fn resume_method(initialized: &Value) -> Option<&'static str> {
-    let capabilities = &initialized["agentCapabilities"];
-    if capabilities["sessionCapabilities"]["resume"].is_object() {
-        Some("session/resume")
-    } else if capabilities["loadSession"].as_bool() == Some(true) {
-        Some("session/load")
+/// How the agent the `initialize` answer describes resumes a session,
+/// preferring `session/resume`; `None` when it does neither.
+pub(super) fn resume_method(initialized: &InitializeResponse) -> Option<ResumeMethod> {
+    let capabilities = &initialized.agent_capabilities;
+    if capabilities.session_capabilities.resume.is_some() {
+        Some(ResumeMethod::Resume)
+    } else if capabilities.load_session {
+        Some(ResumeMethod::Load)
     } else {
         None
     }
@@ -134,81 +59,231 @@ pub(super) fn resume_method(initialized: &Value) -> Option<&'static str> {
 /// `claude --dangerously-skip-permissions` runs.
 pub(super) const BYPASS_MODE: &str = "bypassPermissions";
 
-pub(super) fn set_mode(session: &str, mode: &str) -> Value {
-    json!({ "sessionId": session, "modeId": mode })
+pub(super) fn prompt(session: &SessionId, text: &str) -> PromptRequest {
+    PromptRequest::new(
+        session.clone(),
+        vec![ContentBlock::Text(TextContent::new(text))],
+    )
 }
 
-pub(super) fn prompt(session: &str, text: &str) -> Value {
-    json!({ "sessionId": session, "prompt": [{ "type": "text", "text": text }] })
+pub(super) fn selected(option: &str) -> RequestPermissionResponse {
+    RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
+        SelectedPermissionOutcome::new(PermissionOptionId::new(option)),
+    ))
 }
 
-pub(super) fn cancel(session: &str) -> Value {
-    json!({ "sessionId": session })
+pub(super) fn cancelled() -> RequestPermissionResponse {
+    RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled)
 }
 
-pub(super) fn selected(option: &str) -> Value {
-    json!({ "outcome": { "outcome": "selected", "optionId": option } })
+/// The name an ACP enum has on the wire, such as `end_turn`, through its
+/// own serde conversion; empty for a value that is not a string there.
+pub(super) fn wire_name(value: &impl Serialize) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => String::new(),
+    }
 }
 
-pub(super) fn cancelled() -> Value {
-    json!({ "outcome": { "outcome": "cancelled" } })
+/// The transport over an adapter's stdio. The crate writes from its own
+/// actor, apart from reading, so a full stdin never stops stdout from
+/// being read. Each oversized message dropped is reported on `oversized`
+/// with its length.
+pub(super) fn transport(
+    stdin: ChildStdin,
+    stdout: ChildStdout,
+    oversized: mpsc::Sender<usize>,
+) -> Lines<
+    impl Sink<String, Error = io::Error> + Send + 'static,
+    impl Stream<Item = io::Result<String>> + Send + 'static,
+> {
+    Lines::new(
+        writer(stdin),
+        messages(BufReader::new(stdout), MAX_MESSAGE, oversized),
+    )
+}
+
+/// Writes each message the crate hands it as one line.
+fn writer<W: AsyncWrite + Unpin + Send + 'static>(
+    stdin: W,
+) -> impl Sink<String, Error = io::Error> + Send + 'static {
+    Box::pin(sink::unfold(stdin, async |mut stdin, message: String| {
+        stdin.write_all(message.as_bytes()).await?;
+        stdin.write_all(b"\n").await?;
+        stdin.flush().await?;
+        Ok::<_, io::Error>(stdin)
+    }))
+}
+
+/// The JSON-RPC messages in `reader`, one per line, each at most `max`
+/// bytes. Other lines (an npx warning, say) are logged and skipped rather
+/// than answered with a parse error.
+fn messages<R: AsyncBufRead + Unpin + Send + 'static>(
+    reader: R,
+    max: usize,
+    oversized: mpsc::Sender<usize>,
+) -> impl Stream<Item = io::Result<String>> + Send + 'static {
+    let lines = LineReader::new(reader, max);
+    stream::unfold(lines, move |mut lines| {
+        let oversized = oversized.clone();
+        async move {
+            loop {
+                match lines.next().await {
+                    Ok(Some(Line::Text(text))) => {
+                        let trimmed = text.trim_start();
+                        if trimmed.starts_with('{') || trimmed.starts_with('[') {
+                            return Some((Ok(text), lines));
+                        }
+                        if !trimmed.is_empty() {
+                            log::debug!(
+                                "agent wrote a line that is not JSON-RPC: {}",
+                                super::cut(trimmed, 200)
+                            );
+                        }
+                    }
+                    Ok(Some(Line::TooLong(length))) => {
+                        log::warn!("dropped a {length} byte message from the agent: over {max}");
+                        // A full channel already carries a report.
+                        let _ = oversized.try_send(length);
+                    }
+                    Ok(None) => return None,
+                    Err(e) => return Some((Err(e), lines)),
+                }
+            }
+        }
+    })
+}
+
+/// One line read by a `LineReader`.
+#[derive(Debug, PartialEq)]
+pub(super) enum Line {
+    /// The line without its newline.
+    Text(String),
+    /// A line longer than the cap, dropped; its length in bytes.
+    TooLong(usize),
+}
+
+/// Reads lines without holding more than `max` bytes of any one: the rest
+/// of a longer line is read and thrown away.
+pub(super) struct LineReader<R> {
+    reader: R,
+    max: usize,
+    line: Vec<u8>,
+}
+
+impl<R: AsyncBufRead + Unpin> LineReader<R> {
+    pub(super) fn new(reader: R, max: usize) -> Self {
+        Self {
+            reader,
+            max,
+            line: Vec::new(),
+        }
+    }
+
+    /// The next line; `None` at the end of the input.
+    pub(super) async fn next(&mut self) -> io::Result<Option<Line>> {
+        self.line.clear();
+        let mut length = 0usize;
+        loop {
+            let available = self.reader.fill_buf().await?;
+            if available.is_empty() {
+                // The end of the input ends a last line that has no newline.
+                return Ok((length > 0).then(|| self.finish(length)));
+            }
+            let (part, used, ended) = match available.iter().position(|&b| b == b'\n') {
+                Some(at) => (&available[..at], at + 1, true),
+                None => (available, available.len(), false),
+            };
+            length = length.saturating_add(part.len());
+            if length <= self.max {
+                self.line.extend_from_slice(part);
+            } else {
+                // Nothing of an oversized line is kept.
+                self.line = Vec::new();
+            }
+            self.reader.consume(used);
+            if ended {
+                return Ok(Some(self.finish(length)));
+            }
+        }
+    }
+
+    fn finish(&mut self, length: usize) -> Line {
+        if length > self.max {
+            return Line::TooLong(length);
+        }
+        let mut text = String::from_utf8_lossy(&self.line).into_owned();
+        if text.ends_with('\r') {
+            text.pop();
+        }
+        Line::Text(text)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn lines_read_as_responses_requests_and_notifications() {
-        assert_eq!(
-            parse(r#"{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}"#),
-            Some(Incoming::Response {
-                id: 3,
-                result: Ok(json!({"stopReason": "end_turn"}))
-            })
-        );
-        assert_eq!(
-            parse(
-                r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"Authentication required"}}"#
-            ),
-            Some(Incoming::Response {
-                id: 1,
-                result: Err("Authentication required".into())
-            })
-        );
-        assert_eq!(
-            parse(
-                r#"{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"x":1}}"#
-            ),
-            Some(Incoming::Request {
-                id: json!("p1"),
-                method: "session/request_permission".into(),
-                params: json!({"x": 1})
-            })
-        );
-        assert_eq!(
-            parse(r#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#),
-            Some(Incoming::Notification {
-                method: "session/update".into(),
-                params: json!({})
-            })
-        );
-        assert_eq!(parse("npm warn something"), None);
-    }
+    use agent_client_protocol::schema::v1::{
+        AgentCapabilities, SessionCapabilities, SessionResumeCapabilities,
+    };
+    use futures::StreamExt;
 
     #[test]
     fn resume_prefers_session_resume_to_load() {
-        let both = json!({"agentCapabilities": {"loadSession": true, "sessionCapabilities": {"resume": {}}}});
-        assert_eq!(resume_method(&both), Some("session/resume"));
-        let load = json!({"agentCapabilities": {"loadSession": true}});
-        assert_eq!(resume_method(&load), Some("session/load"));
-        assert_eq!(resume_method(&json!({"agentCapabilities": {}})), None);
+        let answer = |capabilities| {
+            InitializeResponse::new(ProtocolVersion::V1).agent_capabilities(capabilities)
+        };
+        let both = AgentCapabilities::new()
+            .load_session(true)
+            .session_capabilities(
+                SessionCapabilities::new().resume(SessionResumeCapabilities::new()),
+            );
+        assert_eq!(resume_method(&answer(both)), Some(ResumeMethod::Resume));
+        let load = AgentCapabilities::new().load_session(true);
+        assert_eq!(resume_method(&answer(load)), Some(ResumeMethod::Load));
+        assert_eq!(resume_method(&answer(AgentCapabilities::new())), None);
+    }
+
+    #[tokio::test]
+    async fn lines_over_the_cap_are_dropped_whole() {
+        let input = format!("short\n{}\nafter\r\nlast", "x".repeat(100));
+        // A small buffer, so the long line spans many reads.
+        let reader = BufReader::with_capacity(8, input.as_bytes());
+        let mut lines = LineReader::new(reader, 10);
+        let mut read = Vec::new();
+        while let Some(line) = lines.next().await.unwrap() {
+            read.push(line);
+        }
+        assert_eq!(
+            read,
+            [
+                Line::Text("short".into()),
+                Line::TooLong(100),
+                Line::Text("after".into()),
+                Line::Text("last".into()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_oversized_message_is_reported_and_skipped() {
+        let input = format!(
+            "npm warn deprecated\n{{\"a\":\"{}\"}}\n{{\"b\":1}}\n",
+            "x".repeat(64)
+        );
+        let (oversized, mut reports) = mpsc::channel(1);
+        let read: Vec<String> = messages(std::io::Cursor::new(input.into_bytes()), 32, oversized)
+            .map(|line| line.unwrap())
+            .collect()
+            .await;
+        assert_eq!(read, [r#"{"b":1}"#]);
+        assert_eq!(reports.recv().await, Some(72));
     }
 
     #[test]
-    fn messages_are_one_line_each() {
-        let text = request(7, "session/prompt", prompt("s", "two\nlines"));
-        assert!(text.ends_with('\n'));
-        assert_eq!(text.matches('\n').count(), 1);
+    fn enums_read_as_their_wire_names() {
+        use agent_client_protocol::schema::v1::StopReason;
+        assert_eq!(wire_name(&StopReason::EndTurn), "end_turn");
+        assert_eq!(wire_name(&StopReason::MaxTurnRequests), "max_turn_requests");
     }
 }
