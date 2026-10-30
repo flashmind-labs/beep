@@ -1,6 +1,6 @@
 //! Skills: how a user, or a group, wants a recurring task done, learned
 //! from their chats. A review reads the turns since the last one and
-//! creates or rewrites skills; the context lists them and `skill_view`
+//! creates or rewrites skills; the context lists them and `skill`
 //! loads one.
 
 use crate::{
@@ -34,10 +34,10 @@ const TOOL_CLIP: usize = 400;
 
 /// Starts the context's list of skills, so a chat can tell whether it
 /// already carries the current one.
-pub const INDEX_HEADER: &str = "Skills, how this user likes recurring tasks done. Before doing a task one covers, load it with skill_view:";
+pub const INDEX_HEADER: &str = "Skills, how this user likes recurring tasks done. Before doing a task one covers, load it with `skill` view:";
 
 /// The same for a group.
-pub const GROUP_INDEX_HEADER: &str = "Skills, how this group likes recurring tasks done. Before doing a task one covers, load it with skill_view:";
+pub const GROUP_INDEX_HEADER: &str = "Skills, how this group likes recurring tasks done. Before doing a task one covers, load it with `skill` view:";
 
 const REVIEW_SYSTEM: &str = include_str!("../prompts/skill_review.md");
 

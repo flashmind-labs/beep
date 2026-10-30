@@ -20,7 +20,7 @@ impl App {
     /// Time, location, which apps are connected,
     /// for a routine or an event how to answer it, and the skill list and the memory
     /// profile when `chat` has not had these yet, sent as a developer message. Other memories the
-    /// model looks up with `memory_recall`.
+    /// model looks up with `memory` recall.
     pub(super) async fn build_context(
         &self,
         user: &User,
@@ -268,7 +268,7 @@ fn apps_line(apps: &[AppIntegration]) -> Option<String> {
 
 /// For a message said in live mode, a spoken conversation: everything you
 /// write is read aloud as it comes. `delegates` adds the line about
-/// `spawn_agent`, for users who have that tool.
+/// `background`, for users who have that tool.
 fn live_line(delegates: bool) -> String {
     let mut line = String::from(
         "This is a live spoken conversation: every sentence you write is read aloud as it \
@@ -286,12 +286,12 @@ fn live_line(delegates: bool) -> String {
 }
 
 /// How to use the background tools, for turns that have them.
-const DELEGATION: &str = "Answer quick things directly. Hand slow work to the background \
-    and reply right away instead of making the user wait: spawn_agent for work of many steps \
+const DELEGATION: &str = "Answer quick things directly. Hand slow work to the `background` \
+    tool and reply right away instead of making the user wait: spawn for work of many steps \
     (several lookups, going through a mailbox, coding, research), with a brief that is \
-    complete on its own since it cannot see this chat; run_in_background for one slow tool \
-    call. Use message_agent to steer an agent that is working or to ask one that reported \
-    for more. Results come back to this chat: relay them briefly, leading with the result.";
+    complete on its own since it cannot see this chat; run for one slow tool call. Use message \
+    to steer an agent that is working or to ask one that reported for more. Results come back \
+    to this chat: relay them briefly, leading with the result.";
 
 #[cfg(test)]
 mod tests {
@@ -393,8 +393,8 @@ mod tests {
         assert!(plain.contains("read aloud"));
         assert!(!plain.contains("background"));
         assert!(live_line(true).contains("background"));
-        for tool in ["spawn_agent", "run_in_background", "message_agent"] {
-            assert!(DELEGATION.contains(tool));
+        for word in ["`background`", "spawn", "run", "message"] {
+            assert!(DELEGATION.contains(word));
         }
     }
 }

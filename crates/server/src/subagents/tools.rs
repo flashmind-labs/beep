@@ -1,8 +1,9 @@
-//! The main agent's tools for background work, for admins: `spawn_agent`
-//! starts a sub-agent, `run_in_background` moves one tool call off the turn,
-//! `jobs` lists both, `wait_job` waits for one and `cancel_job` stops one.
+//! The main agent's tool for background work, for admins: `background`
+//! with `spawn` starts a sub-agent, `run` moves one tool call off the turn,
+//! `list` lists both, `wait` waits for one, `message` tells an agent more
+//! and `cancel` stops one.
 //!
-//! A job names its tool and arguments (`run_in_background {tool, arguments}`)
+//! A job names its tool and arguments (`background run {tool, arguments}`)
 //! rather than every tool taking a `background` flag: Composio's and the MCP
 //! servers' schemas stay as they are, and one place decides which tools may
 //! leave the turn.
@@ -68,15 +69,21 @@ const TURN_ONLY: &[&str] = &[
     "stop_research",
 ];
 
-const SPAWN: &str = "spawn_agent";
-const RUN: &str = "run_in_background";
-const JOBS: &str = "jobs";
-const WAIT: &str = "wait_job";
-const CANCEL: &str = "cancel_job";
-const MESSAGE: &str = "message_agent";
-const OWN: &[&str] = &[SPAWN, RUN, JOBS, WAIT, CANCEL, MESSAGE];
+pub(crate) const NAME: &str = "background";
 
-/// The kind `spawn_agent` starts.
+/// What a `background` call does, by its `action`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+enum Action {
+    Spawn,
+    Run,
+    List,
+    Wait,
+    Message,
+    Cancel,
+}
+
+/// The kind `background spawn` starts.
 const GENERAL: Kind = Kind {
     name: "general",
     instructions: include_str!("../../prompts/subagents/general.md"),
@@ -130,7 +137,7 @@ pub(crate) fn register(registry: &mut ToolRegistry, setup: Setup) {
         hinted,
     } = setup;
     let mut tools = registry.clone();
-    tools.retain(|name| !TURN_ONLY.contains(&name) && !OWN.contains(&name));
+    tools.retain(|name| !TURN_ONLY.contains(&name) && name != NAME);
     for tool in permissions::for_gate(app_tools, &rules, &hinted) {
         tools.register(tool);
     }
@@ -150,12 +157,90 @@ pub(crate) fn register(registry: &mut ToolRegistry, setup: Setup) {
         tools,
         gate,
     });
-    registry.register(Arc::new(SpawnAgentTool(background.clone())));
-    registry.register(Arc::new(RunInBackgroundTool(background.clone())));
-    registry.register(Arc::new(JobsTool(background.clone())));
-    registry.register(Arc::new(WaitJobTool(background.clone())));
-    registry.register(Arc::new(CancelJobTool(background.clone())));
-    registry.register(Arc::new(MessageAgentTool(background)));
+    registry.register(Arc::new(BackgroundTool(background)));
+}
+
+/// `background`: sub-agents and background jobs of one chat.
+struct BackgroundTool(Arc<Background>);
+
+#[async_trait]
+impl Tool for BackgroundTool {
+    fn name(&self) -> &str {
+        NAME
+    }
+
+    fn description(&self) -> &str {
+        "Work in the background while you keep talking with the user. `spawn` starts a \
+         sub-agent on a task of many steps, such as going through a mailbox or comparing \
+         several sources; it has your tools under the same app permissions (an action that \
+         asks first shows the user a card and waits), and its report comes back to this chat \
+         when it ends. Tell the user it started, then go on. `run` runs one slow call of \
+         another tool, given its name and arguments; its result comes back the same way. \
+         `list` shows this chat's agents and jobs, running ones with their last step. `wait` \
+         waits up to timeout seconds (at most 120) for one to end and returns its result, \
+         which then does not come back again. `message` tells an agent more: it steers a \
+         running one (read once its current run ends) or starts one that reported again, \
+         keeping what it did; agents are kept for an hour after their last report. `cancel` \
+         stops one; nothing comes back from it."
+    }
+
+    fn parameters(&self) -> Value {
+        json!({"type": "object", "properties": {
+            "action": {"type": "string", "enum": ["spawn", "run", "list", "wait", "message", "cancel"]},
+            "task": {"type": "string", "description": "spawn: the whole task, with everything it needs to know: it cannot see this chat."},
+            "urgency": {"type": "string", "enum": ["now", "later"], "description": "spawn: now (the default) reports as soon as it ends; later keeps the report for the user's next message."},
+            "tool": {"type": "string", "description": "run: the tool to call."},
+            "arguments": {"type": "object", "description": "run: the arguments you would call it with."},
+            "id": {"type": "string", "description": "wait, message, cancel: the agent's or job's id, such as w3."},
+            "timeout": {"type": "integer", "description": "wait: seconds, 60 if left out."},
+            "text": {"type": "string", "description": "message: the message, complete on its own."}
+        }, "required": ["action"], "additionalProperties": false})
+    }
+
+    fn timeout_secs(&self) -> Option<u64> {
+        Some(MAX_WAIT.as_secs() + 10)
+    }
+
+    fn humanize(&self, args: &Value) -> String {
+        match action(args) {
+            Ok(Action::Spawn) => "Starting an agent".to_owned(),
+            Ok(Action::Run) => match args.get("tool").and_then(Value::as_str) {
+                Some(tool) => format!("Running {tool} in the background"),
+                None => "Running a job".to_owned(),
+            },
+            Ok(Action::List) => "Checking background work".to_owned(),
+            Ok(Action::Wait) => "Waiting for background work".to_owned(),
+            Ok(Action::Message) => "Messaging an agent".to_owned(),
+            Ok(Action::Cancel) => "Stopping background work".to_owned(),
+            Err(_) => "Background work".to_owned(),
+        }
+    }
+
+    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+        let action = match action(&ctx.args) {
+            Ok(action) => action,
+            Err(error) => return Ok(ToolResult::failure(ctx.tool_call_id, error.to_string())),
+        };
+        match action {
+            Action::Spawn => self.spawn(&ctx).await,
+            Action::Run => self.run(&ctx).await,
+            Action::List => self.list(&ctx).await,
+            Action::Wait => self.wait(&ctx).await,
+            Action::Message => self.message_agent(&ctx).await,
+            Action::Cancel => self.cancel(&ctx).await,
+        }
+    }
+}
+
+/// The `action` of a call.
+fn action(args: &Value) -> Result<Action> {
+    let name = args
+        .get("action")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing string argument: action"))?;
+    name.parse().map_err(|_| {
+        anyhow!("unknown action {name:?}; use spawn, run, list, wait, message or cancel")
+    })
 }
 
 impl Background {
@@ -211,7 +296,7 @@ impl Background {
         loop {
             let ended = subagents.follow(&kept.session, watch).await;
             let mut status = kept.lock();
-            // `message_agent` queues under this lock, so a message sent
+            // `background message` queues under this lock, so a message sent
             // before the run ended is taken here, and one after finds it idle.
             match status.after_run(watch.cancel.is_cancelled(), Instant::now()) {
                 Next::Continue(text) => {
@@ -329,31 +414,8 @@ fn outcome_of(ended: Result<Ended<Report>, super::Failure>) -> Outcome {
     }
 }
 
-struct SpawnAgentTool(Arc<Background>);
-
-#[async_trait]
-impl Tool for SpawnAgentTool {
-    fn name(&self) -> &str {
-        SPAWN
-    }
-
-    fn description(&self) -> &str {
-        "Start a sub-agent on a task that takes many steps, such as going through a \
-         mailbox or comparing several sources, while you keep talking with the user. It \
-         has your tools, under the same app permissions: an action that asks first shows \
-         the user a card and waits. Its report comes back to this chat when it ends. Tell \
-         the user it started, then go on. urgency: now (the default) reports as soon as it \
-         ends; later keeps the report for the user's next message."
-    }
-
-    fn parameters(&self) -> Value {
-        json!({"type": "object", "properties": {
-            "task": {"type": "string", "description": "The whole task, with everything it needs to know: it cannot see this chat."},
-            "urgency": {"type": "string", "enum": ["now", "later"]}
-        }, "required": ["task"], "additionalProperties": false})
-    }
-
-    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+impl BackgroundTool {
+    async fn spawn(&self, ctx: &ToolContext<'_>) -> Result<ToolResult> {
         let background = &self.0;
         let task = ctx
             .args
@@ -423,7 +485,7 @@ impl Tool for SpawnAgentTool {
             ctx.tool_call_id,
             format!(
                 "Started agent {id}. Its report comes back to this chat when it ends; \
-                 `jobs` shows how it is going and `message_agent` tells it more."
+                 `background list` shows how it is going and `background message` tells it more."
             ),
         ))
     }
@@ -477,29 +539,8 @@ impl Drop for Unfinished {
 const BUSY: &str = "Not started: too much background work is running for this user. \
                     Wait for some of it to end, or do it in this turn.";
 
-struct RunInBackgroundTool(Arc<Background>);
-
-#[async_trait]
-impl Tool for RunInBackgroundTool {
-    fn name(&self) -> &str {
-        RUN
-    }
-
-    fn description(&self) -> &str {
-        "Run one slow tool call in the background, so the chat goes on meanwhile. Give \
-         the tool's name and the arguments you would call it with. It answers at once \
-         with a job id; the result comes back to this chat when the call ends, or call \
-         wait_job for it. Actions keep their app permissions."
-    }
-
-    fn parameters(&self) -> Value {
-        json!({"type": "object", "properties": {
-            "tool": {"type": "string"},
-            "arguments": {"type": "object"}
-        }, "required": ["tool", "arguments"], "additionalProperties": false})
-    }
-
-    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+impl BackgroundTool {
+    async fn run(&self, ctx: &ToolContext<'_>) -> Result<ToolResult> {
         let background = &self.0;
         let name = ctx
             .args
@@ -573,24 +614,8 @@ async fn run_job(tools: &ToolRegistry, call: &ToolCall, watch: &Watch, limit: Du
     }
 }
 
-struct JobsTool(Arc<Background>);
-
-#[async_trait]
-impl Tool for JobsTool {
-    fn name(&self) -> &str {
-        JOBS
-    }
-
-    fn description(&self) -> &str {
-        "List the sub-agents and background jobs of this chat: running ones with what \
-         they did last, then those that ended in the last hour."
-    }
-
-    fn parameters(&self) -> Value {
-        json!({"type": "object", "properties": {}, "additionalProperties": false})
-    }
-
-    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+impl BackgroundTool {
+    async fn list(&self, ctx: &ToolContext<'_>) -> Result<ToolResult> {
         let background = &self.0;
         let listed = background
             .app
@@ -630,31 +655,8 @@ impl Tool for JobsTool {
     }
 }
 
-struct WaitJobTool(Arc<Background>);
-
-#[async_trait]
-impl Tool for WaitJobTool {
-    fn name(&self) -> &str {
-        WAIT
-    }
-
-    fn description(&self) -> &str {
-        "Wait for a sub-agent or job of this chat to end, up to timeout seconds (at most \
-         120), and get its result. A result you get here does not come back again."
-    }
-
-    fn parameters(&self) -> Value {
-        json!({"type": "object", "properties": {
-            "id": {"type": "string", "description": "Such as w3."},
-            "timeout": {"type": "integer", "description": "Seconds, 60 if left out."}
-        }, "required": ["id"], "additionalProperties": false})
-    }
-
-    fn timeout_secs(&self) -> Option<u64> {
-        Some(MAX_WAIT.as_secs() + 10)
-    }
-
-    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+impl BackgroundTool {
+    async fn wait(&self, ctx: &ToolContext<'_>) -> Result<ToolResult> {
         let background = &self.0;
         let id = Background::work_id(&ctx.args)?;
         let wait = ctx
@@ -677,30 +679,8 @@ impl Tool for WaitJobTool {
     }
 }
 
-struct MessageAgentTool(Arc<Background>);
-
-#[async_trait]
-impl Tool for MessageAgentTool {
-    fn name(&self) -> &str {
-        MESSAGE
-    }
-
-    fn description(&self) -> &str {
-        "Tell a sub-agent of this chat more: steer it while it works, or give one that \
-         reported a new request; it keeps everything it did. A running agent reads the \
-         message once its current run ends; one that reported starts again. Its next \
-         report comes back to this chat like the first. Agents are kept for an hour after \
-         their last report."
-    }
-
-    fn parameters(&self) -> Value {
-        json!({"type": "object", "properties": {
-            "id": {"type": "string", "description": "The agent's id, such as w3."},
-            "text": {"type": "string", "description": "The message, complete on its own."}
-        }, "required": ["id", "text"], "additionalProperties": false})
-    }
-
-    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+impl BackgroundTool {
+    async fn message_agent(&self, ctx: &ToolContext<'_>) -> Result<ToolResult> {
         let background = &self.0;
         let id = Background::work_id(&ctx.args)?;
         let text = ctx
@@ -763,25 +743,8 @@ impl Background {
     }
 }
 
-struct CancelJobTool(Arc<Background>);
-
-#[async_trait]
-impl Tool for CancelJobTool {
-    fn name(&self) -> &str {
-        CANCEL
-    }
-
-    fn description(&self) -> &str {
-        "Stop a sub-agent or job of this chat. Nothing comes back from it."
-    }
-
-    fn parameters(&self) -> Value {
-        json!({"type": "object", "properties": {
-            "id": {"type": "string", "description": "Such as w3."}
-        }, "required": ["id"], "additionalProperties": false})
-    }
-
-    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+impl BackgroundTool {
+    async fn cancel(&self, ctx: &ToolContext<'_>) -> Result<ToolResult> {
         let background = &self.0;
         let id = Background::work_id(&ctx.args)?;
         let subagents = &background.app.subagents;

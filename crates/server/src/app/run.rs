@@ -866,7 +866,7 @@ impl App {
             let mut calls: Vec<ServerCall> = learned
                 .iter()
                 .map(|change| ServerCall {
-                    name: change.change.tool().to_owned(),
+                    name: tools::MEMORY.to_owned(),
                     arguments: change.arguments(),
                     description: change.content.clone(),
                     output: change.output(),

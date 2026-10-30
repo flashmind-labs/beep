@@ -129,8 +129,8 @@ impl LlmProvider for ProviderStub {
                 yield Ok(StreamEvent::Finished(FinishReason::ToolCalls));
                 return;
             } else if !is_tool_result {
-                yield Ok(StreamEvent::ToolCallStart { index: 0, id: Uuid::new_v4().to_string(), name: "memory_store".into() });
-                yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: json!({"content":"Prefers tea"}).to_string() });
+                yield Ok(StreamEvent::ToolCallStart { index: 0, id: Uuid::new_v4().to_string(), name: "memory".into() });
+                yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: json!({"action":"store","content":"Prefers tea"}).to_string() });
                 yield Ok(StreamEvent::Finished(FinishReason::ToolCalls));
                 return;
             }
@@ -386,7 +386,7 @@ async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
     assert_eq!(asked, "Remember I prefer tea");
     assert_eq!(content, "I remember your preference.");
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name, "memory_store");
+    assert_eq!(tools[0].name, "memory");
     assert!(tools[0].success && !tools[0].call_id.is_empty() && !tools[0].output.is_empty());
 
     assert_eq!(h.provider.calls.load(Ordering::SeqCst), 2);
@@ -1242,7 +1242,7 @@ async fn a_linked_computer_shares_the_account_until_removed() {
     let mut replies = desk.stream(&chat).await.unwrap();
     drain(&mut replies).await;
     let tools = h.provider.tools.lock().unwrap().clone();
-    assert!(tools.iter().any(|name| name == "memory_store"));
+    assert!(tools.iter().any(|name| name == "memory"));
     assert!(!tools.iter().any(|name| name == "set_alarm"));
     let sessions = phone.call(&ListSessions {}).await.unwrap();
     assert!(sessions.iter().any(|s| s.id == chat.session_id.to_string()));

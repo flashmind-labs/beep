@@ -21,7 +21,7 @@ use crate::{
     store::{JoinedGroup, MemberRow, MessageRow, NewMessage, PicturesOf, SkillOwner},
     tools::{
         group_memory::{self, Member, Secrets, shareable},
-        skills::SkillViewTool,
+        skills::SkillTool,
     },
     user::User,
 };
@@ -563,9 +563,10 @@ impl App {
 
         let mut registry = ToolRegistry::new();
         registry.register(Arc::new(TimeTool));
-        registry.register(Arc::new(SkillViewTool {
+        registry.register(Arc::new(SkillTool {
             store: self.store.clone(),
             owner: SkillOwner::Group(group_id),
+            writes: false,
         }));
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
