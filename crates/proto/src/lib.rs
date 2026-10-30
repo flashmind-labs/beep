@@ -554,6 +554,13 @@ requests! {
     /// language the line is in. `still` asks for the line that says the
     /// work goes on, after a long quiet.
     116 Filler { step: String, said: String, still: bool } => Call<VoiceNote>
+    /// The standing permissions the user gave routines that are still in
+    /// force, newest first. A grant ends when it is revoked, when it
+    /// expires and when its routine is deleted or ends itself.
+    119 ListGrants {} => Call<Vec<Grant>>
+    /// Ends a grant, by `Grant::id`, so its routine asks again. `NotFound`
+    /// when the caller has no such grant.
+    120 RevokeGrant { id: String } => Call<()>
 }
 
 /// The longest text `Say` speaks.
@@ -2024,6 +2031,31 @@ pub struct MachineLogin {
     pub tool: String,
     pub signed_in: bool,
     pub account: Option<String>,
+}
+
+/// A standing permission the user approved once for one routine: each run
+/// of the routine may make up to `per_run` calls of one action without
+/// asking, when the call matches what the user approved. Anything else
+/// still asks.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Grant {
+    pub id: String,
+    /// The `Cron::id` of the routine it belongs to.
+    pub routine_id: String,
+    /// The routine's label, or its prompt when it has none.
+    pub routine: String,
+    /// The app's name, such as "Gmail".
+    pub app: String,
+    /// What it allows, such as "reply to thread".
+    pub action: String,
+    /// What the user approved, labelled for reading, as the card showed it.
+    pub fields: Vec<ApprovalField>,
+    pub per_run: u32,
+    pub expires_at: SystemTime,
+    pub created_at: SystemTime,
+    /// When a call last used it; `None` before the first.
+    pub last_used_at: Option<SystemTime>,
 }
 
 /// A memory that is about something other than the user.

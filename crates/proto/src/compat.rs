@@ -121,6 +121,7 @@ sample_struct! {
     MachineTool { name, version }
     MachineLogin { tool, signed_in, account }
     ScopedMemory { id, scope }
+    Grant { id, routine_id, routine, app, action, fields, per_run, expires_at, created_at, last_used_at }
     DeviceInvite { code, uri, expires_at }
     JoinPreview { name, kind }
     Group { id, name, members, last, updated_at, beep_typing, pinned, apps_shared }
