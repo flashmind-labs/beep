@@ -8,10 +8,10 @@ use beep_server::{
         ActiveRun, ApiError, AppKind, CancelRun, CancelWork, Chat, ConnectApp, CreateCron,
         DeletePlace, DeleteSkill, DeviceKind, Event, ExistingSessions, Filler, GetEvents, GetRun,
         GetSession, GetSessionFiles, GetUpdates, Health, HistoryEntry, InviteDevice, LinkDevice,
-        ListApps, ListCrons, ListDevices, ListPlaces, ListSessions, ListSkills, ListWork,
-        MAX_SAY_CHARS, MemorySource, MessageBody, Notice, PeekInvite, RemoveDevice, RunEvent, Say,
-        Session, SpeakNotice, SpokenTurns, StartAppAuth, StreamUpdates, SuggestPrompts, UndoSkill,
-        Update, UpdateLocation, UpdatePlace, UpdateSkill, Upload,
+        ListApps, ListCrons, ListDevices, ListPlaces, ListQuestions, ListSessions, ListSkills,
+        ListWork, MAX_SAY_CHARS, MemorySource, MessageBody, Notice, PeekInvite, RemoveDevice,
+        RunEvent, Say, Session, SpeakNotice, SpokenTurns, StartAppAuth, StreamUpdates,
+        SuggestPrompts, UndoSkill, Update, UpdateLocation, UpdatePlace, UpdateSkill, Upload,
         link::{LinkOffer, OFFER_TTL},
         wire::framed,
     },
@@ -823,7 +823,7 @@ async fn a_routine_runs_without_its_chats_history_and_replies_in_it() {
         created_at: Utc::now(),
         last_run: None,
     };
-    let run = cron::run_job(&h.app, &user, &job)
+    let run = cron::run_job(&h.app, &user, &job, cron::WhenBusy::Wait)
         .await
         .unwrap()
         .expect("a run starts");
@@ -933,7 +933,7 @@ async fn a_routine_that_finds_nothing_leaves_nothing_behind() {
     let listed_before = listed(user.sessions().await.unwrap(), &session.to_string()).unwrap();
 
     let job = watch(&h, "Check whether Sam replied.", Some(session)).await;
-    let run = cron::run_job(&h.app, &user, &job)
+    let run = cron::run_job(&h.app, &user, &job, cron::WhenBusy::Wait)
         .await
         .unwrap()
         .expect("a run starts");
@@ -953,7 +953,7 @@ async fn a_routine_that_finds_nothing_leaves_nothing_behind() {
 
     // A routine set up outside a chat leaves no empty chat behind.
     let loose = watch(&h, "Check whether Sam replied.", None).await;
-    let run = cron::run_job(&h.app, &user, &loose)
+    let run = cron::run_job(&h.app, &user, &loose, cron::WhenBusy::Wait)
         .await
         .unwrap()
         .expect("a run starts");
@@ -969,7 +969,7 @@ async fn a_routine_tells_the_user_in_its_chat_once_and_ends_itself() {
     let user = h.app.user(&h.alice_id).unwrap();
 
     let job = watch(&h, "Done. Tell the user once Sam replies.", Some(session)).await;
-    let run = cron::run_job(&h.app, &user, &job)
+    let run = cron::run_job(&h.app, &user, &job, cron::WhenBusy::Wait)
         .await
         .unwrap()
         .expect("a run starts");
@@ -1001,6 +1001,55 @@ async fn a_routine_tells_the_user_in_its_chat_once_and_ends_itself() {
     // It ended itself, so it never runs again.
     let routines = user.list_crons().await.unwrap();
     assert!(routines.iter().all(|r| r.id != job.id.to_string()));
+}
+
+#[tokio::test]
+async fn a_routine_waits_for_its_busy_chat_instead_of_opening_another() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let session = Uuid::new_v4();
+    let mut slow = c
+        .stream(&Chat {
+            session_id: session,
+            request_id: Uuid::new_v4(),
+            message: "slow".into(),
+            images: Vec::new(),
+            model: None,
+            thinking: None,
+            platform: None,
+            files: Vec::new(),
+            research: false,
+            voice: None,
+            spoken: false,
+        })
+        .await
+        .unwrap();
+    let slow_run = started(&mut slow).await;
+    let user = h.app.user(&h.alice_id).unwrap();
+    let job = watch(&h, "Worth it. Tell the user Sam replied.", Some(session)).await;
+
+    // Run now from the app: nothing starts, and no other chat opens.
+    let chats = user.sessions().await.unwrap().len();
+    let none = cron::run_job(&h.app, &user, &job, cron::WhenBusy::GiveUp)
+        .await
+        .unwrap();
+    assert!(none.is_none());
+    assert_eq!(user.sessions().await.unwrap().len(), chats);
+
+    // The scheduler waits for the chat and runs there once it is free.
+    let scheduled = {
+        let (app, user, job) = (h.app.clone(), user.clone(), job.clone());
+        tokio::spawn(async move { cron::run_job(&app, &user, &job, cron::WhenBusy::Wait).await })
+    };
+    c.call(&CancelRun { id: slow_run }).await.unwrap();
+    let run = timeout(Duration::from_secs(20), scheduled)
+        .await
+        .expect("the routine starts once the chat is free")
+        .unwrap()
+        .unwrap()
+        .expect("a run starts");
+    assert_eq!(run.session_id, session.to_string());
+    run_over(&h.app, &run.id).await;
 }
 
 #[tokio::test]
@@ -1591,6 +1640,8 @@ async fn a_chat_lists_its_background_work_and_refuses_ids_it_does_not_have() {
     let session_id = Uuid::new_v4();
     let listed = c.call(&ListWork { session_id }).await.unwrap();
     assert!(listed.is_empty());
+    let questions = c.call(&ListQuestions { session_id }).await.unwrap();
+    assert!(questions.is_empty());
     for id in ["w1", "not an id"] {
         let refused = c
             .call(&CancelWork {
