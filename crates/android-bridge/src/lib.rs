@@ -5,37 +5,41 @@
 //! connection drops or closes for being idle. While no connection is open,
 //! the server dials the endpoint to deliver notices.
 
+use beep_live::Filler;
 use beep_proto::{
     ActiveRun, AddAppAccount, AddMcpServer, Agents, AnswerApproval, AnswerGroupApproval, ApiError,
     ApnsEnvironment, AppAccount, AppIntegration, AppPermissions, ApprovalDecision, Call, CancelRun,
-    Chat, ClearMemories, ConnectApp, ConnectLink, ConnectMcpServer, CopyShare, CreateCron,
-    CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory, DeletePlace,
-    DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom, DeviceAnswer,
-    DeviceInvite, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart, FinishAppAuth,
-    FinishMcpAuth, GetAgents, GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages,
-    GetModels, GetResearch, GetResearchPdf, GetRouteCard, GetRun, GetSession, GetSessionAgents,
-    GetSessionFiles, GetSessionImages, GetShare, Group, GroupChat, GroupInvite, GroupLink,
-    GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount,
-    JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps,
-    ListCrons, ListDevices, ListGroupReminders, ListGroups, ListMachines, ListMcpServers,
-    ListMcpTools, ListMemories, ListMemoryReads, ListMemoryScopes, ListPlaces, ListResearches,
-    ListSessions, ListSkills, Machine, McpCallback, McpConnect, McpServer, McpTools, Memory,
-    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PermissionLevel, PinGroup, PinSession,
-    Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
-    RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, Research, ResearchSummary,
-    RouteCard, Run, RunCron, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages,
-    Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel,
-    SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill,
-    StartAppAuth, StopResearch, Stream, SuggestPrompts, ToggleCron, TurnAgent, UndoSkill,
-    UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation, UpdateMemory, UpdatePlace,
-    UpdateSkill, Upload,
+    CancelWork, Chat, ClearMemories, ConnectApp, ConnectLink, ConnectMcpServer, CopyShare,
+    CreateCron, CreateGroup, Cron, CrossPlace, DeleteCron, DeleteGroupReminder, DeleteMemory,
+    DeletePlace, DeleteSession, DeleteSessions, DeleteSkill, DeleteTurn, DeleteTurnsFrom,
+    DeviceAnswer, DeviceInvite, DeviceResult, DisconnectApp, Event, ExistingSessions, FilePart,
+    Filler as FillerLine, FinishAppAuth, FinishMcpAuth, GetAgents, GetAppPermissions, GetEvents,
+    GetFile, GetGroup, GetGroupImages, GetModels, GetResearch, GetResearchPdf, GetRouteCard,
+    GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetSessionImages, GetShare, Group,
+    GroupChat, GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health,
+    HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice,
+    LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices, ListGroupReminders,
+    ListGroups, ListMachines, ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads,
+    ListMemoryScopes, ListPlaces, ListResearches, ListSessions, ListSkills, ListWork, Machine,
+    McpCallback, McpConnect, McpServer, McpTools, Memory, MemoryRead, Models, Notice, PeekGroup,
+    PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
+    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
+    RemoveMcpServer, RenameSession, Research, ResearchSummary, RouteCard, Run, RunCron, Say,
+    ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages, Session, SessionMatch,
+    SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking, SetTimezone,
+    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, SpokenTurns, StartAppAuth,
+    StopResearch, Stream, SuggestPrompts, TRANSCRIBE_RATE, ToggleCron, Transcribe, Transcription,
+    TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation,
+    UpdateMemory, UpdatePlace, UpdateSkill, Upload, WorkItem,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
     seal,
 };
 use iroh::{EndpointId, SecretKey};
+use live::{HeardSink, Hearing, Speech, Spoken};
 use serde::{Deserialize, Serialize};
+use serde_bytes::ByteBuf;
 use std::{
     future::Future,
     io,
@@ -43,8 +47,17 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
-use tokio::{fs, io::AsyncWriteExt, sync::OnceCell, time::timeout};
+use tokio::{
+    fs,
+    io::AsyncWriteExt,
+    sync::{OnceCell, mpsc},
+    time::timeout,
+};
 use uuid::Uuid;
+
+mod live;
+
+pub use live::{LiveEvent, LiveListener, LivePhase, LiveSession, LiveStart, LiveView};
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
@@ -503,6 +516,41 @@ impl BeepClient {
         Ok(EventStream::new(replies))
     }
 
+    /// Like `chat`, for a message said aloud in live mode: no pictures or
+    /// files, and the chat shows it as spoken.
+    pub async fn chat_spoken(
+        &self,
+        session_id: String,
+        request_id: String,
+        message: String,
+    ) -> Result<Arc<EventStream>, BeepError> {
+        let chat = Chat {
+            session_id: uuid(&session_id)?,
+            request_id: uuid(&request_id)?,
+            message,
+            images: Vec::new(),
+            model: None,
+            thinking: None,
+            platform: Some(PLATFORM),
+            files: Vec::new(),
+            research: false,
+            voice: None,
+            spoken: true,
+        };
+        let replies = self.stream(chat).await?;
+        Ok(EventStream::new(replies))
+    }
+
+    /// Starts live voice: the session listens at once and tells `listener`
+    /// what happens. See `LiveSession`.
+    pub async fn start_live(
+        self: Arc<Self>,
+        listener: Arc<dyn LiveListener>,
+        start: LiveStart,
+    ) -> Arc<LiveSession> {
+        LiveSession::start(self, listener, start)
+    }
+
     /// Like `chat`, but makes the new chat `session_id` a research on
     /// `topic`: the lead agent answers with a plan, and the team starts
     /// once the user says go (see `get_research`).
@@ -542,6 +590,28 @@ impl BeepClient {
 
     pub async fn cancel_run(&self, id: String) -> Result<(), BeepError> {
         self.call(CancelRun { id }).await
+    }
+
+    /// The sub-agents and background jobs the agent started in `session_id`:
+    /// running ones first, then those that ended in the last hour. Servers
+    /// from before background work answer with an error.
+    pub async fn list_work(&self, session_id: String) -> Result<Vec<WorkItem>, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(ListWork { session_id }).await
+    }
+
+    /// Stops the running sub-agent or job `id` of `session_id`. `false` when
+    /// it had already ended.
+    pub async fn cancel_work(&self, session_id: String, id: String) -> Result<bool, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(CancelWork { session_id, id }).await
+    }
+
+    /// When each prompt of `session_id` that was said aloud in live mode was
+    /// sent: the `timestamp`s of those `HistoryEntry::User`s, oldest first.
+    pub async fn spoken_turns(&self, session_id: String) -> Result<Vec<i64>, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(SpokenTurns { session_id }).await
     }
 
     /// Resumes a run's events after `after`, the last `seq` seen. Like `chat`,
@@ -1227,6 +1297,66 @@ impl BeepClient {
     /// `refresh` asks for a new set instead of the server's cached one.
     pub async fn suggest_prompts(&self, refresh: bool) -> Result<PromptSuggestions, BeepError> {
         self.call(SuggestPrompts { refresh }).await
+    }
+}
+
+impl Speech for BeepClient {
+    async fn transcribe(&self, mut audio: mpsc::Receiver<Vec<u8>>, heard: HeardSink) {
+        let opened = async {
+            let client = self.client().await?;
+            let request = Transcribe {
+                sample_rate: TRANSCRIBE_RATE,
+            };
+            timed(CALL_TIMEOUT, "transcription", client.duplex(&request)).await
+        };
+        let (mut uplink, mut replies) = match opened.await {
+            Ok(opened) => opened,
+            Err(e) => return heard.hear(Hearing::Failed(e.to_string())).await,
+        };
+        let up = async move {
+            while let Some(pcm) = audio.recv().await {
+                if let Err(e) = uplink.send(&ByteBuf::from(pcm)).await {
+                    log::debug!("live audio stopped going up: {e}");
+                    return;
+                }
+            }
+            if let Err(e) = uplink.finish() {
+                log::debug!("ending live audio: {e}");
+            }
+        };
+        tokio::pin!(up);
+        let mut up_done = false;
+        loop {
+            tokio::select! {
+                () = &mut up, if !up_done => up_done = true,
+                reply = replies.next() => match reply {
+                    Ok(Some(Transcription::Delta { text })) => heard.hear(Hearing::Words(text)).await,
+                    Ok(Some(Transcription::Done { .. }) | None) => return,
+                    Ok(Some(Transcription::Unavailable {})) => {
+                        return heard.hear(Hearing::Unavailable).await;
+                    }
+                    Err(e) => return heard.hear(Hearing::Failed(BeepError::from(e).to_string())).await,
+                },
+            }
+        }
+    }
+
+    async fn say(&self, text: String) -> Result<Vec<u8>, BeepError> {
+        Ok(self.call(Say { text }).await?.audio.data)
+    }
+
+    async fn filler(&self, filler: Filler, said: String) -> Result<Spoken, BeepError> {
+        let note = self
+            .call(FillerLine {
+                step: filler.step,
+                said,
+                still: filler.still,
+            })
+            .await?;
+        Ok(Spoken {
+            text: note.text,
+            audio: note.audio.data,
+        })
     }
 }
 

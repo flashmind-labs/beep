@@ -34,6 +34,11 @@ struct ApprovalPrompt: Equatable {
     var queryId: String
     var approval: Approval
     var answer: ApprovalDecision?
+    /// Asked by a helper agent, a background job or a coding agent on a machine rather than
+    /// by a turn: no run resumes when it is answered, and it arrives only as a notice.
+    var background = false
+    /// The background work stopped waiting before the answer reached it.
+    var withdrawn = false
 }
 
 struct Message: Identifiable, Equatable {
@@ -63,6 +68,10 @@ struct Message: Identifiable, Equatable {
     var agent = ""
     /// The model and thinking Jev picked for this prompt under Auto; nil when it picked none.
     var auto: AutoPick?
+    /// A prompt said aloud in live mode, which the chat shows as a transcript.
+    var spoken = false
+    /// When the server saved a reply from the history, in epoch milliseconds; 0 otherwise.
+    var repliedAt: Int64 = 0
 }
 
 /// A message typed while a reply runs, sent as its own turn once the reply finishes.
@@ -70,6 +79,8 @@ struct QueuedMessage: Equatable {
     var text: String
     var images: [Data]
     var files: [SentFile] = []
+    /// Said in live mode, so it goes out as spoken and its reply is read out.
+    var spoken = false
 }
 
 /// The open chat and the run streaming into it.
@@ -90,6 +101,8 @@ struct Chat: Equatable {
     var pendingThinking: ReasoningLevel?
     /// Whether `pendingText` starts a research rather than asking Beep.
     var pendingResearch = false
+    /// Whether `pendingText` was said in live mode.
+    var pendingSpoken = false
     var thinking = ""
     var error = ""
     /// Messages waiting for the reply to finish, sent one by one.
@@ -112,6 +125,7 @@ struct Chat: Equatable {
         pendingModel = ""
         pendingThinking = nil
         pendingResearch = false
+        pendingSpoken = false
     }
 }
 
@@ -134,6 +148,11 @@ final class AppModel {
     var onScreen: String? {
         didSet { if let onScreen { notifier.clear(onScreen) } }
     }
+    /// Questions from background work by chat id, shown at the end of their chat. Ones still
+    /// waiting stay across history reloads; answered ones go with the next reload.
+    private(set) var waitingWork: [String: [ApprovalPrompt]] = [:]
+    /// The `sentAt` of each chat's spoken prompts, by chat id, as of the last history fetch.
+    private var spokenTurns: [String: Set<Int64>] = [:]
     /// Where a tapped notification wants to go; the root view follows it and clears it.
     var destination: Destination?
     /// The group chat on screen instead of the one to one chat, if any.
@@ -144,6 +163,8 @@ final class AppModel {
     var pendingMention: String?
     /// Text quoted from a research's workspace, for the chat's composer to take when it shows.
     var pendingQuote: String?
+    /// What was said in live voice and not sent, for the chat's composer to take when it shows.
+    var pendingDraft: String?
     /// The chats that are researches: every one the server listed, and those started here since.
     private(set) var researches: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "researches") ?? [])
     /// The last line of each chat for the list, cached by the chat's update time.
@@ -158,6 +179,10 @@ final class AppModel {
     private(set) var models: Models?
 
     private var client: BeepClient?
+    /// Live voice: the session, its screen's state and the chat it talks in.
+    @ObservationIgnored lazy var live = LiveVoice(model: self)
+    /// The run answering the last spoken message, whose events live mode reads out.
+    @ObservationIgnored private var liveRunId = ""
     /// get_route cards by call id. A plan does not change, so each is fetched once.
     @ObservationIgnored private var routes: [String: RouteCard] = [:]
     private var runTask: Task<Void, Never>?
@@ -461,6 +486,7 @@ final class AppModel {
         let files = (try? await api().getSessionFiles(id: id)) ?? []
         // Likewise a server from before it named agents.
         let agents = (try? await api().getSessionAgents(id: id)) ?? []
+        spokenTurns[id] = await spokenTurnTimes(id)
         guard chat.id == id, !chat.busy else { return }
         show(entries, images: images, files: files, agents: agents, at: updatedAt)
         ChatStore.saveHistory(id, HistoryCache(updatedAt: updatedAt, entries: entries, images: images, files: files))
@@ -480,6 +506,7 @@ final class AppModel {
         for sent in files {
             filesByMessage[sent.message] = sent.files.map { SentFile(id: $0.id, name: $0.name, mime: $0.mime, size: Int64($0.size)) }
         }
+        let spoken = spokenTurns[id] ?? []
         var pendingTools: [ToolCall] = []
         var pendingReasoning = ""
         var messages: [Message] = []
@@ -491,12 +518,13 @@ final class AppModel {
                 pendingReasoning = ""
                 turnAt = timestamp
                 messages.append(Message(id: mid, role: .user, text: content, pictures: pictures[timestamp] ?? [],
-                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp, auto: auto))
+                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp, auto: auto,
+                                        spoken: spoken.contains(timestamp)))
             case .scheduled(let label, let timestamp):
                 pendingTools = []
                 pendingReasoning = ""
                 messages.append(Message(id: mid, role: .scheduled, text: label, sentAt: timestamp))
-            case .assistant(let content, _, let tools, let memoryScore, let reasoning, let model):
+            case .assistant(let content, let timestamp, let tools, let memoryScore, let reasoning, let model):
                 let calls = pendingTools + tools.map { ToolCall(id: $0.callId, name: $0.name, done: true, success: $0.success, output: $0.output) }
                 let thought = [pendingReasoning, reasoning].filter { !$0.isEmpty }.joined(separator: "\n\n")
                 if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -506,7 +534,8 @@ final class AppModel {
                     pendingTools = []
                     pendingReasoning = ""
                     messages.append(Message(id: mid, role: .assistant, text: content, tools: calls, reasoning: thought,
-                                            model: model, memoryScore: memoryScore, agent: agentByTurn[turnAt] ?? ""))
+                                            model: model, memoryScore: memoryScore, agent: agentByTurn[turnAt] ?? "",
+                                            repliedAt: timestamp))
                 }
             case .approval(let queryId, let approval):
                 messages.append(Message(
@@ -518,6 +547,10 @@ final class AppModel {
         }
         chat.messages = keepingLocal(messages)
         chat.historyAt = updatedAt
+        if let work = waitingWork[id] {
+            let left = work.filter { $0.answer == nil && !$0.withdrawn }
+            waitingWork[id] = left.isEmpty ? nil : left
+        }
     }
 
     /// Carries what only this phone knows over to the reloaded history, matching user messages
@@ -647,21 +680,46 @@ final class AppModel {
     // MARK: Runs
 
     /// Sends a message, with up to eight pictures as JPEGs and any other files.
-    func send(_ text: String, images: [Data] = [], files: [SentFile] = []) {
+    func send(_ text: String, images: [Data] = [], files: [SentFile] = [], spoken: Bool = false) {
         var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty || !files.isEmpty, !chat.busy else { return }
         // The server needs words; a file sent on its own gets some, as Android does.
         if trimmed.isEmpty, !files.isEmpty { trimmed = files.count + images.count > 1 ? "Have a look at these files." : "Have a look at this file." }
         if chat.messages.isEmpty { chat.title = String((trimmed.isEmpty ? "Photo" : trimmed).prefix(44)) }
-        startTurn(trimmed, images: images.map(dataURI), files: files)
+        startTurn(trimmed, images: images.map(dataURI), files: files, spoken: spoken)
+    }
+
+    /// A message said in live mode, in chat `chatId` or, when nil, a new one. It waits for a
+    /// reply still running, as a typed message would. Returns the chat it went to.
+    func sendSpoken(_ text: String, in chatId: String?) -> String {
+        openGroup = nil
+        if let chatId { openChat(chatId) } else { newChat() }
+        destination = .chat(chat.id)
+        if chat.busy {
+            chat.queued.append(QueuedMessage(text: text, images: [], spoken: true))
+        } else {
+            send(text, spoken: true)
+        }
+        return chat.id
+    }
+
+    /// Starts live voice on this account's connection.
+    func startLive(_ listener: LiveListener, holding: Bool) async throws -> LiveSession {
+        ensureConnected()
+        // A launch from the Action Button can come as the app starts, before it connected.
+        let deadline = Date.now.addingTimeInterval(10)
+        while !connected, Date.now < deadline {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        return try await api().startLive(listener: listener, start: LiveStart(sendOnPause: live.sendOnPause, holding: holding))
     }
 
     /// Shows `text` as the user's next prompt and sends it, on `model` at `thinking` for a rerun.
     private func startTurn(_ text: String, images: [String], files: [SentFile], model: String = "",
-                           thinking: ReasoningLevel? = nil, research: Bool = false) {
+                           thinking: ReasoningLevel? = nil, research: Bool = false, spoken: Bool = false) {
         chat.messages.append(Message(id: UUID().uuidString, role: .user, text: text,
                                      pictures: images.map { Picture(dataUri: $0) }, files: files,
-                                     model: model, modelThinking: thinking))
+                                     model: model, modelThinking: thinking, spoken: spoken))
         chat.requestId = UUID().uuidString.lowercased()
         chat.pendingText = text
         chat.pendingImages = images
@@ -669,6 +727,7 @@ final class AppModel {
         chat.pendingModel = model
         chat.pendingThinking = thinking
         chat.pendingResearch = research
+        chat.pendingSpoken = spoken
         chat.error = ""
         launchRun()
     }
@@ -767,7 +826,7 @@ final class AppModel {
     /// Sends the first queued message now; the rest follow it.
     func sendQueued() {
         guard !chat.busy, let next = unqueue(0) else { return }
-        send(next.text, images: next.images, files: next.files)
+        send(next.text, images: next.images, files: next.files, spoken: next.spoken)
     }
 
     /// Sends the last prompt again after a run that did not finish.
@@ -814,6 +873,11 @@ final class AppModel {
     }
 
     func answer(_ prompt: ApprovalPrompt, _ decision: ApprovalDecision) {
+        if prompt.background {
+            let sessionId = chat.id
+            Task { await answerWork(prompt, in: sessionId, decision) }
+            return
+        }
         guard let index = chat.messages.firstIndex(where: { $0.approvals.contains { $0.queryId == prompt.queryId } }),
             let card = chat.messages[index].approvals.firstIndex(where: { $0.queryId == prompt.queryId }),
             chat.messages[index].approvals[card].answer == nil
@@ -889,6 +953,7 @@ final class AppModel {
                     connected = false
                     chat.error = failures < 4 ? "Reconnecting…" : describe(error)
                     if failures >= 4 {
+                        if chat.pendingSpoken || (!liveRunId.isEmpty && chat.runId == liveRunId) { live.replyFailed() }
                         connect()
                         return
                     }
@@ -902,6 +967,9 @@ final class AppModel {
     private func sendPending(_ api: BeepClient, _ chat: Chat) async throws -> EventStream {
         if chat.pendingResearch {
             return try await api.startResearch(sessionId: chat.id, requestId: chat.requestId, topic: chat.pendingText)
+        }
+        if chat.pendingSpoken {
+            return try await api.chatSpoken(sessionId: chat.id, requestId: chat.requestId, message: chat.pendingText)
         }
         return try await api.chat(
             sessionId: chat.id, requestId: chat.requestId, message: chat.pendingText,
@@ -958,6 +1026,7 @@ final class AppModel {
 
     private func handle(_ received: Event) throws {
         if case .runStarted(let runId, _) = received.event {
+            if chat.pendingSpoken { liveRunId = runId }
             chat.runId = runId
             chat.cursor = 0
             chat.clearPending()
@@ -965,6 +1034,11 @@ final class AppModel {
         guard received.seq > chat.cursor else { return }
         guard received.seq == chat.cursor + 1 else { throw MissedEvent() }
         chat.cursor = received.seq
+        // Live mode reads out the reply to what was said.
+        if !liveRunId.isEmpty, chat.runId == liveRunId {
+            live.reply(received.event)
+            if case .runFinished = received.event { liveRunId = "" }
+        }
         let mid = "assistant-\(chat.runId)"
 
         switch received.event {
@@ -1151,13 +1225,51 @@ final class AppModel {
 
     /// A tool call allowed or denied from its notification.
     func answerFromNotice(sessionId: String, queryId: String, group: Bool, allow: Bool) async {
-        if group {
+        if let prompt = waitingWork[sessionId]?.first(where: { $0.queryId == queryId }) {
+            await answerWork(prompt, in: sessionId, allow ? .allow : .deny)
+        } else if group {
             try? await api().answerGroupApproval(queryId: queryId, allow: allow)
         } else if sessionId == chat.id, let prompt = chat.messages.flatMap(\.approvals).first(where: { $0.queryId == queryId }) {
             answer(prompt, allow ? .allow : .deny)
         } else {
             _ = try? await api().answerApproval(sessionId: sessionId, queryId: queryId, decision: allow ? .allow : .deny)
         }
+    }
+
+    // MARK: Background work
+
+    /// Keeps a question from background work so its chat shows a card for it. Turns ask in
+    /// their own run; these only come as a notice, with no run id.
+    func askedInBackground(_ notice: Notice) {
+        guard !notice.group, let pending = notice.approval, pending.runId.isEmpty else { return }
+        var list = waitingWork[notice.sessionId] ?? []
+        guard !list.contains(where: { $0.queryId == pending.queryId }) else { return }
+        list.append(ApprovalPrompt(queryId: pending.queryId, approval: pending.approval, background: true))
+        waitingWork[notice.sessionId] = list
+    }
+
+    /// Answers a question from background work. The server answers a delivered one with a
+    /// conflict, since no run resumes; any other conflict means nothing waits for it any more.
+    private func answerWork(_ prompt: ApprovalPrompt, in sessionId: String, _ decision: ApprovalDecision) async {
+        guard let card = waitingWork[sessionId]?.firstIndex(where: { $0.queryId == prompt.queryId }),
+            waitingWork[sessionId]?[card].answer == nil, waitingWork[sessionId]?[card].withdrawn == false
+        else { return }
+        waitingWork[sessionId]?[card].answer = decision
+        do {
+            _ = try await api().answerApproval(sessionId: sessionId, queryId: prompt.queryId, decision: decision)
+        } catch BeepError.Conflict(let reason) where reason.contains("background work goes on") {
+            // Delivered.
+        } catch BeepError.Conflict {
+            markWork(prompt.queryId, in: sessionId) { $0.answer = nil; $0.withdrawn = true }
+        } catch {
+            markWork(prompt.queryId, in: sessionId) { $0.answer = nil }
+            if chat.id == sessionId { chat.error = describe(error) }
+        }
+    }
+
+    private func markWork(_ queryId: String, in sessionId: String, _ change: (inout ApprovalPrompt) -> Void) {
+        guard let card = waitingWork[sessionId]?.firstIndex(where: { $0.queryId == queryId }) else { return }
+        change(&waitingWork[sessionId]![card])
     }
 
     /// Something changed on the server that a notice says nothing more about.
@@ -1425,5 +1537,15 @@ func describe(_ error: Error) -> String {
     case BeepError.NotFound: "Not found."
     case BeepError.Internal: "Something went wrong on the server."
     default: error.localizedDescription
+    }
+}
+
+// MARK: Spoken turns
+
+extension AppModel {
+    /// When each spoken prompt of a chat was sent. Empty on servers from before spoken turns,
+    /// which just means every turn shows as typed.
+    func spokenTurnTimes(_ sessionId: String) async -> Set<Int64> {
+        Set((try? await api().spokenTurns(sessionId: sessionId)) ?? [])
     }
 }

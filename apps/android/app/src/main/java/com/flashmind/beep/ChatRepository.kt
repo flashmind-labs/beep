@@ -21,6 +21,8 @@ import com.flashmind.beep.proto.JoinPreview
 import com.flashmind.beep.proto.MemoryRead
 import com.flashmind.beep.proto.MemoryScope
 import com.flashmind.beep.proto.Machine
+import com.flashmind.beep.proto.PendingApproval
+import com.flashmind.beep.proto.WorkItem
 import com.flashmind.beep.proto.Research
 import com.flashmind.beep.proto.ResearchSummary
 import com.flashmind.beep.proto.RouteCard
@@ -275,12 +277,14 @@ class ChatRepository(private val storage: LocalStorage) {
         val files = filesByMessage(runCatching { api(config).getSessionFiles(id) }.getOrDefault(emptyList()))
         // Likewise a server from before it named agents.
         val agents = runCatching { api(config).getSessionAgents(id) }.getOrDefault(emptyList()).associate { it.message to it.agent.orEmpty() }
+        // And a server from before live mode said none aloud.
+        val spoken = runCatching { api(config).spokenTurns(id) }.getOrDefault(emptyList()).toSet()
         var turnAt = 0L
         val messages = history.mapIndexedNotNull { i, entry ->
             when (entry) {
                 is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; turnAt = entry.timestamp; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp,
                     autoModel = entry.auto?.model.orEmpty(), autoThinking = entry.auto?.thinking?.name?.lowercase().orEmpty(),
-                    pictures = pictures[entry.timestamp].orEmpty(), files = files[entry.timestamp].orEmpty()) }
+                    pictures = pictures[entry.timestamp].orEmpty(), files = files[entry.timestamp].orEmpty(), spoken = entry.timestamp in spoken) }
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
@@ -310,6 +314,8 @@ class ChatRepository(private val storage: LocalStorage) {
         val kept = before.messages.groupBy { it.role to it.text }.mapValues { ArrayDeque(it.value) }
         val scored = messages.map { m -> if (m.memoryScore != null) m else scores[m.text]?.let { m.copy(memoryScore = it) } ?: m }
             .map { m -> kept[m.role to m.text]?.removeFirstOrNull()?.let { m.copy(id = it.id) } ?: m }
+            // Background work's questions are not in the history; those still waiting stay at the end.
+            .plus(before.messages.filter { m -> m.approvals.any { it.background && it.waiting } })
         updateChat(id) { current -> if (current == before) current.copy(messages = scored, version = version) else current }
     }
     fun refreshHistory() { syncRequests.trySend(Unit) }
@@ -480,7 +486,7 @@ class ChatRepository(private val storage: LocalStorage) {
                           files: List<ToolCard.File> = emptyList(), research: Boolean = false) {
         val request = UUID.randomUUID().toString()
         // A new message instead of an answer skips the call that waits on it.
-        val skipped = chat.messages.flatMap { m -> m.approvals.filter { it.waiting } }
+        val skipped = chat.messages.flatMap { m -> m.approvals.filter { it.waitsOnTurn } }
         skipped.forEach { ApprovalNotifications.cancel(storage.context, it.queryId) }
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
             messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model, modelThinking = thinking, files = files),
@@ -539,7 +545,7 @@ class ChatRepository(private val storage: LocalStorage) {
      */
     private fun startQueued(chat: Conversation): Boolean {
         if (!chat.hasQueued || chat.error.isNotEmpty() || !settings.value.configured) return false
-        if (chat.messages.any { m -> m.approvals.any { it.waiting } }) return false
+        if (chat.messages.any { m -> m.approvals.any { it.waitsOnTurn } }) return false
         val next = unqueue(0, chat.id) ?: return false
         startTurn(chat, next.text.ifBlank { attachedPrompt(next.images.size, next.files.size) }, next.images, "", files = next.files)
         return true
@@ -917,6 +923,23 @@ class ChatRepository(private val storage: LocalStorage) {
     val modelChoices = MutableStateFlow(lists.models)
     /** The server sends model choices only to admins, so this says whether the user is one. */
     val isAdmin: Boolean get() = modelChoices.value?.choices?.isNotEmpty() == true
+    /** The sub-agents and background jobs of chat [id]. Empty on servers from before background work, or offline. */
+    suspend fun listWork(id: String): List<WorkItem> =
+        try { api().listWork(id) } catch (e: BeepException) { emptyList() }
+    /** Stops background work [workId] of chat [id]; false when it had already ended. */
+    suspend fun cancelWork(id: String, workId: String): Boolean = api().cancelWork(id, workId)
+    /**
+     * A call of background work in [conversationId] that waits for the user, which comes only as a notice:
+     * a card at the end of the chat, so it can be answered there. Nothing when the phone does not have the chat.
+     */
+    fun showBackgroundApproval(conversationId: String, pending: PendingApproval) {
+        if (state.value.conversations.none { it.id == conversationId }) return
+        updateChat(conversationId) { chat ->
+            if (chat.messages.any { m -> m.approvals.any { it.queryId == pending.queryId } }) chat
+            else chat.copy(messages = chat.messages + ChatMessage("approval-${pending.queryId}", "assistant", "",
+                approvals = listOf(ApprovalPrompt(pending.queryId, pending.approval, background = true))))
+        }
+    }
     /** The machines running beep-node on the account. Admins only. */
     suspend fun listMachines(): List<Machine> = api().listMachines()
     suspend fun listDevices(): List<LinkedDevice> = api().listDevices()
@@ -1286,8 +1309,8 @@ class ChatRepository(private val storage: LocalStorage) {
     }
 
     private fun skipApprovals(messages: List<ChatMessage>) = messages.map { message ->
-        if (message.approvals.none { it.waiting }) message
-        else message.copy(approvals = message.approvals.map { if (it.waiting) it.copy(answer = "skipped") else it })
+        if (message.approvals.none { it.waitsOnTurn }) message
+        else message.copy(approvals = message.approvals.map { if (it.waitsOnTurn) it.copy(answer = "skipped") else it })
     }
 
     private suspend fun browser(command: BrowserCommand): JSONObject {

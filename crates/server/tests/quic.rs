@@ -5,13 +5,13 @@ use beep_server::{
     cron,
     models::ModelChoices,
     protocol::{
-        ActiveRun, ApiError, AppKind, CancelRun, Chat, ConnectApp, CreateCron, DeletePlace,
-        DeleteSkill, DeviceKind, Event, ExistingSessions, Filler, GetEvents, GetRun, GetSession,
-        GetSessionFiles, GetUpdates, Health, HistoryEntry, InviteDevice, LinkDevice, ListApps,
-        ListCrons, ListDevices, ListPlaces, ListSessions, ListSkills, MAX_SAY_CHARS, MemorySource,
-        MessageBody, Notice, PeekInvite, RemoveDevice, RunEvent, Say, Session, SpeakNotice,
-        SpokenTurns, StartAppAuth, StreamUpdates, SuggestPrompts, UndoSkill, Update,
-        UpdateLocation, UpdatePlace, UpdateSkill, Upload,
+        ActiveRun, ApiError, AppKind, CancelRun, CancelWork, Chat, ConnectApp, CreateCron,
+        DeletePlace, DeleteSkill, DeviceKind, Event, ExistingSessions, Filler, GetEvents, GetRun,
+        GetSession, GetSessionFiles, GetUpdates, Health, HistoryEntry, InviteDevice, LinkDevice,
+        ListApps, ListCrons, ListDevices, ListPlaces, ListSessions, ListSkills, ListWork,
+        MAX_SAY_CHARS, MemorySource, MessageBody, Notice, PeekInvite, RemoveDevice, RunEvent, Say,
+        Session, SpeakNotice, SpokenTurns, StartAppAuth, StreamUpdates, SuggestPrompts, UndoSkill,
+        Update, UpdateLocation, UpdatePlace, UpdateSkill, Upload,
         link::{LinkOffer, OFFER_TTL},
         wire::framed,
     },
@@ -1582,4 +1582,23 @@ async fn a_notice_comes_back_as_a_voice_note() {
         .await
         .unwrap_err();
     assert!(matches!(api_error(empty), ApiError::BadRequest { .. }));
+}
+
+#[tokio::test]
+async fn a_chat_lists_its_background_work_and_refuses_ids_it_does_not_have() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let session_id = Uuid::new_v4();
+    let listed = c.call(&ListWork { session_id }).await.unwrap();
+    assert!(listed.is_empty());
+    for id in ["w1", "not an id"] {
+        let refused = c
+            .call(&CancelWork {
+                session_id,
+                id: id.into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(api_error(refused), ApiError::NotFound {}));
+    }
 }

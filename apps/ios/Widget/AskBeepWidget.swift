@@ -3,7 +3,12 @@ import WidgetKit
 
 @main
 struct BeepWidgets: WidgetBundle {
-    var body: some Widget { AskBeepWidget() }
+    var body: some Widget {
+        AskBeepWidget()
+        TalkToBeepWidget()
+        LiveVoiceActivity()
+        if #available(iOS 18.0, *) { TalkToBeepControl() }
+    }
 }
 
 /// The Android "Ask Beep..." widget: any tap opens a new chat with the keyboard up.

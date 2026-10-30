@@ -12,7 +12,6 @@ mod error;
 mod groups;
 mod hotkey;
 mod identity;
-mod listen;
 mod logfile;
 mod login_path;
 mod mac_files;

@@ -46,7 +46,7 @@ targets:
         INFOPLIST_KEY_NSContactsUsageDescription: Beep looks up a contact when you ask it to.
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: Beep watches the places you saved, so a routine can start when you arrive or leave.
         INFOPLIST_KEY_NSCameraUsageDescription: Beep uses the camera to scan a Beep code, and while it's open in a chat to send a photo with your message.
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: Beep listens when you tap the mic, to write your message from what you say.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Beep listens when you tap the mic or talk with it live, to hear what you say.
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Beep turns what you say into text for your message.
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Beep shows your recent photos so you can send one with a message.
         SWIFT_INCLUDE_PATHS: $(PROJECT_DIR)/Generated
@@ -67,8 +67,11 @@ targets:
         NSAlarmKitUsageDescription: Beep sets alarms in the Clock when you ask it to.
         # Only standard TLS and QUIC to the server, so TestFlight builds skip the export question.
         ITSAppUsesNonExemptEncryption: false
-        # A background push wakes the app to fetch notices the server could not send.
-        UIBackgroundModes: [remote-notification]
+        # A background push wakes the app to fetch notices the server could not send, and live
+        # voice keeps talking when the screen locks.
+        UIBackgroundModes: [remote-notification, audio]
+        # A live voice session shows in the Dynamic Island and on the Lock Screen.
+        NSSupportsLiveActivities: true
         # beep://new, from the widget.
         CFBundleURLTypes:
           - CFBundleURLName: com.flashmind.beep
@@ -80,11 +83,17 @@ targets:
         com.apple.developer.usernotifications.communication: true
         # Shared with the notification extension, which opens pushes with the account key.
         keychain-access-groups: [$(AppIdentifierPrefix)com.flashmind.beep]
+        # Pressing and holding the side button starts live voice (iPhone in Japan, iOS 26.2+).
+        # Apple grants it on request; without it the build fails to sign.
+        com.apple.developer.side-button-access.allow: true
   BeepWidget:
     type: app-extension
     platform: iOS
     sources:
       - path: Widget
+      # The control and the widget's button run the app's intent.
+      - path: Beep/Live/TalkToBeepIntent.swift
+      - path: Beep/Live/LiveActivity.swift
       - path: ../android/app/src/main/res/font/bricolage_grotesque.ttf
         buildPhase: resources
       - path: ../android/app/src/main/res/font/rubik.ttf
@@ -92,6 +101,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.flashmind.beep.widget
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) BEEP_WIDGET
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"

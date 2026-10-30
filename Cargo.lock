@@ -430,14 +430,24 @@ name = "beep-android"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "beep-live",
  "beep-proto",
  "iroh",
+ "log",
  "rmp-serde",
  "serde",
+ "serde_bytes",
  "thiserror 2.0.21",
  "tokio",
  "uniffi",
  "uuid",
+]
+
+[[package]]
+name = "beep-live"
+version = "0.1.0"
+dependencies = [
+ "beep-proto",
 ]
 
 [[package]]
