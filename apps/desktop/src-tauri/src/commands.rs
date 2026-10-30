@@ -18,12 +18,13 @@ use beep_proto::{
     Agents, AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, Chart, ChartRange,
     ClearMemories, CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory,
     DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GetRouteCard,
-    GetSessionFiles, GroupInvite, GroupPreview, GroupReminder, JoinGroup, LeaveGroup, ListCrons,
-    ListGroupReminders, ListGroups, ListMemories, ListSkills, Memory, Models, PeekGroup, PinGroup,
+    GetSessionAgents, GetSessionFiles, GroupInvite, GroupPreview, GroupReminder, JoinGroup,
+    LeaveGroup, ListCrons, ListGroupReminders, ListGroups, ListMemories, ListMemoryReads,
+    ListMemoryScopes, ListSkills, Memory, MemoryRead, MemoryScope, Models, PeekGroup, PinGroup,
     PinSession, ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session,
-    SessionMatch, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession, SharedLink,
-    Skill, StockChart, ToggleCron, UndoSkill, UnshareSession, UpdateMemory, UpdateSkill,
-    format_group_code, group_code, node::desktop::Permission,
+    SessionMatch, SetAgents, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession,
+    SharedLink, Skill, StockChart, ToggleCron, TurnAgent, UndoSkill, UnshareSession, UpdateCron,
+    UpdateMemory, UpdateSkill, format_group_code, group_code, node::desktop::Permission,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -738,6 +739,62 @@ pub async fn list_memories(beep: Service<'_>) -> Result<Vec<MemoryView>> {
     Ok(memories.into_iter().map(MemoryView::from).collect())
 }
 
+/// What a memory is about when it is not the user.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ScopeView {
+    /// A machine by its key, with its name while the machine is known.
+    Machine {
+        id: String,
+        name: Option<String>,
+    },
+    Project {
+        name: String,
+    },
+    /// One of the user's accounts, by app, such as `github`.
+    Account {
+        app: String,
+    },
+}
+
+impl From<MemoryScope> for ScopeView {
+    fn from(scope: MemoryScope) -> Self {
+        match scope {
+            MemoryScope::Machine { id, name } => Self::Machine { id, name },
+            MemoryScope::Project { name } => Self::Project { name },
+            MemoryScope::Account { app } => Self::Account { app },
+        }
+    }
+}
+
+/// A memory's subject, by `Memory::id`.
+#[derive(Serialize)]
+pub struct MemoryScopeView {
+    id: String,
+    scope: ScopeView,
+}
+
+/// What each memory that is not about the user is about. A memory missing
+/// here is about the user.
+#[tauri::command]
+pub async fn list_memory_scopes(beep: Service<'_>) -> Result<Vec<MemoryScopeView>> {
+    let scoped = beep.call(ListMemoryScopes {}).await?;
+    Ok(scoped
+        .into_iter()
+        .map(|memory| MemoryScopeView {
+            id: memory.id,
+            scope: memory.scope.into(),
+        })
+        .collect())
+}
+
+/// The reads of mail and calendars that added or confirmed memories, newest
+/// first.
+#[tauri::command]
+pub async fn list_memory_reads(beep: Service<'_>) -> Result<Vec<MemoryRead>> {
+    beep.call(ListMemoryReads {}).await
+}
+
 #[tauri::command]
 pub async fn update_memory(beep: Service<'_>, id: String, content: String) -> Result<()> {
     beep.call(UpdateMemory { id, content }).await
@@ -776,6 +833,23 @@ pub async fn create_cron(
 #[tauri::command]
 pub async fn toggle_cron(beep: Service<'_>, id: String) -> Result<bool> {
     beep.call(ToggleCron { id }).await
+}
+
+/// Renames routine `id` or changes when it runs. `None` leaves that part as it is.
+#[tauri::command]
+pub async fn update_cron(
+    beep: Service<'_>,
+    id: String,
+    label: Option<String>,
+    schedule: Option<String>,
+) -> Result<()> {
+    beep.call(UpdateCron {
+        id,
+        enabled: None,
+        label,
+        schedule,
+    })
+    .await
 }
 
 #[tauri::command]
@@ -848,6 +922,18 @@ pub async fn undo_skill(beep: Service<'_>, id: String) -> Result<SkillView> {
 #[tauri::command]
 pub async fn get_agents(beep: Service<'_>) -> Result<Agents> {
     beep.call(GetAgents {}).await
+}
+
+/// Turns agents on or off for everyone. Admins only.
+#[tauri::command]
+pub async fn set_agents(beep: Service<'_>, enabled: bool) -> Result<Agents> {
+    beep.call(SetAgents { enabled }).await
+}
+
+/// The agent each turn of session `id` ran as, by the `at` of its user turn.
+#[tauri::command]
+pub async fn session_agents(beep: Service<'_>, id: String) -> Result<Vec<TurnAgent>> {
+    beep.call(GetSessionAgents { session_id: id }).await
 }
 
 /// The caller's model settings. `choices` is empty unless they are an
