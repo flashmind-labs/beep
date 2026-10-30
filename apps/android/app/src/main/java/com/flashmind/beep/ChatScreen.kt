@@ -218,7 +218,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
     // reply text is in. Pinned above the composer it left a gap and took height from the messages.
     // The streaming text is its own progress, so "Replying" needs no line of its own.
     val workingInline = chat.busy && chat.status.isNotEmpty() && !chat.status.startsWith("Replying")
-    val replyStarted = chat.messages.lastOrNull().let { it != null && it.role == "assistant" && it.text.isNotBlank() }
+    val replyStarted = chat.messages.lastOfTurns().let { it != null && it.role == "assistant" && it.text.isNotBlank() }
     Column(modifier.imePadding()) {
         // Clipboard suggestion banner
         ClipboardBanner(clipboardContent, onAction = { action, text ->
@@ -314,7 +314,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
                         // Only a reply after the latest prompt: while a new run starts, the one before it is done
                         // and keeps its cards.
-                        val isLastAssistant = !isUser && chat.messages.lastOrNull()?.id == message.id
+                        val isLastAssistant = !isUser && chat.messages.lastOfTurns()?.id == message.id
                         val bubbleShape = if (isUser) RoundedCornerShape(radius, radius, 6.dp, radius)
                             else RoundedCornerShape(6.dp, radius, radius, radius)
                         val bubbleModifier = when {

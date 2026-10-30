@@ -65,7 +65,7 @@ private const val WORK_POLL_MS = 4_000L
 @Composable
 internal fun BackgroundWork(repository: ChatRepository, chat: Conversation, compact: Boolean) {
     val t = Beep.colors
-    val started = chat.messages.lastOrNull { it.role == "assistant" }?.toolCalls?.count { it.isDone && it.name in WORK_TOOLS } ?: 0
+    val started = chat.messages.lastReply()?.toolCalls?.count { it.isDone && it.name in WORK_TOOLS } ?: 0
     var items by remember(chat.id) { mutableStateOf(emptyList<WorkItem>()) }
     var open by remember(chat.id) { mutableStateOf(false) }
     var refresh by remember(chat.id) { mutableStateOf(0) }
