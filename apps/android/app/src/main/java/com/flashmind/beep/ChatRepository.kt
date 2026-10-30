@@ -281,6 +281,8 @@ class ChatRepository(private val storage: LocalStorage) {
         val agents = runCatching { api(config).getSessionAgents(id) }.getOrDefault(emptyList()).associate { it.message to it.agent.orEmpty() }
         // And a server from before live mode said none aloud.
         val spoken = runCatching { api(config).spokenTurns(id) }.getOrDefault(emptyList()).toSet()
+        // And one from before it kept what each step showed while it ran; steps without one fall back.
+        val labels = runCatching { api(config).getToolLabels(id) }.getOrDefault(emptyList()).associate { it.callId to it.description }
         var turnAt = 0L
         val messages = history.mapIndexedNotNull { i, entry ->
             when (entry) {
@@ -289,9 +291,9 @@ class ChatRepository(private val storage: LocalStorage) {
                     pictures = pictures[entry.timestamp].orEmpty(), files = files[entry.timestamp].orEmpty(), spoken = entry.timestamp in spoken) }
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
-                    val tools = pending + entry.tools.map {
+                    val tools = pending + labelTools(entry.tools.map {
                         ToolCall(it.callId, it.name, isDone = true, success = it.success, result = it.output)
-                    }
+                    }, labels)
                     val reasoning = joinReasoning(pendingReasoning, entry.reasoning)
                     if (entry.content.isBlank()) { pending = tools; pendingReasoning = reasoning; null }
                     else {
