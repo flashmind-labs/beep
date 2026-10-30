@@ -190,6 +190,7 @@ fn main() {
             commands::list_crons,
             commands::create_cron,
             commands::toggle_cron,
+            commands::update_cron,
             commands::delete_cron,
             commands::run_cron,
             commands::list_skills,

@@ -3607,8 +3607,10 @@ function memKeys(e, cmd) {
 
 // mode: list | actions | delete
 const R = { list: [], sel: 0, mode: "list", error: "", loaded: false };
-// The new routine form. repeat: day | weekdays | week | hour | once | cron
-const NR = { label: "", prompt: "", repeat: "day", days: [1], time: "08:00", date: "", cron: "", error: "", busy: false };
+// The routine form, new or editing `edit` (a cron). repeat: day | weekdays |
+// week | hour | once | cron, or place for a routine a place starts, which
+// the form leaves as it is.
+const NR = { edit: null, label: "", prompt: "", repeat: "day", days: [1], time: "08:00", date: "", cron: "", error: "", busy: false };
 const CRON_DAYS = [1, 2, 3, 4, 5, 6, 0];
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -3685,13 +3687,13 @@ function drawRoutines() {
       }
       const next = c.enabled ? (c.next_run_at && !c.run_once ? "Next: " + describeDay(new Date(c.next_run_at)) : "") : "Paused";
       const tail = cur && R.mode === "actions"
-        ? `<span class="acts"><button class="dbtn" data-r="run">${PLAY_ICON}Run now</button><button class="dbtn warn" data-r="delete">Delete<kbd>⌘⌫</kbd></button></span>`
+        ? `<span class="acts"><button class="dbtn" data-r="run">${PLAY_ICON}Run now</button><button class="dbtn" data-r="edit">Edit<kbd>⌘E</kbd></button><button class="dbtn warn" data-r="delete">Delete<kbd>⌘⌫</kbd></button></span>`
         : `<button class="dswitch" role="switch" aria-checked="${c.enabled}" aria-label="${label} on" data-r="toggle" data-i="${i}"></button>`;
       return `<div class="drt${c.enabled ? "" : " off"}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${CLOCK_ICON}</span>
         <span class="tt"><b>${label}</b><span>${esc(c.prompt)}</span><small>${esc([routineWhen(c.schedule), next].filter(Boolean).join(" · "))}</small></span>${tail}</div>`;
     }).join("");
     bar.innerHTML = head + err + `<div class="dlist" id="rlist" role="listbox" aria-label="Routines" style="padding-top:8px">${rows}</div>`
-      + hints(R.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["⌘G", "grants"], ["esc", "back"]]);
+      + hints(R.mode === "actions" ? [["⌘E", "edit"], ["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["⌘G", "grants"], ["esc", "back"]]);
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
   bar.onclick = routineClick;
@@ -3714,6 +3716,7 @@ async function routineAction(a) {
   const c = R.list[R.sel];
   if (a === "new") return renderRoutineNew();
   if (a === "grants") return renderGrants();
+  if (a === "edit") return c && renderRoutineEdit(c);
   if (a === "list" || a === "actions" || a === "delete") {
     if (!c && a !== "list") return;
     R.mode = a;
@@ -3783,8 +3786,40 @@ function routineSchedule() {
 function renderRoutineNew() {
   S.view = "rnew";
   const today = new Date();
-  Object.assign(NR, { label: "", prompt: "", repeat: "day", days: [1], time: "08:00", cron: "", error: "", busy: false,
+  Object.assign(NR, { edit: null, label: "", prompt: "", repeat: "day", days: [1], time: "08:00", cron: "", error: "", busy: false,
     date: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}` });
+  drawRoutineNew();
+  $("#nrlabel").focus();
+}
+
+const pad2 = n => String(n).padStart(2, "0");
+const dateValue = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+/// The form fields for `schedule`, the shapes routineSchedule writes read
+/// back. A place trigger stays as it is, anything else shows as cron.
+function routineFields(schedule) {
+  if (/^(arrive|leave):/.test(schedule)) return { repeat: "place" };
+  if (/^\d{4}-\d\d-\d\dT/.test(schedule)) {
+    const at = new Date(schedule);
+    if (!isNaN(at)) return { repeat: "once", date: dateValue(at), time: `${pad2(at.getHours())}:${pad2(at.getMinutes())}` };
+  }
+  const p = schedule.trim().split(/\s+/);
+  const cron = { repeat: "cron", cron: schedule };
+  if (p.length !== 5 || p[2] !== "*" || p[3] !== "*" || !/^\d+$/.test(p[0])) return cron;
+  if (p[1] === "*") return p[4] === "*" ? { repeat: "hour", time: `00:${pad2(p[0])}` } : cron;
+  if (!/^\d+$/.test(p[1])) return cron;
+  const time = `${pad2(p[1])}:${pad2(p[0])}`;
+  if (p[4] === "*") return { repeat: "day", time };
+  if (p[4] === "1-5") return { repeat: "weekdays", time };
+  if (/^[0-6](,[0-6])*$/.test(p[4])) return { repeat: "week", time, days: p[4].split(",").map(Number) };
+  return cron;
+}
+
+/// Edits routine `c`'s name and schedule. What it does stays as it is.
+function renderRoutineEdit(c) {
+  S.view = "rnew";
+  Object.assign(NR, { edit: c, label: c.label, prompt: c.prompt, repeat: "day", days: [1], time: "08:00", cron: "", error: "", busy: false,
+    date: dateValue(new Date()) }, routineFields(c.schedule));
   drawRoutineNew();
   $("#nrlabel").focus();
 }
@@ -3799,18 +3834,26 @@ function drawRoutineNew() {
     : NR.repeat === "once"
       ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="dfield"><span>Date</span><input id="nrdate" type="date" value="${esc(NR.date)}"></label>${time.replace(' style="max-width:140px"', "")}</div>`
       : (NR.repeat === "week" ? `<div class="dchips">${days}</div>` : "") + time;
-  const missing = NR.error === "prompt";
-  bar.innerHTML = `<div class="dhead"><span class="tt"><b>New routine</b><small>Runs on this account, phone or computer off</small></span></div>
-    <div class="dform" style="padding-top:12px;flex:1;min-height:0;overflow:auto;scrollbar-width:none">
+  const missing = NR.error === "prompt", edit = NR.edit;
+  const text = t => `<div class="dmuted" style="display:block;font-size:13.5px;color:var(--fg)">${esc(t)}</div>`;
+  const task = edit
+    ? `<div class="dfield"><span>What Beep does</span>${text(NR.prompt)}</div>`
+    : `<label class="dfield${missing ? " err" : ""}"><span>${missing ? "Tell Beep what to do" : "What should Beep do?"}</span>
+        <textarea id="nrprompt" rows="2" placeholder="Summarise my calendar and the weather">${esc(NR.prompt)}</textarea></label>`;
+  const schedule = NR.repeat === "place"
+    ? `<div class="dfield"><span>Starts</span>${text(routineWhen(edit.schedule))}<span>Change the place in a chat.</span></div>`
+    : `<div class="dfield"><span>Repeat</span><div class="dchips">${chip("day", "Every day")}${chip("weekdays", "Weekdays")}${chip("week", "Weekly")}${chip("hour", "Every hour")}${chip("once", "Once")}${chip("cron", "Cron")}</div></div>
+      ${when}`;
+  const go = edit ? "Save" : "Create";
+  bar.innerHTML = `<div class="dhead"><span class="tt"><b>${edit ? "Edit routine" : "New routine"}</b><small>${edit ? esc(edit.label || "Reminder") : "Runs on this account, phone or computer off"}</small></span></div>
+    <div class="dform" style="padding-top:12px;flex:1;min-height:0;overflow:auto;scrollbar-width:none;align-content:start">
       <label class="dfield"><span>Name</span><input id="nrlabel" placeholder="Morning briefing" value="${esc(NR.label)}"></label>
-      <label class="dfield${missing ? " err" : ""}"><span>${missing ? "Tell Beep what to do" : "What should Beep do?"}</span>
-        <textarea id="nrprompt" rows="2" placeholder="Summarise my calendar and the weather">${esc(NR.prompt)}</textarea></label>
-      <div class="dfield"><span>Repeat</span><div class="dchips">${chip("day", "Every day")}${chip("weekdays", "Weekdays")}${chip("week", "Weekly")}${chip("hour", "Every hour")}${chip("once", "Once")}${chip("cron", "Cron")}</div></div>
-      ${when}
+      ${task}
+      ${schedule}
       ${NR.error && !missing ? `<div class="derr">${esc(NR.error)}</div>` : ""}
-      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" id="nrgo"${NR.busy ? " disabled" : ""}>Create<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" id="nrno">Cancel</button>
-        <span class="dmuted" style="margin-left:auto">Or just tell Beep in a chat</span></div>
-    </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "create"], ["esc", "cancel"]])}`;
+      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" id="nrgo"${NR.busy ? " disabled" : ""}>${go}<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" id="nrno">Cancel</button>
+        <span class="dmuted" style="margin-left:auto">${edit ? "To change what it does, ask Beep in a chat" : "Or just tell Beep in a chat"}</span></div>
+    </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, go.toLowerCase()], ["esc", "cancel"]])}`;
   const bind = (id, key) => $(id)?.addEventListener("input", e => { NR[key] = e.target.value; if (id === "#nrcron") cronSays(); });
   bind("#nrlabel", "label"); bind("#nrprompt", "prompt"); bind("#nrtime", "time"); bind("#nrdate", "date"); bind("#nrcron", "cron");
   cronSays();
@@ -3836,12 +3879,44 @@ function cronSays() {
 
 async function createRoutine() {
   if (NR.busy) return;
+  if (NR.edit) return saveRoutine();
   const prompt = NR.prompt.trim(), schedule = routineSchedule();
   NR.error = !prompt ? "prompt" : !schedule ? (NR.repeat === "week" ? "Pick at least one day" : "Set when it runs") : "";
   if (NR.error) return drawRoutineNew();
   NR.busy = true;
   try {
     await invoke("create_cron", { label: NR.label.trim() || prompt.slice(0, 40), prompt, schedule });
+    if (S.view === "rnew") renderRoutines();
+  } catch (e) {
+    NR.error = String(e);
+    NR.busy = false;
+    if (S.view === "rnew") drawRoutineNew();
+  }
+}
+
+/// Whether two schedules are the same, a one-off in the same minute
+/// written another way included.
+function sameSchedule(a, b) {
+  if (a === b) return true;
+  const iso = /^\d{4}-\d\d-\d\dT/;
+  // The form keeps minutes only.
+  const minute = s => Math.floor(new Date(s).getTime() / 60000);
+  return iso.test(a) && iso.test(b) && minute(a) === minute(b);
+}
+
+/// Saves the name and schedule of the routine being edited, sending only
+/// what changed.
+async function saveRoutine() {
+  const c = NR.edit;
+  const schedule = NR.repeat === "place" ? c.schedule : routineSchedule();
+  NR.error = !schedule ? (NR.repeat === "week" ? "Pick at least one day" : "Set when it runs") : "";
+  if (NR.error) return drawRoutineNew();
+  const label = NR.label.trim();
+  const changed = { label: label && label !== c.label ? label : null, schedule: sameSchedule(schedule, c.schedule) ? null : schedule };
+  if (changed.label == null && changed.schedule == null) return renderRoutines();
+  NR.busy = true;
+  try {
+    await invoke("update_cron", { id: c.id, ...changed });
     if (S.view === "rnew") renderRoutines();
   } catch (e) {
     NR.error = String(e);
@@ -4709,6 +4784,7 @@ document.addEventListener("keydown", e => {
   if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
   if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
   if (cmd && key === "n") { e.preventDefault(); return newChat(); }
+  if (cmd && key === "e" && S.view === "routines" && R.list.length) { e.preventDefault(); return routineAction("edit"); }
   if (cmd && key === "g" && S.view === "routines") { e.preventDefault(); return renderGrants(); }
   if (cmd && key === "g") { e.preventDefault(); J.error = ""; J.name = ""; return renderGroupNew("new"); }
   if (cmd && key === "k") { e.preventDefault(); return S.view === "chats" ? null : renderChats(); }

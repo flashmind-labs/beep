@@ -23,8 +23,8 @@ use beep_proto::{
     ListMemoryScopes, ListSkills, Memory, MemoryRead, MemoryScope, Models, PeekGroup, PinGroup,
     PinSession, ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session,
     SessionMatch, SetAgents, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession,
-    SharedLink, Skill, StockChart, ToggleCron, TurnAgent, UndoSkill, UnshareSession, UpdateMemory,
-    UpdateSkill, format_group_code, group_code, node::desktop::Permission,
+    SharedLink, Skill, StockChart, ToggleCron, TurnAgent, UndoSkill, UnshareSession, UpdateCron,
+    UpdateMemory, UpdateSkill, format_group_code, group_code, node::desktop::Permission,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -833,6 +833,23 @@ pub async fn create_cron(
 #[tauri::command]
 pub async fn toggle_cron(beep: Service<'_>, id: String) -> Result<bool> {
     beep.call(ToggleCron { id }).await
+}
+
+/// Renames routine `id` or changes when it runs. `None` leaves that part as it is.
+#[tauri::command]
+pub async fn update_cron(
+    beep: Service<'_>,
+    id: String,
+    label: Option<String>,
+    schedule: Option<String>,
+) -> Result<()> {
+    beep.call(UpdateCron {
+        id,
+        enabled: None,
+        label,
+        schedule,
+    })
+    .await
 }
 
 #[tauri::command]
