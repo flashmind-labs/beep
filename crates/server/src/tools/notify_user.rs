@@ -8,7 +8,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-const NAME: &str = "notify_user";
+pub(crate) const NAME: &str = "notify_user";
 
 pub(crate) struct NotifyUserTool {
     /// Set once the model calls the tool; the run reads it when it ends.

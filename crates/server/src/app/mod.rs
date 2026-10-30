@@ -569,6 +569,21 @@ impl App {
         self.runs.lock().await.get(id).cloned()
     }
 
+    /// Waits up to `limit` for the run going on in `user`'s `chat` to be
+    /// saved. `true` once the chat has none, `false` when it still has one.
+    pub(crate) async fn run_ended(&self, user: &User, chat: Uuid, limit: Duration) -> Result<bool> {
+        let Some(run) = user.active_run(chat).await? else {
+            return Ok(true);
+        };
+        // Gone from the live runs means it is saved or being saved now.
+        if let Some(live) = self.live(&run.id).await
+            && timeout(limit, live.done.cancelled()).await.is_err()
+        {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     /// Stops the run and returns once it is saved, so the app that stopped it
     /// can send the chat's next message right after.
     pub async fn cancel(&self, id: &str) {

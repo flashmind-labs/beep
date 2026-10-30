@@ -24,11 +24,11 @@ pub(crate) mod stocks;
 pub(crate) mod suggest;
 
 pub(crate) use file::SendFileTool;
-pub(crate) use image::SendImageTool;
+pub(crate) use image::{NAME as SEND_IMAGE, SendImageTool};
 pub(crate) use mac_files::MacFilesTool;
 pub(crate) use memory::{NAME as MEMORY, recall_tool};
 pub(crate) use node::NodeTool;
-pub(crate) use notify_user::NotifyUserTool;
+pub(crate) use notify_user::{NAME as NOTIFY_USER, NotifyUserTool};
 pub(crate) use route::GetRouteTool;
 pub use route::Transitous;
 pub(crate) use suggest::{

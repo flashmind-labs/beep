@@ -20,17 +20,17 @@ use beep_proto::{
     HistoryEntry, InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice,
     LinkedDevice, ListAppAccounts, ListApps, ListCrons, ListDevices, ListGroupReminders,
     ListGroups, ListMachines, ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads,
-    ListMemoryScopes, ListPlaces, ListResearches, ListSessions, ListSkills, ListWork, Machine,
-    McpCallback, McpConnect, McpServer, McpTools, Memory, MemoryRead, Models, Notice, PeekGroup,
-    PeekInvite, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
-    RemoveMcpServer, RenameSession, Research, ResearchSummary, RouteCard, Run, RunCron, Say,
-    ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages, Session, SessionMatch,
-    SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking, SetTimezone,
-    ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, SpokenTurns, StartAppAuth,
-    StopResearch, Stream, SuggestPrompts, TRANSCRIBE_RATE, ToggleCron, Transcribe, Transcription,
-    TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron, UpdateLocation,
-    UpdateMemory, UpdatePlace, UpdateSkill, Upload, WorkItem,
+    ListMemoryScopes, ListPlaces, ListQuestions, ListResearches, ListSessions, ListSkills,
+    ListWork, Machine, McpCallback, McpConnect, McpServer, McpTools, Memory, MemoryRead, Models,
+    Notice, PeekGroup, PeekInvite, PendingApproval, PermissionLevel, PinGroup, PinSession, Place,
+    PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount,
+    RemoveDevice, RemoveMcpServer, RenameSession, Research, ResearchSummary, RouteCard, Run,
+    RunCron, Say, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages, Session,
+    SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking,
+    SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, SpokenTurns,
+    StartAppAuth, StopResearch, Stream, SuggestPrompts, TRANSCRIBE_RATE, ToggleCron, Transcribe,
+    Transcription, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
+    UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload, WorkItem,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -287,6 +287,15 @@ pub fn decode_history_cache(bytes: Vec<u8>) -> Option<HistoryCache> {
 #[uniffi::export]
 pub fn open_notice(identity: Vec<u8>, sealed: String) -> Result<Notice, BeepError> {
     Ok(seal::open(&secret_key(&identity)?, &sealed)?)
+}
+
+/// The `query_id` of the background question `notice` says stopped
+/// waiting, answered on some device or withdrawn, so the app clears that
+/// card; `None` for any other notice. Check it before `changed`, since such
+/// a notice also has `changed` set.
+#[uniffi::export]
+pub fn resolved_question(notice: Notice) -> Option<String> {
+    notice.resolved_question().map(str::to_owned)
 }
 
 /// An admin's one-off pick for a single turn, as Rerun sends it.
@@ -605,6 +614,18 @@ impl BeepClient {
     pub async fn cancel_work(&self, session_id: String, id: String) -> Result<bool, BeepError> {
         let session_id = uuid(&session_id)?;
         self.call(CancelWork { session_id, id }).await
+    }
+
+    /// The questions background work in `session_id` waits on, oldest
+    /// first, each answered with `answer_approval`. A question that stops
+    /// waiting comes as a notice `resolved_question` reads. Servers from
+    /// before it answer with an error.
+    pub async fn list_questions(
+        &self,
+        session_id: String,
+    ) -> Result<Vec<PendingApproval>, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(ListQuestions { session_id }).await
     }
 
     /// When each prompt of `session_id` that was said aloud in live mode was
