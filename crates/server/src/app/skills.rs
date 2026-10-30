@@ -25,6 +25,13 @@ impl App {
         tool_calls: usize,
         corrected: bool,
     ) {
+        // The skills watcher reads the whole chat once it is finished.
+        if self
+            .watchers
+            .watches(self, user.id(), crate::watchers::WatcherKind::Skills)
+        {
+            return;
+        }
         let app = self.clone();
         let user = user.clone();
         tokio::spawn(async move {

@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 mod crons;
 mod devices;
+mod findings;
 mod grants;
 mod groups;
 mod live;
@@ -186,6 +187,8 @@ pub fn router() -> Router {
         .call(work::list_questions)
         .call(list_grants)
         .call(revoke_grant)
+        .call(findings::list_findings)
+        .call(findings::update_finding)
 }
 
 type Reply<T> = Result<T, ApiError>;

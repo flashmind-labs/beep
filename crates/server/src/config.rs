@@ -14,6 +14,7 @@ use crate::{
     instance::InstanceConfig,
     research::ResearchConfig,
     voice::VoiceConfig,
+    watchers::WatchersConfig,
 };
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
@@ -96,6 +97,13 @@ pub struct Config {
     /// Runs the server for one owner (see `crate::instance`). Without it
     /// every key that connects gets an account.
     pub instance: Option<InstanceConfig>,
+    /// The agents that read finished chats: their model (`model`, a cheap
+    /// one by default), how long a chat stays quiet first (`quiet_minutes`),
+    /// how many run at once (`concurrency`), and per watcher (`[watchers.memory]`,
+    /// `[watchers.skills]`, `[watchers.improvement]`) `enabled`, `model` and
+    /// `timeout_secs`.
+    #[serde(default)]
+    pub watchers: WatchersConfig,
 }
 
 /// A token-based APNs key from the Apple Developer account.
