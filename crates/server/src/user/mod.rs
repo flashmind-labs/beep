@@ -355,6 +355,19 @@ impl User {
         Ok(deleted)
     }
 
+    /// Deletes a session only while it shows nothing and no run is going on
+    /// in it; `false` when it was kept.
+    pub(crate) async fn delete_empty_session(&self, session_id: Uuid) -> Result<bool> {
+        let deleted = self
+            .store
+            .delete_empty_session(&self.key, session_id)
+            .await?;
+        if deleted {
+            self.changed("");
+        }
+        Ok(deleted)
+    }
+
     /// Deletes sessions with their runs and returns how many existed.
     pub async fn delete_sessions(&self, ids: &[Uuid]) -> Result<u64> {
         let deleted = self.store.delete_sessions(&self.key, ids).await?;

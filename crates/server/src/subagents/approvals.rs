@@ -1,6 +1,9 @@
 //! Approvals background calls wait for: the card goes to the user's devices
 //! as a notice on the chat the work belongs to, and the answer comes back
-//! through the same `AnswerApproval` a turn's card uses.
+//! through the same `AnswerApproval` a turn's card uses. Once a question
+//! stops waiting, answered or withdrawn, a resolved notice tells every
+//! device to clear its card, and `ListQuestions` lists the ones still
+//! waiting.
 
 use crate::{
     app::UserNotice,
@@ -13,6 +16,7 @@ use flashmind::types::GateAnswer;
 use futures::future::BoxFuture;
 use std::{
     collections::HashMap,
+    mem,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 use tokio::sync::{broadcast, oneshot};
@@ -21,12 +25,28 @@ use uuid::Uuid;
 /// Calls waiting for the user, by the query id on their card.
 pub struct Approvals {
     notifications: broadcast::Sender<UserNotice>,
-    waiting: Mutex<HashMap<String, Waiting>>,
+    waiting: Mutex<Questions>,
+}
+
+#[derive(Default)]
+struct Questions {
+    by_id: HashMap<String, Waiting>,
+    /// Counts the questions asked, so they list in the order asked.
+    asked: u64,
+}
+
+/// Who a question is for, the chat it opens and its card.
+struct Question {
+    user: String,
+    chat: Uuid,
+    approval: Approval,
 }
 
 struct Waiting {
-    user: String,
+    question: Question,
     tool: String,
+    /// When it was asked, by [`Questions::asked`].
+    order: u64,
     answer: oneshot::Sender<GateAnswer>,
 }
 
@@ -38,8 +58,43 @@ impl Approvals {
         }
     }
 
-    fn waiting(&self) -> MutexGuard<'_, HashMap<String, Waiting>> {
+    fn waiting(&self) -> MutexGuard<'_, Questions> {
         self.waiting.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Tells the user who was asked `query_id` that it stopped waiting.
+    fn resolved(&self, query_id: String, asked: Question) {
+        let question = PendingApproval {
+            run_id: String::new(),
+            query_id,
+            approval: asked.approval,
+        };
+        // Nobody listening only means no device is connected, as in `ask`.
+        let _ = self.notifications.send(UserNotice {
+            user: asked.user,
+            notice: Notice::resolved(asked.chat.to_string(), question),
+        });
+    }
+
+    /// The questions `user`'s background work in `chat` waits on, oldest
+    /// first.
+    pub(crate) fn pending(&self, user: &str, chat: Uuid) -> Vec<PendingApproval> {
+        let waiting = self.waiting();
+        let mut pending: Vec<(u64, PendingApproval)> = waiting
+            .by_id
+            .iter()
+            .filter(|(_, asked)| asked.question.user == user && asked.question.chat == chat)
+            .map(|(query_id, asked)| {
+                let question = PendingApproval {
+                    run_id: String::new(),
+                    query_id: query_id.clone(),
+                    approval: asked.question.approval.clone(),
+                };
+                (asked.order, question)
+            })
+            .collect();
+        pending.sort_by_key(|(order, _)| *order);
+        pending.into_iter().map(|(_, question)| question).collect()
     }
 
     /// Shows `user` the card for a call of `tool` made in `chat`, and returns
@@ -53,14 +108,24 @@ impl Approvals {
     ) -> BoxFuture<'static, GateAnswer> {
         let query_id = Uuid::new_v4().to_string();
         let (answer, answered) = oneshot::channel();
-        self.waiting().insert(
-            query_id.clone(),
-            Waiting {
-                user: user.to_owned(),
-                tool: tool.to_owned(),
-                answer,
-            },
-        );
+        {
+            let mut waiting = self.waiting();
+            waiting.asked += 1;
+            let order = waiting.asked;
+            waiting.by_id.insert(
+                query_id.clone(),
+                Waiting {
+                    question: Question {
+                        user: user.to_owned(),
+                        chat,
+                        approval: approval.clone(),
+                    },
+                    tool: tool.to_owned(),
+                    order,
+                    answer,
+                },
+            );
+        }
         let body = approval
             .fields
             .iter()
@@ -107,14 +172,21 @@ impl Approvals {
     ) -> Result<bool> {
         let waiting = {
             let mut waiting = self.waiting();
-            match waiting.get(query_id) {
-                Some(asked) if asked.user == user.id() => waiting.remove(query_id),
+            match waiting.by_id.get(query_id) {
+                Some(asked) if asked.question.user == user.id() => waiting.by_id.remove(query_id),
                 _ => None,
             }
         };
-        let Some(Waiting { tool, answer, .. }) = waiting else {
+        let Some(Waiting {
+            question,
+            tool,
+            answer,
+            ..
+        }) = waiting
+        else {
             return Ok(false);
         };
+        self.resolved(query_id.to_owned(), question);
         let answer_is = match decision {
             ApprovalDecision::Deny {} => GateAnswer::Deny(permissions::DENIED.to_owned()),
             ApprovalDecision::Always {} | ApprovalDecision::Allow {} => GateAnswer::Allow,
@@ -136,8 +208,9 @@ impl Approvals {
     #[cfg(test)]
     pub(crate) fn waiting_for(&self, user: &str) -> Vec<String> {
         self.waiting()
+            .by_id
             .iter()
-            .filter(|(_, asked)| asked.user == user)
+            .filter(|(_, asked)| asked.question.user == user)
             .map(|(id, _)| id.clone())
             .collect()
     }
@@ -151,6 +224,10 @@ struct Asked {
 
 impl Drop for Asked {
     fn drop(&mut self) {
-        self.approvals.waiting().remove(&self.query_id);
+        let withdrawn = self.approvals.waiting().by_id.remove(&self.query_id);
+        if let Some(asked) = withdrawn {
+            self.approvals
+                .resolved(mem::take(&mut self.query_id), asked.question);
+        }
     }
 }

@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -28,10 +28,6 @@ pub struct BeepCronStore {
 }
 
 impl BeepCronStore {
-    pub fn all(store: Store) -> Self {
-        Self { store, user: None }
-    }
-
     pub fn for_user(store: Store, user: &str) -> Self {
         Self {
             store,
@@ -58,6 +54,41 @@ impl CronStore for BeepCronStore {
 
     async fn delete(&self, id: Uuid) -> Result<bool> {
         let deleted = self.store.delete_cron_job(id, self.user.as_deref()).await?;
+        self.store.notify_crons_changed();
+        Ok(deleted)
+    }
+}
+
+/// The scheduler's view of the `crons` table: every job it runs. Its only
+/// write after a run is when the job last ran. It reads the job before the
+/// run starts, so writing the whole job back would bring back a routine
+/// that `end_routine` or the user deleted meanwhile, and undo their edits.
+struct SchedulerStore {
+    store: Store,
+}
+
+#[async_trait]
+impl CronStore for SchedulerStore {
+    async fn list(&self) -> Result<Vec<CronJob>> {
+        self.store.cron_jobs(None).await
+    }
+
+    async fn get(&self, id: Uuid) -> Result<Option<CronJob>> {
+        self.store.cron_job(id, None).await
+    }
+
+    async fn upsert(&self, job: &CronJob) -> Result<()> {
+        if !self.store.record_cron_run(job.id, job.last_run).await? {
+            log::debug!(
+                "cron job gone before its run was recorded; job_id={}",
+                job.id
+            );
+        }
+        Ok(())
+    }
+
+    async fn delete(&self, id: Uuid) -> Result<bool> {
+        let deleted = self.store.delete_cron_job(id, None).await?;
         self.store.notify_crons_changed();
         Ok(deleted)
     }
@@ -131,14 +162,32 @@ pub fn legacy_scheduled_label(content: &str) -> Option<&str> {
     Some(label)
 }
 
+/// What a routine's run does when its chat is busy with another run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhenBusy {
+    /// Waits for that run to end, then starts in the chat. The scheduler
+    /// does, so its notice still lands where the user set it up.
+    Wait,
+    /// Starts nothing, as when the user asks for a run now.
+    GiveUp,
+}
+
+/// How long a routine waits for its chat: a run lasts 15 minutes at most.
+const BUSY_WAIT: Duration = Duration::from_secs(16 * 60);
+
 /// Starts a run for `job` and returns it, or `None` when none was created.
 /// The scheduler calls it when the job is due, and the API when the user
 /// runs it early.
-pub async fn run_job(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Result<Option<Run>> {
+pub async fn run_job(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    job: &CronJob,
+    busy: WhenBusy,
+) -> Result<Option<Run>> {
     if digest::is_digest(job) {
-        return digest::run(app, user, job).await;
+        return digest::run(app, user, job, busy).await;
     }
-    submit(app, user, job, &job.task).await
+    submit(app, user, job, &job.task, busy).await
 }
 
 /// Wakes the agent with `task` as `job`'s run.
@@ -147,6 +196,7 @@ pub(crate) async fn submit(
     user: &Arc<User>,
     job: &CronJob,
     task: &str,
+    busy: WhenBusy,
 ) -> Result<Option<Run>> {
     let label = job
         .metadata
@@ -172,13 +222,14 @@ pub(crate) async fn submit(
             claimed
         }
     };
+    let chat = origin.unwrap_or_else(Uuid::new_v4);
     let agent = job
         .metadata
         .get("agent")
         .and_then(|v| v.as_str())
         .and_then(|v| v.parse().ok());
-    let msg = |session_id| Message {
-        session_id,
+    let msg = || Message {
+        session_id: chat,
         request_id: Uuid::new_v4(),
         message: task.to_owned(),
         cron_id: Some(job.id.to_string()),
@@ -199,18 +250,20 @@ pub(crate) async fn submit(
         spoken: false,
     };
 
-    let mut result = app
-        .submit(user, msg(origin.unwrap_or_else(Uuid::new_v4)))
-        .await;
-    // The chat is busy with another run: go ahead in a new one rather than
-    // drop the reminder.
-    if origin.is_some() && matches!(result, Ok(CreateRun::Conflict)) {
-        result = app.submit(user, msg(Uuid::new_v4())).await;
+    let mut result = app.submit(user, msg()).await;
+    // The chat is busy with another run, maybe this routine's last one.
+    // Waiting keeps the notice in its chat, where a run in a new chat would
+    // leave it with nothing around it, and runs of one routine one at a time.
+    if busy == WhenBusy::Wait
+        && matches!(result, Ok(CreateRun::Conflict))
+        && app.run_ended(user, chat, BUSY_WAIT).await?
+    {
+        result = app.submit(user, msg()).await;
     }
     match result {
         Ok(CreateRun::Created(run)) => Ok(Some(run)),
         Ok(_) => {
-            log::debug!("cron run not created (conflict); job_id={}", job.id);
+            log::info!("cron run not created, its chat is busy; job_id={}", job.id);
             Ok(None)
         }
         Err(e) => {
@@ -306,7 +359,7 @@ impl CronHandler for BeepCronHandler {
                 .await?;
             return Ok(None);
         }
-        let run = run_job(&self.app, &user, job).await?;
+        let run = run_job(&self.app, &user, job, WhenBusy::Wait).await?;
         Ok(run.map(|run| run.id))
     }
 }
@@ -325,7 +378,9 @@ impl TimezoneResolver for BeepTimezoneResolver {
 }
 
 pub fn start(app: Arc<App>, log_dir: &Path) -> CronRunner {
-    let store = Arc::new(BeepCronStore::all(app.store.clone()));
+    let store = Arc::new(SchedulerStore {
+        store: app.store.clone(),
+    });
     let registry = Arc::new(CronRegistry::new(store));
     let handler = Arc::new(BeepCronHandler { app: app.clone() });
     let cancel = CancellationToken::new();
@@ -539,6 +594,59 @@ mod tests {
         assert_eq!(second, Some(first));
         let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
         assert_eq!(jobs[0].metadata["session_id"], first.to_string());
+    }
+
+    #[tokio::test]
+    async fn the_scheduler_never_brings_back_or_undoes_a_routine() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store opens");
+        let tools = CronRegistry::new(Arc::new(BeepCronStore::for_user(store.clone(), "user")));
+        let scheduler = CronRegistry::new(Arc::new(SchedulerStore {
+            store: store.clone(),
+        }));
+        let job = tools
+            .create_with_metadata(
+                JobSchedule::Cron("*/15 * * * *".to_owned()),
+                "Check whether Sam replied".to_owned(),
+                false,
+                json!({"user_id": "user", "label": "Sam"}),
+            )
+            .await
+            .expect("routine saved");
+
+        // The scheduler read the job, then the user renamed it while it ran.
+        let mut ran = scheduler
+            .get(job.id)
+            .await
+            .expect("job loads")
+            .expect("job exists");
+        let mut renamed = job.clone();
+        renamed.metadata["label"] = json!("Sam's reply");
+        tools.update(&renamed).await.expect("rename saved");
+        ran.last_run = Some(Utc::now());
+        scheduler.update(&ran).await.expect("run recorded");
+        let now = store
+            .cron_job(job.id, None)
+            .await
+            .expect("job loads")
+            .expect("job exists");
+        assert_eq!(now.metadata["label"], "Sam's reply");
+        assert!(now.last_run.is_some());
+
+        // The run ended its routine before the scheduler recorded it.
+        let tool = EndRoutineTool::new(store.clone(), "user", job.id);
+        let cancel = CancellationToken::new();
+        tool.execute(ToolContext::new("call", json!({}), None, &cancel))
+            .await
+            .expect("tool runs");
+        scheduler.update(&ran).await.expect("run recorded");
+        assert!(
+            store
+                .cron_job(job.id, None)
+                .await
+                .expect("job loads")
+                .is_none()
+        );
     }
 
     #[tokio::test]

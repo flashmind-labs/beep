@@ -562,6 +562,12 @@ requests! {
     /// from it. `false` when it had already ended; `NotFound` when the chat
     /// has no such id.
     118 CancelWork { session_id: Uuid, id: String } => Call<bool>
+    /// The questions background work in the chat is waiting on, oldest
+    /// first: app actions of its sub-agents and jobs that ask first, each
+    /// answered with `AnswerApproval`. `run_id` is empty. One that stops
+    /// waiting, answered on any device or withdrawn, leaves the list and
+    /// comes as a notice `Notice::resolved_question` reads.
+    125 ListQuestions { session_id: Uuid } => Call<Vec<PendingApproval>>
 }
 
 /// A sub-agent or background job of a chat, as `ListWork` lists it.
@@ -2318,6 +2324,33 @@ pub struct Notice {
     pub group: bool,
 }
 
+impl Notice {
+    /// A background question that stopped waiting, answered on some device
+    /// or withdrawn: `session_id` is its chat, and `approval` names it, to
+    /// clear its card. Such a notice also has `changed` set and no title,
+    /// so apps from before it only refresh the chat.
+    pub fn resolved(session_id: String, question: PendingApproval) -> Self {
+        Self {
+            title: String::new(),
+            body: String::new(),
+            session_id,
+            app: None,
+            approval: Some(question),
+            changed: true,
+            group: false,
+        }
+    }
+
+    /// The `query_id` of the question this notice says stopped waiting, or
+    /// `None` for any other notice.
+    pub fn resolved_question(&self) -> Option<&str> {
+        match &self.approval {
+            Some(question) if self.changed && !self.group => Some(&question.query_id),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2354,6 +2387,33 @@ mod tests {
         };
         let buf = rmp_serde::to_vec(&chat).unwrap();
         assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);
+    }
+
+    #[test]
+    fn only_a_resolved_notice_names_a_question() {
+        let question = PendingApproval {
+            run_id: String::new(),
+            query_id: "q1".into(),
+            approval: Approval {
+                app: "Gmail".into(),
+                action: "Send email".into(),
+                fields: Vec::new(),
+            },
+        };
+        let resolved = Notice::resolved("chat".into(), question.clone());
+        assert_eq!(resolved.resolved_question(), Some("q1"));
+        assert!(resolved.title.is_empty());
+        let asking = Notice {
+            title: "Allow Gmail: Send email?".into(),
+            changed: false,
+            ..resolved.clone()
+        };
+        assert_eq!(asking.resolved_question(), None);
+        let group = Notice {
+            group: true,
+            ..resolved
+        };
+        assert_eq!(group.resolved_question(), None);
     }
 
     #[test]

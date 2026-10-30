@@ -295,9 +295,11 @@ pub async fn start_routines(app: &Arc<App>, user: &Arc<User>, crossing: &Crossed
             if routine.trigger.repeat == PlaceRepeat::Once {
                 user.delete_cron(&routine.job.id.to_string()).await?;
             }
-            Ok(cron::submit(app, user, &routine.job, &task)
-                .await?
-                .is_some())
+            Ok(
+                cron::submit(app, user, &routine.job, &task, cron::WhenBusy::Wait)
+                    .await?
+                    .is_some(),
+            )
         }
         .await;
         match result {
