@@ -171,6 +171,7 @@ fn main() {
             commands::set_voice_notes,
             commands::live_tap,
             commands::leave_live,
+            commands::cancel_live,
             commands::continue_live,
             commands::set_send_on_pause,
             commands::spoken_turns,

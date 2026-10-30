@@ -18,7 +18,9 @@ use crate::{
 };
 use anyhow::Context;
 use beep_live::{Effect, EndMode, Filler, Fillers, Input, Leaving, Live, Phase, Reading};
-use beep_proto::{Filler as FillerLine, Notice, Say, SpeakNotice, Transcription, VoiceNote};
+use beep_proto::{
+    CancelRun, Filler as FillerLine, Notice, Say, SpeakNotice, Transcription, VoiceNote,
+};
 use serde::Serialize;
 use serde_bytes::ByteBuf;
 use std::{
@@ -99,6 +101,8 @@ enum LiveEvent {
         draft: Option<String>,
         session: Option<String>,
         quiet: bool,
+        /// The reply was cancelled.
+        cancelled: bool,
         failure: Option<String>,
     },
 }
@@ -132,6 +136,10 @@ struct Session {
     stt_run: u64,
     stt_failures: u32,
     failure: Option<String>,
+    /// The run answering the last message, once it started.
+    run: Option<String>,
+    /// Left by cancelling a reply.
+    cancelled: bool,
     /// Reading a reply or a note aloud.
     reader: Reader,
     playing: Option<Playing>,
@@ -338,6 +346,60 @@ impl Voice {
         self.input_now(Input::Escape);
     }
 
+    /// Esc or Cancel. While a reply is being written or read out, stops it
+    /// on the server as well and leaves with the message that asked for it
+    /// as the draft. Otherwise leaves, keeping what was said.
+    pub fn cancel(self: &Arc<Self>) {
+        let cancelled =
+            {
+                let mut state = self.state();
+                let Some(s) = state.live.as_mut().filter(|s| {
+                    !s.note && matches!(s.live.phase(), Phase::Thinking | Phase::Speaking)
+                }) else {
+                    drop(state);
+                    return self.leave_live();
+                };
+                s.cancelled = true;
+                let said = (!s.said.is_empty()).then(|| s.said.clone());
+                let effects = s
+                    .live
+                    .input(Input::Escape, Instant::now())
+                    .into_iter()
+                    .map(|effect| match effect {
+                        Effect::Leave { draft: None, why } => Effect::Leave {
+                            draft: said.clone(),
+                            why,
+                        },
+                        effect => effect,
+                    })
+                    .collect::<Vec<_>>();
+                (s.id, s.chat, s.run.take(), effects)
+            };
+        let (id, chat, run, effects) = cancelled;
+        self.cancel_run(chat, run);
+        self.apply(id, effects);
+    }
+
+    /// Cancels run `run` on the server, or the run going on in `chat` when
+    /// it had not started yet as far as live mode heard.
+    fn cancel_run(&self, chat: Option<Uuid>, run: Option<String>) {
+        let beep = self.beep.clone();
+        tauri::async_runtime::spawn(async move {
+            let run = match (run, chat) {
+                (Some(run), _) => run,
+                (None, Some(chat)) => match beep.active_run(&chat.to_string()).await {
+                    Ok(Some(run)) => run,
+                    Ok(None) => return,
+                    Err(e) => return log::warn!("finding the reply to cancel: {e}"),
+                },
+                (None, None) => return,
+            };
+            if let Err(e) = beep.call(CancelRun { id: run }).await {
+                log::warn!("cancelling a spoken reply: {e}");
+            }
+        });
+    }
+
     /// The pause setting changed.
     pub fn set_end_mode(&self) {
         let mode = self.end_mode();
@@ -401,6 +463,8 @@ impl Voice {
                 stt_run: 0,
                 stt_failures: 0,
                 failure: None,
+                run: None,
+                cancelled: false,
                 reader: Reader::default(),
                 playing: None,
                 mic_level: 0.0,
@@ -439,7 +503,7 @@ impl Voice {
     fn watch_escape(self: &Arc<Self>) {
         let me = self.clone();
         let watched = self.app.run_on_main_thread(move || {
-            hotkey::watch_escape(move || me.leave_live());
+            hotkey::watch_escape(move || me.cancel());
         });
         if let Err(e) = watched {
             log::warn!("watching Escape: {e}");
@@ -728,6 +792,7 @@ impl Voice {
             draft,
             session: chat.map(|c| c.to_string()),
             quiet: why == Leaving::Quiet,
+            cancelled: session.cancelled,
             failure: session.failure.take(),
         });
         // Dropping the session closes the microphone.
@@ -764,6 +829,7 @@ impl Voice {
             };
             s.chat = Some(chat);
             s.title = None;
+            s.run = None;
             text.clone_into(&mut s.said);
             s.last_reply.clear();
             s.prev = None;
@@ -913,6 +979,7 @@ impl Voice {
         loop {
             tokio::select! {
                 news = heard.recv() => match news {
+                    Some(RunNews::Started(run)) => self.set_run(id, run),
                     Some(RunNews::Text(delta)) => {
                         for line in reading.push(&delta) {
                             if lines.send(queue(Line::Answer(line))).await.is_err() {
@@ -1108,6 +1175,12 @@ impl Voice {
         };
         let opened = audio.wait_for(Option::is_some).await.ok()?;
         opened.clone()
+    }
+
+    fn set_run(&self, id: u64, run: String) {
+        if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
+            s.run = Some(run);
+        }
     }
 
     fn set_step(&self, id: u64, step: Option<String>) {
