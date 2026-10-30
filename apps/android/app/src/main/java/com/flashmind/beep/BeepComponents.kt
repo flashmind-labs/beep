@@ -88,6 +88,17 @@ private val toolLabels = mapOf(
     "open_browser" to "Opening a page",
     "browser" to "Browsing",
     "node" to "Using your machines",
+    "spawn_agent" to "Starting an agent in the background",
+    "run_in_background" to "Moving a step to the background",
+    "jobs" to "Checking background work",
+    "wait_job" to "Waiting for background work",
+    "cancel_job" to "Stopping background work",
+    "message_agent" to "Messaging a background agent",
+    "memory_history" to "Checking how a memory changed",
+    "hold_events" to "Holding updates for later",
+    "recent_events" to "Checking recent updates",
+    "event_topics" to "Checking what to watch for",
+    "start_research" to "Starting a research",
     "mcp_search" to "Finding the right app tool",
     "mcp" to "Using a connected app",
     "open_maps" to "Looking up a place",
@@ -131,7 +142,8 @@ private val pastTense = mapOf(
     "sending" to "Sent", "setting" to "Set", "using" to "Used", "remembering" to "Remembered",
     "loading" to "Loaded", "browsing" to "Browsed", "scheduling" to "Scheduled", "running" to "Ran",
     "weighing" to "Weighed", "recalling" to "Recalled", "forgetting" to "Forgot", "changing" to "Changed",
-    "logging" to "Logged", "suggesting" to "Suggested",
+    "logging" to "Logged", "suggesting" to "Suggested", "starting" to "Started",
+    "moving" to "Moved", "waiting" to "Waited", "stopping" to "Stopped", "messaging" to "Messaged", "holding" to "Held",
 )
 
 private data class Source(val title: String, val url: String) {

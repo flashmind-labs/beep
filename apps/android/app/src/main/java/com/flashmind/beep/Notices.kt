@@ -43,6 +43,8 @@ object Notices : NoticeListener {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         notice.approval?.let { approval ->
+            // Background work has no run to stream its card, so the notice puts one in the chat.
+            if (approval.runId.isEmpty()) app.repository.showBackgroundApproval(conversationId, approval)
             // On screen, the card in the chat asks instead.
             if (!app.repository.onScreen(conversationId)) ApprovalNotifications.show(app, approval, conversationId, title, body, pending)
             return

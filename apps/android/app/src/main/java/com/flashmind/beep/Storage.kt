@@ -75,8 +75,12 @@ data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: 
     val files: List<ToolCard.File> = emptyList())
 
 /** A tool call the server holds until the user allows it. `answer` is empty while it waits. */
-data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "") {
+data class ApprovalPrompt(val queryId: String, val approval: Approval, val answer: String = "",
+    /** Asked by a sub-agent or job, not by the turn: it never holds the chat, and a new message does not skip it. */
+    val background: Boolean = false) {
     val waiting get() = answer.isEmpty()
+    /** Waiting, and holding the chat's turn until answered. */
+    val waitsOnTurn get() = waiting && !background
 }
 /** A message held while a reply runs: its text and the pictures and files attached to it. */
 data class QueuedMessage(val text: String, val images: List<String> = emptyList(), val files: List<ToolCard.File> = emptyList())
@@ -205,7 +209,7 @@ class LocalStorage(internal val context: Context) {
                         val f = fArr.getJSONObject(fi)
                         ApprovalField(f.getString("label"), f.getString("value"))
                     }
-                    ApprovalPrompt(a.getString("queryId"), Approval(a.getString("app"), a.getString("action"), fields), a.optString("answer"))
+                    ApprovalPrompt(a.getString("queryId"), Approval(a.getString("app"), a.getString("action"), fields), a.optString("answer"), a.optBoolean("background"))
                 } else emptyList()
                 ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
                     m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals, m.optString("model"), m.optLong("sentAt"),
@@ -340,7 +344,7 @@ class LocalStorage(internal val context: Context) {
                         val fields = JSONArray()
                         a.approval.fields.forEach { f -> fields.put(JSONObject().put("label", f.label).put("value", f.value)) }
                         apArr.put(JSONObject().put("queryId", a.queryId).put("answer", a.answer).put("app", a.approval.app)
-                            .put("action", a.approval.action).put("fields", fields))
+                            .put("action", a.approval.action).put("fields", fields).put("background", a.background))
                     }
                     msg.put("approvals", apArr)
                 }
