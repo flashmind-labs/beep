@@ -622,6 +622,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         research?.live?.takeIf { it.running }?.let { live ->
             ResearchProgressRow(live, onOpen = { research.onWorkspace(null) }, onStop = research.onStop)
         }
+        BackgroundWork(repository, chat, compact)
         // Messages queued while the reply runs; each sends as its own turn once the one before finishes.
         AnimatedVisibility(visible = chat.hasQueued,
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
@@ -947,12 +948,20 @@ private fun DayMarker(day: LocalDate, modifier: Modifier = Modifier) {
 }
 
 /** Where a routine woke Beep: its prompt is the routine's, not something the user said. */
+/** The label of the turn that hands background work's results back to the chat. */
+private const val BACKGROUND_WORK = "Background work"
+
 @Composable
 private fun ScheduledMarker(label: String, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Outlined.Schedule, null, Modifier.size(13.dp), tint = TextDim)
         Spacer(Modifier.width(6.dp))
-        Text(if (label.isBlank()) "Scheduled" else "Scheduled · $label", fontSize = 11.sp, color = TextDim,
+        Text(when (label) {
+            "" -> "Scheduled"
+            // The results of sub-agents and jobs coming back, not a routine.
+            BACKGROUND_WORK -> label
+            else -> "Scheduled · $label"
+        }, fontSize = 11.sp, color = TextDim,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
