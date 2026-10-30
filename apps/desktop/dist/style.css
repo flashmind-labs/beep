@@ -568,3 +568,4 @@ button.dachip:hover { border-color: #3A4A41 }
 .dmodelform { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none }
 .dsec.dagents { padding-top: 4px; display: flex; gap: 6px; align-items: center }
 .dagentlist { display: block }
+.dlv .lcancel { margin-top: 2px }

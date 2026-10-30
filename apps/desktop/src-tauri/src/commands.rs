@@ -565,6 +565,13 @@ pub fn leave_live(voice: State<'_, Arc<Voice>>) {
     voice.leave_live();
 }
 
+/// Esc or Cancel in live mode: cancels a reply being written or read out,
+/// or leaves, keeping what was said.
+#[tauri::command]
+pub fn cancel_live(voice: State<'_, Arc<Voice>>) {
+    voice.cancel();
+}
+
 /// Talks live in chat `session`.
 #[tauri::command]
 pub fn continue_live(voice: State<'_, Arc<Voice>>, session: String) -> Result<()> {
