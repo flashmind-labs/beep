@@ -1,27 +1,36 @@
 //! One agent session: the adapter process and the task that talks ACP to
-//! it. The task owns the process; streams send it orders and follow its
-//! state through a watch channel.
+//! it through the official crate. The task owns the process; streams send
+//! it orders and follow its state through a watch channel.
 
 use super::{
     AgentKind,
-    acp::{self, Incoming},
+    acp::{self, Line, LineReader, ResumeMethod},
     live::{Live, cut},
 };
-use crate::shell::GroupLeader;
+use crate::process::{GroupLeader, STOP_GRACE};
+use agent_client_protocol::{
+    Agent, Client, ConnectionTo, JsonRpcRequest, Responder, on_receive_notification,
+    on_receive_request,
+    schema::v1::{
+        CancelNotification, InitializeResponse, LoadSessionRequest, NewSessionRequest,
+        NewSessionResponse, PromptResponse, RequestPermissionRequest, RequestPermissionResponse,
+        ResumeSessionRequest, SessionId, SessionNotification, SessionUpdate, SetSessionModeRequest,
+    },
+};
 use anyhow::{Context, Result};
 use beep_proto::node::agent::{
     AnswerOption, EntryKind, OptionKind, Question, SessionInfo, State, Status, StopReason,
 };
-use serde_json::Value;
+use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use std::{
-    collections::{HashMap, VecDeque},
-    path::Path,
+    collections::VecDeque,
+    path::{Path, PathBuf},
     process::Stdio,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, Command as Process},
+    io::BufReader,
+    process::{Child, ChildStderr, Command as Process},
     sync::{mpsc, oneshot, watch},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -30,7 +39,11 @@ use tokio_util::task::AbortOnDropHandle;
 const MAX_QUEUED: usize = 8;
 /// The stderr lines kept to say why an agent stopped.
 const STDERR_LINES: usize = 5;
+/// The longest stderr line read whole; a longer one is skipped.
+const MAX_STDERR_LINE: usize = 64 * 1024;
 const ORDERS: usize = 16;
+/// Updates and questions from the agent waiting for the session's task.
+const EVENTS: usize = 64;
 
 /// What a stream asks of a session.
 #[derive(Debug)]
@@ -51,7 +64,7 @@ pub(super) struct Session {
     pub(super) agent: String,
     orders: mpsc::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
-    /// Dropping the session stops its task and with it the agent.
+    /// Dropping the session stops its task and with it the agent, at once.
     _task: AbortOnDropHandle<()>,
 }
 
@@ -74,7 +87,7 @@ impl Session {
             prompt,
             resume,
         } = start;
-        let mut child = Process::new(&kind.program)
+        let child = Process::new(&kind.program)
             .args(&kind.args)
             .current_dir(cwd)
             .stdin(Stdio::piped())
@@ -85,12 +98,10 @@ impl Session {
             .kill_on_drop(true)
             .spawn()
             .with_context(|| format!("starting {}", kind.program))?;
-        let stdin = child.stdin.take().context("the agent has no stdin")?;
-        let cwd = cwd.display().to_string();
         let info = SessionInfo {
             id: id.clone(),
             agent: kind.name.clone(),
-            cwd: cwd.clone(),
+            cwd: cwd.display().to_string(),
             started_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |since| since.as_secs()),
@@ -102,11 +113,8 @@ impl Session {
         let (live_tx, live) = watch::channel(first);
         let (orders, orders_rx) = mpsc::channel(ORDERS);
         let actor = Actor {
-            stdin,
             live: live_tx,
-            cwd,
-            next_id: 0,
-            pending: HashMap::new(),
+            cwd: cwd.to_path_buf(),
             acp_session: None,
             queued: prompt.into_iter().collect(),
             resume,
@@ -114,6 +122,7 @@ impl Session {
             asked: VecDeque::new(),
             next_question: 1,
             stderr: VecDeque::new(),
+            replies: FuturesUnordered::new(),
         };
         let task = tokio::spawn(actor.run(child, orders_rx));
         Ok(Self {
@@ -140,33 +149,49 @@ impl Session {
             .await
             .map_err(|_| "the session has ended".to_owned())?
     }
+
+    /// Closes the session and waits until its agent has stopped.
+    pub(super) async fn close(&self) {
+        // Refused when it already ends; either way it is waited for.
+        let _ = self.order(Command::Close).await;
+        let mut live = self.live.clone();
+        // An error means the task is gone, which also ends the wait.
+        let _ = live.wait_for(|live| live.status() == Status::Ended).await;
+    }
 }
 
-/// What a request we sent was for.
-enum Pending {
-    Initialize,
-    NewSession,
-    /// `session/resume` or `session/load` of this session.
-    Resume(String),
-    /// `session/set_mode` to the mode that asks no permission.
-    Bypass,
-    Prompt,
+/// What the agent sent the session's task.
+enum Event {
+    Update(SessionUpdate),
+    Permission(
+        RequestPermissionRequest,
+        Responder<RequestPermissionResponse>,
+    ),
+}
+
+/// The answer to a request the session sent, with what it was for.
+enum Reply {
+    /// Boxed: the answer to `initialize` is far larger than the others.
+    Initialized(Result<Box<InitializeResponse>, agent_client_protocol::Error>),
+    NewSession(Result<NewSessionResponse, agent_client_protocol::Error>),
+    /// The answer to `session/resume` or `session/load` of this session.
+    Resumed(SessionId, Result<(), agent_client_protocol::Error>),
+    /// The answer to `session/set_mode` to the mode that asks no permission.
+    Bypass(Result<(), agent_client_protocol::Error>),
+    Prompt(Result<PromptResponse, agent_client_protocol::Error>),
 }
 
 /// A permission question waiting for its answer.
 struct Asked {
     question: Question,
-    rpc: Value,
+    responder: Responder<RequestPermissionResponse>,
 }
 
 struct Actor {
-    stdin: ChildStdin,
     live: watch::Sender<Live>,
-    cwd: String,
-    next_id: u64,
-    pending: HashMap<u64, Pending>,
+    cwd: PathBuf,
     /// The agent's id for the session, once it made one.
-    acp_session: Option<String>,
+    acp_session: Option<SessionId>,
     /// The agent's id of an earlier session to resume.
     resume: Option<String>,
     /// The agent runs without permission prompts: Claude Code, as with
@@ -180,6 +205,9 @@ struct Actor {
     next_question: u32,
     /// The last lines the agent wrote to stderr.
     stderr: VecDeque<String>,
+    /// Answers still to come. At most a few: one per request in flight, and
+    /// a session has at most one prompt in flight.
+    replies: FuturesUnordered<BoxFuture<'static, Reply>>,
 }
 
 /// Why the session's task stopped.
@@ -189,11 +217,20 @@ enum End {
     Failed(String),
 }
 
+/// The pipes the session reads besides ACP.
+struct Inputs {
+    events: mpsc::Receiver<Event>,
+    /// The length of each message dropped for being too long.
+    oversized: mpsc::Receiver<usize>,
+    stderr: LineReader<BufReader<ChildStderr>>,
+}
+
 impl Actor {
     async fn run(mut self, child: Child, mut orders: mpsc::Receiver<Order>) {
-        // Stops the agent's whole process group however the task ends,
-        // aborted with its session included.
+        // Kills the agent's whole process group however the task ends,
+        // aborted with its session included; `stop` below is the gentle way.
         let mut child = GroupLeader::new(child);
+        let held = child.hold_output();
         let end = self.serve(child.child_mut(), &mut orders).await;
         let closed = matches!(end, Ok(End::Closed));
         let reason = match end {
@@ -206,9 +243,12 @@ impl Actor {
             Err(e) => format!("lost the agent: {e:#}"),
         };
         log::info!("agent session ended: {reason}");
-        drop(child);
-        // Orders that came in too late hear the session ended.
+        // Orders that come in too late hear the session ended.
         orders.close();
+        // Questions still open are dropped with the connection.
+        self.asked.clear();
+        child.stop(STOP_GRACE).await;
+        drop(held);
         self.live.send_modify(|live| {
             live.info.question = None;
             live.info.state.status = Status::Ended;
@@ -224,25 +264,79 @@ impl Actor {
         child: &mut Child,
         orders: &mut mpsc::Receiver<Order>,
     ) -> Result<End> {
+        let stdin = child.stdin.take().context("the agent has no stdin")?;
         let stdout = child.stdout.take().context("the agent has no stdout")?;
         let stderr = child.stderr.take().context("the agent has no stderr")?;
-        let mut lines = BufReader::new(stdout).lines();
-        let mut errors = BufReader::new(stderr).lines();
-        let mut errors_open = true;
-        let id = self.send_request("initialize", acp::initialize()).await?;
-        self.pending.insert(id, Pending::Initialize);
-        loop {
-            tokio::select! {
-                line = lines.next_line() => match line? {
-                    Some(line) => {
-                        if let Some(end) = self.incoming(&line).await? {
-                            return Ok(end);
-                        }
+        let (events_tx, events) = mpsc::channel(EVENTS);
+        let (oversized_tx, oversized) = mpsc::channel(1);
+        let mut inputs = Inputs {
+            events,
+            oversized,
+            stderr: LineReader::new(BufReader::new(stderr), MAX_STDERR_LINE),
+        };
+        let updates = events_tx.clone();
+        let questions = events_tx;
+        // The handlers run in the crate's dispatch loop, which reads apart
+        // from writing; each only hands the message to this task.
+        let ended = Client
+            .builder()
+            .name("beep-node")
+            .on_receive_notification(
+                async move |notification: SessionNotification, _cx| {
+                    // Fails only once the session ended, when it no longer matters.
+                    let _ = updates.send(Event::Update(notification.update)).await;
+                    Ok(())
+                },
+                on_receive_notification!(),
+            )
+            .on_receive_request(
+                async move |request: RequestPermissionRequest, responder, _cx| {
+                    let event = Event::Permission(request, responder);
+                    if let Err(mpsc::error::SendError(Event::Permission(_, responder))) =
+                        questions.send(event).await
+                    {
+                        responder.respond(acp::cancelled())?;
                     }
+                    Ok(())
+                },
+                on_receive_request!(),
+            )
+            .connect_with(
+                acp::transport(stdin, stdout, oversized_tx),
+                async |cx: ConnectionTo<Agent>| Ok(self.drive(&cx, &mut inputs, orders).await),
+            )
+            .await;
+        ended.context("the ACP connection failed")?
+    }
+
+    async fn drive(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        inputs: &mut Inputs,
+        orders: &mut mpsc::Receiver<Order>,
+    ) -> Result<End> {
+        self.send(cx, acp::initialize(), |result| {
+            Reply::Initialized(result.map(Box::new))
+        });
+        let mut stderr_open = true;
+        loop {
+            // Biased so an update the agent sent before an answer is
+            // applied before it, as the dispatch loop handed them over.
+            tokio::select! {
+                biased;
+                event = inputs.events.recv() => match event {
+                    Some(event) => self.event(event)?,
                     None => return Ok(End::Exited),
                 },
-                line = errors.next_line(), if errors_open => match line {
-                    Ok(Some(line)) if !line.trim().is_empty() => {
+                Some(length) = inputs.oversized.recv() => self.oversized(length),
+                () = cx.incoming_closed() => return Ok(End::Exited),
+                Some(reply) = self.replies.next() => {
+                    if let Some(end) = self.reply(cx, reply)? {
+                        return Ok(end);
+                    }
+                }
+                line = inputs.stderr.next(), if stderr_open => match line {
+                    Ok(Some(Line::Text(line))) if !line.trim().is_empty() => {
                         log::debug!("agent stderr: {line}");
                         if self.stderr.len() >= STDERR_LINES {
                             self.stderr.pop_front();
@@ -250,7 +344,7 @@ impl Actor {
                         self.stderr.push_back(cut(line.trim(), 300));
                     }
                     Ok(Some(_)) => {}
-                    Ok(None) | Err(_) => errors_open = false,
+                    Ok(None) | Err(_) => stderr_open = false,
                 },
                 order = orders.recv() => {
                     let Some(Order { command, done }) = order else {
@@ -260,7 +354,7 @@ impl Actor {
                         let _ = done.send(Ok(()));
                         return Ok(End::Closed);
                     }
-                    let result = self.command(command).await?;
+                    let result = self.command(cx, command)?;
                     // The stream may have gone; the order still happened.
                     let _ = done.send(result);
                 }
@@ -268,110 +362,138 @@ impl Actor {
         }
     }
 
-    async fn incoming(&mut self, line: &str) -> Result<Option<End>> {
-        let Some(message) = acp::parse(line) else {
-            log::debug!(
-                "agent wrote a line that is not JSON-RPC: {}",
-                cut(line, 200)
-            );
-            return Ok(None);
-        };
-        match message {
-            Incoming::Response { id, result } => match (self.pending.remove(&id), result) {
-                (Some(Pending::Initialize), Ok(result)) => match self.resume.take() {
-                    Some(session) => {
-                        let Some(method) = acp::resume_method(&result) else {
+    /// Sends `request`; its answer comes back through `replies` as `reply`.
+    /// Sending only queues it for the crate's writer, so it never waits.
+    fn send<Req>(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        request: Req,
+        reply: impl FnOnce(Result<Req::Response, agent_client_protocol::Error>) -> Reply
+        + Send
+        + 'static,
+    ) where
+        Req: JsonRpcRequest,
+        Req::Response: Send + 'static,
+    {
+        let answer = cx.send_request(request).block_task();
+        self.replies
+            .push(async move { reply(answer.await) }.boxed());
+    }
+
+    fn event(&mut self, event: Event) -> Result<()> {
+        match event {
+            Event::Update(update) => {
+                self.live.send_if_modified(|live| live.apply(&update));
+            }
+            Event::Permission(request, responder) => {
+                if let Some(responder) = self.allow(&request, responder)? {
+                    self.ask(&request, responder);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The agent sent a message too long to keep: it was dropped, and the
+    /// session says so.
+    fn oversized(&mut self, length: usize) {
+        let error = format!(
+            "dropped a {} MiB message from the agent; at most {} MiB are read",
+            length / (1024 * 1024),
+            acp::MAX_MESSAGE / (1024 * 1024)
+        );
+        self.live
+            .send_modify(|live| live.info.state.error = Some(error));
+    }
+
+    fn reply(&mut self, cx: &ConnectionTo<Agent>, reply: Reply) -> Result<Option<End>> {
+        match reply {
+            Reply::Initialized(Ok(initialized)) => match self.resume.take() {
+                Some(session) => {
+                    let session = SessionId::from(session);
+                    let cwd = self.cwd.clone();
+                    let id = session.clone();
+                    match acp::resume_method(&initialized) {
+                        Some(ResumeMethod::Resume) => {
+                            self.send(cx, ResumeSessionRequest::new(id, cwd), |result| {
+                                Reply::Resumed(session, result.map(drop))
+                            });
+                        }
+                        Some(ResumeMethod::Load) => {
+                            self.send(cx, LoadSessionRequest::new(id, cwd), |result| {
+                                Reply::Resumed(session, result.map(drop))
+                            });
+                        }
+                        None => {
                             return Ok(Some(End::Failed(
                                 "the agent cannot resume a session".into(),
                             )));
-                        };
-                        let params = acp::resume_session(&session, &self.cwd);
-                        let id = self.send_request(method, params).await?;
-                        self.pending.insert(id, Pending::Resume(session));
+                        }
                     }
-                    None => {
-                        let id = self
-                            .send_request("session/new", acp::new_session(&self.cwd))
-                            .await?;
-                        self.pending.insert(id, Pending::NewSession);
-                    }
-                },
-                (Some(Pending::NewSession), Ok(result)) => {
-                    let Some(session) = result["sessionId"].as_str() else {
-                        return Ok(Some(End::Failed("the agent made no session".into())));
-                    };
-                    self.ready(session.to_owned()).await?;
                 }
-                (Some(Pending::Resume(session)), Ok(_)) => self.ready(session).await?,
-                (Some(Pending::Bypass), result) => {
-                    if let Err(e) = result {
-                        // Requests that still come are allowed in `ask`.
-                        log::warn!("the agent kept asking permission: {e}");
-                    }
-                    self.idle().await?;
-                }
-                (Some(Pending::Resume(_)), Err(e)) => {
-                    return Ok(Some(End::Failed(format!(
-                        "the agent could not resume the session: {e}"
-                    ))));
-                }
-                (Some(Pending::Initialize | Pending::NewSession), Err(e)) => {
-                    return Ok(Some(End::Failed(format!("the agent did not start: {e}"))));
-                }
-                (Some(Pending::Prompt), result) => {
-                    let (stop, error) = match result {
-                        Ok(result) => (
-                            StopReason::from_acp(result["stopReason"].as_str().unwrap_or("")),
-                            None,
-                        ),
-                        Err(e) => (StopReason::Failed, Some(e)),
-                    };
-                    self.turn_done(stop, error).await?;
-                }
-                (None, _) => log::debug!("the agent answered unknown request {id}"),
+                None => self.send(
+                    cx,
+                    NewSessionRequest::new(self.cwd.clone()),
+                    Reply::NewSession,
+                ),
             },
-            Incoming::Request { id, method, params } => {
-                if method == "session/request_permission" {
-                    if !self.allow(&id, &params).await? {
-                        self.ask(id, &params);
-                    }
-                } else {
-                    self.write(&acp::not_supported(&id, &method)).await?;
+            Reply::NewSession(Ok(created)) => self.ready(cx, created.session_id),
+            Reply::Resumed(session, Ok(())) => self.ready(cx, session),
+            Reply::Bypass(result) => {
+                if let Err(e) = result {
+                    // Requests that still come are allowed in `ask`.
+                    log::warn!("the agent kept asking permission: {e}");
                 }
+                self.idle(cx);
             }
-            Incoming::Notification { method, params } => {
-                if method == "session/update" {
-                    self.live
-                        .send_if_modified(|live| live.apply(&params["update"]));
-                }
+            Reply::Resumed(_, Err(e)) => {
+                return Ok(Some(End::Failed(format!(
+                    "the agent could not resume the session: {e}"
+                ))));
+            }
+            Reply::Initialized(Err(e)) | Reply::NewSession(Err(e)) => {
+                return Ok(Some(End::Failed(format!("the agent did not start: {e}"))));
+            }
+            Reply::Prompt(result) => {
+                let (stop, error) = match result {
+                    Ok(done) => (
+                        StopReason::from_acp(&acp::wire_name(&done.stop_reason)),
+                        None,
+                    ),
+                    Err(e) => (StopReason::Failed, Some(e.to_string())),
+                };
+                self.turn_done(cx, stop, error);
             }
         }
         Ok(None)
     }
 
     /// The agent made or resumed its session `session`: prompts may go.
-    async fn ready(&mut self, session: String) -> Result<()> {
+    fn ready(&mut self, cx: &ConnectionTo<Agent>, session: SessionId) {
         self.acp_session = Some(session.clone());
         self.live
-            .send_modify(|live| live.agent_session = Some(session.clone()));
+            .send_modify(|live| live.agent_session = Some(session.to_string()));
         if self.skip_permissions {
             // The first prompt waits for the mode, so it never asks.
-            let params = acp::set_mode(&session, acp::BYPASS_MODE);
-            let id = self.send_request("session/set_mode", params).await?;
-            self.pending.insert(id, Pending::Bypass);
-            return Ok(());
+            let request = SetSessionModeRequest::new(session, acp::BYPASS_MODE);
+            self.send(cx, request, |result| Reply::Bypass(result.map(drop)));
+            return;
         }
-        self.idle().await
+        self.idle(cx);
     }
 
     /// The session takes prompts: sends the first one waiting.
-    async fn idle(&mut self) -> Result<()> {
+    fn idle(&mut self, cx: &ConnectionTo<Agent>) {
         self.live
             .send_modify(|live| live.info.state.status = Status::Idle);
-        self.next_prompt().await
+        self.next_prompt(cx);
     }
 
-    async fn command(&mut self, command: Command) -> Result<Result<(), String>> {
+    fn command(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        command: Command,
+    ) -> Result<Result<(), String>> {
         match command {
             Command::Prompt(text) => {
                 if self.queued.len() >= MAX_QUEUED {
@@ -382,23 +504,21 @@ impl Actor {
                 self.queued.push_back(text);
                 self.show_queued();
                 if self.live.borrow().status() == Status::Idle {
-                    self.next_prompt().await?;
+                    self.next_prompt(cx);
                 }
                 Ok(Ok(()))
             }
-            Command::Answer { question, reply } => self.answer(question, &reply).await,
+            Command::Answer { question, reply } => self.answer(question, &reply),
             Command::Cancel => {
                 self.queued.clear();
                 self.show_queued();
                 while let Some(asked) = self.asked.pop_front() {
-                    self.write(&acp::response(&asked.rpc, acp::cancelled()))
-                        .await?;
+                    asked.responder.respond(acp::cancelled())?;
                 }
                 if let Some(session) = &self.acp_session
                     && self.live.borrow().status() != Status::Idle
                 {
-                    let cancel = acp::notification("session/cancel", acp::cancel(session));
-                    self.write(&cancel).await?;
+                    cx.send_notification(CancelNotification::new(session.clone()))?;
                 }
                 self.show_question();
                 Ok(Ok(()))
@@ -407,32 +527,39 @@ impl Actor {
         }
     }
 
-    /// Allows a permission request in a session that asks none; `false`
-    /// when it should be asked after all: the session asks, or the request
-    /// offers no way to allow.
-    async fn allow(&mut self, rpc: &Value, params: &Value) -> Result<bool> {
+    /// Allows a permission request in a session that asks none. Gives the
+    /// responder back when the request should be asked after all: the
+    /// session asks, or the request offers no way to allow.
+    fn allow(
+        &mut self,
+        request: &RequestPermissionRequest,
+        responder: Responder<RequestPermissionResponse>,
+    ) -> Result<Option<Responder<RequestPermissionResponse>>> {
         if !self.skip_permissions {
-            return Ok(false);
+            return Ok(Some(responder));
         }
-        let question = self.live.borrow().question(0, params);
+        let question = self.live.borrow().question(0, request);
         let options = &question.options;
         let Some(option) = options
             .iter()
             .find(|option| option.kind == OptionKind::AllowOnce)
             .or_else(|| options.iter().find(|o| o.kind == OptionKind::AllowAlways))
         else {
-            return Ok(false);
+            return Ok(Some(responder));
         };
-        self.write(&acp::response(rpc, acp::selected(&option.id)))
-            .await?;
+        responder.respond(acp::selected(&option.id))?;
         self.live.send_modify(|live| {
             live.push(EntryKind::Question, &format!("Allowed: {}", question.text));
         });
-        Ok(true)
+        Ok(None)
     }
 
-    fn ask(&mut self, rpc: Value, params: &Value) {
-        let question = self.live.borrow().question(self.next_question, params);
+    fn ask(
+        &mut self,
+        request: &RequestPermissionRequest,
+        responder: Responder<RequestPermissionResponse>,
+    ) {
+        let question = self.live.borrow().question(self.next_question, request);
         self.next_question += 1;
         self.live.send_modify(|live| {
             let detail = question
@@ -445,11 +572,14 @@ impl Actor {
                 &format!("Asked: {}{detail}", question.text),
             );
         });
-        self.asked.push_back(Asked { question, rpc });
+        self.asked.push_back(Asked {
+            question,
+            responder,
+        });
         self.show_question();
     }
 
-    async fn answer(&mut self, question: u32, reply: &str) -> Result<Result<(), String>> {
+    fn answer(&mut self, question: u32, reply: &str) -> Result<Result<(), String>> {
         let Some(asked) = self.asked.front() else {
             return Ok(Err("there is no open question".into()));
         };
@@ -478,9 +608,9 @@ impl Actor {
         let name = chosen
             .map_or("declined", |option| option.name.as_str())
             .to_owned();
-        let rpc = asked.rpc.clone();
-        self.write(&acp::response(&rpc, answer)).await?;
-        self.asked.pop_front();
+        if let Some(asked) = self.asked.pop_front() {
+            asked.responder.respond(answer)?;
+        }
         if let Some(text) = follow_up {
             self.queued.push_front(text);
             self.show_queued();
@@ -517,7 +647,7 @@ impl Actor {
         });
     }
 
-    async fn turn_done(&mut self, stop: StopReason, error: Option<String>) -> Result<()> {
+    fn turn_done(&mut self, cx: &ConnectionTo<Agent>, stop: StopReason, error: Option<String>) {
         // A turn that ends leaves no question open.
         self.asked.clear();
         self.live.send_modify(|live| {
@@ -529,43 +659,23 @@ impl Actor {
             state.summary.clear();
             state.error = error;
         });
-        self.next_prompt().await
+        self.next_prompt(cx);
     }
 
     /// Sends the next waiting prompt, if any.
-    async fn next_prompt(&mut self) -> Result<()> {
+    fn next_prompt(&mut self, cx: &ConnectionTo<Agent>) {
         let Some(session) = self.acp_session.clone() else {
-            return Ok(());
+            return;
         };
         let Some(text) = self.queued.pop_front() else {
-            return Ok(());
+            return;
         };
-        let id = self
-            .send_request("session/prompt", acp::prompt(&session, &text))
-            .await?;
-        self.pending.insert(id, Pending::Prompt);
+        self.send(cx, acp::prompt(&session, &text), Reply::Prompt);
         let queued = u32::try_from(self.queued.len()).unwrap_or(u32::MAX);
         self.live.send_modify(|live| {
             live.prompted(&text);
             live.info.state.queued = queued;
         });
-        Ok(())
-    }
-
-    async fn send_request(&mut self, method: &str, params: Value) -> Result<u64> {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.write(&acp::request(id, method, params)).await?;
-        Ok(id)
-    }
-
-    async fn write(&mut self, line: &str) -> Result<()> {
-        self.stdin
-            .write_all(line.as_bytes())
-            .await
-            .context("writing to the agent")?;
-        self.stdin.flush().await?;
-        Ok(())
     }
 }
 
@@ -597,6 +707,7 @@ pub(super) fn choose<'a>(options: &'a [AnswerOption], reply: &str) -> Option<&'a
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     fn options() -> Vec<AnswerOption> {
         let option = |id: &str, name: &str, kind| AnswerOption {
@@ -611,33 +722,40 @@ mod tests {
         ]
     }
 
+    /// The shell helpers fake adapters share: `reply` answers the request
+    /// last read into `$line` with the id it carried.
+    const REPLY: &str = r#"
+log() { printf '%s\n' "$line" >> "$1"; }
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+"#;
+
     /// An ACP adapter in a few lines of shell: it can resume sessions and
     /// appends each line it reads to the file in `$1`. On the prompt it asks
     /// permission once, then ends the turn.
     const FAKE_ADAPTER: &str = r#"
-log() { printf '%s\n' "$line" >> "$1"; }
-read line; log "$1"
-echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"resume":{}}}}}'
-read line; log "$1"
-echo '{"jsonrpc":"2.0","id":1,"result":{}}'
-read line; log "$1"
-echo '{"jsonrpc":"2.0","id":2,"result":{}}'
-read line; log "$1"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"resume":{}}}}'
+read -r line; log "$1"
+reply '{}'
+read -r line; log "$1"
+reply '{}'
+read -r line; log "$1"
+prompt=$(id)
 echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t1","title":"Run cargo test"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}}'
-read line; log "$1"
+read -r line; log "$1"
 echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Picked it up."}}}}'
-echo '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
 cat > /dev/null
 "#;
 
     /// An adapter that asks permission on its first prompt and waits.
     const ASKING_ADAPTER: &str = r#"
-log() { printf '%s\n' "$line" >> "$1"; }
-read line; log "$1"
-echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
-read line; log "$1"
-echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"s"}}'
-read line; log "$1"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+read -r line; log "$1"
 echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t1","title":"Run cargo test"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"}]}}'
 cat > /dev/null
 "#;
@@ -652,7 +770,7 @@ cat > /dev/null
             program: "sh".into(),
             args: vec![
                 "-c".into(),
-                script.into(),
+                format!("{REPLY}{script}"),
                 "fake-adapter".into(),
                 log.display().to_string(),
             ],
@@ -745,6 +863,148 @@ cat > /dev/null
         );
         let sent = std::fs::read_to_string(&log).unwrap();
         assert!(!sent.contains("session/set_mode"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An adapter that answers with whatever id each request carries, then
+    /// writes a burst far larger than a pipe holds before it reads the
+    /// prompt. A node that stops reading while it writes deadlocks on it.
+    const BURSTING_ADAPTER: &str = r#"
+read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; reply '{"sessionId":"s"}'
+chunk=$(head -c 2000 /dev/zero | tr '\0' x)
+i=0
+while [ $i -lt 2000 ]; do
+  printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"%s"}}}}\n' "$chunk"
+  i=$((i+1))
+done
+line=$(head -n 1)
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+    #[tokio::test]
+    async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
+        let dir = temp("burst");
+        let log = dir.join("unused");
+        let session = Session::start(Start {
+            id: "c5f1e3".into(),
+            kind: &script("codex", BURSTING_ADAPTER, &log),
+            cwd: &dir,
+            prompt: Some("y".repeat(4 * 1024 * 1024)),
+            resume: None,
+        })
+        .unwrap();
+        let mut live = session.live.clone();
+        // The timeout only bounds a failure; the turn ending is the signal.
+        tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            live.wait_for(|live| live.info.turns >= 1 || live.status() == Status::Ended),
+        )
+        .await
+        .expect("the session hung: reading waited on writing")
+        .unwrap();
+        let info = session.info();
+        assert_eq!(info.turns, 1, "{:?}", info.state.error);
+        assert_eq!(info.last_message.len(), 4 * 1024, "the burst was read");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Starts the adapter `body` (after the handshake, with `$line` holding
+    /// the first prompt) as a session that asks permission.
+    fn started(dir: &Path, body: &str) -> Session {
+        let handshake = r#"
+read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; reply '{"sessionId":"s"}'
+read -r line
+"#;
+        Session::start(Start {
+            id: "d6a2f4".into(),
+            kind: &script("codex", &format!("{handshake}{body}"), &dir.join("log")),
+            cwd: dir,
+            prompt: Some("go".into()),
+            resume: None,
+        })
+        .unwrap()
+    }
+
+    /// Waits until `done` holds. The timeout only bounds a failure.
+    async fn until(session: &Session, done: impl FnMut(&Live) -> bool) {
+        let mut live = session.live.clone();
+        tokio::time::timeout(std::time::Duration::from_secs(60), live.wait_for(done))
+            .await
+            .expect("the session got there")
+            .unwrap();
+    }
+
+    const UPDATE: &str =
+        r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":"#;
+
+    #[tokio::test]
+    async fn an_oversized_message_is_dropped_and_the_session_goes_on() {
+        let dir = temp("oversized");
+        let body = format!(
+            r#"
+printf '%s{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"' '{UPDATE}'
+head -c {} /dev/zero | tr '\0' x
+printf '"}}}}}}}}\n'
+echo '{UPDATE}{{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Still here"}}}}}}'
+cat > /dev/null
+"#,
+            acp::MAX_MESSAGE + 1
+        );
+        let session = started(&dir, &body);
+        until(&session, |live| {
+            live.info.state.summary == "Still here" || live.status() == Status::Ended
+        })
+        .await;
+        let info = session.info();
+        assert_eq!(info.state.status, Status::Working);
+        let error = info.state.error.unwrap_or_default();
+        assert!(error.contains("dropped a 16 MiB message"), "{error}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_update_of_an_unknown_kind_is_skipped() {
+        let dir = temp("unknown");
+        let body = format!(
+            r#"
+echo '{UPDATE}{{"sessionUpdate":"something_new","detail":1}}}}}}'
+echo '{UPDATE}{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"done"}}}}}}}}'
+reply '{{"stopReason":"end_turn"}}'
+cat > /dev/null
+"#
+        );
+        let session = started(&dir, &body);
+        until(&session, |live| {
+            live.info.turns >= 1 || live.status() == Status::Ended
+        })
+        .await;
+        let info = session.info();
+        assert_eq!(info.turns, 1, "{:?}", info.state.error);
+        assert_eq!(info.last_message, "done");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn closing_stops_the_agent_with_sigterm() {
+        let dir = temp("close");
+        let marker = dir.join("terminated");
+        let body = format!(
+            r#"
+trap 'echo bye > "{}"; exit 0' TERM
+echo '{UPDATE}{{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Listening"}}}}}}'
+while :; do sleep 1; done
+"#,
+            marker.display()
+        );
+        let session = started(&dir, &body);
+        until(&session, |live| live.info.state.summary == "Listening").await;
+        session.close().await;
+        assert_eq!(session.info().state.status, Status::Ended);
+        assert_eq!(session.info().state.error, None, "closed, not failed");
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "bye\n");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

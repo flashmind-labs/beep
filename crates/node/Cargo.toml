@@ -16,10 +16,12 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [dependencies]
+agent-client-protocol = "3.6"
 anyhow = "1"
 beep-proto = { path = "../proto" }
 clap = { version = "4", features = ["derive"], optional = true }
 dirs = "7"
+futures = "0.3"
 iroh = "1.3"
 libc = "0.2"
 log = "0.4"
