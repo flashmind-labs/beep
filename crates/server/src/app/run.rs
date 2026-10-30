@@ -25,7 +25,7 @@ use crate::{
     steps::{self, TurnsByTime},
     store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, Step, StepBody, TurnRecord},
     timing::{Output, TurnTimer},
-    tools,
+    tool_cost, tools,
     user::User,
     wake,
 };
@@ -384,6 +384,16 @@ impl App {
             registry.register(tool);
         }
         let refusals = repeat::guard_tool_calls(&mut registry);
+        let kind = if research.is_some() {
+            "research"
+        } else if is_cron {
+            "routine"
+        } else if background {
+            "background"
+        } else {
+            "coordinator"
+        };
+        tool_cost::log(kind, &registry);
         let can_map = gates::MAP_TOOLS.iter().any(|tool| registry.contains(tool));
         let can_schedule = gates::SCHEDULE_TOOLS
             .iter()

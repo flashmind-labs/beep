@@ -552,6 +552,7 @@ impl App {
             registry.register(tool);
         }
         let refusals = repeat::guard_tool_calls(&mut registry);
+        crate::tool_cost::log("research team", &registry);
 
         let mut llm = self
             .llm
