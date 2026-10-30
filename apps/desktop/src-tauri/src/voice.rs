@@ -518,7 +518,15 @@ impl Voice {
     fn watch_escape(self: &Arc<Self>) {
         let me = self.clone();
         let watched = self.app.run_on_main_thread(move || {
-            hotkey::watch_escape(move || me.cancel());
+            // Only in the bar: Escape in another app, or in a research
+            // window, is not meant for live mode.
+            hotkey::watch_escape(move || {
+                let focused = bar::is_focused(&me.app);
+                if focused {
+                    me.cancel();
+                }
+                focused
+            });
         });
         if let Err(e) = watched {
             log::warn!("watching Escape: {e}");
@@ -1229,17 +1237,20 @@ impl Voice {
         }
     }
 
-    /// Two taps: open or hide the bar. In live mode it leaves, and the bar
-    /// opens on the chat.
+    /// Two taps: open or hide the bar. Over the orb they bring the bar back
+    /// with live mode still running; with the bar up they leave live mode,
+    /// and the bar opens on the chat.
     fn on_two_taps(self: &Arc<Self>) {
-        if self.is_live() {
-            self.leave_live();
-            if !self.is_live() {
-                bar::show(&self.app, None);
+        match hotkey::on_two(self.voice(), self.bar_open()) {
+            hotkey::Two::Toggle => bar::toggle(&self.app),
+            hotkey::Two::ShowBar => bar::show(&self.app, None),
+            hotkey::Two::Leave => {
+                self.leave_live();
+                if !self.is_live() {
+                    bar::show(&self.app, None);
+                }
             }
-            return;
         }
-        bar::toggle(&self.app);
     }
 
     /// `HOLD` after Option went down: talk while it stays down.
