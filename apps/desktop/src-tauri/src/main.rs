@@ -17,6 +17,7 @@ mod logfile;
 mod login_path;
 mod mac_files;
 mod machine;
+mod machines;
 mod markdown;
 mod news;
 mod presence;
@@ -137,6 +138,7 @@ fn main() {
             work::list_questions,
             grants::list_grants,
             grants::revoke_grant,
+            machines::list_machines,
             commands::open_file,
             commands::picture,
             commands::save_file,
