@@ -59,6 +59,13 @@ fn activate() {
 #[cfg(not(target_os = "macos"))]
 fn activate() {}
 
+/// Whether the bar has the keyboard.
+pub fn is_focused<R: Runtime>(app: &AppHandle<R>) -> bool {
+    window(app)
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false)
+}
+
 /// Whether the bar is on screen.
 pub fn is_open<R: Runtime>(app: &AppHandle<R>) -> bool {
     window(app)

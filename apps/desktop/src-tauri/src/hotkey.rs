@@ -235,6 +235,26 @@ pub enum Act {
     EndNote,
 }
 
+/// What two taps of Option do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Two {
+    /// Open the bar, or hide it.
+    Toggle,
+    /// Bring the bar back over the orb, live mode still running.
+    ShowBar,
+    /// Leave live mode, or stop the voice note, and open the bar on the chat.
+    Leave,
+}
+
+/// Two taps. `bar_open` is whether the bar is on screen.
+pub fn on_two(voice: Voice, bar_open: bool) -> Two {
+    match voice {
+        Voice::Off => Two::Toggle,
+        Voice::Live if !bar_open => Two::ShowBar,
+        Voice::Live | Voice::Note => Two::Leave,
+    }
+}
+
 /// A lone tap. `bar_open` is a bar the user opened with two taps.
 pub fn on_single(voice: Voice, bar_open: bool) -> Act {
     match voice {
@@ -349,36 +369,24 @@ mod monitor {
         std::mem::forget(local);
     }
 
-    /// Calls `on` when Escape goes down, until `unwatch_escape`: in another
-    /// app, and in Beep while no bar page has the keyboard (the live bar does
-    /// not take it). Other apps' keys only reach Beep with the Accessibility
-    /// permission; without it Escape works in Beep alone. Call on the main
-    /// thread.
-    pub fn watch_escape(on: impl Fn() + 'static) {
-        let on = Rc::new(on);
-        let global = on.clone();
-        let global = RcBlock::new(move |event: NonNull<NSEvent>| {
-            // SAFETY: AppKit passes a live event for the length of the call.
-            if unsafe { event.as_ref() }.keyCode() == ESCAPE {
-                global();
-            }
-        });
+    /// Calls `on` when Escape goes down in one of Beep's windows, until
+    /// `unwatch_escape`. Escape in another app never reaches it. `on` says
+    /// whether it handled the key; an unhandled Escape goes on to the
+    /// window. Call on the main thread.
+    pub fn watch_escape(on: impl Fn() -> bool + 'static) {
         let local = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
             // SAFETY: AppKit passes a live event for the length of the call.
-            if unsafe { event.as_ref() }.keyCode() == ESCAPE {
-                on();
-                // Handled: the bar would otherwise leave live mode again.
+            if unsafe { event.as_ref() }.keyCode() == ESCAPE && on() {
+                // Handled: the bar would otherwise act on it again.
                 return std::ptr::null_mut();
             }
             event.as_ptr()
         });
-        let global =
-            NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &global);
         // SAFETY: the block returns the event it was given or nothing.
         let local = unsafe {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &local)
         };
-        let old = ESCAPE_MONITORS.with(|m| m.replace(global.into_iter().chain(local).collect()));
+        let old = ESCAPE_MONITORS.with(|m| m.replace(local.into_iter().collect()));
         for monitor in old {
             remove(&monitor);
         }
@@ -723,6 +731,15 @@ mod tests {
         assert_eq!(on_single(Voice::Note, false), Act::EndNote);
         assert_eq!(on_held(Voice::Note, false), Act::Nothing);
         assert_eq!(on_held(Voice::Note, true), Act::Nothing);
+    }
+
+    #[test]
+    fn two_taps_bring_back_the_bar_over_the_orb() {
+        assert_eq!(on_two(Voice::Off, false), Two::Toggle);
+        assert_eq!(on_two(Voice::Off, true), Two::Toggle);
+        assert_eq!(on_two(Voice::Live, false), Two::ShowBar);
+        assert_eq!(on_two(Voice::Live, true), Two::Leave);
+        assert_eq!(on_two(Voice::Note, false), Two::Leave);
     }
 
     #[test]
