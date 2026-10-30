@@ -369,6 +369,7 @@ dependencies = [
  "ammonia",
  "anyhow",
  "base64 0.22.1",
+ "beep-live",
  "beep-node",
  "beep-proto",
  "block2",
@@ -403,6 +404,13 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "beep-live"
+version = "0.1.0"
+dependencies = [
+ "beep-proto",
 ]
 
 [[package]]

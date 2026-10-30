@@ -2,7 +2,7 @@
 //! live mode: the bar shows an orb, the words as they are said, and Beep's
 //! answer read aloud sentence by sentence, then it listens again.
 //!
-//! `listen::Live` decides; this runs its effects. The microphone and the
+//! `beep_live::Live` decides; this runs its effects. The microphone and the
 //! player share one engine with echo cancellation (`audio`), the words
 //! come from the server's live transcription, and each sentence of the
 //! reply is spoken through `Say` as it streams in.
@@ -12,11 +12,11 @@ use crate::{
     bar,
     beep::{Beep, Pick, RunNews, Sent},
     hotkey::{self, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW},
-    listen::{Effect, EndMode, Filler, Fillers, Input, Leaving, Live, Phase, Reading},
     news::{self, Heard},
     presence::Presence,
 };
 use anyhow::Context;
+use beep_live::{Effect, EndMode, Filler, Fillers, Input, Leaving, Live, Phase, Reading};
 use beep_proto::{Filler as FillerLine, Notice, Say, SpeakNotice, Transcription, VoiceNote};
 use serde::Serialize;
 use serde_bytes::ByteBuf;
