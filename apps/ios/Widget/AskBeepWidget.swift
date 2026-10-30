@@ -5,6 +5,8 @@ import WidgetKit
 struct BeepWidgets: WidgetBundle {
     var body: some Widget {
         AskBeepWidget()
+        TalkToBeepWidget()
+        LiveVoiceActivity()
         if #available(iOS 18.0, *) { TalkToBeepControl() }
     }
 }

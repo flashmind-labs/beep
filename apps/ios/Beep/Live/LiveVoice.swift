@@ -1,3 +1,4 @@
+import ActivityKit
 import AVFoundation
 import Observation
 import SwiftUI
@@ -15,6 +16,11 @@ enum LiveLauncher {
             return
         }
         model.live.start(from: origin)
+    }
+
+    /// The Live Activity's End button.
+    static func end() {
+        model?.live.close()
     }
 
     static func attach(_ model: AppModel) {
@@ -71,6 +77,7 @@ final class LiveVoice {
     @ObservationIgnored private var run: Task<Void, Never>?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     @ObservationIgnored private var interruptions: NSObjectProtocol?
+    @ObservationIgnored private var activity: Activity<LiveVoiceAttributes>?
 
     init(model: AppModel) {
         self.model = model
@@ -92,6 +99,8 @@ final class LiveVoice {
         problem = nil
         said = nil
         chatId = model.openGroup == nil && !model.chat.messages.isEmpty ? model.chat.id : nil
+
+        startActivity()
 
         let (stream, continuation) = AsyncStream.makeStream(of: LiveEvent.self)
         events = continuation
@@ -169,6 +178,7 @@ final class LiveVoice {
         case .view(let view):
             self.view = view
             if view.phase != .listening { soon = nil }
+            updateActivity()
         case .toast(let text):
             show(text)
         case .soon(let afterMs):
@@ -225,6 +235,40 @@ final class LiveVoice {
         level = 0
         if let interruptions { NotificationCenter.default.removeObserver(interruptions) }
         interruptions = nil
+        endActivity()
+    }
+
+    // MARK: Live Activity
+
+    private var activityState: LiveVoiceAttributes.ContentState {
+        switch view.phase {
+        case .listening, .holding:
+            LiveVoiceAttributes.ContentState(phase: .listening, line: String(view.words.suffix(90)))
+        case .thinking:
+            LiveVoiceAttributes.ContentState(phase: .thinking, line: view.step ?? said ?? "")
+        case .speaking:
+            LiveVoiceAttributes.ContentState(phase: .speaking, line: view.line ?? "")
+        }
+    }
+
+    private func startActivity() {
+        guard activity == nil, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        // Without it the session still runs; only the Dynamic Island stays empty.
+        activity = try? Activity.request(attributes: LiveVoiceAttributes(),
+                                         content: ActivityContent(state: activityState, staleDate: nil))
+    }
+
+    private func updateActivity() {
+        guard let activity else { return }
+        let state = activityState
+        guard state != activity.content.state else { return }
+        Task { await activity.update(ActivityContent(state: state, staleDate: nil)) }
+    }
+
+    private func endActivity() {
+        guard let activity else { return }
+        self.activity = nil
+        Task { await activity.end(nil, dismissalPolicy: .immediate) }
     }
 }
 
