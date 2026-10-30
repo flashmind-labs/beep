@@ -66,89 +66,6 @@ import org.json.JSONTokener
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-/** What a tool is doing, in words. Unknown tools fall back to their name: "GMAIL_SEND_EMAIL" becomes "Gmail: send email". */
-fun toolLabel(name: String): String = toolLabels[name] ?: humanize(name)
-
-private fun humanize(name: String): String {
-    val words = name.split('_', '.', '-').filter { it.isNotBlank() }.map { it.lowercase() }
-    if (words.isEmpty()) return ""
-    // Connected app tools are named APP_ACTION.
-    if (name == name.uppercase() && words.size > 1)
-        return words[0].replaceFirstChar { it.uppercase() } + ": " + words.drop(1).joinToString(" ")
-    return words.joinToString(" ").replaceFirstChar { it.uppercase() }
-}
-
-private val toolLabels = mapOf(
-    "web_search" to "Searching the web",
-    "decision" to "Weighing the options",
-    "get_location" to "Checking your location",
-    "get_time" to "Checking the time",
-    "open_app" to "Opening an app",
-    "set_alarm" to "Setting an alarm",
-    "open_browser" to "Opening a page",
-    "browser" to "Browsing",
-    "node" to "Using your machines",
-    "spawn_agent" to "Starting an agent in the background",
-    "run_in_background" to "Moving a step to the background",
-    "jobs" to "Checking background work",
-    "wait_job" to "Waiting for background work",
-    "cancel_job" to "Stopping background work",
-    "message_agent" to "Messaging a background agent",
-    "memory_history" to "Checking how a memory changed",
-    "hold_events" to "Holding updates for later",
-    "recent_events" to "Checking recent updates",
-    "event_topics" to "Checking what to watch for",
-    "start_research" to "Starting a research",
-    "mcp_search" to "Finding the right app tool",
-    "mcp" to "Using a connected app",
-    "open_maps" to "Looking up a place",
-    "show_products" to "Showing products",
-    "show_cards" to "Showing recommendations",
-    "place_save" to "Saving a place",
-    "place_list" to "Checking your places",
-    "place_delete" to "Forgetting a place",
-    "place_routine" to "Setting up a place routine",
-    "query_contacts" to "Looking up contacts",
-    "suggest_replies" to "Suggesting replies",
-    "task_progress" to "Updating progress",
-    "memory_store" to "Remembering",
-    "memory_recall" to "Recalling memories",
-    "memory_update" to "Updating a memory",
-    "memory_forget" to "Forgetting a memory",
-    "cron_create" to "Setting a reminder",
-    "schedule_once" to "Setting a reminder",
-    "cron_edit" to "Changing a reminder",
-    "cron_list" to "Checking reminders",
-    "cron_delete" to "Deleting a reminder",
-    "cron_history" to "Checking past reminders",
-    "habit_create" to "Creating a habit",
-    "habit_log" to "Logging a habit",
-    "habit_status" to "Checking habits",
-    "habit_delete" to "Deleting a habit",
-)
-
-/** What a finished tool did, in words: "Searched the web". */
-fun doneToolLabel(call: ToolCall): String = doneLabel(toolLabel(call.name).ifBlank { call.description }.ifBlank { "Used a tool" })
-
-/** "Searching the web…" becomes "Searched the web" once the tool is done. */
-private fun doneLabel(label: String): String {
-    val trimmed = label.trimEnd('…', '.', ' ')
-    val first = trimmed.substringBefore(' ')
-    val past = pastTense[first.lowercase()] ?: return trimmed
-    return past + trimmed.substring(first.length)
-}
-
-private val pastTense = mapOf(
-    "searching" to "Searched", "reading" to "Read", "checking" to "Checked", "looking" to "Looked",
-    "fetching" to "Fetched", "opening" to "Opened", "saving" to "Saved", "finding" to "Found",
-    "getting" to "Got", "creating" to "Created", "updating" to "Updated", "deleting" to "Deleted",
-    "sending" to "Sent", "setting" to "Set", "using" to "Used", "remembering" to "Remembered",
-    "loading" to "Loaded", "browsing" to "Browsed", "scheduling" to "Scheduled", "running" to "Ran",
-    "weighing" to "Weighed", "recalling" to "Recalled", "forgetting" to "Forgot", "changing" to "Changed",
-    "logging" to "Logged", "suggesting" to "Suggested", "starting" to "Started",
-    "moving" to "Moved", "waiting" to "Waited", "stopping" to "Stopped", "messaging" to "Messaged", "holding" to "Held",
-)
-
 private data class Source(val title: String, val url: String) {
     val host: String get() = runCatching { Uri.parse(url).host?.removePrefix("www.") }.getOrNull().orEmpty()
 }
@@ -166,7 +83,7 @@ private fun sourcesOf(result: String): List<Source> {
 
 /** The sentence a memory tool stored, updated or forgot, from its `{"content"}` output. */
 private fun memoryOf(name: String, result: String): String {
-    if (!name.startsWith("memory_") || !result.trimStart().startsWith("{")) return ""
+    if (name != MEMORY_TOOL && !name.startsWith("memory_") || !result.trimStart().startsWith("{")) return ""
     return runCatching { JSONObject(result).optString("content") }.getOrNull().orEmpty()
 }
 
@@ -185,7 +102,7 @@ private fun day(date: String) = runCatching { LocalDate.parse(date).format(DAY) 
  * outputs short, so this keeps every memory read before the cut.
  */
 private fun recalledOf(name: String, result: String): List<Recalled>? {
-    if (name != "memory_recall" || !result.trimStart().startsWith("[")) return null
+    if (name != "memory_recall" && name != MEMORY_TOOL || !result.trimStart().startsWith("[")) return null
     val reader = JSONTokener(result)
     reader.nextClean()
     val found = mutableListOf<Recalled>()
@@ -263,7 +180,7 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
     val shape = RoundedCornerShape(50)
     val frame = if (quiet) Modifier.clip(shape).background(tint)
         else Modifier.beepFrame(shape, tint)
-    val described = toolLabel(call.name).ifBlank { call.description }.ifBlank { "Using a tool" }
+    val described = callLabel(call)
     val sources = remember(call.result) { if (running) emptyList() else sourcesOf(call.result) }
     val memory = remember(call.result) { if (running) "" else memoryOf(call.name, call.result) }
     val recalled = remember(call.result) { if (running || !call.success) null else recalledOf(call.name, call.result) }

@@ -41,6 +41,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.flashmind.beep.proto.WorkItem
 import com.flashmind.beep.proto.WorkKind
 import kotlinx.coroutines.delay
@@ -49,7 +52,7 @@ import java.time.Duration
 import java.time.Instant
 
 /** Tools of a turn that start or change background work; when one finishes, the chat lists its work again. */
-internal val WORK_TOOLS = setOf("spawn_agent", "run_in_background", "message_agent", "cancel_job")
+internal val WORK_TOOLS = setOf("background", "spawn_agent", "run_in_background", "message_agent", "cancel_job")
 
 /** How often the list is read again while something runs. */
 private const val WORK_POLL_MS = 4_000L
@@ -62,16 +65,21 @@ private const val WORK_POLL_MS = 4_000L
 @Composable
 internal fun BackgroundWork(repository: ChatRepository, chat: Conversation, compact: Boolean) {
     val t = Beep.colors
-    val started = chat.messages.lastOrNull { it.role == "assistant" }?.toolCalls?.count { it.isDone && it.name in WORK_TOOLS } ?: 0
+    val started = chat.messages.lastReply()?.toolCalls?.count { it.isDone && it.name in WORK_TOOLS } ?: 0
     var items by remember(chat.id) { mutableStateOf(emptyList<WorkItem>()) }
     var open by remember(chat.id) { mutableStateOf(false) }
     var refresh by remember(chat.id) { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(chat.id, chat.busy, started, refresh) {
-        while (true) {
-            items = repository.listWork(chat.id)
-            if (items.none { it.outcome == null }) break
-            delay(WORK_POLL_MS)
+        // Reads only while the app is in the foreground; coming back reads again at once.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                // A read that fails keeps the last list, so one dropped poll does not hide the strip.
+                repository.listWork(chat.id)?.let { items = it }
+                if (items.none { it.outcome == null }) break
+                delay(WORK_POLL_MS)
+            }
         }
     }
     val running = items.count { it.outcome == null }

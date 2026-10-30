@@ -98,6 +98,7 @@ private val TextDim: Color @Composable @ReadOnlyComposable get() = Beep.colors.d
 
 /** Mirrors the server's MEMORY_THRESHOLD: above it the learner reads the turn. */
 private const val MEMORY_THRESHOLD = 0.8
+/** Memory tools that change what Beep knows; the folded memory tool changes it when its output is an object. */
 private val MEMORY_TOOLS = setOf("memory_store", "memory_update", "memory_forget")
 
 /** How many tool chips a message shows before folding the earlier ones away. */
@@ -218,7 +219,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
     // reply text is in. Pinned above the composer it left a gap and took height from the messages.
     // The streaming text is its own progress, so "Replying" needs no line of its own.
     val workingInline = chat.busy && chat.status.isNotEmpty() && !chat.status.startsWith("Replying")
-    val replyStarted = chat.messages.lastOrNull().let { it != null && it.role == "assistant" && it.text.isNotBlank() }
+    val replyStarted = chat.messages.lastOfTurns().let { it != null && it.role == "assistant" && it.text.isNotBlank() }
     Column(modifier.imePadding()) {
         // Clipboard suggestion banner
         ClipboardBanner(clipboardContent, onAction = { action, text ->
@@ -314,7 +315,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
                         // Only a reply after the latest prompt: while a new run starts, the one before it is done
                         // and keeps its cards.
-                        val isLastAssistant = !isUser && chat.messages.lastOrNull()?.id == message.id
+                        val isLastAssistant = !isUser && chat.messages.lastOfTurns()?.id == message.id
                         val bubbleShape = if (isUser) RoundedCornerShape(radius, radius, 6.dp, radius)
                             else RoundedCornerShape(6.dp, radius, radius, radius)
                         val bubbleModifier = when {
@@ -468,7 +469,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                 Text(message.agent, fontSize = 11.sp, color = TextDim, modifier = Modifier.padding(start = 8.dp))
                             // Jev's estimate that this turn held something worth remembering.
                             message.memoryScore?.let { score ->
-                                val saved = message.toolCalls.any { it.name in MEMORY_TOOLS }
+                                val saved = message.toolCalls.any { it.name in MEMORY_TOOLS || it.name == MEMORY_TOOL && it.result.trimStart().startsWith("{") }
                                 val note = if (score >= MEMORY_THRESHOLD && !saved) " · nothing new" else ""
                                 Text("${(score * 100).roundToInt()}%$note", fontSize = 11.sp, color = TextDim,
                                     modifier = Modifier.padding(start = 8.dp))

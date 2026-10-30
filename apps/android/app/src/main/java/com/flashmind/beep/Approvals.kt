@@ -46,6 +46,7 @@ fun ApprovalCard(prompt: ApprovalPrompt, onAnswer: (String) -> Unit, modifier: M
             "always" -> "Allowed, and always allowed from now on"
             "allow" -> "Allowed once"
             "deny" -> "Denied"
+            RESOLVED -> "No longer waiting"
             else -> "Not answered, you wrote again, so not done"
         }
         Row(modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically,

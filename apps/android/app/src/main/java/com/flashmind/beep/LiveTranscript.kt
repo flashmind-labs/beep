@@ -40,26 +40,41 @@ import java.time.format.FormatStyle
 /** Lines a collapsed live transcript shows. */
 private const val SHOWN_LINES = 4
 
+/** The longest pause between spoken prompts that still counts as one conversation, as on iOS and the Mac. */
+private const val STRETCH_GAP_MS = 10 * 60_000L
+
 /**
  * The stretches of [messages] said aloud in live mode: each starts at a spoken prompt and runs through
- * its replies and the spoken prompts after it, up to a typed prompt or a routine. Keyed by the id of the
- * first message; a reply with a card still waiting for the user ends the stretch, so the card shows.
+ * its replies and the spoken prompts after it, up to a typed prompt, a routine, or a pause of over ten
+ * minutes between spoken prompts. Keyed by the id of the first message. A message that carries
+ * something the transcript cannot show, such as a card still waiting for the user, a picture or a file,
+ * ends the stretch and keeps its own place, so it shows.
  */
 internal fun liveStretches(messages: List<ChatMessage>): Map<String, List<ChatMessage>> {
     val stretches = LinkedHashMap<String, List<ChatMessage>>()
     var current: MutableList<ChatMessage>? = null
+    var lastPrompt = 0L
     for (message in messages) {
         val joins = when (message.role) {
-            "user" -> message.spoken
-            "assistant" -> current != null && message.approvals.none { it.waiting }
+            "user" -> message.spoken && !message.hasRichContent()
+            "assistant" -> current != null && message.approvals.none { it.waiting } && !message.hasRichContent()
             else -> false
         }
         if (!joins) { current = null; continue }
+        if (message.role == "user") {
+            if (current != null && message.sentAt != 0L && lastPrompt != 0L && message.sentAt - lastPrompt > STRETCH_GAP_MS) current = null
+            if (message.sentAt != 0L) lastPrompt = message.sentAt
+        }
         val stretch = current ?: mutableListOf<ChatMessage>().also { stretches[message.id] = it; current = it }
         stretch += message
     }
     return stretches
 }
+
+/** Pictures, files or cards, which a transcript line has no room for. Suggested replies do not count. */
+private fun ChatMessage.hasRichContent(): Boolean =
+    cards.isNotEmpty() || images.isNotEmpty() || pictures.isNotEmpty() || files.isNotEmpty() || !taskSteps.isNullOrEmpty() ||
+        toolCalls.any { call -> cardFor(call).let { it != null && it !is ToolCard.Replies } }
 
 private sealed interface TranscriptLine {
     data class Said(val you: Boolean, val at: Long, val text: String) : TranscriptLine

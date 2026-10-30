@@ -241,6 +241,7 @@ class ChatRepository(private val storage: LocalStorage) {
         if (known) scope.launch {
             val config = settings.value
             runCatching { loadHistory(id, config) }
+            loadQuestions(id, config)
             followElsewhere(id, config)
         } else refreshHistory()
     }
@@ -288,7 +289,7 @@ class ChatRepository(private val storage: LocalStorage) {
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
-                        ToolCall(it.callId, it.name, toolLabel(it.name), isDone = true, success = it.success, result = it.output)
+                        ToolCall(it.callId, it.name, isDone = true, success = it.success, result = it.output)
                     }
                     val reasoning = joinReasoning(pendingReasoning, entry.reasoning)
                     if (entry.content.isBlank()) { pending = tools; pendingReasoning = reasoning; null }
@@ -308,15 +309,8 @@ class ChatRepository(private val storage: LocalStorage) {
             }
         }
         if (settings.value != config) return
-        // Turns from before the server kept Jev scores only have the one the phone saw live.
-        val scores = before.messages.filter { it.memoryScore != null }.associate { it.text to it.memoryScore }
-        // Messages already on screen keep their ids, or the list drops and re-adds every row while it is drawn.
-        val kept = before.messages.groupBy { it.role to it.text }.mapValues { ArrayDeque(it.value) }
-        val scored = messages.map { m -> if (m.memoryScore != null) m else scores[m.text]?.let { m.copy(memoryScore = it) } ?: m }
-            .map { m -> kept[m.role to m.text]?.removeFirstOrNull()?.let { m.copy(id = it.id) } ?: m }
-            // Background work's questions are not in the history; those still waiting stay at the end.
-            .plus(before.messages.filter { m -> m.approvals.any { it.background && it.waiting } })
-        updateChat(id) { current -> if (current == before) current.copy(messages = scored, version = version) else current }
+        val merged = mergeHistory(before.messages, messages)
+        updateChat(id) { current -> if (current == before) current.copy(messages = merged, version = version) else current }
     }
     fun refreshHistory() { syncRequests.trySend(Unit) }
     /** Names on [replyId] the specialized agent the newest turn of [chatId] ran as. */
@@ -434,6 +428,7 @@ class ChatRepository(private val storage: LocalStorage) {
                     resumePending()
                     pushChanges()
                     runCatching { syncHistory(settings.value) }
+                    state.value.current.id.takeIf { it.isNotEmpty() }?.let { loadQuestions(it, settings.value) }
                     refreshGroups()
                     syncPlaces()
                     return@launch
@@ -923,9 +918,9 @@ class ChatRepository(private val storage: LocalStorage) {
     val modelChoices = MutableStateFlow(lists.models)
     /** The server sends model choices only to admins, so this says whether the user is one. */
     val isAdmin: Boolean get() = modelChoices.value?.choices?.isNotEmpty() == true
-    /** The sub-agents and background jobs of chat [id]. Empty on servers from before background work, or offline. */
-    suspend fun listWork(id: String): List<WorkItem> =
-        try { api().listWork(id) } catch (e: BeepException) { emptyList() }
+    /** The sub-agents and background jobs of chat [id]. Null when it could not be read: offline, or a server from before background work. */
+    suspend fun listWork(id: String): List<WorkItem>? =
+        try { api().listWork(id) } catch (e: BeepException) { null }
     /** Stops background work [workId] of chat [id]; false when it had already ended. */
     suspend fun cancelWork(id: String, workId: String): Boolean = api().cancelWork(id, workId)
     /**
@@ -936,9 +931,23 @@ class ChatRepository(private val storage: LocalStorage) {
         if (state.value.conversations.none { it.id == conversationId }) return
         updateChat(conversationId) { chat ->
             if (chat.messages.any { m -> m.approvals.any { it.queryId == pending.queryId } }) chat
-            else chat.copy(messages = chat.messages + ChatMessage("approval-${pending.queryId}", "assistant", "",
-                approvals = listOf(ApprovalPrompt(pending.queryId, pending.approval, background = true))))
+            else chat.copy(messages = chat.messages + questionCard(pending))
         }
+    }
+    /** Background question [queryId] of [conversationId] stopped waiting: answered on some device, or withdrawn. */
+    fun resolveQuestion(conversationId: String, queryId: String) {
+        ApprovalNotifications.cancel(storage.context, queryId)
+        if (state.value.conversations.none { it.id == conversationId }) return
+        updateChat(conversationId) { chat -> chat.copy(messages = markResolved(chat.messages, queryId)) }
+    }
+    /**
+     * Reads the background questions chat [id] waits on, so their cards survive a restart and show on
+     * every device; cards it no longer lists stop waiting. Servers from before questions list none.
+     */
+    private suspend fun loadQuestions(id: String, config: ConnectionSettings) {
+        val waiting = try { api(config).listQuestions(id) } catch (e: BeepException) { return }
+        if (settings.value != config) return
+        updateChat(id) { chat -> chat.copy(messages = syncQuestions(chat.messages, waiting)) }
     }
     /** The machines running beep-node on the account. Admins only. */
     suspend fun listMachines(): List<Machine> = api().listMachines()
@@ -1474,15 +1483,15 @@ class ChatRepository(private val storage: LocalStorage) {
                 }
                 is RunEvent.ReasoningDelta -> next = next.copy(thinking = (chat.thinking + event.delta).takeLast(MAX_REASONING))
                 is RunEvent.ToolStarted -> {
-                    val description = toolLabel(event.name).ifEmpty { "Using a tool..." }
-                    val tc = ToolCall(callId = event.callId, name = event.name, description = description)
+                    // What the server says the call does, such as which action of the memory tool it takes.
+                    val tc = ToolCall(callId = event.callId, name = event.name, description = event.description)
                     next = next.withReply(messageId, { existing ->
                         // An answered approval starts the call it already shows.
                         val known = event.callId.isNotEmpty() && existing.toolCalls.any { it.callId == event.callId }
                         existing.copy(toolCalls = if (known) existing.toolCalls else existing.toolCalls + tc,
                             reasoning = joinReasoning(existing.reasoning, chat.thinking))
                     }, { ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc), reasoning = chat.thinking.trim()) })
-                    next = next.copy(tool = if (event.name in QUIET_TOOLS) next.tool else description, status = "Working...", thinking = "")
+                    next = next.copy(tool = if (event.name in QUIET_TOOLS) next.tool else callLabel(tc), status = "Working...", thinking = "")
                 }
                 is RunEvent.ToolResult -> {
                     val callId = event.callId
