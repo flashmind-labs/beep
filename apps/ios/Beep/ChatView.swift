@@ -725,7 +725,6 @@ let backgroundWorkLabel = "Background work"
 
 /// Mirrors the server's memory threshold as Android shows it: above it the learner reads the turn.
 private let memoryThreshold = 0.8
-private let memoryTools: Set<String> = ["memory_store", "memory_update", "memory_forget"]
 
 struct MessageView: View {
     @Environment(AppModel.self) private var model
@@ -962,7 +961,7 @@ struct MessageView: View {
             }
             // Jev's estimate that this turn held something worth remembering.
             if let score = message.memoryScore {
-                let saved = message.tools.contains { memoryTools.contains($0.name) }
+                let saved = message.tools.contains { wroteMemory($0.name, output: $0.output) }
                 let note = score >= memoryThreshold && !saved ? " · nothing new" : ""
                 Text("\(Int((score * 100).rounded()))%\(note)").font(.body(11)).foregroundStyle(Mint.dim)
                     .padding(.leading, 8)
