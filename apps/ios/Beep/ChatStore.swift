@@ -57,7 +57,7 @@ enum ChatStore {
     }
 
     static func saveWork(_ work: [String: [ApprovalPrompt]]) {
-        let waiting = work.mapValues { $0.filter { $0.answer == nil && !$0.withdrawn }.map(SavedWork.init) }
+        let waiting = work.mapValues { $0.filter { $0.answer == nil && !$0.withdrawn }.map { SavedWork($0) } }
             .filter { !$0.value.isEmpty }
         guard let data = try? JSONEncoder().encode(waiting) else { return }
         write(data, to: workFile)
