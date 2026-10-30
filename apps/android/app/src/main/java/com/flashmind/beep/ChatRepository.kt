@@ -308,15 +308,8 @@ class ChatRepository(private val storage: LocalStorage) {
             }
         }
         if (settings.value != config) return
-        // Turns from before the server kept Jev scores only have the one the phone saw live.
-        val scores = before.messages.filter { it.memoryScore != null }.associate { it.text to it.memoryScore }
-        // Messages already on screen keep their ids, or the list drops and re-adds every row while it is drawn.
-        val kept = before.messages.groupBy { it.role to it.text }.mapValues { ArrayDeque(it.value) }
-        val scored = messages.map { m -> if (m.memoryScore != null) m else scores[m.text]?.let { m.copy(memoryScore = it) } ?: m }
-            .map { m -> kept[m.role to m.text]?.removeFirstOrNull()?.let { m.copy(id = it.id) } ?: m }
-            // Background work's questions are not in the history; those still waiting stay at the end.
-            .plus(before.messages.filter { m -> m.approvals.any { it.background && it.waiting } })
-        updateChat(id) { current -> if (current == before) current.copy(messages = scored, version = version) else current }
+        val merged = mergeHistory(before.messages, messages)
+        updateChat(id) { current -> if (current == before) current.copy(messages = merged, version = version) else current }
     }
     fun refreshHistory() { syncRequests.trySend(Unit) }
     /** Names on [replyId] the specialized agent the newest turn of [chatId] ran as. */
