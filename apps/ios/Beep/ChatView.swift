@@ -55,6 +55,9 @@ struct ChatView: View {
                             .onAppear { settled.insert(message.id) }
                             .id(message.id)
                         }
+                        if let asked = model.waitingWork[model.chat.id], !asked.isEmpty {
+                            BackgroundQuestions(prompts: asked).popIn(anchor: .bottomLeading)
+                        }
                         if model.chat.busy, !replyStarted {
                             working
                                 .popIn(anchor: .bottomLeading)
@@ -1112,7 +1115,10 @@ struct ApprovalCard: View {
     let prompt: ApprovalPrompt
 
     var body: some View {
-        if let answer = prompt.answer {
+        if prompt.withdrawn {
+            Label("\(prompt.approval.action) with \(prompt.approval.app): no longer waiting", systemImage: "shield.slash")
+                .font(.body(12, .medium)).foregroundStyle(Mint.muted)
+        } else if let answer = prompt.answer {
             Label(answerText(answer), systemImage: "shield")
                 .font(.body(12, .medium)).foregroundStyle(Mint.muted)
         } else {
@@ -1165,6 +1171,27 @@ struct ApprovalCard: View {
         case .always: "Always allowed for \(prompt.approval.app)"
         case .deny: "Denied"
         }
+    }
+}
+
+/// Questions a helper agent, a background job or a coding agent on a machine asked while no turn
+/// ran. They come as notices, so they sit at the end of the chat under a caption of their own.
+private struct BackgroundQuestions: View {
+    let prompts: [ApprovalPrompt]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "square.stack.3d.up").font(.system(size: 11))
+                Text(prompts.contains { $0.answer == nil && !$0.withdrawn }
+                     ? "Background work is waiting for you" : "Background work").lineLimit(1)
+            }
+            .font(.body(11)).foregroundStyle(Mint.dim)
+            .frame(maxWidth: .infinity)
+            ForEach(prompts, id: \.queryId) { ApprovalCard(prompt: $0) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.bouncy, value: prompts)
     }
 }
 
