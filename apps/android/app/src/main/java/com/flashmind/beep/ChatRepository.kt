@@ -916,9 +916,9 @@ class ChatRepository(private val storage: LocalStorage) {
     val modelChoices = MutableStateFlow(lists.models)
     /** The server sends model choices only to admins, so this says whether the user is one. */
     val isAdmin: Boolean get() = modelChoices.value?.choices?.isNotEmpty() == true
-    /** The sub-agents and background jobs of chat [id]. Empty on servers from before background work, or offline. */
-    suspend fun listWork(id: String): List<WorkItem> =
-        try { api().listWork(id) } catch (e: BeepException) { emptyList() }
+    /** The sub-agents and background jobs of chat [id]. Null when it could not be read: offline, or a server from before background work. */
+    suspend fun listWork(id: String): List<WorkItem>? =
+        try { api().listWork(id) } catch (e: BeepException) { null }
     /** Stops background work [workId] of chat [id]; false when it had already ended. */
     suspend fun cancelWork(id: String, workId: String): Boolean = api().cancelWork(id, workId)
     /**
