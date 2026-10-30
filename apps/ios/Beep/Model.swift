@@ -1250,8 +1250,8 @@ final class AppModel {
         waitingWork[notice.sessionId] = list
     }
 
-    /// Answers a question from background work. The server answers a delivered one with a
-    /// conflict, since no run resumes; any other conflict means nothing waits for it any more.
+    /// Answers a question from background work. The server answers it with a conflict, since
+    /// no run resumes: either it was delivered or the question was settled before.
     private func answerWork(_ prompt: ApprovalPrompt, in sessionId: String, _ decision: ApprovalDecision) async {
         guard let card = waitingWork[sessionId]?.firstIndex(where: { $0.queryId == prompt.queryId }),
             waitingWork[sessionId]?[card].answer == nil, waitingWork[sessionId]?[card].withdrawn == false
@@ -1259,10 +1259,8 @@ final class AppModel {
         waitingWork[sessionId]?[card].answer = decision
         do {
             _ = try await api().answerApproval(sessionId: sessionId, queryId: prompt.queryId, decision: decision)
-        } catch BeepError.Conflict(let reason) where reason.contains("background work goes on") {
-            // Delivered.
         } catch BeepError.Conflict {
-            markWork(prompt.queryId, in: sessionId) { $0.answer = nil; $0.withdrawn = true }
+            // The card keeps the answer.
         } catch {
             markWork(prompt.queryId, in: sessionId) { $0.answer = nil }
             if chat.id == sessionId { chat.error = describe(error) }
