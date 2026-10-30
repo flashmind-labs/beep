@@ -316,6 +316,33 @@ impl Store {
         Ok(owned.len() as u64)
     }
 
+    /// Deletes `chat` only while it shows nothing and has no run going, as
+    /// one checked step: another run may start in it as soon as the run that
+    /// made it ends. `false` when it was kept or gone already.
+    pub(crate) async fn delete_empty_session(&self, user: &UserKey, chat: Uuid) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        // Locking the chat holds off a run or message that would name it.
+        let empty: Option<bool> = sqlx::query_scalar(
+            "SELECT NOT EXISTS(SELECT 1 FROM messages WHERE chat_id = c.id)
+                 AND NOT EXISTS(SELECT 1 FROM runs WHERE chat_id = c.id AND status = 'running')
+             FROM chats c JOIN chat_members m ON m.chat_id = c.id
+             WHERE c.id = $1 AND m.user_id = $2 AND c.kind = 'session' FOR UPDATE OF c",
+        )
+        .bind(chat)
+        .bind(user.as_str())
+        .fetch_optional(&mut *tx)
+        .await?;
+        if empty != Some(true) {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        let gone = delete_chat(&mut tx, chat).await?;
+        tx.commit().await?;
+        self.announce(&gone.bumped);
+        self.blobs.delete(&gone.files).await?;
+        Ok(true)
+    }
+
     /// Removes the turn whose opening message was sent at `timestamp`, in
     /// milliseconds since the epoch, from the messages and the context, and
     /// with `TurnsToDelete::Onward` every turn after it too.
@@ -598,6 +625,54 @@ mod tests {
         assert!(store.delete_session(&alice, s1).await.unwrap());
         assert!(!store.in_chat(&alice, s1).await.unwrap());
         assert!(!store.delete_session(&alice, s1).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_quiet_chat_is_kept_once_another_run_uses_it() {
+        use crate::store::{CreateRun, RunStatus, TestDb, test_chat, test_turn};
+
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let quiet = |chat, request: &'static str| {
+            let store = store.clone();
+            let alice = alice.clone();
+            async move {
+                let CreateRun::Created(run) = store
+                    .create_run(&alice, chat, request, "check")
+                    .await
+                    .unwrap()
+                else {
+                    panic!("the run was not created");
+                };
+                store
+                    .finish(&alice, &run, None, RunStatus::Completed)
+                    .await
+                    .unwrap();
+            }
+        };
+
+        // Another run started in the chat after the quiet one ended.
+        let busy = test_chat("busy");
+        quiet(busy, "req-1").await;
+        let CreateRun::Created(_) = store.create_run(&alice, busy, "req-2", "hi").await.unwrap()
+        else {
+            panic!("the run was not created");
+        };
+        assert!(!store.delete_empty_session(&alice, busy).await.unwrap());
+        assert!(store.in_chat(&alice, busy).await.unwrap());
+
+        // Or it already shows a turn.
+        let used = test_chat("used");
+        quiet(used, "req-3").await;
+        test_turn(&store, &alice, used, "hi", 1000).await.unwrap();
+        assert!(!store.delete_empty_session(&alice, used).await.unwrap());
+        assert!(store.in_chat(&alice, used).await.unwrap());
+
+        let empty = test_chat("empty");
+        quiet(empty, "req-4").await;
+        assert!(store.delete_empty_session(&alice, empty).await.unwrap());
+        assert!(!store.in_chat(&alice, empty).await.unwrap());
     }
 
     #[tokio::test]

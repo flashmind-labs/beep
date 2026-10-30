@@ -11,7 +11,7 @@ use crate::{Hello, Platform};
 /// The newest wire revision this crate reads. Raise it together with a new
 /// `Feature`, and run the compat test with `BEEP_WIRE_BLESS=1` to freeze the
 /// new revision's fixtures.
-pub const WIRE: u32 = 7;
+pub const WIRE: u32 = 9;
 
 /// A reply shape newer than some clients: a streamed enum variant, or
 /// anything else only the `WIRE` it names can decode. Declare each as an
@@ -42,6 +42,11 @@ impl Feature {
     /// Asks `Transcribe` for live words while the user talks. Only the
     /// macOS app does.
     pub const LIVE_VOICE: Feature = Feature(7);
+
+    /// Clears a background question's card when it stops waiting: reads a
+    /// `Notice` for which `Notice::resolved_question` is set, and asks
+    /// `ListQuestions`. Older apps take that notice as a changed chat.
+    pub const QUESTIONS: Feature = Feature(9);
 
     /// The first wire revision that reads it.
     pub const fn wire(self) -> u32 {
