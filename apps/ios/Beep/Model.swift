@@ -7,17 +7,20 @@ import UIKit
 struct ToolCall: Identifiable, Equatable {
     var id: String
     var name: String
+    /// The server's words for the call, such as "Recalling memories"; empty from the history.
+    var description = ""
     private(set) var done = false
     private(set) var success = true
     /// The result, cut to 16 KiB by the server; the card is read from it.
     private(set) var output = ""
     private(set) var card: ToolCard?
 
-    var label: String { toolLabel(name) }
+    var label: String { toolLabel(name, description: description, output: output) }
 
-    init(id: String, name: String, done: Bool = false, success: Bool = true, output: String = "") {
+    init(id: String, name: String, description: String = "", done: Bool = false, success: Bool = true, output: String = "") {
         self.id = id
         self.name = name
+        self.description = description
         if done { finish(success: success, output: output) }
     }
 
@@ -1048,10 +1051,11 @@ final class AppModel {
             updateReply(mid) { $0.text += delta }
         case .reasoningDelta(let delta):
             chat.thinking += delta
-        case .toolStarted(let name, let callId, _):
+        case .toolStarted(let name, let callId, let description):
             updateReply(mid) { reply in
                 if callId.isEmpty || !reply.tools.contains(where: { $0.id == callId }) {
-                    reply.tools.append(ToolCall(id: callId.isEmpty ? UUID().uuidString : callId, name: name))
+                    reply.tools.append(ToolCall(id: callId.isEmpty ? UUID().uuidString : callId, name: name,
+                                                description: description))
                 }
             }
         case .toolResult(_, let callId, let output, let success):
