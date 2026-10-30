@@ -400,6 +400,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "beep-live"
+version = "0.1.0"
+dependencies = [
+ "beep-proto",
+]
+
+[[package]]
 name = "beep-node"
 version = "0.1.0"
 dependencies = [

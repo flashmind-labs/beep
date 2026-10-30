@@ -1,7 +1,7 @@
 //! What the user said in one turn: phrases already settled, and the one
 //! still coming in from the live transcript.
 
-use super::command::{Command, phrase_command, send_at_end, sentences, strip_send};
+use crate::command::{Command, phrase_command, send_at_end, sentences, strip_send};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Turn {

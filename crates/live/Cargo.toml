@@ -1,0 +1,10 @@
+[package]
+name = "beep-live"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+description = "Live voice mode's decisions, shared by the Mac app and the phone bridge"
+publish = false
+
+[dependencies]
+beep-proto = { path = "../proto" }
