@@ -55,7 +55,7 @@ const STT_TRIES: u32 = 3;
 const STT_RETRY: Duration = Duration::from_secs(1);
 /// How long a passive bar stays up after live mode ends with nothing kept.
 const LINGER: Duration = Duration::from_secs(3);
-const UNAVAILABLE: &str = "Voice is not available right now.";
+const UNAVAILABLE: &str = "Voice is not available right now";
 const MIC_DENIED: &str =
     "Beep cannot hear you. Allow it in System Settings, Privacy & Security, Microphone.";
 
@@ -649,9 +649,9 @@ impl Voice {
     }
 
     /// The microphone or the transcription cannot work: leave, keeping
-    /// what was said.
+    /// what was said. The app keeps no log, so the reason goes on screen.
     fn unavailable(self: &Arc<Self>, id: u64, why: String) {
-        self.fail(id, UNAVAILABLE, why);
+        self.fail(id, &format!("{UNAVAILABLE}: {why}."), why);
     }
 
     /// Leaves live mode, telling the user `failure`.

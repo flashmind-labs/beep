@@ -104,11 +104,14 @@ mod engine {
         ptr::NonNull,
         sync::{Mutex, PoisonError, mpsc},
         thread,
+        time::Duration,
     };
     use tokio::sync::{mpsc::Sender, oneshot};
 
     /// Frames the microphone tap asks for at a time: about 100 ms.
     const TAP_FRAMES: u32 = 4096;
+    /// How long Bluetooth headphones get to finish switching modes.
+    const DEVICE_SETTLE: Duration = Duration::from_millis(500);
 
     enum Command {
         Play {
@@ -204,7 +207,21 @@ mod engine {
         inbox: mpsc::Receiver<Command>,
         ready: mpsc::Sender<anyhow::Result<()>>,
     ) {
-        let built = build(mic);
+        // Voice processing refuses to start when the microphone and the
+        // output run at different rates. Bluetooth headphones switch to
+        // their call mode when it starts, so the first try can read the
+        // microphone's rate from before the switch; the second sees the
+        // new one. Failing that, headphones need no echo cancellation.
+        let built = build(mic.clone(), true)
+            .or_else(|e| {
+                log::warn!("starting voice processing again: {e:#}");
+                thread::sleep(DEVICE_SETTLE);
+                build(mic.clone(), true)
+            })
+            .or_else(|e| {
+                log::warn!("starting without voice processing: {e:#}");
+                build(mic, false)
+            });
         let (engine, player) = match built {
             Ok(built) => {
                 // `open` waits for this, so it is there to hear it.
@@ -242,13 +259,14 @@ mod engine {
 
     fn build(
         mic: Sender<MicChunk>,
+        voice_processing: bool,
     ) -> anyhow::Result<(Retained<AVAudioEngine>, Retained<AVAudioPlayerNode>)> {
         // SAFETY: everything below runs on this one thread, on objects it
         // made, with the arguments AVFoundation documents.
         unsafe {
             let engine = AVAudioEngine::new();
             let input = engine.inputNode();
-            if let Err(e) = input.setVoiceProcessingEnabled_error(true) {
+            if voice_processing && let Err(e) = input.setVoiceProcessingEnabled_error(true) {
                 log::warn!(
                     "voice processing is off, so Beep may hear itself: {}",
                     e.localizedDescription()
