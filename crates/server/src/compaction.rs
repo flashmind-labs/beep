@@ -224,6 +224,7 @@ mod tests {
             context: chat,
             prompt_tokens: Some(tokens),
             steps: &steps,
+            stands_alone: false,
             carried: Default::default(),
         };
         User::for_test(store.clone(), "alice")
@@ -386,6 +387,7 @@ mod tests {
             context: &newer,
             prompt_tokens: Some(40_000),
             steps: &steps[steps.len() - 1..],
+            stands_alone: false,
             carried: Default::default(),
         };
         User::for_test(store.clone(), "alice")
