@@ -562,11 +562,6 @@ requests! {
     /// from it. `false` when it had already ended; `NotFound` when the chat
     /// has no such id.
     118 CancelWork { session_id: Uuid, id: String } => Call<bool>
-    /// The questions background work in the chat is waiting on, oldest
-    /// first: app actions of its sub-agents and jobs that ask first, each
-    /// answered with `AnswerApproval`. `run_id` is empty. One that stops
-    /// waiting, answered on any device or withdrawn, leaves the list and
-    /// comes as a notice `Notice::resolved_question` reads.
     /// The standing permissions the user gave routines that are still in
     /// force, newest first. A grant ends when it is revoked, when it
     /// expires and when its routine is deleted or ends itself.
@@ -574,6 +569,11 @@ requests! {
     /// Ends a grant, by `Grant::id`, so its routine asks again. `NotFound`
     /// when the caller has no such grant.
     120 RevokeGrant { id: String } => Call<()>
+    /// The questions background work in the chat is waiting on, oldest
+    /// first: app actions of its sub-agents and jobs that ask first, each
+    /// answered with `AnswerApproval`. `run_id` is empty. One that stops
+    /// waiting, answered on any device or withdrawn, leaves the list and
+    /// comes as a notice `Notice::resolved_question` reads.
     125 ListQuestions { session_id: Uuid } => Call<Vec<PendingApproval>>
     /// What each tool step of a session showed while it ran, by
     /// `HistoryTool::call_id` (`MessageBody::Tool::call_id` in updates), such
