@@ -4,3 +4,4 @@
 !crates/
 crates/*/target/
 !deploy/entrypoint.sh
+!deploy/onprem/entrypoint.sh
