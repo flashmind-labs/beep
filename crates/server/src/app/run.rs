@@ -1130,6 +1130,11 @@ impl App {
                 run.id
             );
         }
+        // A task that ended, such as a routine run, an event's wake or work
+        // handed back, is read by the watchers now rather than once quiet.
+        if background && !matches!(status, RunStatus::Waiting | RunStatus::Interrupted) {
+            self.watchers.task_ended(self, user.id(), chat);
+        }
         if let Some(woken) = &message.woken {
             let finished = wake::Finished {
                 label: &woken.label,
