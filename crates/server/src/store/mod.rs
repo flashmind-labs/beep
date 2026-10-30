@@ -20,6 +20,7 @@ mod digest;
 mod events;
 mod feeds;
 mod files;
+mod grants;
 mod groups;
 mod habits;
 pub(crate) use habits::DuplicateHabit;
@@ -53,6 +54,7 @@ pub use digest::AttentionItem;
 pub use events::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow};
 pub use feeds::Feed;
 pub use files::{NewAttachment, NewFile, NewPicture, PicturesOf};
+pub(crate) use grants::{GrantRow, NewGrant};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
 pub use memories::{Fact, Scope, Scored, Superseded, WordEmbedder};
@@ -302,6 +304,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         49,
         "event state time",
         include_str!("../../migrations/0049_event_state_at.sql"),
+    ),
+    (
+        50,
+        "grants",
+        include_str!("../../migrations/0050_grants.sql"),
     ),
 ];
 

@@ -27,12 +27,13 @@ use crate::{
     starters::Cached,
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
-        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, Invite, Join, JoinedGroup,
-        LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge,
-        MergeInto, NewAttachment, NewFile, NewKey, NewMessage, NewNode, NewPicture, NewPlace,
-        NewPlaceRoutine, NodeRow, PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead,
-        PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch,
-        SkillRow, Store, StoredContext, StoredMessage, TurnAgentRow, TurnRecord, TurnsToDelete,
+        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite, Join,
+        JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow,
+        Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode,
+        NewPicture, NewPlace, NewPlaceRoutine, NodeRow, PicturesOf, PlaceRoutine, Posted,
+        ProfileNote, ProfileRead, PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share,
+        SkillOwner, SkillPatch, SkillRow, Store, StoredContext, StoredMessage, TurnAgentRow,
+        TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::Result;
@@ -838,6 +839,32 @@ impl User {
     /// Deletes a job; `false` when the user has no such job.
     pub async fn delete_cron(&self, id: &str) -> Result<bool> {
         self.store.delete_cron(&self.key, id).await
+    }
+
+    /// Saves a grant the user approved and returns its id.
+    pub(crate) async fn create_grant(&self, grant: NewGrant<'_>) -> Result<Uuid> {
+        self.store.create_grant(&self.key, grant).await
+    }
+
+    /// The user's grants in force, newest first.
+    pub(crate) async fn live_grants(&self) -> Result<Vec<GrantRow>> {
+        self.store.live_grants(&self.key).await
+    }
+
+    /// The grants in force for calls of `tool` in runs of `routine`.
+    pub(crate) async fn routine_grants(&self, routine: Uuid, tool: &str) -> Result<Vec<GrantRow>> {
+        self.store.routine_grants(&self.key, routine, tool).await
+    }
+
+    /// Records a call of run `run` as a use of grant `id`; false when the
+    /// grant is no longer in force or the run used its share.
+    pub(crate) async fn use_grant(&self, id: Uuid, run: &str, call_id: &str) -> Result<bool> {
+        self.store.use_grant(&self.key, id, run, call_id).await
+    }
+
+    /// Ends one of the user's grants; false when they have none by `id`.
+    pub(crate) async fn revoke_grant(&self, id: Uuid) -> Result<bool> {
+        self.store.revoke_grant(&self.key, id).await
     }
 
     /// Saves a phone's push token, replacing the one it had.
