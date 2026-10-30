@@ -277,12 +277,14 @@ class ChatRepository(private val storage: LocalStorage) {
         val files = filesByMessage(runCatching { api(config).getSessionFiles(id) }.getOrDefault(emptyList()))
         // Likewise a server from before it named agents.
         val agents = runCatching { api(config).getSessionAgents(id) }.getOrDefault(emptyList()).associate { it.message to it.agent.orEmpty() }
+        // And a server from before live mode said none aloud.
+        val spoken = runCatching { api(config).spokenTurns(id) }.getOrDefault(emptyList()).toSet()
         var turnAt = 0L
         val messages = history.mapIndexedNotNull { i, entry ->
             when (entry) {
                 is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; turnAt = entry.timestamp; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp,
                     autoModel = entry.auto?.model.orEmpty(), autoThinking = entry.auto?.thinking?.name?.lowercase().orEmpty(),
-                    pictures = pictures[entry.timestamp].orEmpty(), files = files[entry.timestamp].orEmpty()) }
+                    pictures = pictures[entry.timestamp].orEmpty(), files = files[entry.timestamp].orEmpty(), spoken = entry.timestamp in spoken) }
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {

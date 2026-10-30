@@ -127,6 +127,9 @@ private val toolLabels = mapOf(
     "habit_delete" to "Deleting a habit",
 )
 
+/** What a finished tool did, in words: "Searched the web". */
+fun doneToolLabel(call: ToolCall): String = doneLabel(toolLabel(call.name).ifBlank { call.description }.ifBlank { "Used a tool" })
+
 /** "Searching the web…" becomes "Searched the web" once the tool is done. */
 private fun doneLabel(label: String): String {
     val trimmed = label.trimEnd('…', '.', ' ')
