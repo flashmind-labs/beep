@@ -9,7 +9,9 @@ use super::{
 };
 use crate::{
     agents::AgentId,
-    protocol::{Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, TurnInfo},
+    protocol::{
+        Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, ToolLabel, TurnInfo,
+    },
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
@@ -119,6 +121,9 @@ pub enum StepBody {
         name: String,
         output: String,
         success: bool,
+        /// What it showed while it ran, such as "Recalling memories".
+        /// Empty when not recorded.
+        description: String,
     },
     /// The turn stopped to ask before a tool call.
     Approval {
@@ -191,6 +196,9 @@ pub enum StoredBody {
         name: String,
         output: String,
         success: bool,
+        /// What it showed while it ran, such as "Recalling memories".
+        /// Empty when not recorded.
+        description: String,
     },
     Approval {
         query_id: String,
@@ -218,11 +226,13 @@ impl From<StepBody> for StoredBody {
                 name,
                 output,
                 success,
+                description,
             } => Self::Tool {
                 call_id,
                 name,
                 output,
                 success,
+                description,
             },
             StepBody::Approval { query_id, approval } => Self::Approval { query_id, approval },
         }
@@ -255,6 +265,7 @@ impl StoredMessage {
                 name,
                 output,
                 success,
+                ..
             } => MessageBody::Tool {
                 call_id: call_id.clone(),
                 name: name.clone(),
@@ -299,7 +310,8 @@ impl StoredMessage {
 /// The columns `stored` reads, from `messages m` and its side tables.
 const COLUMNS: &str = "m.id, m.chat_id, m.turn_id, m.sent_at, m.author_id, m.author_name,
     m.role::text, m.content, t.model, t.auto_thinking::text, t.reasoning, t.memory_score,
-    c.call_id, c.name, c.output, c.success, a.query_id, a.app, a.action, t.agent";
+    c.call_id, c.name, c.output, c.success, a.query_id, a.app, a.action, t.agent,
+    c.description";
 
 const JOINS: &str = "messages m
     LEFT JOIN turns t ON t.message_id = m.id
@@ -340,6 +352,7 @@ fn stored(row: &PgRow) -> Result<StoredMessage> {
             name: row.try_get(13)?,
             output: row.try_get(14)?,
             success: row.try_get(15)?,
+            description: row.try_get(20)?,
         },
         Role::Approval => StoredBody::Approval {
             query_id: row.try_get(16)?,
@@ -424,6 +437,7 @@ pub(super) async fn insert_steps(
                 name,
                 output,
                 success,
+                description,
             } => {
                 sqlx::query(
                     "INSERT INTO tool_calls (message_id, call_id, name, output, success)
@@ -436,6 +450,16 @@ pub(super) async fn insert_steps(
                 .bind(success)
                 .execute(&mut *tx)
                 .await?;
+                // Set apart, like a turn's agent: the backfill writes tool
+                // calls before the migration that adds the column, and
+                // never with a description.
+                if !description.is_empty() {
+                    sqlx::query("UPDATE tool_calls SET description = $2 WHERE message_id = $1")
+                        .bind(id)
+                        .bind(description)
+                        .execute(&mut *tx)
+                        .await?;
+                }
             }
             StepBody::Approval { query_id, approval } => {
                 sqlx::query(
@@ -567,6 +591,29 @@ impl Store {
             .collect()
     }
 
+    /// What each tool step of `chat` showed while it ran, oldest first.
+    /// Steps without a description are left out. The caller checks the
+    /// user may read it.
+    pub(crate) async fn tool_labels(&self, chat: Uuid) -> Result<Vec<ToolLabel>> {
+        let rows = sqlx::query(
+            "SELECT c.call_id, c.description
+             FROM tool_calls c JOIN messages m ON m.id = c.message_id
+             WHERE m.chat_id = $1 AND c.description <> ''
+             ORDER BY m.id",
+        )
+        .bind(chat)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(ToolLabel {
+                    call_id: row.try_get(0)?,
+                    description: row.try_get(1)?,
+                })
+            })
+            .collect()
+    }
+
     /// Every message of `chat`, oldest first, with their pictures. The
     /// caller checks the user may read it.
     pub(crate) async fn chat_messages(&self, chat: Uuid) -> Result<Vec<StoredMessage>> {
@@ -647,5 +694,92 @@ impl Store {
             message.images = images.remove(&message.id).unwrap_or_default();
         }
         Ok(messages)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        store::{CreateRun, FinishedTurn, RunStatus, TestDb, test_chat},
+        user::UserKey,
+    };
+    use flashmind::core::{Conversation, ConversationEntry};
+
+    fn tool(call_id: &str, description: &str) -> Step {
+        Step {
+            sent_at: Utc::now(),
+            body: StepBody::Tool {
+                call_id: call_id.to_owned(),
+                name: "recall".to_owned(),
+                output: "tea".to_owned(),
+                success: true,
+                description: description.to_owned(),
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_steps_keep_what_they_showed() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let chat = test_chat("s1");
+        let CreateRun::Created(run) = store
+            .create_run(&alice, chat, "req-1", "What do I like?")
+            .await
+            .unwrap()
+        else {
+            panic!("the run was not created");
+        };
+        let steps = [
+            Step {
+                sent_at: Utc::now(),
+                body: StepBody::User {
+                    content: "What do I like?".to_owned(),
+                    turn: TurnRecord::default(),
+                },
+            },
+            tool("a", "Recalling memories"),
+            // Saved without one, as every step was before descriptions.
+            tool("b", ""),
+        ];
+        let mut context = Conversation::new();
+        context.add(ConversationEntry::user("What do I like?"));
+        store
+            .finish(
+                &alice,
+                &run,
+                Some(FinishedTurn {
+                    context: &context,
+                    prompt_tokens: Some(0),
+                    steps: &steps,
+                    stands_alone: false,
+                    carried: TurnRecord::default(),
+                }),
+                RunStatus::Completed,
+            )
+            .await
+            .unwrap();
+
+        let labels = store.tool_labels(chat).await.unwrap();
+        assert_eq!(
+            labels,
+            [ToolLabel {
+                call_id: "a".to_owned(),
+                description: "Recalling memories".to_owned(),
+            }]
+        );
+        let described: Vec<String> = store
+            .chat_messages(chat)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter_map(|message| match message.body {
+                StoredBody::Tool { description, .. } => Some(description),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(described, ["Recalling memories", ""]);
     }
 }

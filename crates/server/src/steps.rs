@@ -23,6 +23,16 @@ pub const MAX_REASONING: usize = 16 * 1024;
 /// the message that opened it.
 pub type TurnsByTime = HashMap<i64, TurnRecord>;
 
+/// What a run knew of its tool calls that the conversation does not keep,
+/// by call id.
+#[derive(Debug, Default)]
+pub struct CallNotes {
+    /// The calls that failed.
+    pub failed: HashSet<String>,
+    /// What each call showed while it ran, such as "Recalling memories".
+    pub descriptions: HashMap<String, String>,
+}
+
 /// The steps of some entries.
 #[derive(Debug, Default, PartialEq)]
 pub struct Steps {
@@ -34,12 +44,13 @@ pub struct Steps {
 
 /// The steps of the entries of `entries` from `since` on: each user
 /// message or scheduled prompt, reply with text, and tool result. Earlier
-/// entries only name the tools their calls ran. Tool calls in `failures`
-/// failed, and `turns` holds what each turn ran with.
+/// entries only name the tools their calls ran. `calls` says which tool
+/// calls failed and what each showed, and `turns` holds what each turn ran
+/// with.
 pub fn steps(
     entries: &[ConversationEntry],
     since: Option<DateTime<Utc>>,
-    failures: &HashSet<String>,
+    calls: &CallNotes,
     turns: &TurnsByTime,
 ) -> Steps {
     let mut out = Steps::default();
@@ -119,7 +130,8 @@ pub fn steps(
                         .to_owned(),
                     call_id: call_id.clone(),
                     output: cap(output, MAX_TOOL_OUTPUT),
-                    success: !failures.contains(call_id),
+                    success: !calls.failed.contains(call_id),
+                    description: calls.descriptions.get(call_id).cloned().unwrap_or_default(),
                 },
             }),
             EntryKind::Developer { content, .. } => {
@@ -248,6 +260,7 @@ pub fn history(messages: &[StoredMessage]) -> Vec<HistoryEntry> {
                 name,
                 output,
                 success,
+                ..
             } => {
                 turn.last_tool = timestamp;
                 turn.tools.push(HistoryTool {
@@ -335,10 +348,10 @@ mod tests {
     /// The history of `entries` once saved as steps.
     fn saved_history(
         entries: &[ConversationEntry],
-        failures: &HashSet<String>,
+        calls: &CallNotes,
         turns: &TurnsByTime,
     ) -> Vec<HistoryEntry> {
-        history(&stored(steps(entries, None, failures, turns).steps, 1))
+        history(&stored(steps(entries, None, calls, turns).steps, 1))
     }
 
     /// `steps` saved as the store does from id `first` on. Steps before the
@@ -391,7 +404,10 @@ mod tests {
         let asked = entries[0].timestamp.timestamp_millis();
         let history = saved_history(
             &entries,
-            &HashSet::from(["b".to_owned()]),
+            &CallNotes {
+                failed: HashSet::from(["b".to_owned()]),
+                ..CallNotes::default()
+            },
             &HashMap::from([(
                 asked,
                 TurnRecord {
@@ -451,6 +467,40 @@ mod tests {
     }
 
     #[test]
+    fn tool_steps_keep_what_they_showed() {
+        let call = |id: &str| ToolCall {
+            id: id.into(),
+            name: "recall".into(),
+            arguments: json!({}),
+        };
+        let entries = [
+            ConversationEntry::user("What do I like?"),
+            ConversationEntry::assistant_with_tool_calls("", vec![call("a"), call("b")], None),
+            ConversationEntry::tool("a", "tea"),
+            ConversationEntry::tool("b", "jazz"),
+        ];
+        let calls = CallNotes {
+            descriptions: HashMap::from([("a".to_owned(), "Recalling memories".to_owned())]),
+            ..CallNotes::default()
+        };
+        let saved = steps(&entries, None, &calls, &HashMap::new());
+        let described: Vec<(&str, &str)> = saved
+            .steps
+            .iter()
+            .filter_map(|step| match &step.body {
+                StepBody::Tool {
+                    call_id,
+                    description,
+                    ..
+                } => Some((call_id.as_str(), description.as_str())),
+                _ => None,
+            })
+            .collect();
+        // A call the run saw no description for keeps an empty one.
+        assert_eq!(described, [("a", "Recalling memories"), ("b", "")]);
+    }
+
+    #[test]
     fn history_marks_a_routine_turn_as_scheduled() {
         let entries = [
             ConversationEntry::system_message(cron::scheduled_context("Plants")),
@@ -460,7 +510,7 @@ mod tests {
             ConversationEntry::user("Thanks"),
             ConversationEntry::user("[Scheduled: Old] Remind me to stretch"),
         ];
-        let history = saved_history(&entries, &HashSet::new(), &HashMap::new());
+        let history = saved_history(&entries, &CallNotes::default(), &HashMap::new());
         let [
             HistoryEntry::Scheduled { label, .. },
             HistoryEntry::Assistant { .. },
@@ -505,11 +555,11 @@ mod tests {
         let notice = routine_notice(
             &routine,
             None,
-            steps(&routine, None, &HashSet::new(), &HashMap::new()),
+            steps(&routine, None, &CallNotes::default(), &HashMap::new()),
         );
         assert!(notice.carried_reasoning.is_empty());
         let mut messages = stored(
-            steps(&chat, None, &HashSet::new(), &HashMap::new()).steps,
+            steps(&chat, None, &CallNotes::default(), &HashMap::new()).steps,
             1,
         );
         // Saved on its own, the notice has no turn.
@@ -571,7 +621,10 @@ mod tests {
             ConversationEntry::tool("n", "sent"),
             ConversationEntry::assistant("Sam replied: lunch is on."),
         ];
-        let failed = HashSet::from(["x".to_owned()]);
+        let failed = CallNotes {
+            failed: HashSet::from(["x".to_owned()]),
+            ..CallNotes::default()
+        };
         for told in [&with_call[..], &after_call[..]] {
             let routine: Vec<ConversationEntry> = opening
                 .iter()
@@ -603,7 +656,12 @@ mod tests {
         ];
         entries[2].timestamp = entries[0].timestamp + Duration::seconds(1);
         let since = entries[2].timestamp;
-        let out = steps(&entries, Some(since), &HashSet::new(), &HashMap::new());
+        let out = steps(
+            &entries,
+            Some(since),
+            &CallNotes::default(),
+            &HashMap::new(),
+        );
         assert_eq!(out.carried_reasoning, "Approved.");
         assert!(out.steps.iter().all(|step| !step.body.opens_turn()));
     }

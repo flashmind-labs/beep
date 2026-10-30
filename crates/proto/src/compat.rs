@@ -93,6 +93,7 @@ sample_struct! {
     AppPermissions { level, actions }
     AppAction { tool, label, allowed }
     HistoryTool { name, call_id, output, success }
+    ToolLabel { call_id, description }
     AppIntegration { slug, name, description, logo_url, connected, configured, kind }
     ConnectLink { url }
     AppAccount { id, address }

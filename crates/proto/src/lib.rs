@@ -575,6 +575,21 @@ requests! {
     /// when the caller has no such grant.
     120 RevokeGrant { id: String } => Call<()>
     125 ListQuestions { session_id: Uuid } => Call<Vec<PendingApproval>>
+    /// What each tool step of a session showed while it ran, by
+    /// `HistoryTool::call_id` (`MessageBody::Tool::call_id` in updates), such
+    /// as "Recalling memories". Steps saved before the server kept it are
+    /// left out, as are steps that had none. `NotFound` when the caller has
+    /// no such session.
+    126 GetToolLabels { session_id: Uuid } => Call<Vec<ToolLabel>>
+}
+
+/// What a tool step showed while it ran, as `GetToolLabels` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolLabel {
+    pub call_id: String,
+    /// The `RunEvent::ToolStarted` `description` of the call.
+    pub description: String,
 }
 
 /// A sub-agent or background job of a chat, as `ListWork` lists it.

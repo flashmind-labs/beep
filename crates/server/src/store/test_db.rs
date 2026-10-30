@@ -16,12 +16,7 @@ use sqlx::{
     Connection, Executor, PgConnection, PgPool,
     postgres::{PgConnectOptions, PgPoolOptions},
 };
-use std::{
-    collections::{HashMap, HashSet},
-    str::FromStr,
-    sync::Arc,
-    thread,
-};
+use std::{collections::HashMap, str::FromStr, sync::Arc, thread};
 use uuid::Uuid;
 
 /// Names the database tests run against, such as
@@ -48,7 +43,7 @@ pub fn test_steps(conversation: &Conversation) -> Vec<Step> {
     steps::steps(
         conversation.entries(),
         None,
-        &HashSet::new(),
+        &steps::CallNotes::default(),
         &HashMap::new(),
     )
     .steps
