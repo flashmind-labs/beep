@@ -5,7 +5,7 @@ use crate::{
     cron,
     protocol::{AutoPick, HistoryEntry, HistoryTool},
     store::{Step, StepBody, StoredBody, StoredMessage, TurnRecord},
-    wake,
+    tools, wake,
 };
 use chrono::{DateTime, Utc};
 use flashmind::core::{ConversationEntry, EntryKind};
@@ -132,14 +132,54 @@ pub fn steps(
     out
 }
 
-/// Only the last reply with text of `steps`: what a routine told the user,
-/// without its opening, its tools or its reasoning.
-pub fn last_reply(steps: Steps) -> Steps {
-    let reply = steps.steps.into_iter().rev().find(
-        |step| matches!(&step.body, StepBody::Assistant { content } if !content.trim().is_empty()),
-    );
+/// The tools whose results the apps show as what Beep sent: pictures and
+/// files.
+const SENT_TOOLS: &[&str] = &[tools::SEND_IMAGE, tools::file::NAME];
+
+/// What a routine told the user: the text it wrote with its `notify_user`
+/// call, in the same message or the first one after it. A sign-off after
+/// that, such as "Routine ended.", is not it. Without such a call or text
+/// after it, its last reply. `None` when it wrote nothing.
+pub fn routine_reply(entries: &[ConversationEntry], since: Option<DateTime<Utc>>) -> Option<Step> {
+    let turn: Vec<&ConversationEntry> = entries
+        .iter()
+        .filter(|entry| !since.is_some_and(|since| entry.timestamp < since) && !entry.is_summary())
+        .collect();
+    let said = |entry: &&ConversationEntry| match &entry.kind {
+        EntryKind::Assistant { content, .. } if !content.trim().is_empty() => Some(Step {
+            sent_at: entry.timestamp,
+            body: StepBody::Assistant {
+                content: content.clone(),
+            },
+        }),
+        _ => None,
+    };
+    let notified = turn.iter().rposition(|entry| {
+        matches!(&entry.kind, EntryKind::Assistant { tool_calls: Some(calls), .. }
+            if calls.iter().any(|call| call.name == tools::NOTIFY_USER))
+    });
+    notified
+        .and_then(|at| turn[at..].iter().find_map(said))
+        .or_else(|| turn.iter().rev().find_map(said))
+}
+
+/// A routine's turn as the apps show it: only what it told the user, from
+/// [`routine_reply`], then the pictures and files it sent, so they show
+/// with it. Its opening, its other tools and its reasoning are left out.
+pub fn routine_notice(
+    entries: &[ConversationEntry],
+    since: Option<DateTime<Utc>>,
+    steps: Steps,
+) -> Steps {
+    let sent = steps.steps.into_iter().filter(|step| {
+        matches!(&step.body, StepBody::Tool { name, success: true, .. }
+            if SENT_TOOLS.contains(&name.as_str()))
+    });
     Steps {
-        steps: reply.into_iter().collect(),
+        steps: routine_reply(entries, since)
+            .into_iter()
+            .chain(sent)
+            .collect(),
         carried_reasoning: String::new(),
     }
 }
@@ -462,7 +502,11 @@ mod tests {
             ConversationEntry::tool("b", "found"),
             ConversationEntry::assistant("Sam replied: lunch is on."),
         ];
-        let notice = last_reply(steps(&routine, None, &HashSet::new(), &HashMap::new()));
+        let notice = routine_notice(
+            &routine,
+            None,
+            steps(&routine, None, &HashSet::new(), &HashMap::new()),
+        );
         assert!(notice.carried_reasoning.is_empty());
         let mut messages = stored(
             steps(&chat, None, &HashSet::new(), &HashMap::new()).steps,
@@ -491,6 +535,63 @@ mod tests {
         assert_eq!(tools.len(), 1);
         assert_eq!(told, "Sam replied: lunch is on.");
         assert!(none.is_empty());
+    }
+
+    #[test]
+    fn a_routines_notice_is_what_it_told_the_user_with_what_it_sent() {
+        let call = |id: &str, name: &str| ToolCall {
+            id: id.into(),
+            name: name.into(),
+            arguments: json!({}),
+        };
+        let opening = [
+            ConversationEntry::system_message(cron::scheduled_context("Reply")),
+            ConversationEntry::user("Check whether Sam replied."),
+            ConversationEntry::assistant_with_tool_calls("", vec![call("i", "send_image")], None),
+            ConversationEntry::tool("i", "sent"),
+            ConversationEntry::assistant_with_tool_calls("", vec![call("x", "send_file")], None),
+            ConversationEntry::tool("x", "Not sent: no such file"),
+        ];
+        let sign_off = [
+            ConversationEntry::assistant_with_tool_calls("", vec![call("e", "end_routine")], None),
+            ConversationEntry::tool("e", "ended"),
+            ConversationEntry::assistant("Routine ended."),
+        ];
+        // Written with the call, or right after it.
+        let with_call = [
+            ConversationEntry::assistant_with_tool_calls(
+                "Sam replied: lunch is on.",
+                vec![call("n", "notify_user")],
+                None,
+            ),
+            ConversationEntry::tool("n", "sent"),
+        ];
+        let after_call = [
+            ConversationEntry::assistant_with_tool_calls("", vec![call("n", "notify_user")], None),
+            ConversationEntry::tool("n", "sent"),
+            ConversationEntry::assistant("Sam replied: lunch is on."),
+        ];
+        let failed = HashSet::from(["x".to_owned()]);
+        for told in [&with_call[..], &after_call[..]] {
+            let routine: Vec<ConversationEntry> = opening
+                .iter()
+                .chain(told)
+                .chain(&sign_off)
+                .cloned()
+                .collect();
+            let notice = routine_notice(
+                &routine,
+                None,
+                steps(&routine, None, &failed, &HashMap::new()),
+            );
+            let history = history(&stored(notice.steps, 1));
+            let [HistoryEntry::Assistant { content, tools, .. }] = history.as_slice() else {
+                panic!("unexpected history: {history:?}");
+            };
+            assert_eq!(content, "Sam replied: lunch is on.");
+            let sent: Vec<&str> = tools.iter().map(|tool| tool.name.as_str()).collect();
+            assert_eq!(sent, ["send_image"]);
+        }
     }
 
     #[test]

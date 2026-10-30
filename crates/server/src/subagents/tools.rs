@@ -926,6 +926,31 @@ mod tests {
             assert_eq!(pending.approval.app, "Gmail");
             pending.query_id
         }
+
+        /// The question the next notice says stopped waiting, as its query id.
+        async fn resolved(&mut self) -> String {
+            let notice = timeout(Duration::from_secs(5), self.notices.recv())
+                .await
+                .expect("a notice in time")
+                .expect("a notice");
+            assert_eq!(notice.user, "alice");
+            assert_eq!(notice.notice.session_id, self.chat.to_string());
+            notice
+                .notice
+                .resolved_question()
+                .expect("a resolved question")
+                .to_owned()
+        }
+
+        /// The query ids of the questions waiting in the fixture's chat.
+        fn pending(&self) -> Vec<String> {
+            self.subagents
+                .approvals
+                .pending("alice", self.chat)
+                .into_iter()
+                .map(|question| question.query_id)
+                .collect()
+        }
     }
 
     async fn run_agent(fixture: &Fixture) -> tokio::task::JoinHandle<Outcome> {
@@ -946,6 +971,21 @@ mod tests {
         assert_eq!(
             fixture.subagents.approvals.waiting_for("alice"),
             std::slice::from_ref(&query_id)
+        );
+        assert_eq!(fixture.pending(), std::slice::from_ref(&query_id));
+        assert!(
+            fixture
+                .subagents
+                .approvals
+                .pending("bob", fixture.chat)
+                .is_empty()
+        );
+        assert!(
+            fixture
+                .subagents
+                .approvals
+                .pending("alice", Uuid::new_v4())
+                .is_empty()
         );
         assert!(
             !fixture
@@ -968,6 +1008,9 @@ mod tests {
                 .await
                 .expect("an answer")
         );
+        // Every device hears it was answered, to clear its card.
+        assert_eq!(fixture.resolved().await, query_id);
+        assert!(fixture.pending().is_empty());
         let outcome = running.await.expect("no panic");
         assert_eq!(fixture.sent.load(Ordering::SeqCst), 1);
         assert_eq!(
@@ -1064,6 +1107,7 @@ mod tests {
             .answer(&fixture.user, &query_id, ApprovalDecision::Always {})
             .await
             .expect("an answer");
+        assert_eq!(fixture.resolved().await, query_id);
         let outcome = job.await.expect("no panic");
         assert!(outcome.ok);
         assert_eq!(fixture.sent.load(Ordering::SeqCst), 1);
@@ -1090,13 +1134,16 @@ mod tests {
                 run_job(&tools, &send_call(), &watch, Duration::from_secs(30)).await
             })
         };
-        fixture.asked().await;
+        let query_id = fixture.asked().await;
         watch.cancel.cancel();
         let outcome = job.await.expect("no panic");
         assert!(!outcome.ok);
         assert!(outcome.text.contains("cancelled"), "{outcome:?}");
         assert_eq!(fixture.sent.load(Ordering::SeqCst), 0);
         assert!(fixture.subagents.approvals.waiting_for("alice").is_empty());
+        // Withdrawn, so every device clears its card.
+        assert_eq!(fixture.resolved().await, query_id);
+        assert!(fixture.pending().is_empty());
     }
 
     /// Answers with a lot of text.
