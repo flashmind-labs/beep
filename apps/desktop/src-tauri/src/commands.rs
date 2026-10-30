@@ -565,6 +565,13 @@ pub fn leave_live(voice: State<'_, Arc<Voice>>) {
     voice.leave_live();
 }
 
+/// Esc or Cancel in live mode: cancels a reply being written or read out,
+/// or leaves, keeping what was said.
+#[tauri::command]
+pub fn cancel_live(voice: State<'_, Arc<Voice>>) {
+    voice.cancel();
+}
+
 /// Talks live in chat `session`.
 #[tauri::command]
 pub fn continue_live(voice: State<'_, Arc<Voice>>, session: String) -> Result<()> {
@@ -635,6 +642,12 @@ pub fn resize_bar(app: AppHandle, height: f64) -> Result<()> {
 #[tauri::command]
 pub fn hide_bar(app: AppHandle) {
     bar::dismiss(&app);
+}
+
+/// A click on the orb: the bar comes back in its place.
+#[tauri::command]
+pub fn show_bar(app: AppHandle) {
+    bar::show(&app, None);
 }
 
 /// The app has no menu bar of its own, so the bar handles ⌘Q.

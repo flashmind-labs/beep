@@ -1630,9 +1630,9 @@ function notice(text, { path, bad } = {}) {
 // ---------- Shortcuts ----------
 
 const SHORTCUTS = [
-  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines, then ⌘G for grants"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌥ ⌥ ⌥", "Live mode"], ["hold ⌥", "Talk, let go to send"], ["⌘Q", "Quit"]]],
-  ["In live mode", [["tap ⌥", "Interrupt Beep, or leave while listening"], ["esc", "Leave, keeping what was said"], ["“send”", "Send now"], ["“cancel”", "Drop what was said"], ["“scratch that”", "Remove the last sentence"], ["“stop”", "Stop Beep speaking"], ["“repeat that”", "Read the reply again"], ["“new chat”", "Start over"], ["“bye”", "Leave live mode"]]],
-  ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
+  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines, then ⌘G for grants"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌥ ⌥ ⌥", "Live mode"], ["⌘Q", "Quit"]]],
+  ["In live mode", [["tap ⌥", "Interrupt Beep, or leave while listening"], ["esc", "Cancel the reply, or leave, keeping what was said"], ["“send”", "Send now"], ["“cancel”", "Drop what was said"], ["“scratch that”", "Remove the last sentence"], ["“stop”", "Stop Beep speaking"], ["“repeat that”", "Read the reply again"], ["“new chat”", "Start over"], ["“bye”", "Leave live mode"]]],
+  ["In a chat", [["hold ⌥", "Talk, let go to send"], ["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
 ];
 
@@ -2313,7 +2313,7 @@ async function renderSettings(confirm = false) {
       <div class="dsec flat" style="padding-top:6px">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
-      <div class="dtoggle"><span><b>Voice notes</b><small>Speak new notices when you are at this Mac and not on a call, then keep listening. Tap Option twice to open Beep, then once more to talk live. Hold Option to talk while it is held.</small></span>
+      <div class="dtoggle"><span><b>Voice notes</b><small>Speak new notices when you are at this Mac and not on a call. Tap Option twice to open Beep, then once more to talk live, or hold Option to talk while it is held.</small></span>
         <button class="dswitch" id="voiceNotes" role="switch" aria-checked="${set.voice_notes}" aria-label="Voice notes"></button></div>${sendRow(set.send_on_pause)}
     </div>${hints([["esc", "close"]])}`;
   $("#link")?.addEventListener("click", renderLink);
@@ -4178,15 +4178,22 @@ function renderLive() {
   const cap = mode === "listen" ? `${prev(v.line)}${v.words ? esc(v.words) : '<span class="ph">Start talking…</span>'}`
     : mode === "think" ? (v.step ? `${prev(LV.sent)}${step}` : prev(LV.sent))
     : `${prev(v.prev ?? (v.phase === "thinking" ? LV.sent : ""))}${esc(v.line ?? "")}${v.phase === "thinking" ? step : ""}`;
-  const hint = holding ? "Let go of Option to send"
+  // A voice note is only read out; answering means opening Beep.
+  const note = !!v.title && mode !== "listen";
+  const hint = note ? "Tap Option twice to open Beep"
+    : holding ? "Let go of Option to send"
     : mode === "listen" ? (v.pause_sends ? "Pause to send · Option to stop" : "Say “send” to send · Option to stop")
     : mode === "think" ? "Option to skip the spoken answer"
     : v.phase === "thinking" ? "Beep reads the answer when it is ready · Option to stop"
     : "Say “stop” or tap Option to talk";
-  const keys = holding ? [["let go of ⌥", "send"], ["any key", "cancel"]]
+  const keys = note ? [["⌥ ⌥", "open Beep"], ["tap ⌥", "stop"], ["esc", "dismiss"]]
+    : holding ? [["let go of ⌥", "send"], ["any key", "cancel"]]
     : mode === "listen" ? LIVE_KEYS
-    : mode === "think" ? [["tap ⌥", "skip speaking"], ["esc", "leave live"]]
-    : [["tap ⌥", "interrupt"], ["hold ⌥", "reply"], ["esc", "leave live"]];
+    : mode === "think" ? [["tap ⌥", "skip speaking"], ["esc", "cancel reply"]]
+    : v.phase === "listening" ? LIVE_KEYS
+    : [["tap ⌥", "interrupt"], ["hold ⌥", "reply"], ["esc", "cancel reply"]];
+  // While a reply is written or read out it can be cancelled, on the server too.
+  const replying = !note && (v.phase === "thinking" || v.phase === "speaking");
   const left = LV.soon ? Math.max(0, LV.soon.until - Date.now()) : 0;
   const soon = LV.soon && mode === "listen"
     ? `<div class="dsoon" role="progressbar" aria-label="Sending after the pause"><i style="--from:${(left / LV.soon.total).toFixed(3)};animation-duration:${left}ms"></i></div>` : "";
@@ -4197,16 +4204,18 @@ function renderLive() {
     <div class="word ${word[1]}">${word[0]}</div>
     <div class="cap" aria-live="polite">${cap}</div>
     ${soon}<div class="hint">${hint}</div>
+    ${replying ? `<button class="dbtn lcancel" id="lcancel">Cancel<kbd>esc</kbd></button>` : ""}
   </div>${hints(keys)}`;
   $("#orb").addEventListener("click", () => invoke("live_tap").catch(() => {}));
+  $("#lcancel")?.addEventListener("click", () => invoke("cancel_live").catch(() => {}));
 }
 /// Live mode ended, shown briefly before the bar goes away.
 function renderLeft(v) {
   S.view = "voice";
-  const why = v.failure ?? (v.quiet ? "Live mode ended after 2 minutes quiet" : "Left live mode");
+  const why = v.failure ?? (v.quiet ? "Live mode ended after 2 minutes quiet" : v.cancelled ? "Cancelled the reply" : "Left live mode");
   const kept = v.draft ? " Your words are kept in the chat." : "";
   bar.innerHTML = `<div class="dvoice"><span class="dlogo">b</span><div class="vt"><small>${VOICE_ICON.mic}Live mode</small><span>${esc(why + kept)}</span></div></div>
-    ${hints([["⌥ ⌥", "open Beep"], ["hold ⌥", "talk"]])}`;
+    ${hints([["⌥ ⌥", "open Beep"]])}`;
 }
 /// Puts a kept draft in the open chat's prompt, after anything typed there.
 function takeDraft(ask) {
@@ -4269,6 +4278,7 @@ listen("live", e => {
         VN.open = key;
         VN.note = v.failure ? `${v.failure} Your words are kept here.`
           : v.quiet ? "Live mode ended after 2 minutes quiet. Your words are kept here."
+          : v.cancelled ? "Cancelled the reply. Your words are kept here."
           : "Left live mode. Your words are kept here.";
       }
       return renderLeft(v);
@@ -4766,7 +4776,7 @@ document.addEventListener("keydown", e => {
   const cmd = e.metaKey;
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (cmd && e.key === "/") { e.preventDefault(); return toggleKeys(); }
-  if (e.key === "Escape" && LV.on) { e.preventDefault(); return invoke("leave_live").catch(() => {}); }
+  if (e.key === "Escape" && LV.on) { e.preventDefault(); return invoke("cancel_live").catch(() => {}); }
   if (e.key === "Escape" && $("#keys")) { e.preventDefault(); return toggleKeys(); }
   if (e.key === "Escape" && closeRerunMenu()) { e.preventDefault(); return; }
   if (e.key === "Escape") {

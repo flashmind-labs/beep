@@ -1,6 +1,7 @@
-//! The bar: one borderless window that shows and hides in place.
+//! The bar: one borderless window that shows and hides in place. Only the
+//! user opens it; live mode carries on in the orb while it is hidden.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use crate::orb;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Runtime, WebviewWindow};
 
 pub const LABEL: &str = "bar";
@@ -11,9 +12,6 @@ const MAX_SHARE: f64 = 0.7;
 /// Where the bar's top sits, as a share of the screen's height.
 const TOP: f64 = 0.22;
 
-/// The bar is up only for live mode, not opened by the user.
-static PASSIVE: AtomicBool = AtomicBool::new(false);
-
 fn window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
     app.get_webview_window(LABEL)
 }
@@ -21,23 +19,21 @@ fn window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
 /// Shows the bar on the screen under the mouse, or hides it if it is open.
 pub fn toggle<R: Runtime>(app: &AppHandle<R>) {
     let Some(bar) = window(app) else { return };
-    if bar.is_visible().unwrap_or(false) && !is_passive() {
+    if bar.is_visible().unwrap_or(false) {
         dismiss(app);
     } else {
         show(app, None);
     }
 }
 
-/// Shows the bar. `view` asks the page to open a view, such as "link".
+/// Shows the bar, in place of the orb when live mode runs. `view` asks the
+/// page to open a view, such as "link".
 pub fn show<R: Runtime>(app: &AppHandle<R>, view: Option<&str>) {
     let Some(bar) = window(app) else { return };
-    // A bar up for a voice note stays where it is and takes focus.
-    if !PASSIVE.swap(false, Ordering::Relaxed)
-        && let Err(e) = place(app, &bar)
-    {
+    if let Err(e) = place(app, &bar) {
         log::warn!("placing the bar: {e}");
     }
-    let _ = bar.set_focusable(true);
+    orb::hide(app);
     let _ = bar.show();
     activate();
     let _ = bar.set_focus();
@@ -63,34 +59,11 @@ fn activate() {
 #[cfg(not(target_os = "macos"))]
 fn activate() {}
 
-/// Shows the bar for live mode, marked as up only for live mode, so it goes
-/// away when live mode ends. With `focus` it takes the keyboard so Escape
-/// and typing reach it. Does nothing when the bar is already open for the
-/// user. True when the bar is up passively.
-pub fn show_passive<R: Runtime>(app: &AppHandle<R>, focus: bool) -> bool {
-    let Some(bar) = window(app) else { return false };
-    if is_passive() {
-        return true;
-    }
-    if bar.is_visible().unwrap_or(false) {
-        return false;
-    }
-    if let Err(e) = place(app, &bar) {
-        log::warn!("placing the bar: {e}");
-    }
-    let _ = bar.set_focusable(focus);
-    PASSIVE.store(true, Ordering::Relaxed);
-    let _ = bar.show();
-    if focus {
-        activate();
-        let _ = bar.set_focus();
-    }
-    true
-}
-
-/// Whether the bar is up for a voice note, not opened by the user.
-pub fn is_passive() -> bool {
-    PASSIVE.load(Ordering::Relaxed)
+/// Whether the bar has the keyboard.
+pub fn is_focused<R: Runtime>(app: &AppHandle<R>) -> bool {
+    window(app)
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false)
 }
 
 /// Whether the bar is on screen.
@@ -101,7 +74,6 @@ pub fn is_open<R: Runtime>(app: &AppHandle<R>) -> bool {
 }
 
 pub fn hide<R: Runtime>(app: &AppHandle<R>) {
-    PASSIVE.store(false, Ordering::Relaxed);
     if let Some(bar) = window(app) {
         let _ = bar.hide();
     }

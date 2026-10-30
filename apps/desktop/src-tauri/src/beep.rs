@@ -182,6 +182,8 @@ pub struct Sent {
 /// streams.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunNews {
+    /// The run started, with its id, so live mode can cancel it.
+    Started(String),
     /// More of the reply's text, as the model writes it.
     Text(String),
     /// A tool step started, with its label.
@@ -957,6 +959,7 @@ impl Beep {
                     session_id,
                 } => {
                     run_id.clone_from(&id);
+                    tell(RunNews::Started(id.clone()));
                     BarEvent::Started {
                         run_id: id,
                         session_id,
