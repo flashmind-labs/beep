@@ -7,6 +7,8 @@ struct RoutinesView: View {
     @State private var pendingDelete: Cron?
     @State private var undoTimer: Task<Void, Never>?
     @State private var crons: [Cron] = []
+    /// Every routine's grants, so a card can say it has some and open them.
+    @State private var grants: [Grant] = []
     @State private var loaded = false
     @State private var error = ""
     @State private var creating = false
@@ -40,8 +42,10 @@ struct RoutinesView: View {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(crons, id: \.id) { cron in
-                            RoutineCard(cron: cron, toggle: { set(cron, enabled: $0) },
-                                        run: { run(cron) }, delete: { delete(cron) })
+                            RoutineCard(cron: cron, grants: grants.filter { $0.routineId == cron.id },
+                                        toggle: { set(cron, enabled: $0) },
+                                        run: { run(cron) }, delete: { delete(cron) },
+                                        openGrants: { path.append(.grants(cron.id)) })
                                 .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.95)),
                                                         removal: .opacity.combined(with: .move(edge: .leading))))
                         }
@@ -85,6 +89,8 @@ struct RoutinesView: View {
         do {
             crons = try await model.crons()
             error = ""
+            // A server from before grants cannot list them; the cards then just show none.
+            grants = (try? await model.grants()) ?? []
         } catch {
             self.error = describe(error)
         }
@@ -142,9 +148,11 @@ struct RoutinesView: View {
 private struct RoutineCard: View {
     @Environment(AppModel.self) private var model
     let cron: Cron
+    let grants: [Grant]
     let toggle: (Bool) -> Void
     let run: () -> Void
     let delete: () -> Void
+    let openGrants: () -> Void
     @State private var offset: CGFloat = 0
 
     private static let threshold: CGFloat = 110
@@ -179,6 +187,19 @@ private struct RoutineCard: View {
                     if cron.enabled, parseInstant(cron.schedule) == nil,
                        let next = cron.nextRunAt.flatMap(parseInstant) {
                         Text("Next: " + describeDay(next)).font(.body(11)).foregroundStyle(Mint.dim)
+                    }
+                    if let soonest = grants.map(\.expiresAt).min() {
+                        Button(action: openGrants) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.shield").font(.system(size: 11))
+                                Text((grants.count == 1 ? "1 grant" : "\(grants.count) grants")
+                                     + ", " + grantEnds(soonest).lowercased())
+                                    .font(.body(11, .medium))
+                            }
+                            .foregroundStyle(Mint.brand)
+                            .padding(.top, 6)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

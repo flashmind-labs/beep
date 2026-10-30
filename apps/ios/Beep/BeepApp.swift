@@ -58,6 +58,8 @@ enum Route: Hashable {
     /// Routines with the new routine sheet open on arriving at a place.
     case placeRoutine(String)
     case researches
+    /// What routines may do without asking: every routine's, or one routine's by its id.
+    case grants(String?)
     /// A research chat's workspace, on a tab or the one that fits.
     case workspace(String, WorkspaceTab?)
 }
@@ -193,6 +195,7 @@ struct RootView: View {
         case .memories: MemoriesView(path: $path)
         case .latestRead: MemoriesView(path: $path, latestRead: true)
         case .routines: RoutinesView(path: $path)
+        case .grants(let routine): GrantsView(routine: routine, back: { path.removeLast() })
         case .skills: SkillsView(path: $path)
         case .skill(let id): SkillView(id: id, back: { path.removeLast() })
         case .placeRoutine(let id):
@@ -338,6 +341,7 @@ struct RootView: View {
             if let token = defaults.string(forKey: "token") { reading = token }
         case "memories": path = [.memories]
         case "routines": path = [.routines]
+        case "grants": path = [.settings, .grants(nil)]
         case "skills": path = [.skills]
         case "places": path = [.places]
         case "researches": path = [.researches]
