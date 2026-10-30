@@ -17,6 +17,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     LookPicker()
                     AvatarPicker()
+                    TalkToBeepCard { path.removeAll(); model.live.start(from: .actionButton) }
                     if let models = model.models, !models.choices.isEmpty {
                         modelPicker(models)
                     }
@@ -288,5 +289,61 @@ private struct AvatarPicker: View {
                 if let failure { error = failure.localizedDescription } else { current = icon }
             }
         }
+    }
+}
+
+/// How to start live voice from anywhere: the Action Button first, Back Tap without one, the
+/// controls and widget, the side button in Japan; and whether a pause sends.
+private struct TalkToBeepCard: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
+    let tryIt: () -> Void
+
+    var body: some View {
+        @Bindable var live = model.live
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(Mint.ink)
+                    .frame(width: 40, height: 40)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Mint.tints[1]))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Talk to Beep").font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                    Text("Live voice from anywhere, without opening a chat first.")
+                        .font(.body(13)).foregroundStyle(Mint.muted)
+                }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("1. Open **Settings**, then **Action Button**.")
+                Text("2. Swipe to **Shortcut** and pick **Beep**, **Talk to Beep**.")
+            }
+            .font(.body(13)).foregroundStyle(Mint.ink)
+            Text("No Action Button? Use Back Tap: **Settings**, **Accessibility**, **Touch**, **Back Tap**, then **Double Tap** and **Talk to Beep**. Or add the Talk to Beep control to Control Center or the Lock Screen, or the widget to the Home Screen. In Japan you can also choose Beep for pressing and holding the side button.")
+                .font(.body(12)).foregroundStyle(Mint.muted)
+            HStack(spacing: 8) {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                }
+                .font(.body(14, .medium)).foregroundStyle(Mint.ink)
+                .padding(.horizontal, 14).frame(minHeight: 36)
+                .background(Capsule().fill(Mint.user))
+                Button("Try it", action: tryIt)
+                    .font(.body(14, .medium)).foregroundStyle(Mint.muted)
+                    .padding(.horizontal, 8).frame(minHeight: 36)
+            }
+            .buttonStyle(.plain)
+            Rectangle().fill(Mint.soft).frame(height: 1)
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Send when I stop talking").font(.body(14, .medium)).foregroundStyle(Mint.ink)
+                    Text(live.sendOnPause ? "A pause sends. Say “send” to send at once." : "Only “send” sends; pauses never do.")
+                        .font(.body(12)).foregroundStyle(Mint.muted)
+                }
+                Spacer()
+                Toggle("Send when I stop talking", isOn: $live.sendOnPause).labelsHidden().tint(Mint.ok)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
     }
 }

@@ -68,7 +68,7 @@ struct Message: Identifiable, Equatable {
     var agent = ""
     /// The model and thinking Jev picked for this prompt under Auto; nil when it picked none.
     var auto: AutoPick?
-    /// A prompt said aloud in live mode on the Mac, which the chat shows as a transcript.
+    /// A prompt said aloud in live mode, which the chat shows as a transcript.
     var spoken = false
     /// When the server saved a reply from the history, in epoch milliseconds; 0 otherwise.
     var repliedAt: Int64 = 0
@@ -79,6 +79,8 @@ struct QueuedMessage: Equatable {
     var text: String
     var images: [Data]
     var files: [SentFile] = []
+    /// Said in live mode, so it goes out as spoken and its reply is read out.
+    var spoken = false
 }
 
 /// The open chat and the run streaming into it.
@@ -99,6 +101,8 @@ struct Chat: Equatable {
     var pendingThinking: ReasoningLevel?
     /// Whether `pendingText` starts a research rather than asking Beep.
     var pendingResearch = false
+    /// Whether `pendingText` was said in live mode.
+    var pendingSpoken = false
     var thinking = ""
     var error = ""
     /// Messages waiting for the reply to finish, sent one by one.
@@ -121,6 +125,7 @@ struct Chat: Equatable {
         pendingModel = ""
         pendingThinking = nil
         pendingResearch = false
+        pendingSpoken = false
     }
 }
 
@@ -158,6 +163,8 @@ final class AppModel {
     var pendingMention: String?
     /// Text quoted from a research's workspace, for the chat's composer to take when it shows.
     var pendingQuote: String?
+    /// What was said in live voice and not sent, for the chat's composer to take when it shows.
+    var pendingDraft: String?
     /// The chats that are researches: every one the server listed, and those started here since.
     private(set) var researches: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "researches") ?? [])
     /// The last line of each chat for the list, cached by the chat's update time.
@@ -172,6 +179,10 @@ final class AppModel {
     private(set) var models: Models?
 
     private var client: BeepClient?
+    /// Live voice: the session, its screen's state and the chat it talks in.
+    @ObservationIgnored lazy var live = LiveVoice(model: self)
+    /// The run answering the last spoken message, whose events live mode reads out.
+    @ObservationIgnored private var liveRunId = ""
     /// get_route cards by call id. A plan does not change, so each is fetched once.
     @ObservationIgnored private var routes: [String: RouteCard] = [:]
     private var runTask: Task<Void, Never>?
@@ -669,21 +680,46 @@ final class AppModel {
     // MARK: Runs
 
     /// Sends a message, with up to eight pictures as JPEGs and any other files.
-    func send(_ text: String, images: [Data] = [], files: [SentFile] = []) {
+    func send(_ text: String, images: [Data] = [], files: [SentFile] = [], spoken: Bool = false) {
         var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty || !files.isEmpty, !chat.busy else { return }
         // The server needs words; a file sent on its own gets some, as Android does.
         if trimmed.isEmpty, !files.isEmpty { trimmed = files.count + images.count > 1 ? "Have a look at these files." : "Have a look at this file." }
         if chat.messages.isEmpty { chat.title = String((trimmed.isEmpty ? "Photo" : trimmed).prefix(44)) }
-        startTurn(trimmed, images: images.map(dataURI), files: files)
+        startTurn(trimmed, images: images.map(dataURI), files: files, spoken: spoken)
+    }
+
+    /// A message said in live mode, in chat `chatId` or, when nil, a new one. It waits for a
+    /// reply still running, as a typed message would. Returns the chat it went to.
+    func sendSpoken(_ text: String, in chatId: String?) -> String {
+        openGroup = nil
+        if let chatId { openChat(chatId) } else { newChat() }
+        destination = .chat(chat.id)
+        if chat.busy {
+            chat.queued.append(QueuedMessage(text: text, images: [], spoken: true))
+        } else {
+            send(text, spoken: true)
+        }
+        return chat.id
+    }
+
+    /// Starts live voice on this account's connection.
+    func startLive(_ listener: LiveListener, holding: Bool) async throws -> LiveSession {
+        ensureConnected()
+        // A launch from the Action Button can come as the app starts, before it connected.
+        let deadline = Date.now.addingTimeInterval(10)
+        while !connected, Date.now < deadline {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        return try await api().startLive(listener: listener, start: LiveStart(sendOnPause: live.sendOnPause, holding: holding))
     }
 
     /// Shows `text` as the user's next prompt and sends it, on `model` at `thinking` for a rerun.
     private func startTurn(_ text: String, images: [String], files: [SentFile], model: String = "",
-                           thinking: ReasoningLevel? = nil, research: Bool = false) {
+                           thinking: ReasoningLevel? = nil, research: Bool = false, spoken: Bool = false) {
         chat.messages.append(Message(id: UUID().uuidString, role: .user, text: text,
                                      pictures: images.map { Picture(dataUri: $0) }, files: files,
-                                     model: model, modelThinking: thinking))
+                                     model: model, modelThinking: thinking, spoken: spoken))
         chat.requestId = UUID().uuidString.lowercased()
         chat.pendingText = text
         chat.pendingImages = images
@@ -691,6 +727,7 @@ final class AppModel {
         chat.pendingModel = model
         chat.pendingThinking = thinking
         chat.pendingResearch = research
+        chat.pendingSpoken = spoken
         chat.error = ""
         launchRun()
     }
@@ -789,7 +826,7 @@ final class AppModel {
     /// Sends the first queued message now; the rest follow it.
     func sendQueued() {
         guard !chat.busy, let next = unqueue(0) else { return }
-        send(next.text, images: next.images, files: next.files)
+        send(next.text, images: next.images, files: next.files, spoken: next.spoken)
     }
 
     /// Sends the last prompt again after a run that did not finish.
@@ -916,6 +953,7 @@ final class AppModel {
                     connected = false
                     chat.error = failures < 4 ? "Reconnecting…" : describe(error)
                     if failures >= 4 {
+                        if chat.pendingSpoken || (!liveRunId.isEmpty && chat.runId == liveRunId) { live.replyFailed() }
                         connect()
                         return
                     }
@@ -929,6 +967,9 @@ final class AppModel {
     private func sendPending(_ api: BeepClient, _ chat: Chat) async throws -> EventStream {
         if chat.pendingResearch {
             return try await api.startResearch(sessionId: chat.id, requestId: chat.requestId, topic: chat.pendingText)
+        }
+        if chat.pendingSpoken {
+            return try await api.chatSpoken(sessionId: chat.id, requestId: chat.requestId, message: chat.pendingText)
         }
         return try await api.chat(
             sessionId: chat.id, requestId: chat.requestId, message: chat.pendingText,
@@ -985,6 +1026,7 @@ final class AppModel {
 
     private func handle(_ received: Event) throws {
         if case .runStarted(let runId, _) = received.event {
+            if chat.pendingSpoken { liveRunId = runId }
             chat.runId = runId
             chat.cursor = 0
             chat.clearPending()
@@ -992,6 +1034,11 @@ final class AppModel {
         guard received.seq > chat.cursor else { return }
         guard received.seq == chat.cursor + 1 else { throw MissedEvent() }
         chat.cursor = received.seq
+        // Live mode reads out the reply to what was said.
+        if !liveRunId.isEmpty, chat.runId == liveRunId {
+            live.reply(received.event)
+            if case .runFinished = received.event { liveRunId = "" }
+        }
         let mid = "assistant-\(chat.runId)"
 
         switch received.event {
@@ -1493,15 +1540,11 @@ func describe(_ error: Error) -> String {
     }
 }
 
-// MARK: Bridge calls v2 still needs
+// MARK: Spoken turns
 
-// TODO(v2 bridge): every call in this extension uses a `BeepClient` function the uniffi bridge in
-// crates/android-bridge does not export yet. It is written against the name and shape the
-// request has in crates/proto, so it builds once the bridge adds it.
 extension AppModel {
-    /// When each spoken prompt of a chat was sent: `SpokenTurns` (request 114). Needs
-    /// `BeepClient.spokenTurns(sessionId: String) async throws -> [Int64]`. Empty on servers from
-    /// before spoken turns, which just means every turn shows as typed.
+    /// When each spoken prompt of a chat was sent. Empty on servers from before spoken turns,
+    /// which just means every turn shows as typed.
     func spokenTurnTimes(_ sessionId: String) async -> Set<Int64> {
         Set((try? await api().spokenTurns(sessionId: sessionId)) ?? [])
     }
