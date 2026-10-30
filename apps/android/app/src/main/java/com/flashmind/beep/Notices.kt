@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import com.flashmind.beep.ffi.NoticeListener
+import com.flashmind.beep.ffi.resolvedQuestion
 import com.flashmind.beep.proto.Notice
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -22,6 +23,8 @@ object Notices : NoticeListener {
     private fun show(app: BeepApplication, notice: Notice) {
         // A chat changed on the server, maybe from another phone.
         if (notice.group) { showGroup(app, notice); return }
+        // A background question stopped waiting; such a notice also says the chat changed.
+        resolvedQuestion(notice)?.let { app.repository.resolveQuestion(notice.sessionId, it); return }
         if (notice.changed) { app.repository.refreshHistory(); return }
         val title = notice.title.ifEmpty { return }
         val body = notice.body
