@@ -167,6 +167,13 @@ struct ChatView: View {
             typing = true
         }
         .paperShare(paper)
+        .onChange(of: model.pendingDraft, initial: true) {
+            // What was said in live voice and not sent.
+            guard !inBrowser, let text = model.pendingDraft else { return }
+            model.pendingDraft = nil
+            let before = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft = before.isEmpty ? text : before + " " + text
+        }
         .onChange(of: model.composeNext, initial: true) {
             guard model.composeNext else { return }
             model.composeNext = false
@@ -303,6 +310,16 @@ struct ChatView: View {
                     .buttonStyle(ChunkyButton())
                     .accessibilityLabel("Workspace")
             }
+            Button {
+                typing = false
+                voice.stop()
+                model.live.start(from: .app)
+            } label: {
+                Image(systemName: "waveform").font(.system(size: 19, weight: .medium)).foregroundStyle(Mint.muted)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Talk live")
             Button {
                 typing = false
                 newChat()
