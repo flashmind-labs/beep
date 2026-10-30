@@ -133,6 +133,7 @@ fn main() {
             work::list_work,
             work::cancel_work,
             work::answer_work,
+            work::list_questions,
             commands::open_file,
             commands::picture,
             commands::save_file,
@@ -296,6 +297,15 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
         if beep.link_state() == LinkState::Unlinked {
             beep.set_link_state(LinkState::Linked);
             became_linked(&app);
+        }
+        // Checked before `changed`, which a resolved question also sets.
+        if let Some(query_id) = notice.resolved_question() {
+            let resolved = work::Resolved {
+                session_id: notice.session_id.clone(),
+                query_id: query_id.to_owned(),
+            };
+            let _ = app.emit("work-resolved", resolved);
+            continue;
         }
         if notice.group {
             group_notice(&app, &beep, notice);
