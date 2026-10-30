@@ -7,7 +7,8 @@ import UIKit
 struct ToolCall: Identifiable, Equatable {
     var id: String
     var name: String
-    /// The server's words for the call, such as "Recalling memories"; empty from the history.
+    /// The server's words for the call, such as "Recalling memories". From the history only
+    /// a server that kept them gives them.
     var description = ""
     private(set) var done = false
     private(set) var success = true
@@ -499,9 +500,11 @@ final class AppModel {
         let files = (try? await api().getSessionFiles(id: id)) ?? []
         // Likewise a server from before it named agents.
         let agents = (try? await api().getSessionAgents(id: id)) ?? []
+        // And one from before it kept each step's words, whose steps keep the fallback labels.
+        let labels = (try? await api().getToolLabels(sessionId: id)) ?? []
         spokenTurns[id] = await spokenTurnTimes(id)
         guard chat.id == id, !chat.busy else { return }
-        show(entries, images: images, files: files, agents: agents, at: updatedAt)
+        show(entries, images: images, files: files, agents: agents, labels: labels, at: updatedAt)
         ChatStore.saveHistory(id, HistoryCache(updatedAt: updatedAt, entries: entries, images: images, files: files))
         if let session = sessions.first(where: { $0.id == id }) { remember(preview(entries), for: session) }
     }
@@ -509,7 +512,11 @@ final class AppModel {
     /// Puts a fetched or saved history on screen as the open chat's messages. Turns where
     /// the model only called tools fold into the next reply with text, as on Android.
     private func show(_ entries: [HistoryEntry], images: [SentImages], files: [SentFiles], agents: [TurnAgent] = [],
-                      at updatedAt: Int64) {
+                      labels: [ToolLabel] = [], at updatedAt: Int64) {
+        // The server's words for each step, as the live call carried them; steps from before
+        // it kept them have none and get the label from the tool's name.
+        var described: [String: String] = [:]
+        for label in labels { described[label.callId] = label.description }
         var agentByTurn: [Int64: String] = [:]
         for turn in agents { agentByTurn[turn.message] = turn.agent ?? "" }
         var turnAt: Int64 = 0
@@ -538,7 +545,10 @@ final class AppModel {
                 pendingReasoning = ""
                 messages.append(Message(id: mid, role: .scheduled, text: label, sentAt: timestamp))
             case .assistant(let content, let timestamp, let tools, let memoryScore, let reasoning, let model):
-                let calls = pendingTools + tools.map { ToolCall(id: $0.callId, name: $0.name, done: true, success: $0.success, output: $0.output) }
+                let calls = pendingTools + tools.map {
+                    ToolCall(id: $0.callId, name: $0.name, description: described[$0.callId] ?? "",
+                             done: true, success: $0.success, output: $0.output)
+                }
                 let thought = [pendingReasoning, reasoning].filter { !$0.isEmpty }.joined(separator: "\n\n")
                 if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     pendingTools = calls
