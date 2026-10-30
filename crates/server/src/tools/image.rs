@@ -16,6 +16,9 @@ const MAX_IMAGES: usize = 6;
 /// How long checking one image may take, redirects included.
 const CHECK_TIME: Duration = Duration::from_secs(10);
 
+/// The tool's name, which the apps and the routine notice look for.
+pub(crate) const NAME: &str = "send_image";
+
 /// Shows images in the chat, from the web or from the user's file folder.
 /// Each URL is fetched first, so a made-up link fails here instead of
 /// showing as a broken image on the phone. A folder image is kept with the
@@ -29,7 +32,7 @@ pub(crate) struct SendImageTool {
 #[async_trait]
 impl Tool for SendImageTool {
     fn name(&self) -> &str {
-        "send_image"
+        NAME
     }
     fn description(&self) -> &str {
         "Send images to the user; they show in the chat as pictures. Give each one either `url`, an https image URL you got from a tool, a page or the user and never one you made up, or `path`, a PNG, JPEG, GIF or WebP in the user's file folder, such as a chart execute_code drew. Use this rather than send_file for images. Each one is checked, and ones that are not images are reported back."

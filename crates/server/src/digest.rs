@@ -76,7 +76,12 @@ pub(crate) async fn offer(user: &User) {
 }
 
 /// Starts the digest run for `job`, or `None` when no mailbox is connected.
-pub(crate) async fn run(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Result<Option<Run>> {
+pub(crate) async fn run(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    job: &CronJob,
+    busy: cron::WhenBusy,
+) -> Result<Option<Run>> {
     let mailboxes: Vec<Mailbox> = user
         .feeds()
         .await
@@ -141,7 +146,7 @@ pub(crate) async fn run(app: &Arc<App>, user: &Arc<User>, job: &CronJob) -> Resu
         report.emails.iter().filter(|email| email.flagged).count()
     );
 
-    let run = cron::submit(app, user, job, &prompt(job, &report)).await?;
+    let run = cron::submit(app, user, job, &prompt(job, &report), busy).await?;
     // The run has started, so a failure here must not report the routine as
     // failed; the emails stay flagged for the next digest.
     for (mailbox, ids) in handled {

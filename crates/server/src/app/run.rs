@@ -762,9 +762,23 @@ impl App {
 
         // A routine that found nothing to say leaves no trace in the chat.
         let silent = is_cron && status == RunStatus::Completed && !notify.load(Ordering::SeqCst);
+        // A routine that told the user something shows only what it told
+        // them, which is also the notice: not a sign-off written after it.
+        let notice_only = is_cron && status == RunStatus::Completed;
+        let told = notice_only
+            .then(|| steps::routine_reply(conversation.entries(), Some(turn_started)))
+            .flatten();
+        let told = match &told {
+            Some(Step {
+                body: StepBody::Assistant { content },
+                ..
+            }) => content.as_str(),
+            _ if notice_only => "",
+            _ => reply.as_str(),
+        };
         // A run that stops to ask notifies with the question instead.
         if (is_cron || message.finished_research) && status != RunStatus::Waiting && !silent {
-            self.notify_run_complete(user, run, status, &reply).await;
+            self.notify_run_complete(user, run, status, told).await;
         }
 
         // A resumed turn counts from the message that started it.
@@ -920,17 +934,21 @@ impl App {
         }
         // A routine that found nothing to say shows nothing. One that told
         // the user something shows only what it told them, as a message of
-        // its own: no routine turn, and nothing of how it checked.
-        let notice_only = is_cron && status == RunStatus::Completed;
+        // its own, with the pictures and files it sent: no routine turn, and
+        // nothing of how it checked.
         let mut saved = if silent {
             steps::Steps::default()
         } else if notice_only {
-            steps::last_reply(steps::steps(
+            steps::routine_notice(
                 conversation.entries(),
                 Some(turn_started),
-                &failed_tools,
-                &turns,
-            ))
+                steps::steps(
+                    conversation.entries(),
+                    Some(turn_started),
+                    &failed_tools,
+                    &turns,
+                ),
+            )
         } else {
             steps::steps(
                 conversation.entries(),
@@ -957,6 +975,10 @@ impl App {
         // A routine's turn joins the chat's context, unless it stayed silent.
         let stored = chat_context.map(|mut chat_context| {
             if !silent {
+                // Showing the turn drops the chat's waiting card, so the
+                // call it asked about is answered as not done rather than
+                // left open, which the model would never hear of.
+                permissions::close_open_calls(&mut chat_context, permissions::SUPERSEDED);
                 conversation
                     .entries()
                     .iter()
@@ -1061,10 +1083,11 @@ impl App {
             updated_at: finished.map(|saved| SystemTime::from(saved.updated_at)),
         });
         // A chat made for a routine's run that found nothing is not kept,
-        // so the user never sees an empty one.
+        // so the user never sees an empty one. Another run may have started
+        // in it since this one was saved, so it goes only while still empty.
         if silent
             && fresh_chat
-            && let Err(error) = user.delete_session(chat).await
+            && let Err(error) = user.delete_empty_session(chat).await
         {
             log::warn!(
                 "unable to delete a quiet routine's chat: {error:#}; run_id={}",
