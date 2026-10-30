@@ -180,6 +180,7 @@ pub fn router() -> Router {
         .call(live::filler)
         .call(work::list_work)
         .call(work::cancel_work)
+        .call(work::list_questions)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -506,11 +507,14 @@ async fn suggest_prompts(
 /// Pushes the user's notices until the connection closes.
 async fn stream_notifications(cx: Cx, _: StreamNotifications, sink: Sink<Notice>) -> Reply<()> {
     let mut rx = cx.app.notifications.subscribe();
+    // An app from before resolved questions would only refresh the chat.
+    let resolves = cx.supports(Feature::QUESTIONS);
     loop {
         tokio::select! {
             _ = cx.connection.closed() => return Ok(()),
             received = rx.recv() => match received {
-                Ok(event) if event.user == cx.user.id() => {
+                Ok(event) if event.user == cx.user.id()
+                    && (resolves || event.notice.resolved_question().is_none()) => {
                     match timeout(SEND_TIMEOUT, sink.send(&event.notice)).await {
                         Ok(sent) => sent?,
                         Err(_) => return Ok(()),
