@@ -639,6 +639,7 @@ impl App {
             }
         }
 
+        crate::tool_cost::log("group", &registry);
         let model = self.model_for(actor).await;
         let mut llm = self
             .llm
