@@ -288,7 +288,7 @@ class ChatRepository(private val storage: LocalStorage) {
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + entry.tools.map {
-                        ToolCall(it.callId, it.name, toolLabel(it.name), isDone = true, success = it.success, result = it.output)
+                        ToolCall(it.callId, it.name, isDone = true, success = it.success, result = it.output)
                     }
                     val reasoning = joinReasoning(pendingReasoning, entry.reasoning)
                     if (entry.content.isBlank()) { pending = tools; pendingReasoning = reasoning; null }
@@ -1467,15 +1467,15 @@ class ChatRepository(private val storage: LocalStorage) {
                 }
                 is RunEvent.ReasoningDelta -> next = next.copy(thinking = (chat.thinking + event.delta).takeLast(MAX_REASONING))
                 is RunEvent.ToolStarted -> {
-                    val description = toolLabel(event.name).ifEmpty { "Using a tool..." }
-                    val tc = ToolCall(callId = event.callId, name = event.name, description = description)
+                    // What the server says the call does, such as which action of the memory tool it takes.
+                    val tc = ToolCall(callId = event.callId, name = event.name, description = event.description)
                     next = next.withReply(messageId, { existing ->
                         // An answered approval starts the call it already shows.
                         val known = event.callId.isNotEmpty() && existing.toolCalls.any { it.callId == event.callId }
                         existing.copy(toolCalls = if (known) existing.toolCalls else existing.toolCalls + tc,
                             reasoning = joinReasoning(existing.reasoning, chat.thinking))
                     }, { ChatMessage(messageId, "assistant", "", toolCalls = listOf(tc), reasoning = chat.thinking.trim()) })
-                    next = next.copy(tool = if (event.name in QUIET_TOOLS) next.tool else description, status = "Working...", thinking = "")
+                    next = next.copy(tool = if (event.name in QUIET_TOOLS) next.tool else callLabel(tc), status = "Working...", thinking = "")
                 }
                 is RunEvent.ToolResult -> {
                     val callId = event.callId
