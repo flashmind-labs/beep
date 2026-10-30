@@ -125,6 +125,16 @@ pub(super) async fn get_session_agents(
         .collect())
 }
 
+pub(super) async fn get_tool_labels(
+    cx: Cx,
+    GetToolLabels { session_id }: GetToolLabels,
+) -> Reply<Vec<ToolLabel>> {
+    cx.user
+        .tool_labels(session_id)
+        .await?
+        .ok_or(ApiError::NotFound {})
+}
+
 pub(super) async fn get_route(cx: Cx, GetRoute { call_id }: GetRoute) -> Reply<RouteCardV1> {
     get_route_card(cx, GetRouteCard { call_id })
         .await

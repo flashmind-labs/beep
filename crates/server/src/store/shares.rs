@@ -11,7 +11,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use flashmind::core::Conversation;
 use sqlx::Row;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// A shared copy of a session.
@@ -142,7 +142,7 @@ impl Store {
         let copied = steps::steps(
             conversation.entries(),
             None,
-            &HashSet::new(),
+            &steps::CallNotes::default(),
             &HashMap::new(),
         );
         let ids = insert_steps(&mut tx, chat, user.as_str(), &copied.steps, None).await?;

@@ -3,7 +3,10 @@
 
 use crate::protocol::{Event, RunEvent};
 use flashmind::core::CancellationToken;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, MutexGuard, PoisonError},
+};
 use tokio::sync::broadcast;
 
 pub struct LiveRun {
@@ -57,6 +60,21 @@ impl LiveRun {
         Self::after(&self.events(), after)
     }
 
+    /// What each tool call of the run showed when it started, by call id.
+    pub fn tool_descriptions(&self) -> HashMap<String, String> {
+        self.events()
+            .iter()
+            .filter_map(|event| match &event.event {
+                RunEvent::ToolStarted {
+                    call_id,
+                    description,
+                    ..
+                } => Some((call_id.clone(), description.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn after(events: &[Event], after: i64) -> Vec<Event> {
         let start = usize::try_from(after).unwrap_or(0).min(events.len());
         events[start..].to_vec()
@@ -64,5 +82,30 @@ impl LiveRun {
 
     fn events(&self) -> MutexGuard<'_, Vec<Event>> {
         self.events.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_descriptions_come_from_started_tools() {
+        let live = LiveRun::new(CancellationToken::new());
+        live.push(RunEvent::ToolStarted {
+            name: "recall".to_owned(),
+            call_id: "a".to_owned(),
+            description: "Recalling memories".to_owned(),
+        });
+        live.push(RunEvent::ToolResult {
+            name: "recall".to_owned(),
+            call_id: "a".to_owned(),
+            output: "tea".to_owned(),
+            success: true,
+        });
+        assert_eq!(
+            live.tool_descriptions(),
+            HashMap::from([("a".to_owned(), "Recalling memories".to_owned())])
+        );
     }
 }

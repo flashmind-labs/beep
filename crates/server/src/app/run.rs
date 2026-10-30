@@ -958,6 +958,10 @@ impl App {
             memory_score: if answer.is_none() { memory_score } else { None },
         };
         let mut turns = TurnsByTime::new();
+        let calls = steps::CallNotes {
+            failed: failed_tools,
+            descriptions: live.tool_descriptions(),
+        };
         if let Some(asked) = conversation
             .entries()
             .iter()
@@ -975,20 +979,10 @@ impl App {
             steps::routine_notice(
                 conversation.entries(),
                 Some(turn_started),
-                steps::steps(
-                    conversation.entries(),
-                    Some(turn_started),
-                    &failed_tools,
-                    &turns,
-                ),
+                steps::steps(conversation.entries(), Some(turn_started), &calls, &turns),
             )
         } else {
-            steps::steps(
-                conversation.entries(),
-                Some(turn_started),
-                &failed_tools,
-                &turns,
-            )
+            steps::steps(conversation.entries(), Some(turn_started), &calls, &turns)
         };
         // What grants let through comes first, so the reply after it reads
         // in order.

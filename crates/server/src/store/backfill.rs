@@ -109,7 +109,11 @@ async fn backfill(tx: &mut PgConnection, chat: Uuid) -> Result<()> {
         turns.entry(row.try_get(0)?).or_default().memory_score = Some(row.try_get(1)?);
     }
 
-    let mut saved = steps::steps(transcript.entries(), None, &failures, &turns).steps;
+    let calls = steps::CallNotes {
+        failed: failures,
+        ..steps::CallNotes::default()
+    };
+    let mut saved = steps::steps(transcript.entries(), None, &calls, &turns).steps;
     if let Some(HistoryEntry::Approval { query_id, approval }) =
         permissions::waiting_approval(&transcript)
     {
