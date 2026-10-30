@@ -237,6 +237,14 @@ impl From<ApprovalField> for Field {
     }
 }
 
+/// `at` in milliseconds since the Unix epoch, as the bar's page reads times.
+/// A time before the epoch reads as the epoch.
+pub fn epoch_ms(at: SystemTime) -> u64 {
+    at.duration_since(SystemTime::UNIX_EPOCH)
+        .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default()
+}
+
 /// One message of a chat, as the bar shows it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "role", rename_all = "snake_case")]

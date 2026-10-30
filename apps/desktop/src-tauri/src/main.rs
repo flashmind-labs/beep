@@ -9,6 +9,7 @@ mod commands;
 mod desktop;
 mod devices;
 mod error;
+mod grants;
 mod groups;
 mod hotkey;
 mod identity;
@@ -134,6 +135,8 @@ fn main() {
             work::cancel_work,
             work::answer_work,
             work::list_questions,
+            grants::list_grants,
+            grants::revoke_grant,
             commands::open_file,
             commands::picture,
             commands::save_file,
