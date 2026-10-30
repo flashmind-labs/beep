@@ -28,10 +28,6 @@ pub struct BeepCronStore {
 }
 
 impl BeepCronStore {
-    pub fn all(store: Store) -> Self {
-        Self { store, user: None }
-    }
-
     pub fn for_user(store: Store, user: &str) -> Self {
         Self {
             store,
@@ -58,6 +54,41 @@ impl CronStore for BeepCronStore {
 
     async fn delete(&self, id: Uuid) -> Result<bool> {
         let deleted = self.store.delete_cron_job(id, self.user.as_deref()).await?;
+        self.store.notify_crons_changed();
+        Ok(deleted)
+    }
+}
+
+/// The scheduler's view of the `crons` table: every job it runs. Its only
+/// write after a run is when the job last ran. It reads the job before the
+/// run starts, so writing the whole job back would bring back a routine
+/// that `end_routine` or the user deleted meanwhile, and undo their edits.
+struct SchedulerStore {
+    store: Store,
+}
+
+#[async_trait]
+impl CronStore for SchedulerStore {
+    async fn list(&self) -> Result<Vec<CronJob>> {
+        self.store.cron_jobs(None).await
+    }
+
+    async fn get(&self, id: Uuid) -> Result<Option<CronJob>> {
+        self.store.cron_job(id, None).await
+    }
+
+    async fn upsert(&self, job: &CronJob) -> Result<()> {
+        if !self.store.record_cron_run(job.id, job.last_run).await? {
+            log::debug!(
+                "cron job gone before its run was recorded; job_id={}",
+                job.id
+            );
+        }
+        Ok(())
+    }
+
+    async fn delete(&self, id: Uuid) -> Result<bool> {
+        let deleted = self.store.delete_cron_job(id, None).await?;
         self.store.notify_crons_changed();
         Ok(deleted)
     }
@@ -325,7 +356,9 @@ impl TimezoneResolver for BeepTimezoneResolver {
 }
 
 pub fn start(app: Arc<App>, log_dir: &Path) -> CronRunner {
-    let store = Arc::new(BeepCronStore::all(app.store.clone()));
+    let store = Arc::new(SchedulerStore {
+        store: app.store.clone(),
+    });
     let registry = Arc::new(CronRegistry::new(store));
     let handler = Arc::new(BeepCronHandler { app: app.clone() });
     let cancel = CancellationToken::new();
@@ -539,6 +572,59 @@ mod tests {
         assert_eq!(second, Some(first));
         let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
         assert_eq!(jobs[0].metadata["session_id"], first.to_string());
+    }
+
+    #[tokio::test]
+    async fn the_scheduler_never_brings_back_or_undoes_a_routine() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store opens");
+        let tools = CronRegistry::new(Arc::new(BeepCronStore::for_user(store.clone(), "user")));
+        let scheduler = CronRegistry::new(Arc::new(SchedulerStore {
+            store: store.clone(),
+        }));
+        let job = tools
+            .create_with_metadata(
+                JobSchedule::Cron("*/15 * * * *".to_owned()),
+                "Check whether Sam replied".to_owned(),
+                false,
+                json!({"user_id": "user", "label": "Sam"}),
+            )
+            .await
+            .expect("routine saved");
+
+        // The scheduler read the job, then the user renamed it while it ran.
+        let mut ran = scheduler
+            .get(job.id)
+            .await
+            .expect("job loads")
+            .expect("job exists");
+        let mut renamed = job.clone();
+        renamed.metadata["label"] = json!("Sam's reply");
+        tools.update(&renamed).await.expect("rename saved");
+        ran.last_run = Some(Utc::now());
+        scheduler.update(&ran).await.expect("run recorded");
+        let now = store
+            .cron_job(job.id, None)
+            .await
+            .expect("job loads")
+            .expect("job exists");
+        assert_eq!(now.metadata["label"], "Sam's reply");
+        assert!(now.last_run.is_some());
+
+        // The run ended its routine before the scheduler recorded it.
+        let tool = EndRoutineTool::new(store.clone(), "user", job.id);
+        let cancel = CancellationToken::new();
+        tool.execute(ToolContext::new("call", json!({}), None, &cancel))
+            .await
+            .expect("tool runs");
+        scheduler.update(&ran).await.expect("run recorded");
+        assert!(
+            store
+                .cron_job(job.id, None)
+                .await
+                .expect("job loads")
+                .is_none()
+        );
     }
 
     #[tokio::test]
