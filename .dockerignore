@@ -5,3 +5,5 @@
 crates/*/target/
 !deploy/entrypoint.sh
 !deploy/onprem/entrypoint.sh
+!deploy/onprem/egress.sh
+!deploy/onprem/node-entrypoint.sh
