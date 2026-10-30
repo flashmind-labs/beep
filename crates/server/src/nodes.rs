@@ -1,10 +1,12 @@
 //! Nodes: machines running `beep-node` that Beep runs work on (see
 //! `beep_proto::node`). Each keeps one connection open on `NODE_ALPN`; the
 //! server notes what it reports and keeps the connection so sessions can be
-//! opened on it. Only admins may connect one for now.
+//! opened on it. Only admins may connect one for now, and a single-user
+//! server's settings can turn them off.
 
 use crate::{
     app::App,
+    instance::Privilege,
     protocol::{
         DeviceKind,
         link::LinkOffer,
@@ -163,7 +165,7 @@ impl ProtocolHandler for NodeHandler {
                 return Ok(());
             }
         };
-        if !self.app.models.is_admin(user.id()) {
+        if !self.app.allows(Privilege::Nodes, &user) {
             connection.close(VarInt::from_u32(CLOSE_NOT_ALLOWED), b"nodes are for admins");
             return Ok(());
         }
@@ -250,6 +252,9 @@ pub async fn link_machine(nodes: &Nodes, user: &User, text: &str) -> Result<Stri
     offer
         .verify(server, SystemTime::now())
         .map_err(|e| anyhow::anyhow!("Could not link it: {e}."))?;
+    if offer.device == server {
+        bail!("That is this server's own link code, not a machine's.");
+    }
     let name = offer.name.trim();
     let key = NewKey {
         endpoint: offer.device,

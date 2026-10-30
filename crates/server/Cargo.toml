@@ -45,6 +45,7 @@ imagesize = "0.14"
 jsonwebtoken = "9.3"
 # A research's paper as a PDF: Markdown read with pulldown-cmark, its LaTeX math
 # turned into Typst's with mitex, typeset by Typst with its bundled fonts.
+qrcode = { version = "0.14", default-features = false }
 pulldown-cmark = { version = "0.13", default-features = false }
 mitex = "0.2"
 typst = "0.15"

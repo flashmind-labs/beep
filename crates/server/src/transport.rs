@@ -2,7 +2,8 @@
 
 use crate::{
     api,
-    app::App,
+    app::{Admission, App},
+    client::CLOSE_NOT_INVITED,
     protocol::{
         ClientInfo, DeviceKind, Hello, Platform, Rpc,
         wire::{Frame, Rx, Tx, framed},
@@ -50,10 +51,14 @@ impl BeepHandler {
 impl ProtocolHandler for BeepHandler {
     async fn accept(&self, connection: Connection) -> std::result::Result<(), AcceptError> {
         // The key the client connected with is who it is.
-        let signed_in = match self.app.sign_in(&connection.remote_id()).await {
-            Ok(Some(signed_in)) => signed_in,
-            Ok(None) => {
+        let signed_in = match self.app.admit(&connection.remote_id()).await {
+            Ok(Admission::SignedIn(signed_in)) => signed_in,
+            Ok(Admission::Revoked) => {
                 connection.close(VarInt::from_u32(CLOSE_REVOKED), b"removed");
+                return Ok(());
+            }
+            Ok(Admission::NotInvited) => {
+                connection.close(VarInt::from_u32(CLOSE_NOT_INVITED), b"not invited");
                 return Ok(());
             }
             Err(e) => {

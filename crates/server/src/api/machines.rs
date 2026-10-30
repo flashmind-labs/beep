@@ -2,6 +2,7 @@
 
 use super::Reply;
 use crate::{
+    instance::Privilege,
     protocol::{node::EnvReport, *},
     router::Cx,
     store::NodeRow,
@@ -11,7 +12,7 @@ use std::collections::HashSet;
 /// Admins only, like nodes themselves. A machine whose key was unlinked
 /// is left out.
 pub(super) async fn list_machines(cx: Cx, _: ListMachines) -> Reply<Vec<Machine>> {
-    if !cx.app.models.is_admin(cx.user.id()) {
+    if !cx.app.allows(Privilege::Nodes, &cx.user) {
         return Err(ApiError::Unauthorized {});
     }
     let keys: HashSet<String> = cx

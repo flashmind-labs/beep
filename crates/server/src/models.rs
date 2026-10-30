@@ -259,6 +259,14 @@ impl ModelChoices {
         }
     }
 
+    /// Makes account `user` an admin, as the owner of a single-user server.
+    pub fn make_admin(&self, user: &str) {
+        self.admins
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(user.to_owned());
+    }
+
     pub fn default_model(&self) -> &Model {
         &self.choices[0].model
     }
