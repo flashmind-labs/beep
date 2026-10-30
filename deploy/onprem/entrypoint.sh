@@ -1,9 +1,13 @@
 #!/bin/sh
 # Starts the server of the deploy/onprem bundle. It writes /data/config.toml
 # from the BEEP_* settings in .env on every start (unless BEEP_CONFIG names a
-# config of its own), copies key files from /local, then runs the server as
-# `beep`. Runs as root only for that.
+# config of its own), copies key files from /local, caps outgoing traffic
+# (see egress.sh), then runs the server as `beep` with no capabilities. Runs
+# as root only for that.
+#
+# `link` as the command prints the link code instead, without serving.
 set -eu
+mode=${1:-serve}
 umask 077
 
 # A TOML string, quoted.
@@ -38,13 +42,15 @@ local_file() {
 }
 
 render() {
-    : "${BEEP_PROVIDER_KEY:?Set BEEP_PROVIDER_KEY in .env}"
+    if [ "$mode" != link ]; then
+        : "${BEEP_PROVIDER_KEY:?Set BEEP_PROVIDER_KEY in .env}"
+    fi
     text secret_key /data/iroh-key
     text log_dir /data/logs
     text model "${BEEP_MODEL:-openrouter:z-ai/glm-5.3-flash}"
     text vision_model "${BEEP_VISION_MODEL:-}"
     text reasoning "${BEEP_REASONING:-}"
-    text provider_key "$BEEP_PROVIDER_KEY"
+    text provider_key "${BEEP_PROVIDER_KEY:-}"
     text firecrawl_key "${BEEP_FIRECRAWL_KEY:-}"
     text openai_key "${BEEP_OPENAI_KEY:-}"
     text mistral_key "${BEEP_MISTRAL_KEY:-}"
@@ -83,6 +89,14 @@ if [ -z "$config" ]; then
     mv "$config.partial" "$config"
 fi
 
+if [ "$mode" = link ]; then
+    set -- link "$config"
+else
+    # Refuses to go on when the cap cannot be applied.
+    beep-egress
+    set -- "$config"
+fi
+
 if [ "$(id -u)" = 0 ]; then
     # The folder the bundled node shares; each side writes its own file.
     mkdir -p /link
@@ -90,6 +104,6 @@ if [ "$(id -u)" = 0 ]; then
     chown -R beep:beep /data
     exec setpriv --reuid beep --regid beep --init-groups \
         --inh-caps=-all --bounding-set=-all \
-        env HOME=/home/beep beep-server "$config"
+        env HOME=/home/beep beep-server "$@"
 fi
-exec beep-server "$config"
+exec beep-server "$@"
