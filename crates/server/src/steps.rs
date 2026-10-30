@@ -132,6 +132,18 @@ pub fn steps(
     out
 }
 
+/// Only the last reply with text of `steps`: what a routine told the user,
+/// without its opening, its tools or its reasoning.
+pub fn last_reply(steps: Steps) -> Steps {
+    let reply = steps.steps.into_iter().rev().find(
+        |step| matches!(&step.body, StepBody::Assistant { content } if !content.trim().is_empty()),
+    );
+    Steps {
+        steps: reply.into_iter().collect(),
+        carried_reasoning: String::new(),
+    }
+}
+
 /// Gives the reasoning gathered so far to the turn at `opener`, or to the
 /// turn carried on when there is none yet.
 fn finish(out: &mut Steps, opener: Option<usize>, reasoning: &mut String) {
@@ -176,6 +188,11 @@ pub fn history(messages: &[StoredMessage]) -> Vec<HistoryEntry> {
                 });
             }
             StoredBody::Assistant { content } => {
+                // A routine's notice stands outside any turn, so the turn
+                // before keeps its own reply and tools.
+                if message.turn_id.is_none() {
+                    turn.finish(&mut history);
+                }
                 turn.last_reply = Some(history.len());
                 history.push(HistoryEntry::Assistant {
                     content: content.clone(),
@@ -281,21 +298,32 @@ mod tests {
         failures: &HashSet<String>,
         turns: &TurnsByTime,
     ) -> Vec<HistoryEntry> {
-        let messages: Vec<StoredMessage> = steps(entries, None, failures, turns)
-            .steps
+        history(&stored(steps(entries, None, failures, turns).steps, 1))
+    }
+
+    /// `steps` saved as the store does from id `first` on. Steps before the
+    /// first opener stand alone.
+    fn stored(steps: Vec<Step>, first: i64) -> Vec<StoredMessage> {
+        let mut turn_id = None;
+        steps
             .into_iter()
             .enumerate()
-            .map(|(id, step)| StoredMessage {
-                id: id as i64 + 1,
-                chat_id: Uuid::nil(),
-                turn_id: None,
-                sent_at: step.sent_at,
-                author_id: None,
-                body: step.body.into(),
-                images: Vec::new(),
+            .map(|(index, step)| {
+                let id = index as i64 + first;
+                if step.body.opens_turn() {
+                    turn_id = Some(id);
+                }
+                StoredMessage {
+                    id,
+                    chat_id: Uuid::nil(),
+                    turn_id,
+                    sent_at: step.sent_at,
+                    author_id: None,
+                    body: step.body.into(),
+                    images: Vec::new(),
+                }
             })
-            .collect();
-        history(&messages)
+            .collect()
     }
 
     #[test]
@@ -405,6 +433,64 @@ mod tests {
         assert_eq!(label, "Plants");
         assert_eq!(content, "Thanks");
         assert_eq!(old, "Old");
+    }
+
+    #[test]
+    fn a_routines_notice_shows_alone_after_the_turn_before() {
+        let call = ToolCall {
+            id: "a".into(),
+            name: "open_maps".into(),
+            arguments: json!({}),
+        };
+        let chat = [
+            ConversationEntry::user("Where is lunch?"),
+            ConversationEntry::assistant_with_tool_calls("", vec![call.clone()], None),
+            ConversationEntry::tool("a", "map"),
+            ConversationEntry::assistant("Here it is."),
+        ];
+        let routine = [
+            ConversationEntry::system_message(cron::scheduled_context("Reply")),
+            ConversationEntry::user("Check whether Sam replied."),
+            ConversationEntry::assistant_with_tool_calls(
+                "Checking.",
+                vec![ToolCall {
+                    id: "b".into(),
+                    ..call
+                }],
+                Some("Look.".into()),
+            ),
+            ConversationEntry::tool("b", "found"),
+            ConversationEntry::assistant("Sam replied: lunch is on."),
+        ];
+        let notice = last_reply(steps(&routine, None, &HashSet::new(), &HashMap::new()));
+        assert!(notice.carried_reasoning.is_empty());
+        let mut messages = stored(
+            steps(&chat, None, &HashSet::new(), &HashMap::new()).steps,
+            1,
+        );
+        // Saved on its own, the notice has no turn.
+        messages.extend(stored(notice.steps, 10));
+        let history = history(&messages);
+        let [
+            HistoryEntry::User { .. },
+            HistoryEntry::Assistant {
+                content: reply,
+                tools,
+                ..
+            },
+            HistoryEntry::Assistant {
+                content: told,
+                tools: none,
+                ..
+            },
+        ] = history.as_slice()
+        else {
+            panic!("unexpected history: {history:?}");
+        };
+        assert_eq!(reply, "Here it is.");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(told, "Sam replied: lunch is on.");
+        assert!(none.is_empty());
     }
 
     #[test]

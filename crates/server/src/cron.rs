@@ -7,8 +7,11 @@ use flashmind::cron::{
     CronCreateTool, CronDeleteTool, CronEditTool, CronHandler, CronJob, CronListTool, CronLog,
     CronRegistry, CronRunner, CronStore, ScheduleOnceTool, TimezoneResolver,
 };
-use flashmind::types::ToolRegistry;
-use serde_json::json;
+use flashmind::types::{
+    ToolRegistry,
+    tool::{Tool, ToolContext, ToolResult},
+};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::agents::AgentId;
@@ -60,6 +63,9 @@ impl CronStore for BeepCronStore {
     }
 }
 
+/// The tool a routine's run ends its own routine with.
+pub(crate) const END_ROUTINE: &str = "end_routine";
+
 /// Starts the context line that marks a routine's turn.
 const SCHEDULED_TASK: &str = "Scheduled task";
 
@@ -69,15 +75,19 @@ this task, not something the user said, and nobody is watching this chat. You se
 this note, not the chat's earlier messages. Do the task. \
 To tell the user something, call notify_user, then write it to them in one or two short, \
 specific sentences of plain text, without Markdown; it is sent as the notification and \
-shown in this chat. A reminder is always sent. A check is sent only when the note's \
-condition is met, judged against what the note says is already known; otherwise \
-do not call notify_user and end with one line on what you found, which the user never \
-sees. Do not mention that a task ran or that this is a reminder. You cannot set up, change \
-or delete reminders or routines here.";
+added to this chat as your message. A reminder is always sent. A check is sent only when \
+the note's condition is met, judged against what the note says is already known; \
+otherwise do not call notify_user and end with one line on what you found, which the user \
+never sees. A check that waits for one thing, such as a reply, a delivery or a launch, is \
+done once you have told the user: then also call end_routine, so it stops and the user \
+hears the news once. A routine meant to repeat, such as a daily digest or a weekly check, \
+keeps running: never end it. Do not mention that a task ran or that this is a reminder. \
+You cannot set up or change reminders or routines here; end_routine ends only this one.";
 
 /// The tools that set up, change or delete what runs later. A routine's run
 /// does not get them: runs that copied their own routine with a fresher
-/// note left the user with the same check several times over.
+/// note left the user with the same check several times over. It gets
+/// [`EndRoutineTool`] instead, which ends only itself.
 pub const CHANGING_TOOLS: &[&str] = &[
     "cron_create",
     "cron_edit",
@@ -207,6 +217,65 @@ pub(crate) async fn submit(
             log::error!("failed to submit cron run: {e}; job_id={}", job.id);
             Err(e)
         }
+    }
+}
+
+/// Ends the routine whose run calls it, and no other: a check that waits
+/// for one thing stops once it has told the user. It takes no arguments,
+/// so a run cannot name another routine.
+pub(crate) struct EndRoutineTool {
+    store: Store,
+    user: String,
+    routine: Uuid,
+}
+
+impl EndRoutineTool {
+    pub(crate) fn new(store: Store, user: &str, routine: Uuid) -> Self {
+        Self {
+            store,
+            user: user.to_owned(),
+            routine,
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for EndRoutineTool {
+    fn name(&self) -> &str {
+        END_ROUTINE
+    }
+
+    fn description(&self) -> &str {
+        "End the routine running now, so it never runs again. Call it once a check that \
+         waits for one thing has told the user. It ends only this routine."
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        })
+    }
+
+    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+        let deleted = self
+            .store
+            .delete_cron_job(self.routine, Some(&self.user))
+            .await?;
+        self.store.notify_crons_changed();
+        Ok(if deleted {
+            ToolResult::success(
+                ctx.tool_call_id,
+                "This routine is ended and will not run again.",
+            )
+        } else {
+            ToolResult::success(ctx.tool_call_id, "This routine had already ended.")
+        })
+    }
+
+    fn humanize(&self, _args: &Value) -> String {
+        "Ending this routine".to_owned()
     }
 }
 
@@ -470,5 +539,59 @@ mod tests {
         assert_eq!(second, Some(first));
         let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
         assert_eq!(jobs[0].metadata["session_id"], first.to_string());
+    }
+
+    #[tokio::test]
+    async fn a_routine_ends_itself_and_no_other() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store opens");
+        let routine = |user: &str| {
+            let tools = CronRegistry::new(Arc::new(BeepCronStore::for_user(store.clone(), user)));
+            let user = user.to_owned();
+            async move {
+                tools
+                    .create_with_metadata(
+                        JobSchedule::Cron("*/15 * * * *".to_owned()),
+                        "Check whether Sam replied".to_owned(),
+                        false,
+                        json!({"user_id": user}),
+                    )
+                    .await
+                    .expect("routine saved")
+            }
+        };
+        let running = routine("user").await;
+        let other = routine("user").await;
+        let theirs = routine("bob").await;
+        let tool = EndRoutineTool::new(store.clone(), "user", running.id);
+
+        // Naming another routine still ends only the one running.
+        let cancel = CancellationToken::new();
+        let args = json!({"id": other.id.to_string()});
+        let result = tool
+            .execute(ToolContext::new("call", args, None, &cancel))
+            .await
+            .expect("tool runs");
+        assert!(result.is_success(), "{}", result.output());
+
+        let left: Vec<Uuid> = store
+            .cron_jobs(None)
+            .await
+            .expect("jobs load")
+            .into_iter()
+            .map(|job| job.id)
+            .collect();
+        assert!(!left.contains(&running.id));
+        assert!(left.contains(&other.id));
+        assert!(left.contains(&theirs.id));
+
+        // A run bound to someone else's routine cannot end it.
+        let foreign = EndRoutineTool::new(store.clone(), "user", theirs.id);
+        foreign
+            .execute(ToolContext::new("call", json!({}), None, &cancel))
+            .await
+            .expect("tool runs");
+        let theirs_left = store.cron_job(theirs.id, None).await.expect("job loads");
+        assert!(theirs_left.is_some());
     }
 }

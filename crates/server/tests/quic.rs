@@ -23,7 +23,7 @@ use beep_server::{
     wake::{self, Event as WakeEvent},
 };
 use chrono::Utc;
-use flashmind::cron::{CronJob, JobSchedule};
+use flashmind::cron::{CronJob, CronRegistry, JobSchedule};
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role,
     StreamEvent, SttRequest, TtsRequest,
@@ -103,6 +103,11 @@ impl LlmProvider for ProviderStub {
             .messages
             .iter()
             .any(|m| m.role == Role::User && m.content.starts_with("Worth it."));
+        // A routine the stub finds done: it tells the user and ends it.
+        let done = request
+            .messages
+            .iter()
+            .any(|m| m.role == Role::User && m.content.starts_with("Done."));
         let slow = request
             .messages
             .iter()
@@ -111,6 +116,13 @@ impl LlmProvider for ProviderStub {
             if slow {
                 yield Ok(StreamEvent::ContentDelta("Working".into()));
                 tokio::time::sleep(Duration::from_secs(60)).await;
+            } else if !is_tool_result && done {
+                yield Ok(StreamEvent::ToolCallStart { index: 0, id: Uuid::new_v4().to_string(), name: "notify_user".into() });
+                yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: "{}".into() });
+                yield Ok(StreamEvent::ToolCallStart { index: 1, id: Uuid::new_v4().to_string(), name: "end_routine".into() });
+                yield Ok(StreamEvent::ToolCallDelta { index: 1, arguments: "{}".into() });
+                yield Ok(StreamEvent::Finished(FinishReason::ToolCalls));
+                return;
             } else if !is_tool_result && worth_it {
                 yield Ok(StreamEvent::ToolCallStart { index: 0, id: Uuid::new_v4().to_string(), name: "notify_user".into() });
                 yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: "{}".into() });
@@ -845,6 +857,150 @@ async fn a_routine_runs_without_its_chats_history_and_replies_in_it() {
             "Worth it. Remind the user to drink tea."
         ]
     );
+}
+
+/// Waits until run `run_id` is over.
+async fn run_over(app: &App, run_id: &str) {
+    timeout(Duration::from_secs(20), async {
+        while app.live(run_id).await.is_some() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the run finishes");
+}
+
+/// A chat with one turn of the user's in it.
+async fn chat_with_a_turn(c: &Client) -> Uuid {
+    let session = Uuid::new_v4();
+    let mut replies = c
+        .stream(&Chat {
+            session_id: session,
+            request_id: Uuid::new_v4(),
+            message: "Remember I prefer tea".into(),
+            images: Vec::new(),
+            model: None,
+            thinking: None,
+            platform: None,
+            files: Vec::new(),
+            research: false,
+            voice: None,
+            spoken: false,
+        })
+        .await
+        .unwrap();
+    drain(&mut replies).await;
+    session
+}
+
+/// A routine of Alice's checking every 15 minutes with `task`, saved, set
+/// up from `session` when there is one.
+async fn watch(h: &Harness, task: &str, session: Option<Uuid>) -> CronJob {
+    let tools = CronRegistry::new(Arc::new(cron::BeepCronStore::for_user(
+        h.app.store.clone(),
+        &h.alice_id,
+    )));
+    let mut metadata = json!({"user_id": h.alice_id, "label": "Sam's reply"});
+    if let Some(session) = session {
+        metadata["session_id"] = json!(session.to_string());
+    }
+    tools
+        .create_with_metadata(
+            JobSchedule::Cron("*/15 * * * *".into()),
+            task.into(),
+            false,
+            metadata,
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_routine_that_finds_nothing_leaves_nothing_behind() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let session = chat_with_a_turn(&c).await;
+    let user = h.app.user(&h.alice_id).unwrap();
+    let history = async || {
+        c.call(&GetSession {
+            id: session.to_string(),
+        })
+        .await
+        .unwrap()
+    };
+    let before = history().await;
+    let listed = |sessions: Vec<Session>, id: &str| sessions.into_iter().find(|s| s.id == id);
+    let listed_before = listed(user.sessions().await.unwrap(), &session.to_string()).unwrap();
+
+    let job = watch(&h, "Check whether Sam replied.", Some(session)).await;
+    let run = cron::run_job(&h.app, &user, &job)
+        .await
+        .unwrap()
+        .expect("a run starts");
+    run_over(&h.app, &run.id).await;
+
+    // The run could end itself but not make or change routines.
+    let tools = h.provider.tools.lock().unwrap().clone();
+    assert!(tools.iter().any(|t| t == "end_routine"), "{tools:?}");
+    assert!(!tools.iter().any(|t| t == "cron_create"), "{tools:?}");
+    // The chat shows nothing new and stays where it was in the list.
+    assert_eq!(history().await, before);
+    let listed_after = listed(user.sessions().await.unwrap(), &session.to_string()).unwrap();
+    assert_eq!(listed_after.updated_at, listed_before.updated_at);
+    // A quiet check goes on running.
+    let routines = user.list_crons().await.unwrap();
+    assert!(routines.iter().any(|r| r.id == job.id.to_string()));
+
+    // A routine set up outside a chat leaves no empty chat behind.
+    let loose = watch(&h, "Check whether Sam replied.", None).await;
+    let run = cron::run_job(&h.app, &user, &loose)
+        .await
+        .unwrap()
+        .expect("a run starts");
+    run_over(&h.app, &run.id).await;
+    assert!(listed(user.sessions().await.unwrap(), &run.session_id).is_none());
+}
+
+#[tokio::test]
+async fn a_routine_tells_the_user_in_its_chat_once_and_ends_itself() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let session = chat_with_a_turn(&c).await;
+    let user = h.app.user(&h.alice_id).unwrap();
+
+    let job = watch(&h, "Done. Tell the user once Sam replies.", Some(session)).await;
+    let run = cron::run_job(&h.app, &user, &job)
+        .await
+        .unwrap()
+        .expect("a run starts");
+    assert_eq!(run.session_id, session.to_string());
+    run_over(&h.app, &run.id).await;
+
+    // The chat gets the reply alone, with no routine turn and no tools.
+    let history = c
+        .call(&GetSession {
+            id: session.to_string(),
+        })
+        .await
+        .unwrap();
+    let [
+        HistoryEntry::User { .. },
+        HistoryEntry::Assistant { tools: turn, .. },
+        HistoryEntry::Assistant {
+            content: told,
+            tools,
+            ..
+        },
+    ] = history.as_slice()
+    else {
+        panic!("unexpected history: {history:?}");
+    };
+    assert_eq!(turn.len(), 1, "the user's turn keeps its tools");
+    assert_eq!(told, "I remember your preference.");
+    assert!(tools.is_empty());
+    // It ended itself, so it never runs again.
+    let routines = user.list_crons().await.unwrap();
+    assert!(routines.iter().all(|r| r.id != job.id.to_string()));
 }
 
 #[tokio::test]

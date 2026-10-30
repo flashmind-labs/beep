@@ -92,6 +92,7 @@ pub async fn test_turn(
                 context: &context,
                 prompt_tokens: Some(0),
                 steps: &steps,
+                stands_alone: false,
                 carried: TurnRecord::default(),
             }),
             RunStatus::Completed,
