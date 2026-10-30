@@ -236,8 +236,8 @@ mod monitor {
     const ESCAPE: u16 = 53;
 
     thread_local! {
-        /// The Escape monitor while live mode runs. Main thread only.
-        static ESCAPE_MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+        /// The Escape monitors while live mode runs. Main thread only.
+        static ESCAPE_MONITORS: RefCell<Vec<Retained<AnyObject>>> = const { RefCell::new(Vec::new()) };
     }
 
     fn input(event: &NSEvent) -> Input {
@@ -316,29 +316,44 @@ mod monitor {
         std::mem::forget(local);
     }
 
-    /// Calls `on` when Escape goes down in another app, until `unwatch_escape`.
-    /// Other apps' keys only reach Beep with the Accessibility permission;
-    /// without it this sees nothing, and Escape works in the bar alone.
-    /// Call on the main thread.
+    /// Calls `on` when Escape goes down, until `unwatch_escape`: in another
+    /// app, and in Beep while no bar page has the keyboard (the live bar does
+    /// not take it). Other apps' keys only reach Beep with the Accessibility
+    /// permission; without it Escape works in Beep alone. Call on the main
+    /// thread.
     pub fn watch_escape(on: impl Fn() + 'static) {
-        let block = RcBlock::new(move |event: NonNull<NSEvent>| {
+        let on = Rc::new(on);
+        let global = on.clone();
+        let global = RcBlock::new(move |event: NonNull<NSEvent>| {
             // SAFETY: AppKit passes a live event for the length of the call.
-            let event = unsafe { event.as_ref() };
-            if event.keyCode() == ESCAPE {
-                on();
+            if unsafe { event.as_ref() }.keyCode() == ESCAPE {
+                global();
             }
         });
-        let monitor =
-            NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block);
-        let old = ESCAPE_MONITOR.with(|m| m.replace(monitor));
-        if let Some(old) = old {
-            remove(&old);
+        let local = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+            // SAFETY: AppKit passes a live event for the length of the call.
+            if unsafe { event.as_ref() }.keyCode() == ESCAPE {
+                on();
+                // Handled: the bar would otherwise leave live mode again.
+                return std::ptr::null_mut();
+            }
+            event.as_ptr()
+        });
+        let global =
+            NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &global);
+        // SAFETY: the block returns the event it was given or nothing.
+        let local = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &local)
+        };
+        let old = ESCAPE_MONITORS.with(|m| m.replace(global.into_iter().chain(local).collect()));
+        for monitor in old {
+            remove(&monitor);
         }
     }
 
     /// Stops watching Escape. Call on the main thread.
     pub fn unwatch_escape() {
-        if let Some(monitor) = ESCAPE_MONITOR.with(RefCell::take) {
+        for monitor in ESCAPE_MONITORS.with(RefCell::take) {
             remove(&monitor);
         }
     }

@@ -40,9 +40,29 @@ pub fn show<R: Runtime>(app: &AppHandle<R>, view: Option<&str>) {
     }
     let _ = bar.set_focusable(true);
     let _ = bar.show();
+    activate();
     let _ = bar.set_focus();
     let _ = app.emit_to(LABEL, "bar-shown", view);
 }
+
+/// Makes Beep the active app, so the bar it shows gets the keyboard. A
+/// tray app opened from a hotkey is otherwise left behind the app in front:
+/// the bar shows but typing and Escape still go there.
+#[cfg(target_os = "macos")]
+fn activate() {
+    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+    // macOS 14 and later ignore IgnoringOtherApps and activate on the
+    // user's keypress anyway; 13 needs it.
+    #[allow(deprecated)]
+    let options = NSApplicationActivationOptions::ActivateAllWindows
+        | NSApplicationActivationOptions::ActivateIgnoringOtherApps;
+    if !NSRunningApplication::currentApplication().activateWithOptions(options) {
+        log::warn!("macOS did not make Beep the active app");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn activate() {}
 
 /// Shows the bar for a voice note without taking focus. Does nothing when
 /// the bar is already open for the user. True when the bar is up passively.
