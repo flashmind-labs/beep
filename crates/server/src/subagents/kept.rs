@@ -1,4 +1,4 @@
-//! Sub-agents kept after they report, so `message_agent` can tell them more
+//! Sub-agents kept after they report, so `background message` can tell them more
 //! with their history intact. Each chat keeps a few, and one left idle for
 //! an hour goes.
 

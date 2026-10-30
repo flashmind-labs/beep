@@ -8,7 +8,7 @@
 //! Curation also picks the few memories that matter in nearly every chat.
 //! Those and the temporary facts holding today make the profile, which a
 //! chat's context carries once and again only when it changes. Everything
-//! else the model searches with `memory_recall`. Jev files every memory
+//! else the model searches with `memory` recall. Jev files every memory
 //! under one of `MEMORY_CATEGORIES` when it is written; the models that write
 //! memories never pick one. After each chat a cheap model call reads the
 //! latest exchange, with the turns before it for context, and adds, corrects or
@@ -79,7 +79,7 @@ pub(crate) const CURATE_TIMEOUT: Duration = Duration::from_secs(90);
 // 0.3 for shared words in a search.
 /// Two texts this close say the same thing (cosine 0.88).
 pub(crate) const DUPLICATE: f32 = 0.755;
-/// How close a memory must be to show up in `memory_recall` (cosine 0.22).
+/// How close a memory must be to show up in a `memory` recall (cosine 0.22).
 pub(crate) const RECALLABLE: f32 = 0.375;
 const MAX_LEARN_OPS: usize = 5;
 const MAX_TURN_CHARS: usize = 1500;
@@ -141,7 +141,7 @@ pub(crate) const FILING: [(&str, &str); 7] = [
 const MAX_PROFILE_CHARS: usize = 1500;
 /// The line a profile starts with, also how a chat finds the one it last got.
 pub(crate) const PROFILE_HEADER: &str =
-    "What Beep remembers about the user (background, not a topic; memory_recall finds more):";
+    "What Beep remembers about the user (background, not a topic; `memory` recall finds more):";
 /// A memory matched against a query.
 #[derive(Debug, Clone)]
 pub struct Hit {
@@ -158,7 +158,7 @@ pub struct Hit {
 }
 
 impl Hit {
-    /// What `memory_recall` returns for this memory, its scope as `scope`
+    /// What a `memory` recall returns for this memory, its scope as `scope`
     /// names it.
     pub fn to_json(&self, scope: Option<&str>) -> Value {
         let mut value = json!({
@@ -268,21 +268,23 @@ pub enum Change {
 }
 
 impl Change {
-    /// The memory tool that makes the same change.
-    pub fn tool(self) -> &'static str {
+    /// The `memory` action that makes the same change.
+    pub fn action(self) -> &'static str {
         match self {
-            Change::Stored => "memory_store",
-            Change::Updated => "memory_update",
-            Change::Forgotten => "memory_forget",
+            Change::Stored => "store",
+            Change::Updated => "update",
+            Change::Forgotten => "forget",
         }
     }
 }
 
 impl Learned {
+    /// The arguments of the `memory` call that makes the same change.
     pub fn arguments(&self) -> Value {
+        let action = self.change.action();
         match self.change {
-            Change::Forgotten => json!({"id": self.id}),
-            _ => json!({"id": self.id, "content": self.content}),
+            Change::Forgotten => json!({"action": action, "id": self.id}),
+            _ => json!({"action": action, "id": self.id, "content": self.content}),
         }
     }
 
