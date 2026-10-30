@@ -46,6 +46,11 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
 
     @MainActor private func handle(_ notice: Notice) {
         guard let model else { return }
+        // A question from background work stopped waiting. Such a notice is also marked changed.
+        if let queryId = resolvedQuestion(notice: notice) {
+            model.questionResolved(queryId, in: notice.sessionId)
+            return
+        }
         guard let alert = NoticeAlert(notice) else {
             model.noticeChanged(notice)
             return
@@ -182,6 +187,15 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
             try? await model.sendToGroup(thread, requestId: UUID().uuidString.lowercased(), text: text)
         } else {
             await model.reply(toChat: thread, text: text)
+        }
+    }
+
+    /// Takes the notification for an approval off the lock screen once it no longer waits.
+    func removeApproval(_ queryId: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            let ids = delivered.filter { $0.request.content.userInfo["query"] as? String == queryId }.map(\.request.identifier)
+            center.removeDeliveredNotifications(withIdentifiers: ids)
         }
     }
 
