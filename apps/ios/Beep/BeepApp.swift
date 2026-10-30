@@ -30,6 +30,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         if options?[.location] != nil { model.connect() }
+        // An App Intent may be waiting to start live voice.
+        LiveLauncher.attach(model)
         // A token needs no permission; showing what it brings does, which onboarding asks.
         application.registerForRemoteNotifications()
         return true
@@ -140,6 +142,10 @@ struct RootView: View {
                 model.notifier.requestPermission()
             }
             .onChange(of: model.destination, initial: true) { follow() }
+            .overlay {
+                if model.live.active { LiveScreen() }
+            }
+            .animation(.easeOut(duration: 0.2), value: model.live.active)
             #if DEBUG
             .task { await debugLaunch() }
             #endif

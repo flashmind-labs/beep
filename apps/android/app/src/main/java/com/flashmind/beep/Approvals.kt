@@ -63,7 +63,7 @@ fun ApprovalCard(prompt: ApprovalPrompt, onAnswer: (String) -> Unit, modifier: M
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text("${capitalize(approval.action)}?", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = t.ink)
-                    Text("${approval.app} asks before acting", fontSize = 12.sp, color = t.muted)
+                    Text(if (prompt.background) "Asked by background work" else "${approval.app} asks before acting", fontSize = 12.sp, color = t.muted)
                 }
                 Icon(Icons.Outlined.Shield, null, Modifier.size(18.dp), tint = t.muted)
             }

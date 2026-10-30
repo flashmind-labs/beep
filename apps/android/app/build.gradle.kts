@@ -98,6 +98,7 @@ val buildNative by tasks.registering(Exec::class) {
     environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath)
     inputs.files(fileTree("../../../crates/proto") { exclude("target/**") })
     inputs.files(fileTree("../../../crates/android-bridge") { exclude("target/**") })
+    inputs.files(fileTree("../../../crates/live") { exclude("target/**") })
     inputs.file("../../../Cargo.lock")
     outputs.dir("src/main/jniLibs")
     outputs.dir("build/generated/uniffi")

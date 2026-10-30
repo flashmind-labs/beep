@@ -2,7 +2,7 @@
 //! listening. It only decides; `voice` opens the microphone, talks to the
 //! server and plays the audio for each `Effect`.
 
-use super::{
+use crate::{
     command::Command,
     turn::{Closed, Turn},
 };

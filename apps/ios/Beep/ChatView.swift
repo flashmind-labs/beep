@@ -33,27 +33,38 @@ struct ChatView: View {
             if !inBrowser { chatBar }
             ScrollViewReader { scroller in
                 let breaks = dayBreaks(model.chat.messages)
+                let spoken = SpokenStretches(model.chat.messages)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         if model.chat.messages.isEmpty {
                             EmptyChat { follow = true; model.send($0) } fill: { draft = $0; typing = true }
                         }
                         ForEach(Array(model.chat.messages.enumerated()), id: \.element.id) { index, message in
-                            VStack(spacing: 12) {
-                                if let day = breaks[message.id] { DayMarker(day: day) }
-                                MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
-                                            latest: index == model.chat.messages.count - 1, quote: quote)
-                                if message.id == newestReply?.id, !model.chat.busy {
-                                    researchRow(after: message)
+                            // A spoken stretch draws once, as a transcript, from its first message.
+                            if !spoken.hidden.contains(message.id) {
+                                VStack(spacing: 12) {
+                                    if let day = breaks[message.id] { DayMarker(day: day) }
+                                    if let stretch = spoken.byFirst[message.id] {
+                                        LiveTranscript(messages: stretch)
+                                    } else {
+                                        MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
+                                                    latest: index == model.chat.messages.count - 1, quote: quote)
+                                    }
+                                    if message.id == newestReply?.id, !model.chat.busy {
+                                        researchRow(after: message)
+                                    }
                                 }
+                                // A reply sits close under its own prompt; turns keep the full gap.
+                                .padding(.top, index > 0 && message.role == .assistant
+                                         && model.chat.messages[index - 1].role == .user ? -12 : 0)
+                                .popIn(play: !settled.contains(message.id),
+                                       anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
+                                .onAppear { settled.insert(message.id) }
+                                .id(message.id)
                             }
-                            // A reply sits close under its own prompt; turns keep the full gap.
-                            .padding(.top, index > 0 && message.role == .assistant
-                                     && model.chat.messages[index - 1].role == .user ? -12 : 0)
-                            .popIn(play: !settled.contains(message.id),
-                                   anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
-                            .onAppear { settled.insert(message.id) }
-                            .id(message.id)
+                        }
+                        if let asked = model.waitingWork[model.chat.id], !asked.isEmpty {
+                            BackgroundQuestions(prompts: asked).popIn(anchor: .bottomLeading)
                         }
                         if model.chat.busy, !replyStarted {
                             working
@@ -156,6 +167,13 @@ struct ChatView: View {
             typing = true
         }
         .paperShare(paper)
+        .onChange(of: model.pendingDraft, initial: true) {
+            // What was said in live voice and not sent.
+            guard !inBrowser, let text = model.pendingDraft else { return }
+            model.pendingDraft = nil
+            let before = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft = before.isEmpty ? text : before + " " + text
+        }
         .onChange(of: model.composeNext, initial: true) {
             guard model.composeNext else { return }
             model.composeNext = false
@@ -292,6 +310,16 @@ struct ChatView: View {
                     .buttonStyle(ChunkyButton())
                     .accessibilityLabel("Workspace")
             }
+            Button {
+                typing = false
+                voice.stop()
+                model.live.start(from: .app)
+            } label: {
+                Image(systemName: "waveform").font(.system(size: 19, weight: .medium)).foregroundStyle(Mint.muted)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Talk live")
             Button {
                 typing = false
                 newChat()
@@ -675,6 +703,9 @@ private struct ThinkingPreview: View {
     }
 }
 
+/// The label of the scheduled turn that hands background results back to its chat, as the server names it.
+let backgroundWorkLabel = "Background work"
+
 /// Mirrors the server's memory threshold as Android shows it: above it the learner reads the turn.
 private let memoryThreshold = 0.8
 private let memoryTools: Set<String> = ["memory_store", "memory_update", "memory_forget"]
@@ -717,8 +748,14 @@ struct MessageView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .scheduled:
             HStack(spacing: 6) {
-                Image(systemName: "clock").font(.system(size: 11))
-                Text(message.text.isEmpty ? "Scheduled" : "Scheduled · \(message.text)").lineLimit(1)
+                // The turn that hands back what helper agents and background jobs found.
+                if message.text == backgroundWorkLabel {
+                    Image(systemName: "arrow.uturn.backward").font(.system(size: 11))
+                    Text("Background work came back").lineLimit(1)
+                } else {
+                    Image(systemName: "clock").font(.system(size: 11))
+                    Text(message.text.isEmpty ? "Scheduled" : "Scheduled · \(message.text)").lineLimit(1)
+                }
             }
             .font(.body(11)).foregroundStyle(Mint.dim)
             .frame(maxWidth: .infinity)
@@ -1103,7 +1140,10 @@ struct ApprovalCard: View {
     let prompt: ApprovalPrompt
 
     var body: some View {
-        if let answer = prompt.answer {
+        if prompt.withdrawn {
+            Label("\(prompt.approval.action) with \(prompt.approval.app): no longer waiting", systemImage: "shield.slash")
+                .font(.body(12, .medium)).foregroundStyle(Mint.muted)
+        } else if let answer = prompt.answer {
             Label(answerText(answer), systemImage: "shield")
                 .font(.body(12, .medium)).foregroundStyle(Mint.muted)
         } else {
@@ -1156,6 +1196,27 @@ struct ApprovalCard: View {
         case .always: "Always allowed for \(prompt.approval.app)"
         case .deny: "Denied"
         }
+    }
+}
+
+/// Questions a helper agent, a background job or a coding agent on a machine asked while no turn
+/// ran. They come as notices, so they sit at the end of the chat under a caption of their own.
+private struct BackgroundQuestions: View {
+    let prompts: [ApprovalPrompt]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "square.stack.3d.up").font(.system(size: 11))
+                Text(prompts.contains { $0.answer == nil && !$0.withdrawn }
+                     ? "Background work is waiting for you" : "Background work").lineLimit(1)
+            }
+            .font(.body(11)).foregroundStyle(Mint.dim)
+            .frame(maxWidth: .infinity)
+            ForEach(prompts, id: \.queryId) { ApprovalCard(prompt: $0) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.bouncy, value: prompts)
     }
 }
 

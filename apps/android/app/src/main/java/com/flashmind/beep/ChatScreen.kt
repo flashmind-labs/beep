@@ -276,6 +276,9 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             val settled = remember(chat.id) { chat.messages.map { it.id }.toHashSet() }
             val radius = Beep.shapes.radius
             val dayBreaks = remember(chat.messages) { dayBreaks(chat.messages) }
+            // Stretches said aloud in live mode show as one transcript each, keyed by their first message.
+            val stretches = remember(chat.messages) { liveStretches(chat.messages) }
+            val inStretch = remember(stretches) { stretches.values.flatMap { it.drop(1) }.mapTo(HashSet()) { it.id } }
             // The "Latest reply" button floats over the list, so showing it does not resize the list.
             Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp)) {
@@ -290,6 +293,14 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     val fresh = message.id !in settled
                     SideEffect { settled.add(message.id) }
                     val newDay = dayBreaks[message.id]
+                    if (message.id in inStretch) return@itemsIndexed
+                    stretches[message.id]?.let { stretch ->
+                        Column(Modifier.padding(top = gap).animateItem(fadeOutSpec = null)) {
+                            newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
+                            LiveTranscript(stretch)
+                        }
+                        return@itemsIndexed
+                    }
                     if (message.role == "scheduled") {
                         Column(Modifier.padding(top = gap).animateItem(fadeOutSpec = null)) {
                             newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
@@ -622,6 +633,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         research?.live?.takeIf { it.running }?.let { live ->
             ResearchProgressRow(live, onOpen = { research.onWorkspace(null) }, onStop = research.onStop)
         }
+        BackgroundWork(repository, chat, compact)
         // Messages queued while the reply runs; each sends as its own turn once the one before finishes.
         AnimatedVisibility(visible = chat.hasQueued,
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
@@ -947,12 +959,20 @@ private fun DayMarker(day: LocalDate, modifier: Modifier = Modifier) {
 }
 
 /** Where a routine woke Beep: its prompt is the routine's, not something the user said. */
+/** The label of the turn that hands background work's results back to the chat. */
+private const val BACKGROUND_WORK = "Background work"
+
 @Composable
 private fun ScheduledMarker(label: String, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Outlined.Schedule, null, Modifier.size(13.dp), tint = TextDim)
         Spacer(Modifier.width(6.dp))
-        Text(if (label.isBlank()) "Scheduled" else "Scheduled · $label", fontSize = 11.sp, color = TextDim,
+        Text(when (label) {
+            "" -> "Scheduled"
+            // The results of sub-agents and jobs coming back, not a routine.
+            BACKGROUND_WORK -> label
+            else -> "Scheduled · $label"
+        }, fontSize = 11.sp, color = TextDim,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

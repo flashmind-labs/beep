@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 anyhow = "1"
 ammonia = "4"
 base64 = "0.22"
+beep-live = { path = "../../../crates/live" }
 beep-node = { path = "../../../crates/node", default-features = false }
 beep-proto = { path = "../../../crates/proto" }
 iroh = "1.3"
