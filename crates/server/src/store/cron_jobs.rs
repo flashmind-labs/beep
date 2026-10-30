@@ -118,6 +118,22 @@ impl Store {
         Ok(())
     }
 
+    /// Records that job `id` last ran at `at`, and nothing else. `false` when
+    /// the job is gone, which this never brings back.
+    pub(crate) async fn record_cron_run(
+        &self,
+        id: Uuid,
+        at: Option<DateTime<Utc>>,
+    ) -> Result<bool> {
+        let updated = sqlx::query("UPDATE crons SET last_run_at=$2 WHERE id=$1")
+            .bind(id.to_string())
+            .bind(at)
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+        Ok(updated > 0)
+    }
+
     /// The chat `id`'s runs reply in: the one it already has, or `session`,
     /// which it keeps from then on. `None` when the job is gone.
     pub(crate) async fn claim_cron_session(&self, id: Uuid, session: Uuid) -> Result<Option<Uuid>> {

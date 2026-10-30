@@ -2,7 +2,10 @@
 
 use super::Reply;
 use crate::{
-    protocol::{ApiError, CancelWork, ListWork, WorkItem, WorkKind, WorkOutcome},
+    protocol::{
+        ApiError, CancelWork, ListQuestions, ListWork, PendingApproval, WorkItem, WorkKind,
+        WorkOutcome,
+    },
     router::Cx,
     subagents::work::{self, Listing, WorkId},
 };
@@ -20,6 +23,13 @@ pub(super) async fn cancel_work(cx: Cx, CancelWork { session_id, id }: CancelWor
         .work
         .cancel(cx.user.id(), session_id, id)
         .map_err(|_| ApiError::NotFound {})
+}
+
+pub(super) async fn list_questions(
+    cx: Cx,
+    ListQuestions { session_id }: ListQuestions,
+) -> Reply<Vec<PendingApproval>> {
+    Ok(cx.app.subagents.approvals.pending(cx.user.id(), session_id))
 }
 
 fn item(listing: Listing) -> WorkItem {
