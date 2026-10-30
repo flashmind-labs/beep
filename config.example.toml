@@ -35,3 +35,14 @@ provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # critic = { model = "openrouter:openai/gpt-6-luna" }
 # writer = { model = "openrouter:anthropic/claude-haiku-5.5" }
 # scout_choices = ["openrouter:z-ai/glm-5.3-flash"]
+
+# Agents that read admins' chats once they go quiet or a task in them ends:
+# memories, skills, and findings on where Beep failed (ListFindings).
+# [watchers]
+# model = "openrouter:anthropic/claude-haiku-5.5"
+# quiet_minutes = 30
+# concurrency = 2
+# [watchers.improvement]
+# enabled = true
+# model = "openrouter:z-ai/glm-5.3-flash"
+# timeout_secs = 120

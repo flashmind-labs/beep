@@ -94,6 +94,7 @@ sample_struct! {
     AppAction { tool, label, allowed }
     HistoryTool { name, call_id, output, success }
     ToolLabel { call_id, description }
+    Finding { id, kind, summary, steps, cause, cause_detail, fix, status, seen, first_seen, last_seen, session_id, first_message, last_message }
     AppIntegration { slug, name, description, logo_url, connected, configured, kind }
     ConnectLink { url }
     AppAccount { id, address }

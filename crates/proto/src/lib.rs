@@ -581,6 +581,60 @@ requests! {
     /// left out, as are steps that had none. `NotFound` when the caller has
     /// no such session.
     126 GetToolLabels { session_id: Uuid } => Call<Vec<ToolLabel>>
+    /// Where Beep failed users, as the improvement watcher found it after
+    /// their chats, most recently seen first: only those with `status` when
+    /// given. Admins only; anyone else gets `Unauthorized`.
+    127 ListFindings { status: Option<FindingStatus> } => Call<Vec<Finding>>
+    /// Resolves or dismisses a finding, by `Finding::id`, or opens it again.
+    /// Nothing in Beep changes by itself. Admins only; `NotFound` when there
+    /// is no such finding.
+    128 UpdateFinding { id: String, status: FindingStatus } => Call<Finding>
+}
+
+/// A problem the improvement watcher found in users' chats, as
+/// `ListFindings` lists it. The same problem in other chats counts here
+/// once more rather than coming again.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Finding {
+    pub id: String,
+    /// What went wrong: `correction`, `failed_tool`, `wrong_tool`,
+    /// `could_have_found`, `loop`, `slow`, `gave_up` or `other`. Show one
+    /// this app does not know as other.
+    pub kind: String,
+    pub summary: String,
+    /// How to make it happen again.
+    pub steps: String,
+    /// Where it likely comes from: `prompt`, `tool_schema`, `missing_tool`,
+    /// `model` or `other`.
+    pub cause: String,
+    /// Why the watcher thinks so.
+    pub cause_detail: String,
+    /// What it proposes to change.
+    pub fix: String,
+    pub status: FindingStatus,
+    /// How many times it was seen.
+    pub seen: u32,
+    pub first_seen: SystemTime,
+    pub last_seen: SystemTime,
+    /// The caller's chat it was last seen in, `None` when it was only seen
+    /// in other users' chats.
+    pub session_id: Option<Uuid>,
+    /// The ids of the first and last messages of that chat that show it
+    /// (`ChatMessage::id`); both 0 without a chat.
+    pub first_message: i64,
+    pub last_message: i64,
+}
+
+wire_enum! {
+    /// Where an admin left a finding.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum FindingStatus {
+        0 Open {}
+        1 Resolved {}
+        2 Dismissed {}
+    }
 }
 
 /// What a tool step showed while it ran, as `GetToolLabels` lists it.
@@ -2621,7 +2675,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_bad_requests() {
-        assert!(Op::try_from(0x7f).is_err(), "unknown op");
+        assert!(Op::try_from(0xff).is_err(), "unknown op");
         assert!(
             rmp_serde::from_slice::<GetRun>(&[0x90]).is_err(),
             "missing argument"
