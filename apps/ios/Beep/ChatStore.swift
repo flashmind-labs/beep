@@ -12,6 +12,8 @@ enum ChatStore {
 
     private static var listFile: URL { folder.appendingPathComponent("list.bin") }
 
+    private static var workFile: URL { folder.appendingPathComponent("work.json") }
+
     private static func historyFile(_ id: String) -> URL {
         folder.appendingPathComponent(id.replacingOccurrences(of: "/", with: "_") + ".bin")
     }
@@ -39,10 +41,26 @@ enum ChatStore {
         let names = Set(keep.map { historyFile($0).lastPathComponent })
         writes.async {
             let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-            for file in files where file != listFile && !names.contains(file.lastPathComponent) {
+            for file in files where file != listFile && file != workFile && !names.contains(file.lastPathComponent) {
                 try? FileManager.default.removeItem(at: file)
             }
         }
+    }
+
+    /// The questions from background work still waiting, by chat id. They come only as
+    /// notices, so nothing on the server gives them back after a relaunch.
+    static func loadWork() -> [String: [ApprovalPrompt]] {
+        guard let data = try? Data(contentsOf: workFile),
+            let saved = try? JSONDecoder().decode([String: [SavedWork]].self, from: data)
+        else { return [:] }
+        return saved.mapValues { $0.map(\.prompt) }
+    }
+
+    static func saveWork(_ work: [String: [ApprovalPrompt]]) {
+        let waiting = work.mapValues { $0.filter { $0.answer == nil && !$0.withdrawn }.map { SavedWork($0) } }
+            .filter { !$0.value.isEmpty }
+        guard let data = try? JSONEncoder().encode(waiting) else { return }
+        write(data, to: workFile)
     }
 
     /// Forgets everything, as when the phone signs in to another account.
@@ -55,5 +73,32 @@ enum ChatStore {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try? data.write(to: url, options: .atomic)
         }
+    }
+}
+
+/// A waiting question from background work as saved; the bridge's records are not Codable.
+private struct SavedWork: Codable {
+    struct Field: Codable {
+        var label: String
+        var value: String
+    }
+
+    var queryId: String
+    var app: String
+    var action: String
+    var fields: [Field]
+
+    init(_ prompt: ApprovalPrompt) {
+        queryId = prompt.queryId
+        app = prompt.approval.app
+        action = prompt.approval.action
+        fields = prompt.approval.fields.map { Field(label: $0.label, value: $0.value) }
+    }
+
+    var prompt: ApprovalPrompt {
+        ApprovalPrompt(
+            queryId: queryId,
+            approval: Approval(app: app, action: action, fields: fields.map { ApprovalField(label: $0.label, value: $0.value) }),
+            background: true)
     }
 }

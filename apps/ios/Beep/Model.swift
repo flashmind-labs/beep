@@ -7,17 +7,20 @@ import UIKit
 struct ToolCall: Identifiable, Equatable {
     var id: String
     var name: String
+    /// The server's words for the call, such as "Recalling memories"; empty from the history.
+    var description = ""
     private(set) var done = false
     private(set) var success = true
     /// The result, cut to 16 KiB by the server; the card is read from it.
     private(set) var output = ""
     private(set) var card: ToolCard?
 
-    var label: String { toolLabel(name) }
+    var label: String { toolLabel(name, description: description, output: output) }
 
-    init(id: String, name: String, done: Bool = false, success: Bool = true, output: String = "") {
+    init(id: String, name: String, description: String = "", done: Bool = false, success: Bool = true, output: String = "") {
         self.id = id
         self.name = name
+        self.description = description
         if done { finish(success: success, output: output) }
     }
 
@@ -148,9 +151,12 @@ final class AppModel {
     var onScreen: String? {
         didSet { if let onScreen { notifier.clear(onScreen) } }
     }
-    /// Questions from background work by chat id, shown at the end of their chat. Ones still
-    /// waiting stay across history reloads; answered ones go with the next reload.
-    private(set) var waitingWork: [String: [ApprovalPrompt]] = [:]
+    /// Questions from background work by chat id, shown at the end of their chat. The server's
+    /// list replaces a chat's on opening it and on reconnecting; the saved copy shows until then.
+    /// Answered ones go with the next history reload.
+    private(set) var waitingWork: [String: [ApprovalPrompt]] = ChatStore.loadWork() {
+        didSet { ChatStore.saveWork(waitingWork) }
+    }
     /// The `sentAt` of each chat's spoken prompts, by chat id, as of the last history fetch.
     private var spokenTurns: [String: Set<Int64>] = [:]
     /// Where a tapped notification wants to go; the root view follows it and clears it.
@@ -289,6 +295,7 @@ final class AppModel {
         await refreshSessions()
         await refreshGroups()
         if !chat.busy { await refreshOpenChat() }
+        await refreshQuestions(chat.id)
         await loadStarters(refresh: false)
         models = try? await client?.getModels()
         await reportTimezone()
@@ -367,7 +374,10 @@ final class AppModel {
         if let cached = ChatStore.loadHistory(session.id) {
             show(cached.entries, images: cached.images, files: cached.files, at: cached.updatedAt)
         }
-        Task { await refreshOpenChat() }
+        Task {
+            await refreshOpenChat()
+            await refreshQuestions(session.id)
+        }
     }
 
     /// Fetches the open chat when the server has turns the copy on screen lacks.
@@ -388,7 +398,10 @@ final class AppModel {
         } else if id != chat.id {
                 stopStreaming()
             chat = Chat(id: id)
-            Task { await loadHistory() }
+            Task {
+                await loadHistory()
+                await refreshQuestions(id)
+            }
         }
     }
 
@@ -1046,10 +1059,11 @@ final class AppModel {
             updateReply(mid) { $0.text += delta }
         case .reasoningDelta(let delta):
             chat.thinking += delta
-        case .toolStarted(let name, let callId, _):
+        case .toolStarted(let name, let callId, let description):
             updateReply(mid) { reply in
                 if callId.isEmpty || !reply.tools.contains(where: { $0.id == callId }) {
-                    reply.tools.append(ToolCall(id: callId.isEmpty ? UUID().uuidString : callId, name: name))
+                    reply.tools.append(ToolCall(id: callId.isEmpty ? UUID().uuidString : callId, name: name,
+                                                description: description))
                 }
             }
         case .toolResult(_, let callId, let output, let success):
@@ -1248,8 +1262,36 @@ final class AppModel {
         waitingWork[notice.sessionId] = list
     }
 
-    /// Answers a question from background work. The server answers a delivered one with a
-    /// conflict, since no run resumes; any other conflict means nothing waits for it any more.
+    /// The questions background work in chat `id` waits on, as the server lists them, become its
+    /// cards. A card answered here stays until the history reloads. A server from before the
+    /// list fails the call, and the saved cards stay.
+    func refreshQuestions(_ id: String) async {
+        guard !id.isEmpty, let asked = try? await api().listQuestions(sessionId: id) else { return }
+        let had = waitingWork[id] ?? []
+        let listed = Set(asked.map(\.queryId))
+        let answered = had.filter { $0.answer != nil && !listed.contains($0.queryId) }
+        let waiting = asked.map { pending in
+            had.first { $0.queryId == pending.queryId }
+                ?? ApprovalPrompt(queryId: pending.queryId, approval: pending.approval, background: true)
+        }
+        let cards = answered + waiting
+        waitingWork[id] = cards.isEmpty ? nil : cards
+    }
+
+    /// A question from background work stopped waiting: answered on another device, or the
+    /// work no longer needs it. Its card goes, unless this phone answered it, and so does its
+    /// notification.
+    func questionResolved(_ queryId: String, in sessionId: String) {
+        if var cards = waitingWork[sessionId] {
+            cards.removeAll { $0.queryId == queryId && $0.answer == nil }
+            waitingWork[sessionId] = cards.isEmpty ? nil : cards
+        }
+        notifier.removeApproval(queryId)
+    }
+
+    /// Answers a question from background work. The server answers it with a conflict, since
+    /// no run resumes: either it was delivered or the question was settled before, which a
+    /// resolved notice then says.
     private func answerWork(_ prompt: ApprovalPrompt, in sessionId: String, _ decision: ApprovalDecision) async {
         guard let card = waitingWork[sessionId]?.firstIndex(where: { $0.queryId == prompt.queryId }),
             waitingWork[sessionId]?[card].answer == nil, waitingWork[sessionId]?[card].withdrawn == false
@@ -1257,10 +1299,8 @@ final class AppModel {
         waitingWork[sessionId]?[card].answer = decision
         do {
             _ = try await api().answerApproval(sessionId: sessionId, queryId: prompt.queryId, decision: decision)
-        } catch BeepError.Conflict(let reason) where reason.contains("background work goes on") {
-            // Delivered.
         } catch BeepError.Conflict {
-            markWork(prompt.queryId, in: sessionId) { $0.answer = nil; $0.withdrawn = true }
+            // The card keeps the answer.
         } catch {
             markWork(prompt.queryId, in: sessionId) { $0.answer = nil }
             if chat.id == sessionId { chat.error = describe(error) }
@@ -1334,6 +1374,7 @@ final class AppModel {
         starters = []
         previews = [:]
         ChatPreview.save(previews)
+        waitingWork = [:]
         ChatStore.clear()
         // The new account has not been told the timezone, and the old one's places
         // must not keep their region monitors if the new list fails to load.
@@ -1364,6 +1405,7 @@ final class AppModel {
         newChat()
         sessions = []
         groups = []
+        waitingWork = [:]
         ChatStore.clear()
         await refreshAfterConnect()
     }

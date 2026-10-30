@@ -1,8 +1,17 @@
 import Foundation
 
-/// What a tool chip says, the same words as on Android.
-func toolLabel(_ name: String) -> String {
+/// What a tool chip says while the call runs, the same words as on Android. `description` is
+/// the server's own words for the call, which only a live run carries; a tool that takes an
+/// action argument says what that action does with them. From the history, a memory call's
+/// `output` shows what it did.
+func toolLabel(_ name: String, description: String = "", output: String = "") -> String {
+    if describedTools.contains(name) || name.hasPrefix("mcp_") {
+        let described = description.trimmingCharacters(in: CharacterSet(charactersIn: "….").union(.whitespaces))
+        if !described.isEmpty { return described }
+    }
     if let known = toolLabels[name] { return known }
+    if name == "memory", let done = memoryLabel(output) { return done }
+    if let family = actionToolLabels[name] { return family }
     let words = name.split(whereSeparator: { "_.-".contains($0) }).map { $0.lowercased() }
     guard let head = words.first else { return "Using a tool" }
     // Connected app tools are named APP_ACTION.
@@ -12,6 +21,39 @@ func toolLabel(_ name: String) -> String {
     let text = words.joined(separator: " ")
     return text.prefix(1).uppercased() + text.dropFirst()
 }
+
+/// Whether a memory call wrote something, from its output: a stored, updated or forgotten memory.
+func wroteMemory(_ name: String, output: String) -> Bool {
+    guard name == "memory", let label = memoryLabel(output) else { return false }
+    return label != "Recalling memories" && label != "Checking a memory's history"
+}
+
+/// What a memory call did, read from its output: an object for a write, a list for a read.
+private func memoryLabel(_ output: String) -> String? {
+    guard let data = output.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
+    if let list = json as? [[String: Any]] {
+        return list.first?["replaced"] != nil ? "Checking a memory's history" : "Recalling memories"
+    }
+    guard let object = json as? [String: Any] else { return nil }
+    if object["stored"] != nil { return "Remembering" }
+    if object["updated"] != nil { return "Updating a memory" }
+    if object["forgotten"] != nil { return "Forgetting a memory" }
+    return nil
+}
+
+/// Tools whose words from the server say more than the name: the action ones, and those that
+/// name the machine, file or app they work on. Other tools' server words just list arguments.
+private let describedTools: Set<String> = ["memory", "background", "skill", "habit", "reminder", "node", "mac_files"]
+
+/// Tools that take an action argument, as the server folds them, for a call from the history:
+/// it keeps neither the arguments nor the server's words for the call.
+private let actionToolLabels: [String: String] = [
+    "memory": "Checking memories",
+    "background": "Working in the background",
+    "skill": "Using a skill",
+    "habit": "Tracking a habit",
+    "reminder": "Working on reminders",
+]
 
 /// Tools that get no chip: what they do is already on screen, or is bookkeeping.
 let quietTools: Set<String> = ["suggest_replies", "show_products", "show_cards", "notify_user", "task_progress"]
@@ -26,17 +68,10 @@ private let toolLabels: [String: String] = [
     "open_browser": "Opening a page",
     "browser": "Browsing",
     "node": "Using your machines",
-    "spawn_agent": "Starting a helper agent",
-    "message_agent": "Messaging a helper agent",
-    "run_in_background": "Moving work to the background",
-    "jobs": "Checking background work",
-    "wait_job": "Waiting for background work",
-    "cancel_job": "Stopping background work",
+    "mac_files": "Looking at your Mac's files",
     "event_topics": "Checking which updates you get",
     "hold_events": "Holding updates for later",
     "recent_events": "Checking recent updates",
-    "mcp_search": "Finding the right app tool",
-    "mcp": "Using a connected app",
     "open_maps": "Looking up a place",
     "place_save": "Saving a place",
     "place_list": "Checking your places",
@@ -47,21 +82,33 @@ private let toolLabels: [String: String] = [
     "show_products": "Showing products",
     "show_cards": "Showing recommendations",
     "task_progress": "Updating progress",
-    "memory_store": "Remembering",
-    "memory_recall": "Recalling memories",
-    "memory_update": "Updating a memory",
-    "memory_forget": "Forgetting a memory",
-    "memory_history": "Checking how a memory changed",
     "cron_create": "Setting a reminder",
     "schedule_once": "Setting a reminder",
     "cron_edit": "Changing a reminder",
     "cron_list": "Checking reminders",
     "cron_delete": "Deleting a reminder",
-    "cron_history": "Checking past reminders",
-    "habit_create": "Creating a habit",
-    "habit_log": "Logging a habit",
-    "habit_status": "Checking habits",
-    "habit_delete": "Deleting a habit",
+    "end_routine": "Ending this routine",
+    "get_route": "Planning a route",
+    "send_image": "Sending pictures",
+    "send_file": "Sending a file",
+    "show_chart": "Drawing a chart",
+    "show_stock_chart": "Charting a price",
+    "execute_code": "Running code",
+    "download_file": "Downloading a file",
+    "chat_search": "Searching your chats",
+    "chat_read": "Reading a chat",
+    "notify_user": "Sending a notification",
+    "start_research": "Starting a research",
+    "research_more": "Researching further",
+    "add_scouts": "Adding researchers",
+    "stop_research": "Stopping the research",
+    "post_message": "Posting to the research room",
+    "read_room": "Reading the research room",
+    "add_source": "Adding a source",
+    "add_note": "Adding a note",
+    "read_notes": "Reading the notes",
+    "read_draft": "Reading the draft",
+    "write_draft": "Writing the draft",
 ]
 
 /// The first letter a chip shows in its circle: the app's for app tools.
@@ -88,5 +135,10 @@ private let pastTense: [String: String] = [
     "weighing": "Weighed", "recalling": "Recalled", "forgetting": "Forgot", "changing": "Changed",
     "logging": "Logged", "suggesting": "Suggested", "showing": "Showed",
     "starting": "Started", "messaging": "Messaged", "moving": "Moved", "waiting": "Waited",
-    "stopping": "Stopped", "holding": "Held",
+    "stopping": "Stopped", "holding": "Held", "ending": "Ended", "planning": "Planned",
+    "drawing": "Drew", "charting": "Charted", "downloading": "Downloaded", "posting": "Posted",
+    "adding": "Added", "writing": "Wrote", "researching": "Researched", "working": "Worked",
+    "tracking": "Tracked", "deciding": "Decided", "typesetting": "Typeset", "linking": "Linked",
+    "following": "Followed", "unfollowing": "Unfollowed", "taking": "Took", "answering": "Answered",
+    "clicking": "Clicked", "typing": "Typed", "pressing": "Pressed", "scrolling": "Scrolled",
 ]
