@@ -60,9 +60,70 @@ const TOOL_LABELS = {
   habit_log: "Logging a habit",
   habit_status: "Checking habits",
   habit_delete: "Deleting a habit",
+  // One tool per family with an action argument. While it runs the server's
+  // own description names the action; a saved step carries a label read from
+  // its result, and these cover the rest.
+  memory: "Checking memories",
+  skill: "Loading a skill",
+  habit: "Checking habits",
+  background: "Checking background work",
+  reminder: "Setting a reminder",
+  node: "Using your machines",
+  get_route: "Planning a route",
+  send_image: "Sending pictures",
+  chat_search: "Searching this chat",
+  chat_read: "Reading this chat",
+  place_save: "Saving a place",
+  place_list: "Checking your places",
+  place_delete: "Forgetting a place",
+  place_routine: "Setting up a place routine",
+  event_topics: "Checking which updates you get",
+  hold_events: "Holding updates for later",
+  recent_events: "Checking recent updates",
+  execute_code: "Running code",
+  download_file: "Downloading a file",
+  web_scrape: "Reading a page",
+  web_extract: "Reading a page",
+  web_map: "Mapping a site",
+  web_crawl: "Reading a site",
+  web_search_read: "Reading search results",
+  start_research: "Starting research",
+  research_more: "Asking the research for more",
+  stop_research: "Stopping the research",
+  end_routine: "Ending this routine",
+  // Names from before the fold, still in older chats.
+  memory_history: "Checking how a memory changed",
+  spawn_agent: "Starting an agent",
+  message_agent: "Messaging an agent",
+  run_in_background: "Moving work to the background",
+  jobs: "Checking background work",
+  wait_job: "Waiting for background work",
+  cancel_job: "Stopping background work",
 };
-// Tools whose own description says more than their name, such as "Reading lease.pdf".
-const DESCRIBED = new Set(["mac_files"]);
+// Tools whose own description says more than their name, such as "Reading
+// lease.pdf" or which action of a folded tool runs.
+const DESCRIBED = new Set(["mac_files", "memory", "skill", "habit", "background", "reminder", "node"]);
+/// A finished step's label in the past tense, as on the phone: "Recalling
+/// memories" becomes "Recalled memories". Unknown verbs stay as they are.
+const PAST = {
+  searching: "Searched", reading: "Read", checking: "Checked", looking: "Looked", fetching: "Fetched",
+  opening: "Opened", saving: "Saved", finding: "Found", getting: "Got", creating: "Created",
+  updating: "Updated", deleting: "Deleted", sending: "Sent", setting: "Set", using: "Used",
+  remembering: "Remembered", loading: "Loaded", browsing: "Browsed", scheduling: "Scheduled",
+  running: "Ran", weighing: "Weighed", recalling: "Recalled", forgetting: "Forgot", changing: "Changed",
+  logging: "Logged", suggesting: "Suggested", showing: "Showed", starting: "Started", messaging: "Messaged",
+  moving: "Moved", waiting: "Waited", stopping: "Stopped", holding: "Held", planning: "Planned",
+  drawing: "Drew", downloading: "Downloaded", mapping: "Mapped", asking: "Asked", ending: "Ended",
+  following: "Followed", unfollowing: "Unfollowed", taking: "Took", answering: "Answered",
+  clicking: "Clicked", typing: "Typed", pressing: "Pressed", scrolling: "Scrolled", writing: "Wrote",
+  linking: "Linked",
+};
+function doneLabel(label) {
+  const text = String(label).replace(/[.\u2026\s]+$/, "");
+  const head = text.split(" ", 1)[0];
+  const past = PAST[head.toLowerCase()];
+  return past ? past + text.slice(head.length) : text;
+}
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 function toolLabel(name) {
   if (TOOL_LABELS[name]) return TOOL_LABELS[name];
@@ -500,7 +561,7 @@ function drawSteps(turn, done) {
     const reply = turn.querySelector(".reply, .dcard, .derr");
     reply ? turn.insertBefore(box, reply) : turn.append(box);
   }
-  const rows = s => s.map(t => `<div class="dstep${t.state === "run" ? " run" : ""}"><span class="s">${stepIcon(t.state)}</span><span>${esc(t.label)}</span></div>`).join("");
+  const rows = s => s.map(t => `<div class="dstep${t.state === "run" ? " run" : ""}"><span class="s">${stepIcon(t.state)}</span><span>${esc(t.state === "ok" || t.state === "bad" ? doneLabel(t.label) : t.label)}</span></div>`).join("");
   const n = turn.steps.length;
   if (done) {
     const label = n === 1 ? "1 step" : `${n} steps`;
@@ -862,7 +923,7 @@ function drawHistory(id, turns) {
       if (turn.user) ranOn(turn, t.model, t.thinking);
     } else if (t.role === "assistant") {
       turn ??= newTurn("");
-      turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map(x => ({ id: "", label: toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
+      turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map(x => ({ id: "", label: x.label || toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
       if (t.html) reply(turn).innerHTML += t.html;
       for (const x of t.tools) {
         if (x.file) sentFile(turn, x.file);

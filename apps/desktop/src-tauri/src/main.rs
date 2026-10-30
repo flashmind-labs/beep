@@ -23,6 +23,7 @@ mod products;
 mod research;
 mod state;
 mod sync;
+mod tool_labels;
 mod update;
 mod voice;
 
