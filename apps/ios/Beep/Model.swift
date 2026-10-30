@@ -34,6 +34,11 @@ struct ApprovalPrompt: Equatable {
     var queryId: String
     var approval: Approval
     var answer: ApprovalDecision?
+    /// Asked by a helper agent, a background job or a coding agent on a machine rather than
+    /// by a turn: no run resumes when it is answered, and it arrives only as a notice.
+    var background = false
+    /// The background work stopped waiting before the answer reached it.
+    var withdrawn = false
 }
 
 struct Message: Identifiable, Equatable {
@@ -63,6 +68,10 @@ struct Message: Identifiable, Equatable {
     var agent = ""
     /// The model and thinking Jev picked for this prompt under Auto; nil when it picked none.
     var auto: AutoPick?
+    /// A prompt said aloud in live mode on the Mac, which the chat shows as a transcript.
+    var spoken = false
+    /// When the server saved a reply from the history, in epoch milliseconds; 0 otherwise.
+    var repliedAt: Int64 = 0
 }
 
 /// A message typed while a reply runs, sent as its own turn once the reply finishes.
@@ -134,6 +143,11 @@ final class AppModel {
     var onScreen: String? {
         didSet { if let onScreen { notifier.clear(onScreen) } }
     }
+    /// Questions from background work by chat id, shown at the end of their chat. Ones still
+    /// waiting stay across history reloads; answered ones go with the next reload.
+    private(set) var waitingWork: [String: [ApprovalPrompt]] = [:]
+    /// The `sentAt` of each chat's spoken prompts, by chat id, as of the last history fetch.
+    private var spokenTurns: [String: Set<Int64>] = [:]
     /// Where a tapped notification wants to go; the root view follows it and clears it.
     var destination: Destination?
     /// The group chat on screen instead of the one to one chat, if any.
@@ -461,6 +475,7 @@ final class AppModel {
         let files = (try? await api().getSessionFiles(id: id)) ?? []
         // Likewise a server from before it named agents.
         let agents = (try? await api().getSessionAgents(id: id)) ?? []
+        spokenTurns[id] = await spokenTurnTimes(id)
         guard chat.id == id, !chat.busy else { return }
         show(entries, images: images, files: files, agents: agents, at: updatedAt)
         ChatStore.saveHistory(id, HistoryCache(updatedAt: updatedAt, entries: entries, images: images, files: files))
@@ -480,6 +495,7 @@ final class AppModel {
         for sent in files {
             filesByMessage[sent.message] = sent.files.map { SentFile(id: $0.id, name: $0.name, mime: $0.mime, size: Int64($0.size)) }
         }
+        let spoken = spokenTurns[id] ?? []
         var pendingTools: [ToolCall] = []
         var pendingReasoning = ""
         var messages: [Message] = []
@@ -491,12 +507,13 @@ final class AppModel {
                 pendingReasoning = ""
                 turnAt = timestamp
                 messages.append(Message(id: mid, role: .user, text: content, pictures: pictures[timestamp] ?? [],
-                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp, auto: auto))
+                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp, auto: auto,
+                                        spoken: spoken.contains(timestamp)))
             case .scheduled(let label, let timestamp):
                 pendingTools = []
                 pendingReasoning = ""
                 messages.append(Message(id: mid, role: .scheduled, text: label, sentAt: timestamp))
-            case .assistant(let content, _, let tools, let memoryScore, let reasoning, let model):
+            case .assistant(let content, let timestamp, let tools, let memoryScore, let reasoning, let model):
                 let calls = pendingTools + tools.map { ToolCall(id: $0.callId, name: $0.name, done: true, success: $0.success, output: $0.output) }
                 let thought = [pendingReasoning, reasoning].filter { !$0.isEmpty }.joined(separator: "\n\n")
                 if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -506,7 +523,8 @@ final class AppModel {
                     pendingTools = []
                     pendingReasoning = ""
                     messages.append(Message(id: mid, role: .assistant, text: content, tools: calls, reasoning: thought,
-                                            model: model, memoryScore: memoryScore, agent: agentByTurn[turnAt] ?? ""))
+                                            model: model, memoryScore: memoryScore, agent: agentByTurn[turnAt] ?? "",
+                                            repliedAt: timestamp))
                 }
             case .approval(let queryId, let approval):
                 messages.append(Message(
@@ -518,6 +536,10 @@ final class AppModel {
         }
         chat.messages = keepingLocal(messages)
         chat.historyAt = updatedAt
+        if let work = waitingWork[id] {
+            let left = work.filter { $0.answer == nil && !$0.withdrawn }
+            waitingWork[id] = left.isEmpty ? nil : left
+        }
     }
 
     /// Carries what only this phone knows over to the reloaded history, matching user messages
@@ -814,6 +836,11 @@ final class AppModel {
     }
 
     func answer(_ prompt: ApprovalPrompt, _ decision: ApprovalDecision) {
+        if prompt.background {
+            let sessionId = chat.id
+            Task { await answerWork(prompt, in: sessionId, decision) }
+            return
+        }
         guard let index = chat.messages.firstIndex(where: { $0.approvals.contains { $0.queryId == prompt.queryId } }),
             let card = chat.messages[index].approvals.firstIndex(where: { $0.queryId == prompt.queryId }),
             chat.messages[index].approvals[card].answer == nil
@@ -1151,13 +1178,51 @@ final class AppModel {
 
     /// A tool call allowed or denied from its notification.
     func answerFromNotice(sessionId: String, queryId: String, group: Bool, allow: Bool) async {
-        if group {
+        if let prompt = waitingWork[sessionId]?.first(where: { $0.queryId == queryId }) {
+            await answerWork(prompt, in: sessionId, allow ? .allow : .deny)
+        } else if group {
             try? await api().answerGroupApproval(queryId: queryId, allow: allow)
         } else if sessionId == chat.id, let prompt = chat.messages.flatMap(\.approvals).first(where: { $0.queryId == queryId }) {
             answer(prompt, allow ? .allow : .deny)
         } else {
             _ = try? await api().answerApproval(sessionId: sessionId, queryId: queryId, decision: allow ? .allow : .deny)
         }
+    }
+
+    // MARK: Background work
+
+    /// Keeps a question from background work so its chat shows a card for it. Turns ask in
+    /// their own run; these only come as a notice, with no run id.
+    func askedInBackground(_ notice: Notice) {
+        guard !notice.group, let pending = notice.approval, pending.runId.isEmpty else { return }
+        var list = waitingWork[notice.sessionId] ?? []
+        guard !list.contains(where: { $0.queryId == pending.queryId }) else { return }
+        list.append(ApprovalPrompt(queryId: pending.queryId, approval: pending.approval, background: true))
+        waitingWork[notice.sessionId] = list
+    }
+
+    /// Answers a question from background work. The server answers a delivered one with a
+    /// conflict, since no run resumes; any other conflict means nothing waits for it any more.
+    private func answerWork(_ prompt: ApprovalPrompt, in sessionId: String, _ decision: ApprovalDecision) async {
+        guard let card = waitingWork[sessionId]?.firstIndex(where: { $0.queryId == prompt.queryId }),
+            waitingWork[sessionId]?[card].answer == nil, waitingWork[sessionId]?[card].withdrawn == false
+        else { return }
+        waitingWork[sessionId]?[card].answer = decision
+        do {
+            _ = try await api().answerApproval(sessionId: sessionId, queryId: prompt.queryId, decision: decision)
+        } catch BeepError.Conflict(let reason) where reason.contains("background work goes on") {
+            // Delivered.
+        } catch BeepError.Conflict {
+            markWork(prompt.queryId, in: sessionId) { $0.answer = nil; $0.withdrawn = true }
+        } catch {
+            markWork(prompt.queryId, in: sessionId) { $0.answer = nil }
+            if chat.id == sessionId { chat.error = describe(error) }
+        }
+    }
+
+    private func markWork(_ queryId: String, in sessionId: String, _ change: (inout ApprovalPrompt) -> Void) {
+        guard let card = waitingWork[sessionId]?.firstIndex(where: { $0.queryId == queryId }) else { return }
+        change(&waitingWork[sessionId]![card])
     }
 
     /// Something changed on the server that a notice says nothing more about.
@@ -1425,5 +1490,19 @@ func describe(_ error: Error) -> String {
     case BeepError.NotFound: "Not found."
     case BeepError.Internal: "Something went wrong on the server."
     default: error.localizedDescription
+    }
+}
+
+// MARK: Bridge calls v2 still needs
+
+// TODO(v2 bridge): every call in this extension uses a `BeepClient` function the uniffi bridge in
+// crates/android-bridge does not export yet. It is written against the name and shape the
+// request has in crates/proto, so it builds once the bridge adds it.
+extension AppModel {
+    /// When each spoken prompt of a chat was sent: `SpokenTurns` (request 114). Needs
+    /// `BeepClient.spokenTurns(sessionId: String) async throws -> [Int64]`. Empty on servers from
+    /// before spoken turns, which just means every turn shows as typed.
+    func spokenTurnTimes(_ sessionId: String) async -> Set<Int64> {
+        Set((try? await api().spokenTurns(sessionId: sessionId)) ?? [])
     }
 }
