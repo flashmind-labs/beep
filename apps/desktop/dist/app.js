@@ -2262,6 +2262,10 @@ async function renderSettings(confirm = false) {
   }
   const mac = linked ? await invoke("mac_control").catch(e => { console.warn(e); return null; }) : null;
   if (S.view !== "settings") return;
+  // Only admins may list machines; for anyone else the row stays out.
+  MC.list = linked ? await invoke("list_machines").catch(() => null) : null;
+  if (S.view !== "settings") return;
+  const machines = MC.list ? `<div class="dtoggle"><span><b>Other machines</b><small>${MC.list.length ? esc(`${MC.list.length} linked: ${MC.list.map(m => m.name).join(", ")}`) : "None linked yet"}</small></span><button class="dbtn" id="machines">Show…</button></div>` : "";
   // Whether this Mac made the account, and so links and removes devices.
   const owner = devices.some(d => d.this_device && d.primary);
   const row = d => {
@@ -2284,7 +2288,7 @@ async function renderSettings(confirm = false) {
       <div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
     <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">
-      <div class="dsec flat">Devices</div>${link}${ask}${apps}${mac ? thisMac(mac) : ""}
+      <div class="dsec flat">Devices</div>${link}${ask}${apps}${mac ? thisMac(mac) : ""}${machines}
       <div class="dsec flat" style="padding-top:6px">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
@@ -2294,6 +2298,7 @@ async function renderSettings(confirm = false) {
   $("#link")?.addEventListener("click", renderLink);
   $("#invite")?.addEventListener("click", renderInvitePhone);
   $("#apps")?.addEventListener("click", renderApps);
+  $("#machines")?.addEventListener("click", renderMachines);
   bar.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", async () => {
     b.disabled = true;
     try {
@@ -3905,6 +3910,55 @@ function grantKeys(e, cmd) {
   }
 }
 
+// ---------- Machines ----------
+
+// The machines running beep-node (ListMachines), from Settings. Admins only.
+const MC = { list: null, error: "" };
+const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
+/// The coding agents Beep can drive on a machine; its other tools follow them.
+const CODERS = new Set(["claude", "codex", "gemini", "opencode", "cursor-agent", "amp", "aider"]);
+
+async function renderMachines() {
+  S.view = "machines";
+  invoke("close_group").catch(() => {});
+  drawMachines();
+  try {
+    MC.list = await invoke("list_machines");
+    MC.error = "";
+  } catch (e) {
+    MC.error = String(e);
+  }
+  if (S.view === "machines") drawMachines();
+}
+
+function machineCard(m) {
+  const env = m.env, now = Date.now();
+  const tag = m.online ? '<span class="dtag ok">Online</span>' : `<span class="dtag">Seen ${span(now - m.seen_at)} ago</span>`;
+  const version = /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
+  if (!env) return `<div class="dmach"><span class="nm">${esc(m.name)}${tag}</span><small>${esc(version)} · No report yet</small></div>`;
+  const coders = env.tools.filter(t => CODERS.has(t.name)), rest = env.tools.filter(t => !CODERS.has(t.name)).map(t => t.name);
+  const logins = env.logins.filter(l => l.signed_in).map(l => l.account ? `${l.tool} as ${l.account}` : `${l.tool} signed in`);
+  const also = [rest.length ? `Also ${rest.join(", ")}` : "", logins.join(", ")].filter(Boolean).join(" · ");
+  return `<div class="dmach"><span class="nm">${esc(m.name)}${tag}</span>
+    <small>${esc(`${env.os_version}, ${env.arch} · ${env.cpus} CPUs, ${Math.round(env.memory_mb / 1024)} GB · ${version}`)}</small>
+    <span class="cd">${coders.length ? esc("Coding: " + coders.map(t => t.version ? `${t.name} ${t.version}` : t.name).join(", ")) : '<span style="color:var(--muted)">No coding tools</span>'}</span>
+    ${also ? `<small>${esc(also)}</small>` : ""}</div>`;
+}
+
+function drawMachines() {
+  const list = MC.list ?? [], on = list.filter(m => m.online).length;
+  const sum = !MC.list ? "Where Beep runs commands and coding agents" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
+  const head = `<div class="dhead"><span class="tt"><b>Machines</b><small>${esc(sum || "Where Beep runs commands and coding agents")}</small></span></div>`;
+  const err = MC.error ? `<div class="derr" style="padding:8px 18px 0">${esc(MC.error)}</div>` : "";
+  const link = '<code>beep-node link</code>';
+  bar.innerHTML = head + err + (MC.list && !list.length
+    ? `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${SERVER_ICON}</span><b style="font-size:14px">No machines yet.</b>
+      <span class="dmuted" style="display:block">Run ${link} on a server and paste the link into Beep, or turn on Let Beep use this Mac in Settings.</span></div>`
+    : `<div class="dlist" style="padding-top:6px">${list.map(machineCard).join("")}</div>
+      ${MC.list ? `<div class="dmuted" style="display:block;padding:0 18px 12px">To add one, run ${link} on it and paste the link into Beep.</div>` : ""}`)
+    + hints([["esc", "back"]]);
+}
+
 // ---------- State ----------
 
 async function refreshStatus() {
@@ -4532,7 +4586,7 @@ function back() {
   if (S.view === "mcp" && A.asking) { A.asking = null; return drawMcpTools(); }
   if (S.view === "mcp") return renderApps();
   if (S.view === "apps" && A.adding) { A.adding = false; A.addError = ""; return drawApps(); }
-  if (S.view === "apps") return renderSettings();
+  if (S.view === "apps" || S.view === "machines") return renderSettings();
   if (S.view === "model") return S.session ? openSession(S.session) : renderChat();
   if ((S.view === "memories" || S.view === "routines" || S.view === "skills" || S.view === "research" || S.view === "settings") && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
   if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id);

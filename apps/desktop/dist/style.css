@@ -558,3 +558,9 @@ button.dachip:hover { border-color: #3A4A41 }
 /* What a memory is about when it is not the user, before its meta line. */
 .dscope { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); font-weight: 500 }
 .dchips .dsep { width: 1px; align-self: stretch; background: var(--border); margin: 3px 2px }
+/* A machine running beep-node: its state, system and coding tools. */
+.dmach { display: grid; gap: 1px; padding: 8px 10px }
+.dmach + .dmach { border-top: 1px solid var(--border) }
+.dmach .nm { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600 }
+.dmach small { font-size: 12px; color: var(--muted); line-height: 17px }
+.dmach .cd { font-size: 12.5px; line-height: 18px }
