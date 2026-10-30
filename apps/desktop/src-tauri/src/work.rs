@@ -7,7 +7,8 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    AnswerApproval, ApiError, CancelWork, ListWork, PendingApproval, WorkItem, WorkKind,
+    AnswerApproval, ApiError, CancelWork, ListQuestions, ListWork, PendingApproval, WorkItem,
+    WorkKind,
 };
 use serde::Serialize;
 use std::{sync::Arc, time::UNIX_EPOCH};
@@ -32,11 +33,8 @@ pub struct WorkQuestion {
 }
 
 impl WorkQuestion {
-    /// The question a notice carries for `session_id`, or `None` when it
-    /// carries none or a turn asked it: a turn's run streams its own card.
-    pub fn from_notice(session_id: &str, approval: Option<&PendingApproval>) -> Option<Self> {
-        let pending = approval.filter(|pending| pending.run_id.is_empty())?;
-        Some(Self {
+    fn new(session_id: &str, pending: &PendingApproval) -> Self {
+        Self {
             session_id: session_id.to_owned(),
             query_id: pending.query_id.clone(),
             app: pending.approval.app.clone(),
@@ -48,8 +46,23 @@ impl WorkQuestion {
                 .cloned()
                 .map(Field::from)
                 .collect(),
-        })
+        }
     }
+
+    /// The question a notice carries for `session_id`, or `None` when it
+    /// carries none or a turn asked it: a turn's run streams its own card.
+    pub fn from_notice(session_id: &str, approval: Option<&PendingApproval>) -> Option<Self> {
+        let pending = approval.filter(|pending| pending.run_id.is_empty())?;
+        Some(Self::new(session_id, pending))
+    }
+}
+
+/// A question from background work that no longer waits: answered here or
+/// elsewhere, or its work stopped.
+#[derive(Debug, Clone, Serialize)]
+pub struct Resolved {
+    pub session_id: String,
+    pub query_id: String,
 }
 
 /// An agent or job as the bar lists it.
@@ -126,6 +139,21 @@ pub async fn cancel_work(beep: Service<'_>, session: String, id: String) -> Resu
         id,
     })
     .await
+}
+
+/// The questions background work in chat `session` still waits on, oldest
+/// first, so their cards outlive a restart and show on every device.
+#[tauri::command]
+pub async fn list_questions(beep: Service<'_>, session: String) -> Result<Vec<WorkQuestion>> {
+    let pending = beep
+        .call(ListQuestions {
+            session_id: session_id(&session)?,
+        })
+        .await?;
+    Ok(pending
+        .iter()
+        .map(|question| WorkQuestion::new(&session, question))
+        .collect())
 }
 
 #[tauri::command]

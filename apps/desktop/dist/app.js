@@ -883,6 +883,7 @@ async function newChat() {
 async function openSession(id) {
   S.session = id;
   refreshWork(id);
+  loadQuestions(id);
   // A chat still answering keeps its body; anything else comes from the server.
   const running = live.get(id)?.run;
   if (!running) live.delete(id);
@@ -4088,6 +4089,35 @@ function keepWaitingQuestions(id) {
   if (w) w.questions = w.questions.filter(q => !q.answer && !q.withdrawn);
   drawWorkQuestions();
 }
+
+/// Loads the questions chat `id`'s background work still waits on, so cards
+/// outlive a restart and show on every device. Ones answered here stay to say
+/// so; ones no longer listed went elsewhere and leave quietly.
+async function loadQuestions(id) {
+  if (!id) return;
+  const listed = await invoke("list_questions", { session: id }).catch(() => null);
+  if (!listed) return;
+  const w = workOf(id), known = new Map(w.questions.map(q => [q.query_id, q]));
+  w.questions = [
+    ...w.questions.filter(q => q.answer && !listed.some(x => x.query_id === q.query_id)),
+    ...listed.map(q => known.get(q.query_id) ?? { ...q, answer: null, withdrawn: false }),
+  ];
+  if (id === S.session && S.view === "chat") { drawWorkQuestions(); refreshHints(); }
+}
+
+// A question answered on another device, or whose work stopped. One this
+// bar answered already says how.
+listen("work-resolved", e => {
+  const { session_id, query_id } = e.payload;
+  const q = WORK.get(session_id)?.questions.find(x => x.query_id === query_id);
+  if (!q || q.answer || q.withdrawn) return;
+  q.withdrawn = true;
+  if (session_id === S.session && S.view === "chat") { drawWorkQuestions(); refreshHints(); }
+});
+
+listen("reconnected", () => {
+  if (S.view === "chat" && S.session) { loadQuestions(S.session); refreshWork(S.session); }
+});
 
 listen("work-question", e => {
   const q = e.payload, w = workOf(q.session_id);

@@ -520,6 +520,9 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
 
 async fn follow_once(app: &AppHandle, beep: &Beep) -> Result<()> {
     let mut newest = beep.stream(StreamUpdates {}).await?;
+    // Connected again: what the bar shows from outside the log, such as
+    // questions from background work, may have changed meanwhile.
+    let _ = app.emit("reconnected", ());
     while let Some(last) = newest.next().await? {
         if last != beep.chats().last() {
             catch_up(app, beep).await?;
