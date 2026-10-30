@@ -149,8 +149,10 @@ final class AppModel {
         didSet { if let onScreen { notifier.clear(onScreen) } }
     }
     /// Questions from background work by chat id, shown at the end of their chat. Ones still
-    /// waiting stay across history reloads; answered ones go with the next reload.
-    private(set) var waitingWork: [String: [ApprovalPrompt]] = [:]
+    /// waiting stay across history reloads and relaunches; answered ones go with the next reload.
+    private(set) var waitingWork: [String: [ApprovalPrompt]] = ChatStore.loadWork() {
+        didSet { ChatStore.saveWork(waitingWork) }
+    }
     /// The `sentAt` of each chat's spoken prompts, by chat id, as of the last history fetch.
     private var spokenTurns: [String: Set<Int64>] = [:]
     /// Where a tapped notification wants to go; the root view follows it and clears it.
@@ -1334,6 +1336,7 @@ final class AppModel {
         starters = []
         previews = [:]
         ChatPreview.save(previews)
+        waitingWork = [:]
         ChatStore.clear()
         // The new account has not been told the timezone, and the old one's places
         // must not keep their region monitors if the new list fails to load.
@@ -1364,6 +1367,7 @@ final class AppModel {
         newChat()
         sessions = []
         groups = []
+        waitingWork = [:]
         ChatStore.clear()
         await refreshAfterConnect()
     }
