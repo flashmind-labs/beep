@@ -23,6 +23,13 @@ fun callLabel(call: ToolCall): String {
     return said.ifEmpty { humanize(call.name) }.ifEmpty { "Using a tool" }
 }
 
+/**
+ * Gives tool steps from history the description the server kept from when they ran, so a done step
+ * reads as the past tense of what it showed live. Steps it kept none for are left as they are.
+ */
+internal fun labelTools(tools: List<ToolCall>, labels: Map<String, String>): List<ToolCall> =
+    tools.map { call -> labels[call.callId]?.takeIf { it.isNotBlank() }?.let { call.copy(description = it) } ?: call }
+
 /** What a finished tool did, in words: "Searched the web". */
 fun doneToolLabel(call: ToolCall): String = doneLabel(callLabel(call))
 

@@ -41,4 +41,15 @@ class ToolLabelTest {
         assertEquals("Asked to allow a routine", doneToolLabel(history("request_grant", "")))
         assertEquals("Gmail: send email", doneToolLabel(history("GMAIL_SEND_EMAIL", "")))
     }
+
+    @Test
+    fun aStepFromHistoryTakesTheLabelTheServerKeptAndOlderStepsFallBack() {
+        val steps = listOf(history("GMAIL_SEND_EMAIL", ""), history("memory", """{"stored":true}"""))
+            .mapIndexed { i, call -> call.copy(callId = "c$i") }
+        val labelled = labelTools(steps, mapOf("c0" to "Sending an email to Ana"))
+        assertEquals("Sent an email to Ana", doneToolLabel(labelled[0]))
+        // No label kept for it: it reads its action from the output as before.
+        assertEquals("Remembered", doneToolLabel(labelled[1]))
+        assertEquals(steps[1], labelled[1])
+    }
 }
