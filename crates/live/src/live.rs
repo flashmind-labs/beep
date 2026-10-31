@@ -507,64 +507,16 @@ impl Live {
                 out.push(Effect::Toast(Toast::Stopped));
                 out
             }
-            Closed::Command(Command::Cancel) => self.cancel_reply(now),
-            Closed::Command(Command::NewChat) => {
-                let mut out = self.interrupt(now);
-                self.new_chat = true;
-                self.armed = false;
-                out.extend([self.resume(), Effect::Toast(Toast::NewChat), Effect::Show]);
-                out
-            }
-            // From the start, leaving the reply going on in the chat.
-            Closed::Command(Command::Repeat) if self.phase == Phase::Speaking => vec![
-                Effect::StopSpeaking,
-                Effect::Repeat,
-                Effect::Transcribe,
-                Effect::Toast(Toast::Repeating),
-            ],
-            Closed::Command(Command::Leave) => self.leave(Leaving::Asked),
             _ => Vec::new(),
         }
     }
 
+    /// A command said while the user talks: both end what they say and
+    /// send it, so "stop" works as "send" does.
     fn command(&mut self, command: Command) -> Vec<Effect> {
-        let mut out = self.not_soon();
         match command {
-            Command::Send => return self.send(),
-            Command::Cancel => {
-                self.turn.clear();
-                self.armed = false;
-                out.extend([Effect::Toast(Toast::Cancelled), Effect::Show]);
-            }
-            Command::ScratchThat => {
-                self.turn.scratch();
-                self.armed = false;
-                out.extend([Effect::Toast(Toast::Scratched), Effect::Show]);
-            }
-            Command::NewChat => {
-                self.turn.clear();
-                self.new_chat = true;
-                self.armed = false;
-                out.extend([Effect::Toast(Toast::NewChat), Effect::Show]);
-            }
-            Command::Repeat => {
-                self.armed = false;
-                self.phase = Phase::Speaking;
-                self.barge.clear();
-                out.extend([
-                    Effect::Repeat,
-                    Effect::Transcribe,
-                    Effect::Toast(Toast::Repeating),
-                ]);
-            }
-            Command::Leave => return self.leave(Leaving::Asked),
-            // Nothing is speaking.
-            Command::Stop => {
-                self.armed = false;
-                out.extend([Effect::Toast(Toast::NothingPlaying), Effect::Show]);
-            }
+            Command::Send | Command::Stop => self.send(),
         }
-        out
     }
 
     fn send(&mut self) -> Vec<Effect> {
@@ -670,55 +622,6 @@ mod tests {
     }
 
     #[test]
-    fn cancel_drops_the_turn_and_keeps_listening() {
-        let t = Instant::now();
-        let (mut live, _) = Live::listening(EndMode::Pause, t);
-        says(&mut live, "Text Sam that I'm late.", at(t, 100));
-        says(&mut live, " Cancel.", at(t, 200));
-        let out = live.input(Input::Tick, at(t, 200) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::Toast(Toast::Cancelled)));
-        assert_eq!(live.text(), "");
-        assert_eq!(live.phase(), Phase::Listening);
-        // Nothing left, so the pause sends nothing.
-        assert_eq!(sends(&live.input(Input::Tick, at(t, 10_000))), None);
-    }
-
-    #[test]
-    fn scratch_that_does_not_send_the_rest_until_more_is_said() {
-        let t = Instant::now();
-        let (mut live, _) = Live::listening(EndMode::Pause, t);
-        says(&mut live, "Book a table for four.", at(t, 100));
-        live.input(Input::Tick, at(t, 400));
-        says(
-            &mut live,
-            " Make it the Italian place. Scratch that.",
-            at(t, 450),
-        );
-        let out = live.input(Input::Tick, at(t, 450) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::Toast(Toast::Scratched)));
-        assert_eq!(live.text(), "Book a table for four.");
-        assert_eq!(sends(&live.input(Input::Tick, at(t, 9_000))), None);
-        says(&mut live, " At eight.", at(t, 9_000));
-        let out = live.input(Input::Tick, at(t, 9_000) + PAUSE_SEND);
-        assert_eq!(sends(&out), Some("Book a table for four. At eight."));
-    }
-
-    #[test]
-    fn new_chat_marks_the_next_message() {
-        let t = Instant::now();
-        let (mut live, _) = Live::listening(EndMode::Word, t);
-        says(&mut live, "New chat.", at(t, 100));
-        let out = live.input(Input::Tick, at(t, 100) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::Toast(Toast::NewChat)));
-        says(&mut live, "Hello send", at(t, 3000));
-        let out = live.input(Input::Tick, at(t, 3000) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::Send {
-            text: "Hello".into(),
-            new_chat: true
-        }));
-    }
-
-    #[test]
     fn speaking_done_goes_back_to_listening() {
         let t = Instant::now();
         let (mut live, _) = Live::listening(EndMode::Pause, t);
@@ -805,18 +708,6 @@ mod tests {
     }
 
     #[test]
-    fn bye_leaves() {
-        let t = Instant::now();
-        let (mut live, _) = Live::listening(EndMode::Pause, t);
-        says(&mut live, "Bye!", at(t, 100));
-        let out = live.input(Input::Tick, at(t, 100) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::Leave {
-            draft: None,
-            why: Leaving::Asked
-        }));
-    }
-
-    #[test]
     fn two_quiet_minutes_end_live_mode() {
         let t = Instant::now();
         let (mut live, _) = Live::listening(EndMode::Word, t);
@@ -883,16 +774,6 @@ mod tests {
     }
 
     #[test]
-    fn repeat_reads_the_last_answer_again() {
-        let t = Instant::now();
-        let (mut live, _) = Live::listening(EndMode::Pause, t);
-        says(&mut live, "Repeat that.", at(t, 100));
-        let out = live.input(Input::Tick, at(t, 100) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::Repeat));
-        assert_eq!(live.phase(), Phase::Speaking);
-    }
-
-    #[test]
     fn a_reply_with_nothing_to_say_goes_back_to_listening() {
         let t = Instant::now();
         let (mut live, _) = Live::listening(EndMode::Word, t);
@@ -942,19 +823,6 @@ mod tests {
         );
         assert_eq!(live.phase(), Phase::Listening);
         assert_eq!(live.text(), "");
-    }
-
-    #[test]
-    fn saying_bye_while_thinking_leaves_and_cancels() {
-        let t = Instant::now();
-        let mut live = thinking(t);
-        says(&mut live, "Bye.", at(t, 2000));
-        let out = live.input(Input::Tick, at(t, 2000) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::CancelReply));
-        assert!(out.contains(&Effect::Leave {
-            draft: None,
-            why: Leaving::Asked
-        }));
     }
 
     #[test]
@@ -1077,55 +945,29 @@ mod tests {
     }
 
     #[test]
-    fn stop_with_nothing_playing_says_so() {
+    fn stop_while_talking_sends() {
         let t = Instant::now();
-        let (mut live, _) = Live::listening(EndMode::Pause, t);
+        let (mut live, _) = Live::listening(EndMode::Word, t);
+        says(&mut live, "Book a table for four. Stop.", at(t, 100));
+        let out = live.input(Input::Tick, at(t, 100) + PHRASE_PAUSE);
+        assert_eq!(sends(&out), Some("Book a table for four."));
+
+        // With nothing said, it sends nothing.
+        let (mut live, _) = Live::listening(EndMode::Word, t);
         says(&mut live, "Stop.", at(t, 100));
         let out = live.input(Input::Tick, at(t, 100) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::Toast(Toast::NothingPlaying)));
+        assert_eq!(sends(&out), None);
         assert_eq!(live.phase(), Phase::Listening);
     }
 
     #[test]
-    fn letting_go_after_a_command_acts_on_it() {
+    fn letting_go_after_stop_sends() {
         let t = Instant::now();
-        let held = |words: &str| {
-            let (mut live, _) = Live::listening(EndMode::Word, t);
-            live.input(Input::HoldStart, at(t, 100));
-            says(&mut live, words, at(t, 200));
-            let out = live.input(Input::HoldEnd, at(t, 300));
-            (live, out)
-        };
-        let (live, out) = held("Cancel.");
-        assert_eq!(
-            out,
-            vec![
-                Effect::Transcribe,
-                Effect::Toast(Toast::Cancelled),
-                Effect::Show
-            ]
-        );
-        assert_eq!(live.phase(), Phase::Listening);
-
-        let (_, out) = held("Bye.");
-        assert!(out.contains(&Effect::Leave {
-            draft: None,
-            why: Leaving::Asked
-        }));
-
-        let (live, out) = held("Repeat that.");
-        assert!(out.contains(&Effect::Repeat));
-        assert_eq!(live.phase(), Phase::Speaking);
-
-        let (mut live, out) = held("New chat.");
-        assert!(out.contains(&Effect::Toast(Toast::NewChat)));
-        live.input(Input::HoldStart, at(t, 1000));
-        says(&mut live, "Hello", at(t, 1100));
-        let out = live.input(Input::HoldEnd, at(t, 1200));
-        assert!(out.contains(&Effect::Send {
-            text: "Hello".into(),
-            new_chat: true
-        }));
+        let (mut live, _) = Live::listening(EndMode::Word, t);
+        live.input(Input::HoldStart, at(t, 100));
+        says(&mut live, "Book a table. Stop.", at(t, 200));
+        let out = live.input(Input::HoldEnd, at(t, 300));
+        assert_eq!(sends(&out), Some("Book a table."));
     }
 
     #[test]
@@ -1192,69 +1034,6 @@ mod tests {
     }
 
     #[test]
-    fn never_mind_while_speaking_cancels_the_reply() {
-        let t = Instant::now();
-        let mut live = thinking(t);
-        live.input(Input::ReplyReady, at(t, 3000));
-        // Beep's own sentence with the word in it does nothing.
-        says(&mut live, "Cancel the meeting at noon.", at(t, 3100));
-        assert!(
-            live.input(Input::Tick, at(t, 3100) + PHRASE_PAUSE)
-                .is_empty()
-        );
-        says(&mut live, "Never mind.", at(t, 6000));
-        let out = live.input(Input::Tick, at(t, 6000) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::CancelReply));
-        assert!(out.contains(&Effect::Toast(Toast::Cancelled)));
-        assert_eq!(live.phase(), Phase::Listening);
-        assert_eq!(live.text(), "Hi");
-    }
-
-    #[test]
-    fn repeat_while_speaking_starts_over_without_cancelling() {
-        let t = Instant::now();
-        let mut live = thinking(t);
-        live.input(Input::ReplyReady, at(t, 3000));
-        says(&mut live, "Say that again.", at(t, 4000));
-        let out = live.input(Input::Tick, at(t, 4000) + PHRASE_PAUSE);
-        assert_eq!(
-            out,
-            vec![
-                Effect::StopSpeaking,
-                Effect::Repeat,
-                Effect::Transcribe,
-                Effect::Toast(Toast::Repeating)
-            ]
-        );
-        assert_eq!(live.phase(), Phase::Speaking);
-
-        // While thinking there is nothing to repeat yet.
-        let mut live = thinking(t);
-        says(&mut live, "Repeat that.", at(t, 4000));
-        assert!(
-            live.input(Input::Tick, at(t, 4000) + PHRASE_PAUSE)
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn new_chat_while_speaking_stops_and_marks_the_next_message() {
-        let t = Instant::now();
-        let mut live = thinking(t);
-        live.input(Input::ReplyReady, at(t, 3000));
-        says(&mut live, "New chat.", at(t, 4000));
-        let out = live.input(Input::Tick, at(t, 4000) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::CancelReply));
-        assert!(out.contains(&Effect::Toast(Toast::NewChat)));
-        says(&mut live, "Hello send", at(t, 7000));
-        let out = live.input(Input::Tick, at(t, 7000) + PHRASE_PAUSE);
-        assert!(out.contains(&Effect::Send {
-            text: "Hello".into(),
-            new_chat: true
-        }));
-    }
-
-    #[test]
     fn an_approval_waits_without_the_quiet_limit_then_goes_on() {
         let t = Instant::now();
         let mut live = thinking(t);
@@ -1284,16 +1063,10 @@ mod tests {
     }
 
     #[test]
-    fn while_waiting_commands_work_and_a_new_message_drops_the_approval() {
+    fn while_waiting_a_new_message_drops_the_approval() {
         let t = Instant::now();
         let mut live = thinking(t);
         live.input(Input::Approval, at(t, 3000));
-        assert_eq!(live.phase(), Phase::Waiting);
-        // Repeating comes back to waiting.
-        says(&mut live, "Repeat that.", at(t, 4000));
-        live.input(Input::Tick, at(t, 4000) + PHRASE_PAUSE);
-        assert_eq!(live.phase(), Phase::Speaking);
-        live.input(Input::SpeakDone, at(t, 8000));
         assert_eq!(live.phase(), Phase::Waiting);
         says(&mut live, "Actually do something else send", at(t, 9000));
         let out = live.input(Input::Tick, at(t, 9000) + PHRASE_PAUSE);

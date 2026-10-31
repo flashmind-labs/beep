@@ -69,8 +69,9 @@ const TOOL_LABELS = {
   background: "Checking background work",
   reminder: "Setting a reminder",
   node: "Using your machines",
-  exec: "Running a command",
-  process: "Checking background commands",
+  // Commands stay out of the chat: every one reads the same.
+  exec: "Running code",
+  process: "Running code",
   desktop: "Using the Mac",
   code_agent: "Using a coding agent",
   get_route: "Planning a route",
@@ -109,7 +110,7 @@ const TOOL_LABELS = {
 // lease.pdf" or which action of a folded tool runs.
 const DESCRIBED = new Set([
   "mac_files", "memory", "skill", "habit", "background", "reminder", "node",
-  "exec", "process", "desktop", "code_agent", "send_file",
+  "desktop", "code_agent", "send_file",
 ]);
 /// A finished step's label in the past tense, as on the phone: "Recalling
 /// memories" becomes "Recalled memories". Unknown verbs stay as they are.
@@ -1694,8 +1695,7 @@ function notice(text, { path, bad } = {}) {
 
 /// What can be said in live mode, and its keys: in the shortcuts and in the
 /// sheet ⌘/ opens over live mode.
-const LIVE_SAY = [["“send” or “send it”", "Send now"], ["“cancel” or “never mind”", "Drop what was said, or cancel the reply"], ["“scratch that”", "Remove the last sentence"],
-  ["“stop”", "Stop Beep speaking"], ["“repeat that” or “say that again”", "Read the reply again"], ["“new chat”", "Next message, new chat"], ["“bye” or “stop listening”", "Leave live mode"]];
+const LIVE_SAY = [["“send”", "Send now"], ["“stop”", "Send now, or stop Beep speaking"]];
 const LIVE_TALK = [["tap ⌥", "Leave, or stop Beep"], ["hold ⌥", "Talk, or interrupt Beep"], ["esc", "Cancel the reply, or leave"], ["any key", "Leave and type instead"], ["⌥ ⌥", "Over the orb: bring Beep back. In Beep: leave"]];
 const SHORTCUTS = [
   ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines, then ⌘G for grants"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌘Q", "Quit"]]],
@@ -2333,7 +2333,7 @@ function voiceNotesRow(cur) {
 
 /// Settings, under Voice notes: what ends a spoken message in live mode.
 function sendRow(onPause) {
-  const why = onPause ? "Sends after a short pause. Saying “send” sends at once." : "Pauses never send. Say “send” when you are done.";
+  const why = onPause ? "Sends after a short pause. Saying “send” sends at once." : "Pauses never send. Say “send” or “stop” when you are done.";
   return `<div class="dtoggle"><span><b>When I stop talking</b><small>${why}</small></span></div>
     <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:-6px 0 8px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
 }
@@ -4268,7 +4268,7 @@ function liveParts(v) {
     : v.finishing ? "Sending…"
     : holding ? "Let go of Option to send"
     : mode === "listen" && v.hold_only ? "hold ⌥ to reply · tap ⌥ to leave"
-    : mode === "listen" ? (v.pause_sends ? "Pause to send · tap ⌥ to leave" : "Say “send” to send · tap ⌥ to leave")
+    : mode === "listen" ? (v.pause_sends ? "Pause to send · tap ⌥ to leave" : "Say “send” or “stop” to send · tap ⌥ to leave")
     : mode === "think" ? "Option to skip the spoken answer"
     : v.phase === "thinking" ? "Beep reads the answer when it is ready · Option to stop"
     : "Say “stop” or tap Option to talk";

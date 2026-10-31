@@ -92,6 +92,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
@@ -705,7 +706,10 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
 
         // While live voice runs, its dock takes the composer's place and the chat above stays as usual.
         val liveState by live.state.collectAsState()
-        val liveShown = liveDock && liveState.active
+        // A hold from the composer's mic keeps the composer until let go: swapping in the dock
+        // would drop the mic and the finger on it with it.
+        var micHeld by remember { mutableStateOf(false) }
+        val liveShown = liveDock && liveState.active && !micHeld
         LaunchedEffect(liveShown) { if (liveShown) dictation.cancel() }
         val buttonSize = if (compact) 44.dp else 50.dp
         val buttonShape = RoundedCornerShape(Beep.shapes.radius)
@@ -726,7 +730,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                 }
                 TextField(value = draftField, onValueChange = { if (it.text.toByteArray().size <= 32768) { draftField = it; draft = it.text } },
                     modifier = Modifier.weight(1f).focusRequester(inputFocusRequester),
-                    placeholder = { Text(if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else if (attachedFiles.isNotEmpty()) "Ask about the file..." else if (research?.isResearch == true) research.live.hint() else "Ask anything...", fontSize = 15.sp, color = TextDim) },
+                    placeholder = { Text(if (micHeld) "Let go to send · Slide away to cancel" else if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else if (attachedFiles.isNotEmpty()) "Ask about the file..." else if (research?.isResearch == true) research.live.hint() else "Ask anything...", fontSize = 15.sp, color = TextDim) },
                     textStyle = LocalTextStyle.current.copy(fontSize = 15.sp),
                     colors = TextFieldDefaults.colors(unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, cursorColor = TextPrimary),
@@ -734,9 +738,9 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default))
                 if (dictation.available) DictationMic(listening, { dictation.level }, onTap = { startVoice() },
                     hold = if (canHold) object : MicHold {
-                        override fun start() { dictation.cancel(); activity!!.startLive(LiveOrigin.Hold, holding = true) }
-                        override fun end() = live.holdEnd()
-                        override fun cancel() = live.holdCancel()
+                        override fun start() { micHeld = true; dictation.cancel(); activity!!.startLive(LiveOrigin.Hold, holding = true) }
+                        override fun end() { micHeld = false; live.holdEnd() }
+                        override fun cancel() { micHeld = false; live.holdCancel() }
                     } else null)
             }
             val buttonModifier = Modifier.size(buttonSize)
@@ -816,11 +820,17 @@ private fun DictationMic(listening: Boolean, level: () -> Float, onTap: () -> Un
                 // Held: live voice with the mic down until it is let go.
                 action.start()
                 var cancelled = false
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    if ((change.position - down.position).getDistance() > slide) cancelled = true
-                    if (!change.pressed) { change.consume(); break }
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if ((change.position - down.position).getDistance() > slide) cancelled = true
+                        if (!change.pressed) { change.consume(); break }
+                    }
+                } catch (e: CancellationException) {
+                    // The mic left the screen mid-hold: nothing will see it let go.
+                    action.cancel()
+                    throw e
                 }
                 if (cancelled) action.cancel() else action.end()
             }

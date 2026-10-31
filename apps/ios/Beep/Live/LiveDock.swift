@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Live voice in the chat: a dock where the composer sits, while the chat above stays as it
 /// always is. It has the orb, which takes the taps, the state word, the caption (what you say,
-/// or the line Beep reads out), the pause bar, the hint, the commands, Cancel during a reply
+/// or the line Beep reads out), the pause bar, the hint, Cancel during a reply
 /// and a way out. A toast floats over it.
 struct LiveDock: View {
     @Environment(AppModel.self) private var model
@@ -97,7 +97,7 @@ struct LiveDock: View {
         switch live.view.phase {
         case .connecting: return ("Connecting", Mint.muted)
         case .listening: return ("Listening", LiveColors.listen)
-        case .holding: return ("Holding", LiveColors.listen)
+        case .holding: return (live.headphoneTalk ? "Talking" : "Holding", LiveColors.listen)
         case .thinking: return ("Thinking", Mint.muted)
         case .speaking: return ("Speaking", LiveColors.speak)
         case .waiting: return ("Waiting for you", LiveColors.listen)
@@ -158,7 +158,7 @@ struct LiveDock: View {
 
     // MARK: Footer
 
-    private var hasFooter: Bool { hint != nil || button != nil || commands || again }
+    private var hasFooter: Bool { hint != nil || button != nil }
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -169,20 +169,7 @@ struct LiveDock: View {
                     if let button { DockButton(button: button, live: live) }
                 }
             }
-            if commands { Commands() }
-            if again {
-                // After a reply the commands are gone; the spoken way out stays in view.
-                Text("Say “stop listening” or “bye” to leave").font(.body(11.5)).foregroundStyle(Mint.dim)
-            }
         }
-    }
-
-    /// Nothing said yet in this session: the spoken commands show.
-    private var commands: Bool { idleListening && live.view.line == nil }
-    private var again: Bool { idleListening && live.view.line != nil }
-
-    private var idleListening: Bool {
-        live.problem == nil && !live.paused && live.view.phase == .listening && live.view.words.isEmpty
     }
 
     private var button: DockButton.Kind? {
@@ -198,8 +185,10 @@ struct LiveDock: View {
         case .listening:
             if live.soon != nil { return "Sending… keep talking to add more" }
             return live.sendOnPause ? "Pause to send · Tap the orb to leave · Hold it to talk"
-                : "Say “send” when you’re done · Tap the orb to leave"
-        case .holding: return "Let go to send · Slide away to cancel"
+                : "Say “send” or “stop” when you’re done · Tap the orb to leave"
+        case .holding:
+            return live.headphoneTalk ? "Press your AirPods to send · Press twice to leave"
+                : "Let go to send · Slide away to cancel"
         case .thinking: return "Tap the orb to stop the answer"
         case .speaking: return "Tap the orb or say “stop” to interrupt"
         case .waiting: return "Beep goes on once you answer"
@@ -400,82 +389,6 @@ private struct StepRow: View {
             ProgressView().controlSize(.mini).tint(Mint.muted)
             Text(text).font(.body(13)).foregroundStyle(Mint.muted).lineLimit(2)
         }
-    }
-}
-
-/// The spoken commands, while nothing has been said yet.
-private struct Commands: View {
-    private struct Command {
-        var said: String
-        var does = ""
-    }
-
-    private let all = [
-        Command(said: "send", does: "sends"), Command(said: "cancel", does: "drops it"), Command(said: "scratch that"),
-        Command(said: "stop"), Command(said: "repeat that"), Command(said: "new chat"),
-        Command(said: "stop listening", does: "leaves"), Command(said: "bye", does: "leaves"),
-    ]
-
-    var body: some View {
-        FlowRow(spacing: 4) {
-            ForEach(all, id: \.said) { command in
-                (Text("“\(command.said)”").foregroundStyle(Mint.ink).fontWeight(.medium)
-                    + Text(command.does.isEmpty ? "" : " " + command.does).foregroundStyle(Mint.muted))
-                    .font(.body(11))
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(Capsule().fill(Mint.page))
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("You can say send, cancel, scratch that, stop, repeat that, new chat, stop listening or bye")
-    }
-}
-
-/// Lays its children out in rows from the leading edge that wrap.
-private struct FlowRow: Layout {
-    var spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = rows(width: proposal.width ?? .infinity, subviews: subviews)
-        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
-        return CGSize(width: proposal.width ?? rows.map(\.width).max() ?? 0, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var y = bounds.minY
-        for row in rows(width: bounds.width, subviews: subviews) {
-            var x = bounds.minX
-            for index in row.items {
-                let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-                x += size.width + spacing
-            }
-            y += row.height + spacing
-        }
-    }
-
-    private struct Row {
-        var items: [Int] = []
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-    }
-
-    private func rows(width: CGFloat, subviews: Subviews) -> [Row] {
-        var rows: [Row] = []
-        var row = Row()
-        for (index, subview) in subviews.enumerated() {
-            let size = subview.sizeThatFits(.unspecified)
-            let needed = row.items.isEmpty ? size.width : row.width + spacing + size.width
-            if !row.items.isEmpty, needed > width {
-                rows.append(row)
-                row = Row()
-            }
-            row.width = row.items.isEmpty ? size.width : row.width + spacing + size.width
-            row.height = max(row.height, size.height)
-            row.items.append(index)
-        }
-        if !row.items.isEmpty { rows.append(row) }
-        return rows
     }
 }
 

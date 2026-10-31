@@ -339,7 +339,7 @@ private struct TalkToBeepCard: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Send when I stop talking").font(.body(14, .medium)).foregroundStyle(Mint.ink)
-                    Text(live.sendOnPause ? "A pause sends. Say “send” to send at once." : "Only “send” sends; pauses never do.")
+                    Text(live.sendOnPause ? "A pause sends. Say “send” to send at once." : "Only “send” or “stop” sends; pauses never do.")
                         .font(.body(12)).foregroundStyle(Mint.muted)
                 }
                 Spacer()

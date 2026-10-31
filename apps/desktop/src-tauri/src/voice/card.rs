@@ -192,6 +192,7 @@ impl Voice {
 
     fn open_chat_of(&self, card: &Pending) {
         self.emit_card(None);
+        self.hide_orb_unless_live();
         if Uuid::parse_str(&card.notice.session_id).is_ok() {
             self.beep.set_session(Some(card.notice.session_id.clone()));
         }

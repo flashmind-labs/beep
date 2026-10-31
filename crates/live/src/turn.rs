@@ -89,20 +89,6 @@ impl Turn {
             self.said.insert(0, text.to_owned());
         }
     }
-
-    /// Removes the last sentence said.
-    pub fn scratch(&mut self) {
-        let Some(last) = self.said.pop() else {
-            return;
-        };
-        let parts = sentences(&last);
-        if let Some((_, before)) = parts.split_last() {
-            let kept = before.concat();
-            if !kept.trim().is_empty() {
-                self.said.push(kept.trim().to_owned());
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -127,28 +113,16 @@ mod tests {
     fn a_phrase_that_is_a_command_is_taken_out() {
         let mut t = turn("Book a table for four.");
         assert_eq!(t.close(), Closed::Kept);
-        t.hear(" Cancel.");
-        assert_eq!(t.close(), Closed::Command(Command::Cancel));
+        t.hear(" Stop.");
+        assert_eq!(t.close(), Closed::Command(Command::Stop));
         assert_eq!(t.text(), "Book a table for four.");
     }
 
     #[test]
     fn a_command_after_a_sentence_without_a_pause_still_counts() {
-        let mut t = turn("Text Sam that I'm late. Scratch that.");
-        assert_eq!(t.close(), Closed::Command(Command::ScratchThat));
+        let mut t = turn("Text Sam that I'm late. Stop.");
+        assert_eq!(t.close(), Closed::Command(Command::Stop));
         assert_eq!(t.text(), "Text Sam that I'm late.");
-    }
-
-    #[test]
-    fn scratch_removes_the_last_sentence() {
-        let mut t = turn("Book a table. Make it at the Italian place.");
-        t.close();
-        t.scratch();
-        assert_eq!(t.text(), "Book a table.");
-        t.scratch();
-        assert_eq!(t.text(), "");
-        t.scratch();
-        assert!(t.is_empty());
     }
 
     #[test]

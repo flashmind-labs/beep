@@ -45,14 +45,28 @@ final class LiveAudio {
     /// What to call once each line still queued has played, by line.
     private let lock = NSLock()
     private var playing: [UUID: @Sendable () -> Void] = [:]
+    /// One still playing its last chime. Its finish turns voice processing off and lets go of
+    /// the shared audio session, so a new start finishes it first rather than have that land
+    /// under the new mic. Used from the main actor only.
+    nonisolated(unsafe) private static var stopping: LiveAudio?
 
     /// Starts the mic and the player. `mic` gets each chunk of 16 kHz PCM16 and `voice` the
     /// level of what plays, both on the audio thread.
     func start(mic: @escaping @Sendable (Data) -> Void, voice: @escaping @Sendable (Float) -> Void) throws {
+        Self.stopping?.finish()
         self.mic = mic
         self.voice = voice
-        try Self.configureSession()
-        try build()
+        do {
+            try Self.configureSession()
+            try build()
+        } catch {
+            // Nothing else will stop it: undo what got as far as starting.
+            tearDown()
+            self.mic = nil
+            self.voice = nil
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            throw error
+        }
         observe()
     }
 
@@ -112,6 +126,7 @@ final class LiveAudio {
     /// Stops everything, after `chime` when one is given. Safe to call more than once.
     func stop(after chime: Chime? = nil) {
         guard let chime, state == .running, engine.isRunning else { return finish() }
+        Self.stopping = self
         // The caller lets go of this at once, so the closures hold it until the chime ends,
         // on an audio thread, or a second passes; the engine stops on the main thread.
         self.chime(chime) { DispatchQueue.main.async { self.finish() } }
@@ -119,6 +134,7 @@ final class LiveAudio {
     }
 
     private func finish() {
+        if Self.stopping === self { Self.stopping = nil }
         guard state != .off else { return }
         state = .off
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
