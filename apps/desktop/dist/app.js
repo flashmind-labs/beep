@@ -69,6 +69,10 @@ const TOOL_LABELS = {
   background: "Checking background work",
   reminder: "Setting a reminder",
   node: "Using your machines",
+  exec: "Running a command",
+  process: "Checking background commands",
+  desktop: "Using the Mac",
+  code_agent: "Using a coding agent",
   get_route: "Planning a route",
   send_image: "Sending pictures",
   chat_search: "Searching this chat",
@@ -103,7 +107,10 @@ const TOOL_LABELS = {
 };
 // Tools whose own description says more than their name, such as "Reading
 // lease.pdf" or which action of a folded tool runs.
-const DESCRIBED = new Set(["mac_files", "memory", "skill", "habit", "background", "reminder", "node"]);
+const DESCRIBED = new Set([
+  "mac_files", "memory", "skill", "habit", "background", "reminder", "node",
+  "exec", "process", "desktop", "code_agent", "send_file",
+]);
 /// A finished step's label in the past tense, as on the phone: "Recalling
 /// memories" becomes "Recalled memories". Unknown verbs stay as they are.
 const PAST = {
@@ -117,7 +124,7 @@ const PAST = {
   drawing: "Drew", downloading: "Downloaded", mapping: "Mapped", asking: "Asked", ending: "Ended",
   following: "Followed", unfollowing: "Unfollowed", taking: "Took", answering: "Answered",
   clicking: "Clicked", typing: "Typed", pressing: "Pressed", scrolling: "Scrolled", writing: "Wrote",
-  linking: "Linked",
+  linking: "Linked", copying: "Copied", typesetting: "Typeset",
 };
 function doneLabel(label) {
   const text = String(label).replace(/[.\u2026\s]+$/, "");
@@ -262,7 +269,6 @@ function renderChat() {
   b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; drawLatest(); markMap(); };
   drawLatest();
   drawQueue();
-  drawWork();
   drawAttached();
   const ask = $("#ask");
   let multi = false, typed = false;
@@ -743,7 +749,6 @@ function follow(id, turn) {
         if (ev.cards) productRow(turn, ev.cards);
         if (ev.chart) chartRow(turn, ev.chart);
         if (ev.name === "get_route" && ev.success && ev.call_id) routeRow(turn, ev.call_id);
-        if (WORK_TOOLS.has(ev.name) && id === S.session) refreshWork(id);
         break;
       }
       case "sources":
@@ -917,7 +922,6 @@ async function newChat() {
 
 async function openSession(id) {
   S.session = id;
-  refreshWork(id);
   loadQuestions(id);
   // A chat still answering keeps its body; anything else comes from the server.
   const running = live.get(id)?.run;
@@ -4513,51 +4517,14 @@ listen("sessions-changed", e => {
 
 // ---------- Background work ----------
 
-// Agents and jobs a chat started keep running after its turn. A strip above
-// the field counts those running and opens to list them, each with Stop.
-// One that needs an OK asks through a notice, so its card sits at the end of
-// its chat until it is answered.
-const WORK = new Map(); // session id -> { items: [], open, questions: [{ query_id, app, action, fields, answer, withdrawn }] }
-const WORK_POLL_MS = 4000;
-/// Tools whose step starts or changes background work.
-const WORK_TOOLS = new Set(["background", "spawn_agent", "run_in_background", "message_agent", "cancel_job"]);
+// Background sub-agents that need an OK ask through a notice, so the card
+// sits at the end of its chat until it is answered.
+const WORK = new Map(); // session id -> { questions: [{ query_id, app, action, fields, answer, withdrawn }] }
 function workOf(id) {
-  if (!WORK.has(id)) WORK.set(id, { items: [], open: false, questions: [], poll: 0 });
+  if (!WORK.has(id)) WORK.set(id, { questions: [] });
   return WORK.get(id);
 }
 const waitingQuestion = id => WORK.get(id)?.questions.find(q => !q.answer && !q.withdrawn);
-
-/// Lists chat `id`'s background work again, and again every few seconds
-/// while some of it runs and the chat is open.
-async function refreshWork(id) {
-  if (!id) return;
-  const w = workOf(id);
-  clearTimeout(w.poll);
-  w.items = await invoke("list_work", { session: id }).catch(() => w.items);
-  if (id !== S.session || S.view !== "chat") return;
-  drawWork();
-  if (w.items.some(x => !x.outcome)) w.poll = setTimeout(() => refreshWork(id), WORK_POLL_MS);
-}
-
-function drawWork() {
-  const old = $("#work"), w = WORK.get(S.session);
-  const running = w?.items.filter(x => !x.outcome).length ?? 0;
-  if (S.view !== "chat" || !running) return old?.remove();
-  const mins = ms => `${Math.max(1, Math.round((Date.now() - ms) / 60000))} min`;
-  const row = x => `<div class="dwi"><span class="s">${x.outcome ? (x.outcome.ok ? `<span class="dok">${ICON.check}</span>` : `<span class="dbad">${ICON.x}</span>`) : '<span class="dspin"></span>'}</span>
-    <span class="tt"><small>${x.agent ? "Agent" : "Tool call"}</small><b>${esc(x.task)}</b><span>${esc(x.outcome ? x.outcome.text : `${x.step || "Starting"} · ${mins(x.started_at)}`)}</span></span>
-    ${x.outcome ? "" : `<button class="dbtn warn" data-stop="${esc(x.id)}">Stop</button>`}</div>`;
-  const el = h(`<div class="dwork" id="work"><button class="drow" aria-expanded="${w.open}"><span class="dspin"></span><span style="flex:1">${running} working in the background</span><span class="chev">${ICON.chev}</span></button>${w.open ? w.items.map(row).join("") : ""}</div>`);
-  const id = S.session;
-  el.querySelector(".drow").addEventListener("click", () => { w.open = !w.open; drawWork(); });
-  el.querySelectorAll("[data-stop]").forEach(b => b.addEventListener("click", async () => {
-    b.disabled = true;
-    await invoke("cancel_work", { session: id, id: b.dataset.stop }).catch(err => notice(String(err), { bad: true }));
-    refreshWork(id);
-  }));
-  if (old) old.replaceWith(el);
-  else ($("#queue") ?? $(".dhints")).before(el);
-}
 
 /// The open chat's questions from background work, at the end of its body.
 function drawWorkQuestions() {
@@ -4596,7 +4563,7 @@ async function answerWork(id, q, decision) {
     q.answer = null;
     if (id === S.session) notice(String(err), { bad: true });
   }
-  if (id === S.session) { drawWorkQuestions(); refreshHints(); refreshWork(id); }
+  if (id === S.session) { drawWorkQuestions(); refreshHints(); }
 }
 
 /// After the chat is drawn again from the server: answered questions go,
@@ -4633,14 +4600,14 @@ listen("work-resolved", e => {
 });
 
 listen("reconnected", () => {
-  if (S.view === "chat" && S.session) { loadQuestions(S.session); refreshWork(S.session); }
+  if (S.view === "chat" && S.session) loadQuestions(S.session);
 });
 
 listen("work-question", e => {
   const q = e.payload, w = workOf(q.session_id);
   if (w.questions.some(x => x.query_id === q.query_id)) return;
   w.questions.push({ ...q, answer: null, withdrawn: false });
-  if (q.session_id === S.session && S.view === "chat") { drawWorkQuestions(); refreshHints(); refreshWork(q.session_id); }
+  if (q.session_id === S.session && S.view === "chat") { drawWorkQuestions(); refreshHints(); }
 });
 
 // ---------- Skills ----------

@@ -68,7 +68,6 @@ render() {
     text owner "${BEEP_OWNER:-}"
     text name "${BEEP_NAME:-Beep}"
     flag events "${BEEP_EVENTS:-}" BEEP_EVENTS
-    flag background "${BEEP_BACKGROUND:-}" BEEP_BACKGROUND
     flag nodes "${BEEP_NODES:-}" BEEP_NODES
     flag agents "${BEEP_AGENTS:-}" BEEP_AGENTS
     text local_node /link

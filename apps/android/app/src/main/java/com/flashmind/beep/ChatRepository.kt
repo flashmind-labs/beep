@@ -28,7 +28,6 @@ import com.flashmind.beep.proto.MemoryScope
 import com.flashmind.beep.proto.Machine
 import com.flashmind.beep.proto.Grant
 import com.flashmind.beep.proto.PendingApproval
-import com.flashmind.beep.proto.WorkItem
 import com.flashmind.beep.proto.Research
 import com.flashmind.beep.proto.ResearchSummary
 import com.flashmind.beep.proto.RouteCard
@@ -1021,11 +1020,6 @@ class ChatRepository(private val storage: LocalStorage) {
     val modelChoices = MutableStateFlow(lists.models)
     /** The server sends model choices only to admins, so this says whether the user is one. */
     val isAdmin: Boolean get() = modelChoices.value?.choices?.isNotEmpty() == true
-    /** The sub-agents and background jobs of chat [id]. Null when it could not be read: offline, or a server from before background work. */
-    suspend fun listWork(id: String): List<WorkItem>? =
-        try { api().listWork(id) } catch (e: BeepException) { null }
-    /** Stops background work [workId] of chat [id]; false when it had already ended. */
-    suspend fun cancelWork(id: String, workId: String): Boolean = api().cancelWork(id, workId)
     /**
      * A call of background work in [conversationId] that waits for the user, which comes only as a notice:
      * a card at the end of the chat, so it can be answered there. Nothing when the phone does not have the chat.

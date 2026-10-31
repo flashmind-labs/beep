@@ -665,7 +665,6 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         research?.live?.takeIf { it.running }?.let { live ->
             ResearchProgressRow(live, onOpen = { research.onWorkspace(null) }, onStop = research.onStop)
         }
-        BackgroundWork(repository, chat, compact)
         // Messages queued while the reply runs; each sends as its own turn once the one before finishes.
         AnimatedVisibility(visible = chat.hasQueued,
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {

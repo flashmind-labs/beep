@@ -131,11 +131,7 @@ impl Tool for ExecTool {
         Some(DEFAULT_LIMIT.as_secs() + 60)
     }
     fn humanize(&self, args: &Value) -> String {
-        let command = args.get("command").and_then(Value::as_str).unwrap_or("");
-        match args.get("in").and_then(Value::as_str) {
-            Some(machine) => format!("{command} (on {machine})"),
-            None => command.to_owned(),
-        }
+        step_label(args)
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let args: Args = match serde_json::from_value(ctx.args.clone()) {
@@ -329,6 +325,36 @@ pub(super) fn task_lines(lines: &[String], earlier: bool) -> String {
     out
 }
 
+/// What a call's step says: the command, and the machine when `in` names
+/// one.
+fn step_label(args: &Value) -> String {
+    let command = args.get("command").and_then(Value::as_str).unwrap_or("");
+    let label = match shortened(command) {
+        Some(command) => format!("Running {command}"),
+        None => "Running a command".to_owned(),
+    };
+    match args.get("in").and_then(Value::as_str) {
+        Some(machine) if !machine.trim().is_empty() => format!("{label} on {machine}"),
+        _ => label,
+    }
+}
+
+/// The first line of `command`, cut to fit a step's label; `None` when
+/// it is blank.
+fn shortened(command: &str) -> Option<String> {
+    const LONGEST: usize = 60;
+    let line = command
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    let more = line.chars().count() > LONGEST || command.trim().lines().nth(1).is_some();
+    let mut text: String = line.chars().take(LONGEST).collect();
+    if more {
+        text.push('…');
+    }
+    Some(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,5 +426,27 @@ mod tests {
             "cd -- '/srv/my work' || exit 1\nls"
         );
         assert_eq!(in_folder(None, "ls").unwrap(), "ls");
+    }
+
+    #[test]
+    fn steps_say_what_runs_and_where() {
+        assert_eq!(
+            step_label(&json!({ "command": "uname -a" })),
+            "Running uname -a"
+        );
+        assert_eq!(
+            step_label(&json!({ "command": "sw_vers", "in": "mac" })),
+            "Running sw_vers on mac"
+        );
+        assert_eq!(
+            step_label(&json!({ "command": "  \n" })),
+            "Running a command"
+        );
+        assert_eq!(
+            shortened("pip install x\npython3 run.py").as_deref(),
+            Some("pip install x…")
+        );
+        let long = "x".repeat(80);
+        assert_eq!(shortened(&long).map(|s| s.chars().count()), Some(61));
     }
 }
