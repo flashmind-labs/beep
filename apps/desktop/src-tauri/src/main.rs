@@ -15,7 +15,6 @@ mod hotkey;
 mod identity;
 mod logfile;
 mod login_path;
-mod mac_files;
 mod machine;
 mod machines;
 mod markdown;
@@ -36,7 +35,7 @@ use beep::{Beep, Field, Notices};
 use beep_proto::{Notice, Session, link::MAX_NAME};
 use groups::GroupApproval;
 use iroh::EndpointId;
-use state::{LinkState, StateFile};
+use state::{LinkState, NoticeVoice, StateFile};
 use std::{
     cmp::Reverse,
     fs,
@@ -112,6 +111,7 @@ fn main() {
             commands::search_sessions,
             commands::open_session,
             commands::session_files,
+            commands::session_sources,
             commands::new_chat,
             commands::rename_session,
             commands::pin_session,
@@ -168,14 +168,21 @@ fn main() {
             commands::mac_control,
             commands::set_mac_control,
             commands::allow_mac_permission,
-            commands::set_voice_notes,
+            commands::set_notice_voice,
+            commands::notice_card,
+            commands::play_notice,
+            commands::open_notice,
+            commands::dismiss_notice,
+            commands::hold_notice,
             commands::live_tap,
             commands::leave_live,
             commands::cancel_live,
             commands::show_bar,
-            commands::continue_live,
+            commands::live_approval,
+            commands::open_approval,
+            commands::fit_orb,
+            commands::live_sheet,
             commands::set_send_on_pause,
-            commands::spoken_turns,
             commands::live_chats,
             commands::start_over,
             commands::resize_bar,
@@ -338,11 +345,13 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
         if bar::is_open(&app) && beep.session().as_deref() == Some(notice.session_id.as_str()) {
             continue;
         }
-        if voice.wants(&notice) {
-            tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
-            continue;
+        match voice.wants(&notice) {
+            NoticeVoice::Aloud => {
+                tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
+            }
+            NoticeVoice::Ask => voice.offer(notice),
+            NoticeVoice::Off => notify(&app, &notice),
         }
-        notify(&app, &notice);
     }
 }
 

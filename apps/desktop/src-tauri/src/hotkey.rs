@@ -207,6 +207,11 @@ impl Hold {
         HoldStep::Single
     }
 
+    /// Whether a tap waits for `on_tap_timer`.
+    pub fn tapped(&self) -> bool {
+        self.tapped_at.is_some()
+    }
+
     /// The last tap was part of two or three, so it does not stand alone.
     pub fn forget_tap(&mut self) {
         self.tapped_at = None;

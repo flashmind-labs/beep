@@ -17,6 +17,19 @@ pub enum LinkState {
     Revoked,
 }
 
+/// What a new notice does while the user is at this Mac and not on a call.
+/// Otherwise it is only a notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NoticeVoice {
+    /// The orb shows a card with Play and Open.
+    Ask,
+    /// It is read aloud right away.
+    Aloud,
+    /// Only the notification.
+    Off,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Saved {
     #[serde(default)]
@@ -30,9 +43,14 @@ pub struct Saved {
     /// "Let Beep use this Mac": serve as a node with desktop control.
     #[serde(default)]
     pub use_mac: bool,
-    /// Speak new notices aloud while the user is here and not on a call.
+    /// The Voice notes switch from before `notice_voice`, still written so
+    /// an older app reads a matching value.
     #[serde(default = "on")]
     pub voice_notes: bool,
+    /// What a new notice does while the user is here and not on a call.
+    /// Missing in files from before it, where `voice_notes` decides.
+    #[serde(default)]
+    pub notice_voice: Option<NoticeVoice>,
     /// In live mode a pause sends; otherwise only saying "send" does.
     #[serde(default = "on")]
     pub send_on_pause: bool,
@@ -45,6 +63,23 @@ fn on() -> bool {
     true
 }
 
+impl Saved {
+    /// The Voice notes choice. The old switch on becomes Ask first, off
+    /// stays Off.
+    pub fn notice_voice(&self) -> NoticeVoice {
+        match self.notice_voice {
+            Some(choice) => choice,
+            None if self.voice_notes => NoticeVoice::Ask,
+            None => NoticeVoice::Off,
+        }
+    }
+
+    pub fn set_notice_voice(&mut self, choice: NoticeVoice) {
+        self.notice_voice = Some(choice);
+        self.voice_notes = choice != NoticeVoice::Off;
+    }
+}
+
 impl Default for Saved {
     fn default() -> Self {
         Self {
@@ -53,6 +88,7 @@ impl Default for Saved {
             researches: Vec::new(),
             use_mac: false,
             voice_notes: true,
+            notice_voice: None,
             send_on_pause: true,
             live_chats: Vec::new(),
         }
@@ -80,5 +116,42 @@ impl StateFile {
         if let Err(e) = result {
             log::warn!("saving {}: {e:#}", self.0.display());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(json: &str) -> Saved {
+        serde_json::from_str(json).expect("the state parses")
+    }
+
+    #[test]
+    fn the_old_voice_notes_switch_becomes_a_choice() {
+        assert_eq!(parse("{}").notice_voice(), NoticeVoice::Ask);
+        assert_eq!(
+            parse(r#"{"voice_notes":true}"#).notice_voice(),
+            NoticeVoice::Ask
+        );
+        assert_eq!(
+            parse(r#"{"voice_notes":false}"#).notice_voice(),
+            NoticeVoice::Off
+        );
+        assert_eq!(
+            parse(r#"{"voice_notes":true,"notice_voice":"aloud"}"#).notice_voice(),
+            NoticeVoice::Aloud
+        );
+    }
+
+    #[test]
+    fn a_choice_keeps_the_old_switch_in_step() {
+        let mut saved = Saved::default();
+        saved.set_notice_voice(NoticeVoice::Off);
+        assert!(!saved.voice_notes);
+        saved.set_notice_voice(NoticeVoice::Aloud);
+        assert!(saved.voice_notes);
+        let json = serde_json::to_string(&saved).expect("the state serializes");
+        assert_eq!(parse(&json).notice_voice(), NoticeVoice::Aloud);
     }
 }

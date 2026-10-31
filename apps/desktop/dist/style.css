@@ -489,19 +489,9 @@ button.dachip:hover { border-color: #3A4A41 }
 .dachips .dachip { height: 40px; border-radius: 7px }
 
 
-/* Live mode: orb, status word, captions */
-.dvoice { display: flex; align-items: center; gap: 12px; padding: 14px 16px 10px }
-.dvoice .vt { flex: 1; min-width: 0; display: grid; gap: 2px }
-.dvoice .vt small { font-size: 11.5px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 6px }
-.dvoice .vt span { font-size: 15px; line-height: 21px }
+/* Live mode: the orb, status word and captions in the dock */
 .dwave { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; height: 24px; overflow: hidden }
 .dwave i { width: 3px; flex: none; border-radius: 2px; background: var(--emerald); display: block }
-.dlv { flex: none; display: grid; justify-items: center; gap: 6px; padding: 18px 24px 14px; position: relative }
-.dlv .top { position: absolute; left: 14px; right: 14px; top: 12px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted) }
-.dlv .top .dlogo { width: 20px; height: 20px; font-size: 11px; border-radius: 6px }
-.dlv .top .tt { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.dlv .top .live { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; font-size: 10.5px; color: var(--emerald) }
-.dlv .top .live i { width: 6px; height: 6px; border-radius: 50%; background: currentColor }
 .dorb { --lvl: 0; --c1: #A6EBCF; --c2: #3B9B7A; --c3: #0F3B2C; --glow: 59,155,122; width: 116px; height: 116px; margin-top: 10px; position: relative; display: grid; place-items: center; border: 0; padding: 0; background: none }
 .dorb:focus-visible { outline: 2px solid var(--emerald); outline-offset: 2px; border-radius: 50% }
 .dorb.speak { --c1: #FFD0C7; --c2: #F07A6A; --c3: #5A231C; --glow: 240,122,106 }
@@ -514,15 +504,30 @@ button.dachip:hover { border-color: #3A4A41 }
 .dorb.think .core { animation: dbreath 2.4s ease-in-out infinite }
 .dorb.think .ring { animation: dbreath 2.4s ease-in-out infinite reverse }
 @keyframes dbreath { 0%,100% { transform: scale(.94) } 50% { transform: scale(1.06) } }
-.dlv .word { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 2px }
-.dlv .word.on { color: var(--emerald) } .dlv .word.sp { color: var(--coral) }
-.dlv .cap { width: 100%; max-width: 560px; min-height: 52px; max-height: 132px; overflow-y: auto; text-align: center; font-size: 19px; line-height: 26px; text-wrap: balance; color: var(--fg) }
-.dlv .cap .prev { display: block; font-size: 14px; line-height: 20px; color: var(--dim); margin-bottom: 2px }
-.dlv .cap .ph { color: var(--dim) }
-.dlv .stepw { display: flex; justify-content: center; margin-top: 6px }
-.dlv .step { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted) }
-.dlv .hint { font-size: 12px; color: var(--dim); text-align: center }
-.dlv .ltoast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 999px; background: var(--elev); border: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--fg); white-space: nowrap; animation: dover .22s var(--ease) }
+.dinput.lhid { display: none }
+/* The dock: live mode's controls in place of the field, over the chat. */
+.ddock { flex: none; position: relative; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: rgba(10,14,12,.28) }
+.ddock .drow1 { display: flex; align-items: center; gap: 12px; min-width: 0 }
+.ddock .dorb { width: 46px; height: 46px; margin: 0; flex: none; cursor: pointer }
+.ddock .dorb .core { width: 28px; height: 28px; box-shadow: 0 0 calc(8px + var(--lvl) * 22px) rgba(var(--glow), calc(.28 + var(--lvl) * .4)), inset 0 -4px 8px rgba(0,0,0,.35) }
+.ddock .dorb .ring { inset: 9px }
+.ddock .dtx { flex: 1; min-width: 0; display: grid; gap: 1px }
+.ddock .word { font-size: 10.5px; line-height: 14px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.ddock .word.on { color: var(--emerald) } .ddock .word.sp { color: var(--coral) }
+.ddock .word .tt { text-transform: none; letter-spacing: 0; color: var(--fg) }
+.ddock .cap { min-height: 22px; max-height: 88px; overflow-y: auto; scrollbar-width: none; font-size: 15px; line-height: 22px; color: var(--fg); text-wrap: pretty }
+.ddock .cap .prev { display: block; font-size: 12.5px; line-height: 18px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.ddock .cap .ph { color: var(--dim) }
+.ddock .stepw { display: flex; margin-top: 2px }
+.ddock .step { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted) }
+.ddock .dleave { flex: none; align-self: flex-start; width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: var(--elev); color: var(--muted); display: grid; place-items: center; padding: 0 }
+.ddock .dleave:hover { color: var(--fg) }
+.ddock .dfoot { display: flex; align-items: center; gap: 10px; padding-left: 58px; min-height: 24px }
+.ddock .hint { flex: 1; min-width: 0; font-size: 11.5px; color: var(--dim) }
+.ddock .dsoon { width: 90px; flex: none }
+.ddock .lcancel { flex: none; min-height: 24px }
+.ddock .ltoast { position: absolute; top: 8px; right: 50px; padding: 3px 10px; border-radius: 999px; background: var(--elev); border: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--fg); white-space: nowrap; animation: dover .22s var(--ease) }
+.ddock + .dbody { padding-top: 10px }
 .dsoon { width: 140px; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden }
 .dsoon i { --from: 1; display: block; height: 100%; background: var(--emerald); transform-origin: left; animation: dsoon linear forwards }
 @keyframes dsoon { from { transform: scaleX(var(--from)) } to { transform: scaleX(0) } }
@@ -531,26 +536,7 @@ button.dachip:hover { border-color: #3A4A41 }
   .dsoon i { animation: none }
 }
 
-/* A live conversation in a chat */
-.dlt { flex: none; border: 1px solid var(--border); border-radius: 12px; background: var(--elev); display: grid; overflow: hidden }
-.dlt-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--border) }
-.dlt-head b { color: var(--fg); font-weight: 600 }
-.dlt-head .vmic { display: grid; color: var(--emerald) }
-.dlt-body { display: grid; gap: 6px; padding: 10px 12px 4px; position: relative; user-select: text }
-.dlt-body.cut::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 28px; background: linear-gradient(transparent, var(--elev)) }
-.dlt-line { display: grid; grid-template-columns: 38px 1fr auto; gap: 8px; font-size: 13.5px; line-height: 19px }
-.dlt-line .who { font-size: 11.5px; font-weight: 600; color: var(--muted); padding-top: 1px }
-.dlt-line .who.beep { color: var(--emerald) }
-.dlt-line .at { font-size: 11px; color: var(--dim); padding-top: 1px; font-variant-numeric: tabular-nums }
-.dlt-step { display: flex; align-items: center; gap: 7px; margin-left: 46px; font-size: 12px; color: var(--dim) }
-.dlt-step i { width: 4px; height: 4px; border-radius: 50%; background: currentColor }
-.dlt-foot { display: flex; align-items: center; gap: 8px; padding: 6px 12px 9px }
-.dlt-more { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--muted) }
-.dlt-foot .dbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 6px }
 .dchat .grp.vmic { color: var(--emerald) }
-.dachip.dvclip { gap: 9px; padding: 4px 12px 4px 4px; border-radius: 999px; font-variant-numeric: tabular-nums }
-.dvclip .vplay { width: 24px; height: 24px; border-radius: 50%; background: var(--emerald); color: var(--ink); display: grid; place-items: center; flex: none }
-.dvclip .dwave { flex: none; width: 74px; height: 16px }
 /* A routine grant's approved fields, under its selected row. */
 .dgkv { display: grid; grid-template-columns: 70px 1fr; gap: 2px 10px; padding: 4px 0 2px; font-size: 12px; color: var(--fg); white-space: normal }
 .drt .tt .dgkv span { font-size: 12px; color: var(--fg); white-space: normal; overflow: visible }
@@ -568,4 +554,10 @@ button.dachip:hover { border-color: #3A4A41 }
 .dmodelform { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none }
 .dsec.dagents { padding-top: 4px; display: flex; gap: 6px; align-items: center }
 .dagentlist { display: block }
-.dlv .lcancel { margin-top: 2px }
+/* Sources: the web pages a reply used, as chips under it. */
+.dsources { display: flex; flex-wrap: wrap; gap: 6px }
+.dsrc { display: inline-flex; align-items: center; gap: 6px; height: 24px; max-width: 200px; padding: 0 9px 0 3px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); color: var(--muted); font-size: 11.5px; font-weight: 500; cursor: pointer }
+.dsrc span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.dsrc i { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--fg); display: grid; place-items: center; font-style: normal; font-size: 10px; font-weight: 600 }
+.dsrc.more { padding: 0 9px }
+.dsrc:hover { color: var(--fg); border-color: #3A4A41 }
