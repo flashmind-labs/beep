@@ -18,6 +18,9 @@ import Speech
     private var engine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    /// Which dictation results belong to; `cancel` clears it, so the final result iOS still hands
+    /// over afterwards cannot fill a draft that was sent or cleared in the meantime.
+    private var session: UUID?
 
     /// Whether dictation works in this language at all; it may still be offline for a moment.
     var available: Bool { recognizer != nil }
@@ -60,12 +63,15 @@ import Speech
             self.engine = engine
             self.request = request
             listening = true
+            let current = UUID()
+            session = current
             task = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 let spoken = result?.bestTranscription.formattedString
                 let final = result?.isFinal == true || error != nil
                 Task { @MainActor in
+                    guard let self, self.session == current else { return }
                     if let spoken, !spoken.isEmpty { text(spoken) }
-                    if final { self?.stop() }
+                    if final { self.stop() }
                 }
             }
         } catch {
@@ -76,6 +82,13 @@ import Speech
 
     func dismissProblem() { problem = nil }
 
+    /// Stops listening and drops anything still to come, as on sending or leaving the chat.
+    func cancel() {
+        session = nil
+        stop()
+    }
+
+    /// Stops listening; what was heard still comes in.
     func stop() {
         engine?.stop()
         engine?.inputNode.removeTap(onBus: 0)

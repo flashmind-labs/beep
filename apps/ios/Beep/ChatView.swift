@@ -9,6 +9,8 @@ struct ChatView: View {
     @State private var research = ResearchWatch()
     @State private var paper = PaperShare()
     @State private var draft = ""
+    /// Replaced on each send, see `clearDraft`.
+    @State private var field = 0
     @State private var photos: [Data] = []
     @State private var files: [SentFile] = []
     @State private var importing = false
@@ -176,7 +178,7 @@ struct ChatView: View {
         }
         .closesForLive {
             typing = false
-            voice.stop()
+            voice.cancel()
             voice.dismissProblem()
             picking = false
             camera = false
@@ -184,7 +186,7 @@ struct ChatView: View {
             fileError = ""
         }
         .onDisappear {
-            voice.stop()
+            voice.cancel()
             if model.onScreen == model.chat.id { model.onScreen = nil }
         }
         .fullScreenCover(isPresented: Binding(get: { model.browserOpen }, set: { model.browserOpen = $0 })) {
@@ -322,7 +324,7 @@ struct ChatView: View {
             if !model.live.active {
                 Button {
                     typing = false
-                    voice.stop()
+                    voice.cancel()
                     model.live.start(from: .app)
                 } label: {
                     Image(systemName: "waveform").font(.system(size: 19, weight: .medium)).foregroundStyle(Mint.muted)
@@ -380,6 +382,7 @@ struct ChatView: View {
                         .accessibilityLabel("Add a photo or file")
                     }
                     TextField("", text: $draft, prompt: Text(prompt).foregroundStyle(Mint.dim), axis: .vertical)
+                        .id(field)
                         .font(.body(15))
                         .foregroundStyle(Mint.ink)
                         .tint(Mint.ink)
@@ -397,7 +400,7 @@ struct ChatView: View {
                         if !empty {
                             Button {
                                 model.queue(draft, images: photos, files: files)
-                                draft = ""
+                                clearDraft()
                                 photos = []
                                 files = []
                             } label: { Image(systemName: "clock") }
@@ -429,10 +432,10 @@ struct ChatView: View {
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 } else {
                     Button {
-                        voice.stop()
+                        voice.cancel()
                         model.live.dismissEnded()
                         model.send(draft, images: photos, files: files)
-                        draft = ""
+                        clearDraft()
                         photos = []
                         files = []
                         // A quick squish on tap so sending feels physical.
@@ -599,6 +602,16 @@ struct ChatView: View {
         let quoted = lines.map { "> " + $0 }.joined(separator: "\n") + "\n\n"
         draft = quoted + draft.trimmingCharacters(in: .whitespacesAndNewlines)
         typing = true
+    }
+
+    /// Empties the composer after a send, in a new text field: while the keyboard has a
+    /// suggestion pending, iOS keeps its own copy of the text and can put it back on a later
+    /// redraw, such as when the reply starts. The keyboard stays up on the new field.
+    private func clearDraft() {
+        let focused = typing
+        draft = ""
+        field += 1
+        if focused { Task { @MainActor in typing = true } }
     }
 }
 
