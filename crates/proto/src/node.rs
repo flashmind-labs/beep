@@ -22,6 +22,7 @@ use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 pub mod agent;
 pub mod desktop;
 pub mod files;
+pub mod process;
 pub mod shell;
 
 pub const NODE_ALPN: &[u8] = b"beep-node/1";
@@ -40,6 +41,11 @@ pub struct NodeHello {
     /// only offers a tool it has.
     #[serde(default)]
     pub offers: Vec<String>,
+    /// The folder Beep keeps the user's files in and runs its code in, when
+    /// this node is the user's own environment (such as deploy/onprem's
+    /// node container). It is also the first folder `files/1` shares.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
 }
 
 /// What a node sends on the control stream after its hello.
@@ -168,6 +174,30 @@ mod tests {
         let report: EnvReport = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(report.os, "linux");
         assert!(report.tools.is_empty());
+    }
+
+    #[test]
+    fn a_hello_without_a_workspace_still_reads() {
+        #[derive(Serialize)]
+        struct Older {
+            version: &'static str,
+            name: &'static str,
+            offers: Vec<&'static str>,
+        }
+        let body = rmp_serde::to_vec_named(&Older {
+            version: "0.1.0",
+            name: "box",
+            offers: vec!["shell/1"],
+        })
+        .unwrap();
+        let hello: NodeHello = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(hello.workspace, None);
+        let newer = NodeHello {
+            workspace: Some("/home/user".into()),
+            ..hello
+        };
+        let body = rmp_serde::to_vec_named(&newer).unwrap();
+        assert_eq!(rmp_serde::from_slice::<NodeHello>(&body).unwrap(), newer);
     }
 
     #[test]

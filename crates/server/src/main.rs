@@ -3,6 +3,7 @@ use beep_server::{
     apns::Apns,
     app::{App, ServerTools, admin},
     apps::ComposioSettings,
+    cache_session::SharedCacheSessions,
     config::{self, Config},
     decision::DecisionTool,
     fcm::Firebase,
@@ -12,7 +13,6 @@ use beep_server::{
     nodes,
     push::Pusher,
     remote::{Fallback, RemotePush},
-    sandbox::Sandbox,
     search::SearchTool,
     store::Store,
     stt::{MistralStt, RealtimeStt},
@@ -58,9 +58,14 @@ async fn main() -> Result<()> {
     let embedder = memories::embedder(&config)?;
     let store = Store::open(&config.database_url()?, embedder).await?;
     store.recover().await?;
+    // Loaded before the provider, which names its cache sessions after it.
+    let secret_key = config::load_secret_key(config.secret_key.as_deref())?;
     let provider = Arc::new(
         Metered::new(
-            Arc::new(OpenRouterProvider::new(key.to_owned())),
+            Arc::new(SharedCacheSessions::new(
+                Arc::new(OpenRouterProvider::new(key.to_owned())),
+                &secret_key.public(),
+            )),
             store.clone(),
         )
         .await,
@@ -92,14 +97,12 @@ async fn main() -> Result<()> {
         .as_deref()
         .map(str::parse::<Model>)
         .transpose()?;
-    let sandbox = match &config.sandbox_dir {
-        Some(dir) => {
-            let sandbox = Sandbox::new(dir.clone()).await?;
-            sandbox.start_sweep();
-            Some(sandbox)
-        }
-        None => None,
-    };
+    if config.sandbox_dir.is_some() {
+        log::warn!(
+            "sandbox_dir is no longer used: code and files go to the user's environment, a \
+             node started with --workspace; remove it from the config"
+        );
+    }
     let mistral = config
         .mistral_key
         .clone()
@@ -115,7 +118,6 @@ async fn main() -> Result<()> {
             composio,
             vision_model,
             compaction_model: config.compaction_model.clone(),
-            sandbox,
             transitous: Some(Arc::new(Transitous::new()?)),
             voice: config.voice.clone(),
             realtime: realtime(mistral.as_ref(), &config),
@@ -151,7 +153,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    let secret_key = config::load_secret_key(config.secret_key.as_deref())?;
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(secret_key.clone())
         .bind()

@@ -156,6 +156,8 @@ sample_struct! {
     ResearchSummary { session_id, topic, status, round, sources, started_at, finished_at }
     ResearchEntry { seq, agent, body, timestamp }
     ResearchSource { number, url, title, quote, agent }
+    WebSource { url, title }
+    TurnSources { message, sources }
 }
 
 macro_rules! sample_values {

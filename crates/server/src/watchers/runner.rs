@@ -9,7 +9,12 @@ use super::{
     transcript::{BUDGET, Transcript, transcript},
     trigger::{self, Cause, MAX_FAILURES, Timing},
 };
-use crate::{app::App, starters::Generator, store::StoredBody, user::User};
+use crate::{
+    app::App,
+    starters::Generator,
+    store::{StoredBody, StoredMessage},
+    user::User,
+};
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
@@ -41,6 +46,12 @@ const MAX_MESSAGES: i64 = 400;
 #[async_trait]
 pub(crate) trait Watcher: Send + Sync {
     fn kind(&self) -> WatcherKind;
+
+    /// Whether the new `messages` are worth a review. When not, they are
+    /// marked read without calling the model.
+    fn worth_reading(&self, _messages: &[StoredMessage]) -> bool {
+        true
+    }
 
     /// Reads `review` and acts on it. An error keeps the watcher's place.
     async fn review(&self, review: &Review<'_>) -> Result<()>;
@@ -458,6 +469,9 @@ async fn attempt(
     if messages.is_empty() {
         // Only messages older than the lookback were left.
         return Ok(job.upto);
+    }
+    if !watcher.worth_reading(&messages) {
+        return Ok(messages.last().map_or(job.upto, |message| message.id));
     }
     let user = app
         .user(&job.user)

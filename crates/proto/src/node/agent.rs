@@ -34,7 +34,7 @@ pub fn protocol(name: &str) -> String {
 /// The agent a protocol name serves, such as `claude` for `claude/1`.
 pub fn agent_of(protocol: &str) -> Option<&str> {
     let (name, version) = protocol.split_once('/')?;
-    (version == VERSION && !matches!(name, "shell" | "agents" | "desktop" | "files"))
+    (version == VERSION && !matches!(name, "shell" | "agents" | "desktop" | "files" | "process"))
         .then_some(name)
 }
 
@@ -505,6 +505,7 @@ mod tests {
         assert_eq!(agent_of("codex/1"), Some("codex"));
         assert_eq!(agent_of("shell/1"), None);
         assert_eq!(agent_of("files/1"), None);
+        assert_eq!(agent_of("process/1"), None);
         assert_eq!(agent_of(SESSIONS_PROTOCOL), None);
         assert_eq!(agent_of("claude/2"), None);
     }

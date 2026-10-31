@@ -35,7 +35,13 @@ pub(super) async fn transcribe(
             sink.send(&Transcription::Unavailable {}).await?;
             return Ok(());
         }
-        Err(SttError::Busy) => return Err(ApiError::Internal {}),
+        // A conflict, not an internal error, so the app can wait for a slot
+        // quietly. Apps that predate it treat it as any other failure.
+        Err(SttError::Busy) => {
+            return Err(ApiError::Conflict {
+                message: "too many live transcriptions at once".into(),
+            });
+        }
         Err(SttError::Provider) => return Err(ApiError::Internal {}),
     };
     match timeout(MAX_LENGTH, relay(live.session, &mut uplink, &sink, IDLE)).await {

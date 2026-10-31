@@ -44,7 +44,8 @@ pub struct InstanceConfig {
     /// Account events wake the agent (see `crate::events`).
     #[serde(default = "on")]
     pub events: bool,
-    /// Sub-agents and background jobs.
+    /// Once turned background sub-agents off. Unused now; kept so configs
+    /// that set it still load.
     #[serde(default = "on")]
     pub background: bool,
     /// Machines running `beep-node`.
@@ -70,7 +71,6 @@ fn default_name() -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Privilege {
     Events,
-    Background,
     Nodes,
     Agents,
 }
@@ -101,7 +101,6 @@ impl Instance {
     pub fn allows(&self, privilege: Privilege) -> bool {
         match privilege {
             Privilege::Events => self.config.events,
-            Privilege::Background => self.config.background,
             Privilege::Nodes => self.config.nodes,
             Privilege::Agents => self.config.agents,
         }
@@ -222,12 +221,7 @@ mod tests {
     #[test]
     fn every_privilege_is_on_by_default() {
         let instance = Instance::new(config(""));
-        for privilege in [
-            Privilege::Events,
-            Privilege::Background,
-            Privilege::Nodes,
-            Privilege::Agents,
-        ] {
+        for privilege in [Privilege::Events, Privilege::Nodes, Privilege::Agents] {
             assert!(instance.allows(privilege), "{privilege:?} is on");
         }
         assert_eq!(instance.name(), "Beep");
@@ -235,7 +229,7 @@ mod tests {
         let off = Instance::new(config("events = false\nnodes = false"));
         assert!(!off.allows(Privilege::Events));
         assert!(!off.allows(Privilege::Nodes));
-        assert!(off.allows(Privilege::Background));
+        assert!(off.allows(Privilege::Agents));
     }
 
     #[test]

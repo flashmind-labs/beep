@@ -1,28 +1,19 @@
-//! A chat's background work, for the apps to show while it runs.
+//! A chat's background work and the questions it waits on. The main agent no
+//! longer starts background work, so `ListWork` is always empty and
+//! `CancelWork` finds nothing; both stay for the apps that still ask.
 
 use super::Reply;
 use crate::{
-    protocol::{
-        ApiError, CancelWork, ListQuestions, ListWork, PendingApproval, WorkItem, WorkKind,
-        WorkOutcome,
-    },
+    protocol::{ApiError, CancelWork, ListQuestions, ListWork, PendingApproval, WorkItem},
     router::Cx,
-    subagents::work::{self, Listing, WorkId},
 };
-use std::time::SystemTime;
 
-pub(super) async fn list_work(cx: Cx, ListWork { session_id }: ListWork) -> Reply<Vec<WorkItem>> {
-    let listed = cx.app.subagents.work.list(cx.user.id(), session_id);
-    Ok(listed.into_iter().map(item).collect())
+pub(super) async fn list_work(_: Cx, _: ListWork) -> Reply<Vec<WorkItem>> {
+    Ok(Vec::new())
 }
 
-pub(super) async fn cancel_work(cx: Cx, CancelWork { session_id, id }: CancelWork) -> Reply<bool> {
-    let id: WorkId = id.parse().map_err(|_| ApiError::NotFound {})?;
-    cx.app
-        .subagents
-        .work
-        .cancel(cx.user.id(), session_id, id)
-        .map_err(|_| ApiError::NotFound {})
+pub(super) async fn cancel_work(_: Cx, _: CancelWork) -> Reply<bool> {
+    Err(ApiError::NotFound {})
 }
 
 pub(super) async fn list_questions(
@@ -30,21 +21,4 @@ pub(super) async fn list_questions(
     ListQuestions { session_id }: ListQuestions,
 ) -> Reply<Vec<PendingApproval>> {
     Ok(cx.app.subagents.approvals.pending(cx.user.id(), session_id))
-}
-
-fn item(listing: Listing) -> WorkItem {
-    WorkItem {
-        id: listing.id.to_string(),
-        kind: match listing.kind {
-            work::WorkKind::Agent => WorkKind::Agent {},
-            work::WorkKind::Job => WorkKind::Job {},
-        },
-        task: listing.task,
-        started_at: SystemTime::from(listing.started),
-        step: listing.step,
-        outcome: listing.outcome.map(|outcome| WorkOutcome {
-            ok: outcome.ok,
-            text: outcome.text,
-        }),
-    }
 }

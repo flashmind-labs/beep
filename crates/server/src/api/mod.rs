@@ -55,8 +55,8 @@ use research::{get_research, get_research_pdf, list_researches, stop_research};
 use sessions::{
     copy_share, delete_session, delete_sessions, delete_turn, delete_turns_from, existing_sessions,
     get_file, get_route, get_route_card, get_session, get_session_agents, get_session_files,
-    get_session_images, get_share, get_tool_labels, list_sessions, pin_session, rename_session,
-    search_sessions, share_session, unshare_session,
+    get_session_images, get_session_sources, get_share, get_tool_labels, list_sessions,
+    pin_session, rename_session, search_sessions, share_session, unshare_session,
 };
 use settings::{
     add_app_account, add_mcp_server, connect_app, connect_mcp_server, disconnect_app,
@@ -154,6 +154,7 @@ pub fn router() -> Router {
         .call(get_session_files)
         .call(get_session_agents)
         .call(get_tool_labels)
+        .call(get_session_sources)
         .call(get_route)
         .call(get_route_card)
         .call(list_mcp_servers)
@@ -295,13 +296,13 @@ async fn speak_notice(cx: Cx, SpeakNotice { title, body }: SpeakNotice) -> Reply
 }
 
 /// What a run started on this connection can show and reach. Only the macOS
-/// app draws charts and reads the user's files.
+/// app draws charts.
 fn draws(cx: &Cx) -> Draws {
     let desktop = cx.device == (DeviceKind::Desktop {});
     Draws {
         charts: desktop && cx.supports(Feature::CHARTS),
         cards: cx.supports(Feature::CARDS),
-        mac_files: desktop && cx.supports(Feature::MAC_FILES),
+        sources: cx.supports(Feature::SOURCES),
     }
 }
 
@@ -422,6 +423,10 @@ async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>) -> Reply<
         after = event.seq;
         // Only an app that plays voice notes reads a transcript.
         if matches!(event.event, RunEvent::Transcript { .. }) && !cx.supports(Feature::VOICE) {
+            continue;
+        }
+        // Nor does an app from before source chips read a reply's sources.
+        if matches!(event.event, RunEvent::Sources { .. }) && !cx.supports(Feature::SOURCES) {
             continue;
         }
         let finished = matches!(event.event, RunEvent::RunFinished { .. });

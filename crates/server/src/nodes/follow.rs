@@ -13,6 +13,7 @@ use crate::{
     protocol::node::agent::{
         Activity, ActivityKind, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest,
     },
+    tools::machines::agent_call,
     user::User,
 };
 use anyhow::{Result, bail};
@@ -202,8 +203,10 @@ fn report(node: &str, agent: &str, activity: &Activity) -> String {
     }
     text.push_str(&format!(
         "\n\nTell the user in a sentence or two what it did or what it waits for. It runs in \
-         their terminal, so only they can answer it there. `{node} {agent} transcript {id}` \
-         reads more, and `{node} {agent} unfollow {id}` stops these updates."
+         their terminal, so only they can answer it there. {} reads more, and {} stops \
+         these updates.",
+        agent_call(node, agent, "transcript", id),
+        agent_call(node, agent, "unfollow", id)
     ));
     text
 }
@@ -244,7 +247,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("`build-box claude unfollow 0f3c2a9e"),
+            text.contains("code_agent with action `unfollow`, agent `claude`, id `0f3c2a9e"),
             "{text}"
         );
     }

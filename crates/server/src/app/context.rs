@@ -62,20 +62,14 @@ impl App {
             let _ = writeln!(
                 ctx,
                 "The user spoke this message and it was transcribed, so a word may be misheard: \
-                 read it for what they meant. Their app reads your reply aloud, so keep it short \
-                 and plain, without tables or links unless they ask for them."
+                 read it for what they meant. Your reply is output to voice: it is read aloud, \
+                 not shown. Keep it short, one to three sentences, leading with the answer. \
+                 Leave out lists, tables, links, markdown and anything the user can look up \
+                 later, unless they ask for it."
             );
         }
-        // The background tools come with turns someone asked for, for admins.
-        let delegates = self.allows(Privilege::Background, user)
-            && message.cron_id.is_none()
-            && message.woken.is_none()
-            && !message.finished_research;
         if message.spoken {
-            let _ = writeln!(ctx, "{}", live_line(delegates));
-        }
-        if delegates {
-            let _ = writeln!(ctx, "{DELEGATION}");
+            let _ = writeln!(ctx, "{LIVE}");
         }
         if message.draws.charts {
             let _ = writeln!(
@@ -85,14 +79,7 @@ impl App {
                  gave you that read better as a chart."
             );
         }
-        if message.draws.mac_files {
-            let _ = writeln!(
-                ctx,
-                "You can open files on their Mac with mac_files: when they mention a file on \
-                 their Desktop, in Downloads or anywhere else on the computer, find and read it \
-                 rather than asking them to send it."
-            );
-        }
+        let _ = writeln!(ctx, "{}", sources_line(message.draws.sources));
         if message.draws.cards {
             let _ = writeln!(
                 ctx,
@@ -123,10 +110,6 @@ impl App {
             && let Some(waiting) = events::waiting_context(user).await
         {
             let _ = writeln!(ctx, "{waiting}");
-        }
-        // Results the turn claimed as it was created, before the user's text.
-        if let Some(results) = self.subagents.claimed_context(message.session_id) {
-            let _ = writeln!(ctx, "{results}");
         }
 
         // Ends in a blank line, which is where `last_index` stops reading.
@@ -173,8 +156,7 @@ impl App {
         if nodes.is_empty() {
             return Ok(None);
         }
-        let rows = user.memory_rows().await?;
-        Ok(nodes::machines(&nodes, &self.nodes, &rows))
+        Ok(nodes::machines(&nodes, &self.nodes))
     }
 }
 
@@ -267,32 +249,24 @@ fn apps_line(apps: &[AppIntegration]) -> Option<String> {
     Some(line)
 }
 
-/// For a message said in live mode, a spoken conversation: everything you
-/// write is read aloud as it comes. `delegates` adds the line about
-/// `background`, for users who have that tool.
-fn live_line(delegates: bool) -> String {
-    let mut line = String::from(
-        "This is a live spoken conversation: every sentence you write is read aloud as it \
-         streams, including text between tool calls. Before using tools, say in one short \
-         sentence what you are about to do, in the user's language, such as \"Let me check \
-         build-box.\"",
-    );
-    if delegates {
-        line.push_str(
-            " Keep the conversation flowing: hand anything slow to the background as below \
-             and say in one sentence that it is on it.",
-        );
+/// How to credit the web pages a reply used: the app shows them as chips
+/// under it when it can, and the reply names them itself otherwise.
+fn sources_line(shown: bool) -> &'static str {
+    if shown {
+        "Their app shows the web pages you searched and read as sources under your reply. \
+         Do not list sources or URLs in your text, and do not end with a sources line, \
+         unless the user asks for them."
+    } else {
+        "When you use web results, cite them as Markdown links beside the claims they support."
     }
-    line
 }
 
-/// How to use the background tools, for turns that have them.
-const DELEGATION: &str = "Answer quick things directly. Hand slow work to the `background` \
-    tool and reply right away instead of making the user wait: spawn for work of many steps \
-    (several lookups, going through a mailbox, coding, research), with a brief that is \
-    complete on its own since it cannot see this chat; run for one slow tool call. Use message \
-    to steer an agent that is working or to ask one that reported for more. Results come back \
-    to this chat: relay them briefly, leading with the result.";
+/// For a message said in live mode, a spoken conversation: everything you
+/// write is read aloud as it comes.
+const LIVE: &str = "This is a live spoken conversation: every sentence you write is read aloud \
+    as it streams, including text between tool calls, so keep every reply to a few short \
+    sentences. Before using tools, say in one short sentence what you are about to do, in the \
+    user's language, such as \"Let me check build-box.\"";
 
 #[cfg(test)]
 mod tests {
@@ -389,13 +363,14 @@ mod tests {
     }
 
     #[test]
-    fn live_mode_says_what_it_does_and_delegates_only_with_the_tool() {
-        let plain = live_line(false);
-        assert!(plain.contains("read aloud"));
-        assert!(!plain.contains("background"));
-        assert!(live_line(true).contains("background"));
-        for word in ["`background`", "spawn", "run", "message"] {
-            assert!(DELEGATION.contains(word));
-        }
+    fn sources_are_listed_only_where_the_app_cannot_show_them() {
+        assert!(sources_line(true).contains("Do not list sources"));
+        assert!(sources_line(false).contains("Markdown links"));
+    }
+
+    #[test]
+    fn live_mode_says_what_it_does() {
+        assert!(LIVE.contains("read aloud"));
+        assert!(LIVE.contains("short"));
     }
 }

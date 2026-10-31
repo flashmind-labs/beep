@@ -31,12 +31,7 @@ impl LlmProvider for NoModel {
     }
 }
 
-const PRIVILEGES: [Privilege; 4] = [
-    Privilege::Events,
-    Privilege::Background,
-    Privilege::Nodes,
-    Privilege::Agents,
-];
+const PRIVILEGES: [Privilege; 3] = [Privilege::Events, Privilege::Nodes, Privilege::Agents];
 
 fn instance(text: &str) -> InstanceConfig {
     toml::from_str(text).expect("a valid instance table")
@@ -155,7 +150,6 @@ async fn the_owner_gets_what_the_settings_leave_on() {
     assert!(!app.allows(Privilege::Events, &owner));
     assert!(!events::enabled(&app, &owner));
     assert!(!app.allows(Privilege::Nodes, &owner));
-    assert!(app.allows(Privilege::Background, &owner));
     assert!(app.allows(Privilege::Agents, &owner));
 }
 

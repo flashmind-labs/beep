@@ -14,6 +14,11 @@ struct Cli {
     /// Where the key and settings live. Defaults to the user's config folder.
     #[arg(long, global = true)]
     dir: Option<PathBuf>,
+    /// Makes this machine the user's environment: Beep keeps the user's
+    /// files in this folder and runs its code there. Used by `run` and
+    /// `local`.
+    #[arg(long, global = true, env = "BEEP_NODE_WORKSPACE")]
+    workspace: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -122,7 +127,7 @@ async fn main() -> Result<()> {
         }
         Command::Run => {
             let state = state::State::load(&dir)?;
-            link::serve(state, stopped()?).await
+            link::serve(state, cli.workspace.as_deref(), stopped()?).await
         }
         Command::Local { link: shared, name } => {
             let mut stop = Box::pin(stopped()?);
@@ -130,7 +135,7 @@ async fn main() -> Result<()> {
                 state = local::prepare(&dir, &shared, &name) => state?,
                 () = &mut stop => return Ok(()),
             };
-            link::serve(state, stop).await
+            link::serve(state, cli.workspace.as_deref(), stop).await
         }
         Command::Service {
             action: ServiceAction::Install,

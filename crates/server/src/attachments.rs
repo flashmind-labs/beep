@@ -1,10 +1,11 @@
 //! Files the user hands Beep, sent with a message or read from their Mac.
 //!
-//! Each one is saved in the user's file folder, so `execute_code` can open
-//! it and `send_file` can pass it on. The model sees a text file's contents
-//! inline; anything else it opens with code.
+//! Each one is saved in the user's home folder, when they have an
+//! environment online, so `exec` can open it and `send_file` can
+//! pass it on. The model sees a text file's contents inline; anything else
+//! it opens with a command.
 
-use crate::sandbox::Sandbox;
+use crate::workspace::Workspace;
 use flashmind::types::ContentPart;
 
 /// Most characters of a text file shown to the model inline.
@@ -47,10 +48,11 @@ impl Handed<'_> {
     }
 }
 
-/// Saves `file` in the user's folder, when there is one, and returns where.
-pub async fn save(sandbox: Option<&Sandbox>, user_id: &str, file: &Handed<'_>) -> Option<String> {
-    let sandbox = sandbox?;
-    match sandbox.save(user_id, file.name, file.data).await {
+/// Saves `file` in the user's home folder, when there is one, and returns
+/// where.
+pub async fn save(workspace: Option<&Workspace>, file: &Handed<'_>) -> Option<String> {
+    let workspace = workspace?;
+    match workspace.save(file.name, file.data).await {
         Ok(saved) => Some(saved.path),
         Err(error) => {
             log::warn!("unable to save a handed file: {error:#}");
@@ -75,15 +77,19 @@ pub fn describe(file: &Handed<'_>, path: Option<&str>) -> String {
         (Some(text), _) if text.chars().count() <= MAX_INLINE => text.to_owned(),
         (Some(text), Some(_)) => {
             let shown: String = text.chars().take(MAX_INLINE).collect();
-            format!("{shown}\n[Cut here. The whole file is in the file folder at the path above.]")
+            format!(
+                "{shown}\n[Cut here. The whole file is in the user's home folder at the path above.]"
+            )
         }
         (Some(text), None) => {
             let shown: String = text.chars().take(MAX_INLINE).collect();
             format!("{shown}\n[Cut here.]")
         }
-        (None, Some(_)) => "[Not shown here. Open it with execute_code from the file folder at \
-             the path above, for example with pypdf for a PDF or openpyxl for a spreadsheet.]"
-            .to_owned(),
+        (None, Some(_)) => {
+            "[Not shown here. Open it with exec at the path above, which is relative to \
+             the home folder, for example with pdftotext for a PDF or openpyxl for a spreadsheet.]"
+                .to_owned()
+        }
         (None, None) => "[Its contents cannot be read here.]".to_owned(),
     };
     format!("{head}{body}\n</file>")
@@ -95,14 +101,10 @@ pub fn is_file(part: &ContentPart) -> bool {
 }
 
 /// The parts a message's files add, each saved first.
-pub async fn parts(
-    sandbox: Option<&Sandbox>,
-    user_id: &str,
-    files: &[Handed<'_>],
-) -> Vec<ContentPart> {
+pub async fn parts(workspace: Option<&Workspace>, files: &[Handed<'_>]) -> Vec<ContentPart> {
     let mut parts = Vec::with_capacity(files.len());
     for file in files {
-        let path = save(sandbox, user_id, file).await;
+        let path = save(workspace, file).await;
         parts.push(ContentPart::Text {
             text: describe(file, path.as_deref()),
         });
@@ -168,7 +170,7 @@ mod tests {
             Some("Lease_2026.pdf"),
         );
         assert!(text.contains("path=\"Lease_2026.pdf\""));
-        assert!(text.contains("execute_code"));
+        assert!(text.contains("Open it with exec"));
         let text = describe(&handed("a.pdf", "application/pdf", b"%PDF"), None);
         assert!(text.contains("cannot be read"));
     }

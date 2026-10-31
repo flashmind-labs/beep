@@ -647,8 +647,7 @@ impl App {
             .llm
             .with_model(model.clone())
             .with_user(actor.id())
-            .with_reasoning(self.thinking_for(actor).await)
-            .with_session_id(group_id);
+            .with_reasoning(self.thinking_for(actor).await);
         if let Some(routing) = self.models.routing(&model) {
             llm.provider_preferences = Some(routing.clone());
         }

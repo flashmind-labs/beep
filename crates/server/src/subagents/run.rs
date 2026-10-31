@@ -10,14 +10,11 @@ use crate::{
     repeat::{self, Refusals},
 };
 use flashmind::{
-    core::{
-        AgentHandle, AgentManager, AgentStatus, CancellationToken, ConversationEntry, SpawnBuilder,
-    },
+    core::{AgentHandle, AgentManager, AgentStatus, CancellationToken, SpawnBuilder},
     types::{AgentEvent, ToolRegistry},
 };
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::{sync::mpsc, time::sleep};
-use uuid::Uuid;
 
 /// Why a run ended without a decision.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -66,11 +63,11 @@ pub enum Ended<D> {
     Replied(String),
 }
 
-/// A sub-agent's conversation, kept so it can be told more: a follow-up
-/// while it works, or a new request after it reported. Its manager owns
-/// the agent loop and goes with it.
-pub(crate) struct Session<D> {
-    manager: AgentManager,
+/// A sub-agent's conversation while it runs. Its manager owns the agent
+/// loop and goes with it.
+struct Session<D> {
+    /// Held so the agent loop lives as long as the session.
+    _manager: AgentManager,
     handle: Arc<AgentHandle>,
     events: AsyncMutex<mpsc::UnboundedReceiver<AgentEvent>>,
     slot: Slot<D>,
@@ -81,20 +78,8 @@ pub(crate) struct Session<D> {
 }
 
 impl<D> Session<D> {
-    /// Whether it is working on something, including a queued follow-up.
-    #[cfg(test)]
-    pub(crate) fn is_running(&self) -> bool {
-        !self.handle.is_finished()
-    }
-
-    /// Queues `text` as the user's next message, with its history kept.
-    pub(crate) fn follow_up(&self, text: &str) -> anyhow::Result<()> {
-        self.manager
-            .follow_up(self.handle.id, ConversationEntry::user(text))
-    }
-
-    /// Stops what it is doing; the conversation stays.
-    pub(crate) fn cancel(&self) {
+    /// Stops what it is doing.
+    fn cancel(&self) {
         self.handle.cancel();
     }
 }
@@ -125,7 +110,7 @@ impl Subagents {
     }
 
     /// Starts `spec` and keeps its conversation; [`Self::follow`] watches it.
-    pub(crate) async fn open<D: Send + 'static>(
+    async fn open<D: Send + 'static>(
         &self,
         user: &str,
         spec: Spec<D>,
@@ -163,8 +148,7 @@ impl Subagents {
             .llm
             .with_model(model.model.clone())
             .with_user(user)
-            .with_reasoning(model.thinking)
-            .with_session_id(Uuid::new_v4());
+            .with_reasoning(model.thinking);
         llm.provider_preferences = routing;
         let task = match context {
             Some(context) => format!("{context}\n\n{task}"),
@@ -186,7 +170,7 @@ impl Subagents {
             Err(error) => return Err(Failure::Failed(format!("{error:#}"))),
         };
         Ok(Session {
-            manager,
+            _manager: manager,
             handle,
             events: AsyncMutex::new(received),
             slot,
@@ -201,7 +185,7 @@ impl Subagents {
     /// reply when it ended without one. A decision stops the response it
     /// came in; a follow-up queued meanwhile still runs, and its decision
     /// replaces the earlier one. Limits count from this call.
-    pub(crate) async fn follow<D: Send + 'static>(
+    async fn follow<D: Send + 'static>(
         &self,
         session: &Session<D>,
         watch: &Watch,
@@ -301,6 +285,7 @@ mod tests {
     };
     use serde_json::{Value, json};
     use std::time::Duration;
+    use uuid::Uuid;
 
     const KIND: Kind = Kind {
         name: "test",
@@ -488,82 +473,6 @@ mod tests {
             subagents(Script::Loops).run("alice", spec).await,
             Err(Failure::Cancelled)
         );
-    }
-
-    /// Answers each message with the user messages it has seen, each answer
-    /// waiting for a permit from `gate`.
-    struct Echo {
-        gate: Arc<tokio::sync::Semaphore>,
-    }
-
-    #[async_trait]
-    impl LlmProvider for Echo {
-        fn name(&self) -> &str {
-            "test"
-        }
-        fn provider(&self) -> Provider {
-            Provider::OpenAi
-        }
-        fn complete(&self, request: CompletionRequest) -> CompletionStream {
-            let seen: Vec<String> = request
-                .messages
-                .iter()
-                .filter(|message| message.role == Role::User)
-                .map(|message| message.content.clone())
-                .collect();
-            let reply = seen.join(" | ");
-            let gate = self.gate.clone();
-            Box::pin(async_stream::stream! {
-                gate.acquire().await.expect("the gate stays open").forget();
-                yield Ok(StreamEvent::ContentDelta(reply));
-                yield Ok(StreamEvent::Finished(FinishReason::Stop));
-            })
-        }
-    }
-
-    fn echo(permits: usize) -> (Subagents, Arc<tokio::sync::Semaphore>) {
-        let gate = Arc::new(tokio::sync::Semaphore::new(permits));
-        let model = "openai:test".parse().expect("a model id");
-        let (notifications, _) = tokio::sync::broadcast::channel(4);
-        let subagents = Subagents::new(
-            Arc::new(Echo { gate: gate.clone() }),
-            AgentLlmConfig::new(model),
-            notifications,
-        );
-        (subagents, gate)
-    }
-
-    #[tokio::test]
-    async fn a_finished_agent_told_more_answers_with_its_history() {
-        let (subagents, _) = echo(2);
-        let session = subagents.open("alice", spec()).await.expect("it starts");
-        let watch = Watch::default();
-        assert_eq!(
-            subagents.follow(&session, &watch).await,
-            Ok(Ended::Replied("Pick one.".to_owned()))
-        );
-        assert!(!session.is_running());
-        session.follow_up("Why red?").expect("it takes the message");
-        assert!(session.is_running());
-        assert_eq!(
-            subagents.follow(&session, &watch).await,
-            Ok(Ended::Replied("Pick one. | Why red?".to_owned()))
-        );
-    }
-
-    #[tokio::test]
-    async fn a_message_to_a_running_agent_is_answered_before_it_is_idle() {
-        let (subagents, gate) = echo(0);
-        let session = subagents.open("alice", spec()).await.expect("it starts");
-        session
-            .follow_up("Blue instead.")
-            .expect("it takes the message");
-        gate.add_permits(2);
-        assert_eq!(
-            subagents.follow(&session, &Watch::default()).await,
-            Ok(Ended::Replied("Pick one. | Blue instead.".to_owned()))
-        );
-        assert!(!session.is_running());
     }
 
     #[tokio::test]

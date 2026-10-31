@@ -11,7 +11,9 @@ use chrono::DateTime;
 use flashmind::{
     core::{Conversation, ConversationEntry},
     memory::EmbeddingProvider,
+    types::ToolCall,
 };
+use serde_json::json;
 use sqlx::{
     Connection, Executor, PgConnection, PgPool,
     postgres::{PgConnectOptions, PgPoolOptions},
@@ -60,6 +62,34 @@ pub async fn test_turn(
     prompt: &str,
     at: i64,
 ) -> Result<i64> {
+    let turn = TestTurn {
+        prompt,
+        at,
+        calls: 0,
+    };
+    test_turn_with(store, user, chat, turn).await
+}
+
+/// A turn for [`test_turn_with`].
+#[doc(hidden)]
+pub struct TestTurn<'a> {
+    pub prompt: &'a str,
+    /// When it was sent, in milliseconds.
+    pub at: i64,
+    /// Tool calls Beep makes before replying, each one succeeding.
+    pub calls: usize,
+}
+
+/// [`test_turn`] with tool calls between the prompt and the reply, each a
+/// millisecond apart.
+#[doc(hidden)]
+pub async fn test_turn_with(
+    store: &Store,
+    user: &UserKey,
+    chat: Uuid,
+    turn: TestTurn<'_>,
+) -> Result<i64> {
+    let TestTurn { prompt, at, calls } = turn;
     let CreateRun::Created(run) = store
         .create_run(user, chat, &format!("req-{chat}-{at}"), prompt)
         .await?
@@ -68,6 +98,23 @@ pub async fn test_turn(
     };
     let mut turn = Conversation::new();
     turn.add(ConversationEntry::user(prompt));
+    if calls > 0 {
+        let ids: Vec<String> = (0..calls).map(|i| format!("call-{at}-{i}")).collect();
+        let tool_calls = ids
+            .iter()
+            .map(|id| ToolCall {
+                id: id.clone(),
+                name: "web_search".to_owned(),
+                arguments: json!({}),
+            })
+            .collect();
+        turn.add(ConversationEntry::assistant_with_tool_calls(
+            "", tool_calls, None,
+        ));
+        for id in &ids {
+            turn.add(ConversationEntry::tool(id, "ok"));
+        }
+    }
     turn.add(ConversationEntry::assistant(format!("re: {prompt}")));
     for (i, entry) in turn.entries_mut().iter_mut().enumerate() {
         entry.timestamp =

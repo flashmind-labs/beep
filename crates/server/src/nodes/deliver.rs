@@ -1,7 +1,7 @@
 //! What coding-agent sessions on nodes tell their chats: a turn ended, the
 //! agent asks permission, a followed session waits. Each goes to the chat
-//! as a turn of its own once the chat is free, the way a finished sub-agent
-//! or research reports back, and a permission question also goes to the
+//! as a turn of its own once the chat is free, the way a finished research
+//! reports back, and a permission question also goes to the
 //! user as an approval card whose answer goes back to the agent.
 //!
 //! One task, made on first use, runs every delivery, a bounded number at a

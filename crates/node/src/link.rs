@@ -1,7 +1,7 @@
 //! The connection to the server: the link code that joins the account, then
 //! the control stream, kept open and reopened when it drops.
 
-use crate::{agents::Agents, env, files::Folders, shell, state::State};
+use crate::{agents::Agents, env, files::Folders, shell, state::State, tasks};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     link::LinkOffer,
@@ -13,6 +13,7 @@ use iroh::{
 };
 use std::{
     future::Future,
+    path::Path,
     pin::Pin,
     sync::Arc,
     time::{Duration, SystemTime},
@@ -59,8 +60,15 @@ pub fn print_offer(state: &State) -> Result<()> {
 }
 
 /// Stays connected, waiting longer after each failed try, until `stop`
-/// finishes; then closes the agent sessions and returns.
-pub async fn serve(state: State, stop: impl Future<Output = ()>) -> Result<()> {
+/// finishes; then closes the agent sessions and returns. With `workspace`,
+/// this node is the user's environment: Beep keeps their files and runs its
+/// code there, and it is shared through `files/1` before the folders in
+/// `node.toml`.
+pub async fn serve(
+    state: State,
+    workspace: Option<&Path>,
+    stop: impl Future<Output = ()>,
+) -> Result<()> {
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(state.key.clone())
         .bind()
@@ -71,11 +79,26 @@ pub async fn serve(state: State, stop: impl Future<Output = ()>) -> Result<()> {
         agents: Arc::new(Agents::new(crate::agents::detect(&state.agents))),
         extra: Vec::new(),
     };
-    // Files only when the owner shared folders in node.toml.
-    let folders = Folders::new(&state.files);
+    // Files only when the owner shared folders in node.toml, or this node
+    // is the user's environment.
+    let shared: Vec<_> = workspace
+        .map(Path::to_path_buf)
+        .into_iter()
+        .chain(state.files.iter().cloned())
+        .collect();
+    let folders = Folders::new(&shared);
+    // The workspace as the node resolved it, only once it is shared.
+    let workspace = workspace
+        .and_then(|dir| dir.canonicalize().ok())
+        .filter(|dir| folders.first() == Some(dir.as_path()))
+        .map(|dir| dir.to_string_lossy().into_owned());
     if !folders.is_empty() {
         offers.extra.push(Arc::new(folders));
     }
+    let hello = Hello {
+        name: &state.name,
+        workspace: workspace.as_deref(),
+    };
     log::info!("offering {:?}", offers.names());
     // Claude Code's hooks report to the node over a socket in its folder.
     let agents = offers.agents.clone();
@@ -88,7 +111,7 @@ pub async fn serve(state: State, stop: impl Future<Output = ()>) -> Result<()> {
     let stay = async {
         let mut wait = FIRST_RETRY;
         loop {
-            match connect(&endpoint, state.server.into(), &state.name, &offers).await {
+            match connect_as(&endpoint, state.server.into(), &hello, &offers).await {
                 Ok(()) => {
                     log::info!("the server closed the connection");
                     wait = FIRST_RETRY;
@@ -118,7 +141,29 @@ pub async fn connect(
     name: &str,
     offers: &Offers,
 ) -> Result<()> {
-    open(endpoint, server, name, offers).await?.serve().await
+    let hello = Hello {
+        name,
+        workspace: None,
+    };
+    connect_as(endpoint, server, &hello, offers).await
+}
+
+/// What the hello says about this node beside its offers.
+struct Hello<'a> {
+    name: &'a str,
+    workspace: Option<&'a str>,
+}
+
+async fn connect_as(
+    endpoint: &Endpoint,
+    server: EndpointAddr,
+    hello: &Hello<'_>,
+    offers: &Offers,
+) -> Result<()> {
+    open_as(endpoint, server, hello, offers)
+        .await?
+        .serve()
+        .await
 }
 
 /// What a node serves beside its shell.
@@ -133,7 +178,8 @@ pub struct Offers {
 
 impl Offers {
     fn names(&self) -> Vec<String> {
-        std::iter::once(shell::PROTOCOL.to_owned())
+        [shell::PROTOCOL.to_owned(), tasks::PROTOCOL.to_owned()]
+            .into_iter()
             .chain(self.agents.offers())
             .chain(self.extra.iter().map(|protocol| protocol.name().to_owned()))
             .collect()
@@ -156,6 +202,20 @@ pub async fn open(
     name: &str,
     offers: &Offers,
 ) -> Result<Linked> {
+    let hello = Hello {
+        name,
+        workspace: None,
+    };
+    open_as(endpoint, server, &hello, offers).await
+}
+
+async fn open_as(
+    endpoint: &Endpoint,
+    server: EndpointAddr,
+    hello: &Hello<'_>,
+    offers: &Offers,
+) -> Result<Linked> {
+    let name = hello.name;
     let connection = timeout(CONNECT_TIMEOUT, endpoint.connect(server, NODE_ALPN))
         .await
         .context("connect timed out")??;
@@ -165,6 +225,7 @@ pub async fn open(
         version: env!("CARGO_PKG_VERSION").to_owned(),
         name: name.to_owned(),
         offers: offers.names(),
+        workspace: hello.workspace.map(str::to_owned),
     })
     .await?;
     match rx.recv::<Down>().await {
@@ -262,6 +323,10 @@ async fn session(send: SendStream, recv: RecvStream, offers: Offers) -> Result<(
         shell::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             shell::serve(tx, rx).await
+        }
+        tasks::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            tasks::serve(tx, rx).await
         }
         agent::SESSIONS_PROTOCOL if !offers.agents.offers().is_empty() => {
             tx.send(&Opened::Ready {}).await?;

@@ -54,6 +54,11 @@ impl Folders {
         self.roots.is_empty()
     }
 
+    /// The first shared folder, which relative paths start in.
+    pub fn first(&self) -> Option<&Path> {
+        self.roots.first().map(PathBuf::as_path)
+    }
+
     /// `path` with its symlinks resolved, when it lies in a shared folder.
     /// For a path that does not exist yet, its folder must.
     fn resolve(&self, path: &str) -> Result<PathBuf> {

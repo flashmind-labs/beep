@@ -13,7 +13,7 @@ use crate::{
         node::{Down, EnvReport, NodeHello, Up, link},
     },
     push::CLOSE_REVOKED,
-    store::{LinkKey, MemoryRow, NewKey, NewNode, NodeRow, Scope},
+    store::{LinkKey, NewKey, NewNode, NodeRow},
     user::User,
 };
 use anyhow::{Context, Result, bail};
@@ -36,22 +36,22 @@ mod desktop;
 mod files;
 mod follow;
 mod shell;
+mod tasks;
 
 pub use crate::protocol::node::{
-    NODE_ALPN, desktop::PROTOCOL as DESKTOP, shell::PROTOCOL as SHELL,
+    NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,
 };
 pub use agent::{AgentLink, Mark, Watched};
+pub(crate) use deliver::agent_name;
 pub use deliver::{Ask, Deliveries, Post};
 pub use follow::{Follower, Follows};
-pub use shell::Ran;
-pub(crate) use shell::head_and_tail;
+pub use shell::{Exited, Ran};
 
 const CLOSE_NOT_ALLOWED: u32 = 401;
 /// The line the machines section starts with, also how a chat finds the
 /// one it last got.
-pub(crate) const MACHINES_HEADER: &str = "The user's machines (the node tool runs work on them):";
-/// The most memories shown under each machine, newest first.
-const MACHINE_MEMORIES: usize = 5;
+pub(crate) const MACHINES_HEADER: &str = "The user's machines (exec, process, desktop and \
+    code_agent run on the one `in` names; send_file copies files between them):";
 const CLOSE_UNAVAILABLE: u32 = 503;
 
 /// A node with its connection open.
@@ -60,6 +60,9 @@ pub struct Online {
     pub user: String,
     pub name: String,
     pub offers: Vec<String>,
+    /// The folder the user's files and code live in, when this node is
+    /// their environment (`beep-node --workspace`).
+    pub workspace: Option<String>,
     pub connection: Connection,
     /// Held weakly: the app owns the nodes.
     app: Weak<App>,
@@ -89,6 +92,29 @@ impl Nodes {
     /// The server's key, once it listens for nodes.
     pub fn server(&self) -> Option<EndpointId> {
         self.server.get().copied()
+    }
+
+    /// The user's environment: a node of theirs online now that keeps a
+    /// workspace and offers the shell and files it needs.
+    pub fn workspace(&self, user: &str) -> Option<Online> {
+        self.lock()
+            .values()
+            .find(|online| {
+                online.user == user
+                    && online.workspace.is_some()
+                    && online.offers(SHELL)
+                    && online.offers(FILES)
+            })
+            .cloned()
+    }
+
+    /// The user's nodes online now.
+    pub fn of_user(&self, user: &str) -> Vec<Online> {
+        self.lock()
+            .values()
+            .filter(|online| online.user == user)
+            .cloned()
+            .collect()
     }
 
     /// The connected node with the key `node`, as the store keeps it.
@@ -194,11 +220,12 @@ async fn serve(app: &Arc<App>, user: &User, connection: &Connection) -> Result<(
     .await?;
     tx.send(&Down::Welcome {}).await?;
     log::info!(
-        "node connected; user={} name={:?} version={} offers={:?}",
+        "node connected; user={} name={:?} version={} offers={:?} workspace={:?}",
         user.id(),
         hello.name,
         hello.version,
-        hello.offers
+        hello.offers,
+        hello.workspace
     );
     app.nodes.insert(
         endpoint,
@@ -206,6 +233,7 @@ async fn serve(app: &Arc<App>, user: &User, connection: &Connection) -> Result<(
             user: user.id().to_owned(),
             name: hello.name,
             offers: hello.offers,
+            workspace: hello.workspace,
             connection: connection.clone(),
             app: Arc::downgrade(app),
             shell: Arc::default(),
@@ -278,9 +306,8 @@ fn is_check_code(text: &str) -> bool {
 }
 
 /// The machines section of a turn's context: each machine on a line with
-/// what decides where work goes, then its newest memories. `rows` are the
-/// user's memories, newest first.
-pub(crate) fn machines(nodes: &[NodeRow], online: &Nodes, rows: &[MemoryRow]) -> Option<String> {
+/// whether it is online, its OS and which coding agents are signed in.
+pub(crate) fn machines(nodes: &[NodeRow], online: &Nodes) -> Option<String> {
     if nodes.is_empty() {
         return None;
     }
@@ -292,14 +319,7 @@ pub(crate) fn machines(nodes: &[NodeRow], online: &Nodes, rows: &[MemoryRow]) ->
             "offline".to_owned()
         }];
         if let Some(env) = &node.env {
-            facts.push(
-                [env.os_version.as_str(), env.arch.as_str()]
-                    .iter()
-                    .filter(|part| !part.is_empty())
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            );
+            facts.push(env.os_version.clone());
             for login in &env.logins {
                 facts.push(match (login.signed_in, &login.account) {
                     (true, Some(account)) => format!("{} signed in as {account}", login.tool),
@@ -307,20 +327,9 @@ pub(crate) fn machines(nodes: &[NodeRow], online: &Nodes, rows: &[MemoryRow]) ->
                     (false, _) => format!("{} not signed in", login.tool),
                 });
             }
-            if !env.avds.is_empty() {
-                facts.push(format!("Android emulators {}", env.avds.join(", ")));
-            }
         }
         facts.retain(|fact| !fact.is_empty());
         out.push_str(&format!("\n- {}: {}", node.name, facts.join("; ")));
-        let key = node.endpoint.parse().ok().map(Scope::Machine);
-        for row in rows
-            .iter()
-            .filter(|row| key.as_ref() == Some(&row.scope))
-            .take(MACHINE_MEMORIES)
-        {
-            out.push_str(&format!("\n  - {}", row.content));
-        }
     }
     Some(out)
 }
@@ -367,7 +376,7 @@ mod tests {
     use crate::protocol::node::{Login, ToolInfo};
 
     #[test]
-    fn the_machines_section_shows_each_machine_with_its_memories() {
+    fn the_machines_section_shows_each_machine_on_a_line() {
         let key = iroh::SecretKey::generate().public();
         let other = iroh::SecretKey::generate().public();
         let node = |endpoint: &EndpointId, name: &str, env: Option<EnvReport>| NodeRow {
@@ -380,6 +389,9 @@ mod tests {
         let mac = EnvReport {
             os_version: "macOS 26.3".into(),
             arch: "aarch64".into(),
+            hostname: "studio".into(),
+            cpus: 12,
+            home: "/Users/someone".into(),
             logins: vec![Login {
                 tool: "gh".into(),
                 signed_in: false,
@@ -388,41 +400,19 @@ mod tests {
             avds: vec!["Pixel_7".into()],
             ..EnvReport::default()
         };
-        let memory = |id: &str, content: &str, scope: Scope| MemoryRow {
-            id: id.into(),
-            content: content.into(),
-            category: "unfiled".into(),
-            source: crate::protocol::MemorySource::Learned {},
-            updated_at: String::new(),
-            valid: Default::default(),
-            origin: None,
-            core: false,
-            scope,
-        };
-        let rows = [
-            memory("1", "Emulators run here.", Scope::Machine(key)),
-            memory("2", "Lives in Lisbon.", Scope::User),
-            memory(
-                "3",
-                "Has the beep repo in /srv/beep.",
-                Scope::Machine(other),
-            ),
-        ];
         let nodes = [
             node(&key, "mac", Some(mac)),
             node(&other, "build box", None),
         ];
         assert_eq!(
-            machines(&nodes, &Nodes::default(), &rows).unwrap(),
+            machines(&nodes, &Nodes::default()).unwrap(),
             format!(
                 "{MACHINES_HEADER}\n\
-                 - mac: offline; macOS 26.3 aarch64; gh not signed in; Android emulators Pixel_7\n  \
-                 - Emulators run here.\n\
-                 - build box: offline\n  \
-                 - Has the beep repo in /srv/beep."
+                 - mac: offline; macOS 26.3; gh not signed in\n\
+                 - build box: offline"
             )
         );
-        assert_eq!(machines(&[], &Nodes::default(), &rows), None);
+        assert_eq!(machines(&[], &Nodes::default()), None);
     }
 
     #[test]

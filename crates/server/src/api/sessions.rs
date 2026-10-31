@@ -135,6 +135,16 @@ pub(super) async fn get_tool_labels(
         .ok_or(ApiError::NotFound {})
 }
 
+pub(super) async fn get_session_sources(
+    cx: Cx,
+    GetSessionSources { session_id }: GetSessionSources,
+) -> Reply<Vec<TurnSources>> {
+    cx.user
+        .session_sources(session_id)
+        .await?
+        .ok_or(ApiError::NotFound {})
+}
+
 pub(super) async fn get_route(cx: Cx, GetRoute { call_id }: GetRoute) -> Reply<RouteCardV1> {
     get_route_card(cx, GetRouteCard { call_id })
         .await

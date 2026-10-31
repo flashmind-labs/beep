@@ -7,17 +7,19 @@
 //!
 //! A chat is ready for them once it has new messages and has been quiet for
 //! a while, or straight away when a task in it ended: a routine run, an
-//! event's wake, a sub-agent or job handing back its results, a coding
+//! event's wake, a coding
 //! session's turn report (see [`trigger`]). Each watcher keeps its own place
 //! in each chat, the last message it read, so nothing is read twice and a
 //! restart picks up where it stopped. One trigger fans out to every watcher,
 //! each running on its own with its own model, timeout and failures, a few
 //! at a time across the server (see [`runner`]). Their model calls are
-//! metered to the chat's user.
+//! metered to the chat's user. Skills and improvement skip a stretch with
+//! too little in it and just move their place past it (see [`gate`]).
 //!
 //! Admins only for now, like account events.
 
 mod config;
+mod gate;
 pub(crate) mod improvement;
 mod memory;
 pub(crate) mod runner;

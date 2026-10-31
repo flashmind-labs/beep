@@ -2,10 +2,6 @@
 //! that send, change or delete follow the app's level: ask first (the
 //! default), always allow, or read only. Under ask first the run ends on the
 //! open call, and the user's answer resumes the session from there.
-//!
-//! Background work (sub-agents and jobs) has no turn to end, so its calls
-//! pass a [`Gate`] instead: the same rules, and under ask first the same
-//! card, with only that call waiting for the answer.
 
 use crate::{
     apps::{
@@ -14,7 +10,6 @@ use crate::{
     grants::RoutineGrants,
     protocol::{AppAction, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel},
     store::AppPermissionRow,
-    subagents::Approvals,
     user::User,
 };
 use anyhow::Result;
@@ -23,7 +18,7 @@ use chrono::{DateTime, Utc};
 use flashmind::{
     core::{Conversation, ConversationEntry, EntryKind},
     types::{
-        GateAsk, GateDecision, ToolCall, ToolGate,
+        ToolCall,
         tool::{InterruptPayload, Tool, ToolContext, ToolResult},
     },
 };
@@ -32,9 +27,7 @@ use std::{
     any::Any,
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::Duration,
 };
-use uuid::Uuid;
 
 /// Most argument fields shown on an approval, and the longest value.
 const MAX_FIELDS: usize = 8;
@@ -405,86 +398,6 @@ fn check(rules: &Rules, app: &ToolApp, tool: &str, args: &Value) -> Check {
             Check::Run
         }
         PermissionLevel::Ask {} => Check::Ask(approval_for(app, tool, args)),
-    }
-}
-
-/// The app tools background work may have: under read only the tools that
-/// always act are left out. The rest are checked by a [`Gate`] as they run.
-pub(crate) fn for_gate(
-    tools: Vec<Arc<dyn Tool>>,
-    rules: &Rules,
-    hinted: &HashSet<ToolSlug>,
-) -> Vec<Arc<dyn Tool>> {
-    tools
-        .into_iter()
-        .filter(|tool| match classify(tool.name(), hinted) {
-            Some((app, Acts::Always)) => !rules.read_only(app.slug()),
-            _ => true,
-        })
-        .collect()
-}
-
-/// How long a background call waits for the user's answer before it is
-/// refused.
-pub(crate) const ASK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-
-/// The user's rules on the calls of background work in one chat. A call
-/// that asks first shows the user the same card a turn would, attributed
-/// to that chat, and waits for the answer without holding anything else up.
-pub(crate) struct Gate {
-    /// The rules when the work started, used when the current ones cannot
-    /// be read. Each call reads the user's rules again, so an Always or a
-    /// switch to read only reaches work already running.
-    pub(crate) rules: Rules,
-    pub(crate) hinted: HashSet<ToolSlug>,
-    pub(crate) user: Arc<User>,
-    /// The chat the work belongs to, which the card opens.
-    pub(crate) chat: Uuid,
-    pub(crate) approvals: Arc<Approvals>,
-    /// The grants of the routine whose run started the work, tried before
-    /// asking; `None` outside a routine's run.
-    pub(crate) grants: Option<Arc<RoutineGrants>>,
-}
-
-#[async_trait]
-impl ToolGate for Gate {
-    async fn check(&self, call: &ToolCall) -> GateDecision {
-        let Some((app, acts)) = classify(&call.name, &self.hinted) else {
-            return GateDecision::Allow;
-        };
-        if !acts.on(&call.arguments) {
-            return GateDecision::Allow;
-        }
-        let rules = match self.user.app_rules().await {
-            Ok(rules) => rules,
-            Err(error) => {
-                log::warn!(
-                    "permissions: unable to reload, using the rules work started with: {error:#}"
-                );
-                self.rules.clone()
-            }
-        };
-        match check(&rules, &app, &call.name, &call.arguments) {
-            Check::Run => GateDecision::Allow,
-            Check::Refuse(reason) => GateDecision::Deny(reason),
-            Check::Ask(mut approval) => {
-                if let Some(grants) = &self.grants
-                    && let Some(grant) = grants.claim(&call.name, &call.arguments, &call.id).await
-                {
-                    // The gate cannot see the result, so the user hears of
-                    // the call as it is let through.
-                    grants.report(&grant, &call.name, &call.arguments);
-                    return GateDecision::Allow;
-                }
-                approval.fields.extend(read_back(&self.user, call).await);
-                GateDecision::Ask(GateAsk {
-                    answer: self
-                        .approvals
-                        .ask(self.user.id(), self.chat, &call.name, approval),
-                    timeout: ASK_TIMEOUT,
-                })
-            }
-        }
     }
 }
 
