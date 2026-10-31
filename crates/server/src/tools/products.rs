@@ -124,6 +124,10 @@ impl Tool for ShowProductsTool {
             "additionalProperties": false
         })
     }
+    /// Checking images and reading pages for missing ones takes up to 30 s.
+    fn timeout_secs(&self) -> Option<u64> {
+        Some(60)
+    }
     fn humanize(&self, _args: &Value) -> String {
         "Showing products…".into()
     }
@@ -163,6 +167,20 @@ impl Tool for ShowProductsTool {
             if let Some(reason) = failure {
                 dropped.push(format!("image of {}: {reason}", card.title));
                 card.image = None;
+            }
+        }
+        // A card without a picture gets the one its page names for link
+        // previews, so the user sees what the product looks like.
+        let previews = cards.iter().map(|card| async move {
+            match card.image {
+                Some(_) => None,
+                None => image::page_image(&card.url).await,
+            }
+        });
+        let previews = futures::future::join_all(previews).await;
+        for (card, preview) in cards.iter_mut().zip(previews) {
+            if preview.is_some() {
+                card.image = preview;
             }
         }
         let shown = Shown {
