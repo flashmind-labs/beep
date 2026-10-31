@@ -1,5 +1,5 @@
-//! Auto: Jev picks the thinking of every user's prompts, and for an admin
-//! with Auto on the model too.
+//! Auto: Jev picks the thinking of every user's prompts, on the model they
+//! chose. An admin gets it only with Auto on.
 //! Agents: once an admin turns them on, Jev picks the agent of every
 //! user's prompts, which brings its own prompt, model and thinking.
 
@@ -23,9 +23,6 @@ use uuid::Uuid;
 
 /// Characters of the prompt Jev reads.
 const MAX_PROMPT_CHARS: usize = 4_000;
-/// How long after a turn the next one keeps its model, so the provider's
-/// prompt cache is still warm.
-const CACHE_WINDOW: Duration = Duration::from_secs(5 * 60);
 /// How long Jev may take to pick an agent before the turn runs on General.
 const AGENT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -60,46 +57,36 @@ pub(super) struct Prompt<'a> {
 }
 
 impl App {
-    /// Whether Jev picks `user`'s model and thinking: an admin with Auto on,
-    /// on a server with Auto models and Jev.
+    /// Whether an admin turned Auto on, so Jev picks their thinking.
     async fn admin_auto_on(&self, user: &User) -> bool {
-        if self.models.auto().is_empty() {
-            return false;
-        }
         user.auto_model().await.unwrap_or_else(|error| {
             log::warn!("reading auto failed; user={}: {error:#}", user.id());
             false
         })
     }
 
-    /// Jev's pick for `prompt`. Everyone but an admin gets only the thinking,
-    /// on their own model. `None` when Auto is off or Jev fails, so the turn
-    /// runs on the user's own settings.
+    /// Jev's pick of the thinking for `prompt`, on the user's own model.
+    /// `None` when an admin has Auto off or Jev fails, so the turn runs on
+    /// the user's own settings.
     pub(super) async fn auto_pick(&self, user: &User, prompt: &Prompt<'_>) -> Option<AutoChoice> {
         let decision = self.decision()?;
-        let own;
-        let (models, kept) = if !self.models.is_admin(user.id()) {
-            let model = self.model_for(user).await;
-            own = AutoModel {
-                name: model.name().to_owned(),
-                model,
-                when: String::new(),
-            };
-            (slice::from_ref(&own), false)
-        } else if self.admin_auto_on(user).await {
-            // A recent turn keeps its model, so only the thinking is picked.
-            match self.recent_model(user, prompt).await {
-                Some(kept) => (slice::from_ref(kept), true),
-                None => (self.models.auto(), false),
-            }
-        } else {
+        if self.models.is_admin(user.id()) && !self.admin_auto_on(user).await {
             return None;
+        }
+        let model = self.model_for(user).await;
+        let own = AutoModel {
+            name: model.name().to_owned(),
+            model,
+            when: String::new(),
         };
         let started = Instant::now();
-        match decision.route(&state(prompt, None), models).await {
+        match decision
+            .route(&state(prompt, None), slice::from_ref(&own))
+            .await
+        {
             Ok(routed) => {
                 log::info!(
-                    "auto picked; user={} model={} kept={kept} thinking={} ms={}",
+                    "auto picked; user={} model={} thinking={} ms={}",
                     user.id(),
                     routed.model.model,
                     routed.thinking,
@@ -201,31 +188,20 @@ impl App {
         self.configured_agent(id)
     }
 
-    /// Whether the agent also picks `user`'s model and thinking: for
-    /// everyone but an admin who turned Auto off and picks their own.
-    pub(super) async fn agent_picks_model(&self, user: &User) -> bool {
+    /// The model and thinking a turn as `agent` runs on. Everyone but an
+    /// admin gets the agent's own; an admin with Auto on keeps their model at
+    /// the thinking picked for the agent, and one with Auto off picks both.
+    pub(super) async fn agent_choice(&self, user: &User, agent: &AgentTurn) -> Option<AutoChoice> {
         if !self.models.is_admin(user.id()) {
-            return true;
+            return Some(agent.choice());
         }
-        user.auto_model().await.unwrap_or_else(|error| {
-            log::warn!("reading auto failed; user={}: {error:#}", user.id());
-            true
-        })
-    }
-
-    /// The Auto model the turn before `prompt` ran on, when that turn ended
-    /// within `CACHE_WINDOW`.
-    async fn recent_model(&self, user: &User, prompt: &Prompt<'_>) -> Option<&AutoModel> {
-        let entries = prompt.conversation.entries();
-        let age = (Utc::now() - entries.last()?.timestamp).to_std().ok()?;
-        if age > CACHE_WINDOW {
+        if !self.admin_auto_on(user).await {
             return None;
         }
-        let turn = last_turn(user, prompt.session).await?;
-        self.models
-            .auto()
-            .iter()
-            .find(|auto| auto.model.to_string() == turn.model)
+        Some(AutoChoice {
+            model: self.model_for(user).await,
+            thinking: agent.wanted,
+        })
     }
 
     /// What Jev picked for the turn a resumed session stopped in, so the

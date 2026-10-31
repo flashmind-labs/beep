@@ -159,13 +159,7 @@ impl App {
             let auto = match (one_off, answer, &turn_agent) {
                 (true, ..) => None,
                 (false, Some(_), _) => self.resumed_pick(user, chat).await,
-                (false, None, Some(agent)) => {
-                    if self.agent_picks_model(user).await {
-                        Some(agent.choice())
-                    } else {
-                        None
-                    }
-                }
+                (false, None, Some(agent)) => self.agent_choice(user, agent).await,
                 (false, None, None) if background => None,
                 (false, None, None) => self.auto_pick(user, &prompt).await,
             };
