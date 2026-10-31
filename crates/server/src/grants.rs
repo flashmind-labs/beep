@@ -821,21 +821,18 @@ mod tests {
     use super::*;
     use crate::{
         cron::BeepCronStore,
-        permissions::{Approved, Gate, Rules},
+        permissions::Approved,
         protocol::PermissionLevel,
         store::{AppPermissionRow, Store, TestDb},
-        subagents::Approvals,
     };
     use flashmind::{
         core::CancellationToken,
         cron::{CronRegistry, JobSchedule},
-        types::{GateDecision, ToolGate},
     };
     use std::{
         collections::HashSet,
         sync::atomic::{AtomicUsize, Ordering},
     };
-    use tokio::sync::broadcast;
 
     const REPLY: &str = "GMAIL_REPLY_TO_THREAD";
     const THREAD: &str = "18c2a9f0d4e5b6a7";
@@ -1345,37 +1342,5 @@ mod tests {
             .await
         );
         assert!(fixture.user.live_grants().await.expect("grants").is_empty());
-    }
-
-    #[tokio::test]
-    async fn the_gate_lets_a_granted_call_through_once_per_run() {
-        let fixture = fixture().await;
-        fixture.grant().await;
-        let (notifications, _) = broadcast::channel(8);
-        let gate = Gate {
-            rules: Rules::default(),
-            hinted: HashSet::new(),
-            user: fixture.user.clone(),
-            chat: fixture.chat,
-            approvals: Arc::new(Approvals::new(notifications)),
-            grants: Some(fixture.run("run-1")),
-        };
-        let call = |id: &str, to: &str| ToolCall {
-            id: id.to_owned(),
-            name: REPLY.to_owned(),
-            arguments: reply(to),
-        };
-        assert!(matches!(
-            gate.check(&call("c1", "sam@example.com")).await,
-            GateDecision::Ask(_)
-        ));
-        assert!(matches!(
-            gate.check(&call("c2", "ana@example.com")).await,
-            GateDecision::Allow
-        ));
-        assert!(matches!(
-            gate.check(&call("c3", "ana@example.com")).await,
-            GateDecision::Ask(_)
-        ));
     }
 }

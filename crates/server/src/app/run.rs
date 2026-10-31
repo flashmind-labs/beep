@@ -24,13 +24,14 @@ use crate::{
     permissions::{self, ApprovalPayload, Approved, Rules},
     protocol::{ApprovalDecision, AutoPick, Run, RunEvent, Usage},
     repeat::{self, RepeatGuard},
-    sandbox,
+    sources::ReplySources,
     steps::{self, TurnsByTime},
     store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, Step, StepBody, TurnRecord},
     timing::{Output, TurnTimer},
     tool_cost, tools,
     user::User,
     wake,
+    workspace::Workspace,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -215,9 +216,7 @@ impl App {
             .llm
             .with_model(model.clone())
             .with_user(user.id())
-            .with_reasoning(thinking)
-            // One ID per chat keeps OpenRouter on the provider holding its cache.
-            .with_session_id(chat);
+            .with_reasoning(thinking);
         if let Some(routing) = self.models.routing(&model) {
             llm.provider_preferences = Some(routing.clone());
         }
@@ -267,21 +266,18 @@ impl App {
                 chat,
             }));
         }
-        if let Some(sandbox) = &self.tools.sandbox {
-            sandbox::register(&mut registry, sandbox, user);
-        }
         // A turn woken by account events reads text anyone can send, so it
         // only reads: no machines, and below no app tool that acts.
         let untrusted = message
             .woken
             .as_ref()
             .is_some_and(|woken| woken.rule.untrusted());
-        if self.allows(Privilege::Nodes, user) && !untrusted {
-            registry.register(Arc::new(tools::NodeTool {
-                app: self.clone(),
-                user: user.clone(),
-                chat,
-            }));
+        // The user's machines: exec, process, desktop and code_agent, and
+        // their environment, where commands start and files are kept.
+        let use_machines = self.allows(Privilege::Nodes, user) && !untrusted;
+        let workspace = use_machines.then(|| Workspace::find(self, user)).flatten();
+        if use_machines {
+            tools::machines::register(&mut registry, self, user, chat);
         }
         if events::enabled(self, user) {
             registry.register(Arc::new(events::tools::EventTopicsTool {
@@ -300,24 +296,20 @@ impl App {
                 user: user.clone(),
             }));
         }
-        if message.draws.mac_files {
-            registry.register(Arc::new(tools::MacFilesTool {
-                app: self.clone(),
-                run_id: run.id.clone(),
-                user: user.clone(),
-                sandbox: self.tools.sandbox.clone(),
-            }));
-        }
         registry.register(Arc::new(tools::SendFileTool {
             user: user.clone(),
             session_id: chat,
-            sandbox: self.tools.sandbox.clone(),
+            workspace: workspace.clone(),
+            machines: use_machines.then(|| tools::machines::Machines {
+                app: self.clone(),
+                user: user.clone(),
+            }),
             paper: research.is_some(),
         }));
         registry.register(Arc::new(tools::SendImageTool {
             user: user.clone(),
             session_id: chat,
-            sandbox: self.tools.sandbox.clone(),
+            workspace: workspace.clone(),
         }));
         let notify = Arc::new(AtomicBool::new(message.always_sent));
         if background {
@@ -368,30 +360,10 @@ impl App {
             app_tools
         };
         let tools = markdown::wrap(app_tools);
-        let tools = match &self.tools.sandbox {
-            Some(sandbox) => files::wrap(tools, sandbox, user),
+        let tools = match &workspace {
+            Some(workspace) => files::wrap(tools, workspace),
             None => tools,
         };
-        // Sub-agents and jobs, for admins in turns someone asked for. They
-        // get the tools so far and the app tools under the same rules.
-        if !background && self.allows(Privilege::Background, user) {
-            crate::subagents::tools::register(
-                &mut registry,
-                crate::subagents::tools::Setup {
-                    app: self.clone(),
-                    user: user.clone(),
-                    chat,
-                    model: crate::research::RoleModel {
-                        model: model.clone(),
-                        thinking,
-                    },
-                    app_tools: tools.clone(),
-                    rules: rules.clone(),
-                    hinted: composio.hinted.clone(),
-                    grants: routine_grants.clone(),
-                },
-            );
-        }
         // Grants are asked for where routines are set up. A routine's own
         // run and a turn on untrusted text never ask for one.
         if !is_cron && !untrusted && registry.contains("cron_create") {
@@ -435,6 +407,8 @@ impl App {
         // The turn's calls, which the gates read with the reply. An approved
         // call that ran on resuming counts, so "sent" after Allow holds.
         let mut calls = Vec::new();
+        // The web pages the reply used, shown under it.
+        let mut sources = ReplySources::default();
 
         // Close the open calls before the model goes on. An answer runs them
         // in order, as if they had just been made; a new message leaves them
@@ -547,8 +521,7 @@ impl App {
                     data: &file.data,
                 })
                 .collect();
-            let sandbox = self.tools.sandbox.as_deref();
-            parts.extend(attachments::parts(sandbox, user.external_id(), &handed).await);
+            parts.extend(attachments::parts(workspace.as_deref(), &handed).await);
         }
 
         // Flashmind saves `context` as a developer message before the user message. It
@@ -667,9 +640,11 @@ impl App {
                                 id,
                                 output,
                                 success,
+                                sources: found,
                                 ..
                             }) => {
                                 tools_running = tools_running.saturating_sub(1);
+                                sources.add(&name, &found);
                                 if tools_running == 0 {
                                     timer.tools_done();
                                 }
@@ -799,6 +774,15 @@ impl App {
         // A routine that told the user something shows only what it told
         // them, which is also the notice: not a sign-off written after it.
         let notice_only = is_cron && status == RunStatus::Completed;
+        // The pages go out before the run finishes, so the app that streamed
+        // it shows them under the reply at once. A routine shows only its
+        // notice, so it has none.
+        let sources = (!notice_only && !sources.is_empty()).then(|| sources.to_wire());
+        if let Some(sources) = &sources {
+            live.push(RunEvent::Sources {
+                sources: sources.clone(),
+            });
+        }
         let told = notice_only
             .then(|| steps::routine_reply(conversation.entries(), Some(turn_started)))
             .flatten();
@@ -1039,6 +1023,17 @@ impl App {
         // The pictures stay with the message they came with, so every device
         // shows them after the model only keeps their descriptions.
         let opened = finished.and_then(|saved| saved.opened);
+        if let Some(turn) = finished.and_then(|saved| saved.turn)
+            && let Some(sources) = &sources
+        {
+            match user.save_sources(chat, turn, sources).await {
+                Ok(()) => user.changed(&run.session_id),
+                Err(error) => log::warn!(
+                    "unable to keep the reply's sources: {error:#}; run_id={}",
+                    run.id
+                ),
+            }
+        }
         if let Some(opened) = opened
             && !message.images.is_empty()
         {
@@ -1208,3 +1203,6 @@ pub(super) fn web_tools(key: &str) -> Vec<Arc<dyn Tool>> {
         Arc::new(WebSearchReadTool::new(cache)),
     ]
 }
+
+#[cfg(test)]
+mod tests;

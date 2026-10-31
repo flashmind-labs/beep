@@ -1,7 +1,8 @@
 use super::file::clean_name;
 use crate::{
-    sandbox::{Sandbox, content_type, follow_public},
+    fetch::{content_type, follow_public},
     user::User,
+    workspace::Workspace,
 };
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
@@ -19,14 +20,14 @@ const CHECK_TIME: Duration = Duration::from_secs(10);
 /// The tool's name, which the apps and the routine notice look for.
 pub(crate) const NAME: &str = "send_image";
 
-/// Shows images in the chat, from the web or from the user's file folder.
+/// Shows images in the chat, from the web or from the user's home folder.
 /// Each URL is fetched first, so a made-up link fails here instead of
 /// showing as a broken image on the phone. A folder image is kept with the
 /// chat, as a sent file is, and the phone shows it as a picture.
 pub(crate) struct SendImageTool {
     pub(crate) user: Arc<User>,
     pub(crate) session_id: Uuid,
-    pub(crate) sandbox: Option<Arc<Sandbox>>,
+    pub(crate) workspace: Option<Arc<Workspace>>,
 }
 
 #[async_trait]
@@ -35,7 +36,7 @@ impl Tool for SendImageTool {
         NAME
     }
     fn description(&self) -> &str {
-        "Send images to the user; they show in the chat as pictures. Give each one either `url`, an https image URL you got from a tool, a page or the user and never one you made up, or `path`, a PNG, JPEG, GIF or WebP in the user's file folder, such as a chart execute_code drew. Use this rather than send_file for images. Each one is checked, and ones that are not images are reported back."
+        "Send images to the user; they show in the chat as pictures. Give each one either `url`, an https image URL you got from a tool, a page or the user and never one you made up, or `path`, a PNG, JPEG, GIF or WebP in the user's home folder (relative to it, or absolute), such as a chart a command drew with exec. Use this rather than send_file for images. Each one is checked, and ones that are not images are reported back."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -49,7 +50,7 @@ impl Tool for SendImageTool {
                         "type": "object",
                         "properties": {
                             "url": { "type": "string", "description": "https URL of the image file" },
-                            "path": { "type": "string", "description": "Image in the user's file folder, as execute_code or download_file named it" },
+                            "path": { "type": "string", "description": "Image in the user's home folder, such as chart.png" },
                             "caption": { "type": "string", "maxLength": 200 }
                         },
                         "additionalProperties": false
@@ -127,12 +128,12 @@ impl SendImageTool {
     /// Keeps the folder image at `path` with the chat, and returns it as a
     /// sent file.
     async fn save(&self, path: &str) -> Result<Value, String> {
-        let sandbox = self
-            .sandbox
+        let workspace = self
+            .workspace
             .as_ref()
-            .ok_or("this server has no file folder")?;
-        let file = sandbox
-            .read(self.user.external_id(), path)
+            .ok_or("the user has no environment online to keep files in")?;
+        let file = workspace
+            .read(path)
             .await
             .map_err(|error| format!("{error:#}"))?;
         let mime = image_mime(&file.data).ok_or("it is not a PNG, JPEG, GIF or WebP image")?;

@@ -76,7 +76,7 @@ fn message(cron_id: Option<String>) -> Message {
         draws: Draws {
             charts: true,
             cards: true,
-            mac_files: false,
+            sources: true,
         },
         finished_research: false,
     }

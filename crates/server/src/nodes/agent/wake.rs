@@ -1,6 +1,6 @@
 //! Reports from a node session to the chat it works for. A finished turn
 //! or a question nobody waits for starts a turn in that chat, the way a
-//! finished sub-agent reports back; a question also goes to the user as an
+//! finished research reports back; a question also goes to the user as an
 //! approval card, and their answer goes back to the agent.
 
 use super::{AgentLinks, LinkOrder, Watched, order};
@@ -8,6 +8,7 @@ use crate::{
     app::App,
     nodes::{Ask, Follower, Post, deliver::agent_name},
     protocol::node::agent::{Event, Question},
+    tools::machines::agent_call,
 };
 use std::{
     fmt::Write,
@@ -132,8 +133,10 @@ fn turn_report(node: &str, agent: &str, session: &str, turn: u32, last_message: 
     }
     let _ = write!(
         text,
-        "\n\nTell the user in a few sentences what it did. `{node} {agent} prompt {session} \
-         \"TEXT\"` gives it more to do and `{node} {agent} transcript {session}` reads more."
+        "\n\nTell the user in a few sentences what it did. {} gives it more to do and {} \
+         reads more.",
+        agent_call(node, agent, "prompt", session),
+        agent_call(node, agent, "transcript", session)
     );
     text
 }
@@ -150,9 +153,9 @@ fn question_report(node: &str, agent: &str, session: &str, question: &Question) 
     let options: Vec<&str> = question.options.iter().map(|o| o.id.as_str()).collect();
     let _ = write!(
         text,
-        "\nThe user has a card to answer it. You can answer instead with `{node} {agent} \
-         answer {session} OPTION`; its options are {}. Tell the user briefly what it waits \
-         for.",
+        "\nThe user has a card to answer it. You can answer instead with {} and the option \
+         as `prompt`; its options are {}. Tell the user briefly what it waits for.",
+        agent_call(node, agent, "answer", session),
         options.join(", ")
     );
     text
@@ -181,7 +184,9 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("`build-box codex prompt s1 \"TEXT\"`"),
+            text.contains(
+                "code_agent with action `prompt`, agent `codex`, id `s1` and in `build-box`"
+            ),
             "{text}"
         );
         let long = "x".repeat(MAX_QUOTED + 10);

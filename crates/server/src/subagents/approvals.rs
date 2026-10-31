@@ -203,17 +203,6 @@ impl Approvals {
         }
         Ok(true)
     }
-
-    /// How many calls wait for `user`.
-    #[cfg(test)]
-    pub(crate) fn waiting_for(&self, user: &str) -> Vec<String> {
-        self.waiting()
-            .by_id
-            .iter()
-            .filter(|(_, asked)| asked.question.user == user)
-            .map(|(id, _)| id.clone())
-            .collect()
-    }
 }
 
 /// Withdraws a question when its call stops waiting.

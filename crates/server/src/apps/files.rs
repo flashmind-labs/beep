@@ -1,10 +1,9 @@
 //! App tool results that point at a file, such as a OneDrive download or a
-//! mail attachment, saved into the user's folder as they arrive. Composio
-//! hands back a short-lived `s3url` rather than the file, and code in the
-//! sandbox has no network to fetch it, so the model would otherwise have to
-//! know to call `download_file` first.
+//! mail attachment, saved into the user's home folder as they arrive.
+//! Composio hands back a short-lived `s3url` rather than the file, so the
+//! model would otherwise have to fetch it before it expires.
 
-use crate::{sandbox::Sandbox, user::User};
+use crate::workspace::Workspace;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Map, Value};
@@ -14,18 +13,13 @@ use std::sync::Arc;
 const SAVE_SECS: u64 = 120;
 
 /// Wraps each tool so the files its successful results link to are saved.
-pub(crate) fn wrap(
-    tools: Vec<Arc<dyn Tool>>,
-    sandbox: &Arc<Sandbox>,
-    user: &Arc<User>,
-) -> Vec<Arc<dyn Tool>> {
+pub(crate) fn wrap(tools: Vec<Arc<dyn Tool>>, workspace: &Arc<Workspace>) -> Vec<Arc<dyn Tool>> {
     tools
         .into_iter()
         .map(|tool| {
             Arc::new(SaveFiles {
                 tool,
-                sandbox: sandbox.clone(),
-                user: user.clone(),
+                workspace: workspace.clone(),
             }) as Arc<dyn Tool>
         })
         .collect()
@@ -33,8 +27,7 @@ pub(crate) fn wrap(
 
 struct SaveFiles {
     tool: Arc<dyn Tool>,
-    sandbox: Arc<Sandbox>,
-    user: Arc<User>,
+    workspace: Arc<Workspace>,
 }
 
 /// A file a result links to.
@@ -73,8 +66,8 @@ impl Tool for SaveFiles {
         let mut saved = Vec::with_capacity(links.len());
         for link in links {
             let outcome = self
-                .sandbox
-                .download(self.user.external_id(), &link.url, link.name.as_deref())
+                .workspace
+                .download(&link.url, link.name.as_deref())
                 .await;
             if let Err(e) = &outcome {
                 log::warn!("files: unable to save {}: {e:#}", self.tool.name());
@@ -128,7 +121,7 @@ fn find_links(value: &Value, links: &mut Vec<Link>) {
 }
 
 /// Adds where each linked file went, walking in the same order as
-/// `find_links`: `saved_as` with its name in the user's folder, or
+/// `find_links`: `saved_as` with its path in the user's home folder, or
 /// `save_error`.
 fn mark_saved(value: &mut Value, saved: &mut impl Iterator<Item = anyhow::Result<String>>) {
     match value {

@@ -40,6 +40,7 @@ mod sessions;
 mod settings;
 mod shares;
 mod skills;
+mod sources;
 mod test_db;
 mod updates;
 mod usage;
@@ -72,7 +73,7 @@ pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
 pub use shares::{CopiedShare, Share};
 pub use skills::{NewSkill, Review, SKILL_LIMIT, SkillOwner, SkillPatch, SkillRow};
-pub use test_db::{TestDb, test_chat, test_steps, test_turn};
+pub use test_db::{TestDb, TestTurn, test_chat, test_steps, test_turn, test_turn_with};
 pub use updates::{Bumped, UpdateHub, start_pruning};
 pub use user_keys::{Account, AccountKey, LinkKey, NewKey, SignIn};
 
@@ -323,6 +324,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         52,
         "watchers",
         include_str!("../../migrations/0052_watchers.sql"),
+    ),
+    (
+        53,
+        "turn sources",
+        include_str!("../../migrations/0053_turn_sources.sql"),
     ),
 ];
 

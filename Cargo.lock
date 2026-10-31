@@ -538,7 +538,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
- "tokio-tungstenite 0.30.0",
+ "tokio-tungstenite",
  "tokio-util",
  "toml 1.1.6+spec-1.1.0",
  "typst",
@@ -1407,7 +1407,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.6",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -1821,7 +1821,7 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 [[package]]
 name = "flashmind"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#a7ac91c0069989fcdf49d091db7685f347993216"
+source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
 dependencies = [
  "flashmind-core",
  "flashmind-cron",
@@ -1834,7 +1834,7 @@ dependencies = [
 [[package]]
 name = "flashmind-core"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#a7ac91c0069989fcdf49d091db7685f347993216"
+source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1854,7 +1854,7 @@ dependencies = [
 [[package]]
 name = "flashmind-cron"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#a7ac91c0069989fcdf49d091db7685f347993216"
+source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1875,7 +1875,7 @@ dependencies = [
 [[package]]
 name = "flashmind-llm"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#a7ac91c0069989fcdf49d091db7685f347993216"
+source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1895,19 +1895,21 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "strum 0.28.0",
  "tokio",
- "tokio-tungstenite 0.29.0",
+ "tokio-rustls",
  "tokio-util",
  "tracing",
  "url",
  "uuid",
  "webpki-roots 1.0.9",
+ "yawc",
 ]
 
 [[package]]
 name = "flashmind-memory"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#a7ac91c0069989fcdf49d091db7685f347993216"
+source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1932,7 +1934,7 @@ dependencies = [
 [[package]]
 name = "flashmind-skills"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#a7ac91c0069989fcdf49d091db7685f347993216"
+source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1948,7 +1950,7 @@ dependencies = [
 [[package]]
 name = "flashmind-tools"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#a7ac91c0069989fcdf49d091db7685f347993216"
+source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1986,7 +1988,7 @@ dependencies = [
 [[package]]
 name = "flashmind-types"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#a7ac91c0069989fcdf49d091db7685f347993216"
+source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7056,22 +7058,6 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
-dependencies = [
- "futures-util",
- "log",
- "rustls",
- "rustls-pki-types",
- "tokio",
- "tokio-rustls",
- "tungstenite 0.29.0",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
-name = "tokio-tungstenite"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17a073bfed563fa236697a068031408a93cd9522e08abf9933ead3e73411bd71"
@@ -7082,7 +7068,7 @@ dependencies = [
  "rustls-pki-types",
  "tokio",
  "tokio-rustls",
- "tungstenite 0.30.0",
+ "tungstenite",
  "webpki-roots 0.26.11",
 ]
 
@@ -7341,24 +7327,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 dependencies = [
  "core_maths",
-]
-
-[[package]]
-name = "tungstenite"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
-dependencies = [
- "bytes",
- "data-encoding",
- "http",
- "httparse",
- "log",
- "rand 0.9.5",
- "rustls",
- "rustls-pki-types",
- "sha1 0.10.7",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -8076,6 +8044,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 
@@ -8902,6 +8871,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
 dependencies = [
  "linked-hash-map",
+]
+
+[[package]]
+name = "yawc"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7b69940f68e6cbe7d7f85350b81e51fafe62786d812b92c263727addc13a272"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "crossbeam-queue",
+ "flate2",
+ "futures",
+ "getrandom 0.2.17",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "js-sys",
+ "log",
+ "nom 8.0.0",
+ "percent-encoding",
+ "pin-project",
+ "rand 0.8.8",
+ "sha1 0.10.7",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

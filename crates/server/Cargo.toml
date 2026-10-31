@@ -39,7 +39,7 @@ toml = "1"
 shlex = "1"
 log = "0.4"
 logforth = { version = "0.30", features = ["starter-log"] }
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 html2text = "0.17"
 imagesize = "0.14"
 jsonwebtoken = "9.3"

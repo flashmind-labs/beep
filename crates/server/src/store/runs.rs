@@ -44,6 +44,9 @@ pub struct SavedTurn {
     pub updated_at: DateTime<Utc>,
     /// The message the saved steps opened their turn with, if they did.
     pub opened: Option<i64>,
+    /// The message that opened the turn the steps belong to: `opened`, or
+    /// the turn they carried on, as a resumed one does.
+    pub turn: Option<i64>,
 }
 
 /// How an agent run ended.
@@ -350,7 +353,11 @@ impl Store {
                     .bind(chat)
                     .fetch_one(&mut *tx)
                     .await?;
-            saved = Some(SavedTurn { updated_at, opened });
+            saved = Some(SavedTurn {
+                updated_at,
+                opened,
+                turn: opened.or(carried),
+            });
         }
         sqlx::query("UPDATE runs SET status=$1 WHERE id=$2 AND user_id=$3")
             .bind(status.as_str())

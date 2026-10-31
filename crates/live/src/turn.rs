@@ -82,6 +82,14 @@ impl Turn {
         self.current.clear();
     }
 
+    /// Puts `text`, said before, in front of the words.
+    pub fn restore(&mut self, text: &str) {
+        let text = text.trim();
+        if !text.is_empty() {
+            self.said.insert(0, text.to_owned());
+        }
+    }
+
     /// Removes the last sentence said.
     pub fn scratch(&mut self) {
         let Some(last) = self.said.pop() else {

@@ -11,7 +11,7 @@ use crate::{Hello, Platform};
 /// The newest wire revision this crate reads. Raise it together with a new
 /// `Feature`, and run the compat test with `BEEP_WIRE_BLESS=1` to freeze the
 /// new revision's fixtures.
-pub const WIRE: u32 = 9;
+pub const WIRE: u32 = 10;
 
 /// A reply shape newer than some clients: a streamed enum variant, or
 /// anything else only the `WIRE` it names can decode. Declare each as an
@@ -28,7 +28,8 @@ impl Feature {
     /// Draws `show_cards` results.
     pub const CARDS: Feature = Feature(3);
 
-    /// Answers `DeviceQuery::MacFiles`. Only the macOS app does.
+    /// Answers `DeviceQuery::MacFiles`. Only the macOS app did. Unused: the
+    /// server no longer sends it.
     pub const MAC_FILES: Feature = Feature(4);
 
     /// Plays voice notes: reads `RunEvent::Transcript`, which a run started
@@ -47,6 +48,11 @@ impl Feature {
     /// `Notice` for which `Notice::resolved_question` is set, and asks
     /// `ListQuestions`. Older apps take that notice as a changed chat.
     pub const QUESTIONS: Feature = Feature(9);
+
+    /// Shows the web pages a reply used as chips under it: reads
+    /// `RunEvent::Sources`, which a run streams before it finishes, and asks
+    /// `GetSessionSources`.
+    pub const SOURCES: Feature = Feature(10);
 
     /// The first wire revision that reads it.
     pub const fn wire(self) -> u32 {

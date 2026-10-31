@@ -1,4 +1,4 @@
-use super::node;
+use super::machines;
 use crate::{
     memories::hit,
     protocol::MemorySource,
@@ -100,7 +100,7 @@ impl MemoryTool {
 }
 
 const SCOPE_HELP: &str = "What the fact is about: `user` (the default) for the user and their life, \
-    `machine:<name>` for one of their machines by its name in `node list`, `project:<name>` for a \
+    `machine:<name>` for one of their machines by its name in the machines list, `project:<name>` for a \
     project such as a repository, `account:<app>` for one of their accounts, such as `account:github`.";
 
 /// Scopes as the model writes them, `machine:build-box`. The store keeps a
@@ -122,8 +122,8 @@ impl ScopeNames {
         };
         match kind {
             "machine" => {
-                let Some(node) = node::find(&self.0, name) else {
-                    bail!("the user has no machine called {name:?}; `node list` shows them");
+                let Some(node) = machines::find(&self.0, name) else {
+                    bail!("the user has no machine called {name:?}; the machines list shows them");
                 };
                 Ok(Scope::Machine(
                     node.endpoint.parse().context("a stored machine key")?,

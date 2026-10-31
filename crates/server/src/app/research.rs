@@ -558,8 +558,7 @@ impl App {
             .llm
             .with_model(model.model.clone())
             .with_user(user.id())
-            .with_reasoning(model.thinking)
-            .with_session_id(research.id);
+            .with_reasoning(model.thinking);
         if let Some(routing) = self.models.routing(&model.model) {
             llm.provider_preferences = Some(routing.clone());
         }

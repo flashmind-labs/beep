@@ -1,4 +1,4 @@
-//! Background work: sub-agents and jobs, run outside the user's turns.
+//! Background work: sub-agents run outside the user's turns.
 //!
 //! A sub-agent is a short agent run of some [`Kind`]: its instructions and
 //! limits. One run is a [`Spec`]: the kind, the model from the config, the
@@ -7,25 +7,13 @@
 //! and its cancellation; [`Subagents::run`] adds what a server needs on top:
 //! a token budget, a time limit and a typed decision.
 //!
-//! A job is one slow tool call the main agent moved to the background
-//! (`background run`). Sub-agents the main agent starts (`background spawn`)
-//! and jobs are listed together per chat (see [`work`]); when one ends its
-//! result goes back into the chat it came from, starting a new turn there
-//! once no turn is running.
-//!
-//! Every call a sub-agent or job makes passes the run's gate
-//! (`permissions::Gate`): the user's app rules, the same as in a turn.
-//!
 //! [`Subagents`] owns every task, bounded per user and per [`Pool`]. Event
-//! triage (`crate::events::triage`) and the general agent behind
-//! `background spawn` are the kinds so far.
+//! triage (`crate::events::triage`) is the only kind so far. It also holds
+//! the cards of calls waiting for the user's OK outside a turn.
 
 mod approvals;
 mod decision;
-mod kept;
 mod run;
-pub(crate) mod tools;
-pub(crate) mod work;
 
 pub use approvals::Approvals;
 pub use decision::Decision;
@@ -46,19 +34,12 @@ use tokio::{
     sync::{Notify, broadcast},
     task::JoinSet,
 };
-use work::Work;
 
 /// What a task is, for its limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Pool {
     /// Event triage runs.
     Triage,
-    /// Sub-agents the main agent started.
-    Agents,
-    /// Tool calls moved to the background.
-    Jobs,
-    /// Handing results back to chats. Cheap: it waits for a turn to end.
-    Deliveries,
 }
 
 impl Pool {
@@ -66,9 +47,6 @@ impl Pool {
     pub const fn per_user(self) -> usize {
         match self {
             Pool::Triage => 2,
-            Pool::Agents => 3,
-            Pool::Jobs => 4,
-            Pool::Deliveries => 16,
         }
     }
 
@@ -76,9 +54,6 @@ impl Pool {
     pub const fn total(self) -> usize {
         match self {
             Pool::Triage => 8,
-            Pool::Agents => 8,
-            Pool::Jobs => 32,
-            Pool::Deliveries => 256,
         }
     }
 }
@@ -196,14 +171,10 @@ pub struct Subagents {
     slots: Arc<Mutex<Slots>>,
     tasks: Mutex<JoinSet<()>>,
     stop: CancellationToken,
-    /// Sub-agents and jobs per chat, and results on their way back.
-    pub(crate) work: Work,
     /// Calls waiting for the user's OK.
     pub approvals: Arc<Approvals>,
     /// Woken whenever a turn ends, so a waiting delivery tries again.
     pub(crate) turn_ended: Notify,
-    /// Sub-agents kept for `background message`.
-    pub(crate) kept: kept::KeptAgents<run::Session<tools::Report>>,
 }
 
 impl Subagents {
@@ -219,9 +190,7 @@ impl Subagents {
             slots: Arc::default(),
             tasks: Mutex::new(JoinSet::new()),
             stop: CancellationToken::new(),
-            work: Work::default(),
             turn_ended: Notify::new(),
-            kept: kept::KeptAgents::default(),
         }
     }
 
@@ -271,13 +240,6 @@ impl Subagents {
         lock(&self.slots).has_room(pool, user)
     }
 
-    /// The results the chat's running turn claimed as it was created,
-    /// handed over once.
-    pub fn claimed_context(&self, chat: uuid::Uuid) -> Option<String> {
-        let claimed = self.work.take_claimed(chat);
-        (!claimed.is_empty()).then(|| work::claimed_context(&claimed))
-    }
-
     /// Tells waiting deliveries that a turn ended, so a chat may be free.
     pub fn turn_ended(&self) {
         self.turn_ended.notify_waiters();
@@ -301,24 +263,19 @@ mod tests {
             assert_eq!(slots.take(Pool::Triage, "alice"), Ok(()));
         }
         assert_eq!(slots.take(Pool::Triage, "alice"), Err(Busy));
-        assert_eq!(
-            slots.take(Pool::Jobs, "alice"),
-            Ok(()),
-            "each pool counts on its own"
-        );
         slots.give_back(Pool::Triage, "alice");
         assert_eq!(slots.take(Pool::Triage, "alice"), Ok(()));
 
         let mut slots = Slots::default();
-        let users: Vec<String> = (0..Pool::Agents.total())
+        let users: Vec<String> = (0..Pool::Triage.total())
             .map(|n| format!("user-{n}"))
             .collect();
         for user in &users {
-            assert_eq!(slots.take(Pool::Agents, user), Ok(()));
+            assert_eq!(slots.take(Pool::Triage, user), Ok(()));
         }
-        assert_eq!(slots.take(Pool::Agents, "one-more"), Err(Busy));
-        slots.give_back(Pool::Agents, &users[0]);
-        assert_eq!(slots.take(Pool::Agents, "one-more"), Ok(()));
-        assert_eq!(slots.running(Pool::Agents, &users[0]), 0);
+        assert_eq!(slots.take(Pool::Triage, "one-more"), Err(Busy));
+        slots.give_back(Pool::Triage, &users[0]);
+        assert_eq!(slots.take(Pool::Triage, "one-more"), Ok(()));
+        assert_eq!(slots.running(Pool::Triage, &users[0]), 0);
     }
 }

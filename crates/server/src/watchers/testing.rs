@@ -4,7 +4,7 @@
 use crate::{
     app::{App, ServerTools},
     models::ModelChoices,
-    store::{Account, TestDb, test_turn},
+    store::{Account, TestDb, TestTurn, test_turn_with},
     user::{User, UserKey},
 };
 use async_trait::async_trait;
@@ -117,17 +117,23 @@ impl Harness {
 
     /// A turn of `user`'s chat sent now. Returns the id of its last message.
     pub async fn turn(&self, user: &User, chat: Uuid, prompt: &str) -> i64 {
+        self.turn_with_calls(user, chat, prompt, 0).await
+    }
+
+    /// [`Self::turn`] with `calls` tool calls before the reply.
+    pub async fn turn_with_calls(
+        &self,
+        user: &User,
+        chat: Uuid,
+        prompt: &str,
+        calls: usize,
+    ) -> i64 {
         // Apart by a few milliseconds, so each turn has its own request id.
         let at = chrono::Utc::now().timestamp_millis() + NEXT.fetch_add(10, Ordering::Relaxed);
-        test_turn(
-            &self.app.store,
-            &UserKey::for_test(user.id()),
-            chat,
-            prompt,
-            at,
-        )
-        .await
-        .expect("a saved turn");
+        let turn = TestTurn { prompt, at, calls };
+        test_turn_with(&self.app.store, &UserKey::for_test(user.id()), chat, turn)
+            .await
+            .expect("a saved turn");
         self.app
             .store
             .watched_chat(user.id(), chat)

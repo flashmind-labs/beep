@@ -59,9 +59,32 @@ impl Online {
             Some(shell) => shell,
             None => self.open_shell().await?,
         };
-        let ran = run(&mut shell, command, limit).await?;
+        let mut kept = Kept::default();
+        let done = run(&mut shell, command, limit, &mut |text| kept.push(text)).await?;
         *slot = Some(shell);
-        Ok(ran)
+        Ok(done.ran(kept))
+    }
+
+    /// Runs `command` in a shell of its own, started in the home folder, so
+    /// it shares nothing with other commands and several can run at once.
+    /// `on_output` gets the output as it comes; the node keeps up to 1 MiB.
+    pub async fn exec(
+        &self,
+        command: &str,
+        limit: Duration,
+        on_output: &mut (dyn FnMut(&str) + Send),
+    ) -> Result<Exited> {
+        if !self.offers(PROTOCOL) {
+            bail!("{} does not offer a shell", self.name);
+        }
+        // Dropped at the end, which closes the stream and the shell.
+        let mut shell = self.open_shell().await?;
+        let done = run(&mut shell, command, limit, on_output).await?;
+        Ok(Exited {
+            exit_code: done.exit_code,
+            timed_out: done.timed_out,
+            truncated: done.truncated,
+        })
     }
 
     async fn open_shell(&self) -> Result<ShellLink> {
@@ -70,7 +93,44 @@ impl Online {
     }
 }
 
-async fn run(shell: &mut ShellLink, command: &str, limit: Duration) -> Result<Ran> {
+/// How a command run by `exec` ended.
+#[derive(Debug, PartialEq)]
+pub struct Exited {
+    /// `None` when it did not finish: it timed out or ended its shell.
+    pub exit_code: Option<i32>,
+    pub timed_out: bool,
+    /// The node dropped output past its limit.
+    pub truncated: bool,
+}
+
+/// What the node said when a command ended.
+struct Done {
+    exit_code: Option<i32>,
+    timed_out: bool,
+    cwd: Option<String>,
+    fresh: bool,
+    truncated: bool,
+}
+
+impl Done {
+    fn ran(self, kept: Kept) -> Ran {
+        Ran {
+            cut: self.truncated || kept.cut,
+            output: kept.text(),
+            exit_code: self.exit_code,
+            timed_out: self.timed_out,
+            cwd: self.cwd,
+            fresh: self.fresh,
+        }
+    }
+}
+
+async fn run(
+    shell: &mut ShellLink,
+    command: &str,
+    limit: Duration,
+    on_output: &mut (dyn FnMut(&str) + Send),
+) -> Result<Done> {
     let timeout_secs = u32::try_from(limit.as_secs()).unwrap_or(u32::MAX);
     shell
         .tx
@@ -79,11 +139,10 @@ async fn run(shell: &mut ShellLink, command: &str, limit: Duration) -> Result<Ra
             timeout_secs,
         })
         .await?;
-    let mut output = Kept::default();
     let answer = async {
         loop {
             match shell.rx.recv::<Event>().await? {
-                Some(Event::Output { text }) => output.push(&text),
+                Some(Event::Output { text }) => on_output(&text),
                 Some(Event::Done {
                     exit_code,
                     timed_out,
@@ -91,13 +150,12 @@ async fn run(shell: &mut ShellLink, command: &str, limit: Duration) -> Result<Ra
                     fresh,
                     truncated,
                 }) => {
-                    return Ok::<_, anyhow::Error>(Ran {
-                        cut: truncated || output.cut,
-                        output: output.text(),
+                    return Ok::<_, anyhow::Error>(Done {
                         exit_code,
                         timed_out,
                         cwd,
                         fresh,
+                        truncated,
                     });
                 }
                 Some(other) => log::debug!("shell sent something unhandled: {other:?}"),
@@ -145,14 +203,6 @@ impl Kept {
             self.head + &self.tail
         }
     }
-}
-
-/// `text` cut the way shell output is: its start and its end, with a note
-/// where the middle went.
-pub(crate) fn head_and_tail(text: &str) -> String {
-    let mut kept = Kept::default();
-    kept.push(text);
-    kept.text()
 }
 
 fn floor_boundary(text: &str, mut at: usize) -> usize {

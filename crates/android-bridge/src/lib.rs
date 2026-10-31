@@ -16,22 +16,23 @@ use beep_proto::{
     Filler as FillerLine, Finding, FindingStatus, FinishAppAuth, FinishMcpAuth, GetAgents,
     GetAppPermissions, GetEvents, GetFile, GetGroup, GetGroupImages, GetModels, GetResearch,
     GetResearchPdf, GetRouteCard, GetRun, GetSession, GetSessionAgents, GetSessionFiles,
-    GetSessionImages, GetShare, GetToolLabels, Grant, Group, GroupChat, GroupInvite, GroupLink,
-    GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry, InviteDevice, JoinAccount,
-    JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice, ListAppAccounts, ListApps,
-    ListCrons, ListDevices, ListFindings, ListGrants, ListGroupReminders, ListGroups, ListMachines,
-    ListMcpServers, ListMcpTools, ListMemories, ListMemoryReads, ListMemoryScopes, ListPlaces,
-    ListQuestions, ListResearches, ListSessions, ListSkills, ListWork, Machine, McpCallback,
-    McpConnect, McpServer, McpTools, Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite,
-    PendingApproval, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
-    RemoveMcpServer, RenameSession, Research, ResearchSummary, RevokeGrant, RouteCard, Run,
-    RunCron, Say, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages, Session,
-    SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking,
-    SetTimezone, ShareGroupApps, ShareSession, SharedLink, SharedSession, Skill, SpokenTurns,
-    StartAppAuth, StopResearch, Stream, SuggestPrompts, TRANSCRIBE_RATE, ToggleCron, ToolLabel,
-    Transcribe, Transcription, TurnAgent, UndoSkill, UnregisterDevice, UnshareSession, UpdateCron,
-    UpdateFinding, UpdateLocation, UpdateMemory, UpdatePlace, UpdateSkill, Upload, WorkItem,
+    GetSessionImages, GetSessionSources, GetShare, GetToolLabels, Grant, Group, GroupChat,
+    GroupInvite, GroupLink, GroupMessage, GroupPreview, GroupReminder, Health, HistoryEntry,
+    InviteDevice, JoinAccount, JoinGroup, JoinPreview, LeaveGroup, LinkDevice, LinkedDevice,
+    ListAppAccounts, ListApps, ListCrons, ListDevices, ListFindings, ListGrants,
+    ListGroupReminders, ListGroups, ListMachines, ListMcpServers, ListMcpTools, ListMemories,
+    ListMemoryReads, ListMemoryScopes, ListPlaces, ListQuestions, ListResearches, ListSessions,
+    ListSkills, ListWork, Machine, McpCallback, McpConnect, McpServer, McpTools, Memory,
+    MemoryRead, Models, Notice, PeekGroup, PeekInvite, PendingApproval, PermissionLevel, PinGroup,
+    PinSession, Place, PlaceCrossing, Platform, PromptSuggestions, ReasoningLevel, RegisterDevice,
+    RemoveAppAccount, RemoveDevice, RemoveMcpServer, RenameSession, Research, ResearchSummary,
+    RevokeGrant, RouteCard, Run, RunCron, Say, ScopedMemory, SearchSessions, SendToGroup,
+    SentFiles, SentImages, Session, SessionMatch, SetAgents, SetAppPermissions, SetAutoModel,
+    SetMcpTool, SetModel, SetThinking, SetTimezone, ShareGroupApps, ShareSession, SharedLink,
+    SharedSession, Skill, SpokenTurns, StartAppAuth, StopResearch, Stream, SuggestPrompts,
+    TRANSCRIBE_RATE, ToggleCron, ToolLabel, Transcribe, Transcription, TurnAgent, TurnSources,
+    UndoSkill, UnregisterDevice, UnshareSession, UpdateCron, UpdateFinding, UpdateLocation,
+    UpdateMemory, UpdatePlace, UpdateSkill, Upload, WorkItem,
     client::{Client, Node, OnNotice, Replies},
     link::LinkOffer,
     names::username,
@@ -58,7 +59,9 @@ use uuid::Uuid;
 
 mod live;
 
-pub use live::{LiveEvent, LiveListener, LivePhase, LiveSession, LiveStart, LiveView};
+pub use live::{
+    LeaveReason, LiveEvent, LiveListener, LivePhase, LiveSession, LiveStart, LiveView, ReplyFailure,
+};
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
@@ -725,6 +728,17 @@ impl BeepClient {
         self.call(GetToolLabels { session_id }).await
     }
 
+    /// The web pages each turn of a session used, by the timestamp of the
+    /// message that started it, for the source chips under its reply.
+    /// Servers from before it answer with an error.
+    pub async fn get_session_sources(
+        &self,
+        session_id: String,
+    ) -> Result<Vec<TurnSources>, BeepError> {
+        let session_id = uuid(&session_id)?;
+        self.call(GetSessionSources { session_id }).await
+    }
+
     /// The routes a `get_route` call found, for its card.
     pub async fn get_route(&self, call_id: String) -> Result<RouteCard, BeepError> {
         self.call(GetRouteCard { call_id }).await
@@ -1372,6 +1386,7 @@ impl Speech for BeepClient {
             Ok(opened) => opened,
             Err(e) => return heard.hear(Hearing::Failed(e.to_string())).await,
         };
+        heard.hear(Hearing::Open).await;
         let up = async move {
             while let Some(pcm) = audio.recv().await {
                 if let Err(e) = uplink.send(&ByteBuf::from(pcm)).await {

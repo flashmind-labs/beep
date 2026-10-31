@@ -9,10 +9,9 @@ pub(crate) mod group_memory;
 mod habits;
 mod image;
 mod location;
-pub(crate) mod mac_files;
+pub(crate) mod machines;
 mod maps;
 mod memory;
-mod node;
 mod notify_user;
 mod open_app;
 mod places;
@@ -25,9 +24,7 @@ pub(crate) mod suggest;
 
 pub(crate) use file::SendFileTool;
 pub(crate) use image::{NAME as SEND_IMAGE, SendImageTool};
-pub(crate) use mac_files::MacFilesTool;
 pub(crate) use memory::{NAME as MEMORY, recall_tool};
-pub(crate) use node::NodeTool;
 pub(crate) use notify_user::{NAME as NOTIFY_USER, NotifyUserTool};
 pub(crate) use route::GetRouteTool;
 pub use route::Transitous;
@@ -117,10 +114,6 @@ pub fn registry(
         registry.register(Arc::new(alarm::SetAlarmTool));
         registry.register(Arc::new(browser::OpenBrowserTool));
         registry.register(Arc::new(maps::OpenMapsTool { user: user.clone() }));
-        registry.register(Arc::new(browser::BrowserTool {
-            app: app.clone(),
-            run_id: run_id.to_owned(),
-        }));
         registry.register(Arc::new(contacts::ContactsTool {
             app,
             run_id: run_id.to_owned(),

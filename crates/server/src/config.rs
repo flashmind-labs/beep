@@ -77,8 +77,8 @@ pub struct Config {
     pub composio_callback_url: Option<String>,
     /// Where the daily log files and the cron log go. Defaults to `logs`.
     pub log_dir: Option<PathBuf>,
-    /// Holds a folder per user for downloads and code the agent runs under
-    /// Drop. The `execute_code` and `download_file` tools exist only when set.
+    /// No longer used: code and files go to the user's environment, a node
+    /// started with `--workspace`. Still accepted so older configs load.
     pub sandbox_dir: Option<PathBuf>,
     /// Firebase service account key file. With it, notices for phones the
     /// server cannot reach over iroh go through Firebase Cloud Messaging.

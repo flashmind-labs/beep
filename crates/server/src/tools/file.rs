@@ -1,7 +1,9 @@
 //! Sends the user a file in the chat, such as a mail attachment or a file
-//! code made, instead of mailing it to them.
+//! a command made, instead of mailing it to them; or copies a file from one
+//! of the user's machines to another.
 
-use crate::{sandbox, sandbox::Sandbox, user::User};
+use super::machines::{Machines, Need, copy};
+use crate::{fetch, user::User, workspace::Workspace};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -15,7 +17,9 @@ pub(crate) const NAME: &str = "send_file";
 pub(crate) struct SendFileTool {
     pub(crate) user: Arc<User>,
     pub(crate) session_id: Uuid,
-    pub(crate) sandbox: Option<Arc<Sandbox>>,
+    pub(crate) workspace: Option<Arc<Workspace>>,
+    /// The user's machines, when this turn may use them.
+    pub(crate) machines: Option<Machines>,
     /// The chat is a research, so its paper can be sent as a PDF.
     pub(crate) paper: bool,
 }
@@ -26,6 +30,11 @@ enum Source<'a> {
     Paper,
     Url(&'a str),
     Folder(&'a str),
+    /// A file on the machine `from` names.
+    Machine {
+        from: &'a str,
+        path: &'a str,
+    },
     Fastmail {
         account: Option<&'a str>,
         email_id: &'a str,
@@ -47,9 +56,9 @@ impl Tool for SendFileTool {
     }
     fn description(&self) -> &str {
         if self.paper {
-            return "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `paper: true` for this research's paper as a typeset PDF, with its sources; `url` for a file at an https URL; `path` for a file in the user's file folder; or `email_id` with `blob_id` for a Fastmail attachment. Files up to 20 MiB.";
+            return "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `paper: true` for this research's paper as a typeset PDF, with its sources; `url` for a file at an https URL; `path` for a file in the user's home folder, where exec runs (relative to it, or absolute), or on the machine `from` names; or `email_id` with `blob_id` for a Fastmail attachment. Files up to 20 MiB. To copy a file between the user's machines instead, give `path`, `from` (omit for the user's own environment) and `to`, the machine it goes to; it lands at `~/<file name>` there unless `dst_path` says where, folders are made as needed, an existing file is replaced only with `overwrite: true`, and files up to 2 GiB copy. Folders do not copy: tar one with exec first.";
         }
-        "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `url` for a file at an https URL, such as the s3url GMAIL_GET_ATTACHMENT or OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT returns; `path` for a file in the user's file folder; or `email_id` with `blob_id` for a Fastmail attachment, as FASTMAIL_READ_EMAIL lists it. Files up to 20 MiB."
+        "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `url` for a file at an https URL, such as the s3url GMAIL_GET_ATTACHMENT or OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT returns; `path` for a file in the user's home folder, where exec runs (relative to it, or absolute), or on the machine `from` names; or `email_id` with `blob_id` for a Fastmail attachment, as FASTMAIL_READ_EMAIL lists it. Files up to 20 MiB. To copy a file between the user's machines instead, give `path`, `from` (omit for the user's own environment) and `to`, the machine it goes to; it lands at `~/<file name>` there unless `dst_path` says where, folders are made as needed, an existing file is replaced only with `overwrite: true`, and files up to 2 GiB copy. Folders do not copy: tar one with exec first."
     }
     fn parameters(&self) -> Value {
         let mut schema = self.schema();
@@ -62,11 +71,15 @@ impl Tool for SendFileTool {
         schema
     }
     fn timeout_secs(&self) -> Option<u64> {
-        Some(120)
+        // A copy between machines may move up to 2 GiB.
+        Some(30 * 60)
     }
     fn humanize(&self, args: &Value) -> String {
         if args.get("paper").and_then(Value::as_bool) == Some(true) {
             return "Typesetting the paper…".into();
+        }
+        if let Some(to) = to_machine(args) {
+            return format!("Copying a file to {to}");
         }
         "Sending file…".into()
     }
@@ -81,7 +94,11 @@ impl SendFileTool {
             "type": "object",
             "properties": {
                 "url": { "type": "string", "description": "https URL of the file" },
-                "path": { "type": "string", "description": "File in the user's file folder, as execute_code or download_file named it" },
+                "path": { "type": "string", "description": "The file on the `from` machine, such as report.pdf in the user's home folder; `~` is the home folder there" },
+                "from": { "type": "string", "description": "The machine `path` is on, by its name in the machines list; omit for the user's own environment" },
+                "to": { "type": "string", "description": "\"user\" (the default) to send the file in this chat, or a machine's name to copy it there" },
+                "dst_path": { "type": "string", "description": "Where the copy lands on `to`, such as ~/Downloads/report.pdf; default ~/<file name>" },
+                "overwrite": { "type": "boolean", "description": "Replace an existing file at the destination" },
                 "email_id": { "type": "string", "description": "Fastmail email id the attachment belongs to" },
                 "blob_id": { "type": "string", "description": "The Fastmail attachment's blobId" },
                 "account": { "type": "string", "description": "The Fastmail account the email is in, when the FASTMAIL tools take an `account`" },
@@ -100,6 +117,19 @@ impl SendFileTool {
                 .filter(|v| !v.is_empty())
         };
         let paper = self.paper && ctx.args.get("paper").and_then(Value::as_bool) == Some(true);
+        if let Some(to) = to_machine(&ctx.args) {
+            let result = self.copy(&ctx.args, to).await;
+            return Ok(match result {
+                Ok(text) => ToolResult::success(ctx.tool_call_id, text),
+                Err(e) => ToolResult::failure(ctx.tool_call_id, format!("{e:#}")),
+            });
+        }
+        if arg("dst_path").is_some() {
+            return Ok(ToolResult::failure(
+                ctx.tool_call_id,
+                "`dst_path` is for copying to a machine with `to`.",
+            ));
+        }
         let source = match (arg("url"), arg("path"), arg("email_id"), arg("blob_id")) {
             (None, None, None, None) if paper => Source::Paper,
             _ if paper => {
@@ -109,7 +139,10 @@ impl SendFileTool {
                 ));
             }
             (Some(url), None, None, None) => Source::Url(url),
-            (None, Some(path), None, None) => Source::Folder(path),
+            (None, Some(path), None, None) => match arg("from") {
+                Some(from) => Source::Machine { from, path },
+                None => Source::Folder(path),
+            },
             (None, None, Some(email_id), Some(blob_id)) => Source::Fastmail {
                 account: arg("account"),
                 email_id,
@@ -172,7 +205,7 @@ impl SendFileTool {
                 if !url.starts_with("https://") {
                     bail!("only https URLs are allowed");
                 }
-                let fetched = sandbox::fetch_public(url).await?;
+                let fetched = fetch::fetch_public(url).await?;
                 Ok(Loaded {
                     name: fetched.name,
                     mime: fetched
@@ -182,15 +215,29 @@ impl SendFileTool {
                 })
             }
             Source::Folder(path) => {
-                let sandbox = self
-                    .sandbox
+                let workspace = self
+                    .workspace
                     .as_ref()
-                    .context("this server has no file folder")?;
-                let file = sandbox.read(self.user.external_id(), path).await?;
+                    .context("the user has no environment online to keep files in")?;
+                let file = workspace.read(path).await?;
                 Ok(Loaded {
                     name: file.name,
                     mime: None,
                     data: file.data,
+                })
+            }
+            Source::Machine { from, path } => {
+                let machines = self.machines()?;
+                let picked = machines
+                    .pick(Some(from), Need::Files)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                let path = copy::picked_path(&picked, path)?;
+                let data = copy::read_all(&picked.online, &path, fetch::MAX_DOWNLOAD).await?;
+                Ok(Loaded {
+                    name: copy::file_name(&path).unwrap_or("file").to_owned(),
+                    mime: None,
+                    data,
                 })
             }
             Source::Fastmail {
@@ -210,6 +257,62 @@ impl SendFileTool {
     }
 }
 
+impl SendFileTool {
+    fn machines(&self) -> Result<&Machines> {
+        self.machines
+            .as_ref()
+            .context("this turn cannot use the user's machines")
+    }
+
+    /// Copies `path` on `from` to the machine `to`; the text is the result.
+    async fn copy(&self, args: &Value, to: &str) -> Result<String> {
+        let arg = |key| {
+            args.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+        };
+        let path = arg("path").context("copying to a machine takes `path`, the file to copy")?;
+        if arg("url").is_some() || arg("email_id").is_some() {
+            bail!("copying to a machine takes only `path` and `from` as the source");
+        }
+        let machines = self.machines()?;
+        let source = machines
+            .pick(arg("from"), Need::Files)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let target = machines
+            .pick(Some(to), Need::Files)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let src = copy::picked_path(&source, path)?;
+        let dst = match arg("dst_path") {
+            Some(dst) => copy::picked_path(&target, dst)?,
+            None => {
+                let name = copy::file_name(&src).context("the path names no file")?;
+                copy::picked_path(&target, &format!("~/{name}"))?
+            }
+        };
+        let overwrite = args.get("overwrite").and_then(Value::as_bool) == Some(true);
+        let copied = copy::copy(&source.online, &src, &target.online, &dst, overwrite).await?;
+        Ok(format!(
+            "Copied {} bytes from {}:{src} to {}:{}.",
+            copied.bytes,
+            source.shown(),
+            target.shown(),
+            copied.path
+        ))
+    }
+}
+
+/// The machine a call copies to, when `to` names one rather than the user.
+fn to_machine(args: &Value) -> Option<&str> {
+    args.get("to")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|to| !to.is_empty() && !to.eq_ignore_ascii_case("user"))
+}
+
 /// The Fastmail attachment `blob_id` of `email_id`, in `account` or the
 /// first account, as the file itself rather than the text `read_attachment`
 /// gives by default.
@@ -223,11 +326,8 @@ pub(crate) async fn fastmail_attachment(
     let result = user.call_fastmail(account, "read_attachment", args).await?;
     let attachment = attachment_in(&result)
         .context("Fastmail only gives the file itself for PDFs and images")?;
-    if attachment.data.len() as u64 > sandbox::MAX_DOWNLOAD {
-        bail!(
-            "the file is larger than {} MiB",
-            sandbox::MAX_DOWNLOAD >> 20
-        );
+    if attachment.data.len() as u64 > fetch::MAX_DOWNLOAD {
+        bail!("the file is larger than {} MiB", fetch::MAX_DOWNLOAD >> 20);
     }
     Ok(attachment)
 }
@@ -372,6 +472,14 @@ mod tests {
         assert_eq!(clean_name(".hidden"), "hidden");
         assert_eq!(clean_name("  "), "file");
         assert_eq!(clean_name("Boarding Pass.pdf"), "Boarding Pass.pdf");
+    }
+
+    #[test]
+    fn to_names_a_machine_or_the_user() {
+        assert_eq!(to_machine(&json!({ "to": "mac" })), Some("mac"));
+        assert_eq!(to_machine(&json!({ "to": "User" })), None);
+        assert_eq!(to_machine(&json!({ "to": " " })), None);
+        assert_eq!(to_machine(&json!({ "path": "a.pdf" })), None);
     }
 
     #[test]

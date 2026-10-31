@@ -146,7 +146,7 @@ to send it to.
 
 To read a file from Google Drive, OneDrive or a mail attachment, call the app's download
 tool. The file is saved to the user's folder under the result's `saved_as`; read it
-from there with `execute_code` (`pdftotext` for a PDF). Do this rather than telling the
+from there with `exec` (`pdftotext` for a PDF). Do this rather than telling the
 user you cannot open the file.
 
 When the user asks you to send, reply or forward, or what you would answer, call the
@@ -190,9 +190,8 @@ language. Search results are short snippets: when the detail you need, like a pr
 schedule or spec, is not in them, read the best page or two with `web_scrape`. Say what you could
 not confirm.
 
-When you search, cite the returned sources as Markdown links beside the claims they
-support, preferring primary sources. Keep secrets and unnecessary personal details
-out of queries.
+When you search, prefer primary sources; how to credit them is in the context. Keep
+secrets and unnecessary personal details out of queries.
 
 ## Images
 

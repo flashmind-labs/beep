@@ -21,7 +21,7 @@ use crate::{
     places::PlaceEvent,
     protocol::{
         Cron, FilePart, ImageRef, Memory, RouteCard, Run, SentFiles, SentImages, Session,
-        ToolLabel, UpdatePage, Upload, node::EnvReport,
+        ToolLabel, TurnSources, UpdatePage, Upload, WebSource, node::EnvReport,
     },
     research::pdf::{self, Paper, Pdf},
     starters::Cached,
@@ -611,6 +611,26 @@ impl User {
             return Ok(None);
         }
         Ok(Some(self.store.tool_labels(session).await?))
+    }
+
+    /// Keeps the web pages the reply of the turn opened by message `turn`
+    /// used, after any it has.
+    pub(crate) async fn save_sources(
+        &self,
+        session: Uuid,
+        turn: i64,
+        sources: &[WebSource],
+    ) -> Result<()> {
+        self.store.save_sources(session, turn, sources).await
+    }
+
+    /// The web pages each turn of a session the user owns used. `None` when
+    /// they have no such session.
+    pub async fn session_sources(&self, session: Uuid) -> Result<Option<Vec<TurnSources>>> {
+        if !self.store.owns_session(&self.key, session).await? {
+            return Ok(None);
+        }
+        Ok(Some(self.store.session_sources(session).await?))
     }
 
     /// What the newest turn of a session ran with.

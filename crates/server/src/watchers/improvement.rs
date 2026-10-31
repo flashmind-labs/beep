@@ -7,13 +7,13 @@
 //! cut short and has anything that looks like a secret masked.
 
 use super::{
-    WatcherKind,
+    WatcherKind, gate,
     runner::{Review, Watcher},
 };
 use crate::{
     memories::clip,
     starters::unfence,
-    store::{FindingRow, NewFinding, Sighting},
+    store::{FindingRow, NewFinding, Sighting, StoredMessage},
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -307,6 +307,12 @@ impl Watcher for ImprovementWatcher {
         WatcherKind::Improvement
     }
 
+    /// A stretch where Beep did real work, or where a call failed or was
+    /// denied, is where it is likely to have let the user down.
+    fn worth_reading(&self, messages: &[StoredMessage]) -> bool {
+        gate::busy(messages) || gate::friction(messages)
+    }
+
     async fn review(&self, review: &Review<'_>) -> Result<()> {
         let transcript = review.transcript;
         if !transcript.talk {
@@ -442,8 +448,10 @@ mod tests {
         );
         let h = Harness::new(model).await;
         let (first, second) = (test_chat("taxi-1"), test_chat("taxi-2"));
-        h.turn(&h.alice, first, "get me a taxi home").await;
-        h.turn(&h.alice, second, "taxi home please").await;
+        h.turn_with_calls(&h.alice, first, "get me a taxi home", 3)
+            .await;
+        h.turn_with_calls(&h.alice, second, "taxi home please", 3)
+            .await;
         let slot = WatcherSettings {
             kind: WatcherKind::Improvement,
             llm: AgentLlmConfig::new("openai:test".parse().unwrap()),

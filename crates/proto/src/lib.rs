@@ -556,11 +556,12 @@ requests! {
     116 Filler { step: String, said: String, still: bool } => Call<VoiceNote>
     /// The sub-agents and background jobs the agent started in the chat:
     /// running ones first, with what they did last, then those that ended
-    /// in the last hour, newest first.
+    /// in the last hour, newest first. Unused: the agent no longer starts
+    /// background work, so the server answers an empty list.
     117 ListWork { session_id: Uuid } => Call<Vec<WorkItem>>
     /// Stops a running sub-agent or job of the chat, and nothing comes back
     /// from it. `false` when it had already ended; `NotFound` when the chat
-    /// has no such id.
+    /// has no such id. Unused: the server answers `NotFound`.
     118 CancelWork { session_id: Uuid, id: String } => Call<bool>
     /// The standing permissions the user gave routines that are still in
     /// force, newest first. A grant ends when it is revoked, when it
@@ -589,6 +590,11 @@ requests! {
     /// Nothing in Beep changes by itself. Admins only; `NotFound` when there
     /// is no such finding.
     128 UpdateFinding { id: String, status: FindingStatus } => Call<Finding>
+    /// The web pages each turn of a session used, by the `timestamp` of the
+    /// `HistoryEntry::User` that started it, for the source chips under its
+    /// reply. Turns that used none are left out. `NotFound` when the caller
+    /// has no such session.
+    129 GetSessionSources { session_id: Uuid } => Call<Vec<TurnSources>>
 }
 
 /// A problem the improvement watcher found in users' chats, as
@@ -905,6 +911,28 @@ pub struct ResearchSource {
     /// The agent that found it.
     pub agent: String,
 }
+
+/// A web page a reply used: one Beep read, or a search result.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WebSource {
+    /// An http(s) URL.
+    pub url: String,
+    /// The page's title, empty when unknown.
+    pub title: String,
+}
+
+/// The web pages one turn used, pages read first, at most `MAX_SOURCES`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TurnSources {
+    /// The `HistoryEntry::User` `timestamp` of the turn.
+    pub message: i64,
+    pub sources: Vec<WebSource>,
+}
+
+/// The most sources a reply shows.
+pub const MAX_SOURCES: usize = 6;
 
 /// The tools of an added server, in the order it lists them.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -1435,13 +1463,17 @@ wire_enum! {
         9 MemoryScore { probability: f64 }
         10 AutoPicked { pick: AutoPick }
         11 Transcript { text: String } since VOICE
+        12 Sources { sources: Vec<WebSource> } since SOURCES
     }
 }
 
 wire_enum! {
     /// Work the server asks the phone to do during a run. `Approve` asks the user to
     /// allow a tool call, answered as `{"decision": "allow"}`, where the
-    /// decision is `allow`, `always` or `deny`.
+    /// decision is `allow`, `always` or `deny`. `Browser` and `MacFiles` are
+    /// unused: the agent no longer drives the in-app browser or reads Mac
+    /// files, so the server never sends them. They stay so released apps
+    /// still decode the enum.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum DeviceQuery {
@@ -1458,7 +1490,8 @@ wire_enum! {
     /// answers a folder's entries as a JSON list of `name`, `folder`, `size`
     /// and `modified`; `Find` the paths under `folder` whose name contains
     /// `name`, as a JSON list; `Read` a file as JSON with `name`, `mime`,
-    /// `size` and base64 `data`, up to `MAC_READ` bytes.
+    /// `size` and base64 `data`, up to `MAC_READ` bytes. Unused: kept for
+    /// wire compatibility with released apps, never sent.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum MacFileCommand {
@@ -1670,7 +1703,8 @@ pub struct AppAction {
 }
 
 wire_enum! {
-    /// An action for the in-app browser on the phone.
+    /// An action for the in-app browser on the phone. Unused: kept for wire
+    /// compatibility with released apps, never sent.
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum BrowserCommand {

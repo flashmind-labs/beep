@@ -27,7 +27,6 @@ use crate::{
     metering,
     models::ModelChoices,
     protocol::{ApprovalDecision, DeviceKind, Notice, Platform, RunEvent, Upload},
-    sandbox::Sandbox,
     search::SearchTool,
     starters::Generator,
     store::{Account, CreateRun, LinkKey, NewKey, RunStatus, SessionRef, SignIn, Store},
@@ -131,8 +130,6 @@ pub struct ServerTools {
     pub vision_model: Option<Model>,
     /// Summarizes long sessions; see `Config::compaction_model`.
     pub compaction_model: Option<Model>,
-    /// Per-user files and code execution; see `Config::sandbox_dir`.
-    pub sandbox: Option<Arc<Sandbox>>,
     /// Transit routes for `get_route`.
     pub transitous: Option<Arc<Transitous>>,
     /// The models voice notes use.
@@ -150,7 +147,6 @@ struct RunTools {
     search: Option<Arc<SearchTool>>,
     firecrawl_key: Option<SecretString>,
     decision: Option<Arc<DecisionTool>>,
-    sandbox: Option<Arc<Sandbox>>,
     transitous: Option<Arc<Transitous>>,
 }
 
@@ -254,12 +250,6 @@ impl Message {
             && !self.finished_research
     }
 
-    /// The turn that hands background results back to its chat.
-    pub(crate) fn hands_back_work(&self) -> bool {
-        self.finished_research
-            && self.scheduled.as_deref() == Some(crate::subagents::tools::DELIVERY_LABEL)
-    }
-
     /// A prompt said aloud, live or as a held reply.
     fn is_spoken(&self) -> bool {
         self.is_prompt() && (self.spoken || self.voice.is_some())
@@ -274,8 +264,9 @@ pub struct Draws {
     pub charts: bool,
     /// `show_cards`.
     pub cards: bool,
-    /// `mac_files`: the app is the Mac app, which answers file queries.
-    pub mac_files: bool,
+    /// Source chips: the app shows the web pages a reply used under it, so
+    /// the model need not list them.
+    pub sources: bool,
 }
 
 /// The user's answer to the tool call a session stopped on.
@@ -311,7 +302,6 @@ impl App {
             composio,
             vision_model,
             compaction_model,
-            sandbox,
             transitous,
             voice,
             realtime,
@@ -344,7 +334,6 @@ impl App {
                 search,
                 firecrawl_key,
                 decision,
-                sandbox,
                 transitous,
             },
             shared,
@@ -664,22 +653,6 @@ impl App {
         self.submit_locked(runs, user, message).await
     }
 
-    /// Starts a turn in `chat` that hands back the results of background
-    /// work waiting there, only when some are due. Under the same lock as
-    /// [`Self::submit`], so a turn of the user's created first claims them
-    /// and this one is never made empty.
-    pub(crate) async fn submit_delivery(
-        self: &Arc<Self>,
-        user: &Arc<User>,
-        message: Message,
-    ) -> Result<Option<CreateRun>> {
-        let runs = self.runs.lock().await;
-        if !self.subagents.work.due(message.session_id) {
-            return Ok(None);
-        }
-        self.submit_locked(runs, user, message).await.map(Some)
-    }
-
     async fn submit_locked(
         self: &Arc<Self>,
         mut runs: tokio::sync::MutexGuard<'_, HashMap<String, Arc<LiveRun>>>,
@@ -690,12 +663,6 @@ impl App {
             .create_run(message.session_id, &message.request(), &message.message)
             .await?;
         if let CreateRun::Created(run) = &result {
-            // A turn the user or a delivery starts carries the chat's
-            // waiting results; claimed while the lock holds, so a delivery
-            // racing it finds nothing left.
-            if message.is_prompt() || message.hands_back_work() {
-                self.subagents.work.claim(message.session_id);
-            }
             let live = Arc::new(LiveRun::new(CancellationToken::new()));
             live.push(RunEvent::RunStarted {
                 run_id: run.id.clone(),
@@ -751,7 +718,7 @@ impl App {
                 }
                 app.runs.lock().await.remove(&run.id);
                 live.done.cancel();
-                // Results of background work wait for the chat to be free.
+                // Node reports wait for the chat to be free.
                 app.subagents.turn_ended();
             });
         }

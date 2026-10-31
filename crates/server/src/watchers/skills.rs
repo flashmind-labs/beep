@@ -2,10 +2,13 @@
 //! finished conversation instead of every few turns.
 
 use super::{
-    WatcherKind,
+    WatcherKind, gate,
     runner::{Review, Watcher},
 };
-use crate::skills::{self, Audience};
+use crate::{
+    skills::{self, Audience},
+    store::StoredMessage,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -15,6 +18,11 @@ pub(crate) struct SkillsWatcher;
 impl Watcher for SkillsWatcher {
     fn kind(&self) -> WatcherKind {
         WatcherKind::Skills
+    }
+
+    /// Only a stretch where Beep did real work can hold steps worth keeping.
+    fn worth_reading(&self, messages: &[StoredMessage]) -> bool {
+        gate::busy(messages)
     }
 
     async fn review(&self, review: &Review<'_>) -> Result<()> {
@@ -57,19 +65,10 @@ mod tests {
     use flashmind::types::AgentLlmConfig;
     use std::{sync::Arc, time::Duration};
 
-    #[tokio::test]
-    async fn a_finished_chat_becomes_a_skill() {
-        let model = Scripted::default().answer(
-            "You keep Beep's skills",
-            r#"{"changes":[{"op":"create","name":"Book padel","description":"Booking a padel court","body":"1. Ask for 19:00 at Club Norte."}]}"#,
-        );
-        let h = Harness::new(model).await;
-        let chat = test_chat("padel");
-        h.turn(&h.alice, chat, "book padel at Club Norte at 19:00")
-            .await;
+    fn skills_runner(h: &Harness) -> Runner {
         let slot = WatcherSettings {
             kind: WatcherKind::Skills,
-            llm: AgentLlmConfig::new("openai:test".parse().unwrap()),
+            llm: AgentLlmConfig::new("openai:test".parse().expect("a model name")),
             timeout: Duration::from_secs(30),
         };
         let settings = Settings {
@@ -82,7 +81,36 @@ mod tests {
             concurrency: 1,
             watchers: Vec::new(),
         };
-        let mut runner = Runner::new(&h.app, settings, vec![(Arc::new(SkillsWatcher), slot)]);
+        Runner::new(&h.app, settings, vec![(Arc::new(SkillsWatcher), slot)])
+    }
+
+    #[tokio::test]
+    async fn a_chat_with_few_tool_calls_is_marked_read_without_the_model() {
+        let h = Harness::new(Scripted::default()).await;
+        let chat = test_chat("hello");
+        let last = h.turn_with_calls(&h.alice, chat, "hello", 2).await;
+        let mut runner = skills_runner(&h);
+        runner.tick(Utc::now() + TimeDelta::minutes(2)).await;
+        assert!(runner.drain().await.is_empty());
+        assert!(h.model.prompts().is_empty());
+        let states = h.app.store.watcher_states(&[chat]).await.expect("states");
+        let state = states
+            .get(&(chat, WatcherKind::Skills))
+            .expect("the place is kept");
+        assert_eq!(state.reviewed_seq, last);
+    }
+
+    #[tokio::test]
+    async fn a_finished_chat_becomes_a_skill() {
+        let model = Scripted::default().answer(
+            "You keep Beep's skills",
+            r#"{"changes":[{"op":"create","name":"Book padel","description":"Booking a padel court","body":"1. Ask for 19:00 at Club Norte."}]}"#,
+        );
+        let h = Harness::new(model).await;
+        let chat = test_chat("padel");
+        h.turn_with_calls(&h.alice, chat, "book padel at Club Norte at 19:00", 3)
+            .await;
+        let mut runner = skills_runner(&h);
         runner.tick(Utc::now() + TimeDelta::minutes(2)).await;
         runner.drain().await;
         let skills = h
