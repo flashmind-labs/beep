@@ -180,13 +180,22 @@ impl App {
             metering::turn_agent(AgentId::Research);
         }
         // Always set the server-owned prompt, including when loading an older
-        // conversation. It stays static per agent so the provider can cache it.
-        conversation.set_system(match &research {
+        // conversation. It stays the same per agent and user so the provider
+        // can cache it: only the user's languages are added.
+        let prompt = match &research {
             Some(_) => research::LEAD_PROMPT,
             None => turn_agent
                 .as_ref()
                 .map_or(AgentId::General, |turn| turn.agent.id)
                 .prompt(),
+        };
+        conversation.set_system(match user.spoken_languages().await {
+            Ok(Some(languages)) => format!("{prompt}\n\n{}", languages_line(&languages)),
+            Ok(None) => prompt.to_owned(),
+            Err(error) => {
+                log::warn!("unable to read the user's languages: {error}; user={user}");
+                prompt.to_owned()
+            }
         });
         let (model, thinking) = match (&auto, &research) {
             (Some(auto), _) => (auto.model.clone(), auto.thinking),
@@ -1205,6 +1214,16 @@ pub(super) fn web_tools(key: &str) -> Vec<Arc<dyn Tool>> {
         Arc::new(WebExtractTool::new(key.to_owned())),
         Arc::new(WebSearchReadTool::new(cache)),
     ]
+}
+
+/// Which languages the user speaks, from their memory, and which of them a
+/// reply is in.
+fn languages_line(languages: &str) -> String {
+    format!(
+        "Languages: {languages} Reply in the language of the user's message. When it mixes \
+         languages, or a stray word or a misspelling makes it look like one they do not \
+         speak, reply in English if they speak it, else in the first language they speak."
+    )
 }
 
 #[cfg(test)]
