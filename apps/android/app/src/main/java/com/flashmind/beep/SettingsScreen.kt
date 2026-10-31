@@ -87,6 +87,7 @@ fun SettingsScreen(
             ThemePicker()
             AvatarPicker()
             BubblePicker(onBubbleSettings)
+            VoiceSpeedPicker()
             // Loaded by AgentsSwitch; the model section words Auto by it.
             var agents by remember { mutableStateOf<Agents?>(null) }
             ModelPicker(repository, agentsOn = agents?.enabled == true)
@@ -176,10 +177,28 @@ private fun BubblePicker(onBubbleSettings: () -> Unit) {
     }
 }
 
+/** How fast Beep talks in live mode, kept on this phone. */
+@Composable
+private fun VoiceSpeedPicker() {
+    val context = LocalContext.current
+    var speed by remember { mutableStateOf(voiceSpeed(context)) }
+    Column {
+        Text("Voice speed", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            VOICE_SPEEDS.forEach { option ->
+                FilterChip(selected = option == speed, onClick = { speed = option; setVoiceSpeed(context, option) },
+                    label = { Text(option.toString().removeSuffix(".0") + "×") })
+            }
+        }
+        Text("How fast Beep talks in live mode.", fontSize = 12.sp, color = Beep.colors.muted)
+    }
+}
+
 /**
  * The model and thinking level an admin's own turns run on. The server sends choices only to
- * admins, so everyone else never sees this section. With [agentsOn], the agent Jev picks brings
- * the model, and a failed pick falls back to General, so Auto on leaves nothing to pick here.
+ * admins, so everyone else never sees this section. Auto picks only the thinking: the model below
+ * always applies, and with [agentsOn] the agent Jev picks brings its prompt and thinking.
  */
 @Composable
 private fun ModelPicker(repository: ChatRepository, agentsOn: Boolean) {
@@ -225,8 +244,8 @@ private fun ModelPicker(repository: ChatRepository, agentsOn: Boolean) {
                 Column(Modifier.weight(1f)) {
                     Text("Auto", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
                     Text(when {
-                        current.auto && agentsOn -> "Jev picks an agent, which brings its model and thinking"
-                        current.auto -> "Jev picks the model and thinking for each prompt"
+                        current.auto && agentsOn -> "Jev picks an agent, which brings its prompt and thinking, on the model below"
+                        current.auto -> "Jev picks the thinking for each prompt, on the model below"
                         agentsOn -> "Use the model below, with the agent's prompt"
                         else -> "Off: every prompt uses the model below"
                     }, fontSize = 12.sp, color = Beep.colors.muted)
@@ -234,10 +253,8 @@ private fun ModelPicker(repository: ChatRepository, agentsOn: Boolean) {
                 Switch(checked = current.auto, onCheckedChange = ::auto,
                     colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok))
             }
-            if (current.auto && !agentsOn) Text("Used when Jev cannot pick:", fontSize = 12.sp, color = Beep.colors.muted,
-                modifier = Modifier.padding(bottom = 6.dp))
         }
-        if (!(current.autoAvailable && current.auto && agentsOn)) Column {
+        Column {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 current.choices.forEach { choice ->
                     val selected = choice.id == current.selected

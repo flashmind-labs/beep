@@ -23,8 +23,16 @@ private const val MIC_RATE = 16_000
 /** About 100 ms of microphone sound a chunk. */
 private const val MIC_CHUNK_BYTES = MIC_RATE / 10 * 2
 
-/** How much faster than recorded Beep's lines play, at the same pitch. */
-private const val VOICE_SPEED = 1.5f
+/** The speeds Settings offers for Beep's voice, which plays faster at the same pitch. */
+internal val VOICE_SPEEDS = listOf(1f, 1.25f, 1.5f, 2f)
+
+/** How fast Beep's lines play on this phone. */
+internal fun voiceSpeed(context: Context): Float =
+    context.getSharedPreferences("live", Context.MODE_PRIVATE).getFloat("voiceSpeed", 1.5f)
+
+internal fun setVoiceSpeed(context: Context, speed: Float) {
+    context.getSharedPreferences("live", Context.MODE_PRIVATE).edit().putFloat("voiceSpeed", speed).apply()
+}
 
 /**
  * The audio side of live voice: the microphone in as 16 kHz mono PCM16, through the
@@ -135,7 +143,7 @@ internal class LiveAudio(private val context: Context) {
                 true
             }
             media.setOnPreparedListener {
-                it.playbackParams = it.playbackParams.setSpeed(VOICE_SPEED)
+                it.playbackParams = it.playbackParams.setSpeed(voiceSpeed(context))
                 it.start()
                 listen(it)
             }

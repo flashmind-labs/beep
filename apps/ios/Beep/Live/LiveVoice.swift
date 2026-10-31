@@ -106,6 +106,14 @@ final class LiveVoice {
         }
     }
 
+    /// How fast Beep's lines play, from 1 to 2.
+    var voiceSpeed = UserDefaults.standard.object(forKey: "liveVoiceSpeed") as? Double ?? 1.5 {
+        didSet {
+            UserDefaults.standard.set(voiceSpeed, forKey: "liveVoiceSpeed")
+            audio?.rate = Float(voiceSpeed)
+        }
+    }
+
     /// The approval the reply waits on, answered with the chat's card when the chat holds it,
     /// or else with one in the dock.
     var asking: ApprovalPrompt? {
@@ -305,6 +313,7 @@ final class LiveVoice {
 
     private func startAudio(_ pipe: MicPipe) throws {
         let audio = LiveAudio()
+        audio.rate = Float(voiceSpeed)
         audio.lost = { [weak self] reason in self?.lostAudio(reason) }
         try audio.start(mic: { [weak self] pcm in
             guard let heard = pipe.push(pcm) else { return }

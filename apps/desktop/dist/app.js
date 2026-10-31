@@ -3301,17 +3301,16 @@ function renderModel() {
 }
 function drawModel() {
   const m = MODELS.info, agents = MODELS.agents;
-  // With agents on, the agent Jev picks brings the model, and a failed pick
-  // falls back to General, so Auto on leaves nothing to choose here.
-  const agentPicks = agents && m.auto_available && m.auto;
+  // Auto picks only the thinking: the model below always applies, and with
+  // agents on the agent Jev picks brings its prompt and thinking.
   const autoSub = m.auto
-    ? (agents ? "Jev picks an agent, which brings its model and thinking" : "Jev picks the model and thinking for each prompt")
+    ? (agents ? "Jev picks an agent, which brings its prompt and thinking, on the model below" : "Jev picks the thinking for each prompt, on the model below")
     : (agents ? "Use the model below, with the agent's prompt" : "Off: every prompt uses the model below");
   const auto = m.auto_available
-    ? `<div class="dtoggle"><span><b>Auto</b><small>${autoSub}</small></span><button class="dswitch" data-act="auto" role="switch" aria-checked="${m.auto}" aria-label="Auto"></button></div>${m.auto && !agents ? '<div class="dmuted">Used when Jev cannot pick:</div>' : ""}`
+    ? `<div class="dtoggle"><span><b>Auto</b><small>${autoSub}</small></span><button class="dswitch" data-act="auto" role="switch" aria-checked="${m.auto}" aria-label="Auto"></button></div>`
     : "";
   const rows = m.choices.map((c, i) => `<button class="drt dmrow" role="option" data-pick="${i}" aria-selected="${i === MODELS.sel}"><span class="tt"><b>${esc(c.name)}</b><span>${esc(modelPrice(c))}</span></span>${c.id === m.selected ? `<span class="dok">${ICON.check}</span>` : ""}</button>`).join("");
-  const picker = agentPicks ? "" : `<div class="dlist" style="padding:0" role="listbox" aria-label="Models">${rows}</div>
+  const picker = `<div class="dlist" style="padding:0" role="listbox" aria-label="Models">${rows}</div>
       <div class="dfield"><span>Thinking</span><div class="dchips">${THINKING.map(l => `<button class="dchip" data-level="${l}" aria-pressed="${l === m.thinking}">${cap(l)}</button>`).join("")}</div></div>`;
   // Agents apply to everyone, so they sit apart from the caller's own model.
   const agentSec = MODELS.list.length ? `<div class="dsec flat dagents">Agents <span class="dtag">Admin</span></div>
@@ -3322,7 +3321,7 @@ function drawModel() {
       ${picker}
       ${agentSec}
       <div class="derr" id="modelErr"></div>
-    </div>${hints(agentPicks ? [["esc", "back"]] : [["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]])}`;
+    </div>${hints([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]])}`;
 }
 async function changeModel(command, args) {
   try {
