@@ -15,6 +15,11 @@ struct BeepApp: App {
                 }
                 .onOpenURL { url in
                     if url.scheme == "beep", url.host == "new" { delegate.model.destination = .newChat }
+                    // The Talk widget and the Live Activity. With live voice running already,
+                    // bringing the app up is all it does.
+                    if url.scheme == "beep", url.host == "live", !delegate.model.live.active {
+                        delegate.model.live.start(from: .control)
+                    }
                     if let token = shareToken(url: url.absoluteString) { delegate.model.destination = .shared(token) }
                 }
         }
@@ -94,6 +99,7 @@ struct RootView: View {
                 }
             }
             .tint(Mint.brand)
+            .overlay { LiveGlow() }
             .sheet(item: $sheet) { shown in
                 switch shown {
                 case .new:
@@ -144,10 +150,7 @@ struct RootView: View {
                 model.notifier.requestPermission()
             }
             .onChange(of: model.destination, initial: true) { follow() }
-            .overlay {
-                if model.live.active { LiveScreen() }
-            }
-            .animation(.easeOut(duration: 0.2), value: model.live.active)
+            .onChange(of: model.live.launches) { uncoverChat() }
             #if DEBUG
             .task { await debugLaunch() }
             #endif
@@ -179,33 +182,33 @@ struct RootView: View {
     @ViewBuilder private func screen(_ route: Route) -> some View {
         switch route {
         case .groupInfo(let id):
-            GroupInfoView(groupId: id, back: { path.removeLast() }, left: {
+            GroupInfoView(groupId: id, back: { pop() }, left: {
                 model.openGroup = nil
                 path.removeAll()
             }) { name in
                 model.pendingMention = name
-                path.removeLast()
+                pop()
             } invite: {
                 sheet = .invite(id: $0.id, name: $0.name)
             }
         case .settings: SettingsView(path: $path)
-        case .devices: LinkedDevicesView(back: { path.removeLast() })
-        case .machines: MachinesView(back: { path.removeLast() })
-        case .apps: AppsView(back: { path.removeLast() })
+        case .devices: LinkedDevicesView(back: { pop() })
+        case .machines: MachinesView(back: { pop() })
+        case .apps: AppsView(back: { pop() })
         case .memories: MemoriesView(path: $path)
         case .latestRead: MemoriesView(path: $path, latestRead: true)
         case .routines: RoutinesView(path: $path)
-        case .grants(let routine): GrantsView(routine: routine, back: { path.removeLast() })
+        case .grants(let routine): GrantsView(routine: routine, back: { pop() })
         case .skills: SkillsView(path: $path)
-        case .skill(let id): SkillView(id: id, back: { path.removeLast() })
+        case .skill(let id): SkillView(id: id, back: { pop() })
         case .placeRoutine(let id):
             RoutinesView(path: $path, startAt: model.places.first { $0.id == id })
         case .places:
-            PlacesView(back: { path.removeLast() }, always: { path.append(.locationAlways) }) { place in
+            PlacesView(back: { pop() }, always: { path.append(.locationAlways) }) { place in
                 path.append(.placeRoutine(place.id))
             }
         case .researches:
-            ResearchList(back: { path.removeLast() }, open: { id in
+            ResearchList(back: { pop() }, open: { id in
                 left = nil
                 model.openGroup = nil
                 model.openChat(id)
@@ -216,13 +219,19 @@ struct RootView: View {
                 path = []
             })
         case .workspace(let id, let tab):
-            ResearchWorkspace(id: id, start: tab, back: { path.removeLast() }) { text in
+            ResearchWorkspace(id: id, start: tab, back: { pop() }) { text in
                 model.pendingQuote = text
                 path = []
             }
         case .locationAlways:
-            LocationAlwaysView(close: { path.removeLast() }) { path = [.places] }
+            LocationAlwaysView(close: { pop() }) { path = [.places] }
         }
+    }
+
+    /// Goes back one screen. A second tap on back while the first pop animates finds the
+    /// path already shorter, and `removeLast` on an empty path traps.
+    private func pop() {
+        if !path.isEmpty { path.removeLast() }
     }
 
     private func openChat(_ session: Session?) {
@@ -262,6 +271,18 @@ struct RootView: View {
         left = nil
         model.open(previous)
         trailEnd = previous.id
+    }
+
+    /// Live voice talks in the chat, so starting it closes what covers the chat: pushed screens,
+    /// the drawer, sheets, full screen covers and the browser. Views further in close their own
+    /// with `closesForLive`.
+    private func uncoverChat() {
+        path = []
+        drawer = false
+        sheet = nil
+        joining = nil
+        reading = nil
+        model.browserOpen = false
     }
 
     /// Opens the chat or group a tapped notification belongs to.

@@ -1,6 +1,18 @@
 package com.flashmind.beep
 
 import android.widget.Toast
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import android.provider.Settings
+import android.net.Uri
 import androidx.compose.foundation.layout.widthIn
 
 import androidx.compose.runtime.LaunchedEffect
@@ -20,9 +32,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.SystemClock
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.*
@@ -73,6 +82,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.border
+import com.flashmind.beep.proto.WebSource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -114,7 +126,7 @@ private class DraftField<T>(private val read: () -> T, private val write: (T) ->
 internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier: Modifier, compact: Boolean,
                        focusInput: MutableState<Boolean> = mutableStateOf(false),
                        clipboardContent: MutableState<String?> = mutableStateOf(null),
-                       onExpand: (() -> Unit)? = null, research: ResearchChat? = null) {
+                       onExpand: (() -> Unit)? = null, research: ResearchChat? = null, liveDock: Boolean = false) {
     var draft by DraftField({ repository.draft(chat.id).text }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(text = it)) }
     var attachedImages by DraftField({ repository.draft(chat.id).images }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(images = it)) }
     var attachedFiles by DraftField({ repository.draft(chat.id).files }) { repository.setDraft(chat.id, repository.draft(chat.id).copy(files = it)) }
@@ -204,9 +216,13 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
     }
     // Dismiss clipboard banner when user starts typing
     LaunchedEffect(draft) { if (draft.isNotBlank()) clipboardContent.value = null }
+    // Dictation belongs to this chat: switching chats cancels it, and late results are dropped.
+    val dictation = remember(chat.id) { Dictation(context.applicationContext) }
+    DisposableEffect(dictation) { onDispose { dictation.destroy() } }
     fun submit() {
         val hasContent = draft.isNotBlank() || attachedImages.isNotEmpty() || attachedFiles.isNotEmpty()
         if (hasContent && !chat.busy) {
+            dictation.cancel()
             followLatest = true
             val text = draft.ifBlank { attachedPrompt(attachedImages.size, attachedFiles.size) }
             repository.send(text, attachedImages, files = attachedFiles)
@@ -277,9 +293,6 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             val settled = remember(chat.id) { chat.messages.map { it.id }.toHashSet() }
             val radius = Beep.shapes.radius
             val dayBreaks = remember(chat.messages) { dayBreaks(chat.messages) }
-            // Stretches said aloud in live mode show as one transcript each, keyed by their first message.
-            val stretches = remember(chat.messages) { liveStretches(chat.messages) }
-            val inStretch = remember(stretches) { stretches.values.flatMap { it.drop(1) }.mapTo(HashSet()) { it.id } }
             // The "Latest reply" button floats over the list, so showing it does not resize the list.
             Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp)) {
@@ -294,14 +307,6 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     val fresh = message.id !in settled
                     SideEffect { settled.add(message.id) }
                     val newDay = dayBreaks[message.id]
-                    if (message.id in inStretch) return@itemsIndexed
-                    stretches[message.id]?.let { stretch ->
-                        Column(Modifier.padding(top = gap).animateItem(fadeOutSpec = null)) {
-                            newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
-                            LiveTranscript(stretch)
-                        }
-                        return@itemsIndexed
-                    }
                     if (message.role == "scheduled") {
                         Column(Modifier.padding(top = gap).animateItem(fadeOutSpec = null)) {
                             newDay?.let { DayMarker(it, Modifier.padding(bottom = 12.dp)) }
@@ -428,6 +433,8 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             Text(line, fontSize = 11.sp, color = TextDim,
                                 modifier = Modifier.padding(top = 4.dp, end = 4.dp))
                         }
+                        if (!isUser && !isStreaming && message.text.isNotBlank() && message.sources.isNotEmpty())
+                            SourceChips(message.id, message.sources, openLink, Modifier.padding(top = 8.dp, end = 4.dp))
                         if (!isStreaming) ToolCards(toolCards.mapNotNull { it.second }, compact, repository, openLink)
                         if (!isUser && !isStreaming && message.text.isNotBlank()) {
                             val shownLinks = toolCards.mapNotNull { (it.second as? ToolCard.Link)?.url }.toSet()
@@ -549,27 +556,51 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
         }
         // Voice input state
-        var listening by remember { mutableStateOf(false) }
-        val speechAvailable = remember { SpeechRecognizer.isRecognitionAvailable(context) }
-        val recognizer = remember { if (speechAvailable) SpeechRecognizer.createSpeechRecognizer(context) else null }
-        fun listen(speech: SpeechRecognizer) {
-            listening = true
-            startListening(speech, onPartial = { partial -> draft = partial },
-                onResult = { result -> draft = result; listening = false },
-                onError = { listening = false })
+        val listening = dictation.listening
+        var micSettings by remember { mutableStateOf(false) }
+        fun listen() {
+            dictation.start(draft, onText = { draft = it }, onError = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() })
         }
         val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted && recognizer != null) listen(recognizer)
+            if (granted) listen() else micSettings = true
         }
-        DisposableEffect(recognizer) { onDispose { recognizer?.destroy() } }
-
         fun startVoice() {
-            if (!speechAvailable) return
-            if (listening) { recognizer?.stopListening(); listening = false; return }
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                listen(recognizer!!)
-            } else {
-                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            if (!dictation.available) {
+                Toast.makeText(context, "No speech recognition on this phone", Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (listening) { dictation.stop(); return }
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) listen()
+            else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+        if (micSettings) AlertDialog(onDismissRequest = { micSettings = false },
+            title = { Text("Microphone is off") },
+            text = { Text("Beep needs the microphone to hear you. Allow it in Settings.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    micSettings = false
+                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }) { Text("Open Settings") }
+            },
+            dismissButton = { TextButton(onClick = { micSettings = false }) { Text("Not now") } })
+        // Holding the mic talks live, in the full app only.
+        val activity = context as? MainActivity
+        val live = (context.applicationContext as BeepApplication).live
+        val canHold = activity != null && !compact
+
+        // The note after live mode ended, over the composer of the chat it talked in.
+        val leaveNote by live.leaveNote.collectAsState()
+        leaveNote?.takeIf { it.chatId == chat.id }?.let { note ->
+            Row(Modifier.padding(horizontal = if (compact) 10.dp else 14.dp).padding(top = 6.dp).fillMaxWidth()
+                .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())
+                .padding(start = 12.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.GraphicEq, null, Modifier.size(16.dp), tint = TextMuted)
+                Text(note.text, Modifier.weight(1f).padding(vertical = 8.dp), fontSize = 13.sp, color = TextPrimary)
+                IconButton(onClick = live::dismissNote, Modifier.size(32.dp)) {
+                    Icon(Icons.Outlined.Close, "Dismiss", Modifier.size(16.dp), tint = TextMuted)
+                }
             }
         }
 
@@ -582,7 +613,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "listen-alpha")
                 Box(Modifier.size(7.dp).background(Beep.colors.accent.copy(alpha = pulseAlpha), CircleShape))
                 Spacer(Modifier.width(8.dp))
-                Text("Listening...", fontSize = 12.sp, color = TextMuted, fontWeight = FontWeight.Medium)
+                Text(if (chat.busy) "Listening, goes in the queue" else "Listening, tap stop when done", fontSize = 12.sp, color = TextMuted, fontWeight = FontWeight.Medium)
             }
         }
 
@@ -673,9 +704,13 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
         }
 
+        // While live voice runs, its dock takes the composer's place and the chat above stays as usual.
+        val liveState by live.state.collectAsState()
+        val liveShown = liveDock && liveState.active
+        LaunchedEffect(liveShown) { if (liveShown) dictation.cancel() }
         val buttonSize = if (compact) 44.dp else 50.dp
         val buttonShape = RoundedCornerShape(Beep.shapes.radius)
-        Row(Modifier.padding(start = if (onExpand != null) 2.dp else if (compact) 8.dp else 14.dp, end = if (compact) 10.dp else 16.dp,
+        if (liveShown) LiveDock(live, compact) else Row(Modifier.padding(start = if (onExpand != null) 2.dp else if (compact) 8.dp else 14.dp, end = if (compact) 10.dp else 16.dp,
             top = if (compact) 4.dp else 8.dp, bottom = if (compact) 8.dp else 12.dp).fillMaxWidth(),
             verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(if (onExpand != null) 2.dp else 8.dp)) {
             if (onExpand != null) {
@@ -685,7 +720,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             }
             Row(Modifier.weight(1f).heightIn(min = buttonSize).beepFrame(buttonShape, Surface, pressableLook()),
                 verticalAlignment = Alignment.CenterVertically) {
-                if (!chat.busy && draft.isBlank() && attachedImages.size < MAX_IMAGES) {
+                if (!chat.busy && draft.isBlank() && !listening && attachedImages.size < MAX_IMAGES) {
                     IconButton(onClick = { attaching = true }, modifier = Modifier.padding(start = 2.dp)) {
                         Icon(Icons.Outlined.Image, "Add a photo or file", Modifier.size(22.dp), tint = TextMuted)
                     }
@@ -698,12 +733,19 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, cursorColor = TextPrimary),
                     maxLines = if (compact) 3 else 6,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default))
+                if (dictation.available) DictationMic(listening, { dictation.level }, onTap = { startVoice() },
+                    hold = if (canHold) object : MicHold {
+                        override fun start() { dictation.cancel(); activity!!.startLive(LiveOrigin.Hold, holding = true) }
+                        override fun end() = live.holdEnd()
+                        override fun cancel() = live.holdCancel()
+                    } else null)
             }
             val buttonModifier = Modifier.size(buttonSize)
             when {
                 chat.busy -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (draft.isNotBlank() || attachedImages.isNotEmpty() || attachedFiles.isNotEmpty()) {
                         ChunkyButton(onClick = {
+                            dictation.cancel()
                             repository.queue(draft, attachedImages, chat.id, attachedFiles)
                             draft = ""; attachedImages = emptyList(); attachedFiles = emptyList()
                         }, modifier = buttonModifier, shape = buttonShape,
@@ -730,20 +772,6 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         Icon(Icons.AutoMirrored.Outlined.Send, "Send message", Modifier.size(20.dp))
                     }
                 }
-                speechAvailable -> {
-                    val ring by rememberInfiniteTransition(label = "mic-ring").animateFloat(
-                        initialValue = 0f, targetValue = 1f,
-                        animationSpec = infiniteRepeatable(tween(1100, easing = LinearOutSlowInEasing)), label = "mic-ring-progress")
-                    val ringColor = Beep.colors.accent
-                    ChunkyButton(onClick = { startVoice() },
-                        modifier = buttonModifier.drawBehind {
-                            if (listening) drawCircle(ringColor.copy(alpha = 0.45f * (1 - ring)), radius = size.minDimension * (0.5f + 0.35f * ring))
-                        }, shape = buttonShape,
-                        color = if (listening) Beep.colors.accent else Surface,
-                        contentColor = if (listening) Beep.colors.onAccent else TextPrimary, contentPadding = PaddingValues(0.dp)) {
-                        Icon(Icons.Outlined.Mic, if (listening) "Stop listening" else "Voice input", Modifier.size(22.dp))
-                    }
-                }
                 else -> ChunkyButton(onClick = {}, enabled = false, modifier = buttonModifier, shape = buttonShape, contentPadding = PaddingValues(0.dp)) {
                     Icon(Icons.AutoMirrored.Outlined.Send, "Send message", Modifier.size(20.dp))
                 }
@@ -753,35 +781,59 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
     }
 }
 
-private fun startListening(
-    recognizer: SpeechRecognizer,
-    onPartial: (String) -> Unit,
-    onResult: (String) -> Unit,
-    onError: (Int) -> Unit
-) {
-    recognizer.setRecognitionListener(object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {}
-        override fun onBeginningOfSpeech() {}
-        override fun onRmsChanged(rmsdB: Float) {}
-        override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEndOfSpeech() {}
-        override fun onError(error: Int) { onError(error) }
-        override fun onResults(results: Bundle?) {
-            val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
-            if (text.isNotEmpty()) onResult(text)
-            else onError(SpeechRecognizer.ERROR_NO_MATCH)
+/** What holding the composer's mic does: live voice with the mic held. */
+private interface MicHold {
+    fun start()
+    fun end()
+    fun cancel()
+}
+
+/**
+ * The mic inside the composer's field. A tap starts or stops dictation; with [hold], holding it
+ * talks live until let go, and sliding away cancels. While listening it turns into stop, with a
+ * ring that follows the voice.
+ */
+@Composable
+private fun DictationMic(listening: Boolean, level: () -> Float, onTap: () -> Unit, hold: MicHold?) {
+    val ringColor = Beep.colors.accent
+    val density = LocalDensity.current
+    val slide = with(density) { 90.dp.toPx() }
+    val currentTap by rememberUpdatedState(onTap)
+    val currentHold by rememberUpdatedState(hold)
+    Box(Modifier.padding(end = 4.dp).size(40.dp).clip(CircleShape)
+        .drawBehind {
+            if (listening) drawCircle(ringColor.copy(alpha = 0.18f + 0.4f * level()), radius = size.minDimension * (0.36f + 0.14f * level()))
         }
-        override fun onPartialResults(partial: Bundle?) {
-            val text = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
-            if (text.isNotEmpty()) onPartial(text)
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown()
+                val action = currentHold
+                val up = if (action == null) waitForUpOrCancellation()
+                    else withTimeoutOrNull(350) { waitForUpOrCancellation() }
+                if (up != null || action == null) {
+                    if (up != null) { up.consume(); currentTap() }
+                    return@awaitEachGesture
+                }
+                // Held: live voice with the mic down until it is let go.
+                action.start()
+                var cancelled = false
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if ((change.position - down.position).getDistance() > slide) cancelled = true
+                    if (!change.pressed) { change.consume(); break }
+                }
+                if (cancelled) action.cancel() else action.end()
+            }
         }
-        override fun onEvent(eventType: Int, params: Bundle?) {}
-    })
-    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        .semantics(mergeDescendants = true) {
+            role = Role.Button
+            contentDescription = if (listening) "Stop dictating" else if (hold != null) "Dictate, hold to talk live" else "Dictate"
+            onClick { currentTap(); true }
+        }, contentAlignment = Alignment.Center) {
+        Icon(if (listening) Icons.Outlined.Stop else Icons.Outlined.Mic, null, Modifier.size(20.dp),
+            tint = if (listening) Beep.colors.accent else TextMuted)
     }
-    recognizer.startListening(intent)
 }
 
 @Composable
@@ -1098,4 +1150,38 @@ private fun NewIdeas(repository: ChatRepository) {
             )
         }
     }
+}
+
+/** The web pages a reply used, as chips under it. Past [SHOWN_SOURCES] the rest fold into "+N", which opens them all. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SourceChips(messageId: String, sources: List<WebSource>, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
+    var expanded by remember(messageId) { mutableStateOf(false) }
+    val (shown, folded) = sourceFold(sources.size, expanded)
+    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        sources.take(shown).forEachIndexed { i, source ->
+            val host = remember(source.url) { sourceHost(source.url) }
+            SourceChip(Modifier.clickable(onClickLabel = "Open ${source.title.ifEmpty { host }}") { onOpen(source.url) }) {
+                Box(Modifier.size(20.dp).background(Beep.colors.tints[i % Beep.colors.tints.size], CircleShape),
+                    contentAlignment = Alignment.Center) {
+                    Text(host.take(1).uppercase(), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.ink)
+                }
+                Spacer(Modifier.width(6.dp))
+                Text(host, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
+            }
+        }
+        if (folded > 0) SourceChip(Modifier.clickable(onClickLabel = "Show all sources") { expanded = true }, start = 10.dp) {
+            Text("+$folded", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Beep.colors.muted)
+        }
+    }
+}
+
+/** A pill with a soft outline, the frame of one source chip. */
+@Composable
+private fun SourceChip(modifier: Modifier, start: Dp = 4.dp, content: @Composable RowScope.() -> Unit) {
+    val shape = RoundedCornerShape(50)
+    Row(Modifier.height(28.dp).clip(shape).background(Beep.colors.surface).border(1.5.dp, Beep.colors.softLine, shape)
+        .then(modifier).padding(start = start, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically, content = content)
 }

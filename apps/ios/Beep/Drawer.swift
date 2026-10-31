@@ -113,6 +113,13 @@ struct ChatsDrawer<Content: View>: View {
         .sheet(item: $sharing) { session in
             ShareChatSheet(session: session)
         }
+        .closesForLive {
+            sharing = nil
+            renaming = nil
+            deleting = nil
+            leaving = nil
+            confirmingBulk = false
+        }
         .alert("Leave \(leaving?.name ?? "")?", isPresented: Binding(get: { leaving != nil }, set: { if !$0 { leaving = nil } })) {
             Button("Cancel", role: .cancel) {}
             Button("Leave", role: .destructive) {

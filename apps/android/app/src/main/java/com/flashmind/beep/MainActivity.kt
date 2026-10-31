@@ -92,6 +92,12 @@ open class MainActivity : ComponentActivity() {
     private val locationPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.any { it }) startLocationUpdates()
     }
+    /** Where live voice waits to start from while the microphone permission is asked. */
+    private var liveOrigin = LiveOrigin.App
+    private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        // Denied, live voice opens anyway and shows how to allow it.
+        (application as BeepApplication).live.start(liveOrigin)
+    }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val pendingFocusInput = mutableStateOf(false)
     private val pendingOpenApps = mutableStateOf(false)
@@ -144,9 +150,27 @@ open class MainActivity : ComponentActivity() {
         setIntent(intent)
         takeIntent(intent)
     }
+    /**
+     * Opens live voice from [origin], asking for the microphone first when needed. [holding]
+     * starts it with the mic held, for the composer's hold-to-talk.
+     */
+    fun startLive(origin: LiveOrigin, holding: Boolean = false) {
+        val live = (application as BeepApplication).live
+        if (!(application as BeepApplication).repository.settings.value.configured) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            live.start(origin, holding)
+        } else {
+            liveOrigin = origin
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
     /** Picks up what [intent] asks to open: a chat, a group, a link or a screen. */
     private fun takeIntent(intent: Intent?) {
         intent ?: return
+        when (intent.action) {
+            LIVE_ACTION -> startLive(intent.getStringExtra("origin")?.let { name -> LiveOrigin.entries.find { it.name == name } } ?: LiveOrigin.Shortcut)
+            Intent.ACTION_ASSIST -> startLive(LiveOrigin.Assist)
+        }
         intent.getStringExtra("conversation_id")?.let { (application as BeepApplication).repository.select(it); pendingChat.value = it }
         if (intent.getBooleanExtra("focus_input", false)) pendingFocusInput.value = true
         if (opensApps(intent)) pendingOpenApps.value = true
@@ -224,7 +248,7 @@ open class MainActivity : ComponentActivity() {
                         groupId?.let { putExtra("group_id", it) }
                     })
                     if (panel) finish()
-                }, onBubbleSettings = { Bubble.settings(this) })
+                }, onBubbleSettings = { Bubble.settings(this) }, onLive = { startLive(LiveOrigin.App) })
             } }
         }
     }
@@ -310,7 +334,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     groupToOpen: MutableState<String?>,
                     chatToOpen: MutableState<String?>,
                     clipboardContent: MutableState<String?>,
-                    onFloat: () -> Unit, onExpand: (groupId: String?) -> Unit, onBubbleSettings: () -> Unit) {
+                    onFloat: () -> Unit, onExpand: (groupId: String?) -> Unit, onBubbleSettings: () -> Unit,
+                    onLive: () -> Unit = {}) {
     val state by repository.state.collectAsStateWithLifecycle()
     val status by repository.connection.collectAsStateWithLifecycle()
     val connected by repository.connected.collectAsStateWithLifecycle()
@@ -394,6 +419,14 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             groupToOpen.value = null
             openGroup = it; screen = Screen.Chat
         }
+    }
+    // Starting live voice opens the chat, where the live dock takes the composer's place.
+    val live = (context.applicationContext as BeepApplication).live
+    val liveState by live.state.collectAsStateWithLifecycle()
+    LaunchedEffect(liveState.launches) {
+        if (!liveState.active || bubble) return@LaunchedEffect
+        openGroup = null; drawerOpen = false; screen = Screen.Chat
+        liveState.chatId?.let { if (repository.state.value.current.id != it) repository.select(it) }
     }
     LaunchedEffect(chatToOpen.value) {
         chatToOpen.value?.let {
@@ -821,6 +854,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             },
                 actions = {
                     if (isResearch) WorkspaceButton { workspaceTab = null; screen = Screen.Workspace }
+                    if (!bubble && !cover) IconButton(onClick = onLive) { Icon(Icons.Outlined.GraphicEq, "Talk live", tint = TextMuted) }
                     IconButton(onClick = { startNewChat() }, Modifier.padding(end = if (floating) 6.dp else 0.dp)) {
                         Icon(Icons.Outlined.Add, "New chat", tint = TextMuted)
                     }
@@ -834,7 +868,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     // The cover screen's cameras cut into its bottom edge, so the input sits above them.
                     ChatScreen(state.current, repository, Modifier.fillMaxSize().then(if (cover) Modifier.consumeWindowInsets(padding)
                         .windowInsetsPadding(ComposeInsets.safeDrawing.only(WindowInsetsSides.Bottom)) else Modifier), compact = bubble || cover, focusInput = focusInput, clipboardContent = clipboardContent,
-                        onExpand = if (bubble) { { onExpand(null) } } else null, research = researchChat)
+                        onExpand = if (bubble) { { onExpand(null) } } else null, research = researchChat, liveDock = !bubble)
                 }
             }
         }
@@ -866,9 +900,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     AnimatedVisibility(visible = browserOpen && !bubble,
         enter = fadeIn() + slideInVertically { it },
         exit = fadeOut() + slideOutVertically { it }) {
-        BrowserScreen(onClose = { repository.closeBrowser() }) { modifier ->
-            ChatScreen(state.current, repository, modifier, compact = true)
-        }
+        BrowserScreen(onClose = { repository.closeBrowser() })
     }
 }
 

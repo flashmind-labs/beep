@@ -193,6 +193,7 @@ private struct RecCardView: View {
         .sheet(isPresented: $addingEvent) {
             if let event { EventEditor(title: card.title, event: event, notes: card.url, place: event.venue ?? card.subtitle) }
         }
+        .closesForLive { addingEvent = false }
     }
 
     private var content: some View {

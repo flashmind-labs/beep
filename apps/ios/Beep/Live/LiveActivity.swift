@@ -6,11 +6,13 @@ import AppIntents
 struct LiveVoiceAttributes: ActivityAttributes {
     enum Phase: String, Codable, Hashable {
         case listening, thinking, speaking
+        /// Live voice is over; `line` says why. The last state the activity shows.
+        case ended
     }
 
     struct ContentState: Codable, Hashable {
         var phase: Phase
-        /// What was said so far, the tool step, or Beep's line, by phase.
+        /// What was said so far, the tool step, Beep's line, or why it ended, by phase.
         var line: String
     }
 }

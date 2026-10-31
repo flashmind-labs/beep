@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher's long-press menu: live voice. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="live" android:enabled="true"
+        android:icon="@drawable/ic_shortcut_live"
+        android:shortcutShortLabel="@string/shortcut_live_short"
+        android:shortcutLongLabel="@string/shortcut_live_long"
+        android:shortcutDisabledMessage="@string/shortcut_live_disabled">
+        <intent android:action="com.flashmind.beep.LIVE"
+            android:targetPackage="com.flashmind.beep"
+            android:targetClass="com.flashmind.beep.MainActivity" />
+    </shortcut>
+</shortcuts>

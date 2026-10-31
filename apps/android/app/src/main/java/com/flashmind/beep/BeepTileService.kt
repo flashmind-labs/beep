@@ -12,16 +12,17 @@ class BeepTileService : TileService() {
         qsTile?.apply {
             state = Tile.STATE_INACTIVE
             label = "Beep"
-            subtitle = "Ask anything"
+            subtitle = "Talk live"
             updateTile()
         }
     }
 
     override fun onClick() {
         super.onClick()
-        val intent = Intent(this, MainActivity::class.java).setAction("com.flashmind.beep.TILE").apply {
+        // The tile opens live voice; the app falls back to the chat when not signed in.
+        val intent = Intent(this, MainActivity::class.java).setAction(LIVE_ACTION).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            putExtra("focus_input", true)
+            putExtra("origin", LiveOrigin.Tile.name)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val pi = PendingIntent.getActivity(

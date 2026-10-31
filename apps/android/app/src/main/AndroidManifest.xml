@@ -10,6 +10,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Live voice: the microphone and Beep's voice with the screen off, and the call audio route. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- The newest photos in the image button's sheet. -->
@@ -31,16 +36,32 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="https" />
         </intent>
+        <!-- Whether the phone has a speech recognizer for dictation. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
     <application android:name=".BeepApplication" android:label="Beep"
         android:icon="@mipmap/ic_launcher_pager" android:theme="@style/Theme.Beep"
         android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true" android:networkSecurityConfig="@xml/network_security_config">
+        <meta-data android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
         <!-- Folding a flip phone moves the chat between its screens. Compose redraws for the new
              size, so the activity is kept instead of rebuilt. -->
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:windowSoftInputMode="adjustResize">
+            <!-- Live voice, from the shortcut, the tile, the widget and the live notification. -->
+            <intent-filter>
+                <action android:name="com.flashmind.beep.LIVE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- Beep as the phone's assistant opens live voice. -->
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <!-- Composio sends the browser here after an app connects. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -72,6 +93,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity-alias>
         <activity-alias android:name=".LauncherClay" android:targetActivity=".MainActivity"
             android:icon="@mipmap/ic_launcher_clay" android:roundIcon="@mipmap/ic_launcher_clay"
@@ -80,6 +102,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity-alias>
         <activity-alias android:name=".LauncherJelly" android:targetActivity=".MainActivity"
             android:icon="@mipmap/ic_launcher_jelly" android:roundIcon="@mipmap/ic_launcher_jelly"
@@ -88,6 +111,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity-alias>
         <activity-alias android:name=".LauncherBeep" android:targetActivity=".MainActivity"
             android:icon="@mipmap/ic_launcher_pager" android:roundIcon="@mipmap/ic_launcher_pager"
@@ -96,6 +120,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity-alias>
         <activity-alias android:name=".LauncherBubble" android:targetActivity=".MainActivity"
             android:icon="@mipmap/ic_launcher_pager" android:roundIcon="@mipmap/ic_launcher_pager"
@@ -104,6 +129,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity-alias>
         <activity-alias android:name=".LauncherSpark" android:targetActivity=".MainActivity"
             android:icon="@mipmap/ic_launcher_pager" android:roundIcon="@mipmap/ic_launcher_pager"
@@ -112,6 +138,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity-alias>
         <activity-alias android:name=".LauncherGhost" android:targetActivity=".MainActivity"
             android:icon="@mipmap/ic_launcher_pager" android:roundIcon="@mipmap/ic_launcher_pager"
@@ -120,6 +147,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity-alias>
         <activity android:name=".BubbleActivity" android:exported="false"
             android:resizeableActivity="true" android:allowEmbedded="true"
@@ -164,6 +192,8 @@
         </activity>
         <service android:name=".RunService" android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service android:name=".LiveService" android:exported="false"
+            android:foregroundServiceType="microphone|mediaPlayback" />
         <service android:name=".PushService" android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />

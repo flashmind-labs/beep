@@ -12,10 +12,15 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
+import com.flashmind.beep.ffi.LiveListener
+import com.flashmind.beep.ffi.LiveSession
+import com.flashmind.beep.ffi.LiveStart
+import com.flashmind.beep.ffi.ReplyFailure
 import com.flashmind.beep.proto.DeviceInvite
 import com.flashmind.beep.proto.JoinPreview
 import com.flashmind.beep.proto.MemoryRead
@@ -37,7 +42,6 @@ import com.flashmind.beep.proto.McpConnect
 import com.flashmind.beep.proto.McpServer
 import com.flashmind.beep.proto.McpTools
 import com.flashmind.beep.proto.ApprovalDecision
-import com.flashmind.beep.proto.BrowserCommand
 import com.flashmind.beep.proto.ImageRef
 import com.flashmind.beep.proto.LinkedDevice
 import com.flashmind.beep.proto.DeviceAnswer
@@ -62,7 +66,6 @@ import com.flashmind.beep.proto.PlaceCrossing
 import com.flashmind.beep.proto.Memory as ProtoMemory
 import com.flashmind.beep.proto.PromptSuggestion
 import com.flashmind.beep.proto.RunEvent
-import com.flashmind.beep.proto.ScrollDirection
 import com.flashmind.beep.proto.SessionMatch
 import com.flashmind.beep.proto.SharedLink
 import com.flashmind.beep.proto.SharedSession
@@ -81,6 +84,8 @@ class BeepApplication : Application() {
             RunService.follow(this, it, scope)
         }
     }
+    /** Live voice, made on first use. */
+    val live by lazy { LiveVoice(this, repository) }
 
     override fun onCreate() {
         super.onCreate()
@@ -279,16 +284,16 @@ class ChatRepository(private val storage: LocalStorage) {
         val files = filesByMessage(runCatching { api(config).getSessionFiles(id) }.getOrDefault(emptyList()))
         // Likewise a server from before it named agents.
         val agents = runCatching { api(config).getSessionAgents(id) }.getOrDefault(emptyList()).associate { it.message to it.agent.orEmpty() }
-        // And a server from before live mode said none aloud.
-        val spoken = runCatching { api(config).spokenTurns(id) }.getOrDefault(emptyList()).toSet()
         // And one from before it kept what each step showed while it ran; steps without one fall back.
         val labels = runCatching { api(config).getToolLabels(id) }.getOrDefault(emptyList()).associate { it.callId to it.description }
+        // And one from before it listed the web pages each turn used.
+        val sources = runCatching { api(config).getSessionSources(id) }.getOrDefault(emptyList()).associate { it.message to it.sources }
         var turnAt = 0L
         val messages = history.mapIndexedNotNull { i, entry ->
             when (entry) {
                 is HistoryEntry.User -> { pending = emptyList(); pendingReasoning = ""; turnAt = entry.timestamp; ChatMessage("history-$id-$i", "user", entry.content, sentAt = entry.timestamp,
                     autoModel = entry.auto?.model.orEmpty(), autoThinking = entry.auto?.thinking?.name?.lowercase().orEmpty(),
-                    pictures = pictures[entry.timestamp].orEmpty(), files = files[entry.timestamp].orEmpty(), spoken = entry.timestamp in spoken) }
+                    pictures = pictures[entry.timestamp].orEmpty(), files = files[entry.timestamp].orEmpty()) }
                 is HistoryEntry.Scheduled -> { pending = emptyList(); pendingReasoning = ""; ChatMessage("history-$id-$i", "scheduled", entry.label, sentAt = entry.timestamp) }
                 is HistoryEntry.Assistant -> {
                     val tools = pending + labelTools(entry.tools.map {
@@ -312,7 +317,7 @@ class ChatRepository(private val storage: LocalStorage) {
             }
         }
         if (settings.value != config) return
-        val merged = mergeHistory(before.messages, messages)
+        val merged = mergeHistory(before.messages, withSources(messages, sources))
         updateChat(id) { current -> if (current == before) current.copy(messages = merged, version = version) else current }
     }
     fun refreshHistory() { syncRequests.trySend(Unit) }
@@ -470,18 +475,96 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     private fun resumePending() { state.value.conversations.filter { it.busy }.forEach { launchRun(it.id) } }
     fun send(text: String, images: List<String> = emptyList(), conversationId: String = state.value.current.id, model: String = "", thinking: String = "",
-             files: List<ToolCard.File> = emptyList()) {
+             files: List<ToolCard.File> = emptyList(), spoken: Boolean = false) {
         // A routine's chat may not be listed here yet.
         if (state.value.conversations.none { it.id == conversationId })
             update { it.copy(conversations = it.conversations + Conversation(id = conversationId, title = text.trim().take(44))) }
         val chat = state.value.conversations.first { it.id == conversationId }
         if (text.isBlank() || chat.busy || !settings.value.configured) return
-        startTurn(chat, text, images, model, thinking, files)
+        startTurn(chat, text, images, model, thinking, files, spoken = spoken)
         launchRun(chat.id)
+    }
+    /**
+     * Where live mode takes the events of the run answering what was said. Set while live
+     * mode runs; called from the runs' coroutines. `reply` is the number of the session's
+     * `Send` the run answers.
+     */
+    interface LiveReplies {
+        fun reply(reply: ULong, event: RunEvent)
+        fun failed(reply: ULong, failure: ReplyFailure)
+        /** The run's stream broke and is being fetched again. */
+        fun reconnecting(reply: ULong)
+        /** The approval the reply waited on was answered, here or in the chat. */
+        fun answered(reply: ULong)
+        /** The user stopped the run from the chat. */
+        fun cancelled()
+    }
+    /** The approval a live reply waits on, so an answer from the chat carries live mode on too. */
+    data class LiveApproval(val chatId: String, val queryId: String, val reply: ULong)
+    @Volatile var liveReplies: LiveReplies? = null
+    @Volatile var liveApproval: LiveApproval? = null
+    /** The run answering the last spoken message, whose events live mode reads out, and its reply number. */
+    @Volatile private var liveRunId = ""
+    @Volatile private var liveReply = 0UL
+    /** The reply number of each chat's spoken message not yet started. */
+    private val pendingLiveReplies = ConcurrentHashMap<String, ULong>()
+    /**
+     * A message said in live mode, in chat [chatId] or, when null, a new one, answering the
+     * session's `Send` number [reply]. It waits for a reply still running, as a typed message
+     * would. Returns the chat it went to.
+     */
+    fun sendSpoken(text: String, chatId: String?, reply: ULong): String {
+        val known = chatId != null && state.value.conversations.any { it.id == chatId }
+        when {
+            known -> if (state.value.current.id != chatId) select(chatId!!)
+            // An empty chat on screen takes it rather than leaving a second empty one behind.
+            state.value.current.messages.isEmpty() && !state.value.current.busy -> {}
+            else -> newChat()
+        }
+        val chat = state.value.current
+        pendingLiveReplies[chat.id] = reply
+        if (chat.busy) updateChat(chat.id) { it.copy(queued = it.queued + QueuedMessage(text.trim(), spoken = true)) }
+        else send(text, conversationId = chat.id, spoken = true)
+        return chat.id
+    }
+    /** Starts live voice on this account's connection, waiting a little for it to connect. */
+    suspend fun startLive(listener: LiveListener, start: LiveStart): LiveSession {
+        // A launch from the tile or the assistant can come as the app starts, before it connected.
+        if (!connected.value && settings.value.configured && reconnectJob?.isActive != true) reconnect()
+        withTimeoutOrNull(10_000) { connected.first { it } }
+        return api().startLive(listener, start)
+    }
+    /**
+     * Live mode asks to stop reply [reply] in chat [chatId]: its events stop going to live mode
+     * and its run is cancelled on the server, by [runId] when the session knows it.
+     */
+    fun cancelLive(chatId: String, reply: ULong, runId: String?) {
+        if (liveReply == reply) liveRunId = ""
+        pendingLiveReplies.remove(chatId, reply)
+        val chat = state.value.conversations.find { it.id == chatId }
+        when {
+            chat != null && chat.busy && (runId == null || chat.runId.isEmpty() || chat.runId == runId) -> cancel(chatId, fromLive = true)
+            runId != null -> scope.launch { runCatching { api().cancelRun(runId) } }
+            else -> scope.launch { runCatching { api().activeRun(chatId)?.let { api().cancelRun(it.id) } } }
+        }
+    }
+    /** Takes the reply number of [chatId]'s spoken message as its run starts, so live mode reads that run out. */
+    private fun followSpoken(chatId: String, runId: String) {
+        val reply = pendingLiveReplies.remove(chatId) ?: return
+        liveReply = reply
+        liveRunId = runId
+    }
+    /** Tells live mode the spoken message in [chatId] or the run it follows failed for good. */
+    private fun liveFailed(chat: Conversation) {
+        val pending = if (chat.pendingSpoken && chat.runId.isEmpty()) pendingLiveReplies.remove(chat.id) else null
+        when {
+            pending != null -> liveReplies?.failed(pending, ReplyFailure.NOT_SENT)
+            liveRunId.isNotEmpty() && chat.runId == liveRunId -> { liveRunId = ""; liveReplies?.failed(liveReply, ReplyFailure.CONNECTION_LOST) }
+        }
     }
     /** Shows [text] as the user's next prompt and marks the chat as sending it. */
     private fun startTurn(chat: Conversation, text: String, images: List<String>, model: String, thinking: String = "",
-                          files: List<ToolCard.File> = emptyList(), research: Boolean = false) {
+                          files: List<ToolCard.File> = emptyList(), research: Boolean = false, spoken: Boolean = false) {
         val request = UUID.randomUUID().toString()
         // A new message instead of an answer skips the call that waits on it.
         val skipped = chat.messages.flatMap { m -> m.approvals.filter { it.waitsOnTurn } }
@@ -489,7 +572,7 @@ class ChatRepository(private val storage: LocalStorage) {
         updateChat(chat.id) { it.copy(title = if (it.messages.isEmpty()) text.take(44) else it.title,
             messages = skipApprovals(it.messages) + ChatMessage(role = "user", text = text.trim(), images = images, model = model, modelThinking = thinking, files = files),
             requestId = request, pendingText = text.trim(), pendingImages = images, pendingFiles = files, pendingModel = model, pendingThinking = thinking,
-            pendingResearch = research, status = "Sending…", error = "") }
+            pendingResearch = research, pendingSpoken = spoken, status = "Sending…", error = "") }
     }
     /** The chats that are researches: every one the server listed, and those started here since. */
     val researches = MutableStateFlow(storage.loadResearches())
@@ -535,7 +618,7 @@ class ChatRepository(private val storage: LocalStorage) {
         val chat = state.value.conversations.find { it.id == chatId } ?: return
         if (chat.busy || !chat.hasQueued) return
         val next = unqueue(0, chatId) ?: return
-        send(next.text.ifBlank { attachedPrompt(next.images.size, next.files.size) }, next.images, chatId, files = next.files)
+        send(next.text.ifBlank { attachedPrompt(next.images.size, next.files.size) }, next.images, chatId, files = next.files, spoken = next.spoken)
     }
     /**
      * Starts [chat]'s first queued message once its reply finished cleanly. A run that stopped,
@@ -545,7 +628,7 @@ class ChatRepository(private val storage: LocalStorage) {
         if (!chat.hasQueued || chat.error.isNotEmpty() || !settings.value.configured) return false
         if (chat.messages.any { m -> m.approvals.any { it.waitsOnTurn } }) return false
         val next = unqueue(0, chat.id) ?: return false
-        startTurn(chat, next.text.ifBlank { attachedPrompt(next.images.size, next.files.size) }, next.images, "", files = next.files)
+        startTurn(chat, next.text.ifBlank { attachedPrompt(next.images.size, next.files.size) }, next.images, "", files = next.files, spoken = next.spoken)
         return true
     }
     /**
@@ -630,9 +713,12 @@ class ChatRepository(private val storage: LocalStorage) {
      * Stops the chat's run at once: the chat lets go of it and is free for the next
      * message while the server is told to stop it.
      */
-    fun cancel() {
-        val chat = state.value.current
+    fun cancel(chatId: String = state.value.current.id, fromLive: Boolean = false) {
+        val chat = state.value.conversations.find { it.id == chatId } ?: return
         if (!chat.busy) return
+        // Stopped from the chat while live mode reads it out: live mode stops too, and asks back to cancel it.
+        if (!fromLive && (chat.pendingSpoken && chat.runId.isEmpty() && pendingLiveReplies.containsKey(chatId) ||
+                liveRunId.isNotEmpty() && chat.runId == liveRunId)) liveReplies?.cancelled()
         synchronized(lock) {
             jobs.remove(chat.id)?.cancel()
             stopping[chat.id] = scope.launch { runCatching { stopRun(chat) } }
@@ -659,7 +745,8 @@ class ChatRepository(private val storage: LocalStorage) {
         }
         api.cancelRun(runId)
     }
-    private suspend fun sendPending(api: BeepClient, chat: Conversation) = if (chat.pendingResearch) api.startResearch(chat.id, chat.requestId, chat.pendingText) else api.chat(chat.id, chat.requestId, chat.pendingText, chat.pendingImages,
+    private suspend fun sendPending(api: BeepClient, chat: Conversation) = if (chat.pendingResearch) api.startResearch(chat.id, chat.requestId, chat.pendingText)
+        else if (chat.pendingSpoken) api.chatSpoken(chat.id, chat.requestId, chat.pendingText) else api.chat(chat.id, chat.requestId, chat.pendingText, chat.pendingImages,
         withContext(Dispatchers.IO) { Attachments.uploads(chat.pendingFiles) },
         chat.pendingModel.takeIf { it.isNotEmpty() }?.let { Rerun(it, ReasoningLevel.entries.find { level -> level.name.equals(chat.pendingThinking, true) }) })
     /** What the chat shows under a run that ended with [status], given the error it already has. */
@@ -701,6 +788,7 @@ class ChatRepository(private val storage: LocalStorage) {
                             val started = received.event as? RunEvent.RunStarted
                             if (started != null) {
                                 runId = started.runId
+                                if (chat.pendingSpoken) followSpoken(id, runId)
                                 updateChat(id) { it.copy(runId = runId, requestId = "", pendingText = "", pendingImages = emptyList(), pendingFiles = emptyList(), pendingModel = "", pendingThinking = "", cursor = 0) }
                             }
 
@@ -724,11 +812,19 @@ class ChatRepository(private val storage: LocalStorage) {
                     delay(150)
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
-                    if (!networkUp) { updateChat(id) { it.copy(status = waiting(it), error = "") }; break }
+                    if (!networkUp) {
+                        state.value.conversations.find { it.id == id }?.let(::liveFailed)
+                        updateChat(id) { it.copy(status = waiting(it), error = "") }; break
+                    }
                     failures++
                     connected.value = false; connection.value = "Connection interrupted"
                     updateChat(id) { it.copy(status = "", error = if (failures < 4) "Reconnecting…" else userMessage(error)) }
-                    if (failures >= 4) { reconnect(); break }
+                    val current = state.value.conversations.find { it.id == id }
+                    if (failures >= 4) {
+                        current?.let(::liveFailed)
+                        reconnect(); break
+                    }
+                    if (current != null && liveRunId.isNotEmpty() && current.runId == liveRunId) liveReplies?.reconnecting(liveReply)
                     delay(1000L shl (failures - 1))
                 }
             }
@@ -1273,7 +1369,8 @@ class ChatRepository(private val storage: LocalStorage) {
 
     private suspend fun executeDeviceQuery(query: DeviceQuery): JSONObject = when (query) {
         is DeviceQuery.Contacts -> queryContacts(query.name)
-        is DeviceQuery.Browser -> browser(query.command)
+        // Beep no longer drives the in-app browser; servers stopped asking.
+        is DeviceQuery.Browser -> error("Beep cannot use the browser on the phone")
         // Never runs on its own: the user answers it through [answerApproval].
         is DeviceQuery.Approve -> JSONObject().put("decision", "deny")
         // Only asked of the Mac app.
@@ -1310,11 +1407,24 @@ class ChatRepository(private val storage: LocalStorage) {
                     chat.copy(messages = chat.messages.map { if (it === holder) it.copy(id = "assistant-${run.id}") else it },
                         runId = run.id, cursor = 0, status = "Beep is thinking…", error = "")
                 }
+                // A reply live mode waited on goes on: live mode reads out the run the answer resumed.
+                val asked = liveApproval
+                if (asked != null && asked.chatId == conversationId && asked.queryId == queryId) {
+                    liveApproval = null
+                    liveReply = asked.reply
+                    liveRunId = run.id
+                    liveReplies?.answered(asked.reply)
+                }
                 launchRun(conversationId)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 // A conflict means the server already has an answer for this call.
                 if (error is BeepException.Conflict) return@launch
+                val asked = liveApproval
+                if (asked != null && asked.chatId == conversationId && asked.queryId == queryId) {
+                    liveApproval = null
+                    liveReplies?.failed(asked.reply, ReplyFailure.NOT_SENT)
+                }
                 updateChat(conversationId) { chat ->
                     chat.copy(error = userMessage(error), messages = chat.messages.map { message ->
                         message.copy(approvals = message.approvals.map { if (it.queryId == queryId) it.copy(answer = "") else it })
@@ -1327,32 +1437,6 @@ class ChatRepository(private val storage: LocalStorage) {
     private fun skipApprovals(messages: List<ChatMessage>) = messages.map { message ->
         if (message.approvals.none { it.waitsOnTurn }) message
         else message.copy(approvals = message.approvals.map { if (it.waitsOnTurn) it.copy(answer = "skipped") else it })
-    }
-
-    private suspend fun browser(command: BrowserCommand): JSONObject {
-        val ctx = storage.context
-        val (action, params) = when (command) {
-            is BrowserCommand.Navigate -> {
-                // The page still loads for Beep to read, just without covering the bubble.
-                if (!onlyBubble()) browserOpen.value = true
-                return BrowserBridge.navigate(ctx, command.url)
-            }
-            BrowserCommand.ReadPage -> "read_page" to JSONObject()
-            is BrowserCommand.Click -> "click" to JSONObject().put("selector", command.selector)
-            is BrowserCommand.ClickElement -> "click" to JSONObject().put("index", command.index.toInt())
-            is BrowserCommand.Type -> "type" to JSONObject().put("selector", command.selector).put("text", command.text)
-            is BrowserCommand.TypeElement -> "type" to JSONObject().put("index", command.index.toInt())
-                .put("text", command.text).put("submit", command.submit)
-            is BrowserCommand.Scroll -> "scroll" to
-                JSONObject().put("direction", if (command.direction == ScrollDirection.UP) "up" else "down")
-            is BrowserCommand.GetText -> "get_text" to JSONObject().put("selector", command.selector)
-            is BrowserCommand.WaitFor -> "wait_for" to JSONObject().put("selector", command.selector)
-            BrowserCommand.Back -> "back" to JSONObject()
-            BrowserCommand.Forward -> "forward" to JSONObject()
-            BrowserCommand.Reload -> "reload" to JSONObject()
-            BrowserCommand.GetPageInfo -> "get_page_info" to JSONObject()
-        }
-        return BrowserBridge.executeCommand(ctx, action, params)
     }
 
     /** Show the in-app browser on [url], or the phone's own browser from the bubble. */
@@ -1475,8 +1559,10 @@ class ChatRepository(private val storage: LocalStorage) {
     private fun event(id: String, runId: String, received: Event) {
         val sequence = received.seq
         var finished = false
+        var applied = false
         updateChat(id) { chat ->
             if (runId != chat.runId || sequence <= chat.cursor) return@updateChat chat
+            applied = true
             finished = received.event is RunEvent.RunFinished
             check(sequence == chat.cursor + 1) { "Missing server event; reconnecting" }
             var next = chat.copy(cursor = sequence)
@@ -1577,6 +1663,8 @@ class ChatRepository(private val storage: LocalStorage) {
                     next = next.ended(status)
                     labelAgent(id, messageId)
                 }
+                is RunEvent.Sources ->
+                    next = next.copy(messages = next.messages.map { if (it.id == messageId) it.copy(sources = event.sources) else it })
                 is RunEvent.MemoryScore ->
                     next = next.copy(messages = next.messages.map { if (it.id == messageId) it.copy(memoryScore = event.probability) else it })
                 is RunEvent.AutoPicked -> {
@@ -1587,6 +1675,11 @@ class ChatRepository(private val storage: LocalStorage) {
                 is RunEvent.Usage, is RunEvent.RunStarted, is RunEvent.Transcript -> {}
             }
             next
+        }
+        // Live mode reads out the reply to what was said, each event once.
+        if (applied && runId.isNotEmpty() && runId == liveRunId) {
+            liveReplies?.reply(liveReply, received.event)
+            if (finished) liveRunId = ""
         }
         if (finished && !onScreen(id))
             state.value.conversations.find { it.id == id }?.let {
