@@ -1,16 +1,13 @@
-//! Background work: the agents and jobs a chat started, which go on after
-//! its turn ends, and the questions they ask through notices.
+//! The questions background sub-agents ask through notices, answered at the
+//! end of their chat.
 
 use crate::{
     beep::{Beep, Decision, Field},
     error::{DesktopError, Result},
 };
-use beep_proto::{
-    AnswerApproval, ApiError, CancelWork, ListQuestions, ListWork, PendingApproval, WorkItem,
-    WorkKind,
-};
+use beep_proto::{AnswerApproval, ApiError, ListQuestions, PendingApproval};
 use serde::Serialize;
-use std::{sync::Arc, time::UNIX_EPOCH};
+use std::sync::Arc;
 use tauri::State;
 use uuid::Uuid;
 
@@ -64,47 +61,6 @@ pub struct Resolved {
     pub query_id: String,
 }
 
-/// An agent or job as the bar lists it.
-#[derive(Debug, Serialize)]
-pub struct WorkView {
-    id: String,
-    /// A sub-agent; otherwise one tool call moved to the background.
-    agent: bool,
-    task: String,
-    /// In milliseconds since the Unix epoch.
-    started_at: u64,
-    step: String,
-    /// `None` while it runs.
-    outcome: Option<OutcomeView>,
-}
-
-#[derive(Debug, Serialize)]
-struct OutcomeView {
-    ok: bool,
-    text: String,
-}
-
-impl From<WorkItem> for WorkView {
-    fn from(item: WorkItem) -> Self {
-        let started_at = item
-            .started_at
-            .duration_since(UNIX_EPOCH)
-            .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
-            .unwrap_or_default();
-        Self {
-            id: item.id,
-            agent: matches!(item.kind, WorkKind::Agent {}),
-            task: item.task,
-            started_at,
-            step: item.step,
-            outcome: item.outcome.map(|outcome| OutcomeView {
-                ok: outcome.ok,
-                text: outcome.text,
-            }),
-        }
-    }
-}
-
 /// What became of an answer to background work.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -118,26 +74,6 @@ pub enum WorkAnswer {
 
 fn session_id(session: &str) -> Result<Uuid> {
     Uuid::parse_str(session).map_err(|_| DesktopError::BadRequest("bad session".into()))
-}
-
-#[tauri::command]
-pub async fn list_work(beep: Service<'_>, session: String) -> Result<Vec<WorkView>> {
-    let items = beep
-        .call(ListWork {
-            session_id: session_id(&session)?,
-        })
-        .await?;
-    Ok(items.into_iter().map(WorkView::from).collect())
-}
-
-/// Stops one agent or job; `false` when it had already ended.
-#[tauri::command]
-pub async fn cancel_work(beep: Service<'_>, session: String, id: String) -> Result<bool> {
-    beep.call(CancelWork {
-        session_id: session_id(&session)?,
-        id,
-    })
-    .await
 }
 
 /// The questions background work in chat `session` still waits on, oldest

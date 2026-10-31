@@ -115,6 +115,10 @@ private val actionDefaults = mapOf(
     "reminder" to "Checking reminders",
     "mac_files" to "Looking at files on your Mac",
     "send_file" to "Sending a file",
+    "exec" to "Running a command",
+    "process" to "Checking background commands",
+    "desktop" to "Using the Mac",
+    "code_agent" to "Using a coding agent",
 )
 
 /** The action a call took, read from its output, for calls from history, which keep no arguments. */
@@ -182,4 +186,6 @@ private val pastTense = mapOf(
     "moving" to "Moved", "waiting" to "Waited", "stopping" to "Stopped", "messaging" to "Messaged", "holding" to "Held",
     "charting" to "Charted", "drawing" to "Drew", "planning" to "Planned", "downloading" to "Downloaded",
     "ending" to "Ended", "asking" to "Asked", "adding" to "Added", "researching" to "Researched", "typesetting" to "Typeset",
+    "copying" to "Copied", "following" to "Followed", "unfollowing" to "Unfollowed", "answering" to "Answered",
+    "clicking" to "Clicked", "typing" to "Typed", "pressing" to "Pressed", "scrolling" to "Scrolled",
 )

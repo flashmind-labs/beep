@@ -132,8 +132,6 @@ fn main() {
             commands::list_group_reminders,
             commands::delete_group_reminder,
             commands::answer_group_approval,
-            work::list_work,
-            work::cancel_work,
             work::answer_work,
             work::list_questions,
             grants::list_grants,

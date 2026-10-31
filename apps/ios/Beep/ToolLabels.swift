@@ -43,7 +43,10 @@ private func memoryLabel(_ output: String) -> String? {
 
 /// Tools whose words from the server say more than the name: the action ones, and those that
 /// name the machine, file or app they work on. Other tools' server words just list arguments.
-private let describedTools: Set<String> = ["memory", "background", "skill", "habit", "reminder", "node", "mac_files"]
+private let describedTools: Set<String> = [
+    "memory", "background", "skill", "habit", "reminder", "node", "mac_files",
+    "exec", "process", "desktop", "code_agent", "send_file",
+]
 
 /// Tools that take an action argument, as the server folds them, for a call from the history:
 /// it keeps neither the arguments nor the server's words for the call.
@@ -53,6 +56,11 @@ private let actionToolLabels: [String: String] = [
     "skill": "Using a skill",
     "habit": "Tracking a habit",
     "reminder": "Working on reminders",
+    "exec": "Running a command",
+    "process": "Checking background commands",
+    "desktop": "Using the Mac",
+    "code_agent": "Using a coding agent",
+    "send_file": "Sending a file",
 ]
 
 /// Tools that get no chip: what they do is already on screen, or is bookkeeping.
@@ -141,5 +149,5 @@ private let pastTense: [String: String] = [
     "adding": "Added", "writing": "Wrote", "researching": "Researched", "working": "Worked",
     "tracking": "Tracked", "deciding": "Decided", "typesetting": "Typeset", "linking": "Linked",
     "following": "Followed", "unfollowing": "Unfollowed", "taking": "Took", "answering": "Answered",
-    "asking": "Asked", "clicking": "Clicked", "typing": "Typed", "pressing": "Pressed", "scrolling": "Scrolled",
+    "asking": "Asked", "copying": "Copied", "clicking": "Clicked", "typing": "Typed", "pressing": "Pressed", "scrolling": "Scrolled",
 ]
