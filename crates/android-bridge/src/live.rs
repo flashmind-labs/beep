@@ -37,16 +37,20 @@ const TICK: Duration = Duration::from_millis(50);
 /// chunks, enough to cover opening the transcription, so the app can push
 /// sound as soon as the session exists.
 const MIC_CHUNKS: usize = 256;
-/// Calls from the app waiting for the session.
-const COMMANDS: usize = 64;
+/// Calls from the app waiting for the session. A streamed reply sends one
+/// per event, so this is roomy: a dropped one can leave a reply unfinished.
+const COMMANDS: usize = 1024;
 /// News from the session's own tasks waiting for it.
 const NEWS: usize = 64;
-/// Sentences waiting for their audio.
-const LINES: usize = 64;
+/// Sentences waiting for their audio: a long reply's worth.
+const LINES: usize = 512;
 /// Loudness above which the microphone counts as hearing someone.
 const SOUND_LEVEL: f32 = 0.12;
 /// Failed transcriptions in a row before live mode gives up.
 const STT_TRIES: u32 = 3;
+/// How long a transcription must have run for its end to be the server's
+/// time limit rather than a failure.
+const STT_LIVED: Duration = Duration::from_secs(30);
 /// Wait before opening a transcription again after one failed.
 const STT_RETRY: Duration = Duration::from_secs(1);
 const UNAVAILABLE: &str = "Voice is not available right now";
@@ -221,6 +225,8 @@ pub(crate) enum Hearing {
     /// The server has no live transcription.
     Unavailable,
     Failed(String),
+    /// The server ended the transcription, such as at its time limit.
+    Ended,
 }
 
 /// Where one transcription sends what it heard.
@@ -313,7 +319,7 @@ impl LiveSession {
     fn send(&self, command: Command) {
         if self.commands.try_send(command).is_err() {
             // Full only if the session stalled; it ended if closed.
-            log::debug!("live session did not take a command");
+            log::warn!("live session did not take a command");
         }
     }
 
@@ -607,6 +613,8 @@ struct Driver<S> {
     /// Counts transcriptions, so words from an ended one are dropped.
     stt_run: u64,
     stt_failures: u32,
+    /// When the current transcription opened.
+    stt_opened: Option<Instant>,
     /// A transcription is open; until then the screen shows connecting.
     connected: bool,
     transcriptions: Vec<AbortHandle>,
@@ -654,6 +662,7 @@ impl<S: Speech> Driver<S> {
             heard: Some(heard),
             stt_run: 0,
             stt_failures: 0,
+            stt_opened: None,
             connected: false,
             transcriptions: Vec::new(),
             reader: None,
@@ -850,6 +859,7 @@ impl<S: Speech> Driver<S> {
         }
         match hearing {
             Hearing::Open => {
+                self.stt_opened = Some(Instant::now());
                 if !self.connected {
                     self.connected = true;
                     self.show();
@@ -859,6 +869,14 @@ impl<S: Speech> Driver<S> {
                 self.stt_failures = 0;
                 self.input(Input::Words(text));
             }
+            Hearing::Ended if self.lived() => {
+                // The server's time limit: open the next one straight away.
+                self.stt_failures = 0;
+                if !self.over {
+                    self.transcribe();
+                }
+            }
+            Hearing::Ended => self.heard(run, Hearing::Failed("the transcription ended".into())),
             Hearing::Unavailable => {
                 self.fail(format!(
                     "{UNAVAILABLE}: the server has no live transcription."
@@ -866,6 +884,11 @@ impl<S: Speech> Driver<S> {
             }
             Hearing::Failed(why) => {
                 log::warn!("live transcription: {why}");
+                if self.lived() {
+                    // It ran a good while, so earlier failures are behind it.
+                    self.stt_failures = 0;
+                }
+                self.stt_opened = None;
                 self.stt_failures += 1;
                 if self.stt_failures >= STT_TRIES {
                     return self.fail(format!("{UNAVAILABLE}: {why}."));
@@ -881,6 +904,12 @@ impl<S: Speech> Driver<S> {
                 });
             }
         }
+    }
+
+    /// Whether the current transcription has been open for `STT_LIVED`.
+    fn lived(&self) -> bool {
+        self.stt_opened
+            .is_some_and(|opened| opened.elapsed() >= STT_LIVED)
     }
 
     /// Leaves live mode, telling the user `failure`.

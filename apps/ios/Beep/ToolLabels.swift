@@ -45,7 +45,7 @@ private func memoryLabel(_ output: String) -> String? {
 /// name the machine, file or app they work on. Other tools' server words just list arguments.
 private let describedTools: Set<String> = [
     "memory", "background", "skill", "habit", "reminder", "node", "mac_files",
-    "exec", "process", "desktop", "code_agent", "send_file",
+    "desktop", "code_agent", "send_file",
 ]
 
 /// Tools that take an action argument, as the server folds them, for a call from the history:
@@ -56,8 +56,6 @@ private let actionToolLabels: [String: String] = [
     "skill": "Using a skill",
     "habit": "Tracking a habit",
     "reminder": "Working on reminders",
-    "exec": "Running a command",
-    "process": "Checking background commands",
     "desktop": "Using the Mac",
     "code_agent": "Using a coding agent",
     "send_file": "Sending a file",
@@ -103,6 +101,9 @@ private let toolLabels: [String: String] = [
     "show_chart": "Drawing a chart",
     "show_stock_chart": "Charting a price",
     "execute_code": "Running code",
+    // Commands stay out of the chat: every one reads the same.
+    "exec": "Running code",
+    "process": "Running code",
     "download_file": "Downloading a file",
     "chat_search": "Searching your chats",
     "chat_read": "Reading a chat",

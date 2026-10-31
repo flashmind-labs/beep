@@ -85,10 +85,6 @@ private val Listen = Color(0xFF3B9B7A)
 private val Speak = Color(0xFFF07A6A)
 private val SpeakWord = Color(0xFFD9604F)
 
-/** The spoken commands, shown while nothing has been said yet: what to say, and what it does. */
-private val COMMANDS = listOf("send" to "sends", "cancel" to "drops it", "scratch that" to "", "stop" to "", "repeat that" to "",
-    "new chat" to "", "bye" to "leaves")
-
 /** The hint under the caption for [state], or null for none. */
 internal fun liveHint(state: LiveState, sendOnPause: Boolean, waiting: Boolean): String? {
     if (state.problem != null) return null
@@ -99,7 +95,7 @@ internal fun liveHint(state: LiveState, sendOnPause: Boolean, waiting: Boolean):
         LiveStage.Listening -> when {
             state.soon != null -> "Sending… keep talking to add more"
             sendOnPause -> "Pause to send · Tap the orb to leave · Hold it to talk"
-            else -> "Say “send” when you’re done · Tap the orb to leave"
+            else -> "Say “send” or “stop” when you’re done · Tap the orb to leave"
         }
         LiveStage.Holding -> "Let go to send · Slide away to cancel"
         LiveStage.Thinking -> "Tap the orb to stop the answer"
@@ -151,7 +147,6 @@ internal fun LiveDock(live: LiveVoice, compact: Boolean) {
         else -> "Speaking" to SpeakWord
     }
     val hint = liveHint(state, live.sendOnPause, waiting)
-    val commands = state.problem == null && !waiting && state.stage == LiveStage.Listening && state.words.isEmpty() && state.line == null
     Box(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(top = if (compact) 4.dp else 8.dp, bottom = 10.dp)
         .graphicsLayer { val o = opening.value.coerceIn(0f, 1f); alpha = o; translationY = (1 - opening.value) * 28.dp.toPx() }) {
         Column(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(24.dp), Beep.colors.surface, pressableLook())
@@ -173,18 +168,10 @@ internal fun LiveDock(live: LiveVoice, compact: Boolean) {
             val soon = state.soon
             if (soon != null && state.stage == LiveStage.Listening && state.problem == null) SoonBar(soon, Modifier.padding(start = 58.dp))
             val problem = state.problem
-            if (problem != null || hint != null || commands || replying) FlowRow(Modifier.fillMaxWidth().padding(start = 58.dp),
+            if (problem != null || hint != null || replying) FlowRow(Modifier.fillMaxWidth().padding(start = 58.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
                 itemVerticalAlignment = Alignment.CenterVertically) {
                 if (hint != null) Text(hint, Modifier.weight(1f), fontSize = 12.sp, lineHeight = 16.sp, color = Beep.colors.muted)
-                if (commands) FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    COMMANDS.forEach { (said, does) ->
-                        Text(buildAnnotatedString {
-                            withStyle(SpanStyle(color = Beep.colors.ink, fontWeight = FontWeight.Medium)) { append("“$said”") }
-                            if (does.isNotEmpty()) withStyle(SpanStyle(color = Beep.colors.muted)) { append(" $does") }
-                        }, fontSize = 11.sp, modifier = Modifier.clip(CircleShape).background(Beep.colors.page).padding(horizontal = 8.dp, vertical = 2.dp))
-                    }
-                }
                 val pad = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                 if (problem != null) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ChunkyButton(onClick = live::retry, contentPadding = pad) {

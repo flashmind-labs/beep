@@ -1405,7 +1405,7 @@ impl Speech for BeepClient {
                 () = &mut up, if !up_done => up_done = true,
                 reply = replies.next() => match reply {
                     Ok(Some(Transcription::Delta { text })) => heard.hear(Hearing::Words(text)).await,
-                    Ok(Some(Transcription::Done { .. }) | None) => return,
+                    Ok(Some(Transcription::Done { .. }) | None) => return heard.hear(Hearing::Ended).await,
                     Ok(Some(Transcription::Unavailable {})) => {
                         return heard.hear(Hearing::Unavailable).await;
                     }

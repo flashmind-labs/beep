@@ -211,9 +211,13 @@ final class LiveVoice {
 
     /// A tap on the orb: leaves when listening, otherwise stops the reply and listens.
     func tap() { session?.tap() }
-    func holdStart() { session?.holdStart() }
-    func holdEnd() { session?.holdEnd() }
-    func holdCancel() { session?.holdCancel() }
+    func holdStart() { headphoneTalk = false; session?.holdStart() }
+    func holdEnd() { headphoneTalk = false; session?.holdEnd() }
+    func holdCancel() { headphoneTalk = false; session?.holdCancel() }
+
+    /// The talking now was started by a headphone press rather than the orb, so the next
+    /// press sends it.
+    private(set) var headphoneTalk = false
 
     // MARK: The chat's run
 
@@ -497,22 +501,45 @@ final class LiveVoice {
     // MARK: Headset
 
     /// AirPods and other headsets: their play and pause act like a tap on the orb.
+    /// AirPods and other headphones: a press talks and the next one sends, as holding the orb
+    /// does; a double press (the next track command) leaves live voice.
     private func startRemote() {
         let center = MPRemoteCommandCenter.shared()
-        for command in [center.togglePlayPauseCommand, center.playCommand, center.pauseCommand] {
+        let press: [MPRemoteCommand] = [center.togglePlayPauseCommand, center.playCommand, center.pauseCommand]
+        for command in press {
             command.isEnabled = true
             let target = command.addTarget { [weak self] _ in
-                Task { @MainActor in self?.tap() }
+                Task { @MainActor in self?.headphonePress() }
                 return .success
             }
             remote.append((command, target))
         }
+        center.nextTrackCommand.isEnabled = true
+        let leave = center.nextTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.close() }
+            return .success
+        }
+        remote.append((center.nextTrackCommand, leave))
         // The system sends those commands to the app that says it is playing.
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [MPMediaItemPropertyTitle: "Live with Beep"]
     }
 
+    /// A headphone press: starts talking, interrupting Beep if it speaks, or sends what was
+    /// said since the last press.
+    private func headphonePress() {
+        if view.phase == .holding {
+            holdEnd()
+        } else {
+            holdStart()
+            headphoneTalk = true
+        }
+    }
+
     private func stopRemote() {
-        for (command, target) in remote { command.removeTarget(target) }
+        for (command, target) in remote {
+            command.removeTarget(target)
+            command.isEnabled = false
+        }
         remote = []
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }

@@ -7,18 +7,8 @@
 pub enum Command {
     /// Send what was said.
     Send,
-    /// Drop what was said and keep listening.
-    Cancel,
-    /// Remove the last sentence.
-    ScratchThat,
-    /// Stop Beep speaking.
+    /// Stop Beep speaking; while the user talks, send what was said.
     Stop,
-    /// Read the last reply again.
-    Repeat,
-    /// The next message starts a new chat.
-    NewChat,
-    /// Leave live mode.
-    Leave,
 }
 
 /// Each command in English, Spanish, Catalan, French, German, Italian and
@@ -49,94 +39,10 @@ const PHRASES: &[(Command, &[&str])] = &[
         ],
     ),
     (
-        Command::Cancel,
-        &[
-            "cancel",
-            "cancela",
-            "cancelar",
-            "cancel·la",
-            "cancella",
-            "annule",
-            "annuler",
-            "abbrechen",
-            "annulla",
-            "cancele",
-            "never mind",
-        ],
-    ),
-    (
-        Command::ScratchThat,
-        &[
-            "scratch that",
-            "delete that",
-            "borra eso",
-            "borra esto",
-            "esborra això",
-            "esborra",
-            "efface ça",
-            "efface",
-            "lösch das",
-            "streich das",
-            "cancella quello",
-            "apaga isso",
-            "apaga",
-        ],
-    ),
-    (
         Command::Stop,
         &[
             "stop", "para", "detente", "parar", "atura't", "atura", "arrête", "stopp", "halt",
             "basta", "fermati", "pare",
-        ],
-    ),
-    (
-        Command::Repeat,
-        &[
-            "repeat that",
-            "repeat",
-            "say that again",
-            "repite",
-            "repítelo",
-            "repitelo",
-            "repeteix",
-            "répète",
-            "repete",
-            "wiederhole",
-            "wiederholen",
-            "ripeti",
-            "repita",
-        ],
-    ),
-    (
-        Command::NewChat,
-        &[
-            "new chat",
-            "nuevo chat",
-            "xat nou",
-            "nou xat",
-            "nouveau chat",
-            "neuer chat",
-            "nuova chat",
-            "novo chat",
-        ],
-    ),
-    (
-        Command::Leave,
-        &[
-            "stop listening",
-            "bye",
-            "bye bye",
-            "goodbye",
-            "adiós",
-            "adios",
-            "adéu",
-            "adeu",
-            "au revoir",
-            "tschüss",
-            "tschüs",
-            "ciao",
-            "tchau",
-            "deja de escuchar",
         ],
     ),
 ];
@@ -228,17 +134,13 @@ mod tests {
 
     #[test]
     fn a_whole_phrase_is_a_command() {
-        assert_eq!(phrase_command("Cancel."), Some(Command::Cancel));
-        assert_eq!(
-            phrase_command("  scratch THAT! "),
-            Some(Command::ScratchThat)
-        );
-        assert_eq!(phrase_command("Stop"), Some(Command::Stop));
-        assert_eq!(phrase_command("Repeat that?"), Some(Command::Repeat));
-        assert_eq!(phrase_command("New chat."), Some(Command::NewChat));
-        assert_eq!(phrase_command("Stop listening."), Some(Command::Leave));
-        assert_eq!(phrase_command("Bye-bye!"), Some(Command::Leave));
+        assert_eq!(phrase_command("  STOP! "), Some(Command::Stop));
         assert_eq!(phrase_command("Send."), Some(Command::Send));
+        assert_eq!(phrase_command("Send it"), Some(Command::Send));
+        // Only those two: the rest are messages now.
+        assert_eq!(phrase_command("Cancel."), None);
+        assert_eq!(phrase_command("Scratch that"), None);
+        assert_eq!(phrase_command("Bye"), None);
     }
 
     #[test]
@@ -260,12 +162,8 @@ mod tests {
     #[test]
     fn other_languages() {
         assert_eq!(phrase_command("¡Envía!"), Some(Command::Send));
-        assert_eq!(phrase_command("Cancela."), Some(Command::Cancel));
-        assert_eq!(phrase_command("Cancel·la"), Some(Command::Cancel));
         assert_eq!(phrase_command("Para."), Some(Command::Stop));
         assert_eq!(phrase_command("Arrête !"), Some(Command::Stop));
-        assert_eq!(phrase_command("Nuevo chat"), Some(Command::NewChat));
-        assert_eq!(phrase_command("Tschüss"), Some(Command::Leave));
         assert_eq!(phrase_command("Para mañana a las nueve"), None);
     }
 

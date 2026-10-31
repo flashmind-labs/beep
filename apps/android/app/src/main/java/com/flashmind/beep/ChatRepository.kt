@@ -624,8 +624,12 @@ class ChatRepository(private val storage: LocalStorage) {
      * failed or waits on an approval keeps them all, so nothing goes out on its own.
      */
     private fun startQueued(chat: Conversation): Boolean {
-        if (!chat.hasQueued || chat.error.isNotEmpty() || !settings.value.configured) return false
-        if (chat.messages.any { m -> m.approvals.any { it.waitsOnTurn } }) return false
+        if (!chat.hasQueued) return false
+        if (chat.error.isNotEmpty() || !settings.value.configured || chat.messages.any { m -> m.approvals.any { it.waitsOnTurn } }) {
+            // A spoken message kept here is not going out, so live mode stops waiting on it.
+            if (chat.queued.any { it.spoken }) pendingLiveReplies.remove(chat.id)?.let { liveReplies?.failed(it, ReplyFailure.NOT_SENT) }
+            return false
+        }
         val next = unqueue(0, chat.id) ?: return false
         startTurn(chat, next.text.ifBlank { attachedPrompt(next.images.size, next.files.size) }, next.images, "", files = next.files, spoken = next.spoken)
         return true

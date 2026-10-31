@@ -69,6 +69,9 @@ private val toolLabels = mapOf(
     "show_chart" to "Drawing a chart",
     "send_image" to "Sending images",
     "execute_code" to "Running code",
+    // Commands stay out of the chat: every one reads the same.
+    "exec" to "Running code",
+    "process" to "Running code",
     "download_file" to "Downloading a file",
     "chat_search" to "Searching your chats",
     "chat_read" to "Reading a chat",
@@ -115,8 +118,6 @@ private val actionDefaults = mapOf(
     "reminder" to "Checking reminders",
     "mac_files" to "Looking at files on your Mac",
     "send_file" to "Sending a file",
-    "exec" to "Running a command",
-    "process" to "Checking background commands",
     "desktop" to "Using the Mac",
     "code_agent" to "Using a coding agent",
 )

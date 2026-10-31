@@ -981,11 +981,14 @@ final class AppModel {
             Task { await answerWork(prompt, in: sessionId, decision) }
             return
         }
-        guard let index = chat.messages.firstIndex(where: { $0.approvals.contains { $0.queryId == prompt.queryId } }),
-            let card = chat.messages[index].approvals.firstIndex(where: { $0.queryId == prompt.queryId }),
-            chat.messages[index].approvals[card].waiting
-        else { return }
-        chat.messages[index].approvals[card].answer = decision
+        if let index = chat.messages.firstIndex(where: { $0.approvals.contains { $0.queryId == prompt.queryId } }),
+            let card = chat.messages[index].approvals.firstIndex(where: { $0.queryId == prompt.queryId }) {
+            guard chat.messages[index].approvals[card].waiting else { return }
+            chat.messages[index].approvals[card].answer = decision
+        } else if live.asking?.queryId != prompt.queryId {
+            // Not in the chat and not the one live voice shows in its dock.
+            return
+        }
         // Answered in the chat, its notification no longer asks, as on Android.
         notifier.removeApproval(prompt.queryId)
         let sessionId = chat.id

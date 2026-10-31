@@ -48,9 +48,9 @@ import Speech
             return
         }
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            let audio = AVAudioSession.sharedInstance()
+            try audio.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try audio.setActive(true, options: .notifyOthersOnDeactivation)
             let engine = AVAudioEngine()
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
@@ -64,7 +64,7 @@ import Speech
             self.request = request
             listening = true
             let current = UUID()
-            session = current
+            self.session = current
             task = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 let spoken = result?.bestTranscription.formattedString
                 let final = result?.isFinal == true || error != nil
