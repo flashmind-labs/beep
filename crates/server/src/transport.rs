@@ -4,6 +4,7 @@ use crate::{
     api,
     app::{Admission, App},
     client::CLOSE_NOT_INVITED,
+    guest,
     protocol::{
         ClientInfo, DeviceKind, Hello, Platform, Rpc,
         wire::{Frame, Rx, Tx, framed},
@@ -59,6 +60,22 @@ impl ProtocolHandler for BeepHandler {
             }
             Ok(Admission::NotInvited) => {
                 connection.close(VarInt::from_u32(CLOSE_NOT_INVITED), b"not invited");
+                return Ok(());
+            }
+            Ok(Admission::Guest) => {
+                let Ok((send, recv)) = connection.accept_bi().await else {
+                    return Ok(());
+                };
+                let client = match open(send, recv).await {
+                    Ok(Opening::Hello(client)) => client,
+                    // An app from before `Hello` predates joining, too.
+                    Ok(Opening::Request { .. }) => ClientInfo::LEGACY,
+                    Err(e) => {
+                        log::debug!("guest connection opened badly: {e:#}");
+                        return Ok(());
+                    }
+                };
+                guest::serve(self.app.clone(), connection, client).await;
                 return Ok(());
             }
             Err(e) => {
