@@ -8,8 +8,8 @@ private let audioLog = Logger(subsystem: "com.flashmind.beep", category: "live a
 /// the taps run on the audio thread and only call the closures given to `start`.
 ///
 /// When the route changes (headphones in or out, a Bluetooth headset), the engine's
-/// configuration changes or the media services restart, it builds the engine again. Lines
-/// that were playing then count as played, so the session does not wait for them.
+/// configuration changes, it refreshes the engine's taps and connections. A media services
+/// reset replaces the engine. Lines playing then count as played, so the session does not wait.
 final class LiveAudio {
     struct Failure: LocalizedError {
         let errorDescription: String?
@@ -171,7 +171,7 @@ final class LiveAudio {
         changing = true
         defer { changing = false }
         let input = engine.inputNode
-        try input.setVoiceProcessingEnabled(true)
+        if !input.isVoiceProcessingEnabled { try input.setVoiceProcessingEnabled(true) }
         // On by default; said here since a quiet mic after Beep spoke is the first thing to check.
         input.isVoiceProcessingAGCEnabled = true
         let heard = input.outputFormat(forBus: 0)
@@ -191,7 +191,7 @@ final class LiveAudio {
             mic(data)
         }
 
-        engine.attach(player)
+        if player.engine == nil { engine.attach(player) }
         engine.connect(player, to: engine.mainMixerNode, format: playFormat)
         player.installTap(onBus: 0, bufferSize: 1024, format: playFormat) { buffer, _ in
             voice(Self.level(buffer))
@@ -203,8 +203,9 @@ final class LiveAudio {
     }
 
     /// Stops the engine and takes its taps off. A player that never got attached, as after a
-    /// failed build, is left alone: it raises an exception without an engine.
-    private func tearDown() {
+    /// failed build, is left alone: it raises an exception without an engine. Voice processing
+    /// stays enabled during recovery and is released when the audio ends.
+    private func tearDown(releasing: Bool = true) {
         changing = true
         defer { changing = false }
         if player.engine != nil {
@@ -213,32 +214,34 @@ final class LiveAudio {
         }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        // The next engine turns voice processing on again. Two at once leave the newer one's
-        // mic quiet; failing to turn it off only risks that, so it is not an error.
-        try? engine.inputNode.setVoiceProcessingEnabled(false)
+        if releasing {
+            try? engine.inputNode.setVoiceProcessingEnabled(false)
+        }
     }
 
-    /// A new engine and player for the route and the media services there are now. What was
-    /// playing counts as played.
-    private func rebuild() throws {
+    /// Refreshes taps and connections for the current hardware format. Keeping voice
+    /// processing avoids another hardware change caused by turning it off and on again.
+    private func rebuild(reset: Bool = false) throws {
         guard state != .off else { return }
-        tearDown()
+        tearDown(releasing: reset)
         finishPlaying()
-        engine = AVAudioEngine()
-        player = AVAudioPlayerNode()
+        if reset {
+            engine = AVAudioEngine()
+            player = AVAudioPlayerNode()
+        }
         try Self.configureSession()
         try build()
     }
 
     /// Rebuilds once a burst of changes settles: a new headset brings a route change and a
     /// configuration change together.
-    private func rebuildAfterChange() {
+    private func rebuildAfterChange(reset: Bool = false) {
         rebuildSoon?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.state == .running else { return }
             audioLog.info("audio changed, building the engine again")
             do {
-                try self.rebuild()
+                try self.rebuild(reset: reset)
             } catch {
                 audioLog.error("audio could not come back: \(describe(error), privacy: .public)")
                 self.lost?(describe(error))
@@ -253,6 +256,7 @@ final class LiveAudio {
         observers = [
             center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main) { [weak self] note in
                 guard let self, !self.changing, note.object as? AVAudioEngine === self.engine else { return }
+                audioLog.info("engine configuration changed: running \(self.engine.isRunning, privacy: .public)")
                 self.rebuildAfterChange()
             },
             center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
@@ -260,10 +264,11 @@ final class LiveAudio {
                     .flatMap(AVAudioSession.RouteChangeReason.init)
                 // Only a device coming or going; a category change is this class's own doing.
                 guard reason == .newDeviceAvailable || reason == .oldDeviceUnavailable else { return }
+                audioLog.info("audio route changed: reason \(reason?.rawValue ?? 0, privacy: .public)")
                 self?.rebuildAfterChange()
             },
             center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.rebuildAfterChange()
+                self?.rebuildAfterChange(reset: true)
             },
         ]
     }
