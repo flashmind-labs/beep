@@ -8,10 +8,16 @@
 <link rel="stylesheet" href="orb.css">
 </head>
 <body class="obody">
+<div class="ospot">
 <div class="omini" id="mini" role="button" aria-label="Open Beep">
   <div class="dorb idle" id="orb" aria-hidden="true"><span class="ring b"></span><span class="ring"></span><span class="core"></span></div>
+  <svg class="oring" id="ring" viewBox="0 0 70 70" aria-hidden="true" hidden><circle cx="35" cy="35" r="33"/></svg>
   <button class="ox" id="x" aria-label="Leave live mode"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
 </div>
+</div>
+<div class="otoast" id="toast" role="status" hidden></div>
+<div class="dcard oask" id="ask" role="button" aria-label="Open the chat to see the whole request" hidden></div>
+<div class="dcard onote" id="notice" role="button" aria-label="Open the chat" hidden></div>
 <script src="orb.js"></script>
 </body>
 </html>

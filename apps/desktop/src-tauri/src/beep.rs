@@ -5,10 +5,10 @@ use crate::{
     cards,
     error::{DesktopError, Result},
     identity::{Identity, secret_key},
-    mac_files, markdown,
+    markdown,
     news::Teller,
     products,
-    state::{LinkState, Saved, StateFile},
+    state::{LinkState, NoticeVoice, Saved, StateFile},
     sync::Chats,
     tool_labels,
 };
@@ -18,7 +18,7 @@ use beep_proto::{
     DeviceAnswer, DeviceQuery, DeviceResult, Event, GetEvents, GetFile, GetSession,
     GetSessionImages, GetToolLabels, HistoryEntry, ImageRef, ListSessions, MAX_UPLOAD, Notice,
     Platform, ReasoningLevel, RemoveDevice, RunEvent, SearchSessions, SentImages, Session,
-    SessionMatch, SpokenTurns, Stream, TRANSCRIBE_RATE, Transcribe, Transcription, Upload,
+    SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe, Transcription, Upload, WebSource,
     client::{Client, Node, OnNotice, Replies, Uplink},
     link::LinkOffer,
 };
@@ -112,6 +112,10 @@ pub enum BarEvent {
         /// keep the event small.
         chart: Option<Box<Chart>>,
     },
+    /// The web pages the reply used, for the chips under it.
+    Sources {
+        sources: Vec<WebSource>,
+    },
     /// Follow-ups to offer under the reply.
     Replies {
         replies: Vec<String>,
@@ -188,6 +192,41 @@ pub enum RunNews {
     Text(String),
     /// A tool step started, with its label.
     Tool(String),
+    /// The run waits for the user to allow an action.
+    Approval(Asking),
+    /// The run, or the stream of it, failed with this message.
+    Failed(String),
+    /// The run finished with this status, such as `completed`, `waiting`
+    /// for an approval, or `cancelled`.
+    Finished(String),
+}
+
+/// The user's answer to an approval card.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Decision {
+    Allow,
+    Always,
+    Deny,
+}
+
+impl From<Decision> for ApprovalDecision {
+    fn from(d: Decision) -> Self {
+        match d {
+            Decision::Allow => Self::Allow {},
+            Decision::Always => Self::Always {},
+            Decision::Deny => Self::Deny {},
+        }
+    }
+}
+
+/// An action waiting for the user's OK, as the orb shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Asking {
+    pub query_id: String,
+    pub app: String,
+    pub action: String,
+    pub fields: Vec<Field>,
 }
 
 /// The files as `Chat` takes them, or an error past `MAX_UPLOAD` in all.
@@ -224,7 +263,7 @@ pub fn image_uris(images: Vec<DataImage>) -> Result<Vec<String>> {
     Ok(images.into_iter().map(|image| image.0).collect())
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Field {
     pub label: String,
     pub value: String,
@@ -363,15 +402,6 @@ pub struct LinkView {
     pub expires_in: u64,
 }
 
-/// The user's answer to an approval card, and where to stream the run it
-/// resumes.
-pub struct Answer {
-    pub session: String,
-    pub query_id: String,
-    pub decision: ApprovalDecision,
-    pub channel: Channel<BarEvent>,
-}
-
 pub struct Beep {
     node: Node,
     server: EndpointId,
@@ -496,12 +526,13 @@ impl Beep {
         });
     }
 
-    pub fn voice_notes(&self) -> bool {
-        self.saved().voice_notes
+    /// What a new notice does while the user is here.
+    pub fn notice_voice(&self) -> NoticeVoice {
+        self.saved().notice_voice()
     }
 
-    pub fn set_voice_notes(&self, on: bool) {
-        self.update_saved(|s| s.voice_notes = on);
+    pub fn set_notice_voice(&self, choice: NoticeVoice) {
+        self.update_saved(|s| s.set_notice_voice(choice));
     }
 
     /// Whether a pause sends in live mode, rather than only "send".
@@ -682,21 +713,6 @@ impl Beep {
         }
     }
 
-    /// When each spoken prompt of chat `id` was sent. Empty from a server
-    /// that does not keep them.
-    pub async fn spoken_turns(&self, id: &str) -> Vec<i64> {
-        let Ok(session_id) = Uuid::parse_str(id) else {
-            return Vec::new();
-        };
-        match self.call(SpokenTurns { session_id }).await {
-            Ok(turns) => turns,
-            Err(e) => {
-                log::debug!("spoken turns of {id}: {e}");
-                Vec::new()
-            }
-        }
-    }
-
     /// Opens a live transcription: audio goes up `Uplink`, words come
     /// back.
     pub async fn transcribe(
@@ -750,7 +766,7 @@ impl Beep {
         sent: Sent,
         pick: Pick,
         channel: Channel<BarEvent>,
-        news: Option<Teller>,
+        news: Option<&Teller>,
     ) -> Result<String> {
         let images = image_uris(sent.images)?;
         let files = uploads(sent.files)?;
@@ -769,9 +785,7 @@ impl Beep {
                 spoken: sent.spoken,
             })
             .await?;
-        Ok(self
-            .follow(replies, channel, Asked::Here, news.as_ref())
-            .await)
+        Ok(self.follow(replies, channel, Asked::Here, news).await)
     }
 
     /// Sends the session's `index`th prompt again on `pick`, after removing
@@ -820,16 +834,15 @@ impl Beep {
         Ok(())
     }
 
-    /// Answers an approval card and streams the run it starts.
-    pub async fn answer(&self, answer: Answer) -> Result<()> {
-        let Answer {
-            session,
-            query_id,
-            decision,
-            channel,
-        } = answer;
-        let session_id = Uuid::parse_str(&session)
-            .map_err(|_| DesktopError::BadRequest("bad session".into()))?;
+    /// Answers an approval card and returns the id of the run it resumes.
+    pub async fn approve(
+        &self,
+        session: &str,
+        query_id: String,
+        decision: ApprovalDecision,
+    ) -> Result<String> {
+        let session_id =
+            Uuid::parse_str(session).map_err(|_| DesktopError::BadRequest("bad session".into()))?;
         let run = self
             .call(AnswerApproval {
                 session_id,
@@ -837,13 +850,19 @@ impl Beep {
                 decision,
             })
             .await?;
-        let replies = self
-            .stream(GetEvents {
-                run_id: run.id,
-                after: 0,
-            })
-            .await?;
-        self.follow(replies, channel, Asked::Here, None).await;
+        Ok(run.id)
+    }
+
+    /// Streams run `run_id`, resumed by an answer given here, into
+    /// `channel`, telling `news` too when live mode reads it out.
+    pub async fn follow_answered(
+        &self,
+        run_id: String,
+        channel: Channel<BarEvent>,
+        news: Option<&Teller>,
+    ) -> Result<()> {
+        let replies = self.stream(GetEvents { run_id, after: 0 }).await?;
+        self.follow(replies, channel, Asked::Here, news).await;
         Ok(())
     }
 
@@ -941,6 +960,7 @@ impl Beep {
                         }
                         Err(e) => {
                             let message = e.to_string();
+                            tell(RunNews::Failed(message.clone()));
                             let _ = channel.send(BarEvent::Error { message });
                             break;
                         }
@@ -949,6 +969,7 @@ impl Beep {
                 Ok(None) => break,
                 Err(e) => {
                     let message = self.failed(e).await.to_string();
+                    tell(RunNews::Failed(message.clone()));
                     let _ = channel.send(BarEvent::Error { message });
                     break;
                 }
@@ -1008,25 +1029,23 @@ impl Beep {
                     success,
                 },
                 RunEvent::DeviceQuery { query_id, query } => match query {
-                    DeviceQuery::Approve { approval } => BarEvent::Approval {
-                        query_id,
-                        app: approval.app,
-                        action: approval.action,
-                        fields: approval.fields.into_iter().map(Field::from).collect(),
-                    },
+                    DeviceQuery::Approve { approval } => {
+                        let asking = Asking {
+                            query_id,
+                            app: approval.app,
+                            action: approval.action,
+                            fields: approval.fields.into_iter().map(Field::from).collect(),
+                        };
+                        tell(RunNews::Approval(asking.clone()));
+                        BarEvent::Approval {
+                            query_id: asking.query_id,
+                            app: asking.app,
+                            action: asking.action,
+                            fields: asking.fields,
+                        }
+                    }
                     // Another device's run asks that device, not this one.
                     _ if asked == Asked::Elsewhere => continue,
-                    DeviceQuery::MacFiles { command } => {
-                        let answer = DeviceResult {
-                            run_id: run_id.clone(),
-                            query_id,
-                            answer: mac_files::answer(command).await,
-                        };
-                        if let Err(e) = self.call(answer).await {
-                            log::warn!("answering a file query: {e}");
-                        }
-                        continue;
-                    }
                     // The server leaves phone tools out of desktop runs; this
                     // answers any that slip through.
                     _ => {
@@ -1043,13 +1062,20 @@ impl Beep {
                         continue;
                     }
                 },
-                RunEvent::Error { message } => BarEvent::Error { message },
-                RunEvent::RunFinished { status, .. } => BarEvent::Finished { status },
+                RunEvent::Error { message } => {
+                    tell(RunNews::Failed(message.clone()));
+                    BarEvent::Error { message }
+                }
+                RunEvent::RunFinished { status, .. } => {
+                    tell(RunNews::Finished(status.clone()));
+                    BarEvent::Finished { status }
+                }
                 RunEvent::AutoPicked { pick } => BarEvent::AutoPicked {
                     model: pick.model,
                     thinking: pick.thinking,
                 },
                 RunEvent::Transcript { text } => BarEvent::Transcript { text },
+                RunEvent::Sources { sources } => BarEvent::Sources { sources },
                 RunEvent::Usage { .. } | RunEvent::MemoryScore { .. } => continue,
             };
             let finished = matches!(out, BarEvent::Finished { .. });

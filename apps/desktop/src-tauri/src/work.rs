@@ -2,8 +2,7 @@
 //! its turn ends, and the questions they ask through notices.
 
 use crate::{
-    beep::{Beep, Field},
-    commands::Decision,
+    beep::{Beep, Decision, Field},
     error::{DesktopError, Result},
 };
 use beep_proto::{

@@ -3,28 +3,29 @@
 use crate::{
     bar,
     beep::{
-        Answer, BarEvent, Beep, DataImage, FileUpload, LinkView, Pick, Pictures, Sent, Turn,
-        image_uris, qr_svg,
+        BarEvent, Beep, DataImage, Decision, FileUpload, LinkView, Pick, Pictures, RunNews, Sent,
+        Turn, image_uris, qr_svg,
     },
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
     machine::{self, Machine},
-    markdown,
-    state::LinkState,
-    voice::Voice,
+    markdown, orb,
+    state::{LinkState, NoticeVoice},
+    voice::{Answered, NoticeCard, Voice, Waiting},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    Agents, AnswerGroupApproval, ApiError, ApprovalDecision, CancelRun, Chart, ChartRange,
-    ClearMemories, CreateCron, CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory,
-    DeleteSession, DeleteSkill, GetAgents, GetGroup, GetGroupImages, GetModels, GetRouteCard,
-    GetSessionAgents, GetSessionFiles, GroupInvite, GroupPreview, GroupReminder, JoinGroup,
+    Agents, AnswerGroupApproval, ApiError, CancelRun, Chart, ChartRange, ClearMemories, CreateCron,
+    CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession, DeleteSkill,
+    GetAgents, GetGroup, GetGroupImages, GetModels, GetRouteCard, GetSessionAgents,
+    GetSessionFiles, GetSessionSources, GroupInvite, GroupPreview, GroupReminder, JoinGroup,
     LeaveGroup, ListCrons, ListGroupReminders, ListGroups, ListMemories, ListMemoryReads,
     ListMemoryScopes, ListSkills, Memory, MemoryRead, MemoryScope, Models, PeekGroup, PinGroup,
     PinSession, ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session,
     SessionMatch, SetAgents, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession,
-    SharedLink, Skill, StockChart, ToggleCron, TurnAgent, UndoSkill, UnshareSession, UpdateCron,
-    UpdateMemory, UpdateSkill, format_group_code, group_code, node::desktop::Permission,
+    SharedLink, Skill, StockChart, ToggleCron, TurnAgent, TurnSources, UndoSkill, UnshareSession,
+    UpdateCron, UpdateMemory, UpdateSkill, format_group_code, group_code,
+    node::desktop::Permission,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -92,39 +93,86 @@ pub async fn rerun_prompt(
     beep.rerun(session, index, pick, on_event).await
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Decision {
-    Allow,
-    Always,
-    Deny,
-}
-
-impl From<Decision> for ApprovalDecision {
-    fn from(d: Decision) -> Self {
-        match d {
-            Decision::Allow => Self::Allow {},
-            Decision::Always => Self::Always {},
-            Decision::Deny => Self::Deny {},
-        }
-    }
-}
-
+/// Answers an approval card, from the bar or the orb, and streams the run
+/// it resumes into `on_event`.
 #[tauri::command]
 pub async fn answer_approval(
     beep: Service<'_>,
+    voice: State<'_, Arc<Voice>>,
     session: String,
     query_id: String,
     decision: Decision,
     on_event: Channel<BarEvent>,
 ) -> Result<()> {
-    beep.answer(Answer {
+    let run = beep
+        .approve(&session, query_id.clone(), decision.into())
+        .await?;
+    // Whichever of the bar and the orb answered, the other drops its card,
+    // and live mode reads the rest of the reply out when it waits on it.
+    let news = voice.answered(Answered {
         session,
         query_id,
-        decision: decision.into(),
-        channel: on_event,
-    })
-    .await
+        run: run.clone(),
+        decision,
+    });
+    let followed = beep.follow_answered(run, on_event, news.as_ref()).await;
+    if let (Err(e), Some(news)) = (&followed, &news) {
+        news.tell(RunNews::Failed(e.to_string()));
+    }
+    followed
+}
+
+/// What the orb's approval card shows, if live mode waits on one.
+#[tauri::command]
+pub fn live_approval(voice: State<'_, Arc<Voice>>) -> Option<Waiting> {
+    voice.waiting()
+}
+
+/// A click on the orb's approval card: the bar opens on its chat, where the
+/// whole card is.
+#[tauri::command]
+pub fn open_approval(app: AppHandle, beep: Service<'_>, session: String) -> Result<()> {
+    Uuid::parse_str(&session).map_err(|_| DesktopError::BadRequest("not a chat".into()))?;
+    beep.set_session(Some(session));
+    bar::show(&app, Some("open"));
+    Ok(())
+}
+
+/// The new notice the orb's card offers, for an orb opened after it came.
+#[tauri::command]
+pub fn notice_card(voice: State<'_, Arc<Voice>>) -> Option<NoticeCard> {
+    voice.notice_card()
+}
+
+/// Play on the orb's notice card: it is read aloud as a voice note.
+#[tauri::command]
+pub fn play_notice(voice: State<'_, Arc<Voice>>, id: u64) {
+    voice.play_card(id);
+}
+
+/// Open on the orb's notice card, or a click on it: the bar opens on its
+/// chat.
+#[tauri::command]
+pub fn open_notice(voice: State<'_, Arc<Voice>>, id: u64) {
+    voice.open_card(id);
+}
+
+/// × on the orb's notice card.
+#[tauri::command]
+pub fn dismiss_notice(voice: State<'_, Arc<Voice>>, id: u64) {
+    voice.dismiss_card(id);
+}
+
+/// The pointer is on the orb's notice card, which keeps it up, or left it.
+#[tauri::command]
+pub fn hold_notice(voice: State<'_, Arc<Voice>>, id: u64, held: bool) {
+    voice.hold_card(id, held);
+}
+
+/// Puts the orb's window at `width` by `height`, kept in the top right.
+#[tauri::command]
+pub fn fit_orb(app: AppHandle, width: f64, height: f64) -> Result<()> {
+    Ok(orb::fit(&app, width, height)?)
 }
 
 #[tauri::command]
@@ -169,6 +217,15 @@ pub async fn open_session(beep: Service<'_>, id: String) -> Result<Vec<Turn>> {
 #[tauri::command]
 pub async fn session_files(beep: Service<'_>, id: String) -> Result<Vec<SentFiles>> {
     beep.call(GetSessionFiles { session_id: id }).await
+}
+
+/// The web pages each turn of a session used, by the `at` of its user
+/// turn, for the source chips under its reply.
+#[tauri::command]
+pub async fn session_sources(beep: Service<'_>, id: String) -> Result<Vec<TurnSources>> {
+    let session_id =
+        Uuid::parse_str(&id).map_err(|_| DesktopError::BadRequest("not a chat".into()))?;
+    beep.call(GetSessionSources { session_id }).await
 }
 
 #[tauri::command]
@@ -525,7 +582,7 @@ pub struct Settings {
     name: String,
     version: String,
     autostart: bool,
-    voice_notes: bool,
+    notice_voice: NoticeVoice,
     /// In live mode a pause sends, rather than only "send".
     send_on_pause: bool,
 }
@@ -536,14 +593,15 @@ pub fn settings(app: AppHandle, beep: Service<'_>) -> Settings {
         name: crate::computer_name(),
         version: app.package_info().version.to_string(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
-        voice_notes: beep.voice_notes(),
+        notice_voice: beep.notice_voice(),
         send_on_pause: beep.send_on_pause(),
     }
 }
 
+/// Voice notes: ask first, read aloud right away, or off.
 #[tauri::command]
-pub fn set_voice_notes(beep: Service<'_>, enabled: bool) {
-    beep.set_voice_notes(enabled);
+pub fn set_notice_voice(beep: Service<'_>, choice: NoticeVoice) {
+    beep.set_notice_voice(choice);
 }
 
 /// Whether a pause sends in live mode, rather than only saying "send".
@@ -572,19 +630,10 @@ pub fn cancel_live(voice: State<'_, Arc<Voice>>) {
     voice.cancel();
 }
 
-/// Talks live in chat `session`.
+/// Opens or closes the sheet of what to say in live mode; `None` toggles.
 #[tauri::command]
-pub fn continue_live(voice: State<'_, Arc<Voice>>, session: String) -> Result<()> {
-    let session =
-        Uuid::parse_str(&session).map_err(|_| DesktopError::BadRequest("not a chat".into()))?;
-    voice.continue_live(session);
-    Ok(())
-}
-
-/// When each spoken prompt of chat `session` was sent, in ms.
-#[tauri::command]
-pub async fn spoken_turns(beep: Service<'_>, session: String) -> Result<Vec<i64>> {
-    Ok(beep.spoken_turns(&session).await)
+pub fn live_sheet(voice: State<'_, Arc<Voice>>, open: Option<bool>) {
+    voice.sheet(open);
 }
 
 /// Chats live mode talked in, for the mic in the chat list.

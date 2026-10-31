@@ -92,11 +92,18 @@ mod engine {
     use super::{MicChunk, MicDenied, Played, RATE, envelope, level, pcm16, resample};
     use anyhow::{Context, anyhow};
     use block2::RcBlock;
-    use objc2::{AllocAnyThread, rc::Retained, runtime::Bool};
+    use objc2::{
+        AllocAnyThread,
+        rc::Retained,
+        runtime::{Bool, NSObjectProtocol},
+        sel,
+    };
     use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
     use objc2_avf_audio::{
-        AVAudioEngine, AVAudioFile, AVAudioFormat, AVAudioPCMBuffer, AVAudioPlayerNode,
-        AVAudioPlayerNodeCompletionCallbackType, AVAudioTime,
+        AVAudioEngine, AVAudioFile, AVAudioFormat, AVAudioInputNode, AVAudioPCMBuffer,
+        AVAudioPlayerNode, AVAudioPlayerNodeCompletionCallbackType, AVAudioTime,
+        AVAudioVoiceProcessingOtherAudioDuckingConfiguration,
+        AVAudioVoiceProcessingOtherAudioDuckingLevel,
     };
     use objc2_foundation::{NSString, NSURL};
     use std::{
@@ -135,8 +142,11 @@ mod engine {
         /// Opens the microphone with echo cancellation and starts sending
         /// it to `mic`. The first time, macOS asks the user. Blocks until
         /// the engine runs, or fails with `MicDenied` when not allowed.
-        pub fn open(mic: Sender<MicChunk>) -> anyhow::Result<Self> {
-            allowed()?;
+        /// Without `mic` only the player runs, which needs no permission.
+        pub fn open(mic: Option<Sender<MicChunk>>) -> anyhow::Result<Self> {
+            if mic.is_some() {
+                allowed()?;
+            }
             let (commands, inbox) = mpsc::channel();
             let (ready, opened) = mpsc::channel();
             thread::Builder::new()
@@ -173,6 +183,17 @@ mod engine {
         }
     }
 
+    /// Whether the user already let Beep use the microphone. Never asks.
+    pub fn mic_allowed() -> bool {
+        // SAFETY: AVMediaTypeAudio is a constant AVFoundation defines.
+        let Some(audio) = (unsafe { AVMediaTypeAudio }) else {
+            return false;
+        };
+        // SAFETY: a class method safe to call from any thread.
+        let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(audio) };
+        status == AVAuthorizationStatus::Authorized
+    }
+
     /// Asks the user for the microphone when macOS has not yet, and waits
     /// for the answer. An engine started before that hears only silence, or
     /// does not start at all.
@@ -207,28 +228,35 @@ mod engine {
     /// The audio thread: builds the engine, then plays what it is asked
     /// until `Audio` drops.
     fn run(
-        mic: Sender<MicChunk>,
+        mic: Option<Sender<MicChunk>>,
         inbox: mpsc::Receiver<Command>,
         ready: mpsc::Sender<anyhow::Result<()>>,
     ) {
+        let listens = mic.is_some();
         // Voice processing refuses to start when the microphone and the
         // output run at different rates. Bluetooth headphones switch to
         // their call mode when it starts, so the first try can read the
         // microphone's rate from before the switch; the second sees the
         // new one. Failing that, headphones need no echo cancellation.
-        let built = build(mic.clone(), true)
-            .or_else(|e| {
-                log::warn!("starting voice processing again: {e:#}");
-                thread::sleep(DEVICE_SETTLE);
-                build(mic.clone(), true)
-            })
-            .or_else(|e| {
-                log::warn!("starting without voice processing: {e:#}");
-                build(mic, false)
-            });
+        let built = match mic {
+            Some(mic) => build(Some(mic.clone()), true)
+                .or_else(|e| {
+                    log::warn!("starting voice processing again: {e:#}");
+                    thread::sleep(DEVICE_SETTLE);
+                    build(Some(mic.clone()), true)
+                })
+                .or_else(|e| {
+                    log::warn!("starting without voice processing: {e:#}");
+                    build(Some(mic), false)
+                }),
+            None => build(None, false),
+        };
         let (engine, player) = match built {
             Ok(built) => {
-                log::info!("microphone running");
+                log::info!(
+                    "audio running, microphone {}",
+                    if listens { "on" } else { "off" }
+                );
                 // `open` waits for this, so it is there to hear it.
                 let _ = ready.send(Ok(()));
                 built
@@ -255,13 +283,18 @@ mod engine {
         }
         // SAFETY: the player belongs to this thread's engine.
         unsafe { player.stop() };
-        tear_down(&engine);
+        tear_down(&engine, listens);
     }
 
-    /// Stops `engine`, removes its microphone tap and turns voice processing
-    /// off. Left on, voice processing holds the devices and the next engine,
-    /// even one without it, hears nothing.
-    fn tear_down(engine: &AVAudioEngine) {
+    /// Stops `engine`, and when it `listens` removes its microphone tap
+    /// and turns voice processing off. Left on, voice processing holds the
+    /// devices and the next engine, even one without it, hears nothing.
+    fn tear_down(engine: &AVAudioEngine, listens: bool) {
+        if !listens {
+            // SAFETY: the engine was made on this thread.
+            unsafe { engine.stop() };
+            return;
+        }
         // SAFETY: the engine was made on this thread, and the tap, when
         // there is one, is on bus 0 of its input node.
         unsafe {
@@ -277,19 +310,25 @@ mod engine {
     }
 
     fn build(
-        mic: Sender<MicChunk>,
+        mic: Option<Sender<MicChunk>>,
         voice_processing: bool,
     ) -> anyhow::Result<(Retained<AVAudioEngine>, Retained<AVAudioPlayerNode>)> {
+        let Some(mic) = mic else {
+            return build_player();
+        };
         // SAFETY: everything below runs on this one thread, on objects it
         // made, with the arguments AVFoundation documents.
         unsafe {
             let engine = AVAudioEngine::new();
             let input = engine.inputNode();
-            if voice_processing && let Err(e) = input.setVoiceProcessingEnabled_error(true) {
-                log::warn!(
-                    "voice processing is off, so Beep may hear itself: {}",
-                    e.localizedDescription()
-                );
+            if voice_processing {
+                match input.setVoiceProcessingEnabled_error(true) {
+                    Ok(()) => duck_lightly(&input),
+                    Err(e) => log::warn!(
+                        "voice processing is off, so Beep may hear itself: {}",
+                        e.localizedDescription()
+                    ),
+                }
             }
             let format = input.outputFormatForBus(0);
             let rate = format.sampleRate();
@@ -337,7 +376,7 @@ mod engine {
                     rate,
                     2,
                 ) else {
-                    tear_down(&engine);
+                    tear_down(&engine, true);
                     return Err(anyhow!("no output format at {rate} Hz"));
                 };
                 engine.connect_to_format(
@@ -348,9 +387,51 @@ mod engine {
             }
             engine.prepare();
             if let Err(e) = engine.startAndReturnError() {
-                tear_down(&engine);
+                tear_down(&engine, true);
                 return Err(anyhow!(
                     "the microphone could not start: {}",
+                    e.localizedDescription()
+                ));
+            }
+            Ok((engine, player))
+        }
+    }
+
+    /// Voice processing turns other apps' sound down, and by default keeps
+    /// it down until Beep quits, even after the engine stops. Advanced
+    /// ducking lowers it only while someone speaks, and only a little.
+    /// macOS 14 added the setting; older versions keep the default.
+    fn duck_lightly(input: &AVAudioInputNode) {
+        if !input.respondsToSelector(sel!(setVoiceProcessingOtherAudioDuckingConfiguration:)) {
+            return;
+        }
+        // SAFETY: the node answers the selector, so the setter exists, and
+        // it takes this plain struct by value.
+        unsafe {
+            input.setVoiceProcessingOtherAudioDuckingConfiguration(
+                AVAudioVoiceProcessingOtherAudioDuckingConfiguration {
+                    enableAdvancedDucking: Bool::YES,
+                    duckingLevel: AVAudioVoiceProcessingOtherAudioDuckingLevel::Min,
+                },
+            );
+        }
+    }
+
+    /// An engine that only plays, never touching the microphone, so it
+    /// needs no permission.
+    fn build_player() -> anyhow::Result<(Retained<AVAudioEngine>, Retained<AVAudioPlayerNode>)> {
+        // SAFETY: everything below runs on this one thread, on objects it
+        // made, with the arguments AVFoundation documents.
+        unsafe {
+            let engine = AVAudioEngine::new();
+            let player = AVAudioPlayerNode::new();
+            engine.attachNode(&player);
+            engine.connect_to_format(&player, &engine.mainMixerNode(), None);
+            engine.prepare();
+            if let Err(e) = engine.startAndReturnError() {
+                engine.stop();
+                return Err(anyhow!(
+                    "the speaker could not start: {}",
                     e.localizedDescription()
                 ));
             }
@@ -426,7 +507,7 @@ mod engine {
 }
 
 #[cfg(target_os = "macos")]
-pub use engine::Audio;
+pub use engine::{Audio, mic_allowed};
 
 #[cfg(test)]
 mod tests {
