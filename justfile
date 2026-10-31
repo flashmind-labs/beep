@@ -168,17 +168,10 @@ push-server-config:
         -e 's|^log_dir = .*|log_dir = "/data/logs"|' -e '/^sandbox_dir = /d' \
         -e 's|^fcm_credentials = .*|fcm_credentials = "/data/fcm-service-account.json"|' \
         -e 's|^key_file = .*|key_file = "/data/apns-key.p8"|' {{server_config}} \
-        | { echo 'sandbox_dir = "/data/sandboxes"'; cat; } | write config.toml
+        | write config.toml
     write iroh-key < .dev/iroh-key
     if [ -f .dev/fcm-service-account.json ]; then write fcm-service-account.json < .dev/fcm-service-account.json; fi
     if [ -f .dev/apns/key.p8 ]; then write apns-key.p8 < .dev/apns/key.p8; fi
-
-# Load the AppArmor profile that lets the server's sandbox use user namespaces
-install-apparmor:
-    @test -n "{{remote_docker}}" || (echo "Set BEEP_DOCKER_HOST in .env"; exit 1)
-    ssh {{trim_start_match(remote_docker, "ssh://")}} \
-        'sudo tee /etc/apparmor.d/beep-sandbox > /dev/null && sudo apparmor_parser -r /etc/apparmor.d/beep-sandbox' \
-        < deploy/beep-sandbox.apparmor
 
 # Tail the remote server's logs
 remote-logs:

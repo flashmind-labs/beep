@@ -1,8 +1,0 @@
-# Lets the server container create the user namespaces Drop sandboxes run in.
-# Ubuntu denies them to unconfined processes since 24.04.
-abi <abi/4.0>,
-include <tunables/global>
-
-profile beep-sandbox flags=(unconfined) {
-  userns,
-}

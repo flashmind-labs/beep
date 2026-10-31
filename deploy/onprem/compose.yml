@@ -50,9 +50,11 @@ services:
       context: ../..
       target: node
     restart: unless-stopped
+    # The user's environment: Ubuntu, where the agent runs code and keeps
+    # the user's files in /home/user, with sudo and an open network.
     command:
       - --dir
-      - /home/beep/.config/beep-node
+      - /home/user/.config/beep-node
       - local
       - --link
       - /link
@@ -60,17 +62,17 @@ services:
       - ${BEEP_NODE_NAME:-Beep server}
     environment:
       BEEP_EGRESS_LIMIT: ${BEEP_EGRESS_LIMIT:-}
-    # As for the server: only for the egress cap, dropped before the node
-    # runs anything.
+      RUST_LOG: info,iroh=warn,tracing::span=warn
+    # Only for the egress cap. The entrypoint removes it before the node
+    # runs anything, so sudo inside cannot lift the cap.
     cap_add:
       - NET_ADMIN
     depends_on:
       - server
     volumes:
-      # The node's key, and the coding agents' logins.
-      - node-home:/home/beep
-      # Where the agent works.
-      - work:/work
+      # The user's home: their files, ~/.local, the node's key and the
+      # coding agents' logins.
+      - node-home:/home/user
       - link:/link
 
 volumes:
@@ -78,4 +80,3 @@ volumes:
   data:
   link:
   node-home:
-  work:
