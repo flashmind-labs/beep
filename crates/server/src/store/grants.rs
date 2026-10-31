@@ -7,7 +7,11 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{Row, postgres::PgRow};
+use std::time::Duration;
 use uuid::Uuid;
+
+/// How long an ended grant, and a live one's older uses, are kept.
+const GRANT_KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// A grant the user just approved.
 pub(crate) struct NewGrant<'a> {
@@ -172,6 +176,33 @@ impl Store {
         Ok(inserted > 0)
     }
 
+    /// Drops grants that ended more than `GRANT_KEEP` ago, with their uses,
+    /// and of a live grant the uses older than that but its last, which
+    /// the grant list shows. Returns how many rows went.
+    pub(crate) async fn prune_grants(&self) -> Result<u64> {
+        let keep = GRANT_KEEP.as_secs_f64();
+        let grants = sqlx::query(
+            "DELETE FROM grants
+             WHERE LEAST(revoked_at, expires_at) < now() - make_interval(secs => $1)",
+        )
+        .bind(keep)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        // No run lasts that long, so no run's share counts these.
+        let uses = sqlx::query(
+            "DELETE FROM grant_uses u
+             WHERE u.used_at < now() - make_interval(secs => $1)
+               AND EXISTS (SELECT 1 FROM grant_uses n
+                           WHERE n.grant_id = u.grant_id AND n.used_at > u.used_at)",
+        )
+        .bind(keep)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(grants + uses)
+    }
+
     /// Ends grant `id` of `user`; false when they have no such grant or
     /// already revoked it.
     pub(crate) async fn revoke_grant(&self, user: &UserKey, id: Uuid) -> Result<bool> {
@@ -185,6 +216,40 @@ impl Store {
         .await?
         .rows_affected();
         Ok(revoked > 0)
+    }
+
+    /// Makes grant `id` and its uses older than `GRANT_KEEP`, for tests of
+    /// pruning.
+    #[cfg(test)]
+    pub(crate) async fn age_grant(&self, id: Uuid) -> Result<()> {
+        let past = "now() - interval '40 days'";
+        sqlx::query(&format!(
+            "UPDATE grants SET expires_at = {past} WHERE id=$1"
+        ))
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(&format!(
+            "UPDATE grant_uses SET used_at = {past} WHERE grant_id=$1"
+        ))
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Whether grant `id` and how many of its uses are still stored.
+    #[cfg(test)]
+    pub(crate) async fn grant_rows(&self, id: Uuid) -> Result<(bool, i64)> {
+        let grant: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM grants WHERE id=$1)")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+        let uses: i64 = sqlx::query_scalar("SELECT count(*) FROM grant_uses WHERE grant_id=$1")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok((grant, uses))
     }
 
     /// Makes grant `id` expire now, for tests of an expired grant.

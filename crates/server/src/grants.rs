@@ -1258,6 +1258,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_grant_long_ended_is_pruned_with_its_uses() {
+        let fixture = fixture().await;
+        let id = fixture.grant().await;
+        assert!(
+            fixture
+                .call(&fixture.run("run-1"), "c1", reply("ana@example.com"))
+                .await
+        );
+        // A live grant keeps its last use.
+        fixture.store.prune_grants().await.expect("pruned");
+        assert_eq!(fixture.store.grant_rows(id).await.expect("rows"), (true, 1));
+        fixture.store.age_grant(id).await.expect("aged");
+        fixture.store.prune_grants().await.expect("pruned");
+        assert_eq!(
+            fixture.store.grant_rows(id).await.expect("rows"),
+            (false, 0)
+        );
+    }
+
+    #[tokio::test]
     async fn a_revoked_grant_asks() {
         let fixture = fixture().await;
         let id = fixture.grant().await;
