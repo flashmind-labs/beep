@@ -4,7 +4,16 @@ import Speech
 /// Dictation into the composer, as the mic button on Android: partial results fill the draft
 /// while the user speaks, and it stops on its own once they pause.
 @MainActor @Observable final class VoiceInput {
+    /// Why dictation could not start.
+    struct Problem: Equatable {
+        let text: String
+        /// Fixed in Settings, such as the microphone or speech recognition turned off for Beep.
+        var settings = false
+    }
+
     private(set) var listening = false
+    /// Why the last start failed, for the composer to show; cleared by `dismissProblem`.
+    private(set) var problem: Problem?
     private let recognizer = SFSpeechRecognizer()
     private var engine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -15,11 +24,26 @@ import Speech
 
     /// Asks for the microphone and speech recognition the first time, then listens.
     func start(_ text: @escaping @MainActor (String) -> Void) async {
-        guard !listening, let recognizer, recognizer.isAvailable else { return }
+        guard !listening else { return }
+        guard let recognizer else {
+            problem = Problem(text: "Dictation isn’t available in this language.")
+            return
+        }
+        guard recognizer.isAvailable else {
+            problem = Problem(text: "Dictation isn’t available right now. Try again in a moment.")
+            return
+        }
         let speech = await withCheckedContinuation { done in
             SFSpeechRecognizer.requestAuthorization { done.resume(returning: $0) }
         }
-        guard speech == .authorized, await AVAudioApplication.requestRecordPermission() else { return }
+        guard speech == .authorized else {
+            problem = Problem(text: "Allow Speech Recognition for Beep in Settings to dictate.", settings: true)
+            return
+        }
+        guard await AVAudioApplication.requestRecordPermission() else {
+            problem = Problem(text: "Allow the microphone for Beep in Settings to dictate.", settings: true)
+            return
+        }
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
@@ -46,8 +70,11 @@ import Speech
             }
         } catch {
             stop()
+            problem = Problem(text: "Couldn’t start dictation: \(describe(error))")
         }
     }
+
+    func dismissProblem() { problem = nil }
 
     func stop() {
         engine?.stop()

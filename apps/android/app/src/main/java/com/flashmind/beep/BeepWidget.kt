@@ -6,6 +6,7 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.action.actionStartActivity
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
@@ -68,6 +69,22 @@ class BeepWidget : GlanceAppWidget() {
                         ),
                         modifier = GlanceModifier.defaultWeight()
                     )
+                    // Talks live instead of typing.
+                    Box(
+                        modifier = GlanceModifier
+                            .size(40.dp)
+                            .cornerRadius(20.dp)
+                            .background(emerald)
+                            .clickable(actionStartActivity(Intent(context, MainActivity::class.java)
+                                .setAction(LIVE_ACTION).putExtra("origin", LiveOrigin.Widget.name))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            provider = ImageProvider(R.drawable.ic_wave),
+                            contentDescription = "Talk live",
+                            modifier = GlanceModifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }

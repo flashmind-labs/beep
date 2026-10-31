@@ -60,7 +60,7 @@ struct LiveVoiceActivity: Widget {
             HStack(spacing: 12) {
                 SmallOrb(phase: context.state.phase, size: 40)
                 Summary(state: context.state)
-                EndButton()
+                if context.state.phase != .ended { EndButton() }
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
             .activityBackgroundTint(Color(red: 16 / 255, green: 24 / 255, blue: 20 / 255).opacity(0.72))
@@ -78,7 +78,7 @@ struct LiveVoiceActivity: Widget {
                     HStack {
                         Image(systemName: "waveform").foregroundStyle(context.state.phase.tint)
                         Spacer()
-                        EndButton()
+                        if context.state.phase != .ended { EndButton() }
                     }
                 }
             } compactLeading: {
@@ -128,7 +128,7 @@ private struct SmallOrb: View {
         let tones: [Color] = switch phase {
         case .listening: [Color(red: 0xA6 / 255, green: 0xEB / 255, blue: 0xCF / 255), LiveTones.green,
                           Color(red: 0x0F / 255, green: 0x3B / 255, blue: 0x2C / 255)]
-        case .thinking: [Color(red: 0x7F / 255, green: 0xBF / 255, blue: 0xA6 / 255), Color(red: 0x2E / 255, green: 0x6F / 255, blue: 0x59 / 255),
+        case .thinking, .ended: [Color(red: 0x7F / 255, green: 0xBF / 255, blue: 0xA6 / 255), Color(red: 0x2E / 255, green: 0x6F / 255, blue: 0x59 / 255),
                          Color(red: 0x0D / 255, green: 0x2A / 255, blue: 0x20 / 255)]
         case .speaking: [Color(red: 0xFF / 255, green: 0xD0 / 255, blue: 0xC7 / 255), LiveTones.coral,
                          Color(red: 0x5A / 255, green: 0x23 / 255, blue: 0x1C / 255)]
@@ -147,13 +147,14 @@ extension LiveVoiceAttributes.Phase {
         case .listening: "Listening"
         case .thinking: "Thinking"
         case .speaking: "Speaking"
+        case .ended: "Ended"
         }
     }
 
     var tint: Color {
         switch self {
         case .listening: Color(red: 0xA6 / 255, green: 0xEB / 255, blue: 0xCF / 255)
-        case .thinking: Color(red: 0x92 / 255, green: 0xA5 / 255, blue: 0x9A / 255)
+        case .thinking, .ended: Color(red: 0x92 / 255, green: 0xA5 / 255, blue: 0x9A / 255)
         case .speaking: Color(red: 0xFF / 255, green: 0xB5 / 255, blue: 0x9E / 255)
         }
     }

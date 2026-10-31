@@ -18,6 +18,10 @@ enum ChatStore {
         folder.appendingPathComponent(id.replacingOccurrences(of: "/", with: "_") + ".bin")
     }
 
+    private static func sourcesFile(_ id: String) -> URL {
+        folder.appendingPathComponent(id.replacingOccurrences(of: "/", with: "_") + ".sources.json")
+    }
+
     static func loadList() -> ChatListCache {
         guard let data = try? Data(contentsOf: listFile) else { return ChatListCache(sessions: [], groups: []) }
         return decodeChatListCache(bytes: data)
@@ -36,9 +40,23 @@ enum ChatStore {
         write(encodeHistoryCache(cache: cache), to: historyFile(id))
     }
 
+    /// The web pages each turn of a chat used, saved beside its history since the bridge's
+    /// cache has no place for them. Empty when none were saved.
+    static func loadSources(_ id: String) -> [TurnSources] {
+        guard let data = try? Data(contentsOf: sourcesFile(id)),
+            let saved = try? JSONDecoder().decode([SavedSources].self, from: data)
+        else { return [] }
+        return saved.map(\.turn)
+    }
+
+    static func saveSources(_ id: String, _ sources: [TurnSources]) {
+        guard let data = try? JSONEncoder().encode(sources.map { SavedSources($0) }) else { return }
+        write(data, to: sourcesFile(id))
+    }
+
     /// Drops the histories of chats no longer in `keep`.
     static func prune(keep: Set<String>) {
-        let names = Set(keep.map { historyFile($0).lastPathComponent })
+        let names = Set(keep.flatMap { [historyFile($0).lastPathComponent, sourcesFile($0).lastPathComponent] })
         writes.async {
             let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
             for file in files where file != listFile && file != workFile && !names.contains(file.lastPathComponent) {
@@ -100,5 +118,25 @@ private struct SavedWork: Codable {
             queryId: queryId,
             approval: Approval(app: app, action: action, fields: fields.map { ApprovalField(label: $0.label, value: $0.value) }),
             background: true)
+    }
+}
+
+/// One turn's web pages as saved; the bridge's records are not Codable.
+private struct SavedSources: Codable {
+    struct Page: Codable {
+        var url: String
+        var title: String
+    }
+
+    var message: Int64
+    var pages: [Page]
+
+    init(_ turn: TurnSources) {
+        message = turn.message
+        pages = turn.sources.map { Page(url: $0.url, title: $0.title) }
+    }
+
+    var turn: TurnSources {
+        TurnSources(message: message, sources: pages.map { WebSource(url: $0.url, title: $0.title) })
     }
 }

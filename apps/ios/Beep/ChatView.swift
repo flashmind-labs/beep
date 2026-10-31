@@ -4,8 +4,6 @@ struct ChatView: View {
     @Environment(AppModel.self) private var model
     let menu: () -> Void
     let newChat: () -> Void
-    /// Shown in the browser screen's panel: no top bar, and the browser does not open again inside it.
-    var inBrowser = false
     /// Opens the workspace of the research on screen, on a tab or the one that fits.
     var workspace: (WorkspaceTab?) -> Void = { _ in }
     @State private var research = ResearchWatch()
@@ -24,48 +22,36 @@ struct ChatView: View {
     @State private var follow = true
     /// Whether the chat is taller than the screen, which brings up the prompt map.
     @State private var scrolls = false
-    /// The spoken stretches showing all their lines, by their first message's id.
-    @State private var openStretches: Set<String> = []
     @State private var voice = VoiceInput()
     @FocusState private var typing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
-            if !inBrowser { chatBar }
+            chatBar
             ScrollViewReader { scroller in
                 let breaks = dayBreaks(model.chat.messages)
-                let spoken = SpokenStretches(model.chat.messages)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         if model.chat.messages.isEmpty {
                             EmptyChat { follow = true; model.send($0) } fill: { draft = $0; typing = true }
                         }
                         ForEach(Array(model.chat.messages.enumerated()), id: \.element.id) { index, message in
-                            // A spoken stretch draws once, as a transcript, from its first message.
-                            if !spoken.isHidden(message.id) {
-                                VStack(spacing: 12) {
-                                    if let day = breaks[message.id] { DayMarker(day: day) }
-                                    if let stretch = spoken.byFirst[message.id] {
-                                        LiveTranscript(messages: stretch, showAll: Binding(
-                                            get: { openStretches.contains(message.id) },
-                                            set: { if $0 { openStretches.insert(message.id) } else { openStretches.remove(message.id) } }))
-                                    } else {
-                                        MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
-                                                    latest: index == model.chat.messages.count - 1, quote: quote)
-                                    }
-                                    if message.id == newestReply?.id, !model.chat.busy {
-                                        researchRow(after: message)
-                                    }
+                            VStack(spacing: 12) {
+                                if let day = breaks[message.id] { DayMarker(day: day) }
+                                MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
+                                            latest: index == model.chat.messages.count - 1, quote: quote)
+                                if message.id == newestReply?.id, !model.chat.busy {
+                                    researchRow(after: message)
                                 }
-                                // A reply sits close under its own prompt; turns keep the full gap.
-                                .padding(.top, index > 0 && message.role == .assistant
-                                         && model.chat.messages[index - 1].role == .user ? -12 : 0)
-                                .popIn(play: !settled.contains(message.id),
-                                       anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
-                                .onAppear { settled.insert(message.id) }
-                                .id(message.id)
                             }
+                            // A reply sits close under its own prompt; turns keep the full gap.
+                            .padding(.top, index > 0 && message.role == .assistant
+                                     && model.chat.messages[index - 1].role == .user ? -12 : 0)
+                            .popIn(play: !settled.contains(message.id),
+                                   anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
+                            .onAppear { settled.insert(message.id) }
+                            .id(message.id)
                         }
                         if let asked = model.waitingWork[model.chat.id], !asked.isEmpty {
                             BackgroundQuestions(prompts: asked).popIn(anchor: .bottomLeading)
@@ -123,20 +109,7 @@ struct ChatView: View {
                     if scrolls {
                         PromptMap(messages: model.chat.messages) { id in
                             follow = false
-                            guard let first = spoken.firstOf[id] else {
-                                withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo(id, anchor: .top) }
-                                return
-                            }
-                            // A spoken prompt inside a stretch is a line of its block: open the block if
-                            // the line is cut off, bring the block in so the line exists, then go to it.
-                            if let stretch = spoken.byFirst[first], LiveTranscript.cuts(id, in: stretch) {
-                                openStretches.insert(first)
-                            }
-                            scroller.scrollTo(first, anchor: .top)
-                            Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(100))
-                                withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo(id, anchor: .top) }
-                            }
+                            withAnimation(reduceMotion ? nil : .smooth) { scroller.scrollTo(id, anchor: .top) }
                         }
                     }
                 }
@@ -161,7 +134,12 @@ struct ChatView: View {
                 }
                 .animation(.snappy, value: follow)
             }
-            composer
+            // Live voice keeps the chat as it is and puts its controls where the composer sits.
+            if model.live.active {
+                LiveDock().transition(.opacity)
+            } else {
+                composer
+            }
         }
         .background(Mint.page)
         .toolbar(.hidden, for: .navigationBar)
@@ -175,7 +153,7 @@ struct ChatView: View {
         .task(id: isResearch ? model.chat.id : "") { if isResearch { await research.follow(model, model.chat.id) } }
         .onChange(of: model.pendingQuote, initial: true) {
             // Quotes from the workspace pile up in the order they were picked, for one reply to them all.
-            guard !inBrowser, let text = model.pendingQuote else { return }
+            guard let text = model.pendingQuote else { return }
             model.pendingQuote = nil
             let quoted = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 .split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n") + "\n\n"
@@ -186,7 +164,7 @@ struct ChatView: View {
         .paperShare(paper)
         .onChange(of: model.pendingDraft, initial: true) {
             // What was said in live voice and not sent.
-            guard !inBrowser, let text = model.pendingDraft else { return }
+            guard let text = model.pendingDraft else { return }
             model.pendingDraft = nil
             let before = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             draft = before.isEmpty ? text : before + " " + text
@@ -196,16 +174,21 @@ struct ChatView: View {
             model.composeNext = false
             typing = true
         }
+        .closesForLive {
+            typing = false
+            voice.stop()
+            voice.dismissProblem()
+            picking = false
+            camera = false
+            importing = false
+            fileError = ""
+        }
         .onDisappear {
             voice.stop()
-            // The chat under the browser is still on screen.
-            if !inBrowser, model.onScreen == model.chat.id { model.onScreen = nil }
+            if model.onScreen == model.chat.id { model.onScreen = nil }
         }
-        .fullScreenCover(isPresented: Binding(get: { !inBrowser && model.browserOpen },
-                                              set: { if !inBrowser { model.browserOpen = $0 } })) {
-            BrowserView(close: { model.browserOpen = false }) {
-                ChatView(menu: {}, newChat: {}, inBrowser: true)
-            }
+        .fullScreenCover(isPresented: Binding(get: { model.browserOpen }, set: { model.browserOpen = $0 })) {
+            BrowserView(close: { model.browserOpen = false })
         }
         .sheet(isPresented: $picking) {
             PhotoSheet(room: max(0, ChatPhotos.limit - photos.count)) { picked in
@@ -229,7 +212,8 @@ struct ChatView: View {
             guard case .success(let urls) = result else { return }
             var room = SentFile.limit - files.reduce(0) { $0 + $1.size }
             var tooBig = false
-            for url in urls.prefix(ChatPhotos.limit - files.count) {
+            // A queued message put back can leave more files than the limit; prefix traps below zero.
+            for url in urls.prefix(max(0, ChatPhotos.limit - files.count)) {
                 guard let file = try? SentFile.attach(url) else { fileError = "Couldn't read that file"; continue }
                 if file.size > room {
                     tooBig = true
@@ -244,6 +228,14 @@ struct ChatView: View {
         .alert(fileError, isPresented: Binding(get: { !fileError.isEmpty }, set: { if !$0 { fileError = "" } })) {
             Button("OK", role: .cancel) {}
         }
+        .alert(voice.problem?.text ?? "", isPresented: Binding(get: { voice.problem != nil }, set: { if !$0 { voice.dismissProblem() } })) {
+            if voice.problem?.settings == true {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+            }
+            Button(voice.problem?.settings == true ? "Not now" : "OK", role: .cancel) {}
+        }
         .fullScreenCover(isPresented: $camera) {
             ChatCamera(room: max(0, ChatPhotos.limit - photos.count)) { shots in
                 camera = false
@@ -253,7 +245,7 @@ struct ChatView: View {
     }
 
     /// Whether the chat on screen is a research, whose lead answers in it.
-    private var isResearch: Bool { !inBrowser && model.researches.contains(model.chat.id) }
+    private var isResearch: Bool { model.researches.contains(model.chat.id) }
     private var live: ResearchLive? { isResearch ? research.live : nil }
     /// The reply with text that ends the chat; a turn of only tool calls after it does not count.
     private var newestReply: Message? {
@@ -327,16 +319,18 @@ struct ChatView: View {
                     .buttonStyle(ChunkyButton())
                     .accessibilityLabel("Workspace")
             }
-            Button {
-                typing = false
-                voice.stop()
-                model.live.start(from: .app)
-            } label: {
-                Image(systemName: "waveform").font(.system(size: 19, weight: .medium)).foregroundStyle(Mint.muted)
-                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            if !model.live.active {
+                Button {
+                    typing = false
+                    voice.stop()
+                    model.live.start(from: .app)
+                } label: {
+                    Image(systemName: "waveform").font(.system(size: 19, weight: .medium)).foregroundStyle(Mint.muted)
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Talk live")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Talk live")
             Button {
                 typing = false
                 newChat()
@@ -358,6 +352,7 @@ struct ChatView: View {
         let prompt = voice.listening ? "Speak now..." : photos.count > 1 ? "Ask about the photos..."
             : !photos.isEmpty ? "Ask about the photo..." : !files.isEmpty ? "Ask about the file..." : isResearch ? researchHint(live) : "Ask anything..."
         return VStack(alignment: .leading, spacing: 0) {
+            if let ended = model.live.ended { liveEndedRow(ended).unfold() }
             if voice.listening { listeningRow.unfold() }
             if let live, live.running {
                 ResearchProgressRow(live: live, open: { workspace(nil) }) {
@@ -416,13 +411,16 @@ struct ChatView: View {
                             .accessibilityLabel("Stop reply")
                     }
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
-                } else if empty, voice.available {
+                } else if voice.listening || (empty && voice.available) {
+                    // Stays while listening, even once words fill the draft, so it can stop.
                     Button {
                         if voice.listening {
                             voice.stop()
                         } else {
                             typing = false
-                            Task { await voice.start { draft = $0 } }
+                            // What is said goes after what was typed before.
+                            let before = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                            Task { await voice.start { draft = before.isEmpty ? $0 : before + " " + $0 } }
                         }
                     } label: { Image(systemName: "mic") }
                         .buttonStyle(ChunkyButton(fill: voice.listening ? Mint.accent : Mint.surface, size: 50, radius: 18))
@@ -432,6 +430,7 @@ struct ChatView: View {
                 } else {
                     Button {
                         voice.stop()
+                        model.live.dismissEnded()
                         model.send(draft, images: photos, files: files)
                         draft = ""
                         photos = []
@@ -460,6 +459,22 @@ struct ChatView: View {
         .background(Mint.page)
         .animation(.bouncy, value: photos.count)
         .animation(.bouncy, value: files.count)
+    }
+
+    /// Why live voice ended, over the composer until the next message or the cross.
+    private func liveEndedRow(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "mic").font(.system(size: 11, weight: .semibold))
+            Text(text).font(.body(12)).frame(maxWidth: .infinity, alignment: .leading)
+            Button { model.live.dismissEnded() } label: {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(Mint.dim)
+                    .frame(width: 32, height: 32).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .foregroundStyle(Mint.muted)
+        .padding(.leading, 20).padding(.trailing, 12).padding(.top, 4)
     }
 
     /// The pulsing dot over the composer while dictation listens.
@@ -785,6 +800,10 @@ struct MessageView: View {
                 if !message.text.isEmpty {
                     Typewriter(text: message.text, streaming: live) { MarkdownText(text: $0) }.botBubble()
                 }
+                // The web pages the turn used, once the reply is done.
+                if !live, !message.text.isEmpty, !message.sources.isEmpty {
+                    SourceChips(sources: message.sources) { model.openBrowser($0) }.padding(.top, 8)
+                }
                 // A finished tool with something to show is a card, once the reply is done.
                 let cards = message.tools.compactMap(\.card).filter { if case .replies = $0 { false } else { true } }
                 if !live, !cards.isEmpty { ToolCards(cards: cards) { model.openBrowser($0) }.padding(.top, 10) }
@@ -1001,6 +1020,7 @@ struct RerunButton: View {
         .popover(isPresented: $open) {
             menu.presentationCompactAdaptation(.popover).presentationBackground(Mint.surface)
         }
+        .closesForLive { open = false }
     }
 
     private var menu: some View {
@@ -1162,6 +1182,10 @@ struct ApprovalCard: View {
     var body: some View {
         if prompt.withdrawn {
             Label("\(prompt.approval.action) with \(prompt.approval.app): no longer waiting", systemImage: "shield.slash")
+                .font(.body(12, .medium)).foregroundStyle(Mint.muted)
+        } else if prompt.skipped {
+            Label("\(prompt.approval.action) with \(prompt.approval.app): not answered, you wrote again, so not done",
+                  systemImage: "shield.slash")
                 .font(.body(12, .medium)).foregroundStyle(Mint.muted)
         } else if let answer = prompt.answer {
             Label(answerText(answer), systemImage: "shield")

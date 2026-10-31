@@ -13,6 +13,7 @@ import com.flashmind.beep.proto.Approval
 import com.flashmind.beep.proto.ApprovalField
 import com.flashmind.beep.proto.ImageRef
 import com.flashmind.beep.proto.PromptSuggestion
+import com.flashmind.beep.proto.WebSource
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -73,8 +74,8 @@ data class ChatMessage(val id: String = UUID.randomUUID().toString(), val role: 
     val agent: String = "",
     /** Other files sent with this prompt, such as a PDF. */
     val files: List<ToolCard.File> = emptyList(),
-    /** This prompt was said aloud in live mode, so the chat shows it in a live transcript. */
-    val spoken: Boolean = false)
+    /** The web pages this reply used, shown as chips under it. */
+    val sources: List<WebSource> = emptyList())
 
 /** The newest reply of the chat's own turns. A card asked by background work is not one: it sits at the end of the chat. */
 internal fun List<ChatMessage>.lastReply(): ChatMessage? = lastOrNull { m -> m.role == "assistant" && m.approvals.none { it.background } }
@@ -90,7 +91,9 @@ data class ApprovalPrompt(val queryId: String, val approval: Approval, val answe
     val waitsOnTurn get() = waiting && !background
 }
 /** A message held while a reply runs: its text and the pictures and files attached to it. */
-data class QueuedMessage(val text: String, val images: List<String> = emptyList(), val files: List<ToolCard.File> = emptyList())
+data class QueuedMessage(val text: String, val images: List<String> = emptyList(), val files: List<ToolCard.File> = emptyList(),
+    /** Said in live mode, so it goes out as spoken and live mode reads its reply out. */
+    val spoken: Boolean = false)
 data class Conversation(
     val id: String = UUID.randomUUID().toString(), val title: String = NEW_CHAT_TITLE,
     val messages: List<ChatMessage> = emptyList(), val runId: String = "", val cursor: Long = 0,
@@ -100,6 +103,8 @@ data class Conversation(
     val pendingThinking: String = "",
     /** Whether the pending message starts a research rather than asking Beep. */
     val pendingResearch: Boolean = false,
+    /** Whether the pending message was said in live mode, so it goes out with `chatSpoken`. */
+    val pendingSpoken: Boolean = false,
     val status: String = "", val error: String = "",
     val tool: String = "", val pinned: Boolean = false,
     /** The model's reasoning for the current step, shown live and moved onto the reply once it moves on. Not saved. */
@@ -221,9 +226,9 @@ class LocalStorage(internal val context: Context) {
                 ChatMessage(m.getString("id"), m.getString("role"), m.getString("text"), cards, taskSteps, readImages(m, "images", "imageBase64"), toolCalls,
                     m.optDouble("memoryScore").takeUnless { it.isNaN() }, m.optString("reasoning"), approvals, m.optString("model"), m.optLong("sentAt"),
                     m.optString("autoModel"), m.optString("autoThinking"), modelThinking = m.optString("modelThinking"), pictures = readPictures(m), agent = m.optString("agent"),
-                    files = readFiles(m, "files"), spoken = m.optBoolean("spoken"))
+                    files = readFiles(m, "files"), sources = readSources(m))
             }, c.optString("runId"), c.optLong("cursor"), c.optString("requestId"), c.optString("pendingText"),
-                pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingFiles = readFiles(c, "pendingFiles"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"), pendingResearch = c.optBoolean("pendingResearch"),
+                pendingImages = readImages(c, "pendingImages", "pendingImage"), pendingFiles = readFiles(c, "pendingFiles"), pendingModel = c.optString("pendingModel"), pendingThinking = c.optString("pendingThinking"), pendingResearch = c.optBoolean("pendingResearch"), pendingSpoken = c.optBoolean("pendingSpoken"),
                 status = c.optString("status"), error = c.optString("error"), pinned = c.optBoolean("pinned"),
                 version = if (stale) 0 else c.optLong("version"), openedAt = c.optLong("openedAt", System.currentTimeMillis()),
                 updatedAt = c.optLong("updatedAt"), queued = readQueued(c))
@@ -322,12 +327,12 @@ class LocalStorage(internal val context: Context) {
                     .apply { if (m.pictures.isNotEmpty()) put("pictures", JSONArray(m.pictures.map { p ->
                         JSONObject().put("id", p.id).put("mime", p.mime).put("width", p.width.toLong()).put("height", p.height.toLong()) })) }
                     .apply { if (m.files.isNotEmpty()) put("files", filesJson(m.files)) }
+                    .apply { if (m.sources.isNotEmpty()) put("sources", JSONArray(m.sources.map { JSONObject().put("url", it.url).put("title", it.title) })) }
                     .apply { if (m.memoryScore != null) put("memoryScore", m.memoryScore) }
                     .apply { if (m.reasoning.isNotEmpty()) put("reasoning", m.reasoning) }
                     .apply { if (m.model.isNotEmpty()) put("model", m.model) }
                     .apply { if (m.modelThinking.isNotEmpty()) put("modelThinking", m.modelThinking) }
                     .apply { if (m.agent.isNotEmpty()) put("agent", m.agent) }
-                    .apply { if (m.spoken) put("spoken", true) }
                     .apply { if (m.sentAt != 0L) put("sentAt", m.sentAt) }
                     .apply { if (m.autoModel.isNotEmpty()) put("autoModel", m.autoModel).put("autoThinking", m.autoThinking) }
                 if (m.cards.isNotEmpty()) {
@@ -365,12 +370,14 @@ class LocalStorage(internal val context: Context) {
                 .apply { if (c.pendingModel.isNotEmpty()) put("pendingModel", c.pendingModel) }
                 .apply { if (c.pendingThinking.isNotEmpty()) put("pendingThinking", c.pendingThinking) }
                 .apply { if (c.pendingResearch) put("pendingResearch", true) }
+                .apply { if (c.pendingSpoken) put("pendingSpoken", true) }
                 .put("status", c.status).apply { if (c.error.isNotEmpty()) put("error", c.error) }
                 .put("pinned", c.pinned).put("version", c.version).put("openedAt", c.openedAt).put("updatedAt", c.updatedAt)
                 .apply {
                     if (c.queued.isNotEmpty()) put("queued", JSONArray(c.queued.map { q ->
                         JSONObject().put("text", q.text).apply { if (q.images.isNotEmpty()) put("images", JSONArray(q.images)) }
                             .apply { if (q.files.isNotEmpty()) put("files", filesJson(q.files)) }
+                            .apply { if (q.spoken) put("spoken", true) }
                     }))
                 })
         }
@@ -402,11 +409,20 @@ private fun readFiles(json: JSONObject, key: String): List<ToolCard.File> {
     }
 }
 
+/** A reply's web sources; none in chats saved before replies kept them. */
+private fun readSources(json: JSONObject): List<WebSource> {
+    val list = json.optJSONArray("sources") ?: return emptyList()
+    return (0 until list.length()).mapNotNull { i ->
+        val s = list.optJSONObject(i) ?: return@mapNotNull null
+        s.optString("url").takeIf { it.isNotEmpty() }?.let { WebSource(it, s.optString("title")) }
+    }
+}
+
 /** A chat's queued messages; builds before the list kept a single `queuedText` with its images. */
 private fun readQueued(json: JSONObject): List<QueuedMessage> {
     val list = json.optJSONArray("queued")
     if (list != null) return (0 until list.length()).map { list.getJSONObject(it) }
-        .map { QueuedMessage(it.optString("text"), readImages(it, "images", "image"), readFiles(it, "files")) }
+        .map { QueuedMessage(it.optString("text"), readImages(it, "images", "image"), readFiles(it, "files"), it.optBoolean("spoken")) }
     val one = QueuedMessage(json.optString("queuedText"), readImages(json, "queuedImages", "queuedImage"))
     return if (one.text.isNotBlank() || one.images.isNotEmpty()) listOf(one) else emptyList()
 }

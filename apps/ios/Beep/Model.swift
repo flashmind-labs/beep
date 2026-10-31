@@ -43,6 +43,11 @@ struct ApprovalPrompt: Equatable {
     var background = false
     /// The background work stopped waiting before the answer reached it.
     var withdrawn = false
+    /// A turn's question left unanswered because the user wrote again, as on Android.
+    var skipped = false
+
+    /// Still waiting on the user, so a turn's question holds the chat.
+    var waiting: Bool { answer == nil && !withdrawn && !skipped }
 }
 
 struct Message: Identifiable, Equatable {
@@ -72,10 +77,10 @@ struct Message: Identifiable, Equatable {
     var agent = ""
     /// The model and thinking Jev picked for this prompt under Auto; nil when it picked none.
     var auto: AutoPick?
-    /// A prompt said aloud in live mode, which the chat shows as a transcript.
-    var spoken = false
     /// When the server saved a reply from the history, in epoch milliseconds; 0 otherwise.
     var repliedAt: Int64 = 0
+    /// The web pages a reply's turn used, shown as chips under its last reply.
+    var sources: [WebSource] = []
 }
 
 /// A message typed while a reply runs, sent as its own turn once the reply finishes.
@@ -85,6 +90,8 @@ struct QueuedMessage: Equatable {
     var files: [SentFile] = []
     /// Said in live mode, so it goes out as spoken and its reply is read out.
     var spoken = false
+    /// The live session's number for that reply, passed back with its run's events.
+    var reply: UInt64 = 0
 }
 
 /// The open chat and the run streaming into it.
@@ -107,6 +114,8 @@ struct Chat: Equatable {
     var pendingResearch = false
     /// Whether `pendingText` was said in live mode.
     var pendingSpoken = false
+    /// The live session's number for the reply to `pendingText`, when it was said.
+    var pendingReply: UInt64 = 0
     var thinking = ""
     var error = ""
     /// Messages waiting for the reply to finish, sent one by one.
@@ -130,6 +139,7 @@ struct Chat: Equatable {
         pendingThinking = nil
         pendingResearch = false
         pendingSpoken = false
+        pendingReply = 0
     }
 }
 
@@ -158,8 +168,6 @@ final class AppModel {
     private(set) var waitingWork: [String: [ApprovalPrompt]] = ChatStore.loadWork() {
         didSet { ChatStore.saveWork(waitingWork) }
     }
-    /// The `sentAt` of each chat's spoken prompts, by chat id, as of the last history fetch.
-    private var spokenTurns: [String: Set<Int64>] = [:]
     /// Where a tapped notification wants to go; the root view follows it and clears it.
     var destination: Destination?
     /// The group chat on screen instead of the one to one chat, if any.
@@ -190,6 +198,8 @@ final class AppModel {
     @ObservationIgnored lazy var live = LiveVoice(model: self)
     /// The run answering the last spoken message, whose events live mode reads out.
     @ObservationIgnored private var liveRunId = ""
+    /// The live session's number for that reply, which every call about its run carries.
+    @ObservationIgnored private var liveReply: UInt64 = 0
     /// get_route cards by call id. A plan does not change, so each is fetched once.
     @ObservationIgnored private var routes: [String: RouteCard] = [:]
     private var runTask: Task<Void, Never>?
@@ -205,7 +215,7 @@ final class AppModel {
     private var reportedTimezone: String?
     private let pictureCache = PictureCache()
     let replyImages = ReplyImageCache()
-    /// The in-app web view, which Beep's browser tool drives and the browser screen shows.
+    /// The in-app web view the browser screen shows, for links the user opens.
     let browser = PageBrowser()
     /// Whether the browser screen is up over the chat.
     var browserOpen = false
@@ -368,12 +378,23 @@ final class AppModel {
         chat = Chat()
     }
 
+    /// When the open chat last had a turn: now while a reply runs, otherwise the newest of
+    /// the chat list's time, the preview's and its last messages'. Nil when none is known.
+    var openChatActivity: Date? {
+        if chat.busy { return .now }
+        let times: [Int64] = [sessions.first { $0.id == chat.id }?.updatedAt ?? 0, previews[chat.id]?.updatedAt ?? 0]
+            + chat.messages.suffix(2).map { max($0.sentAt, $0.repliedAt) }
+        guard let newest = times.max(), newest > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(newest) / 1000)
+    }
+
     func open(_ session: Session) {
         guard session.id != chat.id else { return }
         stopStreaming()
         chat = Chat(id: session.id, title: session.title)
         if let cached = ChatStore.loadHistory(session.id) {
-            show(cached.entries, images: cached.images, files: cached.files, at: cached.updatedAt)
+            show(cached.entries, images: cached.images, files: cached.files,
+                 sources: ChatStore.loadSources(session.id), at: cached.updatedAt)
         }
         Task {
             await refreshOpenChat()
@@ -502,17 +523,20 @@ final class AppModel {
         let agents = (try? await api().getSessionAgents(id: id)) ?? []
         // And one from before it kept each step's words, whose steps keep the fallback labels.
         let labels = (try? await api().getToolLabels(sessionId: id)) ?? []
-        spokenTurns[id] = await spokenTurnTimes(id)
+        // And one from before it kept the pages each turn used, whose replies show no sources.
+        // A failed fetch keeps the saved ones rather than wiping them.
+        let sources = (try? await api().getSessionSources(sessionId: id)) ?? ChatStore.loadSources(id)
         guard chat.id == id, !chat.busy else { return }
-        show(entries, images: images, files: files, agents: agents, labels: labels, at: updatedAt)
+        show(entries, images: images, files: files, agents: agents, labels: labels, sources: sources, at: updatedAt)
         ChatStore.saveHistory(id, HistoryCache(updatedAt: updatedAt, entries: entries, images: images, files: files))
+        ChatStore.saveSources(id, sources)
         if let session = sessions.first(where: { $0.id == id }) { remember(preview(entries), for: session) }
     }
 
     /// Puts a fetched or saved history on screen as the open chat's messages. Turns where
     /// the model only called tools fold into the next reply with text, as on Android.
     private func show(_ entries: [HistoryEntry], images: [SentImages], files: [SentFiles], agents: [TurnAgent] = [],
-                      labels: [ToolLabel] = [], at updatedAt: Int64) {
+                      labels: [ToolLabel] = [], sources: [TurnSources] = [], at updatedAt: Int64) {
         // The server's words for each step, as the live call carried them; steps from before
         // it kept them have none and get the label from the tool's name.
         var described: [String: String] = [:]
@@ -526,10 +550,13 @@ final class AppModel {
         for sent in files {
             filesByMessage[sent.message] = sent.files.map { SentFile(id: $0.id, name: $0.name, mime: $0.mime, size: Int64($0.size)) }
         }
-        let spoken = spokenTurns[id] ?? []
         var pendingTools: [ToolCall] = []
         var pendingReasoning = ""
         var messages: [Message] = []
+        // The index of each turn's last reply with text, which carries the turn's sources.
+        var lastReply: [Int64: Int] = [:]
+        // The prompt time of the turn the sources go with; a scheduled turn has none, as on Android.
+        var sourceTurn: Int64?
         for (index, entry) in entries.enumerated() {
             let mid = "history-\(id)-\(index)"
             switch entry {
@@ -537,12 +564,13 @@ final class AppModel {
                 pendingTools = []
                 pendingReasoning = ""
                 turnAt = timestamp
+                sourceTurn = timestamp
                 messages.append(Message(id: mid, role: .user, text: content, pictures: pictures[timestamp] ?? [],
-                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp, auto: auto,
-                                        spoken: spoken.contains(timestamp)))
+                                        files: filesByMessage[timestamp] ?? [], sentAt: timestamp, auto: auto))
             case .scheduled(let label, let timestamp):
                 pendingTools = []
                 pendingReasoning = ""
+                sourceTurn = nil
                 messages.append(Message(id: mid, role: .scheduled, text: label, sentAt: timestamp))
             case .assistant(let content, let timestamp, let tools, let memoryScore, let reasoning, let model):
                 let calls = pendingTools + tools.map {
@@ -559,6 +587,7 @@ final class AppModel {
                     messages.append(Message(id: mid, role: .assistant, text: content, tools: calls, reasoning: thought,
                                             model: model, memoryScore: memoryScore, agent: agentByTurn[turnAt] ?? "",
                                             repliedAt: timestamp))
+                    if let sourceTurn { lastReply[sourceTurn] = messages.count - 1 }
                 }
             case .approval(let queryId, let approval):
                 messages.append(Message(
@@ -567,6 +596,9 @@ final class AppModel {
                 pendingTools = []
                 pendingReasoning = ""
             }
+        }
+        for turn in sources where !turn.sources.isEmpty {
+            if let index = lastReply[turn.message] { messages[index].sources = turn.sources }
         }
         chat.messages = keepingLocal(messages)
         chat.historyAt = updatedAt
@@ -703,27 +735,65 @@ final class AppModel {
     // MARK: Runs
 
     /// Sends a message, with up to eight pictures as JPEGs and any other files.
-    func send(_ text: String, images: [Data] = [], files: [SentFile] = [], spoken: Bool = false) {
+    func send(_ text: String, images: [Data] = [], files: [SentFile] = [], spoken: Bool = false, reply: UInt64 = 0) {
         var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty || !files.isEmpty, !chat.busy else { return }
-        // The server needs words; a file sent on its own gets some, as Android does.
-        if trimmed.isEmpty, !files.isEmpty { trimmed = files.count + images.count > 1 ? "Have a look at these files." : "Have a look at this file." }
+        // The server refuses a message without words; a photo or file sent on its own gets
+        // some, as Android does.
+        if trimmed.isEmpty {
+            trimmed = files.isEmpty ? (images.count > 1 ? "What are these?" : "What is this?")
+                : files.count + images.count > 1 ? "Have a look at these files." : "Have a look at this file."
+        }
         if chat.messages.isEmpty { chat.title = String((trimmed.isEmpty ? "Photo" : trimmed).prefix(44)) }
-        startTurn(trimmed, images: images.map(dataURI), files: files, spoken: spoken)
+        startTurn(trimmed, images: images.map(dataURI), files: files, spoken: spoken, reply: reply)
     }
 
-    /// A message said in live mode, in chat `chatId` or, when nil, a new one. It waits for a
-    /// reply still running, as a typed message would. Returns the chat it went to.
-    func sendSpoken(_ text: String, in chatId: String?) -> String {
+    /// A message said in live mode, in chat `chatId` or, when nil, a new one, as the live
+    /// session's reply number `reply`. A spoken reply still running is stopped first, so only
+    /// the new one is read out; a typed one is waited for, as a typed message would.
+    /// Returns the chat it went to.
+    func sendSpoken(_ text: String, in chatId: String?, reply: UInt64) -> String {
         openGroup = nil
         if let chatId { openChat(chatId) } else { newChat() }
         destination = .chat(chat.id)
+        if chat.busy, chat.pendingSpoken || (!liveRunId.isEmpty && chat.runId == liveRunId) { stop() }
+        liveRunId = ""
         if chat.busy {
-            chat.queued.append(QueuedMessage(text: text, images: [], spoken: true))
+            chat.queued.append(QueuedMessage(text: text, images: [], spoken: true, reply: reply))
         } else {
-            send(text, spoken: true)
+            send(text, spoken: true, reply: reply)
         }
         return chat.id
+    }
+
+    /// The live session cancelled the reply to what was said: stops run `runId`, or the
+    /// spoken run of the open chat, or else whatever runs in chat `chatId`, and stops
+    /// handing its events to live voice.
+    func cancelSpokenRun(_ runId: String?, in chatId: String?) {
+        let open = chat.busy && (chat.pendingSpoken || (!liveRunId.isEmpty && chat.runId == liveRunId)
+            || (runId != nil && chat.runId == runId))
+        liveRunId = ""
+        if open { return stop() }
+        guard runId != nil || chatId != nil else { return }
+        Task {
+            do {
+                let api = try api()
+                var id = runId
+                if id == nil, let chatId { id = try await api.activeRun(sessionId: chatId)?.id }
+                if let id { try await api.cancelRun(id: id) }
+            } catch {
+                // The run ended already or the server is out of reach; there is nothing
+                // more to stop, and live voice no longer reads it either way.
+            }
+        }
+    }
+
+    /// The approval live voice waits on, answered here or from the chat: its new run is
+    /// read out as reply `reply`.
+    private func followAnswered(_ queryId: String, run runId: String) {
+        guard let reply = live.answered(queryId) else { return }
+        liveRunId = runId
+        liveReply = reply
     }
 
     /// Starts live voice on this account's connection.
@@ -739,10 +809,19 @@ final class AppModel {
 
     /// Shows `text` as the user's next prompt and sends it, on `model` at `thinking` for a rerun.
     private func startTurn(_ text: String, images: [String], files: [SentFile], model: String = "",
-                           thinking: ReasoningLevel? = nil, research: Bool = false, spoken: Bool = false) {
+                           thinking: ReasoningLevel? = nil, research: Bool = false, spoken: Bool = false,
+                           reply: UInt64 = 0) {
+        // A new message instead of an answer skips the call that waits on it.
+        for index in chat.messages.indices {
+            for card in chat.messages[index].approvals.indices
+            where !chat.messages[index].approvals[card].background && chat.messages[index].approvals[card].waiting {
+                chat.messages[index].approvals[card].skipped = true
+                notifier.removeApproval(chat.messages[index].approvals[card].queryId)
+            }
+        }
         chat.messages.append(Message(id: UUID().uuidString, role: .user, text: text,
                                      pictures: images.map { Picture(dataUri: $0) }, files: files,
-                                     model: model, modelThinking: thinking, spoken: spoken))
+                                     model: model, modelThinking: thinking))
         chat.requestId = UUID().uuidString.lowercased()
         chat.pendingText = text
         chat.pendingImages = images
@@ -751,6 +830,7 @@ final class AppModel {
         chat.pendingThinking = thinking
         chat.pendingResearch = research
         chat.pendingSpoken = spoken
+        chat.pendingReply = reply
         chat.error = ""
         launchRun()
     }
@@ -849,7 +929,7 @@ final class AppModel {
     /// Sends the first queued message now; the rest follow it.
     func sendQueued() {
         guard !chat.busy, let next = unqueue(0) else { return }
-        send(next.text, images: next.images, files: next.files, spoken: next.spoken)
+        send(next.text, images: next.images, files: next.files, spoken: next.spoken, reply: next.reply)
     }
 
     /// Sends the last prompt again after a run that did not finish.
@@ -903,9 +983,11 @@ final class AppModel {
         }
         guard let index = chat.messages.firstIndex(where: { $0.approvals.contains { $0.queryId == prompt.queryId } }),
             let card = chat.messages[index].approvals.firstIndex(where: { $0.queryId == prompt.queryId }),
-            chat.messages[index].approvals[card].answer == nil
+            chat.messages[index].approvals[card].waiting
         else { return }
         chat.messages[index].approvals[card].answer = decision
+        // Answered in the chat, its notification no longer asks, as on Android.
+        notifier.removeApproval(prompt.queryId)
         let sessionId = chat.id
         Task {
             do {
@@ -918,9 +1000,19 @@ final class AppModel {
                 chat.runId = run.id
                 chat.cursor = 0
                 chat.error = ""
+                followAnswered(prompt.queryId, run: run.id)
                 launchRun()
+            } catch BeepError.Conflict {
+                // The server already has an answer for this call.
             } catch {
+                guard chat.id == sessionId else { return }
                 chat.error = describe(error)
+                // Nothing was answered, so the card asks again.
+                for index in chat.messages.indices {
+                    if let card = chat.messages[index].approvals.firstIndex(where: { $0.queryId == prompt.queryId }) {
+                        chat.messages[index].approvals[card].answer = nil
+                    }
+                }
             }
         }
     }
@@ -975,11 +1067,17 @@ final class AppModel {
                     failures += 1
                     connected = false
                     chat.error = failures < 4 ? "Reconnecting…" : describe(error)
+                    let spokenRun = !liveRunId.isEmpty && chat.runId == liveRunId
                     if failures >= 4 {
-                        if chat.pendingSpoken || (!liveRunId.isEmpty && chat.runId == liveRunId) { live.replyFailed() }
+                        if chat.pendingSpoken {
+                            live.replyFailed(chat.pendingReply, .notSent)
+                        } else if spokenRun {
+                            live.replyFailed(liveReply, .connectionLost)
+                        }
                         connect()
                         return
                     }
+                    if spokenRun { live.reconnecting(liveReply) }
                     try? await Task.sleep(for: .milliseconds(1000 << (failures - 1)))
                 }
             }
@@ -1049,7 +1147,10 @@ final class AppModel {
 
     private func handle(_ received: Event) throws {
         if case .runStarted(let runId, _) = received.event {
-            if chat.pendingSpoken { liveRunId = runId }
+            if chat.pendingSpoken {
+                liveRunId = runId
+                liveReply = chat.pendingReply
+            }
             chat.runId = runId
             chat.cursor = 0
             chat.clearPending()
@@ -1059,7 +1160,7 @@ final class AppModel {
         chat.cursor = received.seq
         // Live mode reads out the reply to what was said.
         if !liveRunId.isEmpty, chat.runId == liveRunId {
-            live.reply(received.event)
+            live.reply(liveReply, received.event)
             if case .runFinished = received.event { liveRunId = "" }
         }
         let mid = "assistant-\(chat.runId)"
@@ -1096,13 +1197,17 @@ final class AppModel {
             chat.error = runEndError(status, current: chat.error)
             finished(chat)
             labelAgent(chat.id, reply: mid)
-            // Queued messages wait out a run that stopped or failed, so the user can decide.
-            if chat.error.isEmpty { sendQueued() }
+            // Queued messages wait out a run that stopped, failed or waits on an approval, so the
+            // user can decide; one said in live voice goes anyway, since live voice waits for its reply.
+            let asking = chat.messages.contains { $0.approvals.contains { !$0.background && $0.waiting } }
+            if (chat.error.isEmpty && !asking) || chat.queued.first?.spoken == true { sendQueued() }
             Task { await refreshSessions() }
         case .memoryScore(let probability):
             updateReply(mid) { $0.memoryScore = probability }
         case .autoPicked(let pick):
             if let index = chat.messages.lastIndex(where: { $0.role == .user }) { chat.messages[index].auto = pick }
+        case .sources(let sources):
+            if !sources.isEmpty { updateReply(mid) { $0.sources = sources } }
         case .runStarted, .usage, .transcript:
             break
         }
@@ -1129,16 +1234,13 @@ final class AppModel {
         chat.thinking = ""
     }
 
-    /// Questions about the phone. The browser is not wired up on iPhone yet.
+    /// Questions about the phone. Beep no longer drives the browser, so `browser` is refused.
     private func answerDeviceQuery(runId: String, queryId: String, query: DeviceQuery) {
         Task {
             let answer: DeviceAnswer
             switch query {
             case .contacts(let name): answer = .ok(output: await PhoneContacts.search(name))
-            case .browser(let command):
-                // The page shows while Beep works in it, as on Android.
-                if case .navigate = command { browserOpen = true }
-                answer = .ok(output: await browser.run(command))
+            case .browser: answer = .err(message: "Beep cannot use the browser on the phone.")
             case .approve, .macFiles: answer = .err(message: "The iPhone app cannot do that yet.")
             }
             _ = try? await api().deviceResult(runId: runId, queryId: queryId, answer: answer)
@@ -1596,12 +1698,3 @@ func describe(_ error: Error) -> String {
     }
 }
 
-// MARK: Spoken turns
-
-extension AppModel {
-    /// When each spoken prompt of a chat was sent. Empty on servers from before spoken turns,
-    /// which just means every turn shows as typed.
-    func spokenTurnTimes(_ sessionId: String) async -> Set<Int64> {
-        Set((try? await api().spokenTurns(sessionId: sessionId)) ?? [])
-    }
-}

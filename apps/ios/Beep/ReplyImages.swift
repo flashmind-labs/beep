@@ -111,6 +111,7 @@ struct ReplyImage: View {
                     .accessibilityLabel(picture.alt.isEmpty ? "Image" : picture.alt)
                     .accessibilityAddTraits(.isButton)
                     .fullScreenCover(isPresented: $viewing) { ImageViewer(images: [Shown(picture: picture, image: image)], start: 0) }
+                    .closesForLive { viewing = false }
             case .loading:
                 RoundedRectangle(cornerRadius: 12).fill(Mint.code).frame(maxWidth: .infinity, minHeight: 140)
             case .failed:
@@ -156,6 +157,7 @@ struct ReplyGallery: View {
             .fullScreenCover(isPresented: Binding(get: { viewing != nil }, set: { if !$0 { viewing = nil } })) {
                 ImageViewer(images: shown, start: viewing ?? 0)
             }
+            .closesForLive { viewing = nil }
         }
     }
 
@@ -366,6 +368,10 @@ struct FileCard: View {
         .quickLookPreview($preview)
         .sheet(item: Binding(get: { sharing.map(SheetURL.init) }, set: { sharing = $0?.url })) { item in
             ActivitySheet(items: [item.url]).presentationDetents([.medium, .large])
+        }
+        .closesForLive {
+            preview = nil
+            sharing = nil
         }
     }
 
