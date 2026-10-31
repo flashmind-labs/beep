@@ -127,6 +127,14 @@ pub const CHANGING_TOOLS: &[&str] = &[
     "place_routine",
 ];
 
+/// Takes [`CHANGING_TOOLS`] out of `registry`, for a routine's own run and
+/// for a turn on text anyone can send.
+pub(crate) fn remove_changing_tools(registry: &mut ToolRegistry) {
+    for name in CHANGING_TOOLS {
+        registry.remove(name);
+    }
+}
+
 /// The context lines for a routine's turn. History reads the label back with
 /// [`scheduled_label`] so clients show the turn as a routine, not a prompt.
 pub(crate) fn scheduled_context(label: &str) -> String {
@@ -504,6 +512,20 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), changed.notified())
             .await
             .expect("saving a reminder notifies the scheduler");
+    }
+
+    #[tokio::test]
+    async fn no_tool_that_sets_up_routines_is_left() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("store opens");
+        let mut registry = ToolRegistry::new();
+        register_tools(&mut registry, store, "user", "session", None, None);
+        assert!(registry.contains("cron_create"));
+        remove_changing_tools(&mut registry);
+        for name in CHANGING_TOOLS {
+            assert!(!registry.contains(name), "{name} is gone");
+        }
+        assert!(registry.contains("cron_list"), "reading routines stays");
     }
 
     #[tokio::test]

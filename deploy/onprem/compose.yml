@@ -73,6 +73,9 @@ services:
       # The user's home: their files, ~/.local, the node's key and the
       # coding agents' logins.
       - node-home:/home/user
+      # Where the agent worked before it had a home of its own; its files
+      # stay reachable at ~/work.
+      - work:/home/user/work
       - link:/link
 
 volumes:
@@ -80,3 +83,4 @@ volumes:
   data:
   link:
   node-home:
+  work:

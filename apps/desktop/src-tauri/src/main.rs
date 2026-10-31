@@ -231,6 +231,8 @@ fn main() {
             // However Beep quits, a downloaded update is installed for next time.
             if let RunEvent::Exit = event {
                 update::install(app);
+                // Background tasks the agent started here end with the app.
+                beep_node::kill_tasks();
             }
         });
 }

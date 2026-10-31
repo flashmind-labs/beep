@@ -2,7 +2,10 @@
 //! stream that started them, so they outlive the turn; the node keeps at
 //! most `MAX_TASKS` and the last `MAX_LINES` lines of each.
 
-use crate::process::{GroupLeader, STOP_GRACE};
+use crate::{
+    lines::read_piece,
+    process::{GroupLeader, STOP_GRACE, killpg},
+};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -13,10 +16,10 @@ use std::{
     path::PathBuf,
     process::Stdio,
     sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
+    io::BufReader,
     process::{ChildStdout, Command},
     sync::{oneshot, watch},
     time::timeout,
@@ -34,6 +37,12 @@ const STOP_WAIT: Duration = Duration::from_secs(5);
 /// the Mac app, gets them too without wiring anything.
 static TASKS: LazyLock<Tasks> = LazyLock::new(Tasks::default);
 
+/// Kills every task still running, at once. For a host about to exit, such
+/// as the Mac app: a process exit drops nothing, so its tasks would outlive it.
+pub fn kill_all() {
+    TASKS.kill_all();
+}
+
 /// Serves one session stream until the server closes it.
 pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     while let Some(request) = rx.recv::<Request>().await? {
@@ -48,10 +57,30 @@ struct Tasks {
     inner: Mutex<Inner>,
 }
 
-#[derive(Default)]
 struct Inner {
     last: u32,
     jobs: Vec<Job>,
+}
+
+impl Default for Inner {
+    fn default() -> Self {
+        Self {
+            last: first_id(),
+            jobs: Vec::new(),
+        }
+    }
+}
+
+/// Where a run of the node starts numbering tasks: from the clock, so a
+/// restarted node does not hand out an id the model still holds for a task
+/// that died with the old one.
+fn first_id() -> u32 {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    // Runs started a second apart overlap only after the first gave out a
+    // hundred ids.
+    u32::try_from(secs % 1_000_000 * 100).unwrap_or(0)
 }
 
 struct Job {
@@ -64,6 +93,8 @@ struct Job {
     done: watch::Receiver<bool>,
     /// Dropping the job ends its task, and the group with it.
     _task: AbortOnDropHandle<()>,
+    /// The task's process group, for `kill_all` at exit.
+    group: Option<libc::pid_t>,
 }
 
 struct Shared {
@@ -126,6 +157,7 @@ impl Tasks {
         }));
         let (stop_tx, stop_rx) = oneshot::channel();
         let (done_tx, done_rx) = watch::channel(false);
+        let group = leader.group();
         let task = tokio::spawn(follow(leader, stdout, shared.clone(), stop_rx, done_tx));
         inner.jobs.push(Job {
             id,
@@ -134,6 +166,7 @@ impl Tasks {
             stop: Some(stop_tx),
             done: done_rx,
             _task: AbortOnDropHandle::new(task),
+            group,
         });
         Reply::Started { id }
     }
@@ -143,6 +176,16 @@ impl Tasks {
         match inner.jobs.iter().find(|job| job.id == id) {
             Some(job) => job.status(),
             None => unknown(id),
+        }
+    }
+
+    fn kill_all(&self) {
+        for job in &lock(&self.inner).jobs {
+            // A finished task's leader is reaped, so its group id may be
+            // someone else's now.
+            if let Some(group) = job.group.filter(|_| !*job.done.borrow()) {
+                killpg(group, libc::SIGKILL);
+            }
         }
     }
 
@@ -233,6 +276,9 @@ async fn follow(
 ) {
     let mut stdout = BufReader::new(stdout);
     let mut line = Vec::new();
+    // Past the first piece of a long line: the rest is dropped, as `keep`
+    // only holds the start of a line anyway.
+    let mut cut = false;
     // A dropped sender counts as a stop too: the job is gone.
     let mut stopped = false;
     loop {
@@ -242,9 +288,14 @@ async fn follow(
                 stopped = true;
                 break;
             }
-            read = stdout.read_until(b'\n', &mut line) => match read {
+            read = read_piece(&mut stdout, &mut line) => match read {
                 Ok(0) => break,
-                Ok(_) => keep(&shared, &line),
+                Ok(_) => {
+                    if !cut {
+                        keep(&shared, &line);
+                    }
+                    cut = line.last() != Some(&b'\n');
+                }
                 Err(e) => {
                     log::debug!("reading a background task failed: {e}");
                     break;
@@ -396,6 +447,25 @@ mod tests {
             "the background sleep was stopped with its group: {stat}"
         );
         std::fs::remove_dir_all(dir).expect("the test folder is removed");
+    }
+
+    #[tokio::test]
+    async fn kill_all_ends_running_tasks() {
+        let tasks = Tasks::default();
+        started(
+            tasks
+                .answer(Request::Start {
+                    command: "sleep 300".into(),
+                    cwd: None,
+                })
+                .await,
+        );
+        let mut done = lock(&tasks.inner).jobs[0].done.clone();
+        tasks.kill_all();
+        timeout(Duration::from_secs(10), done.wait_for(|done| *done))
+            .await
+            .expect("the task ends once killed")
+            .expect("the task's watch is still there");
     }
 
     #[tokio::test]

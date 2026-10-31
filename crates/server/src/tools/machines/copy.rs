@@ -21,6 +21,7 @@ pub(crate) trait FileNode: Sync {
     async fn files(&self, request: &Request) -> Result<Reply>;
     /// Makes `dir` and its parents, if the machine can.
     async fn make_dirs(&self, dir: &str) -> Result<()>;
+    fn same_machine(&self, other: &Self) -> bool;
 }
 
 #[async_trait]
@@ -47,6 +48,10 @@ impl FileNode for Online {
             output.trim()
         );
         Ok(())
+    }
+
+    fn same_machine(&self, other: &Self) -> bool {
+        self.connection.remote_id() == other.connection.remote_id()
     }
 }
 
@@ -102,10 +107,10 @@ async fn stat(node: &impl FileNode, path: &str) -> Result<Option<(String, u64, F
 
 /// Copies the file `src` on `from` to `dst` on `to`, making `dst`'s folder.
 /// An existing `dst` is replaced only with `overwrite`.
-pub(crate) async fn copy(
-    from: &impl FileNode,
+pub(crate) async fn copy<N: FileNode>(
+    from: &N,
     src: &str,
-    to: &impl FileNode,
+    to: &N,
     dst: &str,
     overwrite: bool,
 ) -> Result<Copied> {
@@ -121,8 +126,16 @@ pub(crate) async fn copy(
         "the file is larger than {} GiB",
         MAX_COPY >> 30
     );
-    if !overwrite && stat(to, dst).await?.is_some() {
-        bail!("{dst} exists already; pass overwrite: true to replace it");
+    if let Some((existing, ..)) = stat(to, dst).await? {
+        // Writing a file onto itself would empty it before it is read.
+        ensure!(
+            !(from.same_machine(to) && existing == src),
+            "{src} is the file being copied"
+        );
+        ensure!(
+            overwrite,
+            "{dst} exists already; pass overwrite: true to replace it"
+        );
     }
     if let Some(dir) = Path::new(dst).parent().and_then(Path::to_str)
         && !dir.is_empty()
@@ -299,6 +312,18 @@ mod tests {
             self.dirs.lock().unwrap().push(dir.to_owned());
             Ok(())
         }
+
+        fn same_machine(&self, other: &Self) -> bool {
+            std::ptr::eq(self, other)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_file_is_not_copied_onto_itself() {
+        let node = FakeNode::with(4096, &[("/a", b"keep".to_vec())]);
+        let refused = copy(&node, "/a", &node, "/a", true).await.unwrap_err();
+        assert!(refused.to_string().contains("being copied"), "{refused}");
+        assert_eq!(node.file("/a"), Some(b"keep".to_vec()));
     }
 
     #[tokio::test]

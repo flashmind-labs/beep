@@ -232,9 +232,7 @@ impl App {
             turn_agent.as_ref().map(|turn| turn.agent.id),
         );
         if is_cron {
-            for name in cron::CHANGING_TOOLS {
-                registry.remove(name);
-            }
+            cron::remove_changing_tools(&mut registry);
             // A watch ends itself once it has told the user; the digest is
             // always sent and never ends.
             if !message.always_sent
@@ -274,6 +272,11 @@ impl App {
             .is_some_and(|woken| woken.rule.untrusted());
         // The user's machines: exec, process, desktop and code_agent, and
         // their environment, where commands start and files are kept.
+        // Nor does it set up or change routines: a routine's run is trusted,
+        // so one made here would act on what the text asked for.
+        if untrusted {
+            cron::remove_changing_tools(&mut registry);
+        }
         let use_machines = self.allows(Privilege::Nodes, user) && !untrusted;
         let workspace = use_machines.then(|| Workspace::find(self, user)).flatten();
         if use_machines {

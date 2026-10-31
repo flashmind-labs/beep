@@ -1,6 +1,10 @@
 //! `process`: the background tasks `exec` started on a machine.
 
-use super::{Machines, Need, exec::task_lines, in_parameter};
+use super::{
+    Machines, Need,
+    exec::{STEP, task_lines},
+    in_parameter,
+};
 use crate::protocol::node::process::{Reply, Request, Task, TaskId};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
@@ -71,11 +75,8 @@ impl Tool for ProcessTool {
             "additionalProperties": false
         })
     }
-    fn humanize(&self, args: &Value) -> String {
-        match args.get("action").and_then(Value::as_str) {
-            Some("stop") => "Stopping a background command".into(),
-            _ => "Checking background commands".into(),
-        }
+    fn humanize(&self, _: &Value) -> String {
+        STEP.to_owned()
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let args: Args = match serde_json::from_value(ctx.args.clone()) {
