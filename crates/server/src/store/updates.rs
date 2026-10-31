@@ -21,7 +21,7 @@ const TOMBSTONE_KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// How often old tombstones are dropped.
 const PRUNE_EVERY: Duration = Duration::from_secs(60 * 60);
 
-/// Drops tombstones past `TOMBSTONE_KEEP` once an hour.
+/// Drops tombstones past `TOMBSTONE_KEEP`, and ended grants, once an hour.
 pub fn start_pruning(store: Store) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(PRUNE_EVERY);
@@ -31,6 +31,11 @@ pub fn start_pruning(store: Store) {
                 Ok(0) => {}
                 Ok(users) => log::info!("pruned old tombstones of {users} user(s)"),
                 Err(error) => log::warn!("unable to prune tombstones: {error}"),
+            }
+            match store.prune_grants().await {
+                Ok(0) => {}
+                Ok(rows) => log::info!("pruned {rows} ended grant(s) and old grant uses"),
+                Err(error) => log::warn!("unable to prune grants: {error:#}"),
             }
         }
     });
