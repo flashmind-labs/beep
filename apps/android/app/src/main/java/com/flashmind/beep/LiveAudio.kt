@@ -28,7 +28,7 @@ internal val VOICE_SPEEDS = listOf(1f, 1.25f, 1.5f, 2f)
 
 /** How fast Beep's lines play on this phone. */
 internal fun voiceSpeed(context: Context): Float =
-    context.getSharedPreferences("live", Context.MODE_PRIVATE).getFloat("voiceSpeed", 1.5f)
+    context.getSharedPreferences("live", Context.MODE_PRIVATE).getFloat("voiceSpeed", 1.25f)
 
 internal fun setVoiceSpeed(context: Context, speed: Float) {
     context.getSharedPreferences("live", Context.MODE_PRIVATE).edit().putFloat("voiceSpeed", speed).apply()

@@ -34,7 +34,7 @@ final class LiveAudio {
     private var engine = AVAudioEngine()
     private var player = AVAudioPlayerNode()
     /// How much faster than recorded Beep's lines play, at the same pitch.
-    var rate: Float = 1.5 {
+    var rate: Float = 1.25 {
         didSet { speed.rate = rate }
     }
     private var speed = AVAudioUnitTimePitch()

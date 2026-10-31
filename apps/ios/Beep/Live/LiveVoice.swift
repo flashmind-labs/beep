@@ -107,7 +107,7 @@ final class LiveVoice {
     }
 
     /// How fast Beep's lines play, from 1 to 2.
-    var voiceSpeed = UserDefaults.standard.object(forKey: "liveVoiceSpeed") as? Double ?? 1.5 {
+    var voiceSpeed = UserDefaults.standard.object(forKey: "liveVoiceSpeed") as? Double ?? 1.25 {
         didSet {
             UserDefaults.standard.set(voiceSpeed, forKey: "liveVoiceSpeed")
             audio?.rate = Float(voiceSpeed)
