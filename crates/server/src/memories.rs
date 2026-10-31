@@ -789,6 +789,18 @@ pub(crate) fn profile_facts(rows: &[MemoryRow], today: NaiveDate) -> Vec<String>
         .collect()
 }
 
+/// The memory that says which languages the user speaks, such as "Speaks
+/// Spanish and English.", newest first.
+pub(crate) fn languages(rows: &[MemoryRow], today: NaiveDate) -> Option<&str> {
+    rows.iter()
+        .filter(|row| row.scope == Scope::User && !row.valid.ended(today))
+        .map(|row| row.content.as_str())
+        .find(|content| {
+            let content = content.to_lowercase();
+            content.starts_with("speaks ") || content.contains(" speaks ")
+        })
+}
+
 /// The profile a chat's context carries: `profile_facts` cut to
 /// `MAX_PROFILE_CHARS`. `None` when there is nothing to say.
 pub(crate) fn profile(rows: &[MemoryRow], today: NaiveDate) -> Option<String> {
@@ -1056,6 +1068,19 @@ mod tests {
         assert_eq!(ops[1].op, LearnKind::Forget);
         assert!(parse_learn_ops("Nothing to remember.").is_err());
         assert!(parse_learn_ops(r#"{"ops":[]}"#).unwrap().is_empty());
+    }
+
+    #[test]
+    fn languages_come_from_the_memory_that_says_them() {
+        let rows = [
+            row("a", "Lives in Dubai."),
+            row("b", "Speaks Spanish, English and Dutch."),
+        ];
+        assert_eq!(
+            languages(&rows, day("2026-10-31")),
+            Some("Speaks Spanish, English and Dutch.")
+        );
+        assert_eq!(languages(&rows[..1], day("2026-10-31")), None);
     }
 
     #[test]

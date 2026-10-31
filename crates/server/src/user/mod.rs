@@ -15,7 +15,7 @@ use crate::{
     images::Picture,
     memories::{
         CURATE_SWEEP, FILE_CONCURRENCY, FILE_QUESTION, FILING, MAX_FILED, file_question_for,
-        profile,
+        languages, profile,
     },
     permissions::Rules,
     places::PlaceEvent,
@@ -788,6 +788,12 @@ impl User {
     /// The memory profile for a chat's context, `None` when it is empty.
     pub async fn memory_profile(&self) -> Result<Option<String>> {
         Ok(profile(&self.memory_rows().await?, self.today().await))
+    }
+
+    /// The memory saying which languages the user speaks, if there is one.
+    pub async fn spoken_languages(&self) -> Result<Option<String>> {
+        let rows = self.memory_rows().await?;
+        Ok(languages(&rows, self.today().await).map(str::to_owned))
     }
 
     /// Deletes a memory; `false` when the user has no memory with `id`.
