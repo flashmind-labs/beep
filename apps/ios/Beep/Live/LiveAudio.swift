@@ -215,6 +215,8 @@ final class LiveAudio {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         if releasing {
+            // Two voice-processing engines at once leave the newer one's mic quiet.
+            // Turn it off before another starts; failure only risks a quiet mic.
             try? engine.inputNode.setVoiceProcessingEnabled(false)
         }
     }
@@ -239,7 +241,7 @@ final class LiveAudio {
         rebuildSoon?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.state == .running else { return }
-            audioLog.info("audio changed, building the engine again")
+            audioLog.info("refreshing the engine")
             do {
                 try self.rebuild(reset: reset)
             } catch {
