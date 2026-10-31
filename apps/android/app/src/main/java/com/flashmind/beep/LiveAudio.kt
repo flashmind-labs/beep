@@ -23,6 +23,9 @@ private const val MIC_RATE = 16_000
 /** About 100 ms of microphone sound a chunk. */
 private const val MIC_CHUNK_BYTES = MIC_RATE / 10 * 2
 
+/** How much faster than recorded Beep's lines play, at the same pitch. */
+private const val VOICE_SPEED = 1.5f
+
 /**
  * The audio side of live voice: the microphone in as 16 kHz mono PCM16, through the
  * communication path with echo cancellation so Beep's own voice is not heard back and "stop"
@@ -131,7 +134,11 @@ internal class LiveAudio(private val context: Context) {
                 finish(line)
                 true
             }
-            media.setOnPreparedListener { it.start(); listen(it) }
+            media.setOnPreparedListener {
+                it.playbackParams = it.playbackParams.setSpeed(VOICE_SPEED)
+                it.start()
+                listen(it)
+            }
             media.prepareAsync()
         } catch (error: Exception) {
             Log.w("LiveAudio", "could not play a line", error)
