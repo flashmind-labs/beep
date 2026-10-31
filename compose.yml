@@ -10,18 +10,6 @@ services:
     network_mode: host
     volumes:
       - data:/data
-    # For the Drop sandbox behind execute_code. The entrypoint uses SYS_ADMIN
-    # once and drops every capability before the server starts. Drop needs
-    # user namespaces, which the default seccomp profile and Ubuntu's AppArmor
-    # deny; `just install-apparmor` loads the beep-sandbox profile on the host.
-    cap_add:
-      - SYS_ADMIN
-    security_opt:
-      - apparmor=beep-sandbox
-      - seccomp=unconfined
-      - systempaths=unconfined
-    devices:
-      - /dev/net/tun
 volumes:
   # Created by `just push-server-config`, which fills it before the first start.
   data:

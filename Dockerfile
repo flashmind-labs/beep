@@ -29,51 +29,58 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release --package beep-node --bin beep-node \
     && cp target/release/beep-node /usr/local/bin/
 
-# The node bundled with a single-user server (deploy/onprem), so the agent can
-# run shell commands and coding agents on the box. Build it with
-# `--target node`. The coding agents come from npm; set AGENTS to "" to leave
-# them out.
-FROM debian:trixie-slim AS node
+# The user's environment: beep-node in Ubuntu, bundled with a single-user
+# server (deploy/onprem) or run on any other machine, linked over iroh. The
+# agent runs code and keeps the user's files in /home/user, a volume, as the
+# user `user` with passwordless sudo, so it can apt install what it needs.
+# Build it with `--target node`. The coding agents come from npm; set AGENTS
+# to "" to leave them out.
+FROM ubuntu:stonking-20261023.1 AS node
 ARG AGENTS="@anthropic-ai/claude-code @agentclientprotocol/claude-agent-acp @openai/codex @agentclientprotocol/codex-acp"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates curl git iproute2 openssh-client procps ripgrep \
-        python3 python3-venv build-essential nodejs npm \
+        ca-certificates curl git iproute2 openssh-client procps ripgrep sudo wget \
+        build-essential nodejs npm poppler-utils \
+        python3 python3-pip python3-venv python3-numpy python3-pandas \
+        python3-scipy python3-matplotlib python3-openpyxl python3-pypdf \
+        python3-cryptography python3-pil \
     && rm -rf /var/lib/apt/lists/* \
+    # Ubuntu does not package pdfplumber.
+    && pip install --no-cache-dir --break-system-packages pdfplumber \
     && if [ -n "$AGENTS" ]; then npm install -g $AGENTS && npm cache clean --force; fi \
-    && useradd --create-home --shell /bin/bash beep \
-    && mkdir /work && chown beep:beep /work
+    # The image's `ubuntu` user (uid 1000) becomes `user`, so a home volume
+    # made for uid 1000 keeps working.
+    && usermod --login user --home /home/user --move-home ubuntu \
+    && groupmod --new-name user ubuntu \
+    && echo 'user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/user \
+    && chmod 0440 /etc/sudoers.d/user \
+    # pip installs for the user into ~/.local, which the volume keeps.
+    && printf '[global]\nbreak-system-packages = true\n' > /etc/pip.conf
 COPY --from=node-build /usr/local/bin/beep-node /usr/local/bin/
 COPY deploy/onprem/egress.sh /usr/local/bin/beep-egress
 COPY deploy/onprem/node-entrypoint.sh /usr/local/bin/beep-node-entrypoint
-WORKDIR /work
-# Starts as root to cap outgoing traffic, then runs the node as beep.
+ENV BEEP_NODE_WORKSPACE=/home/user
+# What pip installs for the user, also for the non-login shells the node runs.
+ENV PATH=/home/user/.local/bin:$PATH
+WORKDIR /home/user
+VOLUME /home/user
+# Starts as root to cap outgoing traffic, then runs the node as `user`.
 ENTRYPOINT ["beep-node-entrypoint"]
-CMD ["local", "--link", "/link"]
+CMD ["--dir", "/home/user/.config/beep-node", "local", "--link", "/link"]
 
 FROM debian:trixie-slim
-# passt gives Drop its network, poppler-utils has pdftotext, iproute2 has the
-# tc that caps a deploy/onprem server's outgoing traffic.
+# iproute2 has the tc that caps a deploy/onprem server's outgoing traffic.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates iproute2 passt poppler-utils python3 python3-venv \
+    && apt-get install -y --no-install-recommends ca-certificates iproute2 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --create-home beep \
     && mkdir /data && chown beep:beep /data
-# Python for the sandbox, under /usr so Drop exposes it read-only.
-RUN python3 -m venv /usr/local/beep-python \
-    && /usr/local/beep-python/bin/pip install --no-cache-dir \
-        numpy pandas scipy matplotlib openpyxl pypdf cryptography pdfplumber
-ENV PATH=/usr/local/beep-python/bin:$PATH
-ARG DROP_VERSION=v0.3.0
-ARG TARGETARCH
-ADD --chmod=755 https://github.com/wrr/drop/releases/download/${DROP_VERSION}/drop-linux-${TARGETARCH} /usr/local/bin/drop
 COPY --from=build /usr/local/bin/beep-server /usr/local/bin/beep-admin /usr/local/bin/
 COPY deploy/entrypoint.sh /usr/local/bin/beep-entrypoint
 # deploy/onprem starts the server through this one instead.
 COPY deploy/onprem/entrypoint.sh /usr/local/bin/beep-onprem
 COPY deploy/onprem/egress.sh /usr/local/bin/beep-egress
-# Starts as root to prepare /etc for Drop, then runs the server as beep.
+# Starts as root, then runs the server as beep with no capabilities.
 WORKDIR /data
 # The server shuts down cleanly on ctrl-c only.
 STOPSIGNAL SIGINT
