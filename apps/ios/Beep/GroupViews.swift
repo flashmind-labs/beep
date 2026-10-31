@@ -110,6 +110,8 @@ struct GroupChatView: View {
     @State private var picturesSeq: Int64?
     @State private var outgoing: [Outgoing] = []
     @State private var draft = ""
+    /// Replaced on each send, as in the chat's composer.
+    @State private var field = 0
     @State private var error = ""
     @State private var replying: GroupMessage?
     @State private var flashing: Int64?
@@ -355,6 +357,7 @@ struct GroupChatView: View {
         let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return HStack(alignment: .bottom, spacing: 8) {
             TextField("", text: $draft, prompt: Text("Message").foregroundStyle(Mint.dim), axis: .vertical)
+                .id(field)
                 .font(.body(15))
                 .foregroundStyle(Mint.ink)
                 .tint(Mint.ink)
@@ -386,7 +389,11 @@ struct GroupChatView: View {
         }
         let out = Outgoing(text: text)
         outgoing.append(out)
+        // A new text field, so iOS cannot put the sent text back (see the chat's `clearDraft`).
+        let focused = typing
         draft = ""
+        field += 1
+        if focused { Task { @MainActor in typing = true } }
         replying = nil
         error = ""
         Task {
