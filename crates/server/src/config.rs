@@ -129,10 +129,12 @@ fn default_reasoning() -> ReasoningLevel {
     ReasoningLevel::Low
 }
 
-/// Quickest provider to start answering that keeps no data and serves at least fp8.
+/// Fastest provider that keeps no data (zero data retention) and serves at
+/// least fp8.
 fn default_routing() -> ProviderPreferences {
     ProviderPreferences {
         data_collection: Some("deny".into()),
+        zdr: Some(true),
         quantizations: vec![
             Quantization::Fp8,
             Quantization::Fp16,
@@ -140,7 +142,7 @@ fn default_routing() -> ProviderPreferences {
             Quantization::Fp32,
             Quantization::Other("unknown".into()),
         ],
-        sort: Some(ProviderSort::Latency),
+        sort: Some(ProviderSort::Throughput),
         ..Default::default()
     }
 }
@@ -245,5 +247,7 @@ mod tests {
         let routing = &config.model_routing()[&luna];
         assert_eq!(routing.order, ["openai/flex"]);
         assert_eq!(routing.data_collection.as_deref(), Some("deny"));
+        assert_eq!(routing.zdr, Some(true));
+        assert!(matches!(routing.sort, Some(ProviderSort::Throughput)));
     }
 }
