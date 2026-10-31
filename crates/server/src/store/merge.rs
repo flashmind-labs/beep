@@ -6,7 +6,7 @@
 //! thing, such as a place called Home or a setting, the account joined
 //! keeps its own.
 
-use super::{Account, Bumped, Store, groups::new_token};
+use super::{Account, Bumped, NewKey, Store, groups::new_token};
 use crate::{protocol::DeviceKind, user::UserKey};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -134,6 +134,41 @@ impl Store {
             name,
             kind: DeviceKind::parse(&kind).unwrap_or_default(),
         }))
+    }
+
+    /// Links `key`, which has no account, to the one that made the live
+    /// code `code`, using the code up. `None` when the code is not live or
+    /// the key is linked already.
+    pub async fn redeem_invite(&self, code: &str, key: NewKey<'_>) -> Result<Option<String>> {
+        let mut tx = self.pool.begin().await?;
+        let target: Option<String> = sqlx::query_scalar(
+            "DELETE FROM account_invites WHERE code=$1 AND expires_at > now() RETURNING user_id",
+        )
+        .bind(code)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(target) = target else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+        let linked = sqlx::query(
+            "INSERT INTO user_keys (endpoint_id, user_id, name, kind) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (endpoint_id) DO NOTHING",
+        )
+        .bind(key.endpoint.to_string())
+        .bind(&target)
+        .bind(key.name)
+        .bind(key.kind.as_str())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if linked == 0 {
+            // The code stays usable for the key it was meant for.
+            tx.rollback().await?;
+            return Ok(None);
+        }
+        tx.commit().await?;
+        Ok(Some(target))
     }
 
     /// Moves the account of `source` into the one that made the code,

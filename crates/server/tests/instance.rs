@@ -56,15 +56,62 @@ async fn signed_in(app: &Arc<App>, key: &SecretKey) -> SignedIn {
     match app.admit(&key.public()).await.expect("the store answers") {
         Admission::SignedIn(signed_in) => signed_in,
         Admission::Revoked => panic!("the key was revoked"),
-        Admission::NotInvited => panic!("the key was refused"),
+        Admission::NotInvited | Admission::Guest => panic!("the key was refused"),
     }
 }
 
+/// The key does not sign in: refused, or a guest that may only join.
 async fn refused(app: &Arc<App>, key: &SecretKey) -> bool {
     matches!(
         app.admit(&key.public()).await.expect("the store answers"),
-        Admission::NotInvited
+        Admission::NotInvited | Admission::Guest
     )
+}
+
+#[tokio::test]
+async fn a_new_phone_joins_the_owner_with_a_code() {
+    let db = TestDb::new().await.expect("test database");
+    let store = db.store().await.expect("store");
+    let app = app(store.clone(), &[], Some(instance(""))).await;
+    let (phone, second) = (SecretKey::generate(), SecretKey::generate());
+    let owner = signed_in(&app, &phone).await;
+    assert!(matches!(
+        app.admit(&second.public())
+            .await
+            .expect("the store answers"),
+        Admission::Guest
+    ));
+
+    let invite = owner
+        .user
+        .create_invite(
+            &phone.public(),
+            "phone",
+            std::time::Duration::from_secs(600),
+        )
+        .await
+        .expect("a code");
+    let key = || NewKey {
+        endpoint: second.public(),
+        name: "iPhone",
+        kind: DeviceKind::Phone {},
+    };
+    let joined = store
+        .redeem_invite(&invite.code, key())
+        .await
+        .expect("the store answers");
+    assert_eq!(joined.as_deref(), Some(owner.user.id()));
+    let linked = signed_in(&app, &second).await;
+    assert_eq!(linked.user.id(), owner.user.id());
+    assert!(!linked.primary);
+    assert!(
+        store
+            .redeem_invite(&invite.code, key())
+            .await
+            .expect("the store answers")
+            .is_none(),
+        "the code is used up"
+    );
 }
 
 #[tokio::test]

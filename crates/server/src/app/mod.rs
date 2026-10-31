@@ -165,6 +165,9 @@ pub enum Admission {
     Revoked,
     /// A single-user server's key that is not one of its owner's.
     NotInvited,
+    /// A key nobody linked, on a single-user server with an owner: it may
+    /// only join the owner's account with a code (see `crate::guest`).
+    Guest,
 }
 
 /// A `Notice` addressed to one user's open notification streams.
@@ -381,7 +384,7 @@ impl App {
     pub async fn sign_in(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Option<SignedIn>> {
         Ok(match self.admit(endpoint).await? {
             Admission::SignedIn(signed_in) => Some(signed_in),
-            Admission::Revoked | Admission::NotInvited => None,
+            Admission::Revoked | Admission::NotInvited | Admission::Guest => None,
         })
     }
 
@@ -403,7 +406,7 @@ impl App {
             Some(sign_in) => sign_in,
             None => match self.claim_new(instance, endpoint).await? {
                 Some(sign_in) => sign_in,
-                None => return Ok(Admission::NotInvited),
+                None => return Ok(Admission::Guest),
             },
         };
         Ok(match sign_in {
