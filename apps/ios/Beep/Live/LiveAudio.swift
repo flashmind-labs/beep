@@ -33,6 +33,8 @@ final class LiveAudio {
 
     private var engine = AVAudioEngine()
     private var player = AVAudioPlayerNode()
+    /// Plays Beep's voice faster at the same pitch.
+    private var speed = LiveAudio.makeSpeed()
     private var playFormat: AVAudioFormat?
     private var state = State.off
     private var mic: (@Sendable (Data) -> Void)?
@@ -192,7 +194,9 @@ final class LiveAudio {
         }
 
         if player.engine == nil { engine.attach(player) }
-        engine.connect(player, to: engine.mainMixerNode, format: playFormat)
+        if speed.engine == nil { engine.attach(speed) }
+        engine.connect(player, to: speed, format: playFormat)
+        engine.connect(speed, to: engine.mainMixerNode, format: playFormat)
         player.installTap(onBus: 0, bufferSize: 1024, format: playFormat) { buffer, _ in
             voice(Self.level(buffer))
         }
@@ -230,6 +234,7 @@ final class LiveAudio {
         if reset {
             engine = AVAudioEngine()
             player = AVAudioPlayerNode()
+            speed = Self.makeSpeed()
         }
         try Self.configureSession()
         try build()
@@ -287,6 +292,15 @@ final class LiveAudio {
             return Array(all)
         }
         for done in all { done() }
+    }
+
+    /// How much faster than recorded Beep's lines play.
+    private static let voiceRate: Float = 1.5
+
+    private static func makeSpeed() -> AVAudioUnitTimePitch {
+        let speed = AVAudioUnitTimePitch()
+        speed.rate = voiceRate
+        return speed
     }
 
     // MARK: Buffers
