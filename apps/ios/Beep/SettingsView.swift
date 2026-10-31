@@ -3,8 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Binding var path: [Route]
-    /// Only admins get these. With agents on, the agent Jev picks brings the model, and a
-    /// failed pick falls back to General, so Auto on leaves nothing to pick here.
+    /// Only admins get these. Auto picks only the thinking: the model below always applies,
+    /// and with agents on the agent Jev picks brings its prompt and thinking.
     @State private var agents: Agents?
     @State private var agentsError = ""
 
@@ -91,7 +91,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Auto").font(.body(14, .medium)).foregroundStyle(Mint.ink)
                         Text(models.auto
-                             ? (agentsOn ? "Jev picks an agent, which brings its model and thinking" : "Jev picks the model and thinking for each prompt")
+                             ? (agentsOn ? "Jev picks an agent, which brings its prompt and thinking, on the model below" : "Jev picks the thinking for each prompt, on the model below")
                              : (agentsOn ? "Use the model below, with the agent's prompt" : "Off: every prompt uses the model below"))
                             .font(.body(12)).foregroundStyle(Mint.muted)
                     }
@@ -100,13 +100,8 @@ struct SettingsView: View {
                         .labelsHidden().tint(Mint.ok)
                 }
                 .padding(.bottom, 8)
-                if models.auto && !agentsOn {
-                    Text("Used when Jev cannot pick:").font(.body(12)).foregroundStyle(Mint.muted).padding(.bottom, 6)
-                }
             }
-            if !(models.autoAvailable && models.auto && agentsOn) {
-                choicePicker(models)
-            }
+            choicePicker(models)
             Text(agentsOn ? "Applies to your own turns." : "Applies to your own turns. Everyone else stays on the default.")
                 .font(.body(12)).foregroundStyle(Mint.muted).padding(.top, 6)
         }
@@ -344,6 +339,20 @@ private struct TalkToBeepCard: View {
                 }
                 Spacer()
                 Toggle("Send when I stop talking", isOn: $live.sendOnPause).labelsHidden().tint(Mint.ok)
+            }
+            Rectangle().fill(Mint.soft).frame(height: 1)
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Voice speed").font(.body(14, .medium)).foregroundStyle(Mint.ink)
+                    Text("How fast Beep talks in live mode.").font(.body(12)).foregroundStyle(Mint.muted)
+                }
+                HStack(spacing: 6) {
+                    ForEach([1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
+                        FilterChip(label: speed.formatted() + "×", selected: live.voiceSpeed == speed) {
+                            live.voiceSpeed = speed
+                        }
+                    }
+                }
             }
         }
         .padding(16)
