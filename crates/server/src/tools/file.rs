@@ -71,8 +71,9 @@ impl Tool for SendFileTool {
         schema
     }
     fn timeout_secs(&self) -> Option<u64> {
-        // A copy between machines may move up to 2 GiB.
-        Some(30 * 60)
+        // A copy between machines may move up to 2 GiB, which takes 35
+        // minutes on a machine capped at 1 MiB/s.
+        Some(60 * 60)
     }
     fn humanize(&self, args: &Value) -> String {
         if args.get("paper").and_then(Value::as_bool) == Some(true) {

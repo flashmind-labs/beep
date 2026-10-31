@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 use std::{collections::VecDeque, time::Duration};
 
 pub(super) const NAME: &str = "exec";
+/// What every command's step says, `process` calls included: the command
+/// itself stays out of the chat.
+pub(super) const STEP: &str = "Running code";
 
 /// The longest `timeout_secs` the model may set.
 const MAX_TIMEOUT_SECS: u64 = 1800;
@@ -130,8 +133,8 @@ impl Tool for ExecTool {
     fn timeout_secs(&self) -> Option<u64> {
         Some(DEFAULT_LIMIT.as_secs() + 60)
     }
-    fn humanize(&self, args: &Value) -> String {
-        step_label(args)
+    fn humanize(&self, _: &Value) -> String {
+        STEP.to_owned()
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let args: Args = match serde_json::from_value(ctx.args.clone()) {
@@ -177,12 +180,8 @@ impl Tool for ExecTool {
         };
         let limit = args.limit();
         let mut output = Output::new(args.preview());
-        let mut on_output = |text: &str| {
-            for line in text.lines().filter(|line| !line.trim().is_empty()) {
-                ctx.progress(line);
-            }
-            output.push(text);
-        };
+        // Output goes to the model only; the step shows just `STEP`.
+        let mut on_output = |text: &str| output.push(text);
         let exited = match picked.online.exec(&command, limit, &mut on_output).await {
             Ok(exited) => exited,
             Err(e) => {
@@ -325,36 +324,6 @@ pub(super) fn task_lines(lines: &[String], earlier: bool) -> String {
     out
 }
 
-/// What a call's step says: the command, and the machine when `in` names
-/// one.
-fn step_label(args: &Value) -> String {
-    let command = args.get("command").and_then(Value::as_str).unwrap_or("");
-    let label = match shortened(command) {
-        Some(command) => format!("Running {command}"),
-        None => "Running a command".to_owned(),
-    };
-    match args.get("in").and_then(Value::as_str) {
-        Some(machine) if !machine.trim().is_empty() => format!("{label} on {machine}"),
-        _ => label,
-    }
-}
-
-/// The first line of `command`, cut to fit a step's label; `None` when
-/// it is blank.
-fn shortened(command: &str) -> Option<String> {
-    const LONGEST: usize = 60;
-    let line = command
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())?;
-    let more = line.chars().count() > LONGEST || command.trim().lines().nth(1).is_some();
-    let mut text: String = line.chars().take(LONGEST).collect();
-    if more {
-        text.push('…');
-    }
-    Some(text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,27 +395,5 @@ mod tests {
             "cd -- '/srv/my work' || exit 1\nls"
         );
         assert_eq!(in_folder(None, "ls").unwrap(), "ls");
-    }
-
-    #[test]
-    fn steps_say_what_runs_and_where() {
-        assert_eq!(
-            step_label(&json!({ "command": "uname -a" })),
-            "Running uname -a"
-        );
-        assert_eq!(
-            step_label(&json!({ "command": "sw_vers", "in": "mac" })),
-            "Running sw_vers on mac"
-        );
-        assert_eq!(
-            step_label(&json!({ "command": "  \n" })),
-            "Running a command"
-        );
-        assert_eq!(
-            shortened("pip install x\npython3 run.py").as_deref(),
-            Some("pip install x…")
-        );
-        let long = "x".repeat(80);
-        assert_eq!(shortened(&long).map(|s| s.chars().count()), Some(61));
     }
 }

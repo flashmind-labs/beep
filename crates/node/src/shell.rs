@@ -1,7 +1,10 @@
 //! `shell/1` sessions: one bash per stream, kept between commands so `cd`
 //! and `export` carry over.
 
-use crate::process::{GroupLeader, STOP_GRACE};
+use crate::{
+    lines::read_piece,
+    process::{GroupLeader, STOP_GRACE},
+};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -13,7 +16,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout, Command},
     time::timeout,
 };
@@ -92,12 +95,23 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
                 fresh,
                 truncated,
             },
-            End::ShellEnded | End::TimedOut => {
+            End::ShellEnded { exit_code } => {
+                // Stops what the shell started.
+                stop(&mut shell).await;
+                Event::Done {
+                    exit_code,
+                    timed_out: false,
+                    cwd: None,
+                    fresh,
+                    truncated,
+                }
+            }
+            End::TimedOut => {
                 // Stops the shell and everything it started.
                 stop(&mut shell).await;
                 Event::Done {
                     exit_code: None,
-                    timed_out: matches!(end, End::TimedOut),
+                    timed_out: true,
                     cwd: None,
                     fresh,
                     truncated,
@@ -116,10 +130,19 @@ async fn stop(shell: &mut Option<Shell>) {
 }
 
 enum End {
-    Finished { exit_code: i32, cwd: String },
-    ShellEnded,
+    Finished {
+        exit_code: i32,
+        cwd: String,
+    },
+    /// The command ended the shell, such as with `exit`.
+    ShellEnded {
+        exit_code: Option<i32>,
+    },
     TimedOut,
 }
+
+/// How long a shell whose output ended gets to exit, for its exit code.
+const SHELL_EXIT: Duration = Duration::from_secs(2);
 
 struct Shell {
     /// Dropping it kills the shell's group; `stop` ends it gently first.
@@ -162,6 +185,14 @@ impl Shell {
         })
     }
 
+    /// The shell's own exit code once its output ended, as `exit 2` in a
+    /// command leaves it; `None` when it does not exit soon or a signal
+    /// ended it.
+    async fn exit_code(&mut self) -> Option<i32> {
+        let status = timeout(SHELL_EXIT, self.child.child_mut().wait()).await;
+        status.ok()?.ok()?.code()
+    }
+
     async fn run<S: Sink>(&mut self, command: &str, out: &mut Output<'_, S>) -> Result<End> {
         self.stdin
             .write_all(script(command, &self.mark).as_bytes())
@@ -173,9 +204,11 @@ impl Shell {
         let mut line = Vec::new();
         loop {
             line.clear();
-            if self.stdout.read_until(b'\n', &mut line).await? == 0 {
+            if read_piece(&mut self.stdout, &mut line).await? == 0 {
                 out.push(&held).await?;
-                return Ok(End::ShellEnded);
+                return Ok(End::ShellEnded {
+                    exit_code: self.exit_code().await,
+                });
             }
             let text = String::from_utf8_lossy(&line);
             if let Some((exit_code, cwd)) = parse_mark(&text, &self.mark) {
@@ -328,7 +361,10 @@ mod tests {
             "a syntax error fails the command, not the shell: {out}"
         );
         let (_, end) = run(&mut shell, "exit 3").await;
-        assert!(matches!(end, End::ShellEnded));
+        assert!(
+            matches!(end, End::ShellEnded { exit_code: Some(3) }),
+            "exit keeps its code"
+        );
     }
 
     #[test]

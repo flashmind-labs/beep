@@ -25,6 +25,11 @@ impl GroupLeader {
         Self { child, group }
     }
 
+    /// The group's id.
+    pub(crate) fn group(&self) -> Option<libc::pid_t> {
+        self.group
+    }
+
     pub(crate) fn child_mut(&mut self) -> &mut Child {
         &mut self.child
     }
@@ -95,7 +100,7 @@ impl Drop for GroupLeader {
     }
 }
 
-fn killpg(group: libc::pid_t, signal: libc::c_int) {
+pub(crate) fn killpg(group: libc::pid_t, signal: libc::c_int) {
     // SAFETY: killpg takes two integers and only sends a signal; it reads
     // and writes no memory of this process.
     let result = unsafe { libc::killpg(group, signal) };

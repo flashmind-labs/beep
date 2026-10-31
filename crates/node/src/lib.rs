@@ -10,6 +10,7 @@ pub mod agents;
 pub mod claude;
 pub mod env;
 pub mod files;
+mod lines;
 pub mod link;
 pub mod local;
 mod process;
@@ -17,3 +18,5 @@ pub mod service;
 mod shell;
 pub mod state;
 mod tasks;
+
+pub use tasks::kill_all as kill_tasks;

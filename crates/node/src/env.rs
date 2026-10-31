@@ -42,8 +42,14 @@ pub async fn probe() -> EnvReport {
     }
     let has = |name: &str| tools.iter().any(|tool| tool.name == name);
     let mut logins = Vec::new();
+    if has("claude") {
+        logins.push(login("claude", &["auth", "status"], claude_account).await);
+    }
+    if has("codex") {
+        logins.push(login("codex", &["login", "status"], |_| None).await);
+    }
     if has("gh") {
-        logins.push(gh_login().await);
+        logins.push(login("gh", &["auth", "status"], gh_account).await);
     }
     EnvReport {
         os: env::consts::OS.to_owned(),
@@ -84,9 +90,11 @@ fn first_line(text: &str) -> Option<String> {
     Some(line.chars().take(MAX_VERSION).collect())
 }
 
-async fn gh_login() -> Login {
-    let run = Command::new("gh")
-        .args(["auth", "status"])
+/// Whether `tool` is signed in, from its status command: it succeeds only
+/// when signed in, and `account` picks the account from what it printed.
+async fn login(tool: &str, args: &[&str], account: fn(&str) -> Option<String>) -> Login {
+    let run = Command::new(tool)
+        .args(args)
         .stdin(Stdio::null())
         .kill_on_drop(true)
         .output();
@@ -98,11 +106,25 @@ async fn gh_login() -> Login {
         }
         _ => (false, String::new()),
     };
+    let signed_in = signed_in && claude_logged_in(&text) != Some(false);
     Login {
-        tool: "gh".into(),
+        tool: tool.into(),
         signed_in,
-        account: signed_in.then(|| gh_account(&text)).flatten(),
+        account: signed_in.then(|| account(&text)).flatten(),
     }
+}
+
+/// `loggedIn` in `claude auth status`, which prints JSON; `None` for any
+/// other output.
+fn claude_logged_in(status: &str) -> Option<bool> {
+    let status: serde_json::Value = serde_json::from_str(status).ok()?;
+    status.get("loggedIn")?.as_bool()
+}
+
+/// The email in `claude auth status`.
+fn claude_account(status: &str) -> Option<String> {
+    let status: serde_json::Value = serde_json::from_str(status).ok()?;
+    Some(status.get("email")?.as_str()?.to_owned())
 }
 
 /// The account in `gh auth status`, such as "Logged in to github.com account octocat (keyring)".
@@ -191,6 +213,15 @@ fn avd_names(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_claude_auth_status() {
+        let status = r#"{"loggedIn": true, "authMethod": "claude.ai", "email": "me@example.com"}"#;
+        assert_eq!(claude_logged_in(status), Some(true));
+        assert_eq!(claude_account(status).as_deref(), Some("me@example.com"));
+        assert_eq!(claude_logged_in(r#"{"loggedIn": false}"#), Some(false));
+        assert_eq!(claude_logged_in("Logged in using ChatGPT"), None);
+    }
 
     #[test]
     fn gh_status_names_the_account() {
