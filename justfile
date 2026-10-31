@@ -173,6 +173,18 @@ push-server-config:
     if [ -f .dev/fcm-service-account.json ]; then write fcm-service-account.json < .dev/fcm-service-account.json; fi
     if [ -f .dev/apns/key.p8 ]; then write apns-key.p8 < .dev/apns/key.p8; fi
 
+# Copy the local on-prem config into the on-prem server and restart it. The
+# config lives in the main checkout's .dev/, which worktrees share.
+deploy-onprem-config container="beep-onprem-server-1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    config="$(git rev-parse --path-format=absolute --git-common-dir)/../.dev/onprem-server.toml"
+    test -f "$config" || { echo "No $config"; exit 1; }
+    docker exec -i --user beep {{container}} sh -c 'umask 077 && cat > /data/config.toml' < "$config"
+    docker restart {{container}} > /dev/null
+    sleep 3
+    docker logs --since 10s {{container}} 2>&1 | tail -5
+
 # Tail the remote server's logs
 remote-logs:
     DOCKER_HOST={{remote_docker}} docker compose logs -f
