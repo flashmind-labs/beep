@@ -1242,18 +1242,26 @@ struct ApprovalCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Mint.tints[2])
                 Rectangle().fill(Mint.ledge).frame(height: 1.5)
-                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 4) {
-                    ForEach(Array(prompt.approval.fields.enumerated()), id: \.offset) { _, field in
-                        GridRow {
-                            Text(field.label).foregroundStyle(Mint.muted)
-                            Text(field.value).lineLimit(6)
+                let split = ApprovalRecords(prompt.approval.fields)
+                if !split.fields.isEmpty {
+                    Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 4) {
+                        ForEach(Array(split.fields.enumerated()), id: \.offset) { _, field in
+                            GridRow {
+                                Text(field.label).foregroundStyle(Mint.muted)
+                                Text(field.value).lineLimit(6)
+                            }
                         }
                     }
+                    .font(.body(13))
+                    .padding(.horizontal, 14).padding(.top, 12)
                 }
-                .font(.body(13))
-                .padding(.horizontal, 14).padding(.top, 12)
+                if !split.records.isEmpty {
+                    RecordStrip(records: split.records)
+                }
                 HStack(spacing: 8) {
-                    Button("Allow") { model.answer(prompt, .allow) }
+                    Button(split.records.isEmpty ? "Allow" : "Allow all \(split.records.count)") {
+                        model.answer(prompt, .allow)
+                    }
                         .font(.body(14, .semibold)).foregroundStyle(.white)
                         .padding(.horizontal, 20).frame(minHeight: 44)
                         .chunky(Mint.ok, radius: 12)
@@ -1277,6 +1285,67 @@ struct ApprovalCard: View {
         case .always: "Always allowed for \(prompt.approval.app)"
         case .deny: "Denied"
         }
+    }
+}
+
+/// A card's fields split into the call's own and, when it names several records, one group
+/// per record. Each record repeats the same labels ("Subject", "From", "Subject", ...), so the
+/// first label seen twice starts every record.
+struct ApprovalRecords {
+    let fields: [ApprovalField]
+    let records: [[ApprovalField]]
+
+    init(_ all: [ApprovalField]) {
+        var seen = Set<String>()
+        guard let repeated = all.first(where: { !seen.insert($0.label).inserted })?.label,
+              let start = all.firstIndex(where: { $0.label == repeated }) else {
+            fields = all
+            records = []
+            return
+        }
+        var groups: [[ApprovalField]] = []
+        for field in all[start...] {
+            if field.label == repeated || groups.isEmpty { groups.append([]) }
+            groups[groups.count - 1].append(field)
+        }
+        fields = Array(all[..<start])
+        records = groups
+    }
+}
+
+/// The records a call acts on, one small card each, swiped through sideways.
+private struct RecordStrip: View {
+    let records: [[ApprovalField]]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(Array(records.enumerated()), id: \.offset) { _, record in
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let first = record.first {
+                                Text(first.value).font(.body(13, .medium)).lineLimit(2)
+                            }
+                            ForEach(Array(record.dropFirst().enumerated()), id: \.offset) { _, field in
+                                Text(field.value).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1)
+                            }
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
+                        .containerRelativeFrame(.horizontal) { width, _ in width * 0.78 }
+                    }
+                }
+                .scrollTargetLayout()
+                .padding(.horizontal, 14)
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .blocksChatSwipe()
+            Text("Swipe to see all \(records.count)")
+                .font(.body(12)).foregroundStyle(Mint.muted)
+                .padding(.horizontal, 14)
+        }
+        .padding(.top, 12)
     }
 }
 
