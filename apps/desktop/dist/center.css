@@ -170,3 +170,18 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-grip::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background .12s }
 .cc-grip:hover::after, .cc-grip:focus-visible::after, .cwin.resizing .cc-grip::after { background: var(--emerald) }
 .cwin.resizing { cursor: col-resize; user-select: none }
+
+/* Settings, a sheet over the window, as in the mock. */
+.cc-set-scrim { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center }
+.cc-set { width: min(720px, 86%); height: min(520px, 84%); display: grid; grid-template-columns: 170px minmax(0, 1fr); border-radius: 14px; border: 1px solid var(--border); background: #121815; box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; outline: 0 }
+.cc-set .dset-nav { padding: 14px 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; overflow-y: auto }
+.cc-set .dset-nav > b { padding: 0 10px 10px; font-size: 15px; font-weight: 600 }
+.cc-set .dset-body { padding: 16px 20px; overflow: auto; min-width: 0; scrollbar-width: thin }
+.cc-set .dset-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px }
+.cc-set .dset-top .tt { display: grid }
+.cc-set .dset-top b { font-size: 15px; font-weight: 600 }
+.cc-set .dset-top small { font-size: 12px; color: var(--muted) }
+.cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7 }
+.cc-set .cc-skel { margin: 14px 0 }
+.cc-set section { scroll-margin-top: 4px }
+@media (max-width: 560px) { .cc-set { grid-template-columns: minmax(0, 1fr) } .cc-set .dset-nav { display: none } }

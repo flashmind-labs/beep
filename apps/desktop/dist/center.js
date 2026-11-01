@@ -276,6 +276,11 @@ export function registerView(name, view) {
 /// Shows view `name`, passing `arg` to its mount. The others are hidden,
 /// not destroyed, so a reply streaming in the pane keeps going under Home.
 export function go(name, arg) {
+  // Settings open over whatever shows, which stays as it is.
+  if (name === "pane" && arg === "settings") {
+    if (!shown) go("home");
+    return openSettings();
+  }
   const view = views.get(name);
   if (!view) return;
   if (shown && shown !== name) views.get(shown).unmount?.();
@@ -521,7 +526,7 @@ registerSidebarGroup("views", {
     { view: "routines", label: "Routines", svg: IC.loop },
     { view: "settings", label: "Settings", svg: IC.gear },
   ],
-  row: v => sideItem(v.svg, v.label, 0, { current: paneOn().view === v.view }),
+  row: v => sideItem(v.svg, v.label, 0, { current: v.view !== "settings" && paneOn().view === v.view, kbd: v.view === "settings" ? "⌘," : "" }),
   onPick: v => go("pane", v.view),
 });
 
@@ -707,6 +712,76 @@ async function takePending(fallback) {
 
 listen("center-open", () => takePending(null));
 
+// ---------- Settings ----------
+
+/// Settings as a sheet over the window: a dimmed backdrop and a centered
+/// sheet with its sections on the left. Esc or a click outside closes it;
+/// the view behind keeps its state. The sheet draws at once from what
+/// this Mac knows and fills in the server's parts as they answer.
+let settingsOpen = null;
+
+export function openSettings() {
+  if (settingsOpen) return;
+  const sheet = h("div", "cc-set");
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.setAttribute("aria-label", "Settings");
+  sheet.tabIndex = -1;
+  const nav = h("nav", "dset-nav", h("b", "", "Settings"));
+  const body = h("div", "dset-body", h("div", "dset-top", h("span", "tt", h("b", "", "Settings")), h("kbd", "", "esc")), ...skeletonRows());
+  sheet.append(nav, body);
+  const scrim = h("div", "cc-set-scrim", sheet);
+  const back = document.activeElement;
+  scrim.addEventListener("mousedown", e => { if (e.target === scrim) closeSettings(); });
+  // While open, keys stay in the sheet: Esc closes it, and nothing reaches
+  // the page behind.
+  const keys = e => {
+    if (e.key === "Escape") { e.preventDefault(); closeSettings(); }
+    else if (e.metaKey && e.key === ",") e.preventDefault();
+    else if (e.key === "Tab") trapTab(e, sheet);
+    e.stopImmediatePropagation();
+  };
+  window.addEventListener("keydown", keys, true);
+  document.body.append(scrim);
+  settingsOpen = { scrim, keys, back };
+  sheet.focus();
+  pane()?.settings(sheet).catch(e => console.warn("settings:", e));
+}
+
+export function closeSettings() {
+  if (!settingsOpen) return;
+  const { scrim, keys, back } = settingsOpen;
+  settingsOpen = null;
+  window.removeEventListener("keydown", keys, true);
+  scrim.remove();
+  if (back?.isConnected) back.focus();
+}
+
+function skeletonRows() {
+  return [80, 60, 72, 50].map(w => {
+    const row = h("div", "cc-skel");
+    row.style.width = `${w}%`;
+    return row;
+  });
+}
+
+/// Keeps Tab inside the sheet.
+function trapTab(e, sheet) {
+  const all = [...sheet.querySelectorAll("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
+  if (!all.length) return;
+  const first = all[0], last = all[all.length - 1];
+  if (e.shiftKey && (document.activeElement === first || document.activeElement === sheet)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+window.beepOpenSettings = openSettings;
+/// A page Settings leads to, such as Apps: the sheet closes and the pane
+/// shows it; null only closes.
+window.beepSettingsAway = view => {
+  closeSettings();
+  if (view) go("pane", view);
+};
+
 // ---------- Keys ----------
 
 initSideResize($(".cwin"), $("#side-grip"));
@@ -717,7 +792,8 @@ document.addEventListener("keydown", e => {
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
   if (key === "k") { e.preventDefault(); return openPalette(); }
-  const to = { m: "memories", j: "routines", l: "skills", ",": "settings" }[key];
+  if (key === ",") { e.preventDefault(); return openSettings(); }
+  const to = { m: "memories", j: "routines", l: "skills" }[key];
   if (to) { e.preventDefault(); return go("pane", to); }
   if (key === "n" && shown !== "pane") { e.preventDefault(); return go("pane", { chat: { session: null } }); }
 });

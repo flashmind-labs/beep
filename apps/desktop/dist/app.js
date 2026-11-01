@@ -2402,37 +2402,29 @@ function sendRow(onPause) {
     <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:-6px 0 8px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
 }
 
-// Permissions are granted in System Settings; coming back shows them.
-window.addEventListener("focus", () => { if (S.view === "settings" && !$("#unlinkYes")) renderSettings(); });
+/// Settings: drawn at once from what this Mac knows (its own settings and
+/// the last devices, apps and machines seen), then each server-backed
+/// section fills in on its own as its call answers. The calls run side by
+/// side: one after another they took as long as all four together. In the
+/// bar it is the bar's page; in the window it is a sheet over the view
+/// (`SET.root`), which `settingsSheet` opens.
+const SET = { root: null, token: 0, devices: null, machines: undefined, confirm: false };
+const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["general", "General"]];
 
-async function renderSettings(confirm = false) {
-  S.view = "settings";
-  let set;
-  try {
-    set = await invoke("settings");
-  } catch (e) {
-    bar.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(e)}</p></div>`;
-    return;
-  }
-  if (S.view !== "settings") return;
-  const linked = S.link === "linked";
-  let devices = [];
-  if (linked) {
-    try {
-      devices = await invoke("list_devices");
-    } catch (e) {
-      console.warn(e);
-    }
-    if (S.view !== "settings") return;
-    if (!A.apps) A.apps = await invoke("list_apps").catch(() => null);
-    if (S.view !== "settings") return;
-  }
-  const mac = linked ? await invoke("mac_control").catch(e => { console.warn(e); return null; }) : null;
-  if (S.view !== "settings") return;
-  // Only admins may list machines; for anyone else the row stays out.
-  MC.list = linked ? await invoke("list_machines").catch(() => null) : null;
-  if (S.view !== "settings") return;
-  const machines = MC.list ? `<div class="dtoggle"><span><b>Other machines</b><small>${MC.list.length ? esc(`${MC.list.length} linked: ${MC.list.map(m => m.name).join(", ")}`) : "None linked yet"}</small></span><button class="dbtn" id="machines">Show…</button></div>` : "";
+const setRoot = () => SET.root ?? bar;
+/// The sheet is open, or the bar still shows Settings.
+const setShown = () => SET.root ? SET.root.isConnected : S.view === "settings";
+
+// Permissions are granted in System Settings; coming back shows them.
+window.addEventListener("focus", () => { if (setShown() && !$("#unlinkYes")) renderSettings(); });
+
+/// Rows that stand in for a section until the server answers.
+const setSkeleton = n => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
+
+function setDevicesHtml(linked, set) {
+  if (!linked) return `<div class="dtoggle"><span><b>Not linked</b><small>Link to see your chats and memories here</small></span><button class="dbtn pri" id="link">Link to phone…</button></div>`;
+  if (SET.devices === null) return setSkeleton(2);
+  const devices = SET.devices;
   // Whether this Mac made the account, and so links and removes devices.
   const owner = devices.some(d => d.this_device && d.primary);
   const row = d => {
@@ -2441,31 +2433,44 @@ async function renderSettings(confirm = false) {
     const remove = owner && !d.this_device ? `<button class="dbtn quiet" data-remove="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">${ICON.x}</button>` : "";
     return `<div class="dtoggle"><span><b style="display:flex;gap:7px;align-items:center">${esc(d.name)}${tags}</b><small>${d.kind === "phone" ? "Phone" : "Computer"}</small></span>${remove}</div>`;
   };
-  const link = !linked
-    ? `<div class="dtoggle"><span><b>Not linked</b><small>Link to see your chats and memories here</small></span><button class="dbtn pri" id="link">Link to phone…</button></div>`
-    : devices.map(row).join("") + (owner
-      ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'
-      : confirm ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn" id="invite">Link a phone…</button><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`);
-  const ask = linked && confirm ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+  const ask = SET.confirm ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px">
       <b style="font-size:13.5px">Unlink this Mac?</b><div class="dmuted" style="display:block">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
       <div style="display:flex;gap:8px"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn" id="unlinkNo">Cancel</button></div>
       <div class="derr" id="unlinkErr"></div></div></div>` : "";
-  const on = (A.apps ?? []).filter(a => a.connected).map(a => a.name);
-  const apps = linked ? `<div class="dsec flat" style="padding-top:6px">Apps</div>
-      <div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>` : "";
-  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
-    <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">
-      <div class="dsec flat">Devices</div>${link}${ask}${apps}${mac ? thisMac(mac) : ""}${machines}
-      <div class="dsec flat" style="padding-top:6px">General</div>
-      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
-        <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
-      ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}
-    </div>${hints([["esc", "close"]])}`;
-  $("#link")?.addEventListener("click", renderLink);
-  $("#invite")?.addEventListener("click", renderInvitePhone);
-  $("#apps")?.addEventListener("click", renderApps);
-  $("#machines")?.addEventListener("click", renderMachines);
-  bar.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", async () => {
+  return devices.map(row).join("") + (owner
+    ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'
+    : SET.confirm ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn" id="invite">Link a phone…</button><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`) + ask;
+}
+
+function setAppsHtml() {
+  if (!A.apps) return setSkeleton(1);
+  const on = A.apps.filter(a => a.connected).map(a => a.name);
+  return `<div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>`;
+}
+
+/// Other machines; only admins may list them, so for anyone else it stays out.
+function setMachinesHtml() {
+  if (SET.machines === undefined) return setSkeleton(1);
+  const list = SET.machines;
+  if (!list) return "";
+  return `<div class="dtoggle"><span><b>Other machines</b><small>${list.length ? esc(`${list.length} linked: ${list.map(m => m.name).join(", ")}`) : "None linked yet"}</small></span><button class="dbtn" id="machines">Show…</button></div>`;
+}
+
+/// Leaves Settings for another page: in the window the sheet closes and
+/// the pane shows it.
+function setAway(view, inBar) {
+  if (SET.root && window.beepSettingsAway) return window.beepSettingsAway(view);
+  inBar();
+}
+
+/// Binds the controls inside `el`, a section or the whole page.
+function bindSettings(el) {
+  const $in = sel => el.querySelector(sel);
+  $in("#link")?.addEventListener("click", () => setAway("link", renderLink));
+  $in("#invite")?.addEventListener("click", () => setAway("invite", renderInvitePhone));
+  $in("#apps")?.addEventListener("click", () => setAway("apps", renderApps));
+  $in("#machines")?.addEventListener("click", () => setAway("machines", renderMachines));
+  el.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", async () => {
     b.disabled = true;
     try {
       await invoke("remove_device", { id: b.dataset.remove });
@@ -2474,17 +2479,18 @@ async function renderSettings(confirm = false) {
     }
     renderSettings();
   }));
-  $("#unlink")?.addEventListener("click", () => renderSettings(true));
-  $("#unlinkNo")?.addEventListener("click", () => renderSettings());
-  $("#unlinkYes")?.addEventListener("click", async () => {
+  $in("#unlink")?.addEventListener("click", () => renderSettings(true));
+  $in("#unlinkNo")?.addEventListener("click", () => renderSettings());
+  $in("#unlinkYes")?.addEventListener("click", async () => {
     try {
       await invoke("unlink");
+      if (SET.root) window.beepSettingsAway?.(null);
       show(null);
     } catch (e) {
       $("#unlinkErr").textContent = String(e);
     }
   });
-  $("#usemac")?.addEventListener("click", async e => {
+  $in("#usemac")?.addEventListener("click", async e => {
     const sw = e.currentTarget;
     sw.disabled = true;
     try {
@@ -2494,17 +2500,17 @@ async function renderSettings(confirm = false) {
     }
     renderSettings();
   });
-  bar.querySelectorAll("[data-allow]").forEach(b => b.addEventListener("click", () =>
+  el.querySelectorAll("[data-allow]").forEach(b => b.addEventListener("click", () =>
     invoke("allow_mac_permission", { permission: b.dataset.allow }).catch(e => console.warn(e))));
-  bar.querySelectorAll("[data-vn]").forEach(b => b.addEventListener("click", async () => {
+  el.querySelectorAll("[data-vn]").forEach(b => b.addEventListener("click", async () => {
     await invoke("set_notice_voice", { choice: b.dataset.vn }).catch(e => console.warn(e));
-    if (S.view === "settings") renderSettings();
+    if (setShown()) renderSettings();
   }));
-  bar.querySelectorAll("[data-pause]").forEach(b => b.addEventListener("click", async () => {
+  el.querySelectorAll("[data-pause]").forEach(b => b.addEventListener("click", async () => {
     await invoke("set_send_on_pause", { enabled: b.dataset.pause === "1" }).catch(e => console.warn(e));
-    if (S.view === "settings") renderSettings();
+    if (setShown()) renderSettings();
   }));
-  $("#autostart").addEventListener("click", async e => {
+  $in("#autostart")?.addEventListener("click", async e => {
     const sw = e.currentTarget, on = sw.getAttribute("aria-checked") !== "true";
     try {
       await invoke("set_autostart", { enabled: on });
@@ -2513,6 +2519,75 @@ async function renderSettings(confirm = false) {
       console.warn(err);
     }
   });
+}
+
+/// Redraws one section in place, once its data came.
+function fillSection(id, html) {
+  const box = setRoot().querySelector(`#set-${id}`);
+  if (!box) return;
+  box.innerHTML = html;
+  bindSettings(box);
+}
+
+/// Draws Settings into `root` (the window's sheet), or the bar when none.
+async function renderSettings(confirm = false, root = undefined) {
+  if (root !== undefined) SET.root = root;
+  else if (SET.root && !SET.root.isConnected) SET.root = null;
+  // The window shows Settings as its sheet, never as a page of the pane.
+  if (PANE && !SET.root && window.beepOpenSettings) return window.beepOpenSettings();
+  if (!SET.root) S.view = "settings";
+  SET.confirm = confirm;
+  const token = ++SET.token;
+  const alive = () => SET.token === token && setShown();
+  // Local: answered by this Mac, never the server.
+  const [set, mac] = await Promise.all([
+    invoke("settings"),
+    invoke("mac_control").catch(e => { console.warn(e); return null; }),
+  ]).catch(e => [e, null]);
+  if (!alive()) return;
+  const el = setRoot();
+  if (set instanceof Error || typeof set !== "object") {
+    el.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(set)}</p></div>`;
+    return;
+  }
+  const linked = S.link === "linked";
+  const sec = (id, title, body) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dsec flat" style="padding-top:6px">${title}</div><div id="set-${id}">${body}</div></section>`;
+  const sections = sec("devices", "Devices", setDevicesHtml(linked, set))
+    + (linked ? sec("apps", "Apps", setAppsHtml()) : "")
+    + (linked && mac ? `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>` : "")
+    + (linked ? sec("machines", "Machines", setMachinesHtml()) : "")
+    + `<section id="set-general-sec" data-sec="general"><div class="dsec flat" style="padding-top:6px">General</div>
+      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
+        <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
+      ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}</section>`;
+  if (SET.root) {
+    const shown = new Set([...sections.matchAll(/data-sec="(\w+)"/g)].map(m => m[1]));
+    const nav = SET_SECTIONS.filter(([id]) => shown.has(id))
+      .map(([id, label], i) => `<button class="cc-si" data-goto="${id}"${i === 0 ? ' aria-current="true"' : ""}>${label}</button>`).join("");
+    const top = el.querySelector(".dset-body")?.scrollTop ?? 0;
+    el.innerHTML = `<nav class="dset-nav" aria-label="Settings sections"><b>Settings</b>${nav}</nav>
+      <div class="dset-body"><div class="dset-top"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span><kbd>esc</kbd></div>
+      <div class="dform" style="display:flex;flex-direction:column">${sections}</div></div>`;
+    const body = el.querySelector(".dset-body");
+    body.scrollTop = top;
+    el.querySelectorAll("[data-goto]").forEach(b => b.addEventListener("click", () => {
+      el.querySelectorAll("[data-goto]").forEach(x => x.removeAttribute("aria-current"));
+      b.setAttribute("aria-current", "true");
+      el.querySelector(`#set-${b.dataset.goto}-sec`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }));
+  } else {
+    el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
+      <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">${sections}</div>${hints([["esc", "close"]])}`;
+  }
+  bindSettings(el);
+  if (!linked) return;
+  // The server's parts, side by side; each fills its section as it answers.
+  invoke("list_devices").then(d => { SET.devices = d; }, e => { console.warn(e); SET.devices ??= []; })
+    .then(() => { if (alive()) fillSection("devices", setDevicesHtml(true, set)); });
+  invoke("list_apps").then(a => { A.apps = a; }, () => { A.apps ??= []; })
+    .then(() => { if (alive()) fillSection("apps", setAppsHtml()); });
+  invoke("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
+    .then(() => { if (alive()) fillSection("machines", setMachinesHtml()); });
 }
 
 // ---------- Apps ----------
@@ -5708,8 +5783,17 @@ if (PANE) {
     skills: renderSkills,
     apps: renderApps,
     settings: renderSettings,
+    // Pages Settings leads to, which the window shows in the pane.
+    machines: renderMachines,
+    link: renderLink,
+    invite: renderInvitePhone,
   };
   window.beepPane = {
+    /// Draws Settings into `el`, the window's sheet, leaving the pane as it is.
+    async settings(el) {
+      await start();
+      return renderSettings(false, el);
+    },
     /// Shows `target`, a CenterTarget in its JSON form.
     async open(target) {
       await start();
