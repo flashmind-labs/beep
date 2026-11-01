@@ -22,6 +22,9 @@ pub struct CredentialRow {
     pub account: Option<String>,
     pub to_machines: bool,
     pub created_at: DateTime<Utc>,
+    /// Its secret no longer opens, such as after the server's key changed.
+    /// The user has to enter it again.
+    pub unreadable: bool,
 }
 
 /// A credential to save, replacing the user's one in the same slot.
@@ -80,7 +83,7 @@ fn slot_from(row: &PgRow) -> Result<Slot> {
     })
 }
 
-fn credential_from(row: &PgRow) -> Result<CredentialRow> {
+fn credential_from(row: &PgRow, unreadable: bool) -> Result<CredentialRow> {
     Ok(CredentialRow {
         id: row.try_get("id")?,
         slot: slot_from(row)?,
@@ -88,6 +91,7 @@ fn credential_from(row: &PgRow) -> Result<CredentialRow> {
         account: row.try_get("account")?,
         to_machines: row.try_get("to_machines")?,
         created_at: row.try_get("created_at")?,
+        unreadable,
     })
 }
 
@@ -130,19 +134,30 @@ impl Store {
         .bind(sealed)
         .fetch_one(&self.pool)
         .await?;
-        credential_from(&row)
+        credential_from(&row, false)
     }
 
-    /// The user's credentials: git hosts first, then API keys.
-    pub(crate) async fn credentials(&self, user: &UserKey) -> Result<Vec<CredentialRow>> {
+    /// The user's credentials: git hosts first, then API keys. Each is
+    /// tried with `key`, to mark the ones that no longer open.
+    pub(crate) async fn credentials(
+        &self,
+        user: &UserKey,
+        key: &CredentialKey,
+    ) -> Result<Vec<CredentialRow>> {
         let rows = sqlx::query(&format!(
-            "SELECT {SHOWN} FROM credentials WHERE user_id=$1
+            "SELECT {SHOWN}, secret FROM credentials WHERE user_id=$1
              ORDER BY kind <> 'github', kind <> 'forgejo', host_url, provider"
         ))
         .bind(user.as_str())
         .fetch_all(&self.pool)
         .await?;
-        rows.iter().map(credential_from).collect()
+        rows.iter()
+            .map(|row| {
+                let id: String = row.try_get("id")?;
+                let sealed: Vec<u8> = row.try_get("secret")?;
+                credential_from(row, key.open(&id, &sealed).is_err())
+            })
+            .collect()
     }
 
     /// Removes the user's credential `id`; `false` when they have none.
@@ -227,8 +242,11 @@ mod tests {
         let opened = store.machine_credentials(&alice, &key).await.unwrap();
         assert_eq!(opened.len(), 1);
         assert_eq!(opened[0].secret.expose_secret(), "ghp_plaintextvalue9f3c");
-        // Another key opens nothing; the row is skipped, not an error.
+        assert!(!store.credentials(&alice, &key).await.unwrap()[0].unreadable);
+        // Another key opens nothing; the row is skipped, not an error, and
+        // listed as unreadable.
         let other = CredentialKey::random();
+        assert!(store.credentials(&alice, &other).await.unwrap()[0].unreadable);
         assert!(
             store
                 .machine_credentials(&alice, &other)
@@ -281,7 +299,7 @@ mod tests {
         let replaced = save(&forgejo, "token-three", true).await;
         assert_ne!(replaced.id, first.id);
 
-        assert!(store.credentials(&bob).await.unwrap().is_empty());
+        assert!(store.credentials(&bob, &key).await.unwrap().is_empty());
         assert!(!store.remove_credential(&bob, &second.id).await.unwrap());
         assert!(
             store
@@ -291,7 +309,7 @@ mod tests {
                 .is_empty()
         );
 
-        let listed = store.credentials(&alice).await.unwrap();
+        let listed = store.credentials(&alice, &key).await.unwrap();
         assert_eq!(listed.len(), 3);
         // Only those marked for machines go to them.
         let opened = store.machine_credentials(&alice, &key).await.unwrap();
@@ -299,6 +317,6 @@ mod tests {
         assert_eq!(secrets, ["token-two", "token-three"]);
 
         assert!(store.remove_credential(&alice, &second.id).await.unwrap());
-        assert_eq!(store.credentials(&alice).await.unwrap().len(), 2);
+        assert_eq!(store.credentials(&alice, &key).await.unwrap().len(), 2);
     }
 }

@@ -19,7 +19,7 @@ const MAX_SECRET: usize = 4096;
 pub(super) async fn list_credentials(cx: Cx, _: ListCredentials) -> Reply<Vec<Credential>> {
     Ok(cx
         .user
-        .credentials()
+        .credentials(&cx.app.credential_key)
         .await?
         .into_iter()
         .map(credential)
@@ -106,5 +106,6 @@ fn credential(row: CredentialRow) -> Credential {
         account: row.account,
         to_machines: row.to_machines,
         created_at: SystemTime::from(row.created_at),
+        unreadable: row.unreadable,
     }
 }

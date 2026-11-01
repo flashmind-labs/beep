@@ -57,6 +57,8 @@ pub struct CredentialView {
     to_machines: bool,
     /// Milliseconds since the Unix epoch.
     created_at: u64,
+    /// The server can no longer open it: the bar asks for it again.
+    unreadable: bool,
 }
 
 impl From<Credential> for CredentialView {
@@ -69,6 +71,7 @@ impl From<Credential> for CredentialView {
             env_var: credential.env_var,
             to_machines: credential.to_machines,
             created_at: epoch_ms(credential.created_at),
+            unreadable: credential.unreadable,
         }
     }
 }

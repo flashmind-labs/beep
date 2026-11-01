@@ -35,6 +35,15 @@ test("each Forgejo server is its own row, with an add button", () => {
   assert.doesNotMatch(html, /undefined/);
 });
 
+test("a credential the server cannot open asks to be entered again", () => {
+  const unreadable = list.map((c) => (c.id === "g" || c.id === "k" ? { ...c, unreadable: true } : c));
+  const html = credentialsHtml({ list: unreadable, providers, edit: null }, machines, esc, ago);
+  assert.match(html, /Re-enter this token/);
+  assert.match(html, /Re-enter this key/);
+  assert.doesNotMatch(html, /…4f2a/);
+  assert.doesNotMatch(html, /…a91f/);
+});
+
 test("without the machines list only the token shows", () => {
   const html = credentialsHtml({ list, providers, edit: null }, null, esc, ago);
   assert.doesNotMatch(html, / on build-box/);
