@@ -24,7 +24,7 @@ pub(crate) mod policy;
 mod schedule;
 mod service;
 #[cfg(test)]
-mod testing;
+pub(crate) mod testing;
 pub(crate) mod tools;
 pub(crate) mod turn;
 pub(crate) mod worker;

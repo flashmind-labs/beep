@@ -75,7 +75,8 @@ pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
 pub use project_sync::SyncRow;
 pub(crate) use projects::{
-    After, CheckoutRow, NewTask, NewWorker, ProjectRow, StartRefused, TaskRow, WorkerRow,
+    After, CheckoutRow, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused, TaskRow,
+    WorkerRow,
 };
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};

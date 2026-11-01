@@ -586,6 +586,17 @@ impl Store {
         end(tx, keep, done).await
     }
 
+    /// The chats of the user's project agents that exist.
+    pub(crate) async fn project_chats(&self, user: &UserKey) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_scalar(
+            "SELECT a.chat_id FROM project_agents a JOIN projects p ON p.id = a.project_id
+             WHERE p.user_id = $1 ORDER BY a.created_at",
+        )
+        .bind(user.as_str())
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// Keeps a checkout, replacing the one at the same machine and path.
     pub(crate) async fn add_checkout(
         &self,

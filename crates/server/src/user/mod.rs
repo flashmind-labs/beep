@@ -24,8 +24,8 @@ use crate::{
         TaskState, Visibility, WorkerId, WorkerState,
     },
     protocol::{
-        Cron, FilePart, ImageRef, Memory, RouteCard, Run, SentFiles, SentImages, Session,
-        ToolLabel, TurnSources, UpdatePage, Upload, WebSource, node::EnvReport,
+        Cron, FilePart, ImageRef, Memory, PendingApproval, RouteCard, Run, SentFiles, SentImages,
+        Session, ToolLabel, TurnSources, UpdatePage, Upload, WebSource, node::EnvReport,
     },
     research::pdf::{self, Paper, Pdf},
     starters::Cached,
@@ -34,7 +34,7 @@ use crate::{
         CreateRun, Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite,
         Join, JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow,
         MemoryRow, Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode,
-        NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewWorker, NodeRow, PicturesOf,
+        NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewWorker, NodeRow, OpenCounts, PicturesOf,
         PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow,
         RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, StartRefused,
         Store, StoredContext, StoredMessage, SyncRow, TaskRow, TurnRecord, TurnsToDelete,
@@ -1378,6 +1378,24 @@ impl User {
     /// The chat of the project's agent, made on first use.
     pub(crate) async fn ensure_project_agent(&self, project: ProjectId) -> Result<Uuid> {
         self.store.ensure_project_agent(&self.key, project).await
+    }
+
+    /// How many of the project's tasks are open and workers live.
+    pub(crate) async fn project_open_counts(&self, project: ProjectId) -> Result<OpenCounts> {
+        self.store.open_counts(project).await
+    }
+
+    /// The chats of the project agents made so far.
+    pub(crate) async fn project_chats(&self) -> Result<Vec<Uuid>> {
+        self.store.project_chats(&self.key).await
+    }
+
+    /// The cards `chats` wait on, with their chats.
+    pub(crate) async fn open_approvals(
+        &self,
+        chats: &[Uuid],
+    ) -> Result<Vec<(Uuid, PendingApproval)>> {
+        self.store.open_approvals(&self.key, chats).await
     }
 
     pub(crate) async fn project_task(&self, id: TaskId) -> Result<Option<TaskRow>> {
