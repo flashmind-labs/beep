@@ -50,15 +50,12 @@ impl State {
     /// machine stays the same device.
     pub fn create(dir: &Path, server: &str, name: &str) -> Result<Self> {
         let server: EndpointId = server.parse().context("--server is not an endpoint id")?;
-        fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-        let key = match read_key(dir)? {
-            Some(key) => key,
-            None => {
-                let key = SecretKey::generate();
-                write_private(&dir.join(KEY_FILE), &key.to_bytes())?;
-                key
-            }
-        };
+        let key = ensure_key(dir)?;
+        Self::save(dir, key, server, name)
+    }
+
+    /// Saves the settings for `server` with the key `ensure_key` made.
+    pub fn save(dir: &Path, key: SecretKey, server: EndpointId, name: &str) -> Result<Self> {
         // Linking again keeps the agents and folders set by hand.
         let (agents, files) = read_settings(dir)
             .map(|old| (old.agents, old.files))
@@ -82,7 +79,10 @@ impl State {
 
     pub fn load(dir: &Path) -> Result<Self> {
         let Some(key) = read_key(dir)? else {
-            bail!("no key in {}; run `beep-node link` first", dir.display());
+            bail!(
+                "no key in {}; run `beep-node setup <token>` first",
+                dir.display()
+            );
         };
         let settings = read_settings(dir)?;
         Ok(Self {
@@ -97,6 +97,32 @@ impl State {
             files: settings.files,
         })
     }
+}
+
+/// This machine's key, made and saved in `dir` when it has none, so the
+/// machine stays the same device.
+pub fn ensure_key(dir: &Path) -> Result<SecretKey> {
+    fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    match read_key(dir)? {
+        Some(key) => Ok(key),
+        None => {
+            let key = SecretKey::generate();
+            write_private(&dir.join(KEY_FILE), &key.to_bytes())?;
+            Ok(key)
+        }
+    }
+}
+
+/// The server `node.toml` in `dir` names, `None` before any link.
+pub fn saved_server(dir: &Path) -> Result<Option<EndpointId>> {
+    if !dir.join(SETTINGS_FILE).exists() {
+        return Ok(None);
+    }
+    let server = read_settings(dir)?
+        .server
+        .parse()
+        .context("the server in node.toml is not an endpoint id")?;
+    Ok(Some(server))
 }
 
 fn read_settings(dir: &Path) -> Result<Settings> {

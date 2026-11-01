@@ -31,9 +31,11 @@ mod location;
 mod memories;
 mod merge;
 mod messages;
+mod node_tokens;
 mod nodes;
 mod places;
 mod profile;
+mod project_sync;
 mod research;
 mod routes;
 mod runs;
@@ -66,9 +68,11 @@ pub use location::Location;
 pub use memories::{Fact, Scope, Scored, Superseded, WordEmbedder};
 pub use merge::{Invite, Inviter, Merge, MergeInto};
 pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnRecord};
+pub use node_tokens::{Claim, ClaimNode, ClaimedNode};
 pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
+pub use project_sync::SyncRow;
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
@@ -330,6 +334,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         53,
         "turn sources",
         include_str!("../../migrations/0053_turn_sources.sql"),
+    ),
+    (
+        55,
+        "project_sync",
+        include_str!("../../migrations/0055_project_sync.sql"),
+    ),
+    (
+        56,
+        "node tokens",
+        include_str!("../../migrations/0056_node_tokens.sql"),
     ),
     (
         58,

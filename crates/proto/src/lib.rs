@@ -15,6 +15,7 @@ pub mod node;
 pub mod seal;
 pub mod search;
 pub mod secret;
+pub mod setup;
 pub mod version;
 pub mod wire;
 
@@ -640,6 +641,27 @@ requests! {
     /// `GetAgentSession`; `BadRequest` saying why when the node refuses.
     /// Admins only.
     143 SteerAgentSession { machine_id: String, agent: String, session: String, steer: AgentSteer } => Call<()>
+    /// Turns syncing `project` on or off on one machine. On, `folder` is
+    /// its absolute folder there, inside the machine's shared folders;
+    /// the machine then keeps it in step with the other machines that
+    /// sync it, node to node. Off, the machine stops and its files stay.
+    /// `NotFound` when the machine is not one of the caller's,
+    /// `BadRequest` when `folder` is missing, the project is pinned, or the
+    /// machine refuses the folder. Admins only.
+    150 SetProjectSync { project: String, machine_id: String, folder: Option<String>, on: bool } => Call<ProjectSync>
+    /// Every project the caller syncs, with how each machine stands; an
+    /// offline machine or one that does not answer in time shows
+    /// `SyncStatus::Offline`. Admins only.
+    151 ListProjectSync {} => Call<Vec<ProjectSync>>
+    /// What `project`'s sync leaves out on one machine (build output,
+    /// ignored files, links), for the file viewer. `NotFound` when the
+    /// machine does not sync it or is offline. Admins only.
+    152 GetSyncSkipped { project: String, machine_id: String } => Call<SyncSkipped>
+    /// Pins a project to the machines it is on, or unpins it. A pinned
+    /// project, such as a large game or video project, never syncs: every
+    /// machine stops, and `SetProjectSync` refuses to turn it on. Admins
+    /// only.
+    153 PinProject { project: String, pinned: bool } => Call<ProjectSync>
     /// What the event triage agent found worth telling the user and that
     /// they have not seen or dismissed yet, from the last two days, newest
     /// first, at most 20. Apps show them on their own, apart from any chat.
@@ -647,6 +669,22 @@ requests! {
     /// Dismisses updates by `AppUpdate::id`, so they leave the list. Ids
     /// the caller does not have are skipped.
     161 DismissUpdates { ids: Vec<i64> } => Call<()>
+    /// A one-time setup token that links a machine to the caller's account:
+    /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
+    /// It works for ten minutes. `name` is what the machine is called once
+    /// linked; without it, the name `setup` is given, else the machine's
+    /// host name. `BadRequest` when the name is empty or too long or the
+    /// server takes no machines. Admins only, like `ListMachines`.
+    180 CreateNodeToken { name: Option<String> } => Call<NodeToken>
+    /// Stops a token `CreateNodeToken` gave from working. `NotFound` when
+    /// the caller made no such token or it was already used; `BadRequest`
+    /// when `token` is not one.
+    181 RevokeNodeToken { token: String } => Call<()>
+    /// The `Machine::id` that claimed a token `CreateNodeToken` gave, or
+    /// `None` while it is unused, so a sheet waiting on it knows which
+    /// machine linked, even one set up again. `NotFound` when the caller
+    /// made no such token; `BadRequest` when `token` is not one.
+    182 GetNodeToken { token: String } => Call<Option<String>>
     /// The caller's credentials: a GitHub token, a token per Forgejo or
     /// Gitea server, and API keys, one per provider. Never the secrets
     /// themselves, only their last four characters.
@@ -661,6 +699,97 @@ requests! {
     /// Removes one of the caller's credentials, by `Credential::id`, from
     /// Beep and their machines. `NotFound` when the caller has no such one.
     164 RemoveCredential { id: String } => Call<()>
+}
+
+/// One project's sync across the caller's machines.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectSync {
+    pub project: String,
+    pub pinned: bool,
+    pub machines: Vec<MachineSync>,
+}
+
+/// How one machine stands with a project it syncs.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineSync {
+    /// The `Machine::id` it is.
+    pub machine_id: String,
+    pub machine_name: String,
+    pub folder: String,
+    pub status: SyncStatus,
+    /// Files kept in step, and their bytes.
+    pub files: u64,
+    pub bytes: u64,
+    /// Files another machine changed that this one does not have yet.
+    pub pending: u64,
+    /// The copies two machines' edits of one file left, by path in the
+    /// folder, such as `notes (conflict 1a2b3c4d).txt`.
+    pub conflicts: Vec<String>,
+    /// Set when the machine rescans the folder this often instead of
+    /// watching it, because its file watch limit is reached.
+    pub rescan_secs: Option<u32>,
+    /// What raises that limit, such as a `sysctl` line.
+    pub hint: Option<String>,
+    /// Why the machine's last scan or fetch failed.
+    pub error: Option<String>,
+}
+
+wire_enum! {
+    /// Where a machine's sync of a project stands: `Offline` (offline or
+    /// did not answer), `Scanning` (looking for changes on disk),
+    /// `Syncing` (fetching or writing what another machine changed),
+    /// `InSync`, or `Failed` (`MachineSync::error` says why).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum SyncStatus {
+        0 Offline {}
+        1 Scanning {}
+        2 Syncing {}
+        3 InSync {}
+        4 Failed {}
+    }
+}
+
+/// What a project's sync leaves out on one machine.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncSkipped {
+    pub paths: Vec<SkippedFile>,
+    /// Files in a git repository that git carries between machines rather
+    /// than sync.
+    pub through_git: u64,
+    /// More paths are left out than `paths` lists.
+    pub truncated: bool,
+}
+
+/// A file or folder sync leaves out, and the rule that does.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SkippedFile {
+    /// Relative to the project folder, parts joined with `/`.
+    pub path: String,
+    pub folder: bool,
+    pub rule: SkipRule,
+}
+
+wire_enum! {
+    /// Why sync leaves a path out, in the order the rules apply: `Git`
+    /// (`.git`, and in a git repository the files git carries), the
+    /// project's `.gitignore`, a `Default` for the kind of project its
+    /// `marker` file shows (such as `target/` for `Cargo.toml`), the
+    /// project's `.beepignore`, or a symlink or special file (`Link`).
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum SkipRule {
+        0 Git {}
+        1 GitIgnore {}
+        2 Default { marker: String }
+        3 BeepIgnore {}
+        4 Link {}
+    }
 }
 
 /// A credential as `ListCredentials` lists it. The secret stays on the
@@ -779,6 +908,15 @@ pub struct AppUpdate {
     pub app_name: String,
     /// When the triage agent decided to tell.
     pub at: SystemTime,
+}
+
+/// A setup token as `CreateNodeToken` made it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeToken {
+    /// The token as text, such as `bk1-0f3ka-...`.
+    pub token: String,
+    pub expires_at: SystemTime,
 }
 
 /// A machine that can run coding agents, as `ListAgentHosts` lists it.

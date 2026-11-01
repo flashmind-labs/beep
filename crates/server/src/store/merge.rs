@@ -77,6 +77,8 @@ const MOVED: &[(&str, &[&str])] = &[
     ("event_triggers", &["slug", "account_id"]),
     ("event_polls", &["source"]),
     ("nodes", &[]),
+    ("project_sync", &["project", "endpoint_id"]),
+    ("pinned_projects", &["project"]),
     ("credentials", &["kind", "provider", "host_url"]),
 ];
 

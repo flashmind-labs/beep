@@ -18,6 +18,7 @@ use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use iroh::endpoint::{RecvStream, SendStream};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::fmt;
 use strum::{Display, IntoStaticStr};
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
@@ -26,11 +27,17 @@ pub mod desktop;
 pub mod files;
 pub mod process;
 pub mod shell;
+pub mod sync;
 pub mod transfer;
 
 pub const NODE_ALPN: &[u8] = b"beep-node/1";
 
-const MAX_FRAME: usize = 8 * 1024 * 1024;
+/// The code the server closes a node's connection with when it refuses the
+/// hello's setup token; the reason says why, in words for the user.
+pub const CLOSE_SETUP_REFUSED: u32 = 400;
+
+/// The largest message either side reads.
+pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 
 /// The first message on the control stream.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,10 +56,36 @@ pub struct NodeHello {
     /// node container). It is also the first folder `files/1` shares.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
+    /// A setup token to claim before anything else (`beep-node setup`):
+    /// the server links this node's key to the account that made the token,
+    /// says so with `Down::Linked`, then welcomes it as any linked node. A
+    /// server from before tokens closes the connection with "not linked".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<NodeSetup>,
     /// The node takes `Down::Credentials`. A node from before it never
     /// gets the user's credentials.
     #[serde(default)]
     pub credentials: bool,
+}
+
+/// What `NodeHello::setup` carries.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeSetup {
+    /// The token as `setup::SetupToken` writes it.
+    pub token: String,
+    /// The name the user gave on the machine, which wins over the token's.
+    /// Without either, the machine is called by the hello's `name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Never shows the token.
+impl fmt::Debug for NodeSetup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NodeSetup")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What a node sends on the control stream after its hello.
@@ -68,6 +101,13 @@ pub enum Up {
 #[non_exhaustive]
 pub enum Down {
     Welcome {},
+    /// The node's setup token was claimed: its key now signs into
+    /// `account` (the account's name) as the machine `name`. Sent before the
+    /// welcome, only to a node whose hello carried `setup`.
+    Linked {
+        account: String,
+        name: String,
+    },
     /// The user's credentials meant for their machines, sent after the
     /// welcome and again whenever they change, each time in full. Only to
     /// a node whose hello says it takes them. The node keeps them in
@@ -298,6 +338,12 @@ impl LinkTx {
 }
 
 impl LinkRx {
+    /// Reads no message longer than `max` bytes from now on, such as a
+    /// hello from a key nobody linked yet; `MAX_FRAME` is the default.
+    pub fn set_max_frame(&mut self, max: usize) {
+        self.0.decoder_mut().set_max_frame_length(max);
+    }
+
     /// The next message, `None` once the peer finished the stream.
     pub async fn recv<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
         let Some(frame) = self.0.next().await else {
@@ -346,8 +392,13 @@ mod tests {
         .unwrap();
         let hello: NodeHello = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(hello.workspace, None);
+        assert_eq!(hello.setup, None);
         let newer = NodeHello {
             workspace: Some("/home/user".into()),
+            setup: Some(NodeSetup {
+                token: "bk1-test".into(),
+                name: None,
+            }),
             ..hello
         };
         let body = rmp_serde::to_vec_named(&newer).unwrap();

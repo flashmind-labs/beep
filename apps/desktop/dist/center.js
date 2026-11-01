@@ -8,6 +8,8 @@ import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
+import { agentOf, base, homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "./home.js";
+import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -42,8 +44,6 @@ const IC = {
   rout: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
-const CAPS = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
-const AGENTS = { claude: { cls: "claude", ini: "CC", name: "Claude Code" }, codex: { cls: "codex", ini: "CX", name: "Codex" } };
 const PROJECT_COLORS = ["#F07A6A", "#6FA8DC", "#B18CE0", "#E9B949", "#3B9B7A"];
 const OFFLINE_NOTE_MS = 60 * 60 * 1000;
 /// Before Home first loads: how long "Connecting" shows before "Still
@@ -64,11 +64,6 @@ function ago(ms) {
   if (s < 86400) return `${Math.round(s / 3600)} h`;
   return `${Math.round(s / 86400)} d`;
 }
-function base(path) { return String(path || "").split("/").filter(Boolean).pop() || ""; }
-function agentOf(name) {
-  return AGENTS[name] || { cls: "", ini: String(name || "?").slice(0, 2).toUpperCase(), name: name || "Agent" };
-}
-function gb(mb) { return `${Math.round(mb / 1024)} GB`; }
 function whenOf(iso) {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return { time: "", day: "" };
@@ -86,60 +81,101 @@ function scheduleText(s) {
 // ---------- Pieces ----------
 
 function dot(m) { return h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`); }
-function section(id, title, note, ...body) {
+
+/// A Home section: its title and count, an optional button on the right,
+/// then its body.
+function section(id, title, count, action, body) {
   const el = h("div");
   el.id = id;
-  el.append(h("div", "cc-sec", h("h4", "", title), h("small", "", note)), ...body);
+  const head = h("h4", "", title);
+  if (count) head.append(h("span", "n", String(count)));
+  el.append(h("div", "cc-sec", head, action), body);
   return el;
 }
-function empty(...kids) { return h("div", "cc-panel cc-empty", ...kids); }
 function avatar(cls, ini) { return h("span", `cc-ag ${cls}`, ini); }
 function tag(cls, ...kids) { return h("span", `cc-tag${cls ? " " + cls : ""}`, ...kids); }
 
-function machineCard(m) {
-  const chips = [];
-  const gpus = m.gpus.map(g => g.model);
-  for (const c of m.capabilities) if (!(c === "gpu" && gpus.length)) chips.push(CAPS[c] || c);
-  chips.push(...gpus, ...m.apps.map(a => a.name));
-  const unique = [...new Set(chips)];
-  const caps = h("div", "cc-caps", ...unique.slice(0, 6).map(c => h("span", "cc-cap", c)));
-  if (unique.length > 6) caps.append(h("span", "cc-cap", `+${unique.length - 6}`));
-  const env = m.env;
-  const os = env ? env.os_version || env.os : "";
-  const hw = env ? `${plural(env.cpus, "core", "cores")}, ${gb(env.memory_mb)}` : "";
-  const left = !m.online ? `seen ${ago(m.seen_at)} ago` : m.agents ? plural(m.agents, "agent", "agents") : "idle";
-  const card = h("div", `cc-mach${m.online ? "" : " off"}`,
-    h("div", "h", dot(m), h("b", "", m.name)),
-    h("span", "os", os),
-    caps,
-    h("div", "st", h("span", "", left), h("span", "", m.online ? hw : "offline")));
-  card.id = `m-${m.id}`;
-  return card;
+function button(label, cls, on) {
+  const b = h("button", `dbtn${cls ? " " + cls : ""}`, label);
+  b.type = "button";
+  b.addEventListener("click", on);
+  return b;
 }
 
+/// A button inside a row that does its own thing, not the row's.
+function rowButton(label, cls, on) {
+  return button(label, cls, e => { e.stopPropagation(); on(); });
+}
+
+/// One row of Running now, Needs you, Updates or Coming up: a title and one
+/// muted line, opening `open` on a click, with `right` beside it.
+function line(lead, title, sub, right, open) {
+  const t = h("button", "t", h("b", "", title), h("span", "", sub));
+  t.type = "button";
+  t.title = title;
+  const row = h("div", "cc-row cc-line", lead, t, h("span", "r", ...right));
+  row.addEventListener("click", open);
+  return row;
+}
+
+// ---------- Machines ----------
+
+function addMachineButton(cls) {
+  const b = button("", cls, openAddMachine);
+  b.append(icon(IC.plus), " Add a machine");
+  return b;
+}
+
+/// One machine per row: name and OS, agents, what it can run, and what it
+/// is doing now. The node does not report load or sync progress yet.
+function machineTable(machines) {
+  const table = h("div", "cc-mt", ...["Machine", "Agents", "Can run", "Now"].map(t => h("span", "th", t)));
+  for (const m of machines) {
+    const off = m.online ? "" : " off";
+    const name = h("span", `nm${off}`, h("b", "", dot(m), h("span", "", m.name)), h("span", "os", machineOs(m)));
+    name.id = `m-${m.id}`;
+    name.title = m.name;
+    const caps = machineCaps(m);
+    const can = h("span", `caps${off}`, caps.join(" · ") || "–");
+    if (caps.length) can.title = caps.join(", ");
+    const now = h("span", `num${off}`, machineNow(m));
+    if (!m.online) now.title = ago(m.seen_at) === "now" ? "Seen just now" : `Seen ${ago(m.seen_at)} ago`;
+    table.append(name, h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–"), can, now);
+  }
+  return table;
+}
+
+function machinesSection(machines) {
+  if (!machines.length) {
+    return section("sec-machines", "Machines", "", addMachineButton("small"),
+      h("div", "cc-panel cc-empty", h("b", "", "No machines linked yet"), addMachineButton("pri")));
+  }
+  const online = machines.filter(m => m.online).length;
+  return section("sec-machines", "Machines", `${online} of ${machines.length} online`, addMachineButton("small"), machineTable(machines));
+}
+
+function offlineNote(machines) {
+  const gone = machines.filter(m => !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS);
+  if (!gone.length) return null;
+  const names = gone.map(m => m.name).join(", ");
+  return h("div", "cc-note", h("span", "ddot bad"), h("span", "", h("b", "", `${names} ${gone.length === 1 ? "is" : "are"} offline.`), " Their sessions left Running now. They come back when beep-node runs there again."));
+}
+
+// ---------- Running now ----------
+
 function runningRow(r) {
+  const { title, sub } = runningLine(r);
+  const right = [r.status === "asking" ? tag("wait", "needs you") : ago(r.started_at)];
   if (r.kind === "research") {
-    const row = h("button", "cc-row link",
-      avatar("beep", icon(IC.find)),
-      h("span", "t", h("b", "", r.topic), h("span", "", `Research, round ${r.round}, ${plural(r.sources, "source", "sources")}`)),
-      h("span", "r", tag("run", h("span", "dspin"), r.status), ago(r.started_at)));
-    row.addEventListener("click", () => invoke("open_research", { session: r.session }).catch(() => {}));
-    return row;
+    return line(avatar("beep", icon(IC.find)), title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {}));
   }
   const ag = agentOf(r.agent);
-  const project = base(r.cwd);
-  let status;
-  if (r.status === "asking") status = tag("wait", "needs you");
-  else if (r.external && r.status !== "working" && r.status !== "running") status = tag("term", "in terminal");
-  else if (r.status === "working" || r.status === "running" || r.status === "starting") status = tag("run", h("span", "dspin"), r.doing || r.status);
-  else status = tag("", r.status);
-  const row = h("button", "cc-row link",
-    avatar(ag.cls, ag.ini),
-    h("span", "t", h("b", "", r.title || project || ag.name), h("span", "", `${project ? project + ", " : ""}${ag.name} on ${r.machine_name}`)),
-    h("span", "r", status, ago(r.started_at)));
   // The pane's agent view (app.js) follows and answers it.
-  row.addEventListener("click", () => go("pane", { agent: r }));
-  return row;
+  return line(avatar(ag.cls, ag.ini), title, sub, right, () => go("pane", { agent: r }));
+}
+
+function runningSection(running) {
+  return section("sec-running", "Running now", running.length, null, h("div", "cc-panel", ...running.map(runningRow)));
 }
 
 // ---------- Needs you ----------
@@ -163,112 +199,51 @@ function answerChat(n, decision, said) {
     .catch(e => setOutcome(key, { error: failure(e), final: conflict(e) }));
 }
 
-function answerAgent(n, option) {
-  const key = cardKey(n);
-  setOutcome(key, { said: `Answered: ${option.name}` });
-  invoke("center_answer_agent", { machineId: n.machine_id, agent: n.agent, session: n.session, question: n.question.id, reply: option.id })
-    .then(() => refresh())
-    .catch(e => setOutcome(key, { error: failure(e), final: conflict(e) }));
+/// Opens the session an agent's question came from, where it is answered.
+function openAsking(n) {
+  const r = state.home?.running?.find(r => r.kind === "agent" && r.machine_id === n.machine_id && r.id === n.session);
+  go("pane", { agent: r || { kind: "agent", machine_id: n.machine_id, machine_name: n.machine_name, id: n.session, agent: n.agent, title: n.title, cwd: "", status: "asking", external: false } });
 }
 
-function button(label, cls, on) {
-  const b = h("button", `dbtn${cls ? " " + cls : ""}`, label);
-  b.type = "button";
-  b.addEventListener("click", on);
-  return b;
-}
-
-function needsCard(n) {
+/// Allow answers a chat's approval from the row; the chat itself has the
+/// details, Always allow and Deny. Answer opens the agent's session.
+function needsRow(n) {
   const out = state.outcomes.get(cardKey(n));
-  let head, body, acts;
+  const { title, sub, button: label } = needsLine(n);
+  let lead, open, act;
   if (n.kind === "chat") {
-    const a = n.pending.approval;
-    const title = h("b", "", `${a.app}: ${a.action}`);
-    title.classList.add("cc-link");
-    title.title = "Open this chat";
-    title.addEventListener("click", () => go("pane", { chat: { session: n.session_id } }));
-    head = [avatar("beep", icon(IC.chat)), h("span", "t", title, h("span", "", `Chat: ${n.session_title}`))];
-    body = a.fields.length ? h("div", "kv", ...a.fields.flatMap(f => [h("span", "", f.label), h("span", "", f.value)])) : null;
-    acts = [
-      button("Allow", "pri", () => answerChat(n, "allow", "Allowed once")),
-      button("Always allow", "", () => answerChat(n, "always", "Allowed, and always allowed from now on")),
-      button("Deny", "", () => answerChat(n, "deny", "Denied")),
-    ];
+    lead = avatar("beep", icon(IC.chat));
+    open = () => go("pane", { chat: { session: n.session_id } });
+    act = () => answerChat(n, "allow", "Allowed");
   } else {
-    const ag = agentOf(n.agent), q = n.question;
-    head = [avatar(ag.cls, ag.ini), h("span", "t", h("b", "", q.text), h("span", "", `${n.title || ag.name} on ${n.machine_name}`))];
-    body = q.detail ? h("div", "kv", h("span", "", "Input"), h("span", "", q.detail)) : null;
-    acts = q.options.map((o, i) => button(o.name, i === 0 && o.allow ? "pri" : "", () => answerAgent(n, o)));
+    const ag = agentOf(n.agent);
+    lead = avatar(ag.cls, ag.ini);
+    open = act = () => openAsking(n);
   }
-  const actions = h("div", "acts");
-  if (out?.said) actions.append(h("span", "ok", out.said));
-  else if (out?.final) actions.append(h("span", "err", out.error));
-  else {
-    actions.append(...acts);
-    if (out?.error) actions.append(h("span", "err", out.error));
-  }
-  const card = h("div", "cc-ask", h("div", "h", ...head), body, actions);
-  if (out?.said) card.style.opacity = ".55";
-  return card;
-}
-
-// ---------- Sections ----------
-
-/// The Machines header's note, then its Add a machine button.
-function addMachineButton(cls) {
-  const b = button("", cls, openAddMachine);
-  b.append(icon(IC.plus), " Add a machine");
-  return b;
-}
-
-function machinesSection(machines) {
-  const online = machines.filter(m => m.online).length;
-  let el;
-  if (!machines.length) {
-    const link = h("ol", "", h("li", "", "Install beep-node on the computer."), h("li", "", h("span", "", "Run "), h("code", "", "beep-node link"), h("span", "", " there.")), h("li", "", "Paste the link it prints into a chat here, or into Beep on your phone."));
-    el = section("sec-machines", "Machines", "None linked", empty(
-      h("b", "", "No machines linked yet"),
-      h("span", "", "Link a computer to run coding agents and commands on it from here, from the bar or from your phone."),
-      link,
-      addMachineButton("pri")));
-  } else {
-    el = section("sec-machines", "Machines", `${online} of ${machines.length} online`, h("div", "cc-machs", ...machines.map(machineCard)));
-  }
-  const head = el.querySelector(".cc-sec"), note = head.querySelector("small");
-  head.append(h("span", "cc-sec-r", note, addMachineButton("small")));
-  return el;
-}
-
-function offlineNote(machines) {
-  const gone = machines.filter(m => !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS);
-  if (!gone.length) return null;
-  const names = gone.map(m => m.name).join(", ");
-  return h("div", "cc-note", h("span", "ddot bad"), h("span", "", h("b", "", `${names} ${gone.length === 1 ? "is" : "are"} offline.`), " Their sessions left Running now. They come back when beep-node runs there again."));
-}
-
-function runningSection(running) {
-  const machines = new Set(running.filter(r => r.kind === "agent").map(r => r.machine_id)).size;
-  const note = running.length ? `${plural(running.length, "session", "sessions")}${machines ? " on " + plural(machines, "machine", "machines") : ""}` : "Nothing running";
-  const body = running.length ? h("div", "cc-panel", ...running.map(runningRow))
-    : h("div", "cc-panel cc-empty", "Sessions you start here, in the bar or in a terminal show up once a machine is linked.");
-  return section("sec-running", "Running now", note, body);
+  let right;
+  if (out?.said) right = [h("span", "ok", out.said)];
+  else if (out?.final) right = [h("span", "err", out.error)];
+  else right = [rowButton(label, "pri small", act)];
+  const row = line(lead, title, sub, right, open);
+  if (out?.error && !out.final) row.querySelector(".t > span").replaceChildren(h("span", "err", out.error));
+  if (out?.said) row.style.opacity = ".55";
+  return row;
 }
 
 function needsSection(needs) {
-  const body = needs.length ? h("div", "cc-panel", ...needs.map(needsCard)) : h("div", "cc-panel cc-empty", "Nothing needs you right now.");
-  return section("sec-needs", "Needs you", "Also on your phone", body);
+  return section("sec-needs", "Needs you", needs.length, null, h("div", "cc-panel", ...needs.map(needsRow)));
 }
 
+// ---------- Coming up ----------
+
 function comingSection(rows) {
-  const body = rows.length ? h("div", "cc-panel", ...rows.map(c => {
+  return section("sec-coming", "Coming up", rows.length, null, h("div", "cc-panel", ...rows.map(c => {
     const w = whenOf(c.next_run_at);
-    return h("div", "cc-row",
-      h("span", "cc-when", h("b", "", w.time), w.day),
-      h("span", "t", h("b", "", c.label), h("span", "", new Date(c.next_run_at).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }))),
-      h("span", "r", tag("", scheduleText(c.schedule))));
-  })) : h("div", "cc-panel cc-empty", "No routines are scheduled.");
-  return section("sec-coming", "Coming up", "Runs Beep starts on its own", body);
+    return line(h("span", "cc-when", h("b", "", w.time), w.day), c.label, scheduleText(c.schedule), [], () => go("pane", "routines"));
+  })));
 }
+
+// ---------- Updates ----------
 
 /// When an update came: "09:41" today, then "Yesterday", "Thu" this week, "3 Oct".
 function updateTime(ms) {
@@ -310,23 +285,20 @@ async function openUpdate(u) {
 
 function updateRow(u) {
   const letter = (u.app_name || "").slice(0, 1).toUpperCase();
-  const open = h("button", "t", h("b", "", u.summary), h("span", "", u.app_name ? `${u.app_name} · ${updateTime(u.at)}` : updateTime(u.at)));
-  open.type = "button";
-  open.title = "Ask Beep about this";
-  open.addEventListener("click", () => openUpdate(u));
-  const close = button(icon(IC.x), "quiet", () => dismissUpdates([u.id]));
+  const close = rowButton(icon(IC.x), "quiet", () => dismissUpdates([u.id]));
   close.setAttribute("aria-label", "Dismiss");
   close.style.padding = "2px 6px";
-  return h("div", "cc-row cc-upd", letter ? avatar("beep", letter) : avatar("beep", icon(IC.chat)), open, h("span", "r", close));
+  const sub = u.app_name ? `${u.app_name} · ${updateTime(u.at)}` : updateTime(u.at);
+  const row = line(avatar("beep", letter || icon(IC.chat)), u.summary, sub, [close], () => openUpdate(u));
+  row.querySelector(".t").title = "Ask Beep about this";
+  return row;
 }
 
 /// What the event triage agent found in the user's apps, apart from any
 /// chat. Hidden while there is nothing.
 function updatesSection(updates) {
   const clear = button("Clear", "quiet small", () => dismissUpdates(updates.map(u => u.id)));
-  const el = section("sec-updates", "Updates", "From your apps", h("div", "cc-panel", ...updates.map(updateRow)));
-  el.querySelector(".cc-sec").append(h("span", "cc-sec-r", el.querySelector(".cc-sec small"), clear));
-  return el;
+  return section("sec-updates", "Updates", updates.length, clear, h("div", "cc-panel", ...updates.map(updateRow)));
 }
 
 // ---------- Views ----------
@@ -379,8 +351,9 @@ function drawTop() {
 const groups = new Map();
 
 /// Adds a sidebar group. `load()` gives its items, or null to hide the
-/// group; `row(item)` draws one; `onPick(item)` runs on a click. Groups
-/// sort by `order`.
+/// group; `row(item)` draws one; `onPick(item)` runs on a click;
+/// `onTitle()`, when given, makes the title a button. Groups sort by
+/// `order`.
 export function registerSidebarGroup(name, group) {
   groups.set(name, { title: "", ...group, items: null, loading: false, again: false });
   reloadGroup(name);
@@ -453,7 +426,7 @@ function drawSide() {
     if (g.items == null) continue;
     const grp = h("div", `cc-grp ${name}`);
     if (g.title) {
-      const h3 = h("h3", "", g.title);
+      const h3 = h("h3", "", g.onTitle ? titleButton(g.title, g.onTitle) : g.title);
       if (g.action) h3.append(g.action());
       grp.append(h3);
     }
@@ -477,6 +450,14 @@ function drawSide() {
   $("#side").replaceChildren(...side);
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
+}
+
+/// A group title that opens what the group lists.
+function titleButton(title, on) {
+  const b = h("button", "cc-gt", title);
+  b.type = "button";
+  b.addEventListener("click", on);
+  return b;
 }
 
 function skeleton() {
@@ -638,10 +619,9 @@ function emptyRow(text, on) {
   return b;
 }
 
-/// Adds a machine. Another branch puts the add-a-machine sheet here; until
-/// then it opens the Machines part of Settings.
+/// Opens the Add a machine sheet; Home refreshes once it closes.
 export function openAddMachine() {
-  openSettings("machines");
+  openAddMachineSheet({ onClose: refresh });
 }
 
 /// Opens the projects view. Until there is one, Home's Running section,
@@ -655,6 +635,7 @@ export function openProjects() {
 registerSidebarGroup("projects", {
   order: 5,
   title: "Projects",
+  onTitle: () => openProjects(),
   action: () => plusButton("Add a project", openProjects),
   empty: () => emptyRow("No projects yet", openProjects),
   load: async () => state.home?.running ? projects(state.home.running).map(([name, n], i) => ({ name, n, i })) : null,
@@ -687,29 +668,28 @@ registerSidebarGroup("machines", {
 
 // ---------- Home ----------
 
+/// Machines across the top, then Running now beside Needs you and Updates
+/// beside Coming up. A section with nothing in it is left out; Machines
+/// stays to offer Add a machine.
 function page(home) {
   const { machines, running, coming_up: coming, needs_you: needs } = home;
   const out = [];
   if (state.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh: ${state.error}`)));
   if (!machines && !running) {
     out.push(h("div", "cc-note", h("span", "ddot off"), h("span", "", "Machines and running sessions aren't available for this account or server.")));
-  } else {
-    const note = machines && offlineNote(machines);
+  } else if (machines) {
+    const note = offlineNote(machines);
     if (note) out.push(note);
-    if (machines) out.push(machinesSection(machines));
+    out.push(machinesSection(machines));
   }
-  const cols = h("div", "cc-cols");
-  const updates = home.updates?.length ? updatesSection(home.updates) : null;
-  if (running) {
-    cols.append(runningSection(running), needsSection(needs));
-    out.push(cols);
-    if (updates && coming) out.push(h("div", "cc-cols", updates, comingSection(coming)));
-    else if (updates || coming) out.push(updates || comingSection(coming));
-  } else {
-    cols.append(needsSection(needs));
-    if (coming) cols.append(comingSection(coming)); else cols.style.gridTemplateColumns = "minmax(0, 1fr)";
-    out.push(cols);
-    if (updates) out.push(updates);
+  const make = {
+    running: () => runningSection(running),
+    needs: () => needsSection(needs),
+    updates: () => updatesSection(home.updates),
+    coming: () => comingSection(coming),
+  };
+  for (const row of homeRows(home)) {
+    out.push(row.length === 2 ? h("div", "cc-cols", ...row.map(k => make[k]())) : make[row[0]]());
   }
   return out;
 }
