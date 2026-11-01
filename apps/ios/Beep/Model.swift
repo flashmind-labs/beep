@@ -196,6 +196,8 @@ final class AppModel {
     private var client: BeepClient?
     /// Live voice: the session, its screen's state and the chat it talks in.
     @ObservationIgnored lazy var live = LiveVoice(model: self)
+    /// The composer's speaker button, reading the open chat's reply aloud as it streams.
+    @ObservationIgnored lazy var speaker = ReplySpeaker(model: self)
     /// The run answering the last spoken message, whose events live mode reads out.
     @ObservationIgnored private var liveRunId = ""
     /// The live session's number for that reply, which every call about its run carries.
@@ -375,6 +377,7 @@ final class AppModel {
 
     func newChat() {
         stopStreaming()
+        speaker.stop()
         chat = Chat()
     }
 
@@ -391,6 +394,7 @@ final class AppModel {
     func open(_ session: Session) {
         guard session.id != chat.id else { return }
         stopStreaming()
+        speaker.stop()
         chat = Chat(id: session.id, title: session.title)
         if let cached = ChatStore.loadHistory(session.id) {
             show(cached.entries, images: cached.images, files: cached.files,
@@ -418,7 +422,8 @@ final class AppModel {
         if let session = sessions.first(where: { $0.id == id }) {
             open(session)
         } else if id != chat.id {
-                stopStreaming()
+            stopStreaming()
+            speaker.stop()
             chat = Chat(id: id)
             Task {
                 await loadHistory()
@@ -807,6 +812,11 @@ final class AppModel {
         return try await api().startLive(listener: listener, start: LiveStart(sendOnPause: live.sendOnPause, holding: holding))
     }
 
+    /// Starts reading the open chat's reply aloud for the speaker button; see `ReplySpeaker`.
+    func speakReply(_ listener: ReplyVoiceListener) async throws -> ReplyVoice {
+        try await api().speakReply(listener: listener)
+    }
+
     /// Shows `text` as the user's next prompt and sends it, on `model` at `thinking` for a rerun.
     private func startTurn(_ text: String, images: [String], files: [SentFile], model: String = "",
                            thinking: ReasoningLevel? = nil, research: Bool = false, spoken: Bool = false,
@@ -957,6 +967,7 @@ final class AppModel {
         chat.thinking = ""
         chat.error = runEndError("cancelled", current: chat.error)
         finished(chat)
+        speaker.follow(chat)
     }
 
     /// Tells the server to stop `chat`'s run, learning its id first if the message only just went out.
@@ -1056,10 +1067,12 @@ final class AppModel {
                             chat.clearPending()
                             chat.error = runEndError(status)
                             await loadHistory()
+                            speaker.follow(chat)
                             break
                         }
                         first = false
                         try handle(received)
+                        speaker.follow(chat)
                     }
                     failures = 0
                     connected = true

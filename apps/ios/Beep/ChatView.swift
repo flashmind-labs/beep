@@ -187,6 +187,7 @@ struct ChatView: View {
         }
         .onDisappear {
             voice.cancel()
+            model.speaker.stop()
             if model.onScreen == model.chat.id { model.onScreen = nil }
         }
         .fullScreenCover(isPresented: Binding(get: { model.browserOpen }, set: { model.browserOpen = $0 })) {
@@ -349,6 +350,15 @@ struct ChatView: View {
         .background(Mint.page)
     }
 
+    /// Reads the running reply aloud, or stops reading it; coral while it speaks, as live voice.
+    private var speakButton: some View {
+        let speaking = model.speaker.speaking
+        return Button { model.speaker.toggle() } label: { Image(systemName: "speaker.wave.2") }
+            .buttonStyle(ChunkyButton(fill: speaking ? LiveColors.speak : Mint.surface, size: 50, radius: 18))
+            .accessibilityLabel(speaking ? "Stop speaking" : "Speak reply")
+            .transition(.scale(scale: 0.6).combined(with: .opacity))
+    }
+
     private var composer: some View {
         let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty && files.isEmpty
         let prompt = voice.listening ? "Speak now..." : photos.count > 1 ? "Ask about the photos..."
@@ -395,64 +405,74 @@ struct ChatView: View {
                 .frame(minHeight: 50)
                 .chunky()
                 .blocksChatSwipe()
-                if model.chat.busy {
-                    VStack(spacing: 8) {
-                        if !empty {
-                            Button {
-                                model.queue(draft, images: photos, files: files)
-                                clearDraft()
-                                photos = []
-                                files = []
-                            } label: { Image(systemName: "clock") }
-                                .buttonStyle(ChunkyButton(fill: Mint.surface, size: 50, radius: 18))
-                                .accessibilityLabel("Queue message")
-                                .transition(.scale(scale: 0.6).combined(with: .opacity))
+                VStack(spacing: 8) {
+                    // A reading goes on after the reply finished, and keeps its button until it is done.
+                    if model.speaker.speaking, !model.chat.busy { speakButton }
+                    if model.chat.busy {
+                        VStack(spacing: 8) {
+                            // The queue button takes the speaker's place while there is something typed.
+                            if empty {
+                                speakButton
+                            } else {
+                                Button {
+                                    model.queue(draft, images: photos, files: files)
+                                    clearDraft()
+                                    photos = []
+                                    files = []
+                                } label: { Image(systemName: "clock") }
+                                    .buttonStyle(ChunkyButton(fill: Mint.surface, size: 50, radius: 18))
+                                    .accessibilityLabel("Queue message")
+                                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                            }
+                            Button { model.stop() } label: { Image(systemName: "stop.fill").foregroundStyle(Mint.page) }
+                                .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 18))
+                                .foregroundStyle(Mint.page)
+                                .accessibilityLabel("Stop reply")
                         }
-                        Button { model.stop() } label: { Image(systemName: "stop.fill").foregroundStyle(Mint.page) }
-                            .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 18))
-                            .foregroundStyle(Mint.page)
-                            .accessibilityLabel("Stop reply")
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    } else if voice.listening || (empty && voice.available) {
+                        // Stays while listening, even once words fill the draft, so it can stop.
+                        Button {
+                            if voice.listening {
+                                voice.stop()
+                            } else {
+                                typing = false
+                                model.speaker.stop()
+                                // What is said goes after what was typed before.
+                                let before = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                                Task { await voice.start { draft = before.isEmpty ? $0 : before + " " + $0 } }
+                            }
+                        } label: { Image(systemName: "mic") }
+                            .buttonStyle(ChunkyButton(fill: voice.listening ? Mint.accent : Mint.surface, size: 50, radius: 18))
+                            .background { if voice.listening { MicRing() } }
+                            .accessibilityLabel(voice.listening ? "Stop listening" : "Voice input")
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    } else {
+                        Button {
+                            voice.cancel()
+                            model.speaker.stop()
+                            model.live.dismissEnded()
+                            model.send(draft, images: photos, files: files)
+                            clearDraft()
+                            photos = []
+                            files = []
+                            // A quick squish on tap so sending feels physical.
+                            guard !reduceMotion else { return }
+                            withAnimation(.easeIn(duration: 0.07)) { squish = true } completion: {
+                                withAnimation(.interpolatingSpring(stiffness: 600, damping: 2 * 0.4 * sqrt(600))) { squish = false }
+                            }
+                        } label: { Image(systemName: "paperplane") }
+                            .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.accent, size: 50, radius: 18))
+                            .opacity(empty ? 0.45 : 1)
+                            .scaleEffect(squish ? 0.82 : 1)
+                            .disabled(empty)
+                            .accessibilityLabel("Send")
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
-                    .transition(.scale(scale: 0.6).combined(with: .opacity))
-                } else if voice.listening || (empty && voice.available) {
-                    // Stays while listening, even once words fill the draft, so it can stop.
-                    Button {
-                        if voice.listening {
-                            voice.stop()
-                        } else {
-                            typing = false
-                            // What is said goes after what was typed before.
-                            let before = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                            Task { await voice.start { draft = before.isEmpty ? $0 : before + " " + $0 } }
-                        }
-                    } label: { Image(systemName: "mic") }
-                        .buttonStyle(ChunkyButton(fill: voice.listening ? Mint.accent : Mint.surface, size: 50, radius: 18))
-                        .background { if voice.listening { MicRing() } }
-                        .accessibilityLabel(voice.listening ? "Stop listening" : "Voice input")
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
-                } else {
-                    Button {
-                        voice.cancel()
-                        model.live.dismissEnded()
-                        model.send(draft, images: photos, files: files)
-                        clearDraft()
-                        photos = []
-                        files = []
-                        // A quick squish on tap so sending feels physical.
-                        guard !reduceMotion else { return }
-                        withAnimation(.easeIn(duration: 0.07)) { squish = true } completion: {
-                            withAnimation(.interpolatingSpring(stiffness: 600, damping: 2 * 0.4 * sqrt(600))) { squish = false }
-                        }
-                    } label: { Image(systemName: "paperplane") }
-                        .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.accent, size: 50, radius: 18))
-                        .opacity(empty ? 0.45 : 1)
-                        .scaleEffect(squish ? 0.82 : 1)
-                        .disabled(empty)
-                        .accessibilityLabel("Send")
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
             .animation(.bouncy, value: model.chat.busy)
+            .animation(.bouncy, value: model.speaker.speaking)
             .animation(.easeOut(duration: 0.15), value: empty)
             .padding(.leading, 14)
             .padding(.trailing, 16)

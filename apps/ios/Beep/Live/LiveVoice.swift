@@ -166,6 +166,8 @@ final class LiveVoice {
             if problem != nil { retry() } else { tap() }
             return
         }
+        // Live voice reads replies itself and takes the audio, so a reading in the chat stops.
+        model.speaker.stop()
         self.origin = origin
         launches += 1
         active = true
