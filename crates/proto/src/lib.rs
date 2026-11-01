@@ -14,6 +14,7 @@ pub mod names;
 pub mod node;
 pub mod seal;
 pub mod search;
+pub mod setup;
 pub mod version;
 pub mod wire;
 
@@ -638,6 +639,26 @@ requests! {
     /// `GetAgentSession`; `BadRequest` saying why when the node refuses.
     /// Admins only.
     143 SteerAgentSession { machine_id: String, agent: String, session: String, steer: AgentSteer } => Call<()>
+    /// A one-time setup token that links a machine to the caller's account:
+    /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
+    /// It works for ten minutes. `name` is what the machine is called once
+    /// linked; without it, the name `setup` is given, else the machine's
+    /// host name. `BadRequest` when the name is empty or too long or the
+    /// server takes no machines. Admins only, like `ListMachines`.
+    180 CreateNodeToken { name: Option<String> } => Call<NodeToken>
+    /// Stops a token `CreateNodeToken` gave from working. `NotFound` when
+    /// the caller made no such token or it was already used; `BadRequest`
+    /// when `token` is not one.
+    181 RevokeNodeToken { token: String } => Call<()>
+}
+
+/// A setup token as `CreateNodeToken` made it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeToken {
+    /// The token as text, such as `bk1-0f3ka-...`.
+    pub token: String,
+    pub expires_at: SystemTime,
 }
 
 /// A machine that can run coding agents, as `ListAgentHosts` lists it.
