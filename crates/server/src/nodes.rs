@@ -42,6 +42,7 @@ mod desktop;
 mod files;
 mod follow;
 mod shell;
+mod stats;
 mod sync;
 mod tasks;
 pub mod transfer;
@@ -55,6 +56,7 @@ pub(crate) use deliver::agent_name;
 pub use deliver::{Ask, Deliveries, Post};
 pub use follow::{Follower, Follows};
 pub use shell::{Exited, Ran};
+pub use stats::Sampled;
 pub use sync::{Refusal, SyncState, push_sync};
 
 const CLOSE_NOT_ALLOWED: u32 = 401;
@@ -79,6 +81,7 @@ pub struct Online {
     shell: Arc<shell::ShellSlot>,
     agents: Arc<agent::AgentLinks>,
     desktop: Arc<desktop::DesktopSlot>,
+    stats: Arc<stats::StatsSlot>,
     /// Woken when the user's credentials change, for a node that takes
     /// them.
     credentials: Option<Arc<Notify>>,
@@ -407,6 +410,7 @@ async fn serve(
     if let Some(changed) = &credentials {
         changed.notify_one();
     }
+    let stats = Arc::new(stats::StatsSlot::default());
     app.nodes.insert(
         endpoint,
         Online {
@@ -419,6 +423,7 @@ async fn serve(
             shell: Arc::default(),
             agents: Arc::default(),
             desktop: Arc::default(),
+            stats: stats.clone(),
             credentials: credentials.clone(),
         },
     );
@@ -442,6 +447,7 @@ async fn serve(
                         log::warn!("node report not saved; node={endpoint} error={e:#}");
                     }
                 }
+                Ok(Some(Up::Stats(report))) => stats.set(report),
                 Ok(Some(other)) => log::debug!("node sent something unhandled: {other:?}"),
                 Ok(None) => return Ok(()),
                 // A message from a newer node this server cannot read yet.

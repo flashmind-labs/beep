@@ -19,9 +19,9 @@ use beep_server::{
     protocol::{
         AgentEntryKind, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
         CreateNodeToken, DeviceKind, GetAgentSession, GetNodeToken, ListAgentHosts,
-        ListAgentSessions, ListMachineDetails, ListMachines, ListMemoryScopes, MachineCapability,
-        MemoryScope, MemorySource, RemoveDevice, RevokeNodeToken, StartAgentSession,
-        SteerAgentSession,
+        ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
+        MachineCapability, MemoryScope, MemorySource, RemoveDevice, RevokeNodeToken,
+        StartAgentSession, SteerAgentSession,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -675,6 +675,23 @@ async fn an_admin_sees_their_machines_and_what_memories_are_about() {
         .expect("the report reaches the app");
     assert_eq!(env.os, std::env::consts::OS);
 
+    // Stats follow the report on their own, kept in memory.
+    let stats = timeout(Duration::from_secs(20), async {
+        loop {
+            let stats = alice_app.call(&ListMachineStats {}).await.unwrap();
+            if !stats.is_empty() {
+                return stats;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the node sent stats");
+    assert_eq!(stats.len(), 1);
+    assert_eq!(stats[0].id, node_id);
+    assert!(stats[0].memory_total_mb > 0);
+    assert!(!stats[0].disks.is_empty(), "the home folder is measured");
+
     user.add_memory(memory(
         "Has the beep repo in /srv/beep.",
         Scope::Machine(node_key.public()),
@@ -858,6 +875,11 @@ async fn machine_details_needs_nodes_privilege() {
     let router = phone_router(&app, store).await;
     let (_node, bob) = phone(SecretKey::generate(), &router).await;
     let refused = bob.call(&ListMachineDetails {}).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::Unauthorized {}
+    ));
+    let refused = bob.call(&ListMachineStats {}).await.unwrap_err();
     assert!(matches!(
         refused.downcast::<ApiError>().unwrap(),
         ApiError::Unauthorized {}

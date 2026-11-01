@@ -3,9 +3,9 @@
 use super::Reply;
 use crate::{
     instance::Privilege,
-    nodes::{self, TokenRefusal},
+    nodes::{self, Sampled, TokenRefusal},
     protocol::{
-        node::{AppInfo, AppName, Capability, EnvReport, GpuInfo},
+        node::{AppInfo, AppName, Capability, DiskUsage, EnvReport, GpuInfo},
         setup::SetupToken,
         *,
     },
@@ -63,6 +63,24 @@ pub(super) async fn list_machine_details(
         .into_iter()
         .filter(|node| keys.contains(&node.endpoint))
         .map(|node| machine_details(node.endpoint, node.env.unwrap_or_default()))
+        .collect())
+}
+
+/// Admins only, like `list_machines`. Only machines online now that sent
+/// stats on this connection.
+pub(super) async fn list_machine_stats(cx: Cx, _: ListMachineStats) -> Reply<Vec<MachineStats>> {
+    if !cx.app.allows(Privilege::Nodes, &cx.user) {
+        return Err(ApiError::Unauthorized {});
+    }
+    Ok(cx
+        .app
+        .nodes
+        .of_user(cx.user.id())
+        .into_iter()
+        .filter_map(|online| {
+            let id = online.connection.remote_id().to_string();
+            Some(machine_stats(id, online.stats()?))
+        })
         .collect())
 }
 
@@ -158,6 +176,25 @@ pub(super) fn machine_capability(capability: Capability) -> MachineCapability {
         Capability::Xcode => MachineCapability::Xcode {},
         Capability::Android => MachineCapability::Android {},
         Capability::Docker => MachineCapability::Docker {},
+    }
+}
+
+fn machine_stats(id: String, Sampled { at, report }: Sampled) -> MachineStats {
+    MachineStats {
+        id,
+        sampled_at: at,
+        disks: report.disks.into_iter().map(machine_disk).collect(),
+        memory_used_mb: report.memory_used_mb,
+        memory_total_mb: report.memory_total_mb,
+        load: report.load,
+    }
+}
+
+fn machine_disk(disk: DiskUsage) -> MachineDisk {
+    MachineDisk {
+        path: disk.path,
+        free_bytes: disk.free_bytes,
+        total_bytes: disk.total_bytes,
     }
 }
 
