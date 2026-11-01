@@ -17,12 +17,17 @@ use beep_server::{
     models::ModelChoices,
     nodes::{self, Online},
     protocol::{
-        ApiError, DeviceKind, ListMachineDetails, ListMachines, ListMemoryScopes,
-        MachineCapability, MemoryScope, MemorySource, RemoveDevice,
+        AgentStatus, AnswerAgentQuestion, ApiError, DeviceKind, ListAgentSessions,
+        ListMachineDetails, ListMachines, ListMemoryScopes, MachineCapability, MemoryScope,
+        MemorySource, RemoveDevice,
         link::LinkOffer,
         node::{
             EnvReport,
-            agent::{EntryKind, Request, Status, StopReason},
+            agent::{
+                AnswerOption, EntryKind, Event, ExternalSession, OptionKind, Presence, Question,
+                Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State,
+                Status, StopReason,
+            },
         },
     },
     push::Pusher,
@@ -38,7 +43,10 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tokio::time::{sleep, timeout};
+use tokio::{
+    sync::mpsc,
+    time::{sleep, timeout},
+};
 
 /// The node tests never run a model turn.
 struct NoModel;
@@ -848,4 +856,523 @@ async fn machine_details_needs_nodes_privilege() {
         ApiError::Unauthorized {}
     ));
     router.shutdown().await.unwrap();
+}
+
+/// What a fake node's `agents/1` and `claude/1` answer.
+#[derive(Clone, Default)]
+struct FakeAgents {
+    /// The Beep sessions `List` gives.
+    sessions: Vec<SessionInfo>,
+    /// The sessions `External` gives, by agent; `None` answers an error.
+    external: Option<Vec<ExternalSession>>,
+    /// Takes requests and never answers.
+    hang: bool,
+    /// Where the `claude/1` stream hands the orders it gets.
+    orders: Option<mpsc::UnboundedSender<Request>>,
+}
+
+impl FakeAgents {
+    fn offers(self) -> Offers {
+        let fake = Arc::new(self);
+        Offers {
+            agents: Arc::default(),
+            extra: vec![
+                Arc::new(FakeSessions(fake.clone())),
+                Arc::new(FakeClaude(fake)),
+            ],
+        }
+    }
+}
+
+struct FakeSessions(Arc<FakeAgents>);
+
+impl Protocol for FakeSessions {
+    fn name(&self) -> &str {
+        SESSIONS_PROTOCOL
+    }
+
+    fn serve(&self, mut tx: LinkTx, mut rx: LinkRx) -> Session {
+        let fake = self.0.clone();
+        Box::pin(async move {
+            let Some(request) = rx.recv::<SessionsRequest>().await? else {
+                return Ok(());
+            };
+            if fake.hang {
+                // Holds the stream until the server drops it.
+                while rx.recv::<SessionsRequest>().await?.is_some() {}
+                return Ok(());
+            }
+            let reply = match (request, &fake.external) {
+                (SessionsRequest::List {}, _) => SessionsReply::Sessions {
+                    sessions: fake.sessions.clone(),
+                },
+                (SessionsRequest::External { agent, .. }, Some(external)) => {
+                    SessionsReply::External {
+                        sessions: external
+                            .iter()
+                            .filter(|session| session.agent == agent)
+                            .cloned()
+                            .collect(),
+                    }
+                }
+                _ => SessionsReply::Error {
+                    message: "not faked".into(),
+                },
+            };
+            tx.send(&reply).await
+        })
+    }
+}
+
+struct FakeClaude(Arc<FakeAgents>);
+
+impl Protocol for FakeClaude {
+    fn name(&self) -> &str {
+        "claude/1"
+    }
+
+    fn serve(&self, mut tx: LinkTx, mut rx: LinkRx) -> Session {
+        let fake = self.0.clone();
+        Box::pin(async move {
+            let Some(Request::Attach { session }) = rx.recv::<Request>().await? else {
+                return Ok(());
+            };
+            let Some(info) = fake.sessions.iter().find(|info| info.id == session) else {
+                let reason = "no session".into();
+                return tx.send(&Event::Refused { reason }).await;
+            };
+            tx.send(&Event::Attached {
+                session: Box::new(info.clone()),
+            })
+            .await?;
+            while let Some(request) = rx.recv::<Request>().await? {
+                if let Some(orders) = &fake.orders {
+                    orders.send(request).expect("the test still listens");
+                }
+                tx.send(&Event::Ack { error: None }).await?;
+            }
+            Ok(())
+        })
+    }
+}
+
+/// A Beep session of Claude asking `question`.
+fn beep_session(id: &str, question: Option<u32>) -> SessionInfo {
+    SessionInfo {
+        id: id.into(),
+        agent: "claude".into(),
+        cwd: "/srv/project".into(),
+        title: Some("Fix the build".into()),
+        started_at: 1_760_000_000,
+        state: State {
+            status: if question.is_some() {
+                Status::Asking
+            } else {
+                Status::Working
+            },
+            summary: "Run cargo test".into(),
+            ..State::default()
+        },
+        question: question.map(|id| Question {
+            id,
+            text: "Run cargo test".into(),
+            detail: Some("cargo test -p beep".into()),
+            options: vec![
+                AnswerOption {
+                    id: "allow".into(),
+                    name: "Allow".into(),
+                    kind: OptionKind::AllowOnce,
+                },
+                AnswerOption {
+                    id: "reject".into(),
+                    name: "Reject".into(),
+                    kind: OptionKind::RejectOnce,
+                },
+            ],
+        }),
+        ..SessionInfo::default()
+    }
+}
+
+fn external_session(id: &str, presence: Presence) -> ExternalSession {
+    ExternalSession {
+        id: id.into(),
+        agent: "claude".into(),
+        cwd: "/srv/project".into(),
+        title: Some("Write the docs".into()),
+        started_at: 1_760_000_100,
+        last_activity: 1_760_000_200,
+        presence,
+        ..ExternalSession::default()
+    }
+}
+
+/// A server that takes nodes and phones, with `admins` admin users.
+struct CommandCenter {
+    _db: TestDb,
+    app: Arc<App>,
+    router: Router,
+    keys: Vec<SecretKey>,
+    users: Vec<Arc<User>>,
+    nodes: Vec<tokio::task::JoinHandle<anyhow::Result<()>>>,
+}
+
+impl CommandCenter {
+    async fn new(admins: usize) -> Self {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let keys: Vec<SecretKey> = (0..admins).map(|_| SecretKey::generate()).collect();
+        let publics: Vec<_> = keys.iter().map(SecretKey::public).collect();
+        let model = "openai:test".parse().unwrap();
+        let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &publics).await;
+        let app = App::new(
+            store.clone(),
+            Arc::new(NoModel),
+            AgentLlmConfig::new("openai:test".parse().unwrap()),
+            ServerTools::default(),
+            models,
+        );
+        let server_endpoint = endpoint(SecretKey::generate()).await;
+        let pusher = Pusher::with_retry_waits(
+            server_endpoint.clone(),
+            Arc::new(store),
+            None,
+            vec![Duration::from_millis(200)],
+        );
+        let server_id = server_endpoint.id();
+        let router = Router::builder(server_endpoint)
+            .accept(
+                nodes::NODE_ALPN,
+                nodes::NodeHandler::new(app.clone(), server_id),
+            )
+            .accept(
+                transport::ALPN,
+                transport::BeepHandler::new(app.clone(), pusher),
+            )
+            .spawn();
+        let mut users = Vec::new();
+        for key in &keys {
+            let user = app
+                .sign_in(&key.public())
+                .await
+                .unwrap()
+                .expect("a new key is never revoked")
+                .user;
+            users.push(user);
+        }
+        Self {
+            _db: db,
+            app,
+            router,
+            keys,
+            users,
+            nodes: Vec::new(),
+        }
+    }
+
+    /// Links a node named `name` to user `user`, connects it serving
+    /// `fake`, and waits until it is online. Gives its machine id.
+    async fn node(&mut self, user: usize, name: &'static str, fake: FakeAgents) -> String {
+        let key = SecretKey::generate();
+        self.users[user]
+            .link_key(NewKey {
+                endpoint: key.public(),
+                name,
+                kind: DeviceKind::Desktop {},
+            })
+            .await
+            .unwrap();
+        let addr = self.router.endpoint().addr();
+        let node = endpoint(key.clone()).await;
+        self.nodes.push(tokio::spawn(async move {
+            beep_node::link::connect(&node, addr, name, &fake.offers()).await
+        }));
+        let id = key.public().to_string();
+        online(&self.app, &id).await;
+        id
+    }
+
+    async fn phone(&self, user: usize) -> (Node, Client) {
+        phone(self.keys[user].clone(), &self.router).await
+    }
+
+    async fn shutdown(self) {
+        for node in &self.nodes {
+            node.abort();
+        }
+        self.router.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn agent_sessions_cover_every_node() {
+    let mut center = CommandCenter::new(1).await;
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", Some(3))],
+                external: Some(Vec::new()),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let mac = center
+        .node(
+            0,
+            "mac-box",
+            FakeAgents {
+                external: Some(vec![external_session("ext-1", Presence::Working)]),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let sessions = client.call(&ListAgentSessions {}).await.unwrap();
+    assert_eq!(sessions.len(), 2, "{sessions:?}");
+    // Newest first: the external one was active after the Beep one started.
+    let external = &sessions[0];
+    assert_eq!(external.machine_id, mac);
+    assert_eq!(external.machine_name, "mac-box");
+    assert_eq!(external.id, "ext-1");
+    assert!(external.external);
+    assert_eq!(external.status, AgentStatus::Working {});
+    assert!(external.question.is_none());
+    assert_eq!(
+        external.last_activity,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_760_000_200)
+    );
+    let beep = &sessions[1];
+    assert_eq!(beep.machine_id, build);
+    assert_eq!(beep.machine_name, "build-box");
+    assert_eq!(beep.id, "a3f9c1");
+    assert_eq!(beep.agent, "claude");
+    assert_eq!(beep.cwd, "/srv/project");
+    assert_eq!(beep.title.as_deref(), Some("Fix the build"));
+    assert!(!beep.external);
+    assert_eq!(beep.status, AgentStatus::Asking {});
+    assert_eq!(beep.doing.as_deref(), Some("Run cargo test"));
+    let question = beep.question.as_ref().expect("the session asks");
+    assert_eq!(question.id, 3);
+    assert_eq!(question.detail.as_deref(), Some("cargo test -p beep"));
+    let allows: Vec<bool> = question.options.iter().map(|option| option.allow).collect();
+    assert_eq!(allows, [true, false]);
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_sessions_skip_a_hung_node() {
+    let mut center = CommandCenter::new(1).await;
+    for name in ["build-box", "mac-box"] {
+        center
+            .node(
+                0,
+                name,
+                FakeAgents {
+                    sessions: vec![beep_session(name, None)],
+                    external: Some(Vec::new()),
+                    ..FakeAgents::default()
+                },
+            )
+            .await;
+    }
+    center
+        .node(
+            0,
+            "hung-box",
+            FakeAgents {
+                sessions: vec![beep_session("hung", None)],
+                hang: true,
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let sessions = timeout(Duration::from_secs(5), client.call(&ListAgentSessions {}))
+        .await
+        .expect("a hung node does not hold up the list")
+        .unwrap();
+    let mut names: Vec<&str> = sessions
+        .iter()
+        .map(|session| session.machine_name.as_str())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["build-box", "mac-box"]);
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_sessions_survive_no_external() {
+    let mut center = CommandCenter::new(1).await;
+    center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                external: None,
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let sessions = client.call(&ListAgentSessions {}).await.unwrap();
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    assert_eq!(sessions[0].id, "a3f9c1");
+    assert!(!sessions[0].external);
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_sessions_drop_stopped_external() {
+    let mut center = CommandCenter::new(1).await;
+    center
+        .node(
+            0,
+            "mac-box",
+            FakeAgents {
+                external: Some(vec![
+                    external_session("stopped", Presence::Stopped),
+                    external_session("recent", Presence::Recent),
+                    external_session("waiting", Presence::Waiting),
+                ]),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let sessions = client.call(&ListAgentSessions {}).await.unwrap();
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    assert_eq!(sessions[0].id, "waiting");
+    assert_eq!(sessions[0].status, AgentStatus::Waiting {});
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn answer_agent_question_sends_answer() {
+    let mut center = CommandCenter::new(1).await;
+    let (orders, mut received) = mpsc::unbounded_channel();
+    let machine = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", Some(3))],
+                orders: Some(orders),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    client
+        .call(&AnswerAgentQuestion {
+            machine_id: machine,
+            agent: "claude".into(),
+            session: "a3f9c1".into(),
+            question: 3,
+            reply: "allow".into(),
+        })
+        .await
+        .unwrap();
+    let order = timeout(Duration::from_secs(5), received.recv())
+        .await
+        .expect("the node got an order")
+        .expect("the fake still runs");
+    assert_eq!(
+        order,
+        Request::Answer {
+            question: 3,
+            reply: "allow".into()
+        }
+    );
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn answer_agent_question_conflict_when_gone() {
+    let mut center = CommandCenter::new(1).await;
+    let machine = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let refused = client
+        .call(&AnswerAgentQuestion {
+            machine_id: machine,
+            agent: "claude".into(),
+            session: "a3f9c1".into(),
+            question: 3,
+            reply: "allow".into(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::Conflict { .. }
+    ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn answer_agent_question_other_users_machine() {
+    let mut center = CommandCenter::new(2).await;
+    let theirs = center
+        .node(
+            1,
+            "build-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", Some(3))],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let answer = |machine_id: String, session: &str| AnswerAgentQuestion {
+        machine_id,
+        agent: "claude".into(),
+        session: session.into(),
+        question: 3,
+        reply: "allow".into(),
+    };
+    let refused = client.call(&answer(theirs, "a3f9c1")).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
+    // On the caller's own machine, a session it does not have is not found either.
+    let mine = center
+        .node(
+            0,
+            "mac-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", Some(3))],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let refused = client.call(&answer(mine, "000000")).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_sessions_need_nodes_privilege() {
+    let center = CommandCenter::new(0).await;
+    let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
+    let refused = bob.call(&ListAgentSessions {}).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::Unauthorized {}
+    ));
+    center.shutdown().await;
 }

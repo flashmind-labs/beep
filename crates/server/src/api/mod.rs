@@ -17,6 +17,7 @@ use std::{collections::VecDeque, time::Duration};
 use tokio::{sync::broadcast::error::RecvError, time::timeout};
 use uuid::Uuid;
 
+mod agent_sessions;
 mod crons;
 mod devices;
 mod findings;
@@ -191,6 +192,8 @@ pub fn router() -> Router {
         .call(findings::list_findings)
         .call(findings::update_finding)
         .call(list_machine_details)
+        .call(agent_sessions::list_agent_sessions)
+        .call(agent_sessions::answer_agent_question)
 }
 
 type Reply<T> = Result<T, ApiError>;

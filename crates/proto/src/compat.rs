@@ -98,6 +98,9 @@ sample_struct! {
     MachineDetails { id, apps, gpus, capabilities }
     MachineApp { name, version }
     MachineGpu { vendor, model, vram_mb, driver }
+    MachineSession { machine_id, machine_name, id, agent, title, cwd, status, doing, started_at, last_activity, external, question }
+    AgentQuestion { id, text, detail, options }
+    AgentOption { id, name, allow }
     AppIntegration { slug, name, description, logo_url, connected, configured, kind }
     ConnectLink { url }
     AppAccount { id, address }
