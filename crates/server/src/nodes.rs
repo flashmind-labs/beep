@@ -320,7 +320,11 @@ async fn claim(
         Claim::Unknown => refuse("This setup token is unknown here. Make a new one in Beep."),
         Claim::Expired => refuse("This setup token expired. Make a new one in Beep."),
         Claim::Used => refuse("This setup token was already used. Make a new one in Beep."),
-        Claim::Taken => refuse("This machine is already linked to another account."),
+        Claim::OtherAccount => refuse(
+            "This machine's key belongs to another Beep account. On the machine, delete \
+             beep-node's key folder (beep-node in its config folder, or the --dir you gave) \
+             and run setup again.",
+        ),
     }
 }
 
