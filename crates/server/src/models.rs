@@ -301,7 +301,7 @@ impl Choice {
 }
 
 /// A listed name without its maker, which the provider puts first:
-/// "OpenAI: GPT-5.6 Luna" reads "GPT-5.6 Luna".
+/// "OpenAI: GPT-6 Luna" reads "GPT-6 Luna".
 fn short_name(name: &str) -> String {
     name.split_once(": ")
         .map_or(name, |(_, short)| short)
@@ -320,8 +320,8 @@ mod tests {
     fn choices() -> ModelChoices {
         let mut models = ModelChoices::only("openrouter:z-ai/glm-5.3-flash".parse().unwrap());
         models.choices.push(Choice {
-            model: "openrouter:openai/gpt-5.6-luna".parse().unwrap(),
-            name: "GPT-5.6 Luna".into(),
+            model: "openrouter:openai/gpt-6-luna".parse().unwrap(),
+            name: "GPT-6 Luna".into(),
             input_price: Some(0.1),
             output_price: Some(0.5),
             sees_images: true,
@@ -332,8 +332,8 @@ mod tests {
     #[test]
     fn anyone_s_pick_counts() {
         let models = choices();
-        let luna = Some("openrouter:openai/gpt-5.6-luna");
-        assert_eq!(models.for_user(luna).name(), "openai/gpt-5.6-luna");
+        let luna = Some("openrouter:openai/gpt-6-luna");
+        assert_eq!(models.for_user(luna).name(), "openai/gpt-6-luna");
         assert_eq!(models.for_user(None).name(), "z-ai/glm-5.3-flash");
     }
 
@@ -360,12 +360,12 @@ mod tests {
         let choices = models.for_picker(&picked).choices;
         assert_eq!(choices.len(), 2);
         assert!(choices[0].default);
-        assert_eq!(choices[1].name, "GPT-5.6 Luna");
+        assert_eq!(choices[1].name, "GPT-6 Luna");
     }
 
     #[test]
     fn auto_takes_only_offered_models_in_choice_order() {
-        let luna: Model = "openrouter:openai/gpt-5.6-luna".parse().unwrap();
+        let luna: Model = "openrouter:openai/gpt-6-luna".parse().unwrap();
         let flash: Model = "openrouter:z-ai/glm-5.3-flash".parse().unwrap();
         let gone: Model = "openrouter:retired/model".parse().unwrap();
         let models = choices().with_auto(HashMap::from([
@@ -375,7 +375,7 @@ mod tests {
         ]));
         let auto: Vec<_> = models.auto().iter().map(|a| &a.model).collect();
         assert_eq!(auto, [&flash, &luna]);
-        assert_eq!(models.auto()[1].name, "GPT-5.6 Luna");
+        assert_eq!(models.auto()[1].name, "GPT-6 Luna");
 
         let on = picked(&flash, true);
         let shown = models.for_picker(&on);
@@ -387,8 +387,8 @@ mod tests {
 
     #[test]
     fn listed_names_drop_their_maker() {
-        assert_eq!(short_name("OpenAI: GPT-5.6 Luna"), "GPT-5.6 Luna");
-        assert_eq!(short_name("GPT-5.6 Luna"), "GPT-5.6 Luna");
+        assert_eq!(short_name("OpenAI: GPT-6 Luna"), "GPT-6 Luna");
+        assert_eq!(short_name("GPT-6 Luna"), "GPT-6 Luna");
     }
 
     #[test]
