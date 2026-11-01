@@ -19,6 +19,7 @@ use crate::{
     },
     permissions::Rules,
     places::PlaceEvent,
+    projects::model::{ProjectId, RepoName, TaskId, WorkerId},
     protocol::{
         Cron, FilePart, ImageRef, Memory, RouteCard, Run, SentFiles, SentImages, Session,
         ToolLabel, TurnSources, UpdatePage, Upload, WebSource, node::EnvReport,
@@ -30,10 +31,10 @@ use crate::{
         Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite, Join,
         JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow,
         Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode,
-        NewPicture, NewPlace, NewPlaceRoutine, NodeRow, PicturesOf, PlaceRoutine, Posted,
-        ProfileNote, ProfileRead, PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share,
-        SkillOwner, SkillPatch, SkillRow, Store, StoredContext, StoredMessage, TurnAgentRow,
-        TurnRecord, TurnsToDelete,
+        NewPicture, NewPlace, NewPlaceRoutine, NewWorker, NodeRow, PicturesOf, PlaceRoutine,
+        Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow, RunStatus,
+        SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, StartRefused, Store,
+        StoredContext, StoredMessage, TaskRow, TurnAgentRow, TurnRecord, TurnsToDelete, WorkerRow,
     },
 };
 use anyhow::Result;
@@ -1277,6 +1278,60 @@ impl Drop for FeedClaim<'_> {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&self.feed);
+    }
+}
+
+/// The user's projects, their tasks and workers.
+#[allow(dead_code, reason = "the project agent uses these in the next tasks")]
+impl User {
+    pub(crate) async fn ensure_project(&self, name: &RepoName) -> Result<ProjectRow> {
+        self.store.ensure_project(&self.key, name).await
+    }
+
+    pub(crate) async fn projects(&self) -> Result<Vec<ProjectRow>> {
+        self.store.projects(&self.key).await
+    }
+
+    pub(crate) async fn project(&self, id: ProjectId) -> Result<Option<ProjectRow>> {
+        self.store.project(&self.key, id).await
+    }
+
+    /// The project whose agent talks in `chat`, if it is one.
+    pub(crate) async fn project_in(&self, chat: Uuid) -> Result<Option<ProjectRow>> {
+        self.store.project_in(&self.key, chat).await
+    }
+
+    /// The chat of the project's agent, made on first use.
+    pub(crate) async fn ensure_project_agent(&self, project: ProjectId) -> Result<Uuid> {
+        self.store.ensure_project_agent(&self.key, project).await
+    }
+
+    pub(crate) async fn project_task(&self, id: TaskId) -> Result<Option<TaskRow>> {
+        self.store.task(&self.key, id).await
+    }
+
+    /// Tasks waiting for a slot to start, oldest first.
+    pub(crate) async fn queued_tasks(&self) -> Result<Vec<TaskRow>> {
+        self.store.queued_tasks(&self.key).await
+    }
+
+    pub(crate) async fn start_worker(
+        &self,
+        worker: &NewWorker,
+    ) -> Result<Result<WorkerRow, StartRefused>> {
+        self.store.start_worker(&self.key, worker).await
+    }
+
+    pub(crate) async fn live_workers_on(&self, machine: &EndpointId) -> Result<Vec<WorkerRow>> {
+        self.store.live_workers_on(&self.key, machine).await
+    }
+
+    pub(crate) async fn live_workers(&self) -> Result<Vec<WorkerRow>> {
+        self.store.live_workers(&self.key).await
+    }
+
+    pub(crate) async fn project_worker(&self, id: WorkerId) -> Result<Option<WorkerRow>> {
+        self.store.worker(&self.key, id).await
     }
 }
 
