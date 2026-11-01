@@ -37,7 +37,8 @@ use crate::{
         NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewWorker, NodeRow, PicturesOf,
         PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow,
         RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, StartRefused,
-        Store, StoredContext, StoredMessage, TaskRow, TurnRecord, TurnsToDelete, WorkerRow,
+        Store, StoredContext, StoredMessage, SyncRow, TaskRow, TurnRecord, TurnsToDelete,
+        WorkerRow,
     },
 };
 use anyhow::Result;
@@ -917,6 +918,30 @@ impl User {
         self.store.link_key(&self.key, key).await
     }
 
+    /// Keeps a new setup token's hash; returns when it expires.
+    pub async fn create_node_token(
+        &self,
+        hash: &str,
+        name: Option<&str>,
+        ttl: Duration,
+    ) -> Result<DateTime<Utc>> {
+        self.store
+            .create_node_token(&self.key, hash, name, ttl)
+            .await
+    }
+
+    /// The key that claimed this user's setup token `hash`: `None` for no
+    /// such token, `Some(None)` while unused.
+    pub async fn node_token_claimer(&self, hash: &str) -> Result<Option<Option<String>>> {
+        self.store.node_token_claimer(&self.key, hash).await
+    }
+
+    /// Stops this user's unused setup token `hash` from working; false
+    /// when there is none.
+    pub async fn revoke_node_token(&self, hash: &str) -> Result<bool> {
+        self.store.revoke_node_token(&self.key, hash).await
+    }
+
     /// Records that a node said hello.
     pub async fn node_connected(&self, node: NewNode<'_>) -> Result<()> {
         self.store.node_connected(&self.key, node).await
@@ -929,6 +954,63 @@ impl User {
 
     pub async fn nodes(&self) -> Result<Vec<NodeRow>> {
         self.store.nodes(&self.key).await
+    }
+
+    /// The machines that sync each project, by project.
+    pub async fn project_syncs(&self) -> Result<Vec<SyncRow>> {
+        self.store.project_syncs(&self.key).await
+    }
+
+    /// Syncs a project on a machine, in a folder.
+    pub async fn set_project_sync(&self, row: &SyncRow) -> Result<()> {
+        self.store.set_project_sync(&self.key, row).await
+    }
+
+    /// Stops syncing `project` on `endpoint`; `false` when it did not.
+    pub async fn remove_project_sync(&self, project: &str, endpoint: &str) -> Result<bool> {
+        self.store
+            .remove_project_sync(&self.key, project, endpoint)
+            .await
+    }
+
+    pub async fn pinned_projects(&self) -> Result<Vec<String>> {
+        self.store.pinned_projects(&self.key).await
+    }
+
+    /// Pins `project`, which stops it on every machine, or unpins it.
+    pub async fn pin_project(&self, project: &str, pinned: bool) -> Result<()> {
+        self.store.pin_project(&self.key, project, pinned).await
+    }
+
+    /// The user's credentials, without their secrets.
+    pub async fn credentials(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<crate::store::CredentialRow>> {
+        self.store.credentials(&self.key, key).await
+    }
+
+    /// Seals and saves a credential, replacing the one in its slot.
+    pub async fn save_credential(
+        &self,
+        key: &crate::credentials::CredentialKey,
+        new: crate::store::NewCredential<'_>,
+    ) -> Result<crate::store::CredentialRow> {
+        self.store.save_credential(&self.key, key, new).await
+    }
+
+    /// `false` when the user has no credential `id`.
+    pub async fn remove_credential(&self, id: &str) -> Result<bool> {
+        self.store.remove_credential(&self.key, id).await
+    }
+
+    /// The user's credentials for their machines, opened.
+    pub async fn machine_credentials(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<crate::protocol::node::MachineCredentials> {
+        let opened = self.store.machine_credentials(&self.key, key).await?;
+        Ok(crate::credentials::for_machines(opened))
     }
 
     /// The account's primary key, then the keys linked to it.

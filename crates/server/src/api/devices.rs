@@ -2,6 +2,7 @@
 
 use super::{Reply, found};
 use crate::{
+    nodes::push_sync,
     protocol::*,
     push::CLOSE_REVOKED,
     router::Cx,
@@ -88,6 +89,10 @@ pub(super) async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> 
     cx.user.changed("");
     cx.pusher.forget(key);
     cx.app.nodes.forget(&key, CLOSE_REVOKED);
+    // The machines that synced projects with it stop pulling from it.
+    if let Err(e) = push_sync(&cx.app.nodes, &cx.user, None).await {
+        log::warn!("sync lists not sent after a removed device: {e:#}");
+    }
     Ok(())
 }
 
@@ -154,6 +159,7 @@ pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> R
         code: &link::join_code(&code).unwrap_or_default(),
         target: target.id(),
         adopt_external_id: mine == Some(true) && theirs == Some(false),
+        credential_key: &cx.app.credential_key,
     };
     match cx.user.merge_into(into).await? {
         Merge::Merged { target, keys } => {

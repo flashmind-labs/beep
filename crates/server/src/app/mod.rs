@@ -19,6 +19,7 @@ use crate::{
     AsyncMutex,
     apps::{Composio, ComposioSettings},
     compaction::{self, Summarizer},
+    credentials::CredentialKey,
     decision::DecisionTool,
     images::Describer,
     instance::{Instance, InstanceConfig, Privilege},
@@ -77,7 +78,7 @@ pub struct App {
     vision_model: Option<Model>,
     /// Summarizes long sessions; see `Config::compaction_model`.
     compaction_model: Option<Model>,
-    /// What admins may run their own turns on.
+    /// What users may run their own turns on.
     pub models: ModelChoices,
     /// What a new `User` is built from.
     shared: Shared,
@@ -115,6 +116,8 @@ pub struct App {
     instance: Option<Instance>,
     /// Agents that read finished chats over (see `crate::watchers`).
     pub watchers: crate::watchers::Hub,
+    /// Seals and opens users' credentials.
+    pub credential_key: CredentialKey,
 }
 
 /// Optional tools and integrations that need server credentials, and the
@@ -141,6 +144,9 @@ pub struct ServerTools {
     pub mistral: Option<Arc<dyn LlmProvider>>,
     /// Runs the server for one owner; `None` serves everyone.
     pub instance: Option<InstanceConfig>,
+    /// Seals users' credentials (see `crate::credentials`). `None` makes a
+    /// key that lasts as long as the process, for tests.
+    pub credential_key: Option<CredentialKey>,
 }
 
 /// The part of `ServerTools` a run registers itself.
@@ -226,9 +232,9 @@ pub struct Message {
     pub spoken: bool,
     /// Set when the run resumes a session that stopped to ask the user.
     pub answer: Option<Answer>,
-    /// An admin's one-off model for this run, instead of their picked one.
+    /// A one-off model for this run, instead of the user's picked one.
     pub model: Option<Model>,
-    /// An admin's one-off thinking for this run, instead of their picked one.
+    /// A one-off thinking for this run, instead of the user's picked one.
     pub thinking: Option<ReasoningLevel>,
     /// The device the message came from. A computer has no phone to act on.
     pub origin: DeviceKind,
@@ -309,6 +315,7 @@ impl App {
             realtime,
             mistral,
             instance,
+            credential_key,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
         let tool_images = Arc::new(ToolImages::default());
@@ -356,6 +363,7 @@ impl App {
             subagents,
             instance: instance.map(Instance::new),
             watchers: crate::watchers::Hub::default(),
+            credential_key: credential_key.unwrap_or_else(CredentialKey::random),
         })
     }
 
@@ -776,15 +784,12 @@ impl App {
             log::warn!("reading the picked model failed; user={}: {e:#}", user.id());
             None
         });
-        self.models.for_user(user.id(), picked.as_deref()).clone()
+        self.models.for_user(picked.as_deref()).clone()
     }
 
-    /// How long the model reasons on `user`'s turns: their pick when they are
-    /// an admin, else the config's.
+    /// How long the model reasons on `user`'s turns: their pick, else the
+    /// config's.
     pub(crate) async fn thinking_for(&self, user: &User) -> ReasoningLevel {
-        if !self.models.is_admin(user.id()) {
-            return self.llm.reasoning;
-        }
         let picked = user.thinking().await.unwrap_or_else(|e| {
             log::warn!(
                 "reading the picked thinking failed; user={}: {e:#}",

@@ -17,6 +17,7 @@
 //! server closes the stream. `Resume` takes one of them over once nothing
 //! else runs it.
 
+use crate::Upload;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -34,8 +35,12 @@ pub fn protocol(name: &str) -> String {
 /// The agent a protocol name serves, such as `claude` for `claude/1`.
 pub fn agent_of(protocol: &str) -> Option<&str> {
     let (name, version) = protocol.split_once('/')?;
-    (version == VERSION && !matches!(name, "shell" | "agents" | "desktop" | "files" | "process"))
-        .then_some(name)
+    (version == VERSION
+        && !matches!(
+            name,
+            "shell" | "agents" | "desktop" | "files" | "process" | "sync" | "transfer"
+        ))
+    .then_some(name)
 }
 
 /// What the server sends on an agent stream.
@@ -59,6 +64,10 @@ pub enum Request {
     /// Sends the agent a message. While a turn runs it waits for the turn
     /// to end.
     Prompt { text: String },
+    /// `Prompt` with images, sent to the agent after the text. Refused,
+    /// not sent without them, when the agent takes no images. A node from
+    /// before it answers that it does not know the request.
+    PromptImages { text: String, images: Vec<Upload> },
     /// Answers the open question. `reply` is one of its options, by id,
     /// number or name; anything else declines and goes to the agent as the
     /// next prompt.
@@ -511,6 +520,8 @@ mod tests {
         assert_eq!(agent_of("shell/1"), None);
         assert_eq!(agent_of("files/1"), None);
         assert_eq!(agent_of("process/1"), None);
+        assert_eq!(agent_of(crate::node::sync::PROTOCOL), None);
+        assert_eq!(agent_of(crate::node::transfer::PROTOCOL), None);
         assert_eq!(agent_of(SESSIONS_PROTOCOL), None);
         assert_eq!(agent_of("claude/2"), None);
     }

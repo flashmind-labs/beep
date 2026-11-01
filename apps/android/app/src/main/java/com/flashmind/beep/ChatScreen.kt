@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.widthIn
 
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.flashmind.beep.proto.Models
 import com.flashmind.beep.proto.ReasoningLevel
 import com.flashmind.beep.proto.ResearchStatus
@@ -274,6 +275,18 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         }, onDismiss = { clipboardContent.value = null })
         if (chat.messages.isEmpty()) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(if (compact) 20.dp else 24.dp), verticalArrangement = Arrangement.Center) {
+                // Updates from the user's apps sit on their own card, never inside a reply. Tapping one
+                // starts this empty chat with its summary in the composer, for the user to send or change.
+                val updates by repository.updates.collectAsState()
+                LifecycleResumeEffect(chat.id) { repository.loadUpdates(); onPauseOrDispose {} }
+                if (updates.isNotEmpty()) {
+                    UpdatesCard(updates, onOpen = { update ->
+                        repository.dismissUpdates(listOf(update.id))
+                        draft = update.summary
+                        focusInput.value = true
+                    }, onDismiss = repository::dismissUpdates)
+                    Spacer(Modifier.height(20.dp))
+                }
                 if (compact) {
                     Text(displayText("Hey. What can I help with?"), style = displayStyle(20.sp))
                     Spacer(Modifier.height(18.dp))

@@ -14,6 +14,8 @@ pub mod names;
 pub mod node;
 pub mod seal;
 pub mod search;
+pub mod secret;
+pub mod setup;
 pub mod version;
 pub mod wire;
 
@@ -26,6 +28,7 @@ uniffi::setup_scaffolding!();
 
 pub use flashmind_types::ReasoningLevel;
 use link::LinkOffer;
+pub use secret::SecretText;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{fmt, time::SystemTime};
 use uuid::Uuid;
@@ -656,6 +659,285 @@ requests! {
     /// `GetAgentSession`; `BadRequest` saying why when the node refuses.
     /// Admins only.
     143 SteerAgentSession { machine_id: String, agent: String, session: String, steer: AgentSteer } => Call<()>
+    /// Turns syncing `project` on or off on one machine. On, `folder` is
+    /// its absolute folder there, inside the machine's shared folders;
+    /// the machine then keeps it in step with the other machines that
+    /// sync it, node to node. Off, the machine stops and its files stay.
+    /// `NotFound` when the machine is not one of the caller's,
+    /// `BadRequest` when `folder` is missing, the project is pinned, or the
+    /// machine refuses the folder. Admins only.
+    150 SetProjectSync { project: String, machine_id: String, folder: Option<String>, on: bool } => Call<ProjectSync>
+    /// Every project the caller syncs, with how each machine stands; an
+    /// offline machine or one that does not answer in time shows
+    /// `SyncStatus::Offline`. Admins only.
+    151 ListProjectSync {} => Call<Vec<ProjectSync>>
+    /// What `project`'s sync leaves out on one machine (build output,
+    /// ignored files, links), for the file viewer. `NotFound` when the
+    /// machine does not sync it or is offline. Admins only.
+    152 GetSyncSkipped { project: String, machine_id: String } => Call<SyncSkipped>
+    /// Pins a project to the machines it is on, or unpins it. A pinned
+    /// project, such as a large game or video project, never syncs: every
+    /// machine stops, and `SetProjectSync` refuses to turn it on. Admins
+    /// only.
+    153 PinProject { project: String, pinned: bool } => Call<ProjectSync>
+    /// What the event triage agent found worth telling the user and that
+    /// they have not seen or dismissed yet, from the last two days, newest
+    /// first, at most 20. Apps show them on their own, apart from any chat.
+    160 ListUpdates {} => Call<Vec<AppUpdate>>
+    /// Dismisses updates by `AppUpdate::id`, so they leave the list. Ids
+    /// the caller does not have are skipped.
+    161 DismissUpdates { ids: Vec<i64> } => Call<()>
+    /// The caller's credentials: a GitHub token, a token per Forgejo or
+    /// Gitea server, and API keys, one per provider. Never the secrets
+    /// themselves, only their last four characters.
+    162 ListCredentials {} => Call<Vec<Credential>>
+    /// Saves a credential, replacing the caller's one of the same kind (for
+    /// Forgejo, the same server). A GitHub or Forgejo token is checked with
+    /// its host first, and an OpenRouter key with OpenRouter; `BadRequest`
+    /// saying why when the host refuses it, or for an unknown provider or a
+    /// bad server URL. Git tokens always go to the caller's machines; an API
+    /// key only with `to_machines`, as its provider's env var.
+    163 SaveCredential { kind: CredentialKind, secret: SecretText, to_machines: bool } => Call<Credential>
+    /// Removes one of the caller's credentials, by `Credential::id`, from
+    /// Beep and their machines. `NotFound` when the caller has no such one.
+    164 RemoveCredential { id: String } => Call<()>
+    /// A one-time setup token that links a machine to the caller's account:
+    /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
+    /// It works for ten minutes. `name` is what the machine is called once
+    /// linked; without it, the name `setup` is given, else the machine's
+    /// host name. `BadRequest` when the name is empty or too long or the
+    /// server takes no machines. Admins only, like `ListMachines`.
+    180 CreateNodeToken { name: Option<String> } => Call<NodeToken>
+    /// Stops a token `CreateNodeToken` gave from working. `NotFound` when
+    /// the caller made no such token or it was already used; `BadRequest`
+    /// when `token` is not one.
+    181 RevokeNodeToken { token: String } => Call<()>
+    /// The `Machine::id` that claimed a token `CreateNodeToken` gave, or
+    /// `None` while it is unused, so a sheet waiting on it knows which
+    /// machine linked, even one set up again. `NotFound` when the caller
+    /// made no such token; `BadRequest` when `token` is not one.
+    182 GetNodeToken { token: String } => Call<Option<String>>
+}
+
+/// One project's sync across the caller's machines.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectSync {
+    pub project: String,
+    pub pinned: bool,
+    pub machines: Vec<MachineSync>,
+}
+
+/// How one machine stands with a project it syncs.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineSync {
+    /// The `Machine::id` it is.
+    pub machine_id: String,
+    pub machine_name: String,
+    pub folder: String,
+    pub status: SyncStatus,
+    /// Files kept in step, and their bytes.
+    pub files: u64,
+    pub bytes: u64,
+    /// Files another machine changed that this one does not have yet.
+    pub pending: u64,
+    /// The copies two machines' edits of one file left, by path in the
+    /// folder, such as `notes (conflict 1a2b3c4d).txt`.
+    pub conflicts: Vec<String>,
+    /// Set when the machine rescans the folder this often instead of
+    /// watching it, because its file watch limit is reached.
+    pub rescan_secs: Option<u32>,
+    /// What raises that limit, such as a `sysctl` line.
+    pub hint: Option<String>,
+    /// Why the machine's last scan or fetch failed.
+    pub error: Option<String>,
+}
+
+wire_enum! {
+    /// Where a machine's sync of a project stands: `Offline` (offline or
+    /// did not answer), `Scanning` (looking for changes on disk),
+    /// `Syncing` (fetching or writing what another machine changed),
+    /// `InSync`, or `Failed` (`MachineSync::error` says why).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum SyncStatus {
+        0 Offline {}
+        1 Scanning {}
+        2 Syncing {}
+        3 InSync {}
+        4 Failed {}
+    }
+}
+
+/// What a project's sync leaves out on one machine.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncSkipped {
+    pub paths: Vec<SkippedFile>,
+    /// Files in a git repository that git carries between machines rather
+    /// than sync.
+    pub through_git: u64,
+    /// More paths are left out than `paths` lists.
+    pub truncated: bool,
+}
+
+/// A file or folder sync leaves out, and the rule that does.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SkippedFile {
+    /// Relative to the project folder, parts joined with `/`.
+    pub path: String,
+    pub folder: bool,
+    pub rule: SkipRule,
+}
+
+wire_enum! {
+    /// Why sync leaves a path out, in the order the rules apply: `Git`
+    /// (`.git`, and in a git repository the files git carries), the
+    /// project's `.gitignore`, a `Default` for the kind of project its
+    /// `marker` file shows (such as `target/` for `Cargo.toml`), the
+    /// project's `.beepignore`, or a symlink or special file (`Link`).
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum SkipRule {
+        0 Git {}
+        1 GitIgnore {}
+        2 Default { marker: String }
+        3 BeepIgnore {}
+        4 Link {}
+    }
+}
+
+/// A credential as `ListCredentials` lists it. The secret stays on the
+/// server.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Credential {
+    pub id: String,
+    pub kind: CredentialKind,
+    /// The secret's last four characters.
+    pub last4: String,
+    /// Who the token signs in as, such as a GitHub login. `None` for API
+    /// keys, and for a Forgejo server the server could not reach to check.
+    pub account: Option<String>,
+    /// The env var the machines get it as, such as `GH_TOKEN`. Empty for
+    /// Forgejo, whose tokens go into teacli's config instead.
+    pub env_var: String,
+    /// Whether the caller's machines get it.
+    pub to_machines: bool,
+    pub created_at: SystemTime,
+    /// The server can no longer open it; the user has to enter it again.
+    /// Machines do not get it.
+    pub unreadable: bool,
+}
+
+wire_enum! {
+    /// What a credential is for. `url` is a Forgejo or Gitea server's base
+    /// URL, such as `https://git.example.com`; `provider` an `ApiProvider`
+    /// slug, such as `openrouter`.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum CredentialKind {
+        0 GitHub {}
+        1 Forgejo { url: String }
+        2 ApiKey { provider: String }
+    }
+}
+
+/// The providers an API key can be saved for. On the wire a provider is its
+/// slug, so a newer server can add one without changing a reply's shape.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    strum::IntoStaticStr,
+    strum::EnumString,
+    strum::EnumIter,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum ApiProvider {
+    OpenRouter,
+    ElevenLabs,
+    OpenAi,
+    Anthropic,
+    Gemini,
+    DeepSeek,
+    Moonshot,
+    Zai,
+}
+
+impl ApiProvider {
+    /// Every provider, in the order Settings lists them.
+    pub fn all() -> impl Iterator<Item = Self> {
+        <Self as strum::IntoEnumIterator>::iter()
+    }
+
+    /// The slug the wire and the database carry, such as `openrouter`.
+    pub fn slug(self) -> &'static str {
+        self.into()
+    }
+
+    /// What the user knows it as.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "OpenRouter",
+            Self::ElevenLabs => "ElevenLabs",
+            Self::OpenAi => "OpenAI",
+            Self::Anthropic => "Anthropic",
+            Self::Gemini => "Gemini",
+            Self::DeepSeek => "DeepSeek",
+            Self::Moonshot => "Moonshot",
+            Self::Zai => "Z.ai",
+        }
+    }
+
+    /// The env var tools read the key from.
+    pub fn env_var(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "OPENROUTER_API_KEY",
+            Self::ElevenLabs => "ELEVENLABS_API_KEY",
+            Self::OpenAi => "OPENAI_API_KEY",
+            Self::Anthropic => "ANTHROPIC_API_KEY",
+            Self::Gemini => "GEMINI_API_KEY",
+            Self::DeepSeek => "DEEPSEEK_API_KEY",
+            Self::Moonshot => "MOONSHOT_API_KEY",
+            Self::Zai => "ZAI_API_KEY",
+        }
+    }
+}
+
+/// The env var `gh` reads its token from.
+pub const GITHUB_ENV_VAR: &str = "GH_TOKEN";
+
+/// Something from one of the user's apps worth knowing, as `ListUpdates`
+/// lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppUpdate {
+    pub id: i64,
+    /// One line, such as "Your TestFlight build is ready."
+    pub summary: String,
+    /// The app's slug, as `AppIntegration::slug` gives it, such as `gmail`.
+    /// Empty when the events it came from are gone.
+    pub app: String,
+    /// How the user knows the app, such as "Gmail"; empty with `app`.
+    pub app_name: String,
+    /// When the triage agent decided to tell.
+    pub at: SystemTime,
+}
+
+/// A setup token as `CreateNodeToken` made it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeToken {
+    /// The token as text, such as `bk1-0f3ka-...`.
+    pub token: String,
+    pub expires_at: SystemTime,
 }
 
 /// A project and its agent chat, as `GetProjectAgent` and `ListProjects`
@@ -833,12 +1115,86 @@ wire_enum! {
     /// What `SteerAgentSession` does to a session: `Prompt` sends it a
     /// message after the running turn, `Cancel` stops the turn and drops
     /// waiting messages, `Close` ends the session and stops the agent.
+    /// `PromptImages` is `Prompt` with images after the text, as
+    /// `check_agent_images` allows them; `text` may then be empty. A
+    /// server older than `Feature::AGENT_IMAGES` refuses it, and so does an
+    /// agent that takes no images.
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentSteer {
         0 Prompt { text: String }
         1 Cancel {}
         2 Close {}
+        3 PromptImages { text: String, images: Vec<Upload> } since AGENT_IMAGES
+    }
+}
+
+/// The image types `AgentSteer::PromptImages` may carry.
+pub const AGENT_IMAGE_TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
+/// The most images one `AgentSteer::PromptImages` may carry.
+pub const MAX_AGENT_IMAGES: usize = 5;
+/// The largest one image may be.
+pub const MAX_AGENT_IMAGE: usize = 5 * 1024 * 1024;
+/// The most all of a message's images may hold, so the request stays
+/// under a frame.
+pub const MAX_AGENT_IMAGES_TOTAL: usize = 7 * 1024 * 1024;
+
+/// Refuses images an agent prompt may not carry: too many, too large, or
+/// not a PNG, JPEG, GIF or WebP whose bytes say so too.
+pub fn check_agent_images(images: &[Upload]) -> Result<(), ApiError> {
+    if images.len() > MAX_AGENT_IMAGES {
+        return Err(ApiError::bad_request(format!(
+            "At most {MAX_AGENT_IMAGES} images go with one message."
+        )));
+    }
+    let mut total = 0usize;
+    for image in images {
+        let name = if image.name.is_empty() {
+            "An image"
+        } else {
+            image.name.as_str()
+        };
+        if !AGENT_IMAGE_TYPES.contains(&image.mime.as_str()) {
+            return Err(ApiError::bad_request(format!(
+                "{name} is not a PNG, JPEG, GIF or WebP image."
+            )));
+        }
+        if image.data.len() > MAX_AGENT_IMAGE {
+            return Err(ApiError::bad_request(format!(
+                "{name} is over {} MB; images up to {} MB go.",
+                MAX_AGENT_IMAGE >> 20,
+                MAX_AGENT_IMAGE >> 20
+            )));
+        }
+        if sniff_image(&image.data) != Some(image.mime.as_str()) {
+            return Err(ApiError::bad_request(format!(
+                "{name} is not the {} it says it is.",
+                image.mime
+            )));
+        }
+        total = total.saturating_add(image.data.len());
+    }
+    if total > MAX_AGENT_IMAGES_TOTAL {
+        return Err(ApiError::bad_request(format!(
+            "The images are over {} MB together.",
+            MAX_AGENT_IMAGES_TOTAL >> 20
+        )));
+    }
+    Ok(())
+}
+
+/// The image type `data` starts like, of `AGENT_IMAGE_TYPES`.
+fn sniff_image(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if data.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
     }
 }
 
@@ -1128,7 +1484,7 @@ pub const MAX_UPLOAD: usize = 5 * 1024 * 1024;
 
 /// A file sent with a message, such as a PDF or a spreadsheet.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Upload {
     pub name: String,
     pub mime: String,
@@ -3110,5 +3466,65 @@ mod tests {
         );
         // A request with no fields yet, given one.
         assert!(rmp_serde::from_slice::<Health>(&[0x91, 0xc0]).is_ok());
+    }
+
+    fn image(name: &str, mime: &str, data: Vec<u8>) -> Upload {
+        Upload {
+            name: name.into(),
+            mime: mime.into(),
+            data,
+        }
+    }
+
+    fn png(size: usize) -> Vec<u8> {
+        let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+        data.resize(size.max(data.len()), 0);
+        data
+    }
+
+    #[test]
+    fn agent_images_of_the_four_types_pass() {
+        let mut webp = b"RIFF\0\0\0\0WEBPVP8 ".to_vec();
+        webp.push(0);
+        let images = [
+            image("a.png", "image/png", png(100)),
+            image("b.jpg", "image/jpeg", vec![0xff, 0xd8, 0xff, 0xe0]),
+            image("c.gif", "image/gif", b"GIF89a..".to_vec()),
+            image("d.webp", "image/webp", webp),
+        ];
+        assert_eq!(check_agent_images(&images), Ok(()));
+        assert_eq!(check_agent_images(&[]), Ok(()));
+    }
+
+    #[test]
+    fn agent_images_over_the_limits_are_refused() {
+        let six: Vec<Upload> = (0..6)
+            .map(|_| image("a.png", "image/png", png(10)))
+            .collect();
+        let error = check_agent_images(&six).unwrap_err().to_string();
+        assert!(error.contains("At most 5 images"), "{error}");
+
+        let big = [image("big.png", "image/png", png(MAX_AGENT_IMAGE + 1))];
+        let error = check_agent_images(&big).unwrap_err().to_string();
+        assert!(error.contains("big.png is over 5 MB"), "{error}");
+        let at_limit = [image("ok.png", "image/png", png(MAX_AGENT_IMAGE))];
+        assert_eq!(check_agent_images(&at_limit), Ok(()));
+
+        let two = [
+            image("a.png", "image/png", png(4 << 20)),
+            image("b.png", "image/png", png(4 << 20)),
+        ];
+        let error = check_agent_images(&two).unwrap_err().to_string();
+        assert!(error.contains("over 7 MB together"), "{error}");
+    }
+
+    #[test]
+    fn agent_images_of_other_types_are_refused() {
+        let svg = [image("a.svg", "image/svg+xml", b"<svg/>".to_vec())];
+        let error = check_agent_images(&svg).unwrap_err().to_string();
+        assert!(error.contains("a.svg is not a PNG"), "{error}");
+        let lying = [image("a.png", "image/png", vec![0xff, 0xd8, 0xff])];
+        let error = check_agent_images(&lying).unwrap_err().to_string();
+        assert!(error.contains("not the image/png it says"), "{error}");
     }
 }

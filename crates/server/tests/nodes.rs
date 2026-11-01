@@ -18,18 +18,20 @@ use beep_server::{
     nodes::{self, Online},
     protocol::{
         AgentEntryKind, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
-        DeviceKind, GetAgentSession, ListAgentHosts, ListAgentSessions, ListMachineDetails,
-        ListMachines, ListMemoryScopes, MachineCapability, MemoryScope, MemorySource, RemoveDevice,
-        StartAgentSession, SteerAgentSession,
+        CreateNodeToken, DeviceKind, GetAgentSession, GetNodeToken, ListAgentHosts,
+        ListAgentSessions, ListMachineDetails, ListMachines, ListMemoryScopes, MachineCapability,
+        MemoryScope, MemorySource, RemoveDevice, RevokeNodeToken, StartAgentSession,
+        SteerAgentSession,
         link::LinkOffer,
         node::{
-            EnvReport,
+            EnvReport, NodeSetup,
             agent::{
                 AnswerOption, Entry, EntryKind, Event, ExternalSession, OptionKind, PlanEntry,
                 PlanStatus, Presence, Question, Request, SESSIONS_PROTOCOL, SessionInfo,
                 SessionsReply, SessionsRequest, State, Status, StopReason,
             },
         },
+        setup::SetupToken,
     },
     push::Pusher,
     store::{Fact, NewKey, NewNode, Scope, TestDb},
@@ -240,6 +242,7 @@ async fn a_linked_node_reports_and_runs_shell_commands() {
             let offers = Offers {
                 agents: Arc::default(),
                 extra: vec![Arc::new(FakeDesktop)],
+                provision: None,
             };
             beep_node::link::connect(&node, server, "build box", &offers).await
         }
@@ -333,6 +336,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
             let offers = Offers {
                 agents,
                 extra: Vec::new(),
+                provision: None,
             };
             beep_node::link::connect(&node, addr, "build box", &offers).await
         })
@@ -514,6 +518,7 @@ async fn a_machine_links_from_the_link_its_node_printed() {
             let offers = Offers {
                 agents,
                 extra: Vec::new(),
+                provision: None,
             };
             beep_node::link::connect(&node, addr, "build box", &offers).await
         }
@@ -552,6 +557,7 @@ async fn a_real_claude_session_writes_a_file() {
             let offers = Offers {
                 agents,
                 extra: Vec::new(),
+                provision: None,
             };
             beep_node::link::connect(&node, addr, "build box", &offers).await
         }
@@ -881,6 +887,7 @@ impl FakeAgents {
                 Arc::new(FakeSessions(fake.clone())),
                 Arc::new(FakeClaude(fake)),
             ],
+            provision: None,
         }
     }
 }
@@ -1487,18 +1494,49 @@ async fn auto_starts_on_the_least_busy_machine_and_refuses_what_none_has() {
         .await;
     let idle = center.node(0, "idle-box", FakeAgents::default()).await;
     let (_node, client) = center.phone(0).await;
-    let started = client.call(&start(None, "Fix the tests")).await.unwrap();
+    // Both fake nodes run here, so both have this folder.
+    let here = std::env::temp_dir().to_string_lossy().into_owned();
+    let auto = |prompt: &str, cwd: &str| StartAgentSession {
+        cwd: Some(cwd.into()),
+        ..start(None, prompt)
+    };
+    let started = client.call(&auto("Fix the tests", &here)).await.unwrap();
     assert_eq!(started.session.machine_id, idle);
     assert_eq!(started.why, "It runs the fewest sessions.");
-    // The fakes report no capabilities, so an iOS task fits none.
-    let refused = client
-        .call(&start(None, "Fix the iOS widget"))
+    // The fakes report no capabilities: a prompt naming iOS still starts,
+    // and says what it could not meet.
+    let hinted = client
+        .call(&auto("Fix the iOS widget", &here))
         .await
-        .unwrap_err();
-    let ApiError::BadRequest { message } = refused.downcast::<ApiError>().unwrap() else {
-        panic!("not a bad request");
+        .unwrap();
+    assert_eq!(hinted.session.machine_id, idle);
+    assert_eq!(
+        hinted.why,
+        "It runs the fewest sessions. No machine has Xcode, which the task mentions."
+    );
+    let message = |refused: anyhow::Error| match refused.downcast::<ApiError>().unwrap() {
+        ApiError::BadRequest { message } => message,
+        other => panic!("not a bad request: {other:?}"),
     };
-    assert!(message.contains("has Xcode"), "{message}");
+    // What the app asks for is required.
+    let needs_xcode = StartAgentSession {
+        needs: vec![MachineCapability::Xcode {}],
+        ..auto("Fix the widget", &here)
+    };
+    let refused = message(client.call(&needs_xcode).await.unwrap_err());
+    assert!(refused.contains("has Xcode"), "{refused}");
+    // A folder no machine has is said, not started in the environment.
+    let missing = "/srv/no-such-project-for-auto";
+    let refused = message(
+        client
+            .call(&auto("Fix the tests", missing))
+            .await
+            .unwrap_err(),
+    );
+    assert_eq!(
+        refused,
+        format!("There is no folder {missing} on busy-box and idle-box.")
+    );
     center.shutdown().await;
 }
 
@@ -1624,6 +1662,60 @@ async fn steer_agent_session_sends_prompts_and_stops() {
 }
 
 #[tokio::test]
+async fn agent_control_keeps_to_the_callers_machines_and_chats() {
+    let mut center = CommandCenter::new(2).await;
+    let mine = center.node(0, "build-box", FakeAgents::default()).await;
+    let theirs = center
+        .node(
+            1,
+            "gpu-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let not_found = |error: anyhow::Error| {
+        matches!(error.downcast::<ApiError>().unwrap(), ApiError::NotFound {})
+    };
+    let hosts = client.call(&ListAgentHosts {}).await.unwrap();
+    let listed: Vec<&str> = hosts.iter().map(|host| host.machine_id.as_str()).collect();
+    assert_eq!(listed, [mine.as_str()]);
+    let refused = client
+        .call(&start(Some(theirs.clone()), "Fix the tests"))
+        .await
+        .unwrap_err();
+    assert!(not_found(refused));
+    let get = GetAgentSession {
+        machine_id: theirs.clone(),
+        agent: "claude".into(),
+        session: "a3f9c1".into(),
+        last: 30,
+    };
+    assert!(not_found(client.call(&get).await.unwrap_err()));
+    let steer = SteerAgentSession {
+        machine_id: theirs,
+        agent: "claude".into(),
+        session: "a3f9c1".into(),
+        steer: AgentSteer::Cancel {},
+    };
+    assert!(not_found(client.call(&steer).await.unwrap_err()));
+    // A chat of another user's is not one to start in.
+    let chat = uuid::Uuid::new_v4();
+    center.users[1]
+        .start_research(chat, "Shaders")
+        .await
+        .unwrap();
+    let in_their_chat = StartAgentSession {
+        chat: Some(chat),
+        ..start(Some(mine), "Fix the tests")
+    };
+    assert!(not_found(client.call(&in_their_chat).await.unwrap_err()));
+    center.shutdown().await;
+}
+
+#[tokio::test]
 async fn agent_control_needs_nodes_privilege() {
     let center = CommandCenter::new(0).await;
     let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
@@ -1638,4 +1730,293 @@ async fn agent_control_needs_nodes_privilege() {
         ApiError::Unauthorized {}
     ));
     center.shutdown().await;
+}
+
+/// A server taking both phones and nodes on one endpoint, as the real one
+/// does, with alice as its admin.
+struct OneEndpoint {
+    db: TestDb,
+    app: Arc<App>,
+    router: Router,
+    alice: SecretKey,
+}
+
+async fn one_endpoint() -> OneEndpoint {
+    let db = TestDb::new().await.unwrap();
+    let store = db.store().await.unwrap();
+    let alice = SecretKey::generate();
+    let model = "openai:test".parse().unwrap();
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let app = App::new(
+        store.clone(),
+        Arc::new(NoModel),
+        AgentLlmConfig::new("openai:test".parse().unwrap()),
+        ServerTools::default(),
+        models,
+    );
+    let server_endpoint = endpoint(SecretKey::generate()).await;
+    let pusher = Pusher::with_retry_waits(
+        server_endpoint.clone(),
+        Arc::new(store),
+        None,
+        vec![Duration::from_millis(200)],
+    );
+    let nodes_handler = nodes::NodeHandler::new(app.clone(), server_endpoint.id());
+    let router = Router::builder(server_endpoint)
+        .accept(
+            transport::ALPN,
+            transport::BeepHandler::new(app.clone(), pusher),
+        )
+        .accept(nodes::NODE_ALPN, nodes_handler)
+        .spawn();
+    OneEndpoint {
+        db,
+        app,
+        router,
+        alice,
+    }
+}
+
+fn setup_of(token: &str) -> NodeSetup {
+    NodeSetup {
+        token: token.to_owned(),
+        name: None,
+    }
+}
+
+#[tokio::test]
+async fn a_machine_sets_itself_up_with_a_token_once() {
+    let server = one_endpoint().await;
+    let addr = server.router.endpoint().addr();
+    let (_phone, client) = phone(server.alice.clone(), &server.router).await;
+    let made = client
+        .call(&CreateNodeToken {
+            name: Some("build box".into()),
+        })
+        .await
+        .unwrap();
+    let token = SetupToken::parse(&made.token).unwrap();
+    assert_eq!(token.server, server.router.endpoint().id());
+    let left = made
+        .expires_at
+        .duration_since(SystemTime::now())
+        .expect("it expires later");
+    assert!(left <= Duration::from_secs(600) && left > Duration::from_secs(590));
+
+    // Only the hash is kept.
+    let pool = server.db.raw_pool().await.unwrap();
+    let stored: Vec<String> = sqlx::query_scalar("SELECT hash FROM node_tokens")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, [token.hash()]);
+    let text = made.token.to_lowercase().replace('-', "");
+    assert!(!stored[0].contains(&text[3..30]));
+
+    let status = GetNodeToken {
+        token: made.token.clone(),
+    };
+    assert_eq!(client.call(&status).await.unwrap(), None);
+    let key = SecretKey::generate();
+    let machine = endpoint(key.clone()).await;
+    let claimed = beep_node::link::claim(&machine, addr.clone(), "host", &setup_of(&made.token))
+        .await
+        .unwrap();
+    assert_eq!(
+        client.call(&status).await.unwrap(),
+        Some(key.public().to_string())
+    );
+    assert_eq!(claimed.name, "build box");
+    let alice_id = server
+        .app
+        .sign_in(&server.alice.public())
+        .await
+        .unwrap()
+        .expect("alice signs in")
+        .user
+        .id()
+        .to_owned();
+    assert_eq!(
+        claimed.account,
+        beep_server::protocol::names::username(&server.alice.public())
+    );
+    let user = server
+        .app
+        .sign_in_linked(&key.public())
+        .await
+        .unwrap()
+        .expect("the machine's key signs in")
+        .user;
+    assert_eq!(user.id(), alice_id);
+    let keys = user.account_keys().await.unwrap();
+    let linked = keys
+        .iter()
+        .find(|k| k.endpoint_id == key.public().to_string())
+        .expect("a key row");
+    assert_eq!(linked.name, "build box");
+    assert_eq!(linked.kind, DeviceKind::Desktop {});
+    let rows = user.nodes().await.unwrap();
+    assert_eq!(
+        rows[0].name, "build box",
+        "the node row is written on connect"
+    );
+
+    // Used: another machine is refused and links nothing.
+    let other = SecretKey::generate();
+    let refused = beep_node::link::claim(
+        &endpoint(other.clone()).await,
+        addr.clone(),
+        "host",
+        &setup_of(&made.token),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        format!("{refused:#}").contains("already used"),
+        "{refused:#}"
+    );
+    assert!(
+        server
+            .app
+            .sign_in_linked(&other.public())
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    // The linked machine now connects like any node.
+    let served = tokio::spawn(async move {
+        beep_node::link::connect(&machine, addr, "build box", &Offers::default()).await
+    });
+    let live = online(&server.app, &key.public().to_string()).await;
+    assert_eq!(live.name, "build box");
+    served.abort();
+    server.router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_expired_unknown_or_foreign_token_is_refused() {
+    let server = one_endpoint().await;
+    let addr = server.router.endpoint().addr();
+    let (_phone, client) = phone(server.alice.clone(), &server.router).await;
+    let made = client.call(&CreateNodeToken { name: None }).await.unwrap();
+    let pool = server.db.raw_pool().await.unwrap();
+    sqlx::query("UPDATE node_tokens SET expires_at = now() - interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let key = SecretKey::generate();
+    let machine = endpoint(key.clone()).await;
+    let expired = beep_node::link::claim(&machine, addr.clone(), "host", &setup_of(&made.token))
+        .await
+        .unwrap_err();
+    assert!(format!("{expired:#}").contains("expired"), "{expired:#}");
+
+    let unknown = SetupToken::generate(server.router.endpoint().id()).to_string();
+    let refused = beep_node::link::claim(&machine, addr.clone(), "host", &setup_of(&unknown))
+        .await
+        .unwrap_err();
+    assert!(format!("{refused:#}").contains("unknown"), "{refused:#}");
+
+    let foreign = SetupToken::generate(SecretKey::generate().public()).to_string();
+    let refused = beep_node::link::claim(&machine, addr, "host", &setup_of(&foreign))
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{refused:#}").contains("another server"),
+        "{refused:#}"
+    );
+    assert!(
+        server
+            .app
+            .sign_in_linked(&key.public())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    server.router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_unlinked_key_gets_only_a_small_hello_read() {
+    let Server {
+        _db,
+        router,
+        addr,
+        app,
+        ..
+    } = server().await;
+    let key = SecretKey::generate();
+    let stranger = endpoint(key.clone()).await;
+    // Offers padding the hello far past what a real one carries.
+    let offers = Offers {
+        agents: Arc::default(),
+        extra: (0..200)
+            .map(|_| Arc::new(BigName) as Arc<dyn Protocol>)
+            .collect(),
+        provision: None,
+    };
+    let refused = beep_node::link::connect(&stranger, addr, "stranger", &offers)
+        .await
+        .unwrap_err();
+    // Closed for the hello it would not read, before any "not linked".
+    assert!(format!("{refused:#}").contains("no hello"), "{refused:#}");
+    assert!(app.nodes.online(&key.public().to_string()).is_none());
+    router.shutdown().await.unwrap();
+}
+
+/// A protocol with a long name, to make a hello large.
+struct BigName;
+
+impl Protocol for BigName {
+    fn name(&self) -> &str {
+        static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        NAME.get_or_init(|| "x".repeat(200))
+    }
+
+    fn serve(&self, _tx: LinkTx, _rx: LinkRx) -> Session {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[tokio::test]
+async fn only_the_maker_revokes_a_token() {
+    let server = one_endpoint().await;
+    let addr = server.router.endpoint().addr();
+    let (_alice_phone, alice) = phone(server.alice.clone(), &server.router).await;
+    let (_bob_phone, bob) = phone(SecretKey::generate(), &server.router).await;
+    // Bob is no admin, so he gets no token of his own.
+    let refused = bob.call(&CreateNodeToken { name: None }).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::Unauthorized {}
+    ));
+
+    let made = alice.call(&CreateNodeToken { name: None }).await.unwrap();
+    let revoke = RevokeNodeToken {
+        token: made.token.clone(),
+    };
+    let refused = bob.call(&revoke).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
+    let junk = bob
+        .call(&RevokeNodeToken {
+            token: "nope".into(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        junk.downcast::<ApiError>().unwrap(),
+        ApiError::BadRequest { .. }
+    ));
+
+    alice.call(&revoke).await.unwrap();
+    let machine = endpoint(SecretKey::generate()).await;
+    let refused = beep_node::link::claim(&machine, addr, "host", &setup_of(&made.token))
+        .await
+        .unwrap_err();
+    assert!(format!("{refused:#}").contains("unknown"), "{refused:#}");
+    server.router.shutdown().await.unwrap();
 }

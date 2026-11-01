@@ -148,7 +148,7 @@ impl App {
             if research.is_some() || project.is_some() {
                 return None;
             }
-            // An admin's one-off model or thinking wins over Auto; a resumed
+            // A one-off model or thinking wins over Auto; a resumed
             // turn keeps the pick it started with. Auto picks for chats only:
             // a routine runs on the user's selected model.
             match (one_off, answer) {
@@ -390,6 +390,15 @@ impl App {
             None => tools,
         };
         tools.push(send_file);
+        // A setup token grants access to the account, so it asks first too.
+        if use_machines {
+            tools.push(Arc::new(tools::machines::add::AddMachineTool {
+                machines: tools::machines::Machines {
+                    app: self.clone(),
+                    user: user.clone(),
+                },
+            }));
+        }
         // Grants are asked for where routines are set up. A routine's own
         // run and a turn on untrusted text never ask for one.
         if !is_cron && !untrusted && registry.contains("cron_create") {

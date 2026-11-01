@@ -10,7 +10,9 @@ anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
 beep-proto = { path = "../proto" }
+blake3 = "1"
 bytes = "1"
+chacha20poly1305 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", default-features = false, features = ["core", "llm", "mcp", "composio", "cron", "memory-postgres"] }
@@ -33,6 +35,7 @@ sqlx-core = { version = "0.8.6", features = ["migrate"] }
 # flashmind's rusqlite over libsqlite3-sys.
 sqlx-postgres = { version = "0.8.6", features = ["chrono", "json", "migrate", "uuid"] }
 tokio = { version = "1", features = ["full"] }
+url = "2"
 tokio-util = { version = "0.7", features = ["codec", "rt"] }
 # Composio trigger events arrive over a Pusher websocket.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }

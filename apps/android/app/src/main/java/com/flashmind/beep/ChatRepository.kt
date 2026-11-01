@@ -410,6 +410,10 @@ class ChatRepository(private val storage: LocalStorage) {
         modelChoices.value = null
         update { ChatState() }
         starters.value = emptyList()
+        // The old account's list must not land on the new one's card.
+        updatesJob?.cancel()
+        synchronized(dismissedUpdates) { dismissedUpdates.clear() }
+        updates.value = emptyList()
         loadStarters()
         reconnect()
     }
@@ -1020,10 +1024,8 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun appPermissions(slug: String): AppPermissions = api().getAppPermissions(slug)
     suspend fun setAppPermissions(slug: String, level: PermissionLevel, allowed: List<String>) =
         api().setAppPermissions(slug, level, allowed)
-    /** The last model list the server sent, cached between launches. Its choices are empty unless the user is an admin. */
+    /** The last model list the server sent, cached between launches. */
     val modelChoices = MutableStateFlow(lists.models)
-    /** The server sends model choices only to admins, so this says whether the user is one. */
-    val isAdmin: Boolean get() = modelChoices.value?.choices?.isNotEmpty() == true
     /**
      * A call of background work in [conversationId] that waits for the user, which comes only as a notice:
      * a card at the end of the chat, so it can be answered there. Nothing when the phone does not have the chat.
@@ -1173,6 +1175,39 @@ class ChatRepository(private val storage: LocalStorage) {
         if (startersRefreshing.value || starterRefreshWait(starterRefreshes.value, now) > 0) return
         starterRefreshes.value = starterRefreshes.value.filter { now - it < STARTER_REFRESH_WINDOW_MS } + now
         loadStarters(refresh = true)
+    }
+
+    /** What the event triage agent found in the user's apps, newest first, for the Updates card. */
+    val updates = MutableStateFlow<List<com.flashmind.beep.proto.AppUpdate>>(emptyList())
+    private var updatesJob: Job? = null
+    /** Updates dismissed here that a list asked for before the dismiss may still carry. */
+    private val dismissedUpdates = mutableSetOf<Long>()
+
+    /** Asks the server for updates. A server from before them answers with an error, which leaves none. */
+    fun loadUpdates() {
+        if (updatesJob?.isActive == true) return
+        updatesJob = scope.launch {
+            runCatching { api().listUpdates() }.onSuccess { listed ->
+                updates.value = synchronized(dismissedUpdates) {
+                    // An id the server no longer lists is gone there too.
+                    dismissedUpdates.retainAll(listed.map { it.id }.toSet())
+                    listed.filter { it.id !in dismissedUpdates }
+                }
+            }
+        }
+    }
+
+    /** Takes updates off the card at once and tells the server, which keeps them gone on every device. */
+    fun dismissUpdates(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        synchronized(dismissedUpdates) { dismissedUpdates.addAll(ids) }
+        updates.value = updates.value.filter { it.id !in ids }
+        scope.launch {
+            runCatching { api().dismissUpdates(ids) }.onFailure {
+                // Not dismissed after all: the next list shows them again.
+                synchronized(dismissedUpdates) { dismissedUpdates.removeAll(ids.toSet()) }
+            }
+        }
     }
 
     /** Takes a used starter off the saved set until the next one loads. */

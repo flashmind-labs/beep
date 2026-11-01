@@ -73,9 +73,12 @@ pub fn is_open<R: Runtime>(app: &AppHandle<R>) -> bool {
         .unwrap_or(false)
 }
 
+/// Hides the bar and tells its page, which stops what it follows on
+/// screen (WKWebView may still report a hidden window as visible).
 pub fn hide<R: Runtime>(app: &AppHandle<R>) {
     if let Some(bar) = window(app) {
         let _ = bar.hide();
+        let _ = app.emit_to(LABEL, "bar-hidden", ());
     }
 }
 

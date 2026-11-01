@@ -17,7 +17,7 @@ use crate::{
     apps::markdown,
     permissions,
     research::RoleModel,
-    store::{EventRow, EventState, NewTriage, TriageRow},
+    store::{EventRow, EventState, NewTriage, TriageRow, UpdateRow},
     subagents::{Decision, Failure, Kind, Spec},
     tools::recall_tool,
     user::User,
@@ -42,8 +42,10 @@ pub(crate) const KIND: Kind = Kind {
 
 /// Informs older than this are no longer brought up.
 const FOLD_WITHIN: Days = Days::days(2);
-/// Most earlier informs folded into one wake or conversation.
+/// Most earlier informs folded into one wake.
 const MAX_FOLDED: i64 = 10;
+/// Most informs the apps list at once.
+const MAX_UPDATES: i64 = 20;
 /// Held events the triage agent is shown.
 const MAX_HELD_SHOWN: i64 = 10;
 
@@ -458,31 +460,11 @@ pub(crate) fn describe_inform(
     text
 }
 
-/// Informs waiting for the user, for the context of their next turn, and
-/// marks them delivered. `None` when there are none.
-pub async fn waiting_context(user: &User) -> Option<String> {
-    let informs = match user
-        .undelivered_informs(Utc::now() - FOLD_WITHIN, MAX_FOLDED)
+/// Informs the user has not seen yet, newest first, for the apps to show
+/// apart from any chat.
+pub async fn waiting_updates(user: &User) -> Result<Vec<UpdateRow>> {
+    user.waiting_updates(Utc::now() - FOLD_WITHIN, MAX_UPDATES)
         .await
-    {
-        Ok(informs) if !informs.is_empty() => informs,
-        Ok(_) => return None,
-        Err(error) => {
-            log::warn!("events: unable to read waiting informs: {error:#}; user={user}");
-            return None;
-        }
-    };
-    let ids: Vec<i64> = informs.iter().map(|row| row.id).collect();
-    if let Err(error) = user.mark_delivered(&ids, None).await {
-        log::warn!("events: unable to mark informs delivered: {error:#}; user={user}");
-    }
-    let mut text = "Account updates your event triage agent kept for when the user is next \
-                    here. Mention them briefly when it fits, after answering:"
-        .to_owned();
-    for row in &informs {
-        let _ = write!(text, "\n- {}", row.summary.as_deref().unwrap_or_default());
-    }
-    Some(text)
 }
 
 /// The triage run for `rows`: their apps' read tools, a read-only `memory`, and

@@ -20,6 +20,7 @@ use uuid::Uuid;
 mod agent_auto;
 mod agent_control;
 mod agent_sessions;
+mod credentials;
 mod crons;
 mod devices;
 mod findings;
@@ -29,10 +30,12 @@ mod live;
 mod location;
 mod machines;
 mod memories;
+mod project_sync;
 mod research;
 mod sessions;
 mod settings;
 mod transcribe;
+mod updates;
 mod work;
 
 use crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron};
@@ -49,7 +52,9 @@ use groups::{
 use location::{
     cross_place, delete_place, list_places, set_timezone, update_location, update_place,
 };
-use machines::{list_machine_details, list_machines};
+use machines::{
+    create_node_token, get_node_token, list_machine_details, list_machines, revoke_node_token,
+};
 use memories::{
     clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
     list_memory_scopes, list_skills, undo_skill, update_memory, update_skill,
@@ -201,6 +206,18 @@ pub fn router() -> Router {
         .call(agent_control::get_agent_session)
         .call(agent_control::steer_agent_session)
         .call(work::list_pending_approvals)
+        .call(project_sync::set_project_sync)
+        .call(project_sync::list_project_sync)
+        .call(project_sync::get_sync_skipped)
+        .call(project_sync::pin_project)
+        .call(updates::list_updates)
+        .call(updates::dismiss_updates)
+        .call(create_node_token)
+        .call(revoke_node_token)
+        .call(get_node_token)
+        .call(credentials::list_credentials)
+        .call(credentials::save_credential)
+        .call(credentials::remove_credential)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -225,9 +242,6 @@ async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> {
     }
     check_images(&req.images)?;
     check_files(&req.files)?;
-    if (req.model.is_some() || req.thinking.is_some()) && !cx.app.models.is_admin(cx.user.id()) {
-        return Err(ApiError::Unauthorized {});
-    }
     let model = match &req.model {
         Some(id) => Some(cx.app.models.find(id).ok_or(ApiError::NotFound {})?.clone()),
         None => None,

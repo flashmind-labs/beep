@@ -72,6 +72,9 @@ impl Acts {
 
 /// `send_file` as rules keep it.
 const SEND_FILE: &str = "SEND_FILE";
+/// `add_machine` as rules keep it: a setup token grants access to the
+/// account, so making one acts.
+const ADD_MACHINE: &str = "ADD_MACHINE";
 
 /// Composio tags of tools that create or destroy something. Such a tool
 /// asks first even if the catalog lists it as a read.
@@ -181,6 +184,9 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     let tool = tool.as_str();
     if tool == SEND_FILE {
         return Some((ToolApp::Machines, Acts::WhenToMachine));
+    }
+    if tool == ADD_MACHINE {
+        return Some((ToolApp::Machines, Acts::Always));
     }
     for app in CATALOG {
         if let Some(picked) = app.tools.iter().find(|picked| picked.slug == tool) {
@@ -1360,6 +1366,33 @@ mod tests {
         assert!(run(json!({ "path": "a.pdf" })).await.is_success());
         let approval = approval_for(&app, "send_file", &json!({ "to": "laptop" }));
         assert_eq!(approval.action, "send file");
+    }
+
+    #[tokio::test]
+    async fn adding_a_machine_asks_first() {
+        let (app, acts) = lookup("add_machine").unwrap();
+        assert_eq!(app.slug(), MACHINES_APP);
+        assert_eq!(acts, Acts::Always);
+        let guarded = guard(
+            vec![Arc::new(Named("add_machine"))],
+            Rules::default(),
+            Approved(None),
+            &HashSet::new(),
+            None,
+        );
+        let token = tokio_util::sync::CancellationToken::new();
+        let result = guarded[0]
+            .execute(ToolContext::new(
+                "call",
+                json!({ "name": "build box" }),
+                None,
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert!(result.is_interrupt());
+        let approval = approval_for(&app, "add_machine", &json!({ "name": "build box" }));
+        assert_eq!(approval.action, "add machine");
     }
 
     #[test]

@@ -6,8 +6,8 @@
 //! thing, such as a place called Home or a setting, the account joined
 //! keeps its own.
 
-use super::{Account, Bumped, NewKey, Store, groups::new_token};
-use crate::{protocol::DeviceKind, user::UserKey};
+use super::{Account, Bumped, NewKey, Store, credentials::reseal_for, groups::new_token};
+use crate::{credentials::CredentialKey, protocol::DeviceKind, user::UserKey};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;
@@ -51,6 +51,9 @@ pub struct MergeInto<'a> {
     /// Whether the account joined takes the joining one's outside id, so
     /// the apps connected under it stay connected.
     pub adopt_external_id: bool,
+    /// What the credentials are sealed with, to seal them again for the
+    /// account joined.
+    pub credential_key: &'a CredentialKey,
 }
 
 /// Tables whose rows simply change owner. Where both accounts have a row
@@ -77,6 +80,9 @@ const MOVED: &[(&str, &[&str])] = &[
     ("event_triggers", &["slug", "account_id"]),
     ("event_polls", &["source"]),
     ("nodes", &[]),
+    ("project_sync", &["project", "endpoint_id"]),
+    ("pinned_projects", &["project"]),
+    ("credentials", &["kind", "provider", "host_url"]),
 ];
 
 impl Store {
@@ -212,6 +218,7 @@ impl Store {
 
         move_chats(&mut tx, source, &target).await?;
         let bumped = move_updates(&mut tx, source, &target).await?;
+        reseal_for(&mut tx, into.credential_key, source, &target).await?;
         for (table, key) in MOVED {
             move_rows(&mut tx, table, key, source, &target).await?;
         }
@@ -474,8 +481,12 @@ async fn move_places(tx: &mut PgConnection, source: &str, target: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{SignIn, TestDb, test_chat, test_turn};
+    use crate::{
+        credentials::Slot,
+        store::{NewCredential, SignIn, TestDb, test_chat, test_turn},
+    };
     use iroh::SecretKey;
+    use secrecy::{ExposeSecret, SecretString};
 
     fn key(seed: u8) -> EndpointId {
         SecretKey::from_bytes(&[seed; 32]).public()
@@ -492,6 +503,7 @@ mod tests {
     async fn a_phone_joins_a_computers_account_with_its_data() {
         let db = TestDb::new().await.expect("test database");
         let store = db.store().await.expect("test store");
+        let credential_key = CredentialKey::random();
         let (mac, phone) = (key(11), key(12));
         let target = account(&store, &mac).await;
         let source = account(&store, &phone).await;
@@ -556,6 +568,7 @@ mod tests {
             code: &invite.code,
             target: &target,
             adopt_external_id: false,
+            credential_key: &credential_key,
         };
         assert_eq!(
             store.merge_into(&target_key, into).await.unwrap(),
@@ -565,6 +578,7 @@ mod tests {
             code: &invite.code,
             target: &target,
             adopt_external_id: true,
+            credential_key: &credential_key,
         };
         let Merge::Merged {
             target: merged,
@@ -636,6 +650,7 @@ mod tests {
             code: &invite.code,
             target: &target,
             adopt_external_id: false,
+            credential_key: &credential_key,
         };
         assert_eq!(
             store.merge_into(&source_key, into).await.unwrap(),
@@ -647,6 +662,7 @@ mod tests {
     async fn events_and_machines_move_with_the_account() {
         let db = TestDb::new().await.expect("test database");
         let store = db.store().await.expect("test store");
+        let credential_key = CredentialKey::random();
         let (mac, phone, node) = (key(21), key(22), key(23));
         let target = account(&store, &mac).await;
         let source = account(&store, &phone).await;
@@ -688,6 +704,22 @@ mod tests {
             .await
             .unwrap();
 
+        let token = SecretString::from("ghp_moved0000");
+        store
+            .save_credential(
+                &source_key,
+                &credential_key,
+                NewCredential {
+                    slot: &Slot::GitHub,
+                    secret: &token,
+                    last4: "0000",
+                    account: None,
+                    to_machines: true,
+                },
+            )
+            .await
+            .unwrap();
+
         let invite = store
             .create_invite(&target_key, &mac, "MacBook", Duration::from_secs(600))
             .await
@@ -696,6 +728,7 @@ mod tests {
             code: &invite.code,
             target: &target,
             adopt_external_id: false,
+            credential_key: &credential_key,
         };
         assert!(matches!(
             store.merge_into(&source_key, into).await.unwrap(),
@@ -709,6 +742,7 @@ mod tests {
             ("event_triggers", 1),
             ("event_polls", 1),
             ("nodes", 1),
+            ("credentials", 1),
         ] {
             let query = format!("SELECT count(*) FROM {table} WHERE user_id=$1");
             for (user, expected) in [(&source, 0), (&target, rows)] {
@@ -720,5 +754,16 @@ mod tests {
                 assert_eq!(count, expected, "{table} for {user}");
             }
         }
+        // The GitHub token moved sealed for the account joined, and opens.
+        let listed = store
+            .credentials(&target_key, &credential_key)
+            .await
+            .unwrap();
+        assert!(!listed[0].unreadable);
+        let opened = store
+            .machine_credentials(&target_key, &credential_key)
+            .await
+            .unwrap();
+        assert_eq!(opened[0].secret.expose_secret(), "ghp_moved0000");
     }
 }
