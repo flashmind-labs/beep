@@ -1083,32 +1083,9 @@ impl TasksTool {
         if let Some(stop) = gated(tools.gate.check(id, DROP_SLUG, Asks::ByLevel, drop_card)) {
             return Ok(stop);
         }
-        tools
-            .user
-            .set_task_state(task.id, TaskState::Dropped)
-            .await?;
-        for worker in tools.user.live_workers().await? {
-            if worker.task == task.id {
-                super::worker::stop_worker_on(tools.fleet.as_ref(), &tools.user, &worker).await?;
-            }
-        }
-        let mut text = format!("Dropped {}.", task.slug);
-        if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) {
-            let command = HostCommand::CloseIssue {
-                number: issue.number,
-                comment: "Dropped: no longer planned.",
-                not_planned: true,
-            };
-            match self.on_home(project, host, command).await? {
-                Ok(_) => {
-                    let _ = write!(text, " Closed issue #{} as not planned.", issue.number);
-                }
-                Err(why) => {
-                    let _ = write!(text, " Its issue is still open: {why}");
-                }
-            }
-        }
-        Ok(Planned::Done(text))
+        Ok(Planned::Done(
+            drop_task(tools.fleet.as_ref(), &tools.user, project, task).await?,
+        ))
     }
 
     async fn reopen(&self, id: &str, project: &ProjectRow, task: &TaskRow) -> Result<Planned> {
@@ -1129,20 +1106,9 @@ impl TasksTool {
         ) {
             return Ok(stop);
         }
-        tools
-            .user
-            .set_task_state(task.id, TaskState::Planned)
-            .await?;
-        let mut text = format!("Reopened {}; it is planned again.", task.slug);
-        if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) {
-            let command = HostCommand::ReopenIssue {
-                number: issue.number,
-            };
-            if let Err(why) = self.on_home(project, host, command).await? {
-                let _ = write!(text, " Its issue is still closed: {why}");
-            }
-        }
-        Ok(Planned::Done(text))
+        Ok(Planned::Done(
+            reopen_task(tools.fleet.as_ref(), &tools.user, project, task).await?,
+        ))
     }
 
     async fn merge(&self, id: &str, project: &ProjectRow, task: &TaskRow) -> Result<Planned> {
@@ -1211,15 +1177,86 @@ impl TasksTool {
         host: &IssueHost,
         command: HostCommand<'_>,
     ) -> Result<Result<String, String>> {
-        let tools = &self.tools;
-        let home = match fleet::home_shell(tools.fleet.as_ref(), &tools.user, project).await {
-            Ok(home) => home,
-            Err(why) => return Ok(Err(why)),
-        };
-        Ok(run_host(home.shell.as_ref(), host, project, command)
-            .await
-            .map_err(|error| format!("{error:#}.")))
+        on_home(
+            self.tools.fleet.as_ref(),
+            &self.tools.user,
+            project,
+            host,
+            command,
+        )
+        .await
     }
+}
+
+/// Runs `command` on the project's home machine; the error is for the
+/// model or the user.
+async fn on_home(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    host: &IssueHost,
+    command: HostCommand<'_>,
+) -> Result<Result<String, String>> {
+    let home = match fleet::home_shell(fleet, user, project).await {
+        Ok(home) => home,
+        Err(why) => return Ok(Err(why)),
+    };
+    Ok(run_host(home.shell.as_ref(), host, project, command)
+        .await
+        .map_err(|error| format!("{error:#}.")))
+}
+
+/// Drops an open `task`: stops its workers and closes its issue as not
+/// planned. Says what happened.
+pub(crate) async fn drop_task(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    task: &TaskRow,
+) -> Result<String> {
+    user.set_task_state(task.id, TaskState::Dropped).await?;
+    for worker in user.live_workers().await? {
+        if worker.task == task.id {
+            super::worker::stop_worker_on(fleet, user, &worker).await?;
+        }
+    }
+    let mut text = format!("Dropped {}.", task.slug);
+    if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) {
+        let command = HostCommand::CloseIssue {
+            number: issue.number,
+            comment: "Dropped: no longer planned.",
+            not_planned: true,
+        };
+        match on_home(fleet, user, project, host, command).await? {
+            Ok(_) => {
+                let _ = write!(text, " Closed issue #{} as not planned.", issue.number);
+            }
+            Err(why) => {
+                let _ = write!(text, " Its issue is still open: {why}");
+            }
+        }
+    }
+    Ok(text)
+}
+
+/// Plans a closed `task` again and reopens its issue. Says what happened.
+pub(crate) async fn reopen_task(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    task: &TaskRow,
+) -> Result<String> {
+    user.set_task_state(task.id, TaskState::Planned).await?;
+    let mut text = format!("Reopened {}; it is planned again.", task.slug);
+    if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) {
+        let command = HostCommand::ReopenIssue {
+            number: issue.number,
+        };
+        if let Err(why) = on_home(fleet, user, project, host, command).await? {
+            let _ = write!(text, " Its issue is still closed: {why}");
+        }
+    }
+    Ok(text)
 }
 
 mod worker;
