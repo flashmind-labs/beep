@@ -5,3 +5,4 @@
 
 pub(crate) mod model;
 mod personas;
+pub(crate) mod place;

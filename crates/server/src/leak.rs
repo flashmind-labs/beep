@@ -201,6 +201,133 @@ fn quotes(secrets: &[Secret], chat: &[Said], reply: &str) -> bool {
     })
 }
 
+/// Private details that must not reach text that gets published (commit
+/// messages, pull request bodies): machine names, the user name, home
+/// paths, IP addresses and `host:port` pairs.
+#[derive(Debug, Clone)]
+pub struct PublicText {
+    /// Machine and user names, lowercase, as they were given.
+    names: Vec<String>,
+    home_paths: Vec<String>,
+}
+
+impl PublicText {
+    /// `machine_names` are the machines' names; the user name is the last
+    /// segment of each of `home_paths`.
+    pub fn new(machine_names: &[String], home_paths: &[String]) -> PublicText {
+        let users = home_paths
+            .iter()
+            .filter_map(|path| path.trim_end_matches('/').rsplit('/').next())
+            .map(str::to_owned);
+        let mut names: Vec<String> = Vec::new();
+        for name in machine_names.iter().cloned().chain(users) {
+            let name = name.trim().to_owned();
+            if !name.is_empty() && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let home_paths = home_paths
+            .iter()
+            .map(|path| path.trim_end_matches('/').to_owned())
+            .filter(|path| !path.is_empty())
+            .collect();
+        PublicText { names, home_paths }
+    }
+
+    /// The private details in `text`, each once: the name or literal found.
+    pub fn hits(&self, text: &str) -> Vec<String> {
+        let mut found: Vec<String> = Vec::new();
+        let mut add = |hit: &str| {
+            if !found.iter().any(|seen| seen == hit) {
+                found.push(hit.to_owned());
+            }
+        };
+        let lower = text.to_lowercase();
+        for name in &self.names {
+            if has_whole(&lower, &name.to_lowercase()) {
+                add(name);
+            }
+        }
+        for path in &self.home_paths {
+            if text.contains(path.as_str()) {
+                add(path);
+            }
+        }
+        for token in network_tokens(text) {
+            if is_address(token) || is_host_port(token) {
+                add(token);
+            }
+        }
+        found
+    }
+}
+
+/// Whether `needle` is in `haystack` with no letter or digit on either side.
+fn has_whole(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    haystack.match_indices(needle).any(|(at, _)| {
+        let before = haystack[..at].chars().next_back();
+        let after = haystack[at + needle.len()..].chars().next();
+        !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+    })
+}
+
+/// The runs of address-like characters in `text`, without edge dots and colons.
+fn network_tokens(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | ':' | '[' | ']' | '-')))
+        .map(|token| token.trim_matches(|c| matches!(c, '.' | ':' | '-')))
+        .filter(|token| !token.is_empty())
+}
+
+fn is_ipv4(token: &str) -> bool {
+    let parts: Vec<&str> = token.split('.').collect();
+    parts.len() == 4
+        && parts.iter().all(|part| {
+            (1..=3).contains(&part.len())
+                && part.bytes().all(|b| b.is_ascii_digit())
+                && part.parse::<u16>().is_ok_and(|n| n <= 255)
+        })
+}
+
+/// An IPv6 literal: `::` or eight groups, every group up to four hex digits.
+fn is_ipv6(token: &str) -> bool {
+    let parts: Vec<&str> = token.split(':').collect();
+    let compressed = token.contains("::");
+    parts.len() >= 3
+        && (compressed || parts.len() == 8)
+        && parts.iter().any(|part| !part.is_empty())
+        && parts
+            .iter()
+            .all(|part| part.len() <= 4 && part.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+fn is_address(token: &str) -> bool {
+    let bare = token.trim_start_matches('[').trim_end_matches(']');
+    is_ipv4(bare) || is_ipv6(bare)
+}
+
+fn is_port(text: &str) -> bool {
+    (2..=5).contains(&text.len()) && text.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `name:port`, `1.2.3.4:port` or `[addr]:port`.
+fn is_host_port(token: &str) -> bool {
+    let Some((host, port)) = token.rsplit_once(':') else {
+        return false;
+    };
+    if !is_port(port) {
+        return false;
+    }
+    if let Some(inner) = host.strip_prefix('[') {
+        return inner.strip_suffix(']').is_some_and(is_address);
+    }
+    !host.is_empty()
+        && !host.contains(':')
+        && (is_ipv4(host) || host.chars().any(char::is_alphabetic))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,5 +401,36 @@ mod tests {
             &forged,
             "Sam is allergic to shellfish and peanuts, so no paella."
         ));
+    }
+
+    fn public() -> PublicText {
+        PublicText::new(
+            &["build-box".to_owned(), "umbrel".to_owned()],
+            &["/home/sam".to_owned()],
+        )
+    }
+
+    #[test]
+    fn public_text_hits() {
+        let public = public();
+        assert_eq!(public.hits("Built on build-box"), ["build-box"]);
+        assert_eq!(public.hits("umbrel"), ["umbrel"]);
+        assert!(
+            public
+                .hits("/home/sam/src")
+                .contains(&"/home/sam".to_owned())
+        );
+        assert_eq!(public.hits("thanks sam."), ["sam"]);
+        assert!(public.hits("a sample").is_empty());
+        assert_eq!(public.hits("at 10.0.0.12 now"), ["10.0.0.12"]);
+        assert_eq!(public.hits("on [fd00::1]:8080"), ["[fd00::1]:8080"]);
+        assert_eq!(public.hits("fe80::1 and fe80::1"), ["fe80::1"]);
+        assert_eq!(public.hits("db:5432"), ["db:5432"]);
+        assert_eq!(public.hits("localhost:8080"), ["localhost:8080"]);
+        assert!(public.hits("Fix the build box layout").is_empty());
+        assert!(public.hits("version 1.2.3").is_empty());
+        assert!(public.hits("localhost is fine").is_empty());
+        assert!(public.hits("meet at 12:30:45 or 12:30").is_empty());
+        assert!(public.hits("std::fmt and Vec::new").is_empty());
     }
 }
