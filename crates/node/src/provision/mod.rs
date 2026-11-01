@@ -65,7 +65,8 @@ impl Provision {
             // Tokens wait for the server: a node that stopped while they
             // were revoked must not keep using them.
             provision.configure_teacli().await;
-            match spawn_blocking(install_skills).await {
+            let dir = provision.dir.clone();
+            match spawn_blocking(move || install_skills(&dir)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => log::warn!("agent skills not installed: {e:#}"),
                 Err(e) => log::warn!("installing agent skills failed: {e}"),
@@ -168,12 +169,14 @@ impl Provision {
     }
 }
 
-/// Installs every skill into every agent's skills folder found.
-fn install_skills() -> Result<()> {
+/// Installs every skill into every agent's skills folder found, keeping
+/// the record of what it wrote in the node's folder `node_dir`.
+fn install_skills(node_dir: &Path) -> Result<()> {
     let home = dirs::home_dir().context("no home folder")?;
+    let mut installed = skills::Installed::load(&node_dir.join("installed-skills"))?;
     for dir in skills::targets(&home) {
         for skill in skills::SKILLS {
-            let outcome = skills::install(&dir, skill)
+            let outcome = skills::install(&dir, skill, &mut installed)
                 .with_context(|| format!("installing the {} skill", skill.name))?;
             log::debug!("skill {} in {}: {outcome:?}", skill.name, dir.display());
         }
