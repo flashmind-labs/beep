@@ -308,7 +308,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(research::Cache::default());
     app.manage(apps::SignIn::default());
     app.manage(update::Updates::default());
-    app.manage(machine::Machine::new(dir.join("node")));
+    app.manage(machine::Machine::new(&dir.join("node")));
     app.manage(center::Shown::default());
     app.manage(center::Pending::default());
     app.manage(palette::PaletteCache::default());

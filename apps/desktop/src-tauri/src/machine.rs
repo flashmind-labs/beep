@@ -10,7 +10,7 @@ use beep_node::{
 use beep_proto::node::desktop::{Permission, Permissions};
 use serde::Serialize;
 use std::{
-    path::PathBuf,
+    path::Path,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
@@ -49,16 +49,18 @@ pub struct View {
 pub struct Machine {
     task: Mutex<Option<JoinHandle<()>>>,
     status: Arc<Mutex<Status>>,
-    /// The node's own folder, where it installs gh and teacli.
-    dir: PathBuf,
+    /// gh, teacli and the skills, in the node's own folder, and the
+    /// credentials the server sends while the link is up.
+    provision: Arc<Provision>,
 }
 
 impl Machine {
-    pub fn new(dir: PathBuf) -> Self {
+    /// The machine whose node keeps its tools and teacli config in `dir`.
+    pub fn new(dir: &Path) -> Self {
         Self {
             task: Mutex::default(),
             status: Arc::default(),
-            dir,
+            provision: Provision::new(dir),
         }
     }
 
@@ -85,11 +87,14 @@ impl Machine {
             *task = Some(async_runtime::spawn(stay_linked(
                 beep.clone(),
                 self.status.clone(),
-                self.dir.clone(),
+                self.provision.clone(),
             )));
         } else if !wanted {
             if let Some(task) = task.take() {
                 task.abort();
+                // Off: the Mac keeps no token for the agents.
+                let provision = self.provision.clone();
+                async_runtime::spawn(async move { provision.forget().await });
             }
             *self.status() = if beep.use_mac() {
                 Status::Unlinked
@@ -106,11 +111,10 @@ pub fn allow(permission: Permission) {
 }
 
 /// Keeps the node link up, waiting longer after each failure, until aborted.
-async fn stay_linked(beep: Arc<Beep>, status: Arc<Mutex<Status>>, dir: PathBuf) {
+async fn stay_linked(beep: Arc<Beep>, status: Arc<Mutex<Status>>, provision: Arc<Provision>) {
     let set = |now: Status| *status.lock().unwrap_or_else(PoisonError::into_inner) = now;
     // Installs gh, teacli and the agent skills, and takes the credentials
     // the server sends; the work stops with this task.
-    let provision = Provision::new(&dir);
     let _provision = provision.start();
     let offers = Offers {
         agents: Arc::default(),
