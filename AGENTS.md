@@ -33,6 +33,11 @@ Push to main, then `just deploy-server`. It waits for the image CI builds for
 HEAD, copies the dev config and key to the remote host and restarts the
 container.
 
+Tag a deployed server with `just server-release 2.1.0` (it tags HEAD
+`server-v2.1.0`). To roll back, `just deploy-server server-v2.0.0` deploys
+that tag's image. Migrations are not undone, so an older server must still
+run against the newer schema.
+
 ## UI changes
 
 Every screen of the app is mocked in the Beep screens artifact:

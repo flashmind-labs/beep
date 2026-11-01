@@ -29,6 +29,18 @@ desktop-build:
     cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app
     bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
 
+# `just deploy-server server-v<version>` goes back to it later.
+# Tag HEAD server-v<version> and push the tag
+server-release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 1.2.3" >&2; exit 1; }
+    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
+    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
+    git tag -a "server-v{{version}}" -m "Beep server {{version}}"
+    git push origin "server-v{{version}}"
+    git push forgejo "server-v{{version}}"
+
 # Set the desktop app's version, commit it and tag desktop-v<version>.
 # Pushing the tag makes the desktop workflow build, sign, notarize and publish it.
 desktop-release version:
@@ -135,13 +147,15 @@ stop-server:
 # Run the image CI built for HEAD on the remote Docker host, with the local
 # config and iroh key. The Forgejo runner builds on that host, so the image
 # shows up in its daemon: push first, and this waits for it. Stops the local
-# server first: both would answer as the same node.
-deploy-server:
+# server first: both would answer as the same node. A rolled back image must
+# still be on the host, and database migrations are not undone.
+# Deploy HEAD, or a server tag or commit to roll back to
+deploy-server ref="HEAD":
     #!/usr/bin/env bash
     set -euo pipefail
     test -n "{{remote_docker}}" || { echo "Set BEEP_DOCKER_HOST in .env"; exit 1; }
     test -n "{{server_image}}" || { echo "Set BEEP_IMAGE in .env"; exit 1; }
-    export BEEP_TAG=$(git rev-parse HEAD)
+    export BEEP_TAG=$(git rev-parse "{{ref}}^{commit}")
     export DOCKER_HOST={{remote_docker}}
     echo "Waiting for {{server_image}}:$BEEP_TAG"
     # Poll on the host over one ssh session rather than one per check.
