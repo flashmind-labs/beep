@@ -74,7 +74,9 @@ pub(crate) fn hinted_to_act(tags: &[String]) -> bool {
 /// The project agent's own tools, which ask or refuse through the project
 /// gate (`crate::projects::gate`) rather than `guard`: `Acts::Never` keeps
 /// `guard` and `actions_since` off them. It is outside `CATALOG`, so it is
-/// not listed as an app to connect; `kind` means nothing for it.
+/// not listed as an app to connect; `kind` means nothing for it. `exec` and
+/// `process` are here because a project chat gates them too, so a reloaded
+/// chat shows their card.
 pub(crate) const PROJECT_APP: CatalogApp = CatalogApp {
     slug: "project",
     name: "Project",
@@ -85,8 +87,28 @@ pub(crate) const PROJECT_APP: CatalogApp = CatalogApp {
         read("PROJECT_PLAN"),
         read("PROJECT_TASKS"),
         read("PROJECT_WORKER"),
+        read("EXEC"),
+        read("PROCESS"),
+        read("PROJECT_SETUP_CHECKOUT"),
+        read("PROJECT_TASKS_UPDATE"),
+        read("PROJECT_TASKS_DROP"),
+        read("PROJECT_TASKS_REOPEN"),
+        read("PROCESS_STOP"),
     ],
 };
+
+/// The project actions the user can allow always, each on its own: a merge
+/// and a plan card that always asks are never among them.
+const PROJECT_ALWAYS: &[&str] = &[
+    "EXEC",
+    "PROCESS_STOP",
+    "PROJECT_PLAN",
+    "PROJECT_SETUP_CHECKOUT",
+    "PROJECT_TASKS_DROP",
+    "PROJECT_TASKS_REOPEN",
+    "PROJECT_TASKS_UPDATE",
+    "PROJECT_WORKER",
+];
 
 /// A tool's name as rules keep it. Composio's tool wrappers lowercase the
 /// slug, so `outlook_reply_email` is `OUTLOOK_REPLY_EMAIL`.
@@ -187,11 +209,7 @@ pub(crate) fn approval_for(app: &ToolApp, tool: &str, args: &Value) -> Approval 
 /// allowed always.
 fn action_tools(app: &CatalogApp) -> Vec<String> {
     if app.slug == PROJECT_APP.slug {
-        return app
-            .tools
-            .iter()
-            .map(|picked| picked.slug.to_owned())
-            .collect();
+        return PROJECT_ALWAYS.iter().map(|&slug| slug.to_owned()).collect();
     }
     if app.slug == "fastmail" {
         return FASTMAIL_TOOLS
@@ -1286,12 +1304,24 @@ mod tests {
         assert_eq!(app.name(), "Project");
         assert!(lookup("PROJECT_WORKER").is_some());
         assert!(lookup("PROJECT_OTHER").is_none());
+        // A parked exec in a project chat shows its card again on reload.
+        assert_eq!(lookup("exec").unwrap().0.slug(), "project");
         let saved = row(
             &PROJECT_APP,
             PermissionLevel::Ask {},
-            vec!["PROJECT_PLAN".into(), "GMAIL_SEND_EMAIL".into()],
+            vec![
+                "PROJECT_PLAN".into(),
+                "PROJECT_TASKS_DROP".into(),
+                "PROJECT_TASKS".into(),
+                "PROJECT_SETUP".into(),
+                "EXEC".into(),
+                "GMAIL_SEND_EMAIL".into(),
+            ],
         );
-        assert_eq!(saved.allowed, ["PROJECT_PLAN"]);
+        assert_eq!(
+            saved.allowed,
+            ["EXEC", "PROJECT_PLAN", "PROJECT_TASKS_DROP"]
+        );
     }
 
     #[test]

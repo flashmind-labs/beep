@@ -96,6 +96,8 @@ pub(crate) struct NewTask {
     pub(crate) body: String,
     pub(crate) depends_on: Option<After>,
     pub(crate) needs: Vec<Capability>,
+    /// How to start it, when it should start once made.
+    pub(crate) start: Option<StartRequest>,
 }
 
 /// The task a new one waits for.
@@ -408,8 +410,9 @@ async fn tasks_in(
         };
         let needs: Vec<&'static str> = task.needs.iter().map(|&need| need.into()).collect();
         let row = sqlx::query(&format!(
-            "INSERT INTO project_tasks AS t (id, project_id, slug, title, body, depends_on, needs)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {TASK_COLUMNS}"
+            "INSERT INTO project_tasks AS t
+                 (id, project_id, slug, title, body, depends_on, needs, start)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {TASK_COLUMNS}"
         ))
         .bind(Uuid::new_v4())
         .bind(project.0)
@@ -418,6 +421,7 @@ async fn tasks_in(
         .bind(task.body.trim())
         .bind(depends_on.map(|id| id.0))
         .bind(&needs)
+        .bind(task.start.as_ref().map(serde_json::to_value).transpose()?)
         .fetch_one(&mut *tx)
         .await?;
         made.push(task_from(&row)?);
@@ -1028,6 +1032,7 @@ mod tests {
             body: String::new(),
             depends_on: None,
             needs: Vec::new(),
+            start: None,
         }
     }
 
@@ -1189,6 +1194,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn new_tasks_keep_their_start() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let user = UserKey::for_test("alice");
+        let project = store
+            .ensure_project(&user, &repo("acme/widget"))
+            .await
+            .unwrap();
+        let start = StartRequest {
+            machine: Some("gpu-box".into()),
+            agent: Some(WorkerAgent::Codex),
+            persona: None,
+            inputs: Vec::new(),
+        };
+        let queued = NewTask {
+            start: Some(start.clone()),
+            ..new_task("Render")
+        };
+        let made = store
+            .create_tasks(project.id, &[queued, new_task("Ship")])
+            .await
+            .unwrap();
+        assert_eq!(made[0].start, Some(start));
+        assert_eq!(made[1].start, None);
+    }
+
+    #[tokio::test]
     async fn tasks_wait_for_earlier_ones_of_the_same_call() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
@@ -1235,6 +1267,7 @@ mod tests {
             body: "On the GPU".into(),
             depends_on: Some(After::Task(first[0].id)),
             needs: vec![Capability::Cuda, Capability::Blender],
+            start: None,
         };
         let made = store.create_tasks(project.id, &[second]).await.unwrap();
         let id = made[0].id;

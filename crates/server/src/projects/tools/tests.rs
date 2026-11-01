@@ -2,8 +2,9 @@ use super::*;
 use crate::{
     permissions::{ApprovalPayload, Rules},
     projects::{
+        gate::GatedProcess,
         model::{RepoName, Roles},
-        testing::{FakeFleet, FakeShell},
+        testing::{FakeFleet, FakeShell, RecordingTool},
     },
     protocol::PermissionLevel,
     store::{AppPermissionRow, TestDb},
@@ -270,6 +271,11 @@ async fn local_only_projects_skip_issues() {
     let rows = h.rows().await;
     assert!(rows[0].issue.is_none());
     assert!(rows[0].start.is_some());
+    assert!(
+        result.output().contains("cannot start workers yet"),
+        "{}",
+        result.output()
+    );
 }
 
 #[tokio::test]
@@ -284,6 +290,7 @@ async fn merge_always_asks() {
                 body: String::new(),
                 depends_on: None,
                 needs: Vec::new(),
+                start: None,
             }],
         )
         .await
@@ -356,7 +363,7 @@ async fn drop_closes_as_not_planned() {
 async fn setup_rejects_unshared_checkout() {
     let h = harness(github(), Visibility::Private).await;
     let setup = SetupTool {
-        tools: h.tools(PermissionLevel::Ask {}, None),
+        tools: h.tools(PermissionLevel::Allow {}, None),
     };
     let args = json!({"action": "checkout", "in": "gpu-box", "path": "/srv/widget"});
     let result = call(&setup, "c1", args).await;
@@ -379,7 +386,7 @@ async fn setup_reads_the_checkout() {
     );
     shell.answer("repo view", 0, r#"{"visibility": "PRIVATE"}"#);
     let setup = SetupTool {
-        tools: h.tools(PermissionLevel::Ask {}, None),
+        tools: h.tools(PermissionLevel::Allow {}, None),
     };
     let args = json!({"action": "checkout", "in": "gpu-box", "path": "/data/widget"});
     let result = call(&setup, "c1", args).await;
@@ -397,4 +404,160 @@ async fn setup_reads_the_checkout() {
             .iter()
             .any(|checkout| checkout.machine == gpu && !checkout.home)
     );
+}
+
+async fn make_tasks(h: &Harness, titles: &[&str]) -> Vec<TaskRow> {
+    let tasks: Vec<NewTask> = titles
+        .iter()
+        .map(|title| NewTask {
+            title: (*title).into(),
+            body: String::new(),
+            depends_on: None,
+            needs: Vec::new(),
+            start: None,
+        })
+        .collect();
+    h.user.create_tasks(h.project.id, &tasks).await.unwrap()
+}
+
+#[tokio::test]
+async fn always_is_saved_per_action() {
+    let private = harness(github(), Visibility::Private).await;
+    let project = &private.project;
+    let tasks = |action: &str| json!({"action": action, "task": "build"});
+    assert_eq!(
+        saved_as("project_tasks", &tasks("drop"), project).as_deref(),
+        Some("PROJECT_TASKS_DROP")
+    );
+    assert_eq!(
+        saved_as("project_tasks", &tasks("update"), project).as_deref(),
+        Some("PROJECT_TASKS_UPDATE")
+    );
+    assert_eq!(saved_as("project_tasks", &tasks("merge"), project), None);
+    assert_eq!(
+        saved_as("project_plan", &plan_of(&["Build"]), project).as_deref(),
+        Some("PROJECT_PLAN")
+    );
+    assert_eq!(
+        saved_as("project_plan", &plan_of(&["A", "B", "C"]), project),
+        None
+    );
+    assert_eq!(
+        saved_as("exec", &json!({"command": "cargo test"}), project).as_deref(),
+        Some("EXEC")
+    );
+    assert_eq!(
+        saved_as("exec", &json!({"command": "gh pr merge 5"}), project),
+        None
+    );
+    let public = harness(github(), Visibility::Public).await;
+    assert_eq!(
+        saved_as("project_plan", &plan_of(&["Build"]), &public.project),
+        None
+    );
+
+    // Allowing drops always leaves updates asking.
+    make_tasks(&private, &["Build"]).await;
+    let rules = Rules::from_rows(vec![AppPermissionRow {
+        app: "project".into(),
+        level: PermissionLevel::Ask {},
+        allowed: vec!["PROJECT_TASKS_DROP".into()],
+    }]);
+    let tool = TasksTool {
+        tools: Arc::new(ProjectTools {
+            gate: Arc::new(ProjectGate::new(rules, None, Visibility::Private)),
+            ..(*private.tools(PermissionLevel::Ask {}, None)).clone()
+        }),
+    };
+    let update = json!({"action": "update", "task": "build", "title": "Build it"});
+    assert!(call(&tool, "c1", update).await.is_interrupt());
+    let dropped = call(&tool, "c2", tasks("drop")).await;
+    assert!(dropped.is_success(), "{}", dropped.output());
+    assert_eq!(private.rows().await[0].state, TaskState::Dropped);
+}
+
+#[tokio::test]
+async fn host_cli_through_exec_always_asks() {
+    let h = harness(github(), Visibility::Private).await;
+    let inner = Arc::new(RecordingTool::new("exec"));
+    let exec = GatedExec {
+        exec: inner.clone(),
+        tools: h.tools(PermissionLevel::Allow {}, None),
+    };
+    let ran = call(&exec, "c1", json!({"command": "cargo test"})).await;
+    assert_eq!(ran.output(), "ran");
+    for command in [
+        "gh pr merge 5 -R acme/widget --squash",
+        "cd /srv/widget && /usr/bin/tea pr merge 5",
+        "echo hi; teacli issue close 3",
+    ] {
+        let parked = call(&exec, "c2", json!({ "command": command })).await;
+        assert_eq!(approval(&parked).action, "Run a command", "{command}");
+    }
+    let leaky = json!({"command": "gh issue create -t Fix -b 'see /home/sam/notes'"});
+    let refused = call(&exec, "c3", leaky).await;
+    assert!(!refused.is_success());
+    assert!(
+        refused.output().contains("/home/sam"),
+        "{}",
+        refused.output()
+    );
+    assert_eq!(inner.calls(), 1);
+}
+
+#[tokio::test]
+async fn process_stop_asks_first() {
+    let h = harness(github(), Visibility::Private).await;
+    let inner = Arc::new(RecordingTool::new("process"));
+    let process = GatedProcess {
+        process: inner.clone(),
+        gate: h.tools(PermissionLevel::Ask {}, None).gate.clone(),
+    };
+    let listed = call(&process, "c1", json!({"action": "list"})).await;
+    assert_eq!(listed.output(), "ran");
+    let stop = call(&process, "c2", json!({"action": "stop", "id": 4})).await;
+    assert_eq!(approval(&stop).action, "Stop a background command");
+    assert_eq!(inner.calls(), 1);
+}
+
+#[tokio::test]
+async fn setup_checkout_asks_first() {
+    let h = harness(github(), Visibility::Private).await;
+    let setup = SetupTool {
+        tools: h.tools(PermissionLevel::Ask {}, None),
+    };
+    let args = json!({"action": "checkout", "in": "gpu-box", "path": "/data/widget"});
+    let parked = call(&setup, "c1", args).await;
+    assert_eq!(approval(&parked).action, "Add a checkout");
+    assert!(h.fleet.shells.values().all(|shell| shell.ran().is_empty()));
+    let shown = call(&setup, "c2", json!({"action": "show"})).await;
+    assert!(shown.is_success());
+}
+
+#[tokio::test]
+async fn checkout_paths_are_private() {
+    let h = harness(github(), Visibility::Private).await;
+    let args = json!({"tasks": [{"title": "Build", "body": "Output lands in /srv/widget/out"}]});
+    let result = call(&h.plan(PermissionLevel::Allow {}), "c1", args).await;
+    assert!(!result.is_success());
+    assert!(
+        result.output().contains("/srv/widget"),
+        "{}",
+        result.output()
+    );
+    assert!(h.rows().await.is_empty());
+}
+
+#[tokio::test]
+async fn after_cycles_are_refused() {
+    let h = harness(Roles::default(), Visibility::Private).await;
+    make_tasks(&h, &["A", "B", "C"]).await;
+    let tool = h.tasks_tool(PermissionLevel::Allow {}, None);
+    let after = |task: &str, after: &str| json!({"action": "update", "task": task, "after": after});
+    assert!(call(&tool, "c1", after("b", "a")).await.is_success());
+    assert!(call(&tool, "c2", after("c", "b")).await.is_success());
+    let cycle = call(&tool, "c3", after("a", "c")).await;
+    assert!(!cycle.is_success());
+    assert!(cycle.output().contains("wait"), "{}", cycle.output());
+    assert_eq!(h.rows().await[0].depends_on, None);
 }

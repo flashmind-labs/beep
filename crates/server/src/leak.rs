@@ -237,6 +237,18 @@ impl PublicText {
         PublicText { names, home_paths }
     }
 
+    /// Also treats `paths`, such as checkouts and shared folders, as private,
+    /// without taking their last segment for a user name.
+    pub fn with_paths(mut self, paths: &[String]) -> PublicText {
+        for path in paths {
+            let path = path.trim_end_matches('/');
+            if !path.is_empty() && !self.home_paths.iter().any(|known| known == path) {
+                self.home_paths.push(path.to_owned());
+            }
+        }
+        self
+    }
+
     /// The private details in `text`, each once: the name or literal found.
     pub fn hits(&self, text: &str) -> Vec<String> {
         let mut found: Vec<String> = Vec::new();
@@ -464,6 +476,14 @@ mod tests {
             &["build-box".to_owned(), "nas-box".to_owned()],
             &["/home/sam".to_owned()],
         )
+    }
+
+    #[test]
+    fn extra_paths_are_private_without_their_names() {
+        let public = public().with_paths(&["/srv/widget".to_owned()]);
+        assert_eq!(public.hits("built in /srv/widget/out"), ["/srv/widget"]);
+        // The folder's name alone is the repository's, which is public.
+        assert!(public.hits("the widget repo").is_empty());
     }
 
     #[test]

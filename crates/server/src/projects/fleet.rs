@@ -138,6 +138,29 @@ pub(crate) fn public_text(machines: &[Machine]) -> PublicText {
     PublicText::new(&names, &homes)
 }
 
+/// [`public_text`] for one project: also its checkout paths and the
+/// folders its machines share.
+pub(crate) async fn project_public_text(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    machines: &[Machine],
+) -> Result<PublicText> {
+    let mut paths: Vec<String> = user
+        .checkouts(project.id)
+        .await?
+        .into_iter()
+        .map(|checkout| checkout.path.to_string())
+        .collect();
+    for machine in machines.iter().filter(|machine| machine.online) {
+        // A machine that cannot say what it shares adds nothing.
+        if let Ok(Reply::Roots { roots }) = fleet.files(&machine.id, &Request::Roots {}).await {
+            paths.extend(roots);
+        }
+    }
+    Ok(public_text(machines).with_paths(&paths))
+}
+
 /// The home checkout and a shell on its machine.
 pub(crate) struct HomeShell {
     pub(crate) checkout: CheckoutRow,

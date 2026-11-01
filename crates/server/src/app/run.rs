@@ -325,10 +325,17 @@ impl App {
         // Calls of the last model turn still without a result: the session
         // stopped on the first one to ask the user.
         let open = permissions::open_calls(&conversation);
-        if let Some(answer) = answer
-            && answer.decision == (ApprovalDecision::Always {})
-            && let Some(call) = open.iter().find(|call| call.id == answer.call_id)
-            && let Err(error) = permissions::allow_always(user, &call.name).await
+        // A project chat saves each action on its own, and nothing for a
+        // card that always asks.
+        let saved = answer
+            .filter(|answer| answer.decision == (ApprovalDecision::Always {}))
+            .and_then(|answer| open.iter().find(|call| call.id == answer.call_id))
+            .and_then(|call| match &project {
+                Some(project) => projects::tools::saved_as(&call.name, &call.arguments, project),
+                None => Some(call.name.clone()),
+            });
+        if let Some(slug) = saved
+            && let Err(error) = permissions::allow_always(user, &slug).await
         {
             log::warn!(
                 "permissions: unable to save; run_id={} error={error:#}",
