@@ -34,7 +34,8 @@ pub const NODE_ALPN: &[u8] = b"beep-node/1";
 /// hello's setup token; the reason says why, in words for the user.
 pub const CLOSE_SETUP_REFUSED: u32 = 400;
 
-const MAX_FRAME: usize = 8 * 1024 * 1024;
+/// The largest message either side reads.
+pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 
 /// The first message on the control stream.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -301,6 +302,12 @@ impl LinkTx {
 }
 
 impl LinkRx {
+    /// Reads no message longer than `max` bytes from now on, such as a
+    /// hello from a key nobody linked yet; `MAX_FRAME` is the default.
+    pub fn set_max_frame(&mut self, max: usize) {
+        self.0.decoder_mut().set_max_frame_length(max);
+    }
+
     /// The next message, `None` once the peer finished the stream.
     pub async fn recv<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
         let Some(frame) = self.0.next().await else {

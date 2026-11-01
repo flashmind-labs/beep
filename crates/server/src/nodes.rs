@@ -11,8 +11,8 @@ use crate::{
         DeviceKind,
         link::{LinkOffer, MAX_NAME},
         node::{
-            AppName, CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, NodeHello, NodeSetup,
-            Up, link,
+            AppName, CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MAX_FRAME, NodeHello,
+            NodeSetup, Up, link,
         },
         setup::{SetupToken, TOKEN_TTL},
     },
@@ -186,7 +186,16 @@ impl ProtocolHandler for NodeHandler {
         let endpoint = connection.remote_id();
         // The hello comes first: it may carry a setup token that links this
         // key before it signs in.
-        let (tx, rx, mut hello) = match read_hello(&connection).await {
+        // A key nobody linked gets only a small hello read, so a stranger
+        // cannot make the server buffer megabytes before it is refused.
+        let linked = match self.app.store.linked_sign_in(&endpoint).await {
+            Ok(sign_in) => sign_in.is_some(),
+            Err(e) => {
+                log::debug!("node {endpoint} looked up as unlinked: {e:#}");
+                false
+            }
+        };
+        let (tx, rx, mut hello) = match read_hello(&connection, linked).await {
             Ok(opened) => opened,
             Err(e) => {
                 log::debug!("node {endpoint} sent no hello: {e:#}");
@@ -254,15 +263,23 @@ struct Control {
     claimed: Option<ClaimedNode>,
 }
 
-async fn read_hello(connection: &Connection) -> Result<(LinkTx, LinkRx, NodeHello)> {
+/// The longest hello read from a key nobody linked: a name, a version, a
+/// few offers and a setup token fit in far less.
+const MAX_UNLINKED_HELLO: usize = 16 * 1024;
+
+async fn read_hello(connection: &Connection, linked: bool) -> Result<(LinkTx, LinkRx, NodeHello)> {
     let (send, recv) = timeout(crate::transport::READ_TIMEOUT, connection.accept_bi())
         .await
         .context("no control stream")??;
     let (tx, mut rx) = link(send, recv);
+    if !linked {
+        rx.set_max_frame(MAX_UNLINKED_HELLO);
+    }
     let hello: NodeHello = timeout(crate::transport::READ_TIMEOUT, rx.recv())
         .await
         .context("no hello")??
         .context("closed before its hello")?;
+    rx.set_max_frame(MAX_FRAME);
     Ok((tx, rx, hello))
 }
 
