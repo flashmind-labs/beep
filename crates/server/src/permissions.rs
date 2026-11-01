@@ -1099,7 +1099,9 @@ pub(crate) fn actions_since(conversation: &Conversation, since: DateTime<Utc>) -
         .iter()
         .filter(|entry| entry.timestamp >= since)
         .filter_map(|entry| match &entry.kind {
-            EntryKind::Tool { call_id, output } => Some((calls.get(call_id.as_str())?, output)),
+            EntryKind::Tool {
+                call_id, output, ..
+            } => Some((calls.get(call_id.as_str())?, output)),
             _ => None,
         })
         .filter(|(_, output)| went_through(output))
@@ -1376,7 +1378,7 @@ mod tests {
         // Sanitizing for the model keeps the call now that it has a result.
         conversation.sanitize();
         let kept = conversation.entries().iter().any(|entry| {
-            matches!(&entry.kind, EntryKind::Tool { call_id, output } if call_id == "b" && output == SUPERSEDED)
+            matches!(&entry.kind, EntryKind::Tool { call_id, output, .. } if call_id == "b" && output == SUPERSEDED)
         });
         assert!(kept);
     }

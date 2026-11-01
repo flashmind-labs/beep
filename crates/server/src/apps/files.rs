@@ -3,7 +3,7 @@
 //! Composio hands back a short-lived `s3url` rather than the file, so the
 //! model would otherwise have to fetch it before it expires.
 
-use crate::workspace::Workspace;
+use crate::{paging, workspace::Workspace};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Map, Value};
@@ -52,10 +52,11 @@ impl Tool for SaveFiles {
 
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let mut result = self.tool.execute(ctx).await?;
-        let ToolResult::Success { output, .. } = &mut result else {
+        let ToolResult::Success { .. } = &result else {
             return Ok(result);
         };
-        let Ok(mut value) = serde_json::from_str::<Value>(output) else {
+        let output = result.output();
+        let Ok(mut value) = serde_json::from_str::<Value>(&output) else {
             return Ok(result);
         };
         let mut links = Vec::new();
@@ -75,7 +76,7 @@ impl Tool for SaveFiles {
             saved.push(outcome.map(|saved| saved.path));
         }
         mark_saved(&mut value, &mut saved.into_iter());
-        *output = value.to_string();
+        paging::rewrite_text(&mut result, |_| Some(value.to_string()));
         Ok(result)
     }
 
