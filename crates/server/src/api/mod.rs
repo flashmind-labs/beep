@@ -46,7 +46,7 @@ use groups::{
 use location::{
     cross_place, delete_place, list_places, set_timezone, update_location, update_place,
 };
-use machines::list_machines;
+use machines::{list_machine_details, list_machines};
 use memories::{
     clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
     list_memory_scopes, list_skills, undo_skill, update_memory, update_skill,
@@ -190,6 +190,7 @@ pub fn router() -> Router {
         .call(revoke_grant)
         .call(findings::list_findings)
         .call(findings::update_finding)
+        .call(list_machine_details)
 }
 
 type Reply<T> = Result<T, ApiError>;

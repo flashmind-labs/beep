@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use beep_node::agents::{AgentKind, Agents};
 use beep_node::link::{Offers, Protocol, Session};
 use beep_server::protocol::node::{
-    LinkRx, LinkTx,
+    AppInfo, AppName, GpuInfo, GpuVendor, LinkRx, LinkTx,
     desktop::{self, Reply, Screenshot},
 };
 use beep_server::{
@@ -17,13 +17,16 @@ use beep_server::{
     models::ModelChoices,
     nodes::{self, Online},
     protocol::{
-        ApiError, DeviceKind, ListMachines, ListMemoryScopes, MemoryScope, MemorySource,
-        RemoveDevice,
+        ApiError, DeviceKind, ListMachineDetails, ListMachines, ListMemoryScopes,
+        MachineCapability, MemoryScope, MemorySource, RemoveDevice,
         link::LinkOffer,
-        node::agent::{EntryKind, Request, Status, StopReason},
+        node::{
+            EnvReport,
+            agent::{EntryKind, Request, Status, StopReason},
+        },
     },
     push::Pusher,
-    store::{Fact, NewKey, Scope, TestDb},
+    store::{Fact, NewKey, NewNode, Scope, TestDb},
     transport,
     user::User,
 };
@@ -719,4 +722,130 @@ async fn an_admin_sees_their_machines_and_what_memories_are_about() {
 
     router.shutdown().await.unwrap();
     let _ = timeout(Duration::from_secs(10), served).await;
+}
+
+fn gpu_report() -> EnvReport {
+    EnvReport {
+        gpus: vec![GpuInfo {
+            vendor: GpuVendor::Nvidia,
+            model: "NVIDIA GeForce RTX 4090".into(),
+            vram_mb: Some(24564),
+            driver: Some("560.35".into()),
+        }],
+        apps: vec![AppInfo {
+            name: AppName::Blender,
+            version: Some("4.2".into()),
+        }],
+        ..EnvReport::default()
+    }
+}
+
+/// A router with the app's own protocol on it, for phones to call.
+async fn phone_router(app: &Arc<App>, store: beep_server::store::Store) -> Router {
+    let server_endpoint = endpoint(SecretKey::generate()).await;
+    let pusher = Pusher::with_retry_waits(
+        server_endpoint.clone(),
+        Arc::new(store),
+        None,
+        vec![Duration::from_millis(200)],
+    );
+    Router::builder(server_endpoint)
+        .accept(
+            transport::ALPN,
+            transport::BeepHandler::new(app.clone(), pusher),
+        )
+        .spawn()
+}
+
+#[tokio::test]
+async fn machine_details_lists_apps_gpus_and_capabilities() {
+    let db = TestDb::new().await.unwrap();
+    let store = db.store().await.unwrap();
+    let alice = SecretKey::generate();
+    let model = "openai:test".parse().unwrap();
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let app = App::new(
+        store.clone(),
+        Arc::new(NoModel),
+        AgentLlmConfig::new("openai:test".parse().unwrap()),
+        ServerTools::default(),
+        models,
+    );
+    let router = phone_router(&app, store).await;
+    let user = app
+        .sign_in(&alice.public())
+        .await
+        .unwrap()
+        .expect("a new key is never revoked")
+        .user;
+    let mut linked = Vec::new();
+    for name in ["gpu box", "new box", "gone box"] {
+        let key = SecretKey::generate();
+        if name != "gone box" {
+            user.link_key(NewKey {
+                endpoint: key.public(),
+                name,
+                kind: DeviceKind::Desktop {},
+            })
+            .await
+            .unwrap();
+        }
+        user.node_connected(NewNode {
+            endpoint: key.public(),
+            name,
+            version: "0.1.0",
+        })
+        .await
+        .unwrap();
+        linked.push(key.public());
+    }
+    user.save_node_env(&linked[0], &gpu_report()).await.unwrap();
+    user.save_node_env(&linked[2], &gpu_report()).await.unwrap();
+
+    let (_node, client) = phone(alice, &router).await;
+    let mut details = client.call(&ListMachineDetails {}).await.unwrap();
+    details.sort_by_key(|machine| machine.apps.len());
+    // The machine without a report is listed, empty; the unlinked one is not.
+    assert_eq!(details.len(), 2);
+    assert_eq!(details[0].id, linked[1].to_string());
+    assert!(details[0].apps.is_empty() && details[0].capabilities.is_empty());
+    let gpu = &details[1];
+    assert_eq!(gpu.id, linked[0].to_string());
+    assert_eq!(
+        gpu.capabilities,
+        [
+            MachineCapability::Gpu {},
+            MachineCapability::Cuda {},
+            MachineCapability::Blender {}
+        ]
+    );
+    assert_eq!(gpu.apps[0].name, "Blender");
+    assert_eq!(gpu.apps[0].version.as_deref(), Some("4.2"));
+    assert_eq!(gpu.gpus[0].vendor, "NVIDIA");
+    assert_eq!(gpu.gpus[0].vram_mb, Some(24564));
+    router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn machine_details_needs_nodes_privilege() {
+    let db = TestDb::new().await.unwrap();
+    let store = db.store().await.unwrap();
+    let alice = SecretKey::generate();
+    let model = "openai:test".parse().unwrap();
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let app = App::new(
+        store.clone(),
+        Arc::new(NoModel),
+        AgentLlmConfig::new("openai:test".parse().unwrap()),
+        ServerTools::default(),
+        models,
+    );
+    let router = phone_router(&app, store).await;
+    let (_node, bob) = phone(SecretKey::generate(), &router).await;
+    let refused = bob.call(&ListMachineDetails {}).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::Unauthorized {}
+    ));
+    router.shutdown().await.unwrap();
 }
