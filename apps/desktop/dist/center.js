@@ -435,7 +435,7 @@ function footer(machines) {
 
 /// Pinned chats and groups, then the newest of the rest, the open one
 /// highlighted.
-const SIDE_CHATS = 12;
+const SIDE_CHATS = 5;
 let chatList = [];
 let chatFetch = null;
 
