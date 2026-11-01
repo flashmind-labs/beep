@@ -398,11 +398,14 @@ let chatFetch = null;
 
 /// One fetch feeds both groups, even when both ask at once.
 function fetchChats() {
-  chatFetch ??= pane().chatRows().then(rows => (chatList = rows)).finally(() => { chatFetch = null; });
-  return chatFetch;
+  if (chatFetch) return chatFetch;
+  const mine = pane().chatRows().then(rows => (chatList = rows)).finally(() => { if (chatFetch === mine) chatFetch = null; });
+  return chatFetch = mine;
 }
 
 function reloadChats() {
+  // A fetch that started before this change may miss it: the next one is new.
+  chatFetch = null;
   reloadGroup("pinned");
   reloadGroup("chats");
 }
@@ -425,14 +428,15 @@ function chatRow(c) {
   const on = paneOn();
   const open = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
   const mark = c.kind === "group" ? icon(IC.group) : icon(c.research ? IC.doc : IC.chat);
-  const toggle = h("span", "pa", icon(IC.pin));
-  toggle.setAttribute("role", "button");
+  const toggle = h("button", "pa", icon(IC.pin));
+  toggle.type = "button";
   toggle.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
   toggle.addEventListener("click", e => { e.stopPropagation(); setPinned(c, !c.pinned); });
-  const b = h("button", "cc-si", mark, h("span", "tt", c.title), toggle);
-  b.type = "button";
-  if (open) b.setAttribute("aria-current", "true");
-  return b;
+  // Two real buttons in one row, never one inside the other.
+  const openBtn = h("button", "open", mark, h("span", "tt", c.title));
+  openBtn.type = "button";
+  if (open) openBtn.setAttribute("aria-current", "true");
+  return h("div", "cc-si cc-chat", openBtn, toggle);
 }
 
 function pickChat(c) {
