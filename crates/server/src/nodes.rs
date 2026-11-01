@@ -29,6 +29,7 @@ use std::{
     time::SystemTime,
 };
 use tokio::time::timeout;
+use tokio_util::task::AbortOnDropHandle;
 
 mod agent;
 mod deliver;
@@ -36,18 +37,20 @@ mod desktop;
 mod files;
 mod follow;
 mod shell;
+mod sync;
 mod tasks;
 pub mod transfer;
 
 pub use crate::protocol::node::{
     NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,
-    transfer::PROTOCOL as TRANSFER,
+    sync::PROTOCOL as SYNC, transfer::PROTOCOL as TRANSFER,
 };
 pub use agent::{AgentLink, Mark, Watched};
 pub(crate) use deliver::agent_name;
 pub use deliver::{Ask, Deliveries, Post};
 pub use follow::{Follower, Follows};
 pub use shell::{Exited, Ran};
+pub use sync::{Refusal, SyncState, push_sync};
 
 const CLOSE_NOT_ALLOWED: u32 = 401;
 /// The line the machines section starts with, also how a chat finds the
@@ -84,6 +87,8 @@ pub struct Nodes {
     pub follows: Follows,
     /// What agent sessions tell their chats.
     pub deliveries: Deliveries,
+    /// What project sync keeps between pushes.
+    pub sync: SyncState,
 }
 
 impl Nodes {
@@ -197,7 +202,7 @@ impl ProtocolHandler for NodeHandler {
             connection.close(VarInt::from_u32(CLOSE_NOT_ALLOWED), b"nodes are for admins");
             return Ok(());
         }
-        if let Err(e) = serve(&self.app, &user, &connection).await {
+        if let Err(e) = serve(&self.app, user, &connection).await {
             log::debug!("node {endpoint} left: {e:#}");
         }
         self.app.nodes.remove(&endpoint, &connection);
@@ -206,7 +211,7 @@ impl ProtocolHandler for NodeHandler {
 }
 
 /// Reads the control stream until the node goes away.
-async fn serve(app: &Arc<App>, user: &User, connection: &Connection) -> Result<()> {
+async fn serve(app: &Arc<App>, user: Arc<User>, connection: &Connection) -> Result<()> {
     let endpoint = connection.remote_id();
     let (send, recv) = connection.accept_bi().await?;
     let (mut tx, mut rx) = link(send, recv);
@@ -244,6 +249,16 @@ async fn serve(app: &Arc<App>, user: &User, connection: &Connection) -> Result<(
         },
     );
     app.nodes.follows.reconnected(app, &endpoint.to_string());
+    // Sends the node its synced projects, and its peers how it is reached
+    // now. Ends with the connection.
+    let _push = {
+        let (app, user) = (app.clone(), user.clone());
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            if let Err(e) = push_sync(&app.nodes, &user, Some(endpoint)).await {
+                log::warn!("sync list not sent; node={endpoint} error={e:#}");
+            }
+        }))
+    };
     loop {
         match rx.recv::<Up>().await {
             Ok(Some(Up::Env(env))) => {

@@ -84,7 +84,7 @@ pub struct ProjectStatus {
     pub conflicts: Vec<String>,
     /// Set when the folder is rescanned this often instead of watched.
     pub rescan_secs: Option<u32>,
-    /// What raises the watch limit, said once per node.
+    /// What raises the watch limit, set while the folder is rescanned.
     pub hint: Option<String>,
     /// Why the last scan or fetch failed.
     pub error: Option<String>,
