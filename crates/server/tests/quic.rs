@@ -6,13 +6,13 @@ use beep_server::{
     models::ModelChoices,
     protocol::{
         ActiveRun, ApiError, AppKind, CancelRun, CancelWork, Chat, ConnectApp, CreateCron,
-        DeletePlace, DeleteSkill, DeviceKind, Event, ExistingSessions, Filler, GetEvents, GetRun,
-        GetSession, GetSessionFiles, GetUpdates, Health, HistoryEntry, InviteDevice, LinkDevice,
-        ListApps, ListCrons, ListDevices, ListPendingApprovals, ListPlaces, ListQuestions,
-        ListSessions, ListSkills, ListWork, MAX_SAY_CHARS, MemorySource, MessageBody, Notice,
-        PeekInvite, RemoveDevice, RunEvent, Say, Session, SpeakNotice, SpokenTurns, StartAppAuth,
-        StreamUpdates, SuggestPrompts, UndoSkill, Update, UpdateLocation, UpdatePlace, UpdateSkill,
-        Upload,
+        DeletePlace, DeleteSkill, DeviceKind, Event, ExistingSessions, Filler, GetAgents,
+        GetEvents, GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetUpdates, Health,
+        HistoryEntry, InviteDevice, LinkDevice, ListApps, ListCrons, ListDevices,
+        ListPendingApprovals, ListPlaces, ListQuestions, ListSessions, ListSkills, ListWork,
+        MAX_SAY_CHARS, MemorySource, MessageBody, Notice, PeekInvite, RemoveDevice, RunEvent, Say,
+        Session, SetAgents, SpeakNotice, SpokenTurns, StartAppAuth, StreamUpdates, SuggestPrompts,
+        UndoSkill, Update, UpdateLocation, UpdatePlace, UpdateSkill, Upload,
         link::{LinkOffer, OFFER_TTL},
         wire::framed,
     },
@@ -1655,4 +1655,26 @@ async fn a_chat_lists_its_background_work_and_refuses_ids_it_does_not_have() {
             .unwrap_err();
         assert!(matches!(api_error(refused), ApiError::NotFound {}));
     }
+}
+
+#[tokio::test]
+async fn the_removed_agents_answer_as_off_and_empty() {
+    let h = Harness::new().await;
+    let c = h.client().await;
+    let stranger = h.client_as(SecretKey::generate()).await;
+
+    let off = c.call(&GetAgents {}).await.unwrap();
+    assert!(!off.enabled && off.agents.is_empty());
+    // Turning them on is accepted and ignored.
+    let still_off = c.call(&SetAgents { enabled: true }).await.unwrap();
+    assert!(!still_off.enabled && still_off.agents.is_empty());
+    assert_eq!(c.call(&GetAgents {}).await.unwrap(), off);
+
+    let session = chat_with_a_turn(&c).await;
+    let ask = GetSessionAgents {
+        session_id: session.to_string(),
+    };
+    assert!(c.call(&ask).await.unwrap().is_empty());
+    let error = stranger.call(&ask).await.unwrap_err();
+    assert!(matches!(api_error(error), ApiError::NotFound {}));
 }
