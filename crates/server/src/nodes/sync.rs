@@ -15,7 +15,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use iroh::{EndpointAddr, EndpointId};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
@@ -129,6 +129,13 @@ struct Configured {
     refused: Vec<Refused>,
 }
 
+/// The rows of machines whose keys are still linked.
+fn linked_rows(rows: Vec<SyncRow>, linked: &HashSet<String>) -> Vec<SyncRow> {
+    rows.into_iter()
+        .filter(|row| linked.contains(&row.endpoint))
+        .collect()
+}
+
 /// The projects `node` syncs, each with the other nodes that sync it.
 fn projects_for(rows: &[SyncRow], node: EndpointId, state: &SyncState) -> Vec<Project> {
     let id = node.to_string();
@@ -158,7 +165,14 @@ pub async fn push_sync(
 ) -> Result<Vec<Refusal>> {
     let pushing = nodes.sync.pushing(user.id());
     let _one = pushing.lock().await;
-    let rows = user.project_syncs().await?;
+    // Only machines still linked sync, and only with each other.
+    let linked: HashSet<String> = user
+        .account_keys()
+        .await?
+        .into_iter()
+        .map(|key| key.endpoint_id)
+        .collect();
+    let rows = linked_rows(user.project_syncs().await?, &linked);
     let mut online: Vec<Online> = nodes
         .of_user(user.id())
         .into_iter()
@@ -228,5 +242,23 @@ mod tests {
         assert_eq!(names, [("game".to_owned(), 1), ("site".to_owned(), 1)]);
         let none = SecretKey::generate().public();
         assert!(projects_for(&rows, none, &state).is_empty());
+    }
+
+    #[test]
+    fn a_machine_no_longer_linked_is_nobody_s_peer() {
+        let [a, b] = [(); 2].map(|()| SecretKey::generate().public());
+        let rows = [a, b]
+            .map(|node| SyncRow {
+                project: "game".into(),
+                endpoint: node.to_string(),
+                folder: "/srv/game".into(),
+            })
+            .to_vec();
+        let linked: HashSet<String> = [a.to_string()].into();
+        let rows = linked_rows(rows, &linked);
+        let projects = projects_for(&rows, a, &SyncState::default());
+        assert_eq!(projects.len(), 1);
+        assert!(projects[0].peers.is_empty());
+        assert!(projects_for(&rows, b, &SyncState::default()).is_empty());
     }
 }
