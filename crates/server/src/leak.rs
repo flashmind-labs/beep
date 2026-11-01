@@ -405,7 +405,7 @@ mod tests {
 
     fn public() -> PublicText {
         PublicText::new(
-            &["build-box".to_owned(), "umbrel".to_owned()],
+            &["build-box".to_owned(), "nas-box".to_owned()],
             &["/home/sam".to_owned()],
         )
     }
@@ -414,7 +414,7 @@ mod tests {
     fn public_text_hits() {
         let public = public();
         assert_eq!(public.hits("Built on build-box"), ["build-box"]);
-        assert_eq!(public.hits("umbrel"), ["umbrel"]);
+        assert_eq!(public.hits("nas-box"), ["nas-box"]);
         assert!(
             public
                 .hits("/home/sam/src")
