@@ -58,3 +58,17 @@ export function homeRows(home) {
   ];
   return pairs.map(p => p.filter(Boolean)).filter(p => p.length);
 }
+
+/// How wide Home's view must be, in CSS pixels, to split into two columns.
+export const WIDE_HOME_PX = 1280;
+
+/// Home's two columns on a wide window: what to act on at the left (Needs
+/// you, Running now, Updates), Machines and Coming up at the right. Machines
+/// counts whenever the server lists them, empty or not, as it offers Add a
+/// machine. Null when a side would be empty, so Home keeps one column.
+export function homeColumns(home) {
+  const has = list => Array.isArray(list) && list.length > 0;
+  const left = [has(home.needs_you) && "needs", has(home.running) && "running", has(home.updates) && "updates"].filter(Boolean);
+  const right = [Array.isArray(home.machines) && "machines", has(home.coming_up) && "coming"].filter(Boolean);
+  return left.length && right.length ? { left, right } : null;
+}

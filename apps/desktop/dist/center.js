@@ -8,7 +8,7 @@ import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
-import { agentOf, base, homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "./home.js";
+import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "./home.js";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 
 const $ = sel => document.querySelector(sel);
@@ -53,6 +53,8 @@ const CONNECT_RETRY_MS = 3000;
 
 /// `since` is when the window started waiting for its first Home.
 const state = { home: null, error: null, outcomes: new Map(), shown: false, since: Date.now() };
+/// Whether Home was last drawn in two columns.
+let drawnWide = false;
 
 // ---------- Formatting ----------
 
@@ -671,9 +673,10 @@ registerSidebarGroup("machines", {
 // ---------- Home ----------
 
 /// Machines across the top, then Running now beside Needs you and Updates
-/// beside Coming up. A section with nothing in it is left out; Machines
-/// stays to offer Add a machine.
-function page(home) {
+/// beside Coming up. On a wide window, two columns instead: Needs you,
+/// Running now and Updates, beside Machines and Coming up. A section with
+/// nothing in it is left out; Machines stays to offer Add a machine.
+function page(home, wide) {
   const { machines, running, coming_up: coming, needs_you: needs } = home;
   const out = [];
   if (state.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh: ${state.error}`)));
@@ -682,14 +685,21 @@ function page(home) {
   } else if (machines) {
     const note = offlineNote(machines);
     if (note) out.push(note);
-    out.push(machinesSection(machines));
   }
   const make = {
+    machines: () => machinesSection(machines),
     running: () => runningSection(running),
     needs: () => needsSection(needs),
     updates: () => updatesSection(home.updates),
     coming: () => comingSection(coming),
   };
+  const cols = wide && homeColumns(home);
+  if (cols) {
+    const col = keys => h("div", "", ...keys.map(k => make[k]()));
+    out.push(h("div", "cc-wide", col(cols.left), col(cols.right)));
+    return out;
+  }
+  if (machines) out.push(make.machines());
   for (const row of homeRows(home)) {
     out.push(row.length === 2 ? h("div", "cc-cols", ...row.map(k => make[k]())) : make[row[0]]());
   }
@@ -762,13 +772,22 @@ function draw() {
   drawSide();
   if (!home) return drawConnecting(view);
   const top = view.scrollTop;
-  view.replaceChildren(...page(home));
+  drawnWide = isWide(view);
+  view.replaceChildren(...page(home, drawnWide));
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
   $("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
   $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }
+
+/// Whether Home has room for two columns.
+function isWide(view) { return view.clientWidth >= WIDE_HOME_PX; }
+// Redraws Home when the window crosses the width for two columns, including
+// when Home is shown again after a pane (it measures 0 while hidden).
+new ResizeObserver(() => {
+  if (state.home && isWide($("#view")) !== drawnWide) draw();
+}).observe($("#view"));
 
 registerView("home", {
   el: $("#home-box"),
