@@ -97,6 +97,8 @@ pub struct App {
     teams: AsyncMutex<HashMap<Uuid, CancellationToken>>,
     /// The nodes connected now.
     pub nodes: crate::nodes::Nodes,
+    /// The project workers' sessions and the issue mirroring in flight.
+    pub projects: crate::projects::Projects,
     /// Images tools hand the model, such as node screenshots.
     pub tool_images: Arc<ToolImages>,
     /// Speaks voice notes and transcribes spoken replies.
@@ -345,6 +347,7 @@ impl App {
             shutting_down: AtomicBool::new(false),
             teams: AsyncMutex::new(HashMap::new()),
             nodes: crate::nodes::Nodes::default(),
+            projects: crate::projects::Projects::default(),
             tool_images,
             voice,
             realtime: realtime.unwrap_or_else(|| Arc::new(Unavailable)),

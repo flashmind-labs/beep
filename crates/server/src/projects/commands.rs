@@ -259,6 +259,10 @@ pub(crate) enum HostCommand<'a> {
         number: u64,
     },
     ListOwnedIssues,
+    /// Beep's issues whose body holds `marker`, for one filed before.
+    FindIssue {
+        marker: &'a str,
+    },
     FindPr {
         branch: &'a str,
         base: &'a str,
@@ -412,6 +416,28 @@ impl HostCommand<'_> {
                     "number,state,title,comments",
                 ],
             ),
+            Self::FindIssue { marker } => {
+                // Filtered by gh itself, so only the match is printed.
+                let jq = format!(
+                    "[.[] | select(.body | contains({})) | {{number, url, body}}]",
+                    Value::String(marker.to_owned())
+                );
+                gh(
+                    &["issue", "list"],
+                    &[
+                        "--label",
+                        LABEL_OWNED,
+                        "--state",
+                        "all",
+                        "--limit",
+                        "500",
+                        "--json",
+                        "number,url,body",
+                        "--jq",
+                        &jq,
+                    ],
+                )
+            }
             Self::FindPr { branch, base } => gh(
                 &["pr", "list"],
                 &[
@@ -512,6 +538,20 @@ impl HostCommand<'_> {
                 &[],
                 &["--label", LABEL_OWNED, "-s", "all", "--per-page", "50"],
             ),
+            Self::FindIssue { marker } => tea(
+                &["issue", "list"],
+                &[],
+                &[
+                    "--label",
+                    LABEL_OWNED,
+                    "-s",
+                    "all",
+                    "-q",
+                    marker,
+                    "--per-page",
+                    "50",
+                ],
+            ),
             Self::FindPr { branch, base } => tea(&["pr", "find"], &[base, branch], &[]),
             Self::PrStatus { number } => tea(&["pr", "get"], &[&number.to_string()], &[]),
             Self::MergePr { number } => tea(
@@ -570,6 +610,34 @@ pub(crate) fn parse_created_issue(host: &IssueHost, out: &str) -> Result<IssueRe
         }
     };
     Ok(IssueRef { number, url })
+}
+
+/// The issue [`HostCommand::FindIssue`] found holding `marker`, if any.
+pub(crate) fn parse_found_issue(out: &str, marker: &str) -> Result<Option<IssueRef>> {
+    if out.trim().is_empty() {
+        return Ok(None);
+    }
+    let value = json(out)?;
+    let items = value
+        .as_array()
+        .ok_or_else(|| anyhow!("expected a list of issues"))?;
+    // The host's search may match loosely, so the body is checked here.
+    let Some(item) = items
+        .iter()
+        .find(|item| text(item, "body").contains(marker))
+    else {
+        return Ok(None);
+    };
+    let number = item
+        .get("number")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow!("the issue has no number"))?;
+    let url = ["html_url", "url"]
+        .iter()
+        .map(|key| text(item, key))
+        .find(|url| !url.is_empty())
+        .unwrap_or_default();
+    Ok(Some(IssueRef { number, url }))
 }
 
 /// An issue Beep filed, as the list command prints it.
@@ -1097,5 +1165,26 @@ mod tests {
         push_capped(&mut out, "b");
         push_capped(&mut out, "c");
         assert_eq!(out.len(), MAX_OUTPUT);
+    }
+
+    #[test]
+    fn found_issues_must_hold_the_marker() {
+        let gh = HostCommand::FindIssue {
+            marker: "beep-task:1",
+        }
+        .render(&github(), &repo());
+        assert!(gh.contains("--jq"), "{gh}");
+        assert!(gh.contains(r#"contains("beep-task:1")"#), "{gh}");
+        let tea = HostCommand::FindIssue {
+            marker: "beep-task:1",
+        }
+        .render(&forgejo(), &repo());
+        assert!(tea.contains("-q beep-task:1"), "{tea}");
+        let out = r#"[{"number": 4, "html_url": "https://git.example.com/acme/widget/issues/4", "body": "x beep-task:2"},
+                      {"number": 5, "html_url": "https://git.example.com/acme/widget/issues/5", "body": "y <!-- beep-task:1 -->"}]"#;
+        let found = parse_found_issue(out, "beep-task:1").unwrap();
+        assert_eq!(found.map(|issue| issue.number), Some(5));
+        assert_eq!(parse_found_issue("", "beep-task:1").unwrap(), None);
+        assert_eq!(parse_found_issue("[]", "beep-task:1").unwrap(), None);
     }
 }
