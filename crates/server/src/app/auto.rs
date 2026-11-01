@@ -1,5 +1,5 @@
-//! Auto: Jev picks the thinking of every user's prompts, on the model they
-//! chose. An admin gets it only with Auto on.
+//! Auto: Jev picks the thinking of a user's prompts, on the model they
+//! chose. On for everyone until they turn it off.
 
 use super::{App, learning::earlier_turns};
 use crate::{memories::clip, models::AutoModel, store::TurnRecord, user::User};
@@ -29,8 +29,8 @@ pub(super) struct Prompt<'a> {
 }
 
 impl App {
-    /// Whether an admin turned Auto on, so Jev picks their thinking.
-    async fn admin_auto_on(&self, user: &User) -> bool {
+    /// Whether the user has Auto on, so Jev picks their thinking.
+    async fn auto_on(&self, user: &User) -> bool {
         user.auto_model().await.unwrap_or_else(|error| {
             log::warn!("reading auto failed; user={}: {error:#}", user.id());
             false
@@ -38,11 +38,11 @@ impl App {
     }
 
     /// Jev's pick of the thinking for `prompt`, on the user's own model.
-    /// `None` when an admin has Auto off or Jev fails, so the turn runs on
-    /// the user's own settings.
+    /// `None` when the user has Auto off or Jev fails, so the turn runs on
+    /// their own settings.
     pub(super) async fn auto_pick(&self, user: &User, prompt: &Prompt<'_>) -> Option<AutoChoice> {
         let decision = self.decision()?;
-        if self.models.is_admin(user.id()) && !self.admin_auto_on(user).await {
+        if self.models.auto().is_empty() || !self.auto_on(user).await {
             return None;
         }
         let model = self.model_for(user).await;

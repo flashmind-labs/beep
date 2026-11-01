@@ -134,7 +134,7 @@ impl App {
             if research.is_some() {
                 return None;
             }
-            // An admin's one-off model or thinking wins over Auto; a resumed
+            // A one-off model or thinking wins over Auto; a resumed
             // turn keeps the pick it started with. Auto picks for chats only:
             // a routine runs on the user's selected model.
             match (one_off, answer) {
