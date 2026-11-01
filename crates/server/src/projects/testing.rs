@@ -43,6 +43,8 @@ pub(crate) struct FakeShell {
     hangs: Mutex<Option<String>>,
     /// Commands holding the text wait for its signal before they answer.
     blocks: Mutex<Vec<(String, Arc<Notify>)>>,
+    /// Signalled when a command starts waiting for its signal.
+    blocked: Notify,
 }
 
 impl FakeShell {
@@ -58,6 +60,11 @@ impl FakeShell {
             .unwrap_or_else(PoisonError::into_inner)
             .push((holds.to_owned(), signal.clone()));
         signal
+    }
+
+    /// Waits until a command waits for its signal.
+    pub(crate) async fn until_blocked(&self) {
+        self.blocked.notified().await;
     }
 
     pub(crate) fn answer(&self, holds: &str, code: i32, out: &str) {
@@ -115,6 +122,7 @@ impl Shell for FakeShell {
             .find(|(holds, _)| command.contains(holds.as_str()))
             .map(|(_, signal)| signal.clone());
         if let Some(signal) = block {
+            self.blocked.notify_one();
             signal.notified().await;
         }
         let rules = self.rules.lock().unwrap_or_else(PoisonError::into_inner);

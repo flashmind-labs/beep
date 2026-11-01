@@ -204,10 +204,15 @@ pub(crate) async fn turn_done(
         match find_pr(fleet, user, &project, prs, &task).await {
             Ok(Some(pr)) => {
                 pr_line = format!("Pull request: {}", pr.url);
-                if task.state == TaskState::Running {
+                // Only from running as the store has it now: the worker may
+                // have ended, and its task blocked, while this looked.
+                if task.state == TaskState::Running
+                    && user
+                        .move_task_state(task.id, TaskState::Running, TaskState::Review)
+                        .await?
+                {
                     user.set_task_pr(task.id, &pr.url).await?;
                     user.set_pr_seen(task.id, &pr_fingerprint(&pr)).await?;
-                    user.set_task_state(task.id, TaskState::Review).await?;
                     relabel(
                         fleet,
                         user,
@@ -315,10 +320,13 @@ async fn relabel(
     }
 }
 
-/// Blocks the task if it was running, labelling its issue.
+/// Blocks the task if it is still running, labelling its issue.
 async fn block(fleet: &dyn Fleet, user: &User, project: &ProjectRow, task: &TaskRow) -> Result<()> {
-    if task.state == TaskState::Running {
-        user.set_task_state(task.id, TaskState::Blocked).await?;
+    if task.state == TaskState::Running
+        && user
+            .move_task_state(task.id, TaskState::Running, TaskState::Blocked)
+            .await?
+    {
         relabel(
             fleet,
             user,

@@ -730,6 +730,26 @@ impl Store {
         Ok(())
     }
 
+    /// Moves the task from `from` to `to`, unless something moved it since
+    /// it was read. Says whether it moved.
+    pub(crate) async fn move_task_state(
+        &self,
+        id: TaskId,
+        from: TaskState,
+        to: TaskState,
+    ) -> Result<bool> {
+        let moved = sqlx::query(
+            "UPDATE project_tasks SET state=$3, updated_at=now() WHERE id=$1 AND state=$2",
+        )
+        .bind(id.0)
+        .bind(<&str>::from(from))
+        .bind(<&str>::from(to))
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(moved == 1)
+    }
+
     pub(crate) async fn set_task_issue(
         &self,
         id: TaskId,

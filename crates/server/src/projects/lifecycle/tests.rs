@@ -487,3 +487,37 @@ async fn a_late_turn_report_changes_nothing() {
     assert!(row.asking);
     assert_eq!(row.last_output.as_deref(), Some("Third."));
 }
+
+#[tokio::test]
+async fn a_worker_ending_while_its_turn_is_handled_keeps_the_task_blocked() {
+    let h = harness().await;
+    let (task, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
+    h.shell.answer(
+        "gh pr list",
+        0,
+        r#"[{"number":7,"url":"https://github.com/acme/widget/pull/7","state":"OPEN",
+        "mergedAt":null,"reviewDecision":"","statusCheckRollup":[],
+        "title":"Spin it","body":""}]"#,
+    );
+    let release = h.shell.block_on("gh pr list");
+    let done = TurnDone {
+        turn: 2,
+        last_message: "Opened the pull request.",
+        report: true,
+    };
+    let report = turn_done(&h.fleet, &h.user, worker.id, &done, now());
+    // The worker ends while the report looks for its pull request.
+    let end = async {
+        h.shell.until_blocked().await;
+        ended(&h.fleet, &h.user, worker.id, "it crashed")
+            .await
+            .expect("it ends");
+        release.notify_one();
+    };
+    let (reported, ()) = tokio::join!(report, end);
+    reported.expect("it reports");
+    let task = h.task(&task).await;
+    assert_eq!(task.state, TaskState::Blocked);
+    assert_eq!(task.pr_url, None);
+    assert_eq!(h.fleet.projects.armed_at(&Due::Check(h.project.id)), None);
+}

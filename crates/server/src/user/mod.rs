@@ -1516,6 +1516,16 @@ impl User {
         self.store.set_task_state(task, state).await
     }
 
+    /// Moves the task from `from` to `to` unless it moved since it was read.
+    pub(crate) async fn move_task_state(
+        &self,
+        task: TaskId,
+        from: TaskState,
+        to: TaskState,
+    ) -> Result<bool> {
+        self.store.move_task_state(task, from, to).await
+    }
+
     pub(crate) async fn set_task_issue(
         &self,
         task: TaskId,
