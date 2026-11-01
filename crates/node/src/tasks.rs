@@ -5,6 +5,7 @@
 use crate::{
     lines::read_piece,
     process::{GroupLeader, STOP_GRACE, killpg},
+    setup::spawn_env,
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -259,6 +260,7 @@ fn spawn(command: &str, cwd: Option<PathBuf>) -> Result<(GroupLeader, ChildStdou
     if let Some(cwd) = cwd {
         child.current_dir(cwd);
     }
+    spawn_env::apply(&mut child);
     let mut child = child
         .spawn()
         .with_context(|| format!("starting {program}"))?;

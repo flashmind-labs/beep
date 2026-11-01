@@ -15,6 +15,7 @@ pub mod link;
 pub mod local;
 mod process;
 pub mod service;
+pub mod setup;
 mod shell;
 pub mod state;
 mod tasks;
