@@ -27,6 +27,8 @@ iroh-blobs = { version = "0.104", default-features = false, features = ["fs-stor
 libc = "0.2"
 log = "0.4"
 logforth = { version = "0.30", features = ["starter-log"], optional = true }
+rmp-serde = "1"
+rustix = { version = "1", features = ["fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }

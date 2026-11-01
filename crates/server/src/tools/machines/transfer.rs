@@ -11,8 +11,8 @@ use crate::{
         transfer::{Landed, Progress},
     },
     protocol::node::{
-        files::{Reply, Request},
-        transfer::{ContentKind, MAX_SUFFIX, numbered},
+        files::{FileKind, Reply, Request},
+        transfer::{ContentKind, MAX_SUFFIX, Stage, numbered},
     },
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -58,30 +58,53 @@ pub(crate) fn folder_on_machine(
     Ok(resolved)
 }
 
-/// Turns node progress into a line now and then for the user.
+/// Turns node progress into a line now and then for the user: one per 5
+/// percent of each stage.
 struct Reporter<'a> {
-    stage: &'a str,
+    stage: Option<Stage>,
     last: Option<u64>,
     out: &'a mut (dyn FnMut(String) + Send),
 }
 
-impl Reporter<'_> {
+impl<'a> Reporter<'a> {
+    fn new(out: &'a mut (dyn FnMut(String) + Send)) -> Self {
+        Self {
+            stage: None,
+            last: None,
+            out,
+        }
+    }
+
     fn report(&mut self, progress: Progress) {
-        let percent = (progress.done * 100)
-            .checked_div(progress.total)
-            .unwrap_or(100)
+        if self.stage != Some(progress.stage) {
+            self.stage = Some(progress.stage);
+            self.last = None;
+        }
+        // In u128, so no count overflows.
+        let percent = (u128::from(progress.done) * 100)
+            .checked_div(u128::from(progress.total))
+            .map_or(100, |percent| u64::try_from(percent).unwrap_or(100))
             .min(100);
-        // A line per 5 percent.
         if self.last.is_some_and(|last| percent < last + 5) {
             return;
         }
         self.last = Some(percent);
         (self.out)(format!(
             "{} {} of {} ({percent}%)",
-            self.stage,
+            doing(progress.stage),
             size(progress.done),
             size(progress.total)
         ));
+    }
+}
+
+/// What a stage's progress line starts with.
+fn doing(stage: Stage) -> &'static str {
+    match stage {
+        Stage::Hashing => "Hashing",
+        Stage::Downloading => "Sending",
+        Stage::Writing => "Writing out",
+        Stage::Other => "Working",
     }
 }
 
@@ -120,23 +143,14 @@ pub(crate) async fn send(
     if !(source.online.offers(TRANSFER) && target.online.offers(TRANSFER)) {
         return copy_through_server(source, path, target, folder).await;
     }
-    let mut hashing = Reporter {
-        stage: "Hashing",
-        last: None,
-        out: progress,
-    };
+    let mut reporter = Reporter::new(progress);
     let offer = source
         .online
-        .offer(path, target_key, &mut |p| hashing.report(p))
+        .offer(path, target_key, &mut |p| reporter.report(p))
         .await?;
-    let mut sending = Reporter {
-        stage: "Sending",
-        last: None,
-        out: hashing.out,
-    };
     let fetched = target
         .online
-        .fetch(&offer.offered, folder, &mut |p| sending.report(p), cancel)
+        .fetch(&offer.offered, folder, &mut |p| reporter.report(p), cancel)
         .await;
     let skipped = offer.offered.skipped;
     if let Err(e) = offer.close().await {
@@ -163,6 +177,19 @@ async fn copy_through_server(
 ) -> Result<Sent> {
     let name = copy::file_name(path).context("the path names no file")?;
     let folder = folder.trim_end_matches('/');
+    // As on the direct path, the folder must be there already.
+    let found = target
+        .online
+        .files(&Request::Stat {
+            path: if folder.is_empty() { "/" } else { folder }.to_owned(),
+        })
+        .await?;
+    match found {
+        Reply::Stat { entry, .. } if entry.kind == FileKind::Dir => {}
+        Reply::Stat { .. } => bail!("{folder} on {} is not a folder", target.shown()),
+        Reply::Error { message } => bail!("the target folder {folder}: {message}"),
+        other => bail!("{} answered {other:?}", target.shown()),
+    }
     for n in 1..=MAX_SUFFIX {
         let dst = format!("{folder}/{}", numbered(name, ContentKind::File, n));
         let taken = matches!(
@@ -221,15 +248,14 @@ mod tests {
     fn progress_is_reported_every_five_percent() {
         let mut lines = Vec::new();
         let mut out = |line: String| lines.push(line);
-        let mut reporter = Reporter {
-            stage: "Sending",
-            last: None,
-            out: &mut out,
-        };
+        let mut reporter = Reporter::new(&mut out);
+        let at = |stage, done, total| Progress { done, total, stage };
         for done in [0, 1, 4, 5, 7, 50, 100] {
-            reporter.report(Progress { done, total: 100 });
+            reporter.report(at(Stage::Downloading, done, 100));
         }
-        reporter.report(Progress { done: 0, total: 0 });
+        reporter.report(at(Stage::Downloading, 0, 0));
+        // A new stage starts over, and huge counts do not overflow.
+        reporter.report(at(Stage::Writing, u64::MAX / 2, u64::MAX));
         assert_eq!(
             lines,
             [
@@ -237,6 +263,7 @@ mod tests {
                 "Sending 5 B of 100 B (5%)",
                 "Sending 50 B of 100 B (50%)",
                 "Sending 100 B of 100 B (100%)",
+                "Writing out 8388608.0 TiB of 16777216.0 TiB (49%)",
             ]
         );
         assert_eq!(size(3 << 20), "3.0 MiB");

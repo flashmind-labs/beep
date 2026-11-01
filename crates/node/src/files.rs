@@ -54,6 +54,14 @@ impl Folders {
         self.roots.is_empty()
     }
 
+    /// The shared folder `resolved`, a path `resolve` gave, lies in.
+    pub(crate) fn root_of(&self, resolved: &Path) -> Option<&Path> {
+        self.roots
+            .iter()
+            .map(PathBuf::as_path)
+            .find(|root| resolved.starts_with(root))
+    }
+
     /// The first shared folder, which relative paths start in.
     pub fn first(&self) -> Option<&Path> {
         self.roots.first().map(PathBuf::as_path)

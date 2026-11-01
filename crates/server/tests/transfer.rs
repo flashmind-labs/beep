@@ -14,7 +14,7 @@ use beep_server::{
     app::{App, ServerTools},
     models::ModelChoices,
     nodes::{self, Online, transfer::Progress},
-    protocol::DeviceKind,
+    protocol::{DeviceKind, node::transfer::Stage},
     store::{NewKey, TestDb},
 };
 use flashmind::types::{
@@ -230,12 +230,20 @@ async fn a_file_and_a_folder_go_node_to_node() {
         fetched.last(),
         Some(&Progress {
             done: 300_000,
-            total: 300_000
+            total: 300_000,
+            stage: Stage::Writing,
         })
     );
+    assert!(
+        fetched.iter().any(|p| p.stage == Stage::Downloading),
+        "{fetched:?}"
+    );
+    assert_eq!(
+        hashed.last().map(|p| (p.done, p.stage)),
+        Some((300_000, Stage::Hashing))
+    );
 
-    // The same content again is in the target's store already, so it
-    // lands without a download.
+    // The same content again lands under the next free name.
     let landed = target
         .online
         .fetch(
@@ -416,5 +424,116 @@ async fn a_cancelled_transfer_leaves_nothing_behind() {
     );
     // The node answers only once it removed what it wrote.
     assert!(entries(&inbox).is_empty(), "{:?}", entries(&inbox));
+    server.router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_target_folder_swapped_for_a_link_mid_transfer_keeps_writes_inside() {
+    let server = server().await;
+    let source = server.node("render box").await;
+    let target = server.node("laptop").await;
+    fs::write(source.shared.path().join("big.bin"), data(32 << 20, 5)).unwrap();
+    let inbox = target.shared.path().join("in");
+    fs::create_dir_all(&inbox).unwrap();
+    let folder = shown(&inbox);
+    let moved = target.shared.path().join("moved");
+    let outside = TempDir::new().unwrap();
+    let offer = source
+        .online
+        .offer(
+            &shown(&source.shared.path().join("big.bin")),
+            target.online.connection.remote_id(),
+            &mut ignore,
+        )
+        .await
+        .unwrap();
+    // Once bytes arrive, the folder is moved away and a link to a folder
+    // outside the shared ones takes its place.
+    let mut swapped = false;
+    let mut swap = |p: Progress| {
+        if !swapped && p.done > 0 {
+            swapped = true;
+            fs::rename(&inbox, &moved).unwrap();
+            std::os::unix::fs::symlink(outside.path(), &inbox).unwrap();
+        }
+    };
+    let landed = target
+        .online
+        .fetch(
+            &offer.offered,
+            &folder,
+            &mut swap,
+            &CancellationToken::new(),
+        )
+        .await;
+    assert!(swapped, "the transfer reported progress");
+    assert!(
+        entries(outside.path()).is_empty(),
+        "nothing lands outside: {:?} ({landed:?})",
+        entries(outside.path())
+    );
+    let landed = landed.unwrap();
+    assert!(landed.path.ends_with("/big.bin"), "{landed:?}");
+    assert_eq!(entries(&moved), ["big.bin"]);
+    server.router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_folder_keeps_executable_bits_and_empty_folders() {
+    use std::os::unix::fs::PermissionsExt;
+    let server = server().await;
+    let source = server.node("render box").await;
+    let target = server.node("laptop").await;
+    let tools = source.shared.path().join("tools");
+    fs::create_dir_all(tools.join("empty/inner")).unwrap();
+    fs::write(tools.join("run.sh"), b"#!/bin/sh\necho hi\n").unwrap();
+    fs::set_permissions(tools.join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(tools.join("notes.txt"), b"plain").unwrap();
+    fs::set_permissions(tools.join("notes.txt"), fs::Permissions::from_mode(0o644)).unwrap();
+    let inbox = target.shared.path().join("in");
+    fs::create_dir_all(&inbox).unwrap();
+    let peer = target.online.connection.remote_id();
+    let offer = source
+        .online
+        .offer(&shown(&tools), peer, &mut ignore)
+        .await
+        .unwrap();
+    assert_eq!(offer.offered.files, 2);
+    target
+        .online
+        .fetch(
+            &offer.offered,
+            &shown(&inbox),
+            &mut ignore,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o111;
+    assert_ne!(mode(&inbox.join("tools/run.sh")), 0, "still executable");
+    assert_eq!(mode(&inbox.join("tools/notes.txt")), 0);
+    assert!(inbox.join("tools/empty/inner").is_dir());
+    assert_eq!(
+        entries(&inbox.join("tools")),
+        ["empty", "notes.txt", "run.sh"]
+    );
+
+    // One executable file keeps its bit too.
+    let offer = source
+        .online
+        .offer(&shown(&tools.join("run.sh")), peer, &mut ignore)
+        .await
+        .unwrap();
+    let landed = target
+        .online
+        .fetch(
+            &offer.offered,
+            &shown(&inbox),
+            &mut ignore,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_ne!(mode(Path::new(&landed.path)), 0);
     server.router.shutdown().await.unwrap();
 }

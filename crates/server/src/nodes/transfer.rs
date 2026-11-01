@@ -6,7 +6,7 @@
 use super::Online;
 use crate::protocol::node::{
     LinkRx, LinkTx,
-    transfer::{Content, PROTOCOL, Reply, Request},
+    transfer::{Content, PROTOCOL, Reply, Request, Stage},
 };
 use anyhow::{Context, Result, anyhow, bail};
 use iroh::{EndpointAddr, EndpointId};
@@ -14,11 +14,10 @@ use std::time::Duration;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-/// The longest a source may go quiet while hashing: one large file sends
-/// nothing until it is hashed.
-const OFFER_IDLE: Duration = Duration::from_secs(30 * 60);
-/// The longest a target may go quiet while fetching; it reports every
-/// megabyte or percent.
+/// The longest a source may go quiet while hashing, and a target while
+/// fetching. Both report about every second while bytes move, so only a
+/// transfer that stopped moving gets this far.
+const OFFER_IDLE: Duration = Duration::from_secs(10 * 60);
 const FETCH_IDLE: Duration = Duration::from_secs(10 * 60);
 /// How long a target has to clean up after a cancel.
 const CANCEL_LIMIT: Duration = Duration::from_secs(30);
@@ -28,6 +27,7 @@ const CANCEL_LIMIT: Duration = Duration::from_secs(30);
 pub struct Progress {
     pub done: u64,
     pub total: u64,
+    pub stage: Stage,
 }
 
 /// What a source offers.
@@ -40,6 +40,8 @@ pub struct Offered {
     pub files: u64,
     /// Symlinks and special files left out of a folder.
     pub skipped: u64,
+    /// A file that is executable at the source.
+    pub executable: bool,
 }
 
 /// An offer the source keeps open; the target may fetch it until this
@@ -102,7 +104,9 @@ impl Online {
                 .with_context(|| format!("{} stopped answering while hashing", self.name))??
                 .with_context(|| format!("{} closed the offer", self.name))?;
             match reply {
-                Reply::Progress { done, total } => progress(Progress { done, total }),
+                Reply::Progress { done, total, stage } => {
+                    progress(Progress { done, total, stage });
+                }
                 Reply::Offered {
                     content,
                     from,
@@ -110,6 +114,7 @@ impl Online {
                     size,
                     files,
                     skipped,
+                    executable,
                 } => {
                     return Ok(Offer {
                         offered: Offered {
@@ -119,6 +124,7 @@ impl Online {
                             size,
                             files,
                             skipped,
+                            executable,
                         },
                         tx,
                         rx,
@@ -147,6 +153,7 @@ impl Online {
             name: offered.name.clone(),
             size: offered.size,
             folder: folder.to_owned(),
+            executable: offered.executable,
         })
         .await?;
         let mut cancelled = false;
@@ -164,7 +171,9 @@ impl Online {
                 .with_context(|| format!("{} stopped answering", self.name))??
                 .with_context(|| format!("{} closed the transfer", self.name))?;
             match reply {
-                Reply::Progress { done, total } => progress(Progress { done, total }),
+                Reply::Progress { done, total, stage } => {
+                    progress(Progress { done, total, stage });
+                }
                 Reply::Done { path, size, files } => return Ok(Landed { path, size, files }),
                 Reply::Cancelled {} => return Err(anyhow!("the transfer was cancelled")),
                 Reply::Error { message } => bail!("{}: {message}", self.name),
