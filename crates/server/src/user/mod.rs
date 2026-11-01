@@ -600,11 +600,6 @@ impl User {
         Ok(Some(self.store.chat_messages(session).await?))
     }
 
-    /// Whether the user owns `session`.
-    pub async fn owns_session(&self, session: Uuid) -> Result<bool> {
-        self.store.owns_session(&self.key, session).await
-    }
-
     /// What each tool step of a session the user owns showed while it ran,
     /// oldest first. `None` when they have no such session.
     pub async fn tool_labels(&self, session: Uuid) -> Result<Option<Vec<ToolLabel>>> {
