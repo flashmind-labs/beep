@@ -56,10 +56,18 @@ function form(state, esc, { title, note, env, url }) {
     <div class="derr" id="credErr">${esc(state.error || "")}</div></div>`;
 }
 
+/// The last 4 of a saved secret, or a prompt to enter it again when the
+/// server can no longer open it.
+function shown(esc, cred, what) {
+  return cred.unreadable
+    ? `<span style="color:var(--err)">Re-enter this ${what}</span>`
+    : `<code style="font-size:11px">…${esc(cred.last4)}</code>`;
+}
+
 /// One saved git host: name, login, last 4 and where its CLI is.
 function hostRow(esc, { name, cred, cli, machines, editKey }) {
-  const line = [cred ? `<code style="font-size:11px">…${esc(cred.last4)}</code>` : "", esc(toolLine(cli, machines))].filter(Boolean).join(" · ");
-  const account = cred?.account ? `@${cred.account}` : cred ? "not checked: the server could not reach it" : "";
+  const line = [cred ? shown(esc, cred, "token") : "", esc(toolLine(cli, machines))].filter(Boolean).join(" · ");
+  const account = cred?.unreadable ? "" : cred?.account ? `@${cred.account}` : cred ? "not checked: the server could not reach it" : "";
   const acts = cred
     ? `<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(cred.id)}" aria-label="Remove ${esc(name)}">Remove</button>`
     : `<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Add token</button>`;
@@ -73,9 +81,9 @@ function keyRow(esc, ago, p, cred) {
   if (!cred) return `<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px">
     <span class="ddot off"></span><b style="font-weight:600">${esc(p.name)}</b><code style="font-size:11px;color:var(--muted)">${esc(p.env_var)}</code>
     <span style="margin-left:auto"><button class="dbtn" ${sm} data-cred-edit="api:${esc(p.slug)}">Add key</button></span></div>`;
-  const use = cred.to_machines ? `your machines as ${esc(p.env_var)}` : "not given to your machines";
+  const use = cred.unreadable ? "not given to your machines" : cred.to_machines ? `your machines as ${esc(p.env_var)}` : "not given to your machines";
   return `<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px">
-    <span class="ddot"></span><span style="display:grid;gap:2px;min-width:0"><b style="font-weight:600">${esc(p.name)}</b><span style="font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><code style="font-size:11px">…${esc(cred.last4)}</code> · ${use} · added ${esc(ago(cred.created_at))}</span></span>
+    <span class="ddot"></span><span style="display:grid;gap:2px;min-width:0"><b style="font-weight:600">${esc(p.name)}</b><span style="font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${shown(esc, cred, "key")} · ${use} · added ${esc(ago(cred.created_at))}</span></span>
     <span style="margin-left:auto;display:flex;gap:6px;flex:none"><button class="dbtn" ${sm} data-cred-edit="api:${esc(p.slug)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(cred.id)}" aria-label="Remove the ${esc(p.name)} key">Remove</button></span></div>`;
 }
 

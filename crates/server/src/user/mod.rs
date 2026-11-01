@@ -978,8 +978,11 @@ impl User {
     }
 
     /// The user's credentials, without their secrets.
-    pub async fn credentials(&self) -> Result<Vec<crate::store::CredentialRow>> {
-        self.store.credentials(&self.key).await
+    pub async fn credentials(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<crate::store::CredentialRow>> {
+        self.store.credentials(&self.key, key).await
     }
 
     /// Seals and saves a credential, replacing the one in its slot.

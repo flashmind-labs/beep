@@ -810,6 +810,9 @@ pub struct Credential {
     /// Whether the caller's machines get it.
     pub to_machines: bool,
     pub created_at: SystemTime,
+    /// The server can no longer open it; the user has to enter it again.
+    /// Machines do not get it.
+    pub unreadable: bool,
 }
 
 wire_enum! {
