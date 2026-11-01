@@ -309,6 +309,13 @@ impl Syncs {
         })
     }
 
+    /// The other nodes `project` syncs with here.
+    pub fn peers(&self, project: &str) -> Vec<EndpointId> {
+        self.project(project)
+            .map(|shared| shared.peer_ids())
+            .unwrap_or_default()
+    }
+
     fn project(&self, name: &str) -> Option<Arc<Shared>> {
         self.inner
             .lock()

@@ -246,6 +246,10 @@ impl Shared {
         self.peers.borrow().iter().any(|addr| addr.id == *peer)
     }
 
+    pub(super) fn peer_ids(&self) -> Vec<EndpointId> {
+        self.peers.borrow().iter().map(|addr| addr.id).collect()
+    }
+
     pub(super) fn set_peers(&self, peers: Vec<EndpointAddr>) {
         self.peers.send_if_modified(|now| {
             let changed = *now != peers;

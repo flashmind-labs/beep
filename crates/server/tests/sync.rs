@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use beep_node::{
     files::Folders,
     link::{Offers, Protocol},
+    sync::Syncs,
     transfer::Transfers,
 };
 use beep_server::{
@@ -20,7 +21,7 @@ use beep_server::{
     nodes::{self, Online},
     protocol::{
         ApiError, DeviceKind, GetSyncSkipped, ListProjectSync, PinProject, ProjectSync,
-        SetProjectSync, SkipRule, SyncStatus,
+        RemoveDevice, SetProjectSync, SkipRule, SyncStatus,
     },
     push::Pusher,
     store::{NewKey, SyncRow, TestDb},
@@ -129,6 +130,7 @@ async fn server() -> Server {
 struct TestNode {
     id: String,
     online: Online,
+    syncs: Syncs,
     shared: TempDir,
     _state: TempDir,
     _task: JoinHandle<anyhow::Result<()>>,
@@ -178,6 +180,7 @@ impl Server {
         let transfers = Transfers::start(&node, state.path(), folders.clone())
             .await
             .expect("the transfers start");
+        let syncs = transfers.syncs();
         let offers = Offers {
             agents: Arc::default(),
             extra: vec![
@@ -203,6 +206,7 @@ impl Server {
         TestNode {
             id,
             online,
+            syncs,
             shared,
             _state: state,
             _task: task,
@@ -365,4 +369,24 @@ async fn the_app_turns_sync_on_and_sees_how_each_machine_stands() {
     let off = server.set(&a, &a.shown(), false).await.unwrap();
     assert!(off.machines.is_empty());
     assert!(a.online.sync_status().await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_removed_machine_stops_being_a_peer() {
+    let server = server().await;
+    let a = server.node("render box", async |_, _| {}).await;
+    let b = server.node("laptop", async |_, _| {}).await;
+    server.set(&a, &a.shown(), true).await.unwrap();
+    server.set(&b, &b.shown(), true).await.unwrap();
+    let b_key = b.online.connection.remote_id();
+    assert_eq!(a.syncs.peers(PROJECT), [b_key]);
+
+    server
+        .phone
+        .call(&RemoveDevice { id: b.id.clone() })
+        .await
+        .unwrap();
+    assert!(a.syncs.peers(PROJECT).is_empty());
+    let listed = server.phone.call(&ListProjectSync {}).await.unwrap();
+    assert_eq!(listed[0].machines.len(), 1);
 }
