@@ -4,7 +4,7 @@
 
 use super::{
     AgentKind,
-    acp::{self, Line, LineReader, ResumeMethod},
+    acp::{self, Line, LineReader, Prompt, ResumeMethod},
     live::{Live, cut},
 };
 use crate::process::{GroupLeader, STOP_GRACE};
@@ -48,7 +48,7 @@ const EVENTS: usize = 64;
 /// What a stream asks of a session.
 #[derive(Debug)]
 pub(super) enum Command {
-    Prompt(String),
+    Prompt(Prompt),
     Answer { question: u32, reply: String },
     Cancel,
     Close,
@@ -114,9 +114,11 @@ impl Session {
         let (orders, orders_rx) = mpsc::channel(ORDERS);
         let actor = Actor {
             live: live_tx,
+            agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
             acp_session: None,
-            queued: prompt.into_iter().collect(),
+            takes_images: None,
+            queued: prompt.map(Prompt::from).into_iter().collect(),
             resume,
             skip_permissions: kind.name == "claude",
             asked: VecDeque::new(),
@@ -189,9 +191,13 @@ struct Asked {
 
 struct Actor {
     live: watch::Sender<Live>,
+    /// The agent, such as `claude`.
+    agent: String,
     cwd: PathBuf,
     /// The agent's id for the session, once it made one.
     acp_session: Option<SessionId>,
+    /// Whether the agent takes image blocks, once `initialize` said.
+    takes_images: Option<bool>,
     /// The agent's id of an earlier session to resume.
     resume: Option<String>,
     /// The agent runs without permission prompts: Claude Code, as with
@@ -199,7 +205,7 @@ struct Actor {
     /// anyway is allowed rather than asked.
     skip_permissions: bool,
     /// Prompts waiting for the agent to be free, the first prompt among them.
-    queued: VecDeque<String>,
+    queued: VecDeque<Prompt>,
     /// Questions waiting, the first one shown.
     asked: VecDeque<Asked>,
     next_question: u32,
@@ -408,35 +414,12 @@ impl Actor {
 
     fn reply(&mut self, cx: &ConnectionTo<Agent>, reply: Reply) -> Result<Option<End>> {
         match reply {
-            Reply::Initialized(Ok(initialized)) => match self.resume.take() {
-                Some(session) => {
-                    let session = SessionId::from(session);
-                    let cwd = self.cwd.clone();
-                    let id = session.clone();
-                    match acp::resume_method(&initialized) {
-                        Some(ResumeMethod::Resume) => {
-                            self.send(cx, ResumeSessionRequest::new(id, cwd), |result| {
-                                Reply::Resumed(session, result.map(drop))
-                            });
-                        }
-                        Some(ResumeMethod::Load) => {
-                            self.send(cx, LoadSessionRequest::new(id, cwd), |result| {
-                                Reply::Resumed(session, result.map(drop))
-                            });
-                        }
-                        None => {
-                            return Ok(Some(End::Failed(
-                                "the agent cannot resume a session".into(),
-                            )));
-                        }
-                    }
+            Reply::Initialized(Ok(initialized)) => {
+                self.takes_images = Some(acp::takes_images(&initialized));
+                if let Some(end) = self.initialized(cx, &initialized) {
+                    return Ok(Some(end));
                 }
-                None => self.send(
-                    cx,
-                    NewSessionRequest::new(self.cwd.clone()),
-                    Reply::NewSession,
-                ),
-            },
+            }
             Reply::NewSession(Ok(created)) => self.ready(cx, created.session_id),
             Reply::Resumed(session, Ok(())) => self.ready(cx, session),
             Reply::Bypass(result) => {
@@ -468,6 +451,37 @@ impl Actor {
         Ok(None)
     }
 
+    /// The agent answered `initialize`: makes the session, or resumes the
+    /// earlier one. Gives why the session ends when it cannot.
+    fn initialized(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        initialized: &InitializeResponse,
+    ) -> Option<End> {
+        let Some(session) = self.resume.take() else {
+            let request = NewSessionRequest::new(self.cwd.clone());
+            self.send(cx, request, Reply::NewSession);
+            return None;
+        };
+        let session = SessionId::from(session);
+        let cwd = self.cwd.clone();
+        let id = session.clone();
+        match acp::resume_method(initialized) {
+            Some(ResumeMethod::Resume) => {
+                self.send(cx, ResumeSessionRequest::new(id, cwd), |result| {
+                    Reply::Resumed(session, result.map(drop))
+                });
+            }
+            Some(ResumeMethod::Load) => {
+                self.send(cx, LoadSessionRequest::new(id, cwd), |result| {
+                    Reply::Resumed(session, result.map(drop))
+                });
+            }
+            None => return Some(End::Failed("the agent cannot resume a session".into())),
+        }
+        None
+    }
+
     /// The agent made or resumed its session `session`: prompts may go.
     fn ready(&mut self, cx: &ConnectionTo<Agent>, session: SessionId) {
         self.acp_session = Some(session.clone());
@@ -495,13 +509,16 @@ impl Actor {
         command: Command,
     ) -> Result<Result<(), String>> {
         match command {
-            Command::Prompt(text) => {
+            Command::Prompt(prompt) => {
+                if let Err(refused) = self.can_take(&prompt) {
+                    return Ok(Err(refused));
+                }
                 if self.queued.len() >= MAX_QUEUED {
                     return Ok(Err(format!(
                         "{MAX_QUEUED} prompts already wait for this turn"
                     )));
                 }
-                self.queued.push_back(text);
+                self.queued.push_back(prompt);
                 self.show_queued();
                 if self.live.borrow().status() == Status::Idle {
                     self.next_prompt(cx);
@@ -524,6 +541,24 @@ impl Actor {
                 Ok(Ok(()))
             }
             Command::Close => Ok(Ok(())),
+        }
+    }
+
+    /// Refuses a prompt with images the agent does not take, rather than
+    /// send it without them.
+    fn can_take(&self, prompt: &Prompt) -> Result<(), String> {
+        if prompt.images.is_empty() {
+            return Ok(());
+        }
+        match self.takes_images {
+            Some(true) => Ok(()),
+            Some(false) => Err(format!(
+                "{} here does not take images",
+                agent_title(&self.agent)
+            )),
+            None => {
+                Err("the agent is still starting; send the images again once it is ready".into())
+            }
         }
     }
 
@@ -612,7 +647,7 @@ impl Actor {
             asked.responder.respond(answer)?;
         }
         if let Some(text) = follow_up {
-            self.queued.push_front(text);
+            self.queued.push_front(Prompt::from(text));
             self.show_queued();
         }
         self.live.send_modify(|live| {
@@ -667,15 +702,25 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return;
         };
-        let Some(text) = self.queued.pop_front() else {
+        let Some(prompt) = self.queued.pop_front() else {
             return;
         };
-        self.send(cx, acp::prompt(&session, &text), Reply::Prompt);
+        self.send(cx, acp::prompt(&session, &prompt), Reply::Prompt);
         let queued = u32::try_from(self.queued.len()).unwrap_or(u32::MAX);
         self.live.send_modify(|live| {
-            live.prompted(&text);
+            live.prompted(&prompt.shown());
             live.info.state.queued = queued;
         });
+    }
+}
+
+/// What people call the agent `name`, such as Claude Code for `claude`.
+fn agent_title(name: &str) -> &str {
+    match name {
+        "claude" => "Claude Code",
+        "codex" => "Codex",
+        "gemini" => "Gemini CLI",
+        other => other,
     }
 }
 
@@ -707,6 +752,7 @@ pub(super) fn choose<'a>(options: &'a [AnswerOption], reply: &str) -> Option<&'a
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beep_proto::Upload;
     use serde_json::Value;
 
     fn options() -> Vec<AnswerOption> {
@@ -1005,6 +1051,93 @@ while :; do sleep 1; done
         assert_eq!(session.info().state.status, Status::Ended);
         assert_eq!(session.info().state.error, None, "closed, not failed");
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "bye\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An adapter that says whether it takes images (`$2`), then ends each
+    /// prompt's turn at once.
+    const IMAGES_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply "{\"protocolVersion\":1,\"agentCapabilities\":{\"promptCapabilities\":{\"image\":$2}}}"
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
+"#;
+
+    /// A session of an agent that takes images or not, once it is idle.
+    async fn image_session(dir: &Path, images: bool) -> Session {
+        let mut kind = script("codex", IMAGES_ADAPTER, &dir.join("sent.jsonl"));
+        kind.args.push(images.to_string());
+        let session = Session::start(Start {
+            id: "e7b3a5".into(),
+            kind: &kind,
+            cwd: dir,
+            prompt: None,
+            resume: None,
+        })
+        .unwrap();
+        until(&session, |live| {
+            matches!(live.status(), Status::Idle | Status::Ended)
+        })
+        .await;
+        assert_eq!(session.info().state.status, Status::Idle);
+        session
+    }
+
+    fn shot() -> Prompt {
+        Prompt {
+            text: "The button overlaps".into(),
+            images: vec![Upload {
+                name: "shot.png".into(),
+                mime: "image/png".into(),
+                data: b"\x89PNG\r\n\x1a\n".to_vec(),
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn images_go_to_an_agent_that_takes_them() {
+        let dir = temp("images");
+        let session = image_session(&dir, true).await;
+        session.order(Command::Prompt(shot())).await.unwrap();
+        until(&session, |live| {
+            live.info.turns >= 1 || live.status() == Status::Ended
+        })
+        .await;
+        let sent: Vec<Value> = std::fs::read_to_string(dir.join("sent.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let prompt = &sent[2];
+        assert_eq!(prompt["method"], "session/prompt");
+        assert_eq!(prompt["params"]["prompt"][0]["text"], "The button overlaps");
+        assert_eq!(prompt["params"]["prompt"][1]["type"], "image");
+        assert_eq!(prompt["params"]["prompt"][1]["mimeType"], "image/png");
+        let (entries, _) = session.live.borrow().transcript(10);
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.text == "The button overlaps\n[image: shot.png]"),
+            "{entries:?}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_agent_without_images_refuses_them() {
+        let dir = temp("no-images");
+        let session = image_session(&dir, false).await;
+        let refused = session.order(Command::Prompt(shot())).await;
+        assert_eq!(refused, Err("Codex here does not take images".to_owned()));
+        let info = session.info();
+        assert_eq!(info.state.status, Status::Idle, "nothing was sent");
+        assert_eq!(info.state.queued, 0);
+        // Text alone still goes.
+        session
+            .order(Command::Prompt("just text".to_owned().into()))
+            .await
+            .unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

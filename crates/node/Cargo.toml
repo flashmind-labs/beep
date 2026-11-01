@@ -18,6 +18,7 @@ required-features = ["cli"]
 [dependencies]
 agent-client-protocol = "3.6"
 anyhow = "1"
+base64 = "0.22"
 beep-proto = { path = "../proto" }
 clap = { version = "4", features = ["derive", "env"], optional = true }
 dirs = "7"
