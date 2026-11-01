@@ -124,10 +124,13 @@ function runningRow(r) {
   else if (r.external && r.status !== "working" && r.status !== "running") status = tag("term", "in terminal");
   else if (r.status === "working" || r.status === "running" || r.status === "starting") status = tag("run", h("span", "dspin"), r.doing || r.status);
   else status = tag("", r.status);
-  return h("div", "cc-row",
+  const row = h("button", "cc-row link",
     avatar(ag.cls, ag.ini),
     h("span", "t", h("b", "", r.title || project || ag.name), h("span", "", `${project ? project + ", " : ""}${ag.name} on ${r.machine_name}`)),
     h("span", "r", status, ago(r.started_at)));
+  // The pane's agent view (app.js) follows and answers it.
+  row.addEventListener("click", () => go("pane", { agent: r }));
+  return row;
 }
 
 // ---------- Needs you ----------
@@ -566,6 +569,7 @@ function draw() {
   applyScroll();
   scrollTarget = null;
   $("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
+  $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }
 
 registerView("home", {
@@ -590,6 +594,9 @@ const PANE_TITLES = {
   settings: ["Settings", ""],
   machines: ["Settings", ""],
   research: ["Research", ""],
+  agents: ["Coding agents", "On your machines"],
+  agentnew: ["Coding agents", "Start one on a machine"],
+  agent: ["Coding agents", "Follow it and answer it here"],
 };
 
 function paneTitle() {
@@ -714,6 +721,12 @@ $("#home-comp").addEventListener("submit", async e => {
     note.textContent = failure(err);
   }
   reloadChats();
+});
+
+$("#home-agent")?.addEventListener("click", () => {
+  const input = $("#home-ask"), prompt = input.value.trim();
+  input.value = "";
+  go("pane", { agentnew: { prompt } });
 });
 
 // A reload starts with no chat open, as the window just opened does.

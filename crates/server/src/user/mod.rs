@@ -586,6 +586,11 @@ impl User {
             .send(UserNotice::changed(self.id(), session_id));
     }
 
+    /// Whether the user has the chat `session`.
+    pub async fn owns_session(&self, session: Uuid) -> Result<bool> {
+        self.store.owns_session(&self.key, session).await
+    }
+
     /// The messages of a session the user owns, oldest first. `None` when
     /// they have no such session.
     pub async fn session_messages(&self, session: Uuid) -> Result<Option<Vec<StoredMessage>>> {

@@ -323,6 +323,7 @@ function renderChat() {
   dragGrip(ask);
   takeDraft(ask);
   drawStop();
+  drawAgentButton();
   focusAsk();
 }
 const ASK_HEIGHT = "bar.askHeight", ASK_MAX = 420;
@@ -4204,6 +4205,388 @@ function drawMachines() {
     + hints([["esc", "back"]]);
 }
 
+// ---------- Coding agents ----------
+
+// Start a coding agent on one of the user's machines, follow it live and
+// answer it: `agentnew` is the start form, `agent` one session, `agents`
+// every session. They run in the bar and in the window's pane alike.
+const AG = {
+  hosts: null, sessions: [], error: "", busy: false,
+  form: { prompt: "", machine: "auto", agent: null, cwd: "", chat: null },
+  open: null, page: null, why: "", back: "chat", timer: 0, inflight: false, note: "", sel: 0,
+};
+/// How often the session view asks for its session while on screen.
+const AGENT_POLL_MS = 1500;
+const AGENT_LAST = 60;
+const AGENT_KINDS = {
+  claude: { ini: "CC", name: "Claude Code", cls: "claude" },
+  codex: { ini: "CX", name: "Codex", cls: "codex" },
+  gemini: { ini: "GE", name: "Gemini CLI", cls: "gemini" },
+  pi: { ini: "PI", name: "pi", cls: "pi" },
+  flsh: { ini: "FL", name: "flsh", cls: "flsh" },
+};
+const AGENT_ORDER = ["claude", "codex", "gemini", "pi", "flsh"];
+const CAP_NAMES = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
+const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
+
+const agentKind = a => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
+const agentAvatar = a => `<span class="dapp dcoderav ${agentKind(a).cls}">${esc(agentKind(a).ini)}</span>`;
+const folderName = p => String(p || "").split("/").filter(Boolean).pop() || p || "";
+const byPreference = (a, b) => (AGENT_ORDER.indexOf(a) + 1 || 99) - (AGENT_ORDER.indexOf(b) + 1 || 99);
+
+/// The machines that can run an agent; none for an account that may not use machines.
+async function loadAgentHosts() {
+  if (S.link !== "linked") return;
+  try {
+    AG.hosts = await invoke("agent_hosts");
+  } catch {
+    AG.hosts = [];
+  }
+  drawAgentButton();
+  if (S.view === "agentnew") drawAgentNew();
+}
+
+/// The composer's Agent button, once some machine offers an agent.
+function drawAgentButton() {
+  const row = bar.querySelector(":scope > .dinput.dgrow");
+  if (!row || S.view !== "chat" || $("#agentGo") || !AG.hosts?.length) return;
+  const b = h(`<button class="dbtn quiet" id="agentGo" title="Start a coding agent on a machine (⌘⇧A)">${AGENT_ICON}Agent</button>`);
+  b.onclick = () => renderAgentNew($("#ask")?.value.trim() ?? "");
+  row.insertBefore(b, $("#grip"));
+}
+
+function stateTag(status) {
+  if (status === "asking") return '<span class="dstate ask">Waiting for you</span>';
+  if (status === "working" || status === "running" || status === "starting") return `<span class="dstate run">${status === "starting" ? "Starting" : "Working"}</span>`;
+  if (status === "waiting") return '<span class="dstate ask">Waiting in terminal</span>';
+  if (status === "ended") return '<span class="dstate">Ended</span>';
+  return '<span class="dstate">Idle</span>';
+}
+
+// ----- Start form -----
+
+/// The start form with `prompt`; `from` is where Esc goes back to.
+function renderAgentNew(prompt = "", from = "chat") {
+  const chat = S.view === "chat" ? S.session : null;
+  S.view = "agentnew";
+  AG.back = from;
+  AG.form = { prompt, machine: "auto", agent: null, cwd: "", chat };
+  AG.error = "";
+  AG.busy = false;
+  drawAgentNew();
+  $("#agprompt")?.focus();
+  loadAgentHosts();
+  invoke("agent_sessions").then(list => { AG.sessions = list; if (S.view === "agentnew") drawFolders(); }).catch(() => {});
+}
+
+function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
+/// The agents the chosen machine offers; for Auto, any machine's.
+function formAgents() {
+  const host = formHost();
+  const all = host ? host.agents : [...new Set((AG.hosts ?? []).flatMap(m => m.agents))];
+  return all.sort(byPreference);
+}
+
+function drawAgentNew() {
+  const f = AG.form, hosts = AG.hosts ?? [], host = formHost();
+  const agents = formAgents();
+  if (f.agent && !agents.includes(f.agent)) f.agent = null;
+  const chip = (attr, val, on, label, sub) => `<button class="dchip" aria-pressed="${on}" ${attr}="${esc(val)}"${sub ? ` title="${esc(sub)}"` : ""}>${label}</button>`;
+  const caps = m => m.capabilities.map(c => CAP_NAMES[c] || c);
+  const machines = [chip("data-agm", "auto", f.machine === "auto", "Auto", "Beep picks from what each machine has"),
+    ...hosts.map(m => chip("data-agm", m.machine_id, f.machine === m.machine_id, esc(m.machine_name), caps(m).join(", ")))].join("");
+  const machineNote = !AG.hosts ? '<span class="dspin"></span> Looking for machines…'
+    : !hosts.length ? "None of your machines online offers a coding agent. Run beep-node on one with Claude Code, Codex, Gemini CLI, pi or flsh."
+    : host ? (caps(host).length ? `Has ${esc(caps(host).join(", "))}` : "No special hardware or apps reported")
+    : "Beep picks the machine with what the task needs, such as Xcode, a GPU or Blender, else your environment or the least busy one.";
+  const agentChips = [chip("data-aga", "", !f.agent, "Any"), ...agents.map(a => chip("data-aga", a, f.agent === a, esc(agentKind(a).name)))].join("");
+  const place = host ? (host.workspace || host.home || "Home folder") : "Workspace or home folder";
+  const missing = AG.error === "prompt";
+  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Start a coding agent</b><small>It runs on your machine; follow it and answer it here</small></span>
+      <button class="dbtn quiet" id="agList">All sessions</button></div>
+    <div class="dform" style="padding-top:12px;flex:1;min-height:0;overflow:auto;scrollbar-width:none;align-content:start">
+      <label class="dfield${missing ? " err" : ""}"><span>${missing ? "Say what the agent should do" : "What should it do?"}</span>
+        <textarea id="agprompt" rows="3" placeholder="Fix the failing login test">${esc(f.prompt)}</textarea></label>
+      <div class="dfield"><span>Machine</span><div class="dchips">${machines}</div><span class="note">${machineNote}</span></div>
+      <label class="dfield"><span>Folder</span><input id="agcwd" list="agfolders" spellcheck="false" placeholder="${esc(place)}" value="${esc(f.cwd)}" style="font-family:var(--mono);font-size:13px"><datalist id="agfolders"></datalist></label>
+      <div class="dfield"><span>Agent</span><div class="dchips">${agentChips}</div></div>
+      ${AG.error && !missing ? `<div class="derr">${esc(AG.error)}</div>` : ""}
+      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" id="aggo"${AG.busy || !hosts.length ? " disabled" : ""}>${AG.busy ? '<span class="dspin"></span>Starting' : "Start"}<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" id="agno">Cancel</button>
+        <span class="dmuted" style="margin-left:auto">Or ask Beep in a chat to start one</span></div>
+    </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "start"], ["esc", "cancel"]])}`;
+  drawFolders();
+  $("#agprompt").addEventListener("input", e => { f.prompt = e.target.value; });
+  $("#agcwd").addEventListener("input", e => { f.cwd = e.target.value; });
+  bar.onclick = e => {
+    if (S.view !== "agentnew") return;
+    const m = e.target.closest("[data-agm]"), a = e.target.closest("[data-aga]");
+    if (m) { f.machine = m.dataset.agm; drawAgentNew(); }
+    else if (a) { f.agent = a.dataset.aga || null; drawAgentNew(); }
+    else if (e.target.closest("#aggo")) startAgent();
+    else if (e.target.closest("#agno")) back();
+    else if (e.target.closest("#agList")) renderAgents();
+  };
+}
+
+/// Folder suggestions: the machine's workspace and home, then where its sessions ran.
+function drawFolders() {
+  const list = $("#agfolders");
+  if (!list) return;
+  const host = formHost(), hosts = host ? [host] : AG.hosts ?? [];
+  const ids = new Set(hosts.map(m => m.machine_id));
+  const seen = [...hosts.flatMap(m => [m.workspace, m.home]),
+    ...AG.sessions.filter(s => ids.has(s.machine_id)).sort((a, b) => b.last_activity - a.last_activity).map(s => s.cwd)];
+  list.innerHTML = [...new Set(seen.filter(Boolean))].slice(0, 12).map(p => `<option value="${esc(p)}"></option>`).join("");
+}
+
+async function startAgent() {
+  const f = AG.form;
+  if (AG.busy || S.view !== "agentnew") return;
+  if (!f.prompt.trim()) { AG.error = "prompt"; drawAgentNew(); return $("#agprompt")?.focus(); }
+  AG.busy = true;
+  AG.error = "";
+  drawAgentNew();
+  try {
+    const started = await invoke("agent_start", {
+      machineId: f.machine === "auto" ? null : f.machine,
+      agent: f.agent,
+      cwd: f.cwd.trim() || null,
+      prompt: f.prompt.trim(),
+      chat: f.chat,
+    });
+    AG.busy = false;
+    if (S.view !== "agentnew") return;
+    // Back from the session goes where the form came from.
+    openAgent(started.session, { why: started.why, back: AG.back });
+  } catch (e) {
+    AG.busy = false;
+    AG.error = String(e).replace(/^bad request: /, "");
+    if (S.view === "agentnew") drawAgentNew();
+  }
+}
+
+// ----- One session -----
+
+/// Opens session `s` (a session row) and follows it while it is on screen.
+function openAgent(s, { why = "", back: from } = {}) {
+  if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
+  S.view = "agent";
+  AG.open = { machine_id: s.machine_id, agent: s.agent, session: s.id };
+  AG.page = { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
+  AG.why = why;
+  AG.back = from;
+  AG.note = "";
+  drawAgentFrame();
+  pollAgent();
+}
+
+const isOpen = o => S.view === "agent" && AG.open && o === AG.open;
+
+/// Asks for the open session, then again after `AGENT_POLL_MS` while it
+/// stays on screen. Never two calls at once.
+async function pollAgent() {
+  clearTimeout(AG.timer);
+  const o = AG.open;
+  if (!isOpen(o) || AG.inflight) return;
+  if (document.visibilityState === "visible") {
+    AG.inflight = true;
+    try {
+      const page = await invoke("agent_view", { machineId: o.machine_id, agent: o.agent, session: o.session, last: AGENT_LAST });
+      if (isOpen(o)) { AG.page = page; AG.note = AG.note === "gone" ? "" : AG.note; drawAgentBody(); }
+    } catch (e) {
+      if (isOpen(o)) { AG.note = /not found/i.test(String(e)) ? "gone" : String(e); drawAgentBody(); }
+    } finally {
+      AG.inflight = false;
+    }
+  }
+  if (isOpen(o) && AG.page?.session.status !== "ended") AG.timer = setTimeout(pollAgent, AGENT_POLL_MS);
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.view === "agent") pollAgent(); });
+
+function agentHints() {
+  const s = AG.page?.session, q = s?.question;
+  if (q) return hints([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
+  if (s?.external || s?.status === "ended") return hints([["esc", "back"]]);
+  return hints([[ICON.ret, "send"], ["⌘.", "stop the turn"], ["esc", "back"]]);
+}
+
+/// The parts that stay while the session updates: the head, the body and the field.
+function drawAgentFrame() {
+  const s = AG.page.session, k = agentKind(s.agent);
+  const field = s.external
+    ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
+    : `<div class="dinput small" id="agfield"><input id="agmsg" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"><button class="dbtn" id="agstop" aria-label="Stop the turn"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop<kbd>⌘.</kbd></button><button class="dbtn quiet" id="agclose">Close session</button></div>`;
+  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)">${esc(s.cwd)}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
+    <div class="dbody" id="agbody" style="padding-top:10px"></div>${field}${agentHints()}`;
+  const b = $("#agbody");
+  b.stuck = true;
+  b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; };
+  drawAgentBody();
+  $("#agmsg")?.focus();
+  bar.onclick = e => {
+    if (S.view !== "agent") return;
+    const opt = e.target.closest("[data-agopt]");
+    if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
+    if (e.target.closest("#agstop")) return steerAgent({ cancel: null });
+    if (e.target.closest("#agclose")) return steerAgent({ close: null });
+  };
+}
+
+function entryRow(en) {
+  const text = esc(en.text);
+  if (en.kind === "user") return `<div class="dcoderen user"><b>You</b><span>${text}</span></div>`;
+  if (en.kind === "agent") return `<div class="dcoderen agent">${text}</div>`;
+  if (en.kind === "tool") return `<div class="dcoderen tool">${text}</div>`;
+  return `<div class="dcoderen other">${text}</div>`;
+}
+
+function drawAgentBody() {
+  const b = $("#agbody"), p = AG.page;
+  if (!b || !p) return;
+  const s = p.session, q = s.question;
+  const st = $("#agstate");
+  if (st) st.innerHTML = stateTag(s.status);
+  const mark = x => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
+  const doing = s.doing && s.status !== "ended" ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${esc(s.doing)}</div>` : "";
+  const question = q ? `<div class="q"><b style="font-weight:600">${esc(q.text)}</b>${q.detail ? `<code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(q.detail)}</code>` : ""}
+      <div class="dups">${q.options.map((o, i) => `<button class="dbtn${o.allow && i === q.options.findIndex(x => x.allow) ? " pri" : !o.allow && i === q.options.findIndex(x => !x.allow) ? " warn" : ""}" data-agopt="${i}">${esc(o.name)}${o.allow && i === q.options.findIndex(x => x.allow) ? `<kbd>⌘${ICON.ret}</kbd>` : !o.allow && i === q.options.findIndex(x => !x.allow) ? "<kbd>⌘D</kbd>" : ""}</button>`).join("")}</div></div>` : "";
+  const plan = p.plan.length ? `<div class="sec">Plan</div><div class="plan">${p.plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
+  const files = p.files.length ? `<div class="sec">Files changed</div><div class="files">${p.files.slice(-12).map(f => `<span><b>${esc(f)}</b></span>`).join("")}${p.files.length > 12 ? `<span style="color:var(--muted)">and ${p.files.length - 12} more</span>` : ""}</div>` : "";
+  const queued = p.queued ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${p.queued === 1 ? "1 message waits" : `${p.queued} messages wait`} for the turn to end</div>` : "";
+  const card = doing || question || plan || files || queued
+    ? `<div class="dcard dcoder">${doing}${question}${plan}${files}${queued}<div style="height:12px"></div></div>` : "";
+  const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
+  const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
+  const entries = p.entries.length ? `<div class="dcoderlog">${earlier}${p.entries.map(entryRow).join("")}</div>`
+    : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
+  const err = p.error ? `<div class="derr">${esc(p.error)}</div>` : "";
+  const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
+    : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
+  b.innerHTML = why + card + entries + err + note;
+  const hint = bar.querySelector(":scope > .dhints");
+  if (hint) hint.replaceWith(h(agentHints()));
+  const field = $("#agfield");
+  if (field) field.style.display = s.status === "ended" ? "none" : "";
+  if (b.stuck !== false) b.scrollTop = b.scrollHeight;
+}
+
+async function answerAgentQuestion(i) {
+  const o = AG.open, q = AG.page?.session.question, opt = q?.options[i];
+  if (!opt) return;
+  AG.page.session.question = null;
+  AG.page.session.status = "working";
+  drawAgentBody();
+  try {
+    await invoke("center_answer_agent", { machineId: o.machine_id, agent: o.agent, session: o.session, question: q.id, reply: opt.id });
+  } catch (e) {
+    if (isOpen(o)) { AG.note = /^conflict/i.test(String(e)) ? "" : String(e); drawAgentBody(); }
+  }
+  if (isOpen(o)) pollAgent();
+}
+/// The first option of the open question that allows, or that does not.
+function answerFirst(allow) {
+  const q = AG.page?.session.question;
+  const i = q ? q.options.findIndex(o => o.allow === allow) : -1;
+  if (i >= 0) answerAgentQuestion(i);
+  return i >= 0;
+}
+
+async function steerAgent(steer) {
+  const o = AG.open;
+  if (!o || AG.page?.session.external) return;
+  try {
+    await invoke("agent_steer", { machineId: o.machine_id, agent: o.agent, session: o.session, steer: "prompt" in steer ? steer : Object.keys(steer)[0] });
+    AG.note = "";
+  } catch (e) {
+    AG.note = String(e).replace(/^bad request: /, "");
+  }
+  if (isOpen(o)) { drawAgentBody(); pollAgent(); }
+}
+
+function sendAgentMessage() {
+  const input = $("#agmsg"), text = input?.value.trim();
+  if (!text) return;
+  input.value = "";
+  AG.page.entries.push({ kind: "user", text });
+  drawAgentBody();
+  steerAgent({ prompt: { text } });
+}
+
+// ----- Every session -----
+
+async function renderAgents() {
+  S.view = "agents";
+  AG.sel = 0;
+  drawAgents(true);
+  try {
+    AG.sessions = await invoke("agent_sessions");
+    AG.error = "";
+  } catch (e) {
+    AG.error = String(e);
+  }
+  if (S.view === "agents") drawAgents(false);
+}
+
+function drawAgents(loading) {
+  const list = AG.sessions;
+  const machines = new Set(list.map(s => s.machine_id)).size;
+  const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
+  const row = (s, i) => {
+    const k = agentKind(s.agent), where = folderName(s.cwd);
+    const tail = s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
+      : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run"><span class="dspin"></span>${esc(s.doing || "Working")}</span>`
+      : `<span class="w">${s.external ? "In terminal" : esc(cap(s.status))}</span>`;
+    return `<button class="dchat" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">${agentAvatar(s.agent)}
+      <span class="t"><span>${esc(s.title || where || k.name)}</span><small>${esc(`${where ? where + ", " : ""}${k.name} on ${s.machine_name}`)}</small></span>${tail}</button>`;
+  };
+  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
+    ${AG.error ? `<div class="derr" style="padding:8px 18px 0">${esc(AG.error)}</div>` : ""}
+    ${list.length ? `<div class="dlist" role="listbox" style="padding-top:6px">${list.map(row).join("")}</div>`
+      : loading ? "" : `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${AGENT_ICON}</span><b style="font-size:14px">No sessions running.</b>
+        <span class="dmuted" style="display:block">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>`}
+    ${hints([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]])}`;
+  bar.onclick = e => {
+    if (S.view !== "agents") return;
+    const r = e.target.closest("[data-agi]");
+    if (r) return openAgent(AG.sessions[Number(r.dataset.agi)], { back: "agents" });
+    if (e.target.closest("#agNew")) renderAgentNew("", "agents");
+  };
+}
+
+/// Keys of the agent views; true when one was taken.
+function agentKeys(e, cmd) {
+  if (S.view === "agentnew") {
+    if (cmd && e.key === "Enter") { e.preventDefault(); startAgent(); return true; }
+    return false;
+  }
+  if (S.view === "agent") {
+    if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
+    if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
+    if (cmd && e.key === ".") { e.preventDefault(); steerAgent({ cancel: null }); return true; }
+    if (e.key === "Enter" && !e.isComposing && e.target.id === "agmsg") { e.preventDefault(); sendAgentMessage(); return true; }
+    return false;
+  }
+  if (S.view === "agents") {
+    const n = AG.sessions.length;
+    if (!n) return false;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      AG.sel = (AG.sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+      drawAgents(false);
+      return true;
+    }
+    if (e.key === "Enter") { e.preventDefault(); openAgent(AG.sessions[AG.sel], { back: "agents" }); return true; }
+  }
+  return false;
+}
+
+/// Esc from an agent view.
+function agentBack() {
+  if (S.view === "agent" && AG.back === "agents") return renderAgents();
+  if (S.view === "agentnew" && AG.back === "agents") return renderAgents();
+  return S.session ? openSession(S.session) : renderChat();
+}
+
 // ---------- State ----------
 
 async function refreshStatus() {
@@ -4218,7 +4601,7 @@ async function show(view) {
   const st = await refreshStatus();
   loadResearches();
   loadLiveChats();
-  if (S.link === "linked") loadModels();
+  if (S.link === "linked") { loadModels(); loadAgentHosts(); }
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
   if (S.link === "unlinked" || view === "link") return S.link === "linked" ? renderChat() : renderLink();
@@ -4861,6 +5244,7 @@ function skillKeys(e, cmd) {
 // ---------- Keys ----------
 
 function back() {
+  if (S.view === "agent" || S.view === "agentnew" || S.view === "agents") return agentBack();
   if (S.view === "chats") {
     if (S.chats.mode !== "list") return chatMode("list");
     if (S.chats.back) return renderGroup(S.chats.back);
@@ -4984,7 +5368,12 @@ document.addEventListener("keydown", e => {
     return back();
   }
   if (S.view === "link" || S.view === "revoked") return;
+  if (agentKeys(e, cmd)) return;
   const key = e.key.toLowerCase();
+  if (cmd && e.shiftKey && key === "a" && S.link === "linked") {
+    e.preventDefault();
+    return renderAgentNew(S.view === "chat" ? $("#ask")?.value.trim() ?? "" : "", S.view === "agents" ? "agents" : "chat");
+  }
   // These views live in the window now; before linking the bar keeps them.
   const linked = S.link === "linked";
   if (cmd && e.key === ",") { e.preventDefault(); return linked ? toWindow("settings") : renderSettings(); }
@@ -5100,7 +5489,7 @@ if (PANE) {
     const st = await invoke("status");
     S.link = st.link;
     const researches = loadResearches();
-    if (S.link === "linked") loadModels();
+    if (S.link === "linked") { loadModels(); loadAgentHosts(); }
     await researches;
   }
   /// Back on the chat or group the pane still shows, made current again
@@ -5130,6 +5519,10 @@ if (PANE) {
       }
       // Groups are not a CenterTarget: only the window's sidebar opens them.
       if (target && typeof target === "object" && "group" in target) return renderGroup(target.group.id);
+      // Agent views are not a CenterTarget either: Home and the sidebar open them.
+      if (target && typeof target === "object" && "agent" in target) return openAgent(target.agent, { back: "agents" });
+      if (target && typeof target === "object" && "agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", "agents");
+      if (target === "agents") return renderAgents();
       if (VIEWS[target]) return VIEWS[target]();
       if ((S.view === "chat" && $("#ask")) || (S.view === "group" && G.id)) return backOn();
       return S.session ? openSession(S.session) : renderChat();

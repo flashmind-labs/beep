@@ -24,18 +24,18 @@ use std::{
 use tokio::time::timeout;
 
 /// How long one request to a node may take.
-const NODE_LIMIT: Duration = Duration::from_secs(3);
+pub(super) const NODE_LIMIT: Duration = Duration::from_secs(3);
 /// Nodes asked at once.
-const IN_FLIGHT: usize = 4;
+pub(super) const IN_FLIGHT: usize = 4;
 /// The agents whose outside sessions are listed, and how many of each.
 const EXTERNAL_AGENTS: [&str; 2] = ["claude", "codex"];
 const EXTERNAL_LIMIT: u32 = 20;
 
 /// The machine a session runs on.
 #[derive(Clone)]
-struct Host {
-    id: String,
-    name: String,
+pub(super) struct Host {
+    pub(super) id: String,
+    pub(super) name: String,
 }
 
 /// Admins only, like nodes themselves. A machine whose key was unlinked
@@ -117,7 +117,7 @@ pub(super) async fn answer_agent_question(cx: Cx, answer: AnswerAgentQuestion) -
     Ok(())
 }
 
-async fn linked_keys(cx: &Cx) -> Result<HashSet<String>, ApiError> {
+pub(super) async fn linked_keys(cx: &Cx) -> Result<HashSet<String>, ApiError> {
     Ok(cx
         .user
         .account_keys()
@@ -128,7 +128,7 @@ async fn linked_keys(cx: &Cx) -> Result<HashSet<String>, ApiError> {
 }
 
 /// `call`, given up after `NODE_LIMIT`.
-async fn limited<T>(call: impl Future<Output = Result<T>>) -> Result<T> {
+pub(super) async fn limited<T>(call: impl Future<Output = Result<T>>) -> Result<T> {
     timeout(NODE_LIMIT, call)
         .await
         .context("the node did not answer in time")?
@@ -178,7 +178,7 @@ async fn external_sessions(online: &Online, agent: &str) -> Vec<ExternalSession>
 
 /// A session Beep started. Its `last_activity` is when it started: the
 /// node reports no later time for it.
-fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
+pub(super) fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
     let started_at = unix(info.started_at);
     MachineSession {
         machine_id: host.id.clone(),
@@ -196,7 +196,7 @@ fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
     }
 }
 
-fn external_session(host: &Host, session: ExternalSession) -> MachineSession {
+pub(super) fn external_session(host: &Host, session: ExternalSession) -> MachineSession {
     MachineSession {
         machine_id: host.id.clone(),
         machine_name: host.name.clone(),
