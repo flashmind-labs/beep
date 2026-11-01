@@ -33,6 +33,9 @@ test("each Forgejo server is its own row, with an add button", () => {
   assert.match(html, /data-cred-edit="api:elevenlabs">Add key/);
   assert.match(html, /ELEVENLABS_API_KEY/);
   assert.doesNotMatch(html, /undefined/);
+  // API keys go to commands and terminals, never to agents.
+  assert.match(html, /Agents do not get API keys/);
+  assert.doesNotMatch(html, /run agents/);
 });
 
 test("a credential the server cannot open asks to be entered again", () => {
