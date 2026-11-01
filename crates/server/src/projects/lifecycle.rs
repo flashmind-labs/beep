@@ -755,6 +755,23 @@ pub(crate) async fn idle_close(
         fleet.projects().arm(Due::Idle(worker.id), due);
         return Ok(());
     }
+    // A turn steered outside project_worker leaves the worker waiting while
+    // its session works: the session says whether it is idle.
+    match fleet.session_info(&worker).await {
+        Ok(info)
+            if matches!(
+                info.state.status,
+                Status::Starting | Status::Working | Status::Asking
+            ) =>
+        {
+            fleet
+                .projects()
+                .arm(Due::Idle(worker.id), after(now, IDLE_CLOSE));
+            return Ok(());
+        }
+        Ok(_) => {}
+        Err(error) => log::info!("projects: closing an idle worker unseen: {error:#}"),
+    }
     close(fleet, user, &worker).await?;
     block(fleet, user, &project, &task).await?;
     let stays = if task.state == TaskState::Running {

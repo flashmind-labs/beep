@@ -85,6 +85,9 @@ pub(crate) trait Fleet: Send + Sync {
         question: Question,
     ) -> Result<()>;
 
+    /// Where the worker's session stands now, following it if nothing does.
+    async fn session_info(&self, worker: &WorkerRow) -> Result<SessionInfo>;
+
     /// Follows the worker's session again, reporting to `chat`, and says
     /// where it stands. Fails when the machine no longer has it.
     async fn attach(&self, worker: &WorkerRow, chat: Uuid) -> Result<SessionInfo>;
@@ -229,6 +232,12 @@ impl Fleet for NodeFleet {
         });
         self.app.nodes.deliveries.ask(&self.app, ask);
         Ok(())
+    }
+
+    async fn session_info(&self, worker: &WorkerRow) -> Result<SessionInfo> {
+        let (online, session) = self.session_of(worker)?;
+        let link = online.agent_session(worker.agent.into(), session).await?;
+        Ok(link.now().info)
     }
 
     async fn attach(&self, worker: &WorkerRow, chat: Uuid) -> Result<SessionInfo> {
