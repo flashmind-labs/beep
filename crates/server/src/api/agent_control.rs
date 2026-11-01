@@ -456,15 +456,11 @@ fn entry(entry: agent::Entry) -> AgentEntry {
 /// Admins only. Only sessions Beep runs take orders; one started outside
 /// Beep is not found.
 pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Reply<()> {
+    // Refused before the machine is looked up, so an oversized message
+    // costs nothing more.
+    let request = node_request(steer.steer)?;
+    let images = matches!(request, Request::PromptImages { .. });
     let live = live_host(&cx, &steer.machine_id).await?;
-    let request = match steer.steer {
-        AgentSteer::Prompt { text } if text.trim().is_empty() => {
-            return Err(ApiError::bad_request("The message is empty."));
-        }
-        AgentSteer::Prompt { text } => Request::Prompt { text },
-        AgentSteer::Cancel {} => Request::Cancel {},
-        AgentSteer::Close {} => Request::Close {},
-    };
     let listed = limited(live.online.agent_sessions()).await?;
     if !listed
         .iter()
@@ -477,15 +473,108 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
         .agent_session(&steer.agent, &steer.session)
         .await
         .map_err(|e| ApiError::bad_request(format!("Could not reach the session: {e:#}")))?;
-    link.send(request)
-        .await
-        .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    link.send(request).await.map_err(|e| {
+        let error = format!("{e:#}");
+        // A node from before images does not know the request.
+        if images && error.contains("unknown request") {
+            ApiError::bad_request(
+                "beep-node on that machine is too old to send images. Update it, or send text.",
+            )
+        } else {
+            ApiError::bad_request(error)
+        }
+    })?;
     Ok(())
+}
+
+/// What the node is asked for `steer`; an empty message or images over the
+/// limits are refused.
+fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
+    Ok(match steer {
+        AgentSteer::Prompt { text } if text.trim().is_empty() => {
+            return Err(ApiError::bad_request("The message is empty."));
+        }
+        AgentSteer::Prompt { text } => Request::Prompt { text },
+        AgentSteer::PromptImages { text, images } if images.is_empty() => {
+            return node_request(AgentSteer::Prompt { text });
+        }
+        AgentSteer::PromptImages { text, images } => {
+            check_agent_images(&images)?;
+            Request::PromptImages { text, images }
+        }
+        AgentSteer::Cancel {} => Request::Cancel {},
+        AgentSteer::Close {} => Request::Close {},
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn png(name: &str, size: usize) -> Upload {
+        let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+        data.resize(size, 0);
+        Upload {
+            name: name.into(),
+            mime: "image/png".into(),
+            data,
+        }
+    }
+
+    fn steer_images(images: Vec<Upload>) -> Result<Request, ApiError> {
+        node_request(AgentSteer::PromptImages {
+            text: "Look at this".into(),
+            images,
+        })
+    }
+
+    #[test]
+    fn images_within_the_limits_go_to_the_node() {
+        let five = (0..MAX_AGENT_IMAGES)
+            .map(|i| png(&format!("{i}.png"), 1024))
+            .collect();
+        let Ok(Request::PromptImages { text, images }) = steer_images(five) else {
+            panic!("five small images go");
+        };
+        assert_eq!(text, "Look at this");
+        assert_eq!(images.len(), MAX_AGENT_IMAGES);
+        assert_eq!(
+            steer_images(vec![png("max.png", MAX_AGENT_IMAGE)]).map(|_| ()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn too_many_images_are_refused() {
+        let six = (0..=MAX_AGENT_IMAGES)
+            .map(|i| png(&format!("{i}.png"), 1024))
+            .collect();
+        let error = steer_images(six).unwrap_err().to_string();
+        assert!(error.contains("At most 5 images"), "{error}");
+    }
+
+    #[test]
+    fn an_image_over_the_size_limit_is_refused() {
+        let error = steer_images(vec![png("huge.png", MAX_AGENT_IMAGE + 1)])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("huge.png is over 5 MB"), "{error}");
+    }
+
+    #[test]
+    fn a_message_without_images_goes_as_text() {
+        assert_eq!(
+            steer_images(Vec::new()),
+            Ok(Request::Prompt {
+                text: "Look at this".into()
+            })
+        );
+        let empty = node_request(AgentSteer::PromptImages {
+            text: " ".into(),
+            images: Vec::new(),
+        });
+        assert!(empty.is_err(), "nothing to send");
+    }
 
     #[test]
     fn folder_tests_quote_the_path_and_keep_home() {

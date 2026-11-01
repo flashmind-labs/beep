@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use beep_server::{
     app::{App, ServerTools, UserNotice},
-    events::{self, Accepted, Limits, Settings, Topic, Urgency, Verdict, normalize},
+    events::{self, Accepted, EventApp, Limits, Settings, Topic, Urgency, Verdict, normalize},
     models::ModelChoices,
     store::{EventState, TestDb},
     subagents::Pool,
@@ -375,6 +375,10 @@ async fn an_ignore_is_logged_and_a_later_waits_for_the_next_wake() {
             .len(),
         1
     );
+    // The apps list it on its own, with the app it came from.
+    let waiting = events::waiting_updates(alice).await.unwrap();
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0].app, Some(EventApp::Gmail));
 
     // The next inform now carries it along.
     let review = normalize::from_github_notification(&github_notification(

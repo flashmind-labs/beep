@@ -25,6 +25,7 @@ mod session;
 
 pub(crate) use live::cut;
 
+use acp::Prompt;
 use session::{Command, Session, Start};
 
 /// The most sessions running at once.
@@ -194,7 +195,7 @@ impl Agents {
         {
             if let Some(text) = prompt {
                 session
-                    .order(Command::Prompt(text))
+                    .order(Command::Prompt(text.into()))
                     .await
                     .map_err(anyhow::Error::msg)?;
             }
@@ -406,7 +407,16 @@ pub async fn serve_session(
         tokio::select! {
             request = rx.recv::<Request>() => {
                 let command = match request {
-                    Ok(Some(Request::Prompt { text })) => Command::Prompt(text),
+                    Ok(Some(Request::Prompt { text })) => Command::Prompt(text.into()),
+                    Ok(Some(Request::PromptImages { text, images })) => {
+                        match Prompt::with_images(text, images) {
+                            Ok(prompt) => Command::Prompt(prompt),
+                            Err(error) => {
+                                tx.send(&Event::Ack { error: Some(error) }).await?;
+                                continue;
+                            }
+                        }
+                    }
                     Ok(Some(Request::Answer { question, reply })) => Command::Answer { question, reply },
                     Ok(Some(Request::Cancel {})) => Command::Cancel,
                     Ok(Some(Request::Close {})) => Command::Close,
