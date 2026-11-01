@@ -13,6 +13,7 @@ use super::{
     disk::{self, Found as OnDisk, same},
     map::{Changes, Entry, FileMeta, Map, Replica, Version, is_conflict, valid_path},
     peer,
+    root::{self, RootId},
     rules::Rules,
     scan::{self, Found, MAX_BYTES, MAX_FILES, Stat},
     watch::{Key, Mode, RESCAN, Watcher},
@@ -77,6 +78,9 @@ struct Saved {
     seen: BTreeMap<String, Seen>,
     /// By peer key.
     cursors: BTreeMap<String, Cursor>,
+    /// The folder it belongs to.
+    #[serde(default)]
+    root: Option<RootId>,
 }
 
 struct State {
@@ -344,6 +348,8 @@ struct Task {
     error: Option<String>,
     /// The last scan failed, so nothing on disk is recorded.
     scan_failed: bool,
+    /// The folder is not the one synced before, so nothing is written.
+    root_failed: bool,
 }
 
 /// Runs the project until it stops.
@@ -364,6 +370,7 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
         pending: 0,
         error: None,
         scan_failed: false,
+        root_failed: false,
     };
     let mut peers = shared.peers.subscribe();
     let mut pulls = JoinSet::new();
@@ -454,6 +461,7 @@ impl Task {
     }
 
     async fn try_scan(&mut self) -> Result<()> {
+        self.check_root().await?;
         let root = self.shared.root().to_owned();
         let rules = {
             let root = root.clone();
@@ -558,8 +566,31 @@ impl Task {
         Ok(())
     }
 
+    /// Checks the folder is the one synced before; until it is, nothing
+    /// is scanned or written.
+    async fn check_root(&mut self) -> Result<()> {
+        let (saved, seen_any) = {
+            let state = self.shared.lock();
+            (state.saved.root.clone(), !state.saved.seen.is_empty())
+        };
+        let folder = self.shared.root.clone();
+        let checked =
+            spawn_blocking(move || root::check(&folder, saved.as_ref(), seen_any)).await?;
+        self.root_failed = checked.is_err();
+        let id = checked?;
+        let mut state = self.shared.lock();
+        if state.saved.root.as_ref() != Some(&id) {
+            state.saved.root = Some(id);
+            state.unsaved = true;
+        }
+        Ok(())
+    }
+
     /// Brings the folder in line with the list.
     async fn apply(&mut self) {
+        if self.root_failed {
+            return;
+        }
         let work = {
             let state = self.shared.lock();
             let rules = self
