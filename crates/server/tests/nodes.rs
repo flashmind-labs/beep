@@ -1822,7 +1822,10 @@ async fn a_machine_sets_itself_up_with_a_token_once() {
         .user
         .id()
         .to_owned();
-    assert_eq!(claimed.account, alice_id, "test accounts are named by id");
+    assert_eq!(
+        claimed.account,
+        beep_server::protocol::names::username(&server.alice.public())
+    );
     let user = server
         .app
         .sign_in_linked(&key.public())
