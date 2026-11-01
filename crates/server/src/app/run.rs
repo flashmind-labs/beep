@@ -346,13 +346,19 @@ impl App {
             None => tools,
         };
         tools.push(send_file);
-        // A setup token grants access to the account, so it asks first too.
+        // A setup token grants access to the account, and an import clones
+        // with the user's tokens, so both ask first too.
         if use_machines {
+            let machines = tools::machines::Machines {
+                app: self.clone(),
+                user: user.clone(),
+            };
             tools.push(Arc::new(tools::machines::add::AddMachineTool {
-                machines: tools::machines::Machines {
-                    app: self.clone(),
-                    user: user.clone(),
-                },
+                machines: machines.clone(),
+            }));
+            // Cloning writes to a machine with the user's tokens.
+            tools.push(Arc::new(tools::machines::import::ImportProjectTool {
+                machines,
             }));
         }
         // Grants are asked for where routines are set up. A routine's own
