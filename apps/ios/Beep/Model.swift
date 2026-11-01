@@ -312,6 +312,7 @@ final class AppModel {
         if !chat.busy { await refreshOpenChat() }
         await refreshQuestions(chat.id)
         await loadStarters(refresh: false)
+        await loadUpdates()
         models = try? await client?.getModels()
         await reportTimezone()
         await registerPush()
@@ -741,8 +742,15 @@ final class AppModel {
 
     // MARK: Updates
 
-    /// A server from before updates answers with an error, which leaves none.
+    /// True while a list of updates is on its way, so a second one waits for the next chance.
+    @ObservationIgnored private var loadingUpdates = false
+
+    /// A server from before updates answers with an error, which leaves none. Before the client
+    /// connects this does nothing; connecting loads them.
     func loadUpdates() async {
+        guard !loadingUpdates else { return }
+        loadingUpdates = true
+        defer { loadingUpdates = false }
         guard let fresh = try? await api().listUpdates() else { return }
         updates = fresh
     }
