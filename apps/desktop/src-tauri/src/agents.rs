@@ -5,11 +5,13 @@
 
 use crate::{
     beep::{Beep, epoch_ms},
-    error::Result,
+    error::{DesktopError, Result},
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AgentEntry, AgentHost, AgentQuestion, AgentSessionView, AgentSteer, GetAgentSession,
+    AgentEntry, AgentHost, AgentQuestion, AgentSessionView, AgentSteer, ApiError, GetAgentSession,
     ListAgentHosts, ListAgentSessions, MachineSession, StartAgentSession, SteerAgentSession,
+    Upload, check_agent_images,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -151,19 +153,59 @@ pub struct Started {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Steer {
-    Prompt { text: String },
+    Prompt {
+        text: String,
+        /// Pasted or dropped images, sent after the text.
+        #[serde(default)]
+        images: Vec<PastedImage>,
+    },
     Cancel,
     Close,
 }
 
-impl From<Steer> for AgentSteer {
-    fn from(steer: Steer) -> Self {
-        match steer {
-            Steer::Prompt { text } => Self::Prompt { text },
+/// An image as the page sends it: its bytes in base64.
+#[derive(Debug, Deserialize)]
+pub struct PastedImage {
+    name: String,
+    mime: String,
+    data: String,
+}
+
+impl TryFrom<Steer> for AgentSteer {
+    type Error = DesktopError;
+
+    /// Images go as `PromptImages`, checked against its limits here first;
+    /// a message without them goes as `Prompt`, which every server reads.
+    fn try_from(steer: Steer) -> Result<Self> {
+        Ok(match steer {
+            Steer::Prompt { text, images } if images.is_empty() => Self::Prompt { text },
+            Steer::Prompt { text, images } => {
+                let images = images
+                    .into_iter()
+                    .map(|image| -> Result<Upload> {
+                        let data = STANDARD.decode(&image.data).map_err(|_| {
+                            DesktopError::BadRequest(format!("{} could not be read", image.name))
+                        })?;
+                        Ok(Upload {
+                            name: image.name,
+                            mime: image.mime,
+                            data,
+                        })
+                    })
+                    .collect::<Result<Vec<Upload>>>()?;
+                check_agent_images(&images)?;
+                Self::PromptImages { text, images }
+            }
             Steer::Cancel => Self::Cancel {},
             Steer::Close => Self::Close {},
-        }
+        })
     }
+}
+
+/// True when the server did not know `PromptImages`: one from before it
+/// reads op 3 of `AgentSteer` as unknown.
+fn older_than_images(error: &DesktopError) -> bool {
+    matches!(error, DesktopError::Api(ApiError::BadRequest { message }) if message.contains("unknown op 3"))
 }
 
 #[tauri::command]
@@ -232,11 +274,72 @@ pub async fn agent_steer(
     session: String,
     steer: Steer,
 ) -> Result<()> {
-    beep.call(SteerAgentSession {
-        machine_id,
-        agent,
-        session,
-        steer: steer.into(),
-    })
-    .await
+    let steer = AgentSteer::try_from(steer)?;
+    let images = matches!(steer, AgentSteer::PromptImages { .. });
+    let sent = beep
+        .call(SteerAgentSession {
+            machine_id,
+            agent,
+            session,
+            steer,
+        })
+        .await;
+    match sent {
+        Err(e) if images && older_than_images(&e) => Err(DesktopError::BadRequest(
+            "This Beep server does not take images yet. Send the message without them.".into(),
+        )),
+        other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pasted(data: &[u8]) -> PastedImage {
+        PastedImage {
+            name: "shot.png".into(),
+            mime: "image/png".into(),
+            data: STANDARD.encode(data),
+        }
+    }
+
+    #[test]
+    fn a_message_without_images_goes_as_text() {
+        let steer = Steer::Prompt {
+            text: "hi".into(),
+            images: Vec::new(),
+        };
+        assert_eq!(
+            AgentSteer::try_from(steer).unwrap(),
+            AgentSteer::Prompt { text: "hi".into() }
+        );
+    }
+
+    #[test]
+    fn images_go_as_prompt_images_within_the_limits() {
+        let png = b"\x89PNG\r\n\x1a\n".to_vec();
+        let steer = Steer::Prompt {
+            text: "look".into(),
+            images: vec![pasted(&png)],
+        };
+        let AgentSteer::PromptImages { images, .. } = AgentSteer::try_from(steer).unwrap() else {
+            panic!("an image goes as PromptImages");
+        };
+        assert_eq!(images[0].data, png);
+        let six = Steer::Prompt {
+            text: "look".into(),
+            images: (0..6).map(|_| pasted(&png)).collect(),
+        };
+        assert!(AgentSteer::try_from(six).is_err());
+    }
+
+    #[test]
+    fn an_old_server_is_told_apart() {
+        let old = DesktopError::Api(ApiError::bad_request("unknown op 3"));
+        assert!(older_than_images(&old));
+        assert!(!older_than_images(&DesktopError::Api(
+            ApiError::bad_request("The message is empty.")
+        )));
+    }
 }
