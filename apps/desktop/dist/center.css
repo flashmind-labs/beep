@@ -1,6 +1,6 @@
 /* The command center window, as in the desktop mock. */
 html, body.cbody { background: var(--ink) }
-.cwin { height: 100vh; display: grid; grid-template-columns: 184px minmax(0, 1fr);
+.cwin { --side-w: 184px; position: relative; height: 100vh; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr);
   background: radial-gradient(90% 70% at 0% 110%, #183F31 0%, transparent 55%), linear-gradient(165deg, #121C18, var(--ink)) }
 /* The traffic lights sit over the top of the sidebar; both bars drag the window. */
 .cc-head { height: 38px; flex: none }
@@ -164,3 +164,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-skel { height: 10px; margin: 8px 10px; border-radius: 5px; background: var(--elev); animation: ccskel 1.4s ease-in-out infinite }
 @keyframes ccskel { 50% { opacity: .45 } }
 @media (prefers-reduced-motion: reduce) { .cc-pulse i, .cc-skel { animation: none } }
+
+/* The sidebar's right edge: drag it, or focus it and use the arrow keys. */
+.cc-grip { position: absolute; top: 0; bottom: 0; left: calc(var(--side-w) - 3px); width: 6px; z-index: 5; cursor: col-resize; outline: 0 }
+.cc-grip::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background .12s }
+.cc-grip:hover::after, .cc-grip:focus-visible::after, .cwin.resizing .cc-grip::after { background: var(--emerald) }
+.cwin.resizing { cursor: col-resize; user-select: none }
