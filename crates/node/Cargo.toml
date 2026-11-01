@@ -19,6 +19,7 @@ required-features = ["cli"]
 agent-client-protocol = "3.6"
 anyhow = "1"
 bao-tree = "0.17"
+base64 = "0.22"
 beep-proto = { path = "../proto" }
 blake3 = "1"
 clap = { version = "4", features = ["derive", "env"], optional = true }

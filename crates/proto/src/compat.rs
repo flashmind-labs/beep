@@ -86,6 +86,7 @@ sample_struct! {
     ApprovalField { label, value }
     PendingApproval { run_id, query_id, approval }
     ChatApproval { session_id, session_title, pending }
+    AppUpdate { id, summary, app, app_name, at }
     Models { choices, selected, thinking, auto, auto_available }
     AutoPick { model, thinking }
     Agents { enabled, agents }

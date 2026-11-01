@@ -4,7 +4,7 @@
 
 use super::{
     Reply,
-    agent_auto::{self, Candidate},
+    agent_auto::{self, Candidate, Wants},
     agent_sessions::{
         Host, IN_FLIGHT, NODE_LIMIT, beep_session, external_session, limited, linked_keys,
     },
@@ -203,13 +203,17 @@ async fn auto(
         text.push('\n');
         text.push_str(cwd);
     }
-    let needs = agent_auto::with(start.needs.clone(), agent_auto::called_for(&text));
+    let hints: Vec<MachineCapability> = agent_auto::called_for(&text)
+        .into_iter()
+        .filter(|hint| !start.needs.contains(hint))
+        .collect();
     let offers = |live: &Live| {
         start
             .agent
             .as_deref()
             .is_none_or(|agent| live.offers(agent))
     };
+    let folder = start.cwd.as_deref().filter(|cwd| !cwd.trim().is_empty());
     let mut candidates: Vec<Candidate<'_>> = hosts
         .iter()
         .map(|live| Candidate {
@@ -217,14 +221,45 @@ async fn auto(
             offers: offers(live),
             capabilities: &live.host.capabilities,
             workspace: live.online.workspace.is_some(),
+            has_folder: true,
             running: 0,
         })
         .collect();
-    let fit = agent_auto::fitting(&candidates, &needs);
-    if agent_auto::needs_load(&candidates, &fit) {
-        // The futures are made up front: a closure inside the stream would
-        // keep the reply future from being `Send`.
-        let asks: Vec<_> = fit
+    if let Some(folder) = folder {
+        // Only machines that could run it are asked; the futures are made
+        // up front, since a closure inside the stream would keep the reply
+        // future from being `Send`.
+        let asks: Vec<_> = (0..hosts.len())
+            .filter(|&at| candidates[at].offers && candidates[at].has(&start.needs))
+            .map(|at| {
+                probed(
+                    at,
+                    hosts[at].online.clone(),
+                    hosts[at].host.home.clone(),
+                    folder,
+                )
+            })
+            .collect();
+        let found: Vec<(usize, bool)> = stream::iter(asks)
+            .buffer_unordered(IN_FLIGHT)
+            .collect()
+            .await;
+        for (at, there) in found {
+            candidates[at].has_folder = there;
+        }
+    }
+    let agent = start.agent.as_deref().map_or("a coding agent", agent_name);
+    let wants = Wants {
+        agent,
+        needs: &start.needs,
+        hints: &hints,
+        folder,
+    };
+    let pool =
+        agent_auto::pool(&candidates, &wants).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    if agent_auto::needs_load(&candidates, &pool) {
+        let asks: Vec<_> = pool
+            .at
             .iter()
             .map(|&at| counted(at, hosts[at].online.clone()))
             .collect();
@@ -236,14 +271,63 @@ async fn auto(
             candidates[at].running = count;
         }
     }
-    let agent = start.agent.as_deref().map_or("a coding agent", agent_name);
-    let choice =
-        agent_auto::choose(&candidates, &fit, &needs, agent).map_err(ApiError::bad_request)?;
+    let choice = agent_auto::choose(&candidates, &pool, &wants);
     let live = hosts
         .into_iter()
         .nth(choice.at)
         .ok_or(ApiError::Internal {})?;
     Ok((live, choice.why))
+}
+
+/// Whether `folder` is on `online`, asked with `test -d`. When the node
+/// cannot be asked, a folder under another system's home root (`/Users`
+/// on a Linux machine, `/home` on a Mac) counts as missing and anything
+/// else as there, so the start can still try.
+async fn probed(at: usize, online: Online, home: Option<String>, folder: &str) -> (usize, bool) {
+    let asked = match folder_test(folder) {
+        Some(command) => timeout(NODE_LIMIT, online.exec(&command, NODE_LIMIT, &mut |_| {})).await,
+        None => return (at, plausible(folder, home.as_deref())),
+    };
+    let there = match asked {
+        Ok(Ok(exited)) if exited.exit_code.is_some() => exited.exit_code == Some(0),
+        Ok(Ok(_)) => plausible(folder, home.as_deref()),
+        Ok(Err(e)) => {
+            log::debug!("folder not checked on {}: {e:#}", online.name);
+            plausible(folder, home.as_deref())
+        }
+        Err(_) => {
+            log::debug!("folder check timed out on {}", online.name);
+            plausible(folder, home.as_deref())
+        }
+    };
+    (at, there)
+}
+
+/// `test -d` for `folder`, with a leading `~` left to the node's shell.
+fn folder_test(folder: &str) -> Option<String> {
+    let quoted = |path: &str| {
+        shlex::try_quote(path)
+            .ok()
+            .map(|quoted| quoted.into_owned())
+    };
+    let path = if folder == "~" {
+        "\"$HOME\"".to_owned()
+    } else if let Some(rest) = folder.strip_prefix("~/") {
+        format!("\"$HOME\"/{}", quoted(rest)?)
+    } else {
+        quoted(folder)?
+    };
+    Some(format!("test -d {path}"))
+}
+
+/// Whether `folder` could be on a machine whose home is `home`.
+fn plausible(folder: &str, home: Option<&str>) -> bool {
+    let Some(home) = home else {
+        return true;
+    };
+    ["/Users/", "/home/"]
+        .iter()
+        .all(|root| !folder.starts_with(root) || home.starts_with(root.trim_end_matches('/')))
 }
 
 async fn counted(at: usize, online: Online) -> (usize, u32) {
@@ -372,15 +456,11 @@ fn entry(entry: agent::Entry) -> AgentEntry {
 /// Admins only. Only sessions Beep runs take orders; one started outside
 /// Beep is not found.
 pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Reply<()> {
+    // Refused before the machine is looked up, so an oversized message
+    // costs nothing more.
+    let request = node_request(steer.steer)?;
+    let images = matches!(request, Request::PromptImages { .. });
     let live = live_host(&cx, &steer.machine_id).await?;
-    let request = match steer.steer {
-        AgentSteer::Prompt { text } if text.trim().is_empty() => {
-            return Err(ApiError::bad_request("The message is empty."));
-        }
-        AgentSteer::Prompt { text } => Request::Prompt { text },
-        AgentSteer::Cancel {} => Request::Cancel {},
-        AgentSteer::Close {} => Request::Close {},
-    };
     let listed = limited(live.online.agent_sessions()).await?;
     if !listed
         .iter()
@@ -393,8 +473,132 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
         .agent_session(&steer.agent, &steer.session)
         .await
         .map_err(|e| ApiError::bad_request(format!("Could not reach the session: {e:#}")))?;
-    link.send(request)
-        .await
-        .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    link.send(request).await.map_err(|e| {
+        let error = format!("{e:#}");
+        // A node from before images does not know the request.
+        if images && error.contains("unknown request") {
+            ApiError::bad_request(
+                "beep-node on that machine is too old to send images. Update it, or send text.",
+            )
+        } else {
+            ApiError::bad_request(error)
+        }
+    })?;
     Ok(())
+}
+
+/// What the node is asked for `steer`; an empty message or images over the
+/// limits are refused.
+fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
+    Ok(match steer {
+        AgentSteer::Prompt { text } if text.trim().is_empty() => {
+            return Err(ApiError::bad_request("The message is empty."));
+        }
+        AgentSteer::Prompt { text } => Request::Prompt { text },
+        AgentSteer::PromptImages { text, images } if images.is_empty() => {
+            return node_request(AgentSteer::Prompt { text });
+        }
+        AgentSteer::PromptImages { text, images } => {
+            check_agent_images(&images)?;
+            Request::PromptImages { text, images }
+        }
+        AgentSteer::Cancel {} => Request::Cancel {},
+        AgentSteer::Close {} => Request::Close {},
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn png(name: &str, size: usize) -> Upload {
+        let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+        data.resize(size, 0);
+        Upload {
+            name: name.into(),
+            mime: "image/png".into(),
+            data,
+        }
+    }
+
+    fn steer_images(images: Vec<Upload>) -> Result<Request, ApiError> {
+        node_request(AgentSteer::PromptImages {
+            text: "Look at this".into(),
+            images,
+        })
+    }
+
+    #[test]
+    fn images_within_the_limits_go_to_the_node() {
+        let five = (0..MAX_AGENT_IMAGES)
+            .map(|i| png(&format!("{i}.png"), 1024))
+            .collect();
+        let Ok(Request::PromptImages { text, images }) = steer_images(five) else {
+            panic!("five small images go");
+        };
+        assert_eq!(text, "Look at this");
+        assert_eq!(images.len(), MAX_AGENT_IMAGES);
+        assert_eq!(
+            steer_images(vec![png("max.png", MAX_AGENT_IMAGE)]).map(|_| ()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn too_many_images_are_refused() {
+        let six = (0..=MAX_AGENT_IMAGES)
+            .map(|i| png(&format!("{i}.png"), 1024))
+            .collect();
+        let error = steer_images(six).unwrap_err().to_string();
+        assert!(error.contains("At most 5 images"), "{error}");
+    }
+
+    #[test]
+    fn an_image_over_the_size_limit_is_refused() {
+        let error = steer_images(vec![png("huge.png", MAX_AGENT_IMAGE + 1)])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("huge.png is over 5 MB"), "{error}");
+    }
+
+    #[test]
+    fn a_message_without_images_goes_as_text() {
+        assert_eq!(
+            steer_images(Vec::new()),
+            Ok(Request::Prompt {
+                text: "Look at this".into()
+            })
+        );
+        let empty = node_request(AgentSteer::PromptImages {
+            text: " ".into(),
+            images: Vec::new(),
+        });
+        assert!(empty.is_err(), "nothing to send");
+    }
+
+    #[test]
+    fn folder_tests_quote_the_path_and_keep_home() {
+        assert_eq!(
+            folder_test("/srv/project").as_deref(),
+            Some("test -d /srv/project")
+        );
+        assert_eq!(
+            folder_test("/srv/my project").as_deref(),
+            Some("test -d '/srv/my project'")
+        );
+        assert_eq!(
+            folder_test("~/code/app").as_deref(),
+            Some("test -d \"$HOME\"/code/app")
+        );
+        assert_eq!(folder_test("~").as_deref(), Some("test -d \"$HOME\""));
+    }
+
+    #[test]
+    fn an_unchecked_folder_under_another_systems_home_is_missing() {
+        assert!(!plausible("/Users/sam/app", Some("/home/sam")));
+        assert!(!plausible("/home/sam/app", Some("/Users/sam")));
+        assert!(plausible("/Users/sam/app", Some("/Users/sam")));
+        assert!(plausible("/srv/project", Some("/home/sam")));
+        assert!(plausible("/Users/sam/app", None));
+    }
 }

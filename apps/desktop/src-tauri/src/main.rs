@@ -93,7 +93,7 @@ fn main() {
             WindowEvent::Focused(false)
                 if window.label() == bar::LABEL && window.is_visible().unwrap_or(false) =>
             {
-                let _ = window.hide();
+                bar::hide(window.app_handle());
                 if let Some(voice) = window.app_handle().try_state::<Arc<Voice>>()
                     && voice.is_live()
                 {
@@ -119,6 +119,7 @@ fn main() {
             center::open_center,
             center::center_home,
             center::center_answer_agent,
+            center::center_dismiss_updates,
             center::center_open,
             center::center_pending,
             palette::center_palette,
@@ -211,6 +212,7 @@ fn main() {
             commands::hide_bar,
             commands::quit,
             commands::open_url,
+            commands::open_log,
             commands::group_typing,
             commands::list_memories,
             commands::list_memory_scopes,
