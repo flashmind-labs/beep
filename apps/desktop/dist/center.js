@@ -72,10 +72,11 @@ function whenOf(iso) {
   const day = days <= 0 ? "today" : days === 1 ? "tomorrow" : at.toLocaleDateString([], { weekday: "short" });
   return { time, day };
 }
+/// A routine's schedule in words. The row already shows when it runs next,
+/// so a one-off is just "Once".
 function scheduleText(s) {
-  if (s.startsWith("arrive:")) return "on arrival";
-  if (/^\d{4}-\d\d-\d\dT/.test(s)) return "once";
-  return s;
+  if (/^\d{4}-\d\d-\d\dT/.test(s)) return "Once";
+  return pane()?.when?.(s) ?? s;
 }
 
 // ---------- Pieces ----------
@@ -239,7 +240,7 @@ function needsSection(needs) {
 function comingSection(rows) {
   return section("sec-coming", "Coming up", rows.length, null, h("div", "cc-panel", ...rows.map(c => {
     const w = whenOf(c.next_run_at);
-    return line(h("span", "cc-when", h("b", "", w.time), w.day), c.label, scheduleText(c.schedule), [], () => go("pane", "routines"));
+    return line(h("span", "cc-when", h("b", "", w.time), w.day), c.label.trim() || c.prompt.trim() || "Routine", scheduleText(c.schedule), [], () => go("pane", "routines"));
   })));
 }
 
