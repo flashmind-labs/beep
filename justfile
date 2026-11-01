@@ -84,7 +84,9 @@ node-release version:
     sed -i.bak '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' crates/node/Cargo.toml && rm crates/node/Cargo.toml.bak
     cargo update --workspace --offline --quiet
     # The desktop app embeds the node, so its lockfile names the version too.
-    (cd apps/desktop/src-tauri && cargo update --package beep-node --offline --quiet)
+    # Resolving the lockfile records just that; `cargo update -p beep-node`
+    # would also move the node's git dependencies.
+    (cd apps/desktop/src-tauri && cargo metadata --offline --format-version 1 > /dev/null)
     git commit --quiet -m "Release beep-node {{version}}" crates/node/Cargo.toml Cargo.lock apps/desktop/src-tauri/Cargo.lock
     git tag -a "node-v{{version}}" -m "beep-node {{version}}"
     echo "Tagged node-v{{version}}. Publish it with: git push origin main node-v{{version}}"
