@@ -441,7 +441,8 @@ mod tests {
                 account: None,
             }],
             avds: vec![],
-        };
+            avds: vec![],
+            ..EnvReport::default()
         assert_eq!(
             describe(&env),
             "linux Ubuntu 24.04 (x86_64), 16 CPUs, 64 GB memory, host build-box, home /home/user\n\

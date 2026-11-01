@@ -1,6 +1,9 @@
 //! What the machine has, for `Up::Env`: OS, tools on `PATH`, which CLIs
 //! are signed in, Android emulators.
 
+mod apps;
+mod gpu;
+
 use beep_proto::node::{EnvReport, Login, ToolInfo};
 use std::{env, path::PathBuf, process::Stdio, time::Duration};
 use tokio::{process::Command, time::timeout};
@@ -69,6 +72,8 @@ pub async fn probe() -> EnvReport {
         tools,
         logins,
         avds: avds().await,
+        apps: apps::apps().await,
+        gpus: gpu::gpus().await,
     }
 }
 
