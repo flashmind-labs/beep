@@ -8,7 +8,7 @@ import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
-import { agentOf, base, homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "./home.js";
+import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "./home.js";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 
 const $ = sel => document.querySelector(sel);
@@ -53,6 +53,8 @@ const CONNECT_RETRY_MS = 3000;
 
 /// `since` is when the window started waiting for its first Home.
 const state = { home: null, error: null, outcomes: new Map(), shown: false, since: Date.now() };
+/// Whether Home was last drawn in two columns.
+let drawnWide = false;
 
 // ---------- Formatting ----------
 
@@ -72,10 +74,11 @@ function whenOf(iso) {
   const day = days <= 0 ? "today" : days === 1 ? "tomorrow" : at.toLocaleDateString([], { weekday: "short" });
   return { time, day };
 }
+/// A routine's schedule in words. The row already shows when it runs next,
+/// so a one-off is just "Once".
 function scheduleText(s) {
-  if (s.startsWith("arrive:")) return "on arrival";
-  if (/^\d{4}-\d\d-\d\dT/.test(s)) return "once";
-  return s;
+  if (/^\d{4}-\d\d-\d\dT/.test(s)) return "Once";
+  return pane()?.when?.(s) ?? s;
 }
 
 // ---------- Pieces ----------
@@ -239,7 +242,7 @@ function needsSection(needs) {
 function comingSection(rows) {
   return section("sec-coming", "Coming up", rows.length, null, h("div", "cc-panel", ...rows.map(c => {
     const w = whenOf(c.next_run_at);
-    return line(h("span", "cc-when", h("b", "", w.time), w.day), c.label, scheduleText(c.schedule), [], () => go("pane", "routines"));
+    return line(h("span", "cc-when", h("b", "", w.time), w.day), c.label.trim() || c.prompt.trim() || "Routine", scheduleText(c.schedule), [], () => go("pane", "routines"));
   })));
 }
 
@@ -563,6 +566,7 @@ registerSidebarGroup("pinned", {
 registerSidebarGroup("chats", {
   order: 3,
   title: "Chats",
+  onTitle: () => go("pane", "chats"),
   empty: () => (chatList.length ? "" : "No chats yet"),
   action() {
     const b = h("button", "", icon(IC.plus));
@@ -577,10 +581,6 @@ registerSidebarGroup("chats", {
   },
   row: chatRow,
   onPick: pickChat,
-  foot() {
-    if (!chatList.length) return [];
-    return [sideItem(null, "All chats", 0, { cls: "more", current: paneOn().view === "chats", on: () => go("pane", "chats") })];
-  },
 });
 
 registerSidebarGroup("views", {
@@ -611,12 +611,9 @@ function plusButton(label, on) {
   return b;
 }
 
-/// An empty group's row: what is missing, and a way to add one.
-function emptyRow(text, on) {
-  const b = h("button", "cc-si none add", `${text} · `, h("span", "act", "Add one"));
-  b.type = "button";
-  b.addEventListener("click", on);
-  return b;
+/// An empty group's row: what is missing. The group's + adds one.
+function emptyRow(text) {
+  return h("div", "cc-si none", text);
 }
 
 /// Opens the Add a machine sheet; Home refreshes once it closes.
@@ -627,7 +624,13 @@ export function openAddMachine() {
 /// Opens the projects view. Until there is one, Home's Running section,
 /// where the projects here come from.
 export function openProjects() {
-  jump("sec-running");
+  jump(state.home?.running?.length ? "sec-running" : null);
+}
+
+/// Adds a project. Until projects can be imported, the projects here are the
+/// folders agents run in, so this opens the start form to run one in a folder.
+function addProject() {
+  go("pane", { agentnew: { prompt: "" } });
 }
 
 // Projects found in what runs, until the project view replaces this group.
@@ -636,8 +639,8 @@ registerSidebarGroup("projects", {
   order: 5,
   title: "Projects",
   onTitle: () => openProjects(),
-  action: () => plusButton("Add a project", openProjects),
-  empty: () => emptyRow("No projects yet", openProjects),
+  action: () => plusButton("Start an agent in a project folder", addProject),
+  empty: () => emptyRow("No projects yet"),
   load: async () => state.home?.running ? projects(state.home.running).map(([name, n], i) => ({ name, n, i })) : null,
   row(p) {
     const b = sideItem(null, p.name, p.n);
@@ -654,8 +657,9 @@ registerSidebarGroup("projects", {
 registerSidebarGroup("machines", {
   order: 5.5,
   title: "Machines",
+  onTitle: () => jump("sec-machines"),
   action: () => plusButton("Add a machine", openAddMachine),
-  empty: () => emptyRow("No machines yet", openAddMachine),
+  empty: () => emptyRow("No machines yet"),
   load: async () => state.home?.machines ?? null,
   row(m) {
     const b = sideItem(null, m.name, m.agents || 0);
@@ -669,9 +673,10 @@ registerSidebarGroup("machines", {
 // ---------- Home ----------
 
 /// Machines across the top, then Running now beside Needs you and Updates
-/// beside Coming up. A section with nothing in it is left out; Machines
-/// stays to offer Add a machine.
-function page(home) {
+/// beside Coming up. On a wide window, two columns instead: Needs you,
+/// Running now and Updates, beside Machines and Coming up. A section with
+/// nothing in it is left out; Machines stays to offer Add a machine.
+function page(home, wide) {
   const { machines, running, coming_up: coming, needs_you: needs } = home;
   const out = [];
   if (state.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh: ${state.error}`)));
@@ -680,14 +685,21 @@ function page(home) {
   } else if (machines) {
     const note = offlineNote(machines);
     if (note) out.push(note);
-    out.push(machinesSection(machines));
   }
   const make = {
+    machines: () => machinesSection(machines),
     running: () => runningSection(running),
     needs: () => needsSection(needs),
     updates: () => updatesSection(home.updates),
     coming: () => comingSection(coming),
   };
+  const cols = wide && homeColumns(home);
+  if (cols) {
+    const col = keys => h("div", "", ...keys.map(k => make[k]()));
+    out.push(h("div", "cc-wide", col(cols.left), col(cols.right)));
+    return out;
+  }
+  if (machines) out.push(make.machines());
   for (const row of homeRows(home)) {
     out.push(row.length === 2 ? h("div", "cc-cols", ...row.map(k => make[k]())) : make[row[0]]());
   }
@@ -760,13 +772,22 @@ function draw() {
   drawSide();
   if (!home) return drawConnecting(view);
   const top = view.scrollTop;
-  view.replaceChildren(...page(home));
+  drawnWide = isWide(view);
+  view.replaceChildren(...page(home, drawnWide));
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
   $("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
   $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }
+
+/// Whether Home has room for two columns.
+function isWide(view) { return view.clientWidth >= WIDE_HOME_PX; }
+// Redraws Home when the window crosses the width for two columns, including
+// when Home is shown again after a pane (it measures 0 while hidden).
+new ResizeObserver(() => {
+  if (state.home && isWide($("#view")) !== drawnWide) draw();
+}).observe($("#view"));
 
 registerView("home", {
   el: $("#home-box"),

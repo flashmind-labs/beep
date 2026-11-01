@@ -254,7 +254,9 @@ function hints(items, extra = "") {
   const st = { unlinked: ["off", "Not linked"], revoked: ["bad", "Removed"] }[S.link];
   const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
   // The first two say the most; the rest give way when the row is narrow.
-  return `<div class="dhints">${items.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}${extra}${link}</div>`;
+  // The bar's chat opens in the window from here, before the model.
+  const win = !PANE && S.view === "chat" ? '<button class="win" data-act="openWindow"><kbd>⌘O</kbd>open in window</button>' : "";
+  return `<div class="dhints">${items.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}${win}${extra}${link}</div>`;
 }
 /// The window does not hide and has no live mode, and ⌘K searches there.
 function forPane(items) {
@@ -306,7 +308,7 @@ function drawStop() {
 function renderChat() {
   S.view = "chat";
   bar.innerHTML = `<div class="dinput dgrow"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea><div class="dgrip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the prompt" title="Drag to resize, double-click to reset"></div></div>
-    <div class="dbody" id="body"></div>${PANE ? "" : `<div class="dhand"><button class="dbtn" data-act="openWindow">Open in Beep window<kbd>⌘O</kbd></button></div>`}${chatHints()}`;
+    <div class="dbody" id="body"></div>${chatHints()}`;
   const kept = here()?.body;
   if (kept) $("#body").replaceWith(kept);
   const b = body();
@@ -2397,7 +2399,7 @@ const VOICE_NOTES_SAY = {
 };
 function voiceNotesRow(cur) {
   return `<div class="dtoggle"><span><b>Voice notes</b><small>${VOICE_NOTES_SAY[cur] ?? ""}</small></span></div>
-    <div class="dchips" role="radiogroup" aria-label="Voice notes" style="margin:-6px 0 8px">${VOICE_NOTES.map(([k, label]) =>
+    <div class="dchips" role="radiogroup" aria-label="Voice notes" style="margin:6px 0 10px">${VOICE_NOTES.map(([k, label]) =>
       `<button class="dchip" role="radio" aria-checked="${cur === k}" aria-pressed="${cur === k}" data-vn="${k}">${label}</button>`).join("")}</div>`;
 }
 
@@ -2405,7 +2407,7 @@ function voiceNotesRow(cur) {
 function sendRow(onPause) {
   const why = onPause ? "Sends after a short pause. Saying “send” sends at once." : "Pauses never send. Say “send” or “stop” when you are done.";
   return `<div class="dtoggle"><span><b>When I stop talking</b><small>${why}</small></span></div>
-    <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:-6px 0 8px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
+    <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:6px 0 10px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
 }
 
 /// Settings: drawn at once from what this Mac knows (its own settings and
@@ -2415,14 +2417,92 @@ function sendRow(onPause) {
 /// bar it is the bar's page; in the window it is a sheet over the view
 /// (`SET.root`), which `settingsSheet` opens.
 const SET = { root: null, token: 0, devices: null, machines: undefined, confirm: false };
-const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["general", "General"]];
+const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["creds", "Credentials"], ["general", "General"]];
+
+/// Settings, Credentials (`credentials.js` draws it). `list` is undefined
+/// until the server answers and null when it failed; `edit` is the row
+/// whose token is being typed.
+const CRED = { mod: null, list: undefined, providers: [], edit: null, busy: false, error: "" };
+const credModule = () => import("./credentials.js").then(m => (CRED.mod = m));
+
+function setCredsHtml() {
+  if (CRED.list === undefined || !CRED.mod) return setSkeleton(2);
+  if (CRED.list === null) return `<div class="dmuted">Could not load your credentials.</div>`;
+  // Which machines have gh and teacli, when the machines are known.
+  const machines = Array.isArray(SET.machines) ? SET.machines : null;
+  return CRED.mod.credentialsHtml(CRED, machines, esc, when);
+}
+
+/// Lists the credentials again and redraws their section.
+async function loadCreds() {
+  try {
+    const [, list, providers] = await Promise.all([credModule(), invoke("list_credentials"), invoke("credential_providers")]);
+    CRED.list = list;
+    CRED.providers = providers;
+  } catch (e) {
+    console.warn(e);
+    CRED.list ??= null;
+  }
+  if (setShown()) fillSection("creds", setCredsHtml());
+}
+
+/// Binds the Credentials controls inside `el`.
+function bindCreds(el) {
+  const $in = sel => el.querySelector(sel);
+  const redraw = () => { if (setShown()) fillSection("creds", setCredsHtml()); };
+  el.querySelectorAll("[data-cred-edit]").forEach(b => b.addEventListener("click", () => {
+    CRED.edit = CRED.mod?.editFor(b.dataset.credEdit, CRED.list) ?? null;
+    CRED.error = "";
+    redraw();
+    setRoot().querySelector(CRED.edit?.kind === "forgejo" && !CRED.edit.id ? "#credUrl" : "#credSecret")?.focus();
+  }));
+  el.querySelectorAll("[data-cred-remove]").forEach(b => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      await invoke("remove_credential", { id: b.dataset.credRemove });
+    } catch (e) {
+      console.warn(e);
+    }
+    await loadCreds();
+  }));
+  $in("#credCancel")?.addEventListener("click", () => { CRED.edit = null; CRED.error = ""; redraw(); });
+  const save = async () => {
+    if (CRED.busy || !CRED.mod) return;
+    const machines = $in("#credMachines");
+    if (CRED.edit && machines) CRED.edit.toMachines = machines.checked;
+    const url = $in("#credUrl")?.value;
+    if (CRED.edit && url !== undefined) CRED.edit.url = url;
+    const d = CRED.mod.draft(CRED.edit, url, $in("#credSecret")?.value, machines?.checked);
+    if (d.error) {
+      CRED.error = d.error;
+      const err = $in("#credErr");
+      if (err) err.textContent = d.error;
+      return;
+    }
+    CRED.busy = true;
+    CRED.error = "";
+    redraw();
+    try {
+      await invoke("save_credential", { credential: d.credential });
+      CRED.edit = null;
+    } catch (e) {
+      CRED.error = String(e);
+    }
+    CRED.busy = false;
+    // The typed token is gone from the page either way.
+    await loadCreds();
+  };
+  $in("#credSave")?.addEventListener("click", save);
+  $in("#credSecret")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
+}
 
 const setRoot = () => SET.root ?? bar;
 /// The sheet is open, or the bar still shows Settings.
 const setShown = () => SET.root ? SET.root.isConnected : S.view === "settings";
 
 // Permissions are granted in System Settings; coming back shows them.
-window.addEventListener("focus", () => { if (setShown() && !$("#unlinkYes")) renderSettings(); });
+// Not while a token is typed in Credentials: the redraw would drop it.
+window.addEventListener("focus", () => { if (setShown() && !$("#unlinkYes") && !$("#credSecret")?.value) renderSettings(); });
 
 /// Rows that stand in for a section until the server answers.
 const setSkeleton = n => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
@@ -2516,6 +2596,7 @@ function bindSettings(el) {
     await invoke("set_send_on_pause", { enabled: b.dataset.pause === "1" }).catch(e => console.warn(e));
     if (setShown()) renderSettings();
   }));
+  bindCreds(el);
   $in("#autostart")?.addEventListener("click", async e => {
     const sw = e.currentTarget, on = sw.getAttribute("aria-checked") !== "true";
     try {
@@ -2588,6 +2669,7 @@ async function renderSettings(confirm = false, root = undefined) {
     + (linked ? sec("apps", "Apps", setAppsHtml()) : "")
     + (linked && mac ? `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>` : "")
     + (linked ? sec("machines", "Machines", setMachinesHtml()) : "")
+    + (linked ? sec("creds", "Credentials", setCredsHtml()) : "")
     + `<section id="set-general-sec" data-sec="general"><div class="dsec flat" style="padding-top:6px">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
@@ -2622,7 +2704,13 @@ async function renderSettings(confirm = false, root = undefined) {
   invoke("list_apps").then(a => { A.apps = a; }, () => { A.apps ??= []; })
     .then(() => { if (alive()) fillSection("apps", setAppsHtml()); });
   invoke("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
-    .then(() => { if (alive()) fillSection("machines", setMachinesHtml()); });
+    .then(() => {
+      if (!alive()) return;
+      fillSection("machines", setMachinesHtml());
+      // The git hosts say which machines have gh and teacli.
+      if (CRED.list) fillSection("creds", setCredsHtml());
+    });
+  loadCreds();
 }
 
 // ---------- Apps ----------
@@ -5834,6 +5922,8 @@ if (PANE) {
     revoked: renderRevoked,
   };
   window.beepPane = {
+    /// A routine's schedule in words, as Routines shows it.
+    when: routineWhen,
     /// Draws Settings into `el`, the window's sheet, leaving the pane as it is.
     async settings(el) {
       await start();

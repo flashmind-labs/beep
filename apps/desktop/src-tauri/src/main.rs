@@ -9,6 +9,7 @@ mod beep;
 mod cards;
 mod center;
 mod commands;
+mod credentials;
 mod desktop;
 mod devices;
 mod error;
@@ -166,6 +167,10 @@ fn main() {
             grants::list_grants,
             grants::revoke_grant,
             machines::list_machines,
+            credentials::credential_providers,
+            credentials::list_credentials,
+            credentials::save_credential,
+            credentials::remove_credential,
             commands::open_file,
             commands::picture,
             commands::save_file,
@@ -303,7 +308,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(research::Cache::default());
     app.manage(apps::SignIn::default());
     app.manage(update::Updates::default());
-    app.manage(machine::Machine::default());
+    app.manage(machine::Machine::new(&dir.join("node")));
     app.manage(center::Shown::default());
     app.manage(center::Pending::default());
     app.manage(palette::PaletteCache::default());

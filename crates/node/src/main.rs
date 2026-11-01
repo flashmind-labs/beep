@@ -2,10 +2,10 @@
 
 use beep_node::{agents::Agents, claude::hooks, env, link, local, service, setup, state};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use logforth::{append::Stderr, filter::rustlog::RustLogFilterBuilder};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::signal::unix::{SignalKind, signal};
 
 #[derive(Parser)]
@@ -26,7 +26,9 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Links this machine to the account that made `token` in Beep ("Add a
-    /// machine"), then serves like `run`.
+    /// machine"), then runs the node in the background as a service that
+    /// starts with the machine (see `service`). Where there is no service
+    /// manager to use, as in a container, it serves in the foreground.
     Setup {
         /// The setup token, `bk1-...`.
         token: String,
@@ -35,8 +37,12 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
         /// Stops after linking instead of serving.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "foreground")]
         no_run: bool,
+        /// Serves in the foreground until stopped, like `run`, instead of
+        /// installing the service.
+        #[arg(long)]
+        foreground: bool,
     },
     /// The old way, kept for older servers: makes this machine's key and
     /// prints a code to paste into the phone. Prefer `setup`.
@@ -63,7 +69,8 @@ enum Command {
     },
     /// Prints what this machine would report.
     Env,
-    /// Runs the node as a systemd user service (Linux).
+    /// Runs the node in the background as a service: a systemd user unit on
+    /// Linux, a LaunchAgent on macOS.
     Service {
         #[command(subcommand)]
         action: ServiceAction,
@@ -104,10 +111,21 @@ enum HooksAction {
 
 #[derive(Subcommand)]
 enum ServiceAction {
-    /// Writes the unit, enables it and starts it.
+    /// Writes the unit or LaunchAgent, enables it and starts it.
     Install,
-    /// Stops the service and removes the unit.
+    /// Stops the service and removes it.
     Uninstall,
+}
+
+/// Installs and starts the node's service, saying where it runs; the error
+/// says why it could not.
+fn in_background(dir: &Path, workspace: Option<&Path>) -> Result<String> {
+    let manager = service::manager()?;
+    let launch = service::Launch::new(dir, workspace)?;
+    let installed = manager
+        .install(&launch)
+        .context("could not start the service")?;
+    installed.describe()
 }
 
 /// Finishes on Ctrl-C or SIGTERM, which a service manager sends to stop.
@@ -139,16 +157,27 @@ async fn main() -> Result<()> {
             token,
             name,
             no_run,
+            foreground,
         } => {
             let (state, claimed) = setup::setup(&dir, &token, name.as_deref()).await?;
             if no_run {
                 println!(
-                    "Linked to {}. Start it with `beep-node run`.",
+                    "Linked to {}. Start it with `beep-node service install`, or \
+                     `beep-node run` to serve here.",
                     claimed.account
                 );
                 return Ok(());
             }
-            println!("Linked to {}. Starting.", claimed.account);
+            println!("Linked to {}.", claimed.account);
+            if !foreground {
+                match in_background(&dir, cli.workspace.as_deref()) {
+                    Ok(described) => {
+                        println!("{described}");
+                        return Ok(());
+                    }
+                    Err(why) => println!("Serving here in the foreground: {why:#}."),
+                }
+            }
             link::serve(state, cli.workspace.as_deref(), stopped()?).await
         }
         Command::Link { server, name } => {
@@ -169,7 +198,7 @@ async fn main() -> Result<()> {
         }
         Command::Service {
             action: ServiceAction::Install,
-        } => service::install(&dir),
+        } => service::install(&dir, cli.workspace.as_deref()),
         Command::Service {
             action: ServiceAction::Uninstall,
         } => service::uninstall(),

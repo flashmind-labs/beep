@@ -36,6 +36,9 @@ html, body.cbody { background: var(--ink) }
 .cc-sec small { font-size: 11.5px; color: var(--muted) }
 .cc-panel { border: 1px solid var(--border); border-radius: 11px; background: rgba(18,25,22,.82); min-width: 0 }
 .cc-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start }
+/* A wide Home: two columns, each a stack of sections. */
+.cc-wide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 20px; align-items: start }
+.cc-wide > div { display: flex; flex-direction: column; gap: 14px; min-width: 0 }
 .cc-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 11px; text-align: left; width: 100%; border: 0; background: transparent; color: var(--fg) }
 .cc-row + .cc-row { border-top: 1px solid var(--border) }
 button.cc-row:hover { background: rgba(228,238,232,.04) }
@@ -147,9 +150,6 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cwin.resizing { cursor: col-resize; user-select: none }
 
 /* Adding machines and projects: the empty groups' rows, the + buttons. */
-.cc-si.none.add { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.cc-si.none.add .act { color: var(--emerald); margin-left: 3px }
-.cc-si.none.add:hover .act { text-decoration: underline }
 .cc-sec-r { display: flex; align-items: center; gap: 10px }
 .dbtn.small { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 .cc-foot { display: flex; align-items: center; gap: 6px }

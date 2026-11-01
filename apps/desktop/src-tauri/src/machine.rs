@@ -3,10 +3,14 @@
 //! desktop control. Off by default.
 
 use crate::{beep::Beep, desktop, state::LinkState};
-use beep_node::link::{self, Offers};
+use beep_node::{
+    link::{self, Offers},
+    provision::Provision,
+};
 use beep_proto::node::desktop::{Permission, Permissions};
 use serde::Serialize;
 use std::{
+    path::Path,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
@@ -42,13 +46,24 @@ pub struct View {
 
 /// The node link while it runs. Owned by the app; stopping aborts the task,
 /// which closes the connection and every session with it.
-#[derive(Default)]
 pub struct Machine {
     task: Mutex<Option<JoinHandle<()>>>,
     status: Arc<Mutex<Status>>,
+    /// gh, teacli and the skills, in the node's own folder, and the
+    /// credentials the server sends while the link is up.
+    provision: Arc<Provision>,
 }
 
 impl Machine {
+    /// The machine whose node keeps its tools and teacli config in `dir`.
+    pub fn new(dir: &Path) -> Self {
+        Self {
+            task: Mutex::default(),
+            status: Arc::default(),
+            provision: Provision::new(dir),
+        }
+    }
+
     fn status(&self) -> MutexGuard<'_, Status> {
         self.status.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -72,10 +87,14 @@ impl Machine {
             *task = Some(async_runtime::spawn(stay_linked(
                 beep.clone(),
                 self.status.clone(),
+                self.provision.clone(),
             )));
         } else if !wanted {
             if let Some(task) = task.take() {
                 task.abort();
+                // Off: the Mac keeps no token for the agents.
+                let provision = self.provision.clone();
+                async_runtime::spawn(async move { provision.forget().await });
             }
             *self.status() = if beep.use_mac() {
                 Status::Unlinked
@@ -92,11 +111,15 @@ pub fn allow(permission: Permission) {
 }
 
 /// Keeps the node link up, waiting longer after each failure, until aborted.
-async fn stay_linked(beep: Arc<Beep>, status: Arc<Mutex<Status>>) {
+async fn stay_linked(beep: Arc<Beep>, status: Arc<Mutex<Status>>, provision: Arc<Provision>) {
     let set = |now: Status| *status.lock().unwrap_or_else(PoisonError::into_inner) = now;
+    // Installs gh, teacli and the agent skills, and takes the credentials
+    // the server sends; the work stops with this task.
+    let _provision = provision.start();
     let offers = Offers {
         agents: Arc::default(),
         extra: vec![Arc::new(desktop::Desktop)],
+        provision: Some(provision),
     };
     let name = crate::computer_name();
     let mut wait = FIRST_RETRY;
