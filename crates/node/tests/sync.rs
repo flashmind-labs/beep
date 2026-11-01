@@ -414,3 +414,71 @@ async fn a_node_taken_out_of_a_project_stops_getting_its_changes() {
     eventually("the pull to end", || syncs.pulls_served() == 0).await;
     drop(b);
 }
+
+/// Writes a file on `a`, waits for it on `b`, and for `a` to settle.
+async fn synced_file(a: &Node, b: &Node) {
+    write(&a.path("notes.txt"), "keep me");
+    eventually("the file to arrive", || {
+        read(&b.path("notes.txt")).as_deref() == Some(b"keep me".as_slice())
+    })
+    .await;
+    eventually("the first node to settle", || {
+        let status = &a.running().transfers.syncs().status()[0];
+        status.files == 1 && status.pending == 0
+    })
+    .await;
+}
+
+/// Empties `node`'s folder, leaving the marker that tells it apart.
+fn empty_folder(node: &Node) {
+    for entry in fs::read_dir(node.folder()).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_name() == MARKER {
+            continue;
+        }
+        if entry.file_type().unwrap().is_dir() {
+            fs::remove_dir_all(entry.path()).unwrap();
+        } else {
+            fs::remove_file(entry.path()).unwrap();
+        }
+    }
+}
+
+/// `b` keeps the file and `a` gets it back.
+async fn nothing_deleted(a: &Node, b: &Node) {
+    eventually("the file to come back", || {
+        read(&a.path("notes.txt")).as_deref() == Some(b"keep me".as_slice())
+    })
+    .await;
+    assert_eq!(
+        read(&b.path("notes.txt")).as_deref(),
+        Some(b"keep me".as_slice())
+    );
+    let status = &b.running().transfers.syncs().status()[0];
+    assert_eq!(status.files, 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_turned_off_and_emptied_deletes_nothing_when_turned_on() {
+    let (a, b) = pair().await;
+    synced_file(&a, &b).await;
+
+    let refused = a.running().transfers.syncs().configure(Vec::new()).await;
+    assert!(refused.is_empty(), "{refused:?}");
+    empty_folder(&a);
+    a.sync_with(&b).await;
+
+    nothing_deleted(&a, &b).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_emptied_while_the_node_is_down_deletes_nothing() {
+    let (mut a, b) = pair().await;
+    synced_file(&a, &b).await;
+
+    a.stop().await;
+    empty_folder(&a);
+    a.start().await;
+
+    nothing_deleted(&a, &b).await;
+}

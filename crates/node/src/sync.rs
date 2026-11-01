@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, MutexGuard, PoisonError,
@@ -144,7 +145,7 @@ impl Syncs {
                 log::warn!("starting with no synced projects: {CONFIG} is unreadable: {e}");
                 Config::default()
             }),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(e) if e.kind() == ErrorKind::NotFound => Config::default(),
             Err(e) => return Err(e).with_context(|| format!("reading {CONFIG}")),
         };
         // Reading the watch budget walks `/proc`.
@@ -177,7 +178,7 @@ impl Syncs {
     }
 
     /// Syncs exactly `projects`, and says which it refused. A project left
-    /// out stops; its files and state stay.
+    /// out stops; its files stay and its state is forgotten.
     pub async fn configure(&self, projects: Vec<Project>) -> Vec<Refused> {
         let _one = self.inner.configuring.lock().await;
         let me = self.inner.parts.endpoint.id();
@@ -273,7 +274,29 @@ impl Syncs {
         if timeout(STOP_LIMIT, running.task).await.is_err() {
             log::warn!("{name} did not stop in time");
         }
-        let key = key_of(&name, running.shared.root());
+        let key = running.shared.key();
+        // The same folder may have started again under the same key.
+        if self
+            .inner
+            .lock()
+            .values()
+            .any(|other| other.shared.key() == key)
+        {
+            return;
+        }
+        // A project turned off forgets its folder: started again, it scans
+        // from nothing, so a folder emptied meanwhile deletes nothing.
+        let file = running.shared.file().to_owned();
+        let removed = spawn_blocking(move || match fs::remove_file(&file) {
+            Err(e) if e.kind() != ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        })
+        .await;
+        match removed {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => log::warn!("the state of {name} stays: {e}"),
+            Err(e) => log::warn!("the state of {name} stays: {e}"),
+        }
         if let Err(e) = self
             .inner
             .parts
