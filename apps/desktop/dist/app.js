@@ -5830,6 +5830,8 @@ if (PANE) {
     machines: renderMachines,
     link: renderLink,
     invite: renderInvitePhone,
+    // The command center leads here when the server says this Mac was removed.
+    revoked: renderRevoked,
   };
   window.beepPane = {
     /// Draws Settings into `el`, the window's sheet, leaving the pane as it is.
