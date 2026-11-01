@@ -60,7 +60,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-row .r { font-size: 11.5px; color: var(--muted); display: grid; justify-items: end; gap: 2px; font-variant-numeric: tabular-nums }
 .cc-ag { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev) }
 .cc-ag.claude { color: #F2A27A } .cc-ag.codex { color: #9DC3F0 }
-.cc-ag.beep { color: var(--ink); background: var(--coral); border-color: transparent; font-family: var(--display); font-weight: 800; font-size: 14px }
+.cc-ag.beep { color: var(--muted) }
 .cc-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 500; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap }
 .cc-tag.run { color: var(--emerald); border-color: rgba(59,155,122,.45) }
 .cc-tag.wait { color: #E9B949; border-color: rgba(233,185,73,.45) }
