@@ -30,6 +30,7 @@ mod live;
 mod location;
 mod machines;
 mod memories;
+mod project_import;
 mod project_sync;
 mod research;
 mod sessions;
@@ -220,6 +221,8 @@ pub fn router() -> Router {
         .call(credentials::list_credentials)
         .call(credentials::save_credential)
         .call(credentials::remove_credential)
+        .call(project_import::import_project)
+        .call(project_import::list_imported_projects)
 }
 
 type Reply<T> = Result<T, ApiError>;

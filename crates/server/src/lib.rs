@@ -31,6 +31,7 @@ pub mod paging;
 pub mod permissions;
 pub mod places;
 pub mod profile;
+pub mod project_import;
 pub mod push;
 pub mod remote;
 pub mod repeat;
