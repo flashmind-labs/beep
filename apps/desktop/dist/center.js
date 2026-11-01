@@ -8,6 +8,7 @@ import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
+import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -225,7 +226,7 @@ function machinesSection(machines) {
   const online = machines.filter(m => m.online).length;
   let el;
   if (!machines.length) {
-    const link = h("ol", "", h("li", "", "Install beep-node on the computer."), h("li", "", h("span", "", "Run "), h("code", "", "beep-node link"), h("span", "", " there.")), h("li", "", "Paste the link it prints into a chat here, or into Beep on your phone."));
+    const link = h("ol", "", h("li", "", "Install beep-node on the computer."), h("li", "", h("span", "", "Press Add a machine and run the "), h("code", "", "beep-node setup"), h("span", "", " command it shows on that computer.")));
     el = section("sec-machines", "Machines", "None linked", empty(
       h("b", "", "No machines linked yet"),
       h("span", "", "Link a computer to run coding agents and commands on it from here, from the bar or from your phone."),
@@ -638,10 +639,9 @@ function emptyRow(text, on) {
   return b;
 }
 
-/// Adds a machine. Another branch puts the add-a-machine sheet here; until
-/// then it opens the Machines part of Settings.
+/// Opens the Add a machine sheet; Home refreshes once it closes.
 export function openAddMachine() {
-  openSettings("machines");
+  openAddMachineSheet({ onClose: refresh });
 }
 
 /// Opens the projects view. Until there is one, Home's Running section,
