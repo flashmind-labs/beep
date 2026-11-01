@@ -393,7 +393,6 @@ mod tests {
             request_id: Uuid::new_v4(),
             message: text.to_owned(),
             cron_id: None,
-            agent: None,
             scheduled: scheduled.map(str::to_owned),
             always_sent: false,
             woken: None,

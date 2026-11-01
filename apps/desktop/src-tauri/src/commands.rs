@@ -3,9 +3,10 @@
 use crate::{
     bar,
     beep::{
-        BarEvent, Beep, DataImage, Decision, FileUpload, LinkView, Pick, Pictures, RunNews, Sent,
-        Turn, image_uris, qr_svg,
+        self, BarEvent, Beep, DataImage, Decision, FileUpload, LinkView, Pick, Pictures, RunNews,
+        Sent, Turn, image_uris, qr_svg,
     },
+    center::{self, Chat, Shown},
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
     machine::{self, Machine},
@@ -34,7 +35,7 @@ use std::{
     process::Command,
     sync::Arc,
 };
-use tauri::{AppHandle, Emitter, Manager, State, ipc::Channel};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, ipc::Channel};
 use tauri_plugin_autostart::ManagerExt;
 use tokio::join;
 use uuid::Uuid;
@@ -62,6 +63,7 @@ pub fn link_offer(beep: Service<'_>) -> Result<LinkView> {
 
 #[tauri::command]
 pub async fn send_prompt(
+    window: WebviewWindow,
     beep: Service<'_>,
     session: Option<String>,
     message: String,
@@ -77,26 +79,41 @@ pub async fn send_prompt(
         voice: None,
         spoken: false,
     };
-    beep.send(session, sent, Pick::default(), on_event).await
+    let session_id = beep::chat_id(session.as_deref());
+    // Made current before the run, so its own notices stay quiet.
+    center::remember_for(&window, &beep, Chat::Session(Some(session_id.to_string())));
+    beep.post(session_id, sent, Pick::default(), on_event)
+        .await?;
+    Ok(session_id.to_string())
 }
 
 /// Sends the chat's `index`th prompt again on another model or thinking,
 /// dropping it and the turns after it first. Admins only.
 #[tauri::command]
 pub async fn rerun_prompt(
+    window: WebviewWindow,
     beep: Service<'_>,
     session: String,
     index: usize,
     pick: Pick,
     on_event: Channel<BarEvent>,
 ) -> Result<()> {
+    center::remember_for(&window, &beep, Chat::Session(Some(session.clone())));
     beep.rerun(session, index, pick, on_event).await
 }
 
-/// Answers an approval card, from the bar or the orb, and streams the run
-/// it resumes into `on_event`.
+/// An approval card that was answered, for every webview to drop.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ApprovalAnswered {
+    session: String,
+    query_id: String,
+}
+
+/// Answers an approval card, from the bar, the orb or the command center,
+/// and streams the run it resumes into `on_event`.
 #[tauri::command]
 pub async fn answer_approval(
+    app: AppHandle,
     beep: Service<'_>,
     voice: State<'_, Arc<Voice>>,
     session: String,
@@ -107,6 +124,10 @@ pub async fn answer_approval(
     let run = beep
         .approve(&session, query_id.clone(), decision.into())
         .await?;
+    let answered = ApprovalAnswered {
+        session: session.clone(),
+        query_id: query_id.clone(),
+    };
     // Whichever of the bar and the orb answered, the other drops its card,
     // and live mode reads the rest of the reply out when it waits on it.
     let news = voice.answered(Answered {
@@ -115,6 +136,11 @@ pub async fn answer_approval(
         run: run.clone(),
         decision,
     });
+    // Then every webview still showing the card drops it. Sent after live
+    // mode's event, so the bar follows the run with the decision it names.
+    if let Err(e) = app.emit("approval-answered", answered) {
+        log::warn!("telling the windows an approval was answered: {e}");
+    }
     let followed = beep.follow_answered(run, on_event, news.as_ref()).await;
     if let (Err(e), Some(news)) = (&followed, &news) {
         news.tell(RunNews::Failed(e.to_string()));
@@ -205,10 +231,13 @@ pub async fn search_sessions(beep: Service<'_>, query: String) -> Result<Vec<Ses
 }
 
 #[tauri::command]
-pub async fn open_session(beep: Service<'_>, id: String) -> Result<Vec<Turn>> {
+pub async fn open_session(
+    window: WebviewWindow,
+    beep: Service<'_>,
+    id: String,
+) -> Result<Vec<Turn>> {
     // Made current before loading, so leaving the chat meanwhile is not undone.
-    beep.set_session(Some(id.clone()));
-    beep.set_group(None);
+    center::remember_for(&window, &beep, Chat::Session(Some(id.clone())));
     beep.history(id).await
 }
 
@@ -229,9 +258,8 @@ pub async fn session_sources(beep: Service<'_>, id: String) -> Result<Vec<TurnSo
 }
 
 #[tauri::command]
-pub fn new_chat(beep: Service<'_>) {
-    beep.set_session(None);
-    beep.set_group(None);
+pub fn new_chat(window: WebviewWindow, beep: Service<'_>) {
+    center::remember_for(&window, &beep, Chat::Session(None));
 }
 
 #[tauri::command]
@@ -245,13 +273,16 @@ pub async fn pin_session(beep: Service<'_>, id: String, pinned: bool) -> Result<
 }
 
 #[tauri::command]
-pub async fn delete_session(beep: Service<'_>, id: String) -> Result<()> {
+pub async fn delete_session(beep: Service<'_>, shown: State<'_, Shown>, id: String) -> Result<()> {
     beep.call(DeleteSession { id: id.clone() }).await?;
     if let Ok(chat) = Uuid::parse_str(&id) {
         beep.chats().forget(chat);
     }
     if beep.session().as_deref() == Some(id.as_str()) {
         beep.set_session(None);
+    }
+    if shown.get().session.as_deref() == Some(id.as_str()) {
+        shown.set_session(None);
     }
     Ok(())
 }
@@ -278,9 +309,13 @@ pub async fn list_groups(beep: Service<'_>) -> Result<Vec<GroupView>> {
 }
 
 #[tauri::command]
-pub async fn open_group(beep: Service<'_>, id: String) -> Result<GroupChatView> {
+pub async fn open_group(
+    window: WebviewWindow,
+    beep: Service<'_>,
+    id: String,
+) -> Result<GroupChatView> {
     // Made current before loading, so closing the group meanwhile is not undone.
-    beep.set_group(Some(id.clone()));
+    center::remember_for(&window, &beep, Chat::Group(Some(id.clone())));
     if let Some(view) = Uuid::parse_str(&id)
         .ok()
         .and_then(|g| beep.chats().group(g))
@@ -301,10 +336,10 @@ pub async fn open_group(beep: Service<'_>, id: String) -> Result<GroupChatView> 
     Ok(view)
 }
 
-/// The bar left the group, so its messages notify again.
+/// The webview left the group, so its messages notify again.
 #[tauri::command]
-pub fn close_group(beep: Service<'_>) {
-    beep.set_group(None);
+pub fn close_group(window: WebviewWindow, beep: Service<'_>) {
+    center::remember_for(&window, &beep, Chat::Group(None));
 }
 
 #[tauri::command]
@@ -396,12 +431,15 @@ pub async fn join_group(
 }
 
 #[tauri::command]
-pub async fn leave_group(beep: Service<'_>, id: String) -> Result<()> {
+pub async fn leave_group(beep: Service<'_>, shown: State<'_, Shown>, id: String) -> Result<()> {
     beep.call(LeaveGroup { id: id.clone() }).await?;
     if let Ok(group) = Uuid::parse_str(&id) {
         beep.chats().forget(group);
     }
-    beep.set_group(None);
+    if beep.group().as_deref() == Some(id.as_str()) {
+        beep.set_group(None);
+    }
+    shown.leave_group(&id);
     Ok(())
 }
 
@@ -720,7 +758,7 @@ pub fn open_url(url: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{file_name, free_name, image_mime};
+    use super::{ApprovalAnswered, file_name, free_name, image_mime};
     use std::{env, fs};
     use uuid::Uuid;
 
@@ -752,6 +790,19 @@ mod tests {
         assert_eq!(file_name(".hidden"), "hidden");
         assert_eq!(file_name(".."), "file");
         assert_eq!(file_name(""), "file");
+    }
+
+    #[test]
+    fn approval_answered_names_its_keys() {
+        let payload = serde_json::to_value(ApprovalAnswered {
+            session: "chat".into(),
+            query_id: "query".into(),
+        })
+        .expect("a plain struct serializes");
+        assert_eq!(
+            payload,
+            serde_json::json!({ "session": "chat", "query_id": "query" })
+        );
     }
 }
 
@@ -792,6 +843,20 @@ impl From<Memory> for MemoryView {
             valid_until: m.valid_until,
             quote: m.quote,
         }
+    }
+}
+
+impl MemoryView {
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) fn content(&self) -> &str {
+        &self.content
+    }
+
+    pub(crate) fn category(&self) -> &str {
+        &self.category
     }
 }
 

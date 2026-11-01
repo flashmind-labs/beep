@@ -37,8 +37,7 @@ use crate::{
         NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewWorker, NodeRow, PicturesOf,
         PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow,
         RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, StartRefused,
-        Store, StoredContext, StoredMessage, TaskRow, TurnAgentRow, TurnRecord, TurnsToDelete,
-        WorkerRow,
+        Store, StoredContext, StoredMessage, TaskRow, TurnRecord, TurnsToDelete, WorkerRow,
     },
 };
 use anyhow::Result;
@@ -600,13 +599,9 @@ impl User {
         Ok(Some(self.store.chat_messages(session).await?))
     }
 
-    /// The agent each turn of a session the user owns ran as, oldest first.
-    /// `None` when they have no such session.
-    pub async fn turn_agents(&self, session: Uuid) -> Result<Option<Vec<TurnAgentRow>>> {
-        if !self.store.owns_session(&self.key, session).await? {
-            return Ok(None);
-        }
-        Ok(Some(self.store.turn_agents(session).await?))
+    /// Whether the user owns `session`.
+    pub async fn owns_session(&self, session: Uuid) -> Result<bool> {
+        self.store.owns_session(&self.key, session).await
     }
 
     /// What each tool step of a session the user owns showed while it ran,
@@ -1133,13 +1128,6 @@ impl User {
 
     pub(crate) async fn set_auto_model(&self, enabled: bool) -> Result<()> {
         self.store.set_user_auto_model(&self.key, enabled).await
-    }
-
-    /// Turns agents on or off for every user, as this admin.
-    pub(crate) async fn set_agents_enabled(&self, enabled: bool) -> Result<()> {
-        self.store
-            .set_agents_enabled(enabled, self.key.as_str())
-            .await
     }
 
     pub(crate) async fn save_app_permissions(&self, row: &AppPermissionRow) -> Result<()> {

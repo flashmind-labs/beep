@@ -402,6 +402,13 @@ pub struct LinkView {
     pub expires_in: u64,
 }
 
+/// The chat a message goes to: `session` when it names one, else a new one.
+pub fn chat_id(session: Option<&str>) -> Uuid {
+    session
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .unwrap_or_else(Uuid::new_v4)
+}
+
 pub struct Beep {
     node: Node,
     server: EndpointId,
@@ -728,24 +735,6 @@ impl Beep {
         }
     }
 
-    /// Sends `message` and streams the run into `channel`. Returns the
-    /// session the message went to.
-    pub async fn send(
-        &self,
-        session: Option<String>,
-        sent: Sent,
-        pick: Pick,
-        channel: Channel<BarEvent>,
-    ) -> Result<String> {
-        let session_id = match session.as_deref().map(Uuid::parse_str) {
-            Some(Ok(id)) => id,
-            _ => Uuid::new_v4(),
-        };
-        self.set_session(Some(session_id.to_string()));
-        self.post(session_id, sent, pick, channel).await?;
-        Ok(session_id.to_string())
-    }
-
     /// Sends `sent` to `session_id` and streams the run into `channel`,
     /// leaving the bar's chat as it is. Returns the reply's text.
     pub async fn post(
@@ -830,7 +819,8 @@ impl Beep {
             voice: None,
             spoken: false,
         };
-        self.send(Some(session), sent, pick, channel).await?;
+        self.post(chat_id(Some(&session)), sent, pick, channel)
+            .await?;
         Ok(())
     }
 

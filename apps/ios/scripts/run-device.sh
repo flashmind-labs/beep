@@ -13,6 +13,7 @@ with open(sys.argv[1]) as source:
     devices = json.load(source)["result"]["devices"]
 requested = sys.argv[2]
 candidates = []
+paired = []
 for device in devices:
     properties = device.get("properties", {})
     hardware = properties.get("hardware", device.get("hardwareProperties", {}))
@@ -23,9 +24,13 @@ for device in devices:
     if requested:
         if requested not in (device["identifier"], hardware.get("udid"), state.get("name")):
             continue
-    elif connection.get("state", connection.get("tunnelState")) != "connected":
-        continue
-    candidates.append(hardware["udid"])
+        candidates.append(hardware["udid"])
+    elif connection.get("state", connection.get("tunnelState")) == "connected":
+        candidates.append(hardware["udid"])
+    elif connection.get("pairingState") == "paired":
+        paired.append(hardware["udid"])
+if not requested and not candidates:
+    candidates = paired
 if len(candidates) != 1:
     sys.exit("Connect and unlock one iPhone, or select one with just ios-run DEVICE.")
 print(candidates[0])
@@ -46,11 +51,13 @@ fi
 
 bash apps/ios/scripts/build-rust.sh device
 (cd apps/ios && xcodegen generate --quiet)
+echo 'Building the iPhone app...'
 xcodebuild -quiet -project apps/ios/Beep.xcodeproj -scheme Beep \
     -configuration Debug -destination "id=$device" -derivedDataPath apps/ios/build/device \
     -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
     DEVELOPMENT_TEAM="$team" build
 app=apps/ios/build/device/Build/Products/Debug-iphoneos/Beep.app
 bundle=com.flashmind.beep
+echo 'Installing the iPhone app...'
 xcrun devicectl device install app --device "$device" "$app"
 xcrun devicectl device process launch --terminate-existing --device "$device" "$bundle"
