@@ -378,7 +378,6 @@ function drawSide() {
   }
   side.push(h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f))));
   $("#side").replaceChildren(...side);
-  restorePinFocus();
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
 }
@@ -418,24 +417,24 @@ function reloadChats() {
 /// give `chatRow` and the group's `onPick` a branch for them.
 async function pinnedProjects() { return []; }
 
-/// The chat whose pin button had the keyboard focus before a pin, so the
-/// redrawn row gets it back.
-let pinFocus = null;
-
-function restorePinFocus() {
-  if (pinFocus) document.querySelector(`.cc-chat .pa[data-id="${CSS.escape(pinFocus)}"]`)?.focus();
+/// Gives the pin button of chat `id` the focus again, unless focus has gone
+/// elsewhere meanwhile (a redraw leaves it on the page body).
+function restorePinFocus(id) {
+  const on = document.activeElement;
+  if (on && on !== document.body) return;
+  document.querySelector(`.cc-chat .pa[data-id="${CSS.escape(id)}"]`)?.focus();
 }
 
 async function setPinned(c, pinned) {
-  if (document.activeElement?.classList.contains("pa") && document.activeElement.dataset.id === c.id) pinFocus = c.id;
+  const active = document.activeElement;
+  const hadFocus = active?.classList.contains("pa") && active.dataset.id === c.id;
   try {
     await invoke(c.kind === "group" ? "pin_group" : "pin_session", { id: c.id, pinned });
   } catch (e) {
     console.warn("pinning a chat:", e);
   }
   await reloadChats();
-  restorePinFocus();
-  pinFocus = null;
+  if (hadFocus) restorePinFocus(c.id);
 }
 
 function chatRow(c) {
