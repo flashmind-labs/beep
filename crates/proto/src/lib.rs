@@ -669,6 +669,20 @@ requests! {
     /// Dismisses updates by `AppUpdate::id`, so they leave the list. Ids
     /// the caller does not have are skipped.
     161 DismissUpdates { ids: Vec<i64> } => Call<()>
+    /// The caller's credentials: a GitHub token, a token per Forgejo or
+    /// Gitea server, and API keys, one per provider. Never the secrets
+    /// themselves, only their last four characters.
+    162 ListCredentials {} => Call<Vec<Credential>>
+    /// Saves a credential, replacing the caller's one of the same kind (for
+    /// Forgejo, the same server). A GitHub or Forgejo token is checked with
+    /// its host first, and an OpenRouter key with OpenRouter; `BadRequest`
+    /// saying why when the host refuses it, or for an unknown provider or a
+    /// bad server URL. Git tokens always go to the caller's machines; an API
+    /// key only with `to_machines`, as its provider's env var.
+    163 SaveCredential { kind: CredentialKind, secret: SecretText, to_machines: bool } => Call<Credential>
+    /// Removes one of the caller's credentials, by `Credential::id`, from
+    /// Beep and their machines. `NotFound` when the caller has no such one.
+    164 RemoveCredential { id: String } => Call<()>
     /// A one-time setup token that links a machine to the caller's account:
     /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
     /// It works for ten minutes. `name` is what the machine is called once
@@ -685,20 +699,6 @@ requests! {
     /// machine linked, even one set up again. `NotFound` when the caller
     /// made no such token; `BadRequest` when `token` is not one.
     182 GetNodeToken { token: String } => Call<Option<String>>
-    /// The caller's credentials: a GitHub token, a token per Forgejo or
-    /// Gitea server, and API keys, one per provider. Never the secrets
-    /// themselves, only their last four characters.
-    162 ListCredentials {} => Call<Vec<Credential>>
-    /// Saves a credential, replacing the caller's one of the same kind (for
-    /// Forgejo, the same server). A GitHub or Forgejo token is checked with
-    /// its host first, and an OpenRouter key with OpenRouter; `BadRequest`
-    /// saying why when the host refuses it, or for an unknown provider or a
-    /// bad server URL. Git tokens always go to the caller's machines; an API
-    /// key only with `to_machines`, as its provider's env var.
-    163 SaveCredential { kind: CredentialKind, secret: SecretText, to_machines: bool } => Call<Credential>
-    /// Removes one of the caller's credentials, by `Credential::id`, from
-    /// Beep and their machines. `NotFound` when the caller has no such one.
-    164 RemoveCredential { id: String } => Call<()>
 }
 
 /// One project's sync across the caller's machines.
