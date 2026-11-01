@@ -2,10 +2,7 @@
 //! pull requests, and a worker's idle close. The schedule itself is pure;
 //! [`run`] sleeps until the next one is due and hands it to the projects.
 
-use super::{
-    lifecycle,
-    model::{ProjectId, WorkerId},
-};
+use super::model::{ProjectId, WorkerId};
 use crate::app::App;
 use chrono::{DateTime, Utc};
 use std::{
@@ -21,6 +18,8 @@ pub(crate) enum Due {
     Check(ProjectId),
     /// Close the worker if it is still idle.
     Idle(WorkerId),
+    /// Run the worker's waiting jobs, which found the queue full.
+    Worker(WorkerId),
 }
 
 /// What is armed, and when. Arming something armed moves it.
@@ -86,10 +85,9 @@ pub(crate) async fn run(app: Weak<App>, armed: Arc<Notify>) {
             None => notified.await,
         }
         let Some(app) = app.upgrade() else { return };
-        for due in app.projects.take_due(Utc::now()) {
-            app.projects.spawn(&app, move |app| async move {
-                lifecycle::on_due(&app, due, Utc::now()).await
-            });
+        let now = Utc::now();
+        for due in app.projects.take_due(now) {
+            app.projects.run_due(&app, due, now);
         }
     }
 }

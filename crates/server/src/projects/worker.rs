@@ -13,6 +13,7 @@ use super::{
         WorkerAgent, WorkerState,
     },
     place::{MachineFit, PlaceError, PlaceRequest, place},
+    service::{Job, JobKind},
     turn::read_personas,
 };
 use crate::{
@@ -420,9 +421,10 @@ pub(crate) async fn launch(
         Ok(link) => {
             let info = link.now().info;
             let id = worker.id;
-            app.projects.spawn(app, move |app| async move {
+            let job = Job::new(JobKind::CatchUp, move |app| async move {
                 lifecycle::caught_up(&app, id, info).await
             });
+            app.projects.spawn_for(app, id, job);
         }
         Err(error) => log::warn!("projects: unable to read a new worker's session: {error:#}"),
     }
