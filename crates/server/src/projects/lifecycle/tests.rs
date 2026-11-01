@@ -114,9 +114,11 @@ impl Harness {
         user.set_worker_state(worker.id, WorkerState::Running)
             .await
             .expect("running");
-        user.worker_turn(worker.id, 1, "Done.", last_turn)
-            .await
-            .expect("a turn");
+        assert!(
+            user.worker_turn(worker.id, 1, "Done.", last_turn)
+                .await
+                .expect("a turn")
+        );
         user.set_task_state(task.id, state)
             .await
             .expect("the state");
@@ -459,4 +461,29 @@ async fn a_failed_reattach_leaves_the_worker() {
             .any(|(label, text)| label == REPLAN_LABEL && text.contains("is gone")),
         "{posts:?}"
     );
+}
+
+#[tokio::test]
+async fn a_late_turn_report_changes_nothing() {
+    let h = harness().await;
+    let (_, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
+    let user = &h.user;
+    assert!(
+        user.worker_turn(worker.id, 3, "Third.", now())
+            .await
+            .expect("a turn")
+    );
+    user.set_worker_asking(worker.id, true)
+        .await
+        .expect("asking");
+    // Turn 2's report, handled after turn 3's and the question.
+    let noted = user
+        .worker_turn(worker.id, 2, "Second.", now())
+        .await
+        .expect("a turn");
+    assert!(!noted);
+    let row = h.worker(&worker).await;
+    assert_eq!(row.turns_seen, 3);
+    assert!(row.asking);
+    assert_eq!(row.last_output.as_deref(), Some("Third."));
 }

@@ -256,12 +256,14 @@ impl Projects {
                     lifecycle::on_due(&app, due, Utc::now()).await
                 }),
             ),
-            Due::Idle(_) => self.spawn(
-                app,
-                Job::new(JobKind::IdleClose, move |app| async move {
+            // Behind the worker's reports, so it sees the latest of them.
+            Due::Idle(worker) => {
+                let job = Job::new(JobKind::IdleClose, move |app| async move {
                     lifecycle::on_due(&app, due, Utc::now()).await
-                }),
-            ),
+                });
+                self.spawn_for(app, worker, job);
+                true
+            }
         };
         if !queued {
             self.arm(due, now + DROPPED_RETRY);
@@ -618,6 +620,39 @@ mod tests {
             projects.run_due(app, due, retry);
         }
         report.await.expect("the report ran");
+    }
+
+    #[tokio::test]
+    async fn a_workers_jobs_run_in_order() {
+        let h = Harness::new(Scripted::default()).await;
+        let (app, projects) = (&h.app, &h.app.projects);
+        let worker = WorkerId(Uuid::new_v4());
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let (started, first_started) = oneshot::channel();
+        let (release, gate) = oneshot::channel::<()>();
+        let (done, second_done) = oneshot::channel();
+        let first = {
+            let order = order.clone();
+            Job::new(JobKind::News, move |_| async move {
+                started.send(()).map_err(|()| anyhow!("the test stopped"))?;
+                gate.await?;
+                lock(&order).push(1);
+                Ok(())
+            })
+        };
+        let second = {
+            let order = order.clone();
+            Job::new(JobKind::IdleClose, move |_| async move {
+                lock(&order).push(2);
+                done.send(()).map_err(|()| anyhow!("the test stopped"))
+            })
+        };
+        projects.spawn_for(app, worker, first);
+        projects.spawn_for(app, worker, second);
+        first_started.await.expect("the first job starts");
+        release.send(()).expect("the first job waits");
+        second_done.await.expect("the second job runs");
+        assert_eq!(*lock(&order), vec![1, 2]);
     }
 
     #[test]

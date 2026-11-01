@@ -893,18 +893,20 @@ impl Store {
     }
 
     /// Notes a finished turn: the worker waits, not asking anything, with
-    /// `turns` of its session's turns heard about. An ended worker stays ended.
+    /// `turns` of its session's turns heard about. An ended worker stays
+    /// ended, and a turn no later than one already noted changes nothing, so
+    /// a late report cannot undo newer news. Says whether it was noted.
     pub(crate) async fn worker_turn(
         &self,
         id: WorkerId,
         turns: u32,
         last_output: &str,
         at: DateTime<Utc>,
-    ) -> Result<()> {
-        sqlx::query(
+    ) -> Result<bool> {
+        let noted = sqlx::query(
             "UPDATE project_workers SET state=$2, asking=false, turns_seen=$3, last_output=$4,
                  last_turn_at=$5
-             WHERE id=$1 AND state = ANY($6)",
+             WHERE id=$1 AND state = ANY($6) AND turns_seen < $3",
         )
         .bind(id.0)
         .bind(<&str>::from(WorkerState::Waiting))
@@ -913,8 +915,9 @@ impl Store {
         .bind(at)
         .bind(live_states())
         .execute(&self.pool)
-        .await?;
-        Ok(())
+        .await?
+        .rows_affected();
+        Ok(noted == 1)
     }
 
     pub(crate) async fn set_worker_asking(&self, id: WorkerId, asking: bool) -> Result<()> {
