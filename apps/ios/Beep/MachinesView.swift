@@ -7,6 +7,7 @@ struct MachinesView: View {
     @Environment(AppModel.self) private var model
     let back: () -> Void
     @State private var machines: [Machine]?
+    @State private var stats: [String: MachineStats] = [:]
     @State private var open: String?
     @State private var error = ""
 
@@ -15,7 +16,7 @@ struct MachinesView: View {
         VStack(spacing: 0) {
             BackBar(title: shown?.name ?? "Machines", back: { if shown != nil { open = nil } else { back() } })
             if let shown {
-                MachineDetail(machine: shown)
+                MachineDetail(machine: shown, stats: stats[shown.id])
             } else {
                 list
             }
@@ -37,7 +38,7 @@ struct MachinesView: View {
                                 .frame(maxWidth: .infinity).padding(.vertical, 40).padding(.horizontal, 12)
                         } else {
                             ForEach(machines, id: \.id) { machine in
-                                Button { open = machine.id } label: { MachineCard(machine: machine) }
+                                Button { open = machine.id } label: { MachineCard(machine: machine, stats: stats[machine.id]) }
                                     .buttonStyle(.plain)
                             }
                             Text("Beep runs commands and coding agents on these when you ask. Each one runs beep-node and is linked like a computer.")
@@ -57,7 +58,10 @@ struct MachinesView: View {
 
     private func refresh() async {
         do {
-            machines = try await model.machines()
+            async let live = model.machineStats()
+            let list = try await model.machines()
+            stats = await live
+            machines = list
             error = ""
         } catch {
             self.error = describe(error)
@@ -81,6 +85,72 @@ private func signIns(_ env: MachineEnv) -> String {
     }.joined(separator: ", ")
 }
 
+/// Bytes in SI units, as the desktop shows them: "212 GB", "9.1 GB".
+private func bytes(_ n: UInt64) -> String {
+    let units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    var v = Double(n)
+    var i = 0
+    while v >= 1000 && i < units.count - 1 { v /= 1000; i += 1 }
+    return (v >= 10 || i == 0 ? String(Int(v.rounded())) : String(format: "%.1f", v)) + " " + units[i]
+}
+
+/// GB from MiB, one decimal under 10: "9.1", "32".
+private func gb(_ mb: UInt64) -> String {
+    let n = Double(mb) / 1024
+    return n >= 10 ? String(Int(n.rounded())) : String(format: "%.1f", n)
+}
+
+/// Free space on a volume, low under a tenth free.
+private struct DiskFree {
+    let text: String
+    let low: Bool
+
+    init(free: UInt64, total: UInt64) {
+        text = "\(bytes(free)) free"
+        low = Double(free) / Double(total) < 0.1
+    }
+
+    /// Where the machine keeps the user's files, or nil without a measured volume.
+    init?(_ stats: MachineStats?) {
+        guard let disk = stats?.disks.first, disk.totalBytes > 0 else { return nil }
+        self.init(free: disk.freeBytes, total: disk.totalBytes)
+    }
+}
+
+/// "9.1 / 32 GB", or nil without a memory reading.
+private func memoryUse(_ stats: MachineStats?) -> String? {
+    guard let stats, stats.memoryTotalMb > 0 else { return nil }
+    return "\(gb(stats.memoryUsedMb)) / \(gb(stats.memoryTotalMb)) GB"
+}
+
+/// "1.25 on 8 cores", or nil when the machine gives no load.
+private func loadText(_ load: Double?, cpus: UInt32?) -> String? {
+    guard let load else { return nil }
+    let cores = cpus.flatMap { $0 > 0 ? " on \($0) cores" : nil } ?? ""
+    return String(format: "%.2f", load) + cores
+}
+
+/// Disk free and memory in use on one line, coral when the disk is low. Nothing when offline or unmeasured.
+private struct StatsLine: View {
+    let machine: Machine
+    let stats: MachineStats?
+
+    var body: some View {
+        let disk = machine.online ? DiskFree(stats) : nil
+        let memory = machine.online ? memoryUse(stats) : nil
+        if disk != nil || memory != nil {
+            HStack(spacing: 0) {
+                if let disk {
+                    Text(disk.text).font(.body(12, disk.low ? .medium : .regular))
+                        .foregroundStyle(disk.low ? Mint.error : Mint.muted)
+                }
+                if disk != nil && memory != nil { Text(" · ").font(.body(12)).foregroundStyle(Mint.dim) }
+                if let memory { Text("\(memory) memory").font(.body(12)).foregroundStyle(Mint.muted) }
+            }
+        }
+    }
+}
+
 private struct StatusDot: View {
     let online: Bool
     var body: some View { Circle().fill(online ? Mint.ok : Mint.dim).frame(width: 8, height: 8) }
@@ -88,6 +158,7 @@ private struct StatusDot: View {
 
 private struct MachineCard: View {
     let machine: Machine
+    let stats: MachineStats?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -98,6 +169,7 @@ private struct MachineCard: View {
                     StatusDot(online: machine.online)
                     Text(seen(machine)).font(.body(12)).foregroundStyle(Mint.muted)
                 }
+                StatsLine(machine: machine, stats: stats)
                 if let env = machine.env {
                     Text(system(env)).font(.body(12)).foregroundStyle(Mint.muted)
                     if !env.tools.isEmpty {
@@ -130,6 +202,7 @@ private struct MachineCard: View {
 /// Everything a machine reported, in sections.
 private struct MachineDetail: View {
     let machine: Machine
+    let stats: MachineStats?
 
     var body: some View {
         ScrollView {
@@ -146,6 +219,7 @@ private struct MachineDetail: View {
                     }
                 }
                 .padding(.horizontal, 4)
+                if machine.online, let stats { live(stats) }
                 if let env = machine.env {
                     section("System")
                     facts([("OS", env.osVersion.isEmpty ? env.os : env.osVersion), ("Chip", env.arch),
@@ -168,6 +242,33 @@ private struct MachineDetail: View {
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
+        }
+    }
+
+    /// Memory and load, then each volume measured with how much is free.
+    @ViewBuilder private func live(_ stats: MachineStats) -> some View {
+        let memory = memoryUse(stats)
+        let load = loadText(stats.load, cpus: machine.env?.cpus)
+        if memory != nil || load != nil {
+            section("Memory")
+            facts([memory.map { ("In use", $0) }, load.map { ("Load", $0) }].compactMap { $0 })
+        }
+        let disks = stats.disks.filter { $0.totalBytes > 0 }
+        if !disks.isEmpty {
+            section("Disk")
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(disks, id: \.path) { disk in
+                    let free = DiskFree(free: disk.freeBytes, total: disk.totalBytes)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(disk.path).font(.system(size: 13, design: .monospaced)).foregroundStyle(Mint.ink)
+                        Text("\(free.text) of \(bytes(disk.totalBytes))").font(.body(12, free.low ? .medium : .regular))
+                            .foregroundStyle(free.low ? Mint.error : Mint.muted)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .card()
         }
     }
 
