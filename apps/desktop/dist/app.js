@@ -253,7 +253,8 @@ function hints(items, extra = "") {
   items = forPane(items);
   const st = { unlinked: ["off", "Not linked"], revoked: ["bad", "Removed"] }[S.link];
   const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
-  return `<div class="dhints">${items.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}${extra}${link}</div>`;
+  // The first two say the most; the rest give way when the row is narrow.
+  return `<div class="dhints">${items.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}${extra}${link}</div>`;
 }
 /// The window does not hide and has no live mode, and ⌘K searches there.
 function forPane(items) {
@@ -385,6 +386,9 @@ function drawLatest() {
   bar.append(el);
 }
 
+/// Past this many prompts the map hides until the chat is hovered.
+const MAP_QUIET_AFTER = 12;
+
 /// A tick per prompt on the right edge once the chat scrolls: hover one to read
 /// the prompt, click it to jump there. Ticks are only rebuilt when the prompts
 /// change, since fit() calls this from the bar's MutationObserver.
@@ -394,6 +398,8 @@ function drawMap() {
   let map = $("#map");
   if (turns.length < 2 || b.scrollHeight <= b.clientHeight + 4) return map?.remove();
   if (!map) map = bar.appendChild(h('<div class="dmap" id="map" aria-label="Prompts in this chat"></div>'));
+  // A long chat's ticks are a wall of noise: they show only on hover.
+  map.classList.toggle("many", turns.length > MAP_QUIET_AFTER);
   if (map.turns?.length !== turns.length || map.turns.some((t, i) => t !== turns[i])) {
     map.turns = turns;
     map.replaceChildren(...turns.map(t => {
