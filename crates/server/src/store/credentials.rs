@@ -2,7 +2,7 @@
 
 use super::Store;
 use crate::{
-    credentials::{CredentialKey, Opened, Slot},
+    credentials::{CredentialKey, Opened, Owner, Slot},
     protocol::ApiProvider,
     user::UserKey,
 };
@@ -106,7 +106,12 @@ impl Store {
         new: NewCredential<'_>,
     ) -> Result<CredentialRow> {
         let id = Uuid::new_v4().simple().to_string();
-        let sealed = key.seal(&id, new.secret)?;
+        let owner = Owner {
+            user: user.as_str(),
+            slot: new.slot,
+            id: &id,
+        };
+        let sealed = key.seal(&owner, new.secret)?;
         let Columns {
             kind,
             provider,
@@ -155,7 +160,13 @@ impl Store {
             .map(|row| {
                 let id: String = row.try_get("id")?;
                 let sealed: Vec<u8> = row.try_get("secret")?;
-                credential_from(row, key.open(&id, &sealed).is_err())
+                let slot = slot_from(row)?;
+                let owner = Owner {
+                    user: user.as_str(),
+                    slot: &slot,
+                    id: &id,
+                };
+                credential_from(row, key.open(&owner, &sealed).is_err())
             })
             .collect()
     }
@@ -188,9 +199,18 @@ impl Store {
         for row in &rows {
             let id: String = row.try_get("id")?;
             let sealed: Vec<u8> = row.try_get("secret")?;
-            match (slot_from(row), key.open(&id, &sealed)) {
-                (Ok(slot), Ok(secret)) => out.push(Opened { slot, secret }),
-                (Err(e), _) | (_, Err(e)) => log::warn!("credential {id} skipped: {e:#}"),
+            let opened = slot_from(row).and_then(|slot| {
+                let owner = Owner {
+                    user: user.as_str(),
+                    slot: &slot,
+                    id: &id,
+                };
+                let secret = key.open(&owner, &sealed)?;
+                Ok(Opened { slot, secret })
+            });
+            match opened {
+                Ok(opened) => out.push(opened),
+                Err(e) => log::warn!("credential {id} skipped: {e:#}"),
             }
         }
         Ok(out)
@@ -318,5 +338,24 @@ mod tests {
 
         assert!(store.remove_credential(&alice, &second.id).await.unwrap());
         assert_eq!(store.credentials(&alice, &key).await.unwrap().len(), 2);
+
+        // A row moved to another user, as by a write that skipped the
+        // store, does not open for them.
+        sqlx::query("UPDATE credentials SET user_id=$1 WHERE id=$2")
+            .bind(bob.as_str())
+            .bind(&replaced.id)
+            .execute(&store.pool)
+            .await
+            .unwrap();
+        let moved = store.credentials(&bob, &key).await.unwrap();
+        assert_eq!(moved.len(), 1);
+        assert!(moved[0].unreadable);
+        assert!(
+            store
+                .machine_credentials(&bob, &key)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }
