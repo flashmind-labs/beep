@@ -25,11 +25,12 @@ pub struct Config {
     /// Postgres connection string. Falls back to `DATABASE_URL`.
     pub database_url: Option<SecretString>,
     pub model: String,
-    /// Models admins can pick for their own turns, besides `model`.
+    /// Models users can pick for their own turns, besides `model`.
     #[serde(default)]
     pub model_choices: Vec<Model>,
-    /// Models Jev may pick per prompt for an admin with Auto on, each with
-    /// what it is good for. Only offered models take part.
+    /// Models Jev may pick per prompt for a user with Auto on, each with
+    /// what it is good for. Only offered models take part; none leaves Auto
+    /// unavailable.
     #[serde(default)]
     pub auto_models: HashMap<Model, String>,
     /// The removed per-prompt agents. Ignored; kept so configs that still
@@ -38,7 +39,8 @@ pub struct Config {
     _agents: Option<IgnoredAny>,
     /// The models research roles run on. Research is off without it.
     pub research: Option<ResearchConfig>,
-    /// Endpoint ids of the users who get admin features.
+    /// Endpoint ids of the users who get operator features: machines,
+    /// account events and watchers.
     #[serde(default)]
     pub admins: Vec<EndpointId>,
     /// Describes images for models without vision, and for the saved

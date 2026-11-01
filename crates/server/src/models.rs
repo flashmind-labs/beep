@@ -1,5 +1,7 @@
-//! The models admins can pick for their own turns. Everyone else, and every
-//! admin who has not picked one, runs on the server default.
+//! The models every user can pick for their own turns. Whoever has not
+//! picked one runs on the server default. Also keeps who is an admin, for
+//! the operator features that stay theirs (machines, account events,
+//! watchers).
 
 use crate::{
     protocol::{ModelChoice, Models},
@@ -243,35 +245,29 @@ impl ModelChoices {
     }
 
     /// The model a user's turns run on, from what they picked. A pick that
-    /// is no longer offered, or made by someone no longer an admin, falls
-    /// back to the default.
-    pub fn for_user(&self, user: &str, picked: Option<&str>) -> &Model {
+    /// is no longer offered falls back to the default.
+    pub fn for_user(&self, picked: Option<&str>) -> &Model {
         picked
-            .filter(|_| self.is_admin(user))
             .and_then(|id| self.find(id))
             .unwrap_or_else(|| self.default_model())
     }
 
-    /// What `user` sees in the picker, with their settings marked.
-    pub fn for_picker(&self, user: &str, picked: &Picked) -> Models {
-        let admin = self.is_admin(user);
-        let choices = if admin {
-            self.choices
-                .iter()
-                .enumerate()
-                .map(|(i, choice)| ModelChoice {
-                    id: choice.model.to_string(),
-                    name: choice.name.clone(),
-                    input_price: choice.input_price,
-                    output_price: choice.output_price,
-                    sees_images: choice.sees_images,
-                    default: i == 0,
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let auto_available = admin && !self.auto.is_empty();
+    /// What a user sees in the picker, with their settings marked.
+    pub fn for_picker(&self, picked: &Picked) -> Models {
+        let choices = self
+            .choices
+            .iter()
+            .enumerate()
+            .map(|(i, choice)| ModelChoice {
+                id: choice.model.to_string(),
+                name: choice.name.clone(),
+                input_price: choice.input_price,
+                output_price: choice.output_price,
+                sees_images: choice.sees_images,
+                default: i == 0,
+            })
+            .collect();
+        let auto_available = !self.auto.is_empty();
         Models {
             choices,
             selected: picked.model.to_string(),
@@ -292,13 +288,24 @@ pub struct Picked<'a> {
 impl Choice {
     fn listed(model: Model, info: &ModelInfo) -> Self {
         Self {
-            name: info.name.clone().unwrap_or_else(|| model.name().to_owned()),
+            name: info
+                .name
+                .as_deref()
+                .map_or_else(|| model.name().to_owned(), short_name),
             input_price: per_million(info.pricing.prompt),
             output_price: per_million(info.pricing.completion),
             sees_images: info.capabilities.images,
             model,
         }
     }
+}
+
+/// A listed name without its maker, which the provider puts first:
+/// "OpenAI: GPT-5.6 Luna" reads "GPT-5.6 Luna".
+fn short_name(name: &str) -> String {
+    name.split_once(": ")
+        .map_or(name, |(_, short)| short)
+        .to_owned()
 }
 
 /// A per-token price as USD per million tokens.
@@ -310,15 +317,11 @@ fn per_million(price: Option<Decimal>) -> Option<f64> {
 mod tests {
     use super::*;
 
-    const ADMIN: &str = "admin";
-
     fn choices() -> ModelChoices {
         let mut models = ModelChoices::only("openrouter:z-ai/glm-5.3-flash".parse().unwrap());
-        models.admin_keys.insert("admin-key".to_owned());
-        models.admit(ADMIN, "admin-key");
         models.choices.push(Choice {
-            model: "openrouter:openai/gpt-6-luna".parse().unwrap(),
-            name: "GPT-6 Luna".into(),
+            model: "openrouter:openai/gpt-5.6-luna".parse().unwrap(),
+            name: "GPT-5.6 Luna".into(),
             input_price: Some(0.1),
             output_price: Some(0.5),
             sees_images: true,
@@ -327,21 +330,18 @@ mod tests {
     }
 
     #[test]
-    fn only_an_admin_pick_counts() {
+    fn anyone_s_pick_counts() {
         let models = choices();
-        let luna = Some("openrouter:openai/gpt-6-luna");
-        assert_eq!(models.for_user(ADMIN, luna).name(), "openai/gpt-6-luna");
-        assert_eq!(
-            models.for_user("someone", luna).name(),
-            "z-ai/glm-5.3-flash"
-        );
+        let luna = Some("openrouter:openai/gpt-5.6-luna");
+        assert_eq!(models.for_user(luna).name(), "openai/gpt-5.6-luna");
+        assert_eq!(models.for_user(None).name(), "z-ai/glm-5.3-flash");
     }
 
     #[test]
     fn a_pick_no_longer_offered_falls_back_to_the_default() {
         let models = choices();
         let gone = Some("openrouter:retired/model");
-        assert_eq!(models.for_user(ADMIN, gone).name(), "z-ai/glm-5.3-flash");
+        assert_eq!(models.for_user(gone).name(), "z-ai/glm-5.3-flash");
     }
 
     fn picked(model: &Model, auto: bool) -> Picked<'_> {
@@ -353,17 +353,19 @@ mod tests {
     }
 
     #[test]
-    fn only_admins_see_choices() {
+    fn everyone_sees_choices() {
         let models = choices();
         let default = models.default_model().clone();
         let picked = picked(&default, false);
-        assert_eq!(models.for_picker(ADMIN, &picked).choices.len(), 2);
-        assert!(models.for_picker("someone", &picked).choices.is_empty());
+        let choices = models.for_picker(&picked).choices;
+        assert_eq!(choices.len(), 2);
+        assert!(choices[0].default);
+        assert_eq!(choices[1].name, "GPT-5.6 Luna");
     }
 
     #[test]
     fn auto_takes_only_offered_models_in_choice_order() {
-        let luna: Model = "openrouter:openai/gpt-6-luna".parse().unwrap();
+        let luna: Model = "openrouter:openai/gpt-5.6-luna".parse().unwrap();
         let flash: Model = "openrouter:z-ai/glm-5.3-flash".parse().unwrap();
         let gone: Model = "openrouter:retired/model".parse().unwrap();
         let models = choices().with_auto(HashMap::from([
@@ -373,14 +375,20 @@ mod tests {
         ]));
         let auto: Vec<_> = models.auto().iter().map(|a| &a.model).collect();
         assert_eq!(auto, [&flash, &luna]);
-        assert_eq!(models.auto()[1].name, "GPT-6 Luna");
+        assert_eq!(models.auto()[1].name, "GPT-5.6 Luna");
 
         let on = picked(&flash, true);
-        let admin = models.for_picker(ADMIN, &on);
-        assert!(admin.auto && admin.auto_available);
-        let someone = models.for_picker("someone", &on);
-        assert!(!someone.auto && !someone.auto_available);
-        assert!(!choices().for_picker(ADMIN, &on).auto);
+        let shown = models.for_picker(&on);
+        assert!(shown.auto && shown.auto_available);
+        let off = models.for_picker(&picked(&flash, false));
+        assert!(!off.auto && off.auto_available);
+        assert!(!choices().for_picker(&on).auto);
+    }
+
+    #[test]
+    fn listed_names_drop_their_maker() {
+        assert_eq!(short_name("OpenAI: GPT-5.6 Luna"), "GPT-5.6 Luna");
+        assert_eq!(short_name("GPT-5.6 Luna"), "GPT-5.6 Luna");
     }
 
     #[test]

@@ -49,13 +49,10 @@ async fn picker(cx: &Cx) -> Reply<Models> {
         thinking,
         auto,
     };
-    Ok(cx.app.models.for_picker(cx.user.id(), &picked))
+    Ok(cx.app.models.for_picker(&picked))
 }
 
 pub(super) async fn set_model(cx: Cx, SetModel { id }: SetModel) -> Reply<Models> {
-    if !cx.app.models.is_admin(cx.user.id()) {
-        return Err(ApiError::Unauthorized {});
-    }
     let model = cx
         .app
         .models
@@ -68,9 +65,6 @@ pub(super) async fn set_model(cx: Cx, SetModel { id }: SetModel) -> Reply<Models
 }
 
 pub(super) async fn set_thinking(cx: Cx, SetThinking { level }: SetThinking) -> Reply<Models> {
-    if !cx.app.models.is_admin(cx.user.id()) {
-        return Err(ApiError::Unauthorized {});
-    }
     cx.user.set_thinking(level).await?;
     log::info!("thinking picked; user={} level={level}", cx.user.id());
     picker(&cx).await
@@ -80,9 +74,6 @@ pub(super) async fn set_auto_model(
     cx: Cx,
     SetAutoModel { enabled }: SetAutoModel,
 ) -> Reply<Models> {
-    if !cx.app.models.is_admin(cx.user.id()) {
-        return Err(ApiError::Unauthorized {});
-    }
     cx.user.set_auto_model(enabled).await?;
     log::info!("auto model set; user={} enabled={enabled}", cx.user.id());
     picker(&cx).await
