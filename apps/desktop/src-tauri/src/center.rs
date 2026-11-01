@@ -322,7 +322,7 @@ fn machine_cards(
                 capabilities: detail
                     .iter()
                     .flat_map(|d| &d.capabilities)
-                    .map(|c| c.as_str())
+                    .map(|c| <&'static str>::from(*c))
                     .collect(),
                 id: machine.id,
                 name: machine.name,
@@ -351,7 +351,7 @@ impl From<&MachineSession> for RunningRow {
             agent: session.agent.clone(),
             title: session.title.clone(),
             cwd: session.cwd.clone(),
-            status: session.status.as_str(),
+            status: session.status.into(),
             doing: session.doing.clone(),
             started_at: epoch_ms(session.started_at),
             last_activity: epoch_ms(session.last_activity),
@@ -376,7 +376,7 @@ impl From<&ResearchSummary> for RunningRow {
 /// Everything waiting on an answer, oldest first. An agent question counts
 /// from its session's last activity. A chat approval carries no time of its
 /// own, so it counts from its chat's last change; a chat the list lacks
-/// keeps the place the server gave it, after the approval before it.
+/// counts as the newest, so it comes last.
 fn needs_you<'a>(
     sessions: impl Iterator<Item = &'a MachineSession>,
     approvals: Vec<ChatApproval>,
@@ -402,11 +402,10 @@ fn needs_you<'a>(
             ));
         }
     }
-    let mut since = 0;
     for approval in approvals {
-        if let Some(&at) = changed.get(approval.session_id.to_string().as_str()) {
-            since = u64::try_from(at).unwrap_or(0);
-        }
+        let since = changed
+            .get(approval.session_id.to_string().as_str())
+            .map_or(u64::MAX, |&at| u64::try_from(at).unwrap_or(0));
         waiting.push((
             since,
             NeedsYou::Chat {
@@ -603,5 +602,16 @@ mod tests {
             })
             .collect();
         assert_eq!(order, ["early", "chat", "late"]);
+    }
+
+    #[test]
+    fn approval_of_a_missing_chat_comes_last() {
+        let view = home_view(HomeParts {
+            sessions: Ok(vec![asking("build-box", "agent", 5000)]),
+            approvals: Ok(vec![approval(Uuid::new_v4())]),
+            ..parts()
+        });
+        assert!(matches!(view.needs_you[0], NeedsYou::Agent { .. }));
+        assert!(matches!(view.needs_you[1], NeedsYou::Chat { .. }));
     }
 }
