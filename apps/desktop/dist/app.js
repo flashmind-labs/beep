@@ -144,7 +144,22 @@ function toolLabel(name) {
 }
 
 const bar = document.getElementById("bar");
-const S = {
+/// True when this page runs as a pane in the command center window rather
+/// than as the bar. A few bar-only spots check it.
+const PANE = bar.dataset.mode === "window";
+/// Told when the view or the open chat changes, for the window's sidebar.
+const changeListeners = [];
+let changeQueued = false;
+function changed() {
+  if (changeQueued || !changeListeners.length) return;
+  changeQueued = true;
+  queueMicrotask(() => {
+    changeQueued = false;
+    const now = { view: S.view, session: S.session, group: GROUP_VIEWS.has(S.view) ? G.id : null };
+    for (const fn of changeListeners) { try { fn(now); } catch {} }
+  });
+}
+const S = new Proxy({
   view: "chat", // chat | chats | group | ginfo | invite | gnew | link | revoked | settings | memories | routines | rnew | skills | model
   link: "unlinked",
   session: null,
@@ -152,7 +167,14 @@ const S = {
   cache: [], // the last chat list, drawn at once while a fresh one loads
   offer: null,
   timer: null,
-};
+}, {
+  set(t, k, v) {
+    const old = t[k];
+    t[k] = v;
+    if ((k === "view" || k === "session") && old !== v) changed();
+    return true;
+  },
+});
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const h = html => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; };
@@ -201,7 +223,7 @@ function fit() {
     if ($("#viewer")) height = Math.max(height, VIEWER_HEIGHT);
     const keys = $("#keys");
     if (keys) height = Math.max(height, natural(keys) + 2);
-    if (height !== barHeight) {
+    if (!PANE && height !== barHeight) {
       barHeight = height;
       invoke("resize_bar", { height }).catch(() => {});
     }
@@ -228,9 +250,17 @@ new MutationObserver(() => {
 // ---------- Hints ----------
 
 function hints(items, extra = "") {
+  items = forPane(items);
   const st = { unlinked: ["off", "Not linked"], revoked: ["bad", "Removed"] }[S.link];
   const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
   return `<div class="dhints">${items.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}${extra}${link}</div>`;
+}
+/// The window does not hide and has no live mode, and ⌘K searches there.
+function forPane(items) {
+  if (!PANE) return items;
+  return items
+    .filter(([k, t]) => t !== "to hide" && t !== "live" && t !== "talk")
+    .map(([k, t]) => k === "⌘K" ? [k, "search"] : [k, t]);
 }
 function chatHints() {
   const e = here();
@@ -245,6 +275,7 @@ function chatHints() {
   if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.trim()) return hints([[ICON.ret, "ask"], ["⌘R", "research"], ["esc", "to hide"]], chip);
+  if (PANE) return hints([["⌘K", "search"], ["⌘N", "new chat"], [`⇧${ICON.ret}`, "new line"], ["⌥ ⌥", "quick chat"]], chip);
   if (!knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["tap ⌥", "live"], ["hold ⌥", "talk"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
 }
@@ -274,7 +305,7 @@ function drawStop() {
 function renderChat() {
   S.view = "chat";
   bar.innerHTML = `<div class="dinput dgrow"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea><div class="dgrip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the prompt" title="Drag to resize, double-click to reset"></div></div>
-    <div class="dbody" id="body"></div>${chatHints()}`;
+    <div class="dbody" id="body"></div>${PANE ? "" : `<div class="dhand"><button class="dbtn" data-act="openWindow">Open in Beep window<kbd>⌘O</kbd></button></div>`}${chatHints()}`;
   const kept = here()?.body;
   if (kept) $("#body").replaceWith(kept);
   const b = body();
@@ -933,6 +964,13 @@ async function newChat() {
   await invoke("new_chat");
 }
 
+/// Hands a view to the command center window, which hides the bar.
+function toWindow(target) {
+  return invoke("center_open", { target }).catch(() => {});
+}
+/// Opens chat `id` (null for a new one) in the window.
+const openInWindow = id => toWindow({ chat: { session: id ?? null } });
+
 async function openSession(id) {
   S.session = id;
   loadQuestions(id);
@@ -1166,7 +1204,7 @@ function rowActions(c) {
   const pin = `<button class="dbtn" data-a="pin">${c.pinned ? "Unpin" : "Pin"}<kbd>⌘P</kbd></button>`;
   return c.kind === "group"
     ? `<span class="acts">${pin}<button class="dbtn" data-a="invite">Invite</button><button class="dbtn" data-a="info">Info</button><button class="dbtn warn" data-a="leave">Leave</button></span>`
-    : `<span class="acts"><button class="dbtn" data-a="rename">Rename<kbd>⌘R</kbd></button>${pin}<button class="dbtn" data-a="share">Share</button><button class="dbtn warn" data-a="delete">Delete<kbd>⌘⌫</kbd></button></span>`;
+    : `<span class="acts">${PANE ? "" : '<button class="dbtn" data-a="window">Open in window<kbd>⌘O</kbd></button>'}<button class="dbtn" data-a="rename">Rename<kbd>⌘R</kbd></button>${pin}<button class="dbtn" data-a="share">Share</button><button class="dbtn warn" data-a="delete">Delete<kbd>⌘⌫</kbd></button></span>`;
 }
 
 function chatRow(c, i) {
@@ -1230,6 +1268,7 @@ async function chatAction(a) {
     switch (a) {
       case "rename": case "delete": if (c.kind === "chat") chatMode(a); break;
       case "cancel": chatMode("list"); break;
+      case "window": if (c.kind === "chat") await openInWindow(c.id); break;
       case "rename-save": {
         const title = $("#rename").value.trim();
         if (title && title !== c.title) await invoke("rename_session", { id: c.id, title });
@@ -1790,7 +1829,8 @@ function groupHints() {
 /// Opens a group in the bar. `then` opens its info, or info with Leave asked.
 async function renderGroup(id, then) {
   if (G.id !== id) { G.chat = null; G.pending = []; G.error = ""; }
-  G.id = id;
+  // The view may stay "group", so a new group is a change of its own.
+  if (G.id !== id) { G.id = id; changed(); }
   G.mention = null;
   G.leave = false;
   S.view = "group";
@@ -4169,7 +4209,8 @@ function drawMachines() {
 async function refreshStatus() {
   const st = await invoke("status");
   S.link = st.link;
-  if (S.session === null) S.session = st.session;
+  // The bar's chat is not the window's.
+  if (S.session === null && !PANE) S.session = st.session;
   return st;
 }
 
@@ -4433,7 +4474,8 @@ function heard(turn, text) {
   ask.classList.remove("dmuted");
   touch(S.session, text);
 }
-listen("live", e => {
+// Live mode stays in the bar and the orb.
+if (!PANE) listen("live", e => {
   const v = e.payload;
   switch (v.kind) {
     case "view":
@@ -4499,7 +4541,7 @@ listen("live", e => {
 });
 
 // Only the Option double tap shows the bar without naming a view.
-listen("bar-shown", e => { barHeight = 0; if (e.payload == null) learnedHotkey(); show(e.payload); });
+if (!PANE) listen("bar-shown", e => { barHeight = 0; if (e.payload == null) learnedHotkey(); show(e.payload); });
 listen("link-state", async e => {
   S.link = e.payload;
   if (S.view === "link" && S.link === "linked") {
@@ -4845,7 +4887,7 @@ function back() {
     if (J.mode === "code") return renderGroupNew("new");
     return renderChats();
   }
-  invoke("hide_bar");
+  if (!PANE) invoke("hide_bar");
 }
 
 function chatsKeys(e, cmd) {
@@ -4864,6 +4906,9 @@ function chatsKeys(e, cmd) {
   } else if (e.key === "Tab" && c) {
     e.preventDefault();
     chatMode(mode === "actions" ? "list" : "actions");
+  } else if (!PANE && cmd && key === "o" && c?.kind === "chat") {
+    e.preventDefault();
+    chatAction("window");
   } else if (cmd && key === "p" && c) {
     e.preventDefault();
     chatAction("pin");
@@ -4889,7 +4934,7 @@ function groupKeys(e, cmd) {
   }
   if (mn && (e.key === "Enter" || e.key === "Tab") && !e.isComposing) { e.preventDefault(); return insertMention(mn.sel); }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); return sendGroup(); }
-  if (e.key === "ArrowUp" && !e.target.value) { e.preventDefault(); return renderChats(); }
+  if (!PANE && e.key === "ArrowUp" && !e.target.value) { e.preventDefault(); return renderChats(); }
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") setTimeout(findMention);
 }
 
@@ -4916,8 +4961,18 @@ function liveKeys(e, cmd) {
   return false;
 }
 
+/// In the window, whether the pane is the view on screen; Home takes the keys
+/// while it shows.
+let paneMounted = false;
+/// Keys the window keeps for itself: its palette and its views.
+const WINDOW_KEYS = new Set(["k", "m", "j", "l", ","]);
+
 document.addEventListener("keydown", e => {
   const cmd = e.metaKey;
+  if (PANE && !paneMounted) return;
+  // A key meant for the sidebar (Enter on a row) is not the pane's.
+  if (PANE && !cmd && e.target !== document.body && !bar.contains(e.target)) return;
+  if (PANE && cmd && WINDOW_KEYS.has(e.key.toLowerCase())) return;
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (LV.on && liveKeys(e, cmd)) return;
   if (cmd && e.key === "/") { e.preventDefault(); return toggleKeys(); }
@@ -4930,11 +4985,13 @@ document.addEventListener("keydown", e => {
   }
   if (S.view === "link" || S.view === "revoked") return;
   const key = e.key.toLowerCase();
-  if (cmd && e.key === ",") { e.preventDefault(); return renderSettings(); }
+  // These views live in the window now; before linking the bar keeps them.
+  const linked = S.link === "linked";
+  if (cmd && e.key === ",") { e.preventDefault(); return linked ? toWindow("settings") : renderSettings(); }
   if (cmd && key === "q") { e.preventDefault(); return invoke("quit"); }
-  if (cmd && key === "m") { e.preventDefault(); return renderMemories(); }
-  if (cmd && key === "j") { e.preventDefault(); return renderRoutines(); }
-  if (cmd && key === "l") { e.preventDefault(); return renderSkills(); }
+  if (cmd && key === "m") { e.preventDefault(); return linked ? toWindow("memories") : renderMemories(); }
+  if (cmd && key === "j") { e.preventDefault(); return linked ? toWindow("routines") : renderRoutines(); }
+  if (cmd && key === "l") { e.preventDefault(); return linked ? toWindow("skills") : renderSkills(); }
   if (cmd && key === "r" && S.view !== "chats") { e.preventDefault(); return researchShortcut(); }
   if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
   if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
@@ -4954,10 +5011,10 @@ document.addEventListener("keydown", e => {
     if (cmd && e.key === "Enter" && asked) { e.preventDefault(); return answerWork(S.session, asked, e.altKey ? "always" : "allow"); }
     if (cmd && key === "d" && asked) { e.preventDefault(); return answerWork(S.session, asked, "deny"); }
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
-    if (cmd && !e.shiftKey && !e.altKey && e.key === "Enter" && e.target.id === "ask" && !e.target.value.trim()) { e.preventDefault(); return invoke("open_center").catch(() => {}); }
+    if (!PANE && cmd && key === "o") { e.preventDefault(); return openInWindow(S.session); }
     if (cmd && e.shiftKey && e.key === "Enter" && e.target.id === "ask") { e.preventDefault(); return research(e.target.value); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
-    if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
+    if (!PANE && e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
     if (e.key === "Backspace" && !cmd && e.target.id === "ask" && !e.target.value && attachedCount()) { e.preventDefault(); return unattach(attachedCount() - 1); }
   }
   if (S.view === "chats") return chatsKeys(e, cmd);
@@ -4979,6 +5036,7 @@ document.addEventListener("keydown", e => {
 bar.addEventListener("click", e => {
   if (e.target.closest(".dhints .st")) return S.link === "revoked" ? renderRevoked() : renderLink();
   if (e.target.closest('[data-act="model"]')) return renderModel();
+  if (e.target.closest('[data-act="openWindow"]')) return openInWindow(S.session);
   if (S.view === "model") return modelClick(e);
   if (rerunClick(e)) return;
   if (e.target.closest(".dchart [data-series], .dchart [data-range]")) return void chartClick(e);
@@ -5018,4 +5076,91 @@ bar.addEventListener("click", e => {
 bar.addEventListener("load", e => { if (e.target.matches?.(".dprod-img img, .drec img")) e.target.classList.add("on"); }, true);
 bar.addEventListener("error", e => { if (e.target.matches?.(".dprod-img img, .drec img")) e.target.remove(); }, true);
 
-show(null);
+// An approval answered in another webview: its card here goes and the chat
+// follows the run the answer resumed. The bar has usually settled it already
+// from live mode's "answered" event, which comes first.
+listen("approval-answered", e => {
+  const { session, query_id } = e.payload ?? {};
+  const en = live.get(session), pending = en?.approval;
+  if (!pending || pending.queryId !== query_id) return;
+  en.approval = null;
+  pending.card.replaceWith(h('<div class="dmuted">Answered</div>'));
+  pending.turn.done = false;
+  if (!en.run) live.delete(session);
+  if (session !== S.session || S.view !== "chat") return;
+  refreshHints();
+  refreshSession(session).then(() => watchRun(session));
+});
+
+if (PANE) {
+  let started = null;
+  // Once per page: what the bar loads each time it shows, less live mode.
+  const start = () => started ??= refreshPaneStatus().catch(() => {});
+  async function refreshPaneStatus() {
+    const st = await invoke("status");
+    S.link = st.link;
+    const researches = loadResearches();
+    if (S.link === "linked") loadModels();
+    await researches;
+  }
+  /// Back on the chat or group the pane still shows, made current again
+  /// after `leave`.
+  function backOn() {
+    if (S.view === "group") return renderGroup(G.id);
+    if (S.session) invoke("open_session", { id: S.session }).catch(() => {});
+    focusAsk();
+  }
+  const VIEWS = {
+    chats: renderChats,
+    memories: renderMemories,
+    routines: renderRoutines,
+    skills: renderSkills,
+    apps: renderApps,
+    settings: renderSettings,
+  };
+  window.beepPane = {
+    /// Shows `target`, a CenterTarget in its JSON form.
+    async open(target) {
+      await start();
+      if (target && typeof target === "object" && "chat" in target) {
+        const id = target.chat?.session ?? null;
+        if (!id) return newChat();
+        if (id === S.session && S.view === "chat" && $("#ask")) return backOn();
+        return openSession(id);
+      }
+      // Groups are not a CenterTarget: only the window's sidebar opens them.
+      if (target && typeof target === "object" && "group" in target) return renderGroup(target.group.id);
+      if (VIEWS[target]) return VIEWS[target]();
+      if ((S.view === "chat" && $("#ask")) || (S.view === "group" && G.id)) return backOn();
+      return S.session ? openSession(S.session) : renderChat();
+    },
+    /// The pane goes off screen: the window stops showing its chat or group,
+    /// so their notices show again.
+    leave() {
+      if (S.view === "chat") invoke("new_chat").catch(() => {});
+      else if (GROUP_VIEWS.has(S.view)) invoke("close_group").catch(() => {});
+    },
+    /// Starts a new chat with `text` and streams it here.
+    async compose(text) {
+      await start();
+      await newChat();
+      return send(text);
+    },
+    /// Chats and groups, newest first, pinned ones as the bar lists them.
+    async chatRows() {
+      // The research set loads with the pane, so rows know which open their own window.
+      await start();
+      const [sessions, groups] = await Promise.all([invoke("list_sessions"), invoke("list_groups").catch(() => [])]);
+      return rows(sessions, groups).map(c => ({ ...c, research: RESEARCHES.has(c.id) }));
+    },
+    current: () => ({ view: S.view, session: S.session, group: GROUP_VIEWS.has(S.view) ? G.id : null }),
+    onChange(fn) { changeListeners.push(fn); },
+    /// Whether the pane is on screen and takes the keys.
+    mounted(on) {
+      paneMounted = !!on;
+      if (paneMounted && S.view === "chat") focusAsk();
+    },
+  };
+} else {
+  show(null);
+}

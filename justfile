@@ -93,7 +93,7 @@ links-deploy:
 
 # Format, lint and test the desktop app
 desktop-check:
-    cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+    cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ../../.. && node --test apps/desktop/tests/*.test.mjs
 
 # Build the iOS app for the simulator (Rust bridge, bindings, Xcode project)
 ios-build:
