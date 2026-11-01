@@ -655,7 +655,8 @@ wire_enum! {
     /// What a session is doing. `Waiting` and `Running` are only for
     /// external sessions: waiting for the user, or running with nothing
     /// more known.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "lowercase")]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentStatus {
         0 Starting {}
@@ -725,7 +726,8 @@ pub struct MachineGpu {
 
 wire_enum! {
     /// What a machine can be asked to do.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "lowercase")]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum MachineCapability {
         0 Gpu {}
@@ -1716,34 +1718,6 @@ impl ApprovalDecision {
             Self::Deny {} => "deny",
             Self::Allow {} => "allow",
             Self::Always {} => "always",
-        }
-    }
-}
-
-impl AgentStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Starting {} => "starting",
-            Self::Working {} => "working",
-            Self::Asking {} => "asking",
-            Self::Idle {} => "idle",
-            Self::Ended {} => "ended",
-            Self::Waiting {} => "waiting",
-            Self::Running {} => "running",
-        }
-    }
-}
-
-impl MachineCapability {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Gpu {} => "gpu",
-            Self::Cuda {} => "cuda",
-            Self::Blender {} => "blender",
-            Self::Unreal {} => "unreal",
-            Self::Xcode {} => "xcode",
-            Self::Android {} => "android",
-            Self::Docker {} => "docker",
         }
     }
 }
