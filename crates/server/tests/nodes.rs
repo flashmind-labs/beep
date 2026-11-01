@@ -18,18 +18,19 @@ use beep_server::{
     nodes::{self, Online},
     protocol::{
         AgentEntryKind, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
-        DeviceKind, GetAgentSession, ListAgentHosts, ListAgentSessions, ListMachineDetails,
-        ListMachines, ListMemoryScopes, MachineCapability, MemoryScope, MemorySource, RemoveDevice,
-        StartAgentSession, SteerAgentSession,
+        CreateNodeToken, DeviceKind, GetAgentSession, ListAgentHosts, ListAgentSessions,
+        ListMachineDetails, ListMachines, ListMemoryScopes, MachineCapability, MemoryScope,
+        MemorySource, RemoveDevice, RevokeNodeToken, StartAgentSession, SteerAgentSession,
         link::LinkOffer,
         node::{
-            EnvReport,
+            EnvReport, NodeSetup,
             agent::{
                 AnswerOption, Entry, EntryKind, Event, ExternalSession, OptionKind, PlanEntry,
                 PlanStatus, Presence, Question, Request, SESSIONS_PROTOCOL, SessionInfo,
                 SessionsReply, SessionsRequest, State, Status, StopReason,
             },
         },
+        setup::SetupToken,
     },
     push::Pusher,
     store::{Fact, NewKey, NewNode, Scope, TestDb},
@@ -1723,4 +1724,240 @@ async fn agent_control_needs_nodes_privilege() {
         ApiError::Unauthorized {}
     ));
     center.shutdown().await;
+}
+
+/// A server taking both phones and nodes on one endpoint, as the real one
+/// does, with alice as its admin.
+struct OneEndpoint {
+    db: TestDb,
+    app: Arc<App>,
+    router: Router,
+    alice: SecretKey,
+}
+
+async fn one_endpoint() -> OneEndpoint {
+    let db = TestDb::new().await.unwrap();
+    let store = db.store().await.unwrap();
+    let alice = SecretKey::generate();
+    let model = "openai:test".parse().unwrap();
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let app = App::new(
+        store.clone(),
+        Arc::new(NoModel),
+        AgentLlmConfig::new("openai:test".parse().unwrap()),
+        ServerTools::default(),
+        models,
+    );
+    let server_endpoint = endpoint(SecretKey::generate()).await;
+    let pusher = Pusher::with_retry_waits(
+        server_endpoint.clone(),
+        Arc::new(store),
+        None,
+        vec![Duration::from_millis(200)],
+    );
+    let nodes_handler = nodes::NodeHandler::new(app.clone(), server_endpoint.id());
+    let router = Router::builder(server_endpoint)
+        .accept(
+            transport::ALPN,
+            transport::BeepHandler::new(app.clone(), pusher),
+        )
+        .accept(nodes::NODE_ALPN, nodes_handler)
+        .spawn();
+    OneEndpoint {
+        db,
+        app,
+        router,
+        alice,
+    }
+}
+
+fn setup_of(token: &str) -> NodeSetup {
+    NodeSetup {
+        token: token.to_owned(),
+        name: None,
+    }
+}
+
+#[tokio::test]
+async fn a_machine_sets_itself_up_with_a_token_once() {
+    let server = one_endpoint().await;
+    let addr = server.router.endpoint().addr();
+    let (_phone, client) = phone(server.alice.clone(), &server.router).await;
+    let made = client
+        .call(&CreateNodeToken {
+            name: Some("build box".into()),
+        })
+        .await
+        .unwrap();
+    let token = SetupToken::parse(&made.token).unwrap();
+    assert_eq!(token.server, server.router.endpoint().id());
+    let left = made
+        .expires_at
+        .duration_since(SystemTime::now())
+        .expect("it expires later");
+    assert!(left <= Duration::from_secs(600) && left > Duration::from_secs(590));
+
+    // Only the hash is kept.
+    let pool = server.db.raw_pool().await.unwrap();
+    let stored: Vec<String> = sqlx::query_scalar("SELECT hash FROM node_tokens")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, [token.hash()]);
+    let text = made.token.to_lowercase().replace('-', "");
+    assert!(!stored[0].contains(&text[3..30]));
+
+    let key = SecretKey::generate();
+    let machine = endpoint(key.clone()).await;
+    let claimed = beep_node::link::claim(&machine, addr.clone(), "host", &setup_of(&made.token))
+        .await
+        .unwrap();
+    assert_eq!(claimed.name, "build box");
+    let alice_id = server
+        .app
+        .sign_in(&server.alice.public())
+        .await
+        .unwrap()
+        .expect("alice signs in")
+        .user
+        .id()
+        .to_owned();
+    assert_eq!(claimed.account, alice_id, "test accounts are named by id");
+    let user = server
+        .app
+        .sign_in_linked(&key.public())
+        .await
+        .unwrap()
+        .expect("the machine's key signs in")
+        .user;
+    assert_eq!(user.id(), alice_id);
+    let keys = user.account_keys().await.unwrap();
+    let linked = keys
+        .iter()
+        .find(|k| k.endpoint_id == key.public().to_string())
+        .expect("a key row");
+    assert_eq!(linked.name, "build box");
+    assert_eq!(linked.kind, DeviceKind::Desktop {});
+    let rows = user.nodes().await.unwrap();
+    assert_eq!(
+        rows[0].name, "build box",
+        "the node row is written on connect"
+    );
+
+    // Used: another machine is refused and links nothing.
+    let other = SecretKey::generate();
+    let refused = beep_node::link::claim(
+        &endpoint(other.clone()).await,
+        addr.clone(),
+        "host",
+        &setup_of(&made.token),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        format!("{refused:#}").contains("already used"),
+        "{refused:#}"
+    );
+    assert!(
+        server
+            .app
+            .sign_in_linked(&other.public())
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    // The linked machine now connects like any node.
+    let served = tokio::spawn(async move {
+        beep_node::link::connect(&machine, addr, "build box", &Offers::default()).await
+    });
+    let live = online(&server.app, &key.public().to_string()).await;
+    assert_eq!(live.name, "build box");
+    served.abort();
+    server.router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_expired_unknown_or_foreign_token_is_refused() {
+    let server = one_endpoint().await;
+    let addr = server.router.endpoint().addr();
+    let (_phone, client) = phone(server.alice.clone(), &server.router).await;
+    let made = client.call(&CreateNodeToken { name: None }).await.unwrap();
+    let pool = server.db.raw_pool().await.unwrap();
+    sqlx::query("UPDATE node_tokens SET expires_at = now() - interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let key = SecretKey::generate();
+    let machine = endpoint(key.clone()).await;
+    let expired = beep_node::link::claim(&machine, addr.clone(), "host", &setup_of(&made.token))
+        .await
+        .unwrap_err();
+    assert!(format!("{expired:#}").contains("expired"), "{expired:#}");
+
+    let unknown = SetupToken::generate(server.router.endpoint().id()).to_string();
+    let refused = beep_node::link::claim(&machine, addr.clone(), "host", &setup_of(&unknown))
+        .await
+        .unwrap_err();
+    assert!(format!("{refused:#}").contains("unknown"), "{refused:#}");
+
+    let foreign = SetupToken::generate(SecretKey::generate().public()).to_string();
+    let refused = beep_node::link::claim(&machine, addr, "host", &setup_of(&foreign))
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{refused:#}").contains("another server"),
+        "{refused:#}"
+    );
+    assert!(
+        server
+            .app
+            .sign_in_linked(&key.public())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    server.router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn only_the_maker_revokes_a_token() {
+    let server = one_endpoint().await;
+    let addr = server.router.endpoint().addr();
+    let (_alice_phone, alice) = phone(server.alice.clone(), &server.router).await;
+    let (_bob_phone, bob) = phone(SecretKey::generate(), &server.router).await;
+    // Bob is no admin, so he gets no token of his own.
+    let refused = bob.call(&CreateNodeToken { name: None }).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::Unauthorized {}
+    ));
+
+    let made = alice.call(&CreateNodeToken { name: None }).await.unwrap();
+    let revoke = RevokeNodeToken {
+        token: made.token.clone(),
+    };
+    let refused = bob.call(&revoke).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
+    let junk = bob
+        .call(&RevokeNodeToken {
+            token: "nope".into(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        junk.downcast::<ApiError>().unwrap(),
+        ApiError::BadRequest { .. }
+    ));
+
+    alice.call(&revoke).await.unwrap();
+    let machine = endpoint(SecretKey::generate()).await;
+    let refused = beep_node::link::claim(&machine, addr, "host", &setup_of(&made.token))
+        .await
+        .unwrap_err();
+    assert!(format!("{refused:#}").contains("unknown"), "{refused:#}");
+    server.router.shutdown().await.unwrap();
 }
