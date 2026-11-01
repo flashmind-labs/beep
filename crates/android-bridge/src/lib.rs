@@ -58,10 +58,12 @@ use tokio::{
 use uuid::Uuid;
 
 mod live;
+mod reply_voice;
 
 pub use live::{
     LeaveReason, LiveEvent, LiveListener, LivePhase, LiveSession, LiveStart, LiveView, ReplyFailure,
 };
+pub use reply_voice::{ReplyVoice, ReplyVoiceEvent, ReplyVoiceListener};
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
@@ -562,6 +564,15 @@ impl BeepClient {
         start: LiveStart,
     ) -> Arc<LiveSession> {
         LiveSession::start(self, listener, start)
+    }
+
+    /// Starts reading a reply aloud as it streams, for the chat's speak
+    /// button. See `ReplyVoice`.
+    pub async fn speak_reply(
+        self: Arc<Self>,
+        listener: Arc<dyn ReplyVoiceListener>,
+    ) -> Arc<ReplyVoice> {
+        ReplyVoice::start(self, listener)
     }
 
     /// Like `chat`, but makes the new chat `session_id` a research on
@@ -1370,6 +1381,12 @@ impl BeepClient {
     /// `refresh` asks for a new set instead of the server's cached one.
     pub async fn suggest_prompts(&self, refresh: bool) -> Result<PromptSuggestions, BeepError> {
         self.call(SuggestPrompts { refresh }).await
+    }
+}
+
+impl reply_voice::Voice for BeepClient {
+    async fn say(&self, text: String) -> Result<Vec<u8>, BeepError> {
+        Speech::say(self, text).await
     }
 }
 
