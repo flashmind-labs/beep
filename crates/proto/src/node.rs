@@ -369,7 +369,10 @@ mod tests {
         let body = rmp_serde::to_vec_named(&down).unwrap();
         assert_eq!(rmp_serde::from_slice::<Down>(&body).unwrap(), down);
         let debug = format!("{down:?}");
-        assert!(!debug.contains("9876") && !debug.contains("5555"), "{debug}");
+        assert!(
+            !debug.contains("9876") && !debug.contains("5555"),
+            "{debug}"
+        );
     }
 
     #[test]
@@ -379,8 +382,8 @@ mod tests {
         enum OldDown {
             Welcome {},
         }
-        let body = rmp_serde::to_vec_named(&Down::Credentials(MachineCredentials::default()))
-            .unwrap();
+        let body =
+            rmp_serde::to_vec_named(&Down::Credentials(MachineCredentials::default())).unwrap();
         assert!(rmp_serde::from_slice::<OldDown>(&body).is_err());
         let hello = NodeHello {
             version: "0.1.0".into(),
