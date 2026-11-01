@@ -79,22 +79,35 @@ impl Approvals {
     /// The questions `user`'s background work in `chat` waits on, oldest
     /// first.
     pub(crate) fn pending(&self, user: &str, chat: Uuid) -> Vec<PendingApproval> {
+        self.pending_all(user)
+            .into_iter()
+            .filter(|(asked_in, _)| *asked_in == chat)
+            .map(|(_, question)| question)
+            .collect()
+    }
+
+    /// The questions `user`'s background work waits on in every chat, oldest
+    /// first, each with the chat it was asked in.
+    pub(crate) fn pending_all(&self, user: &str) -> Vec<(Uuid, PendingApproval)> {
         let waiting = self.waiting();
-        let mut pending: Vec<(u64, PendingApproval)> = waiting
+        let mut pending: Vec<(u64, Uuid, PendingApproval)> = waiting
             .by_id
             .iter()
-            .filter(|(_, asked)| asked.question.user == user && asked.question.chat == chat)
+            .filter(|(_, asked)| asked.question.user == user)
             .map(|(query_id, asked)| {
                 let question = PendingApproval {
                     run_id: String::new(),
                     query_id: query_id.clone(),
                     approval: asked.question.approval.clone(),
                 };
-                (asked.order, question)
+                (asked.order, asked.question.chat, question)
             })
             .collect();
-        pending.sort_by_key(|(order, _)| *order);
-        pending.into_iter().map(|(_, question)| question).collect()
+        pending.sort_by_key(|(order, _, _)| *order);
+        pending
+            .into_iter()
+            .map(|(_, chat, question)| (chat, question))
+            .collect()
     }
 
     /// Shows `user` the card for a call of `tool` made in `chat`, and returns
@@ -218,5 +231,56 @@ impl Drop for Asked {
             self.approvals
                 .resolved(mem::take(&mut self.query_id), asked.question);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approvals() -> Arc<Approvals> {
+        let (notifications, _) = broadcast::channel(16);
+        Arc::new(Approvals::new(notifications))
+    }
+
+    fn card(action: &str) -> Approval {
+        Approval {
+            app: "Mail".to_owned(),
+            action: action.to_owned(),
+            fields: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn pending_all_spans_chats() {
+        let approvals = approvals();
+        let (first, second) = (Uuid::new_v4(), Uuid::new_v4());
+        let _a = approvals.ask("alice", first, "send", card("one"));
+        let _b = approvals.ask("alice", second, "send", card("two"));
+        let _c = approvals.ask("alice", first, "send", card("three"));
+        let _other = approvals.ask("bob", first, "send", card("bobs"));
+
+        let listed = approvals.pending_all("alice");
+        let seen: Vec<(Uuid, &str)> = listed
+            .iter()
+            .map(|(chat, question)| (*chat, question.approval.action.as_str()))
+            .collect();
+        assert_eq!(seen, [(first, "one"), (second, "two"), (first, "three")]);
+        assert_eq!(approvals.pending("alice", first).len(), 2);
+    }
+
+    #[test]
+    fn pending_all_drops_answered() {
+        let approvals = approvals();
+        let chat = Uuid::new_v4();
+        let withdrawn = approvals.ask("alice", chat, "send", card("one"));
+        let _kept = approvals.ask("alice", chat, "send", card("two"));
+        assert_eq!(approvals.pending_all("alice").len(), 2);
+
+        // Dropping the call's future ends the question, as an answer does.
+        drop(withdrawn);
+        let listed = approvals.pending_all("alice");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].1.approval.action, "two");
     }
 }

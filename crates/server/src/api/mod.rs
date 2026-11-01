@@ -194,6 +194,7 @@ pub fn router() -> Router {
         .call(list_machine_details)
         .call(agent_sessions::list_agent_sessions)
         .call(agent_sessions::answer_agent_question)
+        .call(work::list_pending_approvals)
 }
 
 type Reply<T> = Result<T, ApiError>;
