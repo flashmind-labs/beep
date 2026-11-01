@@ -6,7 +6,6 @@
 
 use super::{App, Draws, Message, run::register_web_tools};
 use crate::{
-    agents::AgentId,
     metering,
     protocol::DeviceKind,
     repeat,
@@ -211,7 +210,7 @@ impl App {
         let (app, user) = (self.clone(), user.clone());
         tokio::spawn(async move {
             let work = async {
-                metering::turn_agent(AgentId::Research);
+                metering::research_turn();
                 app.run_team(&user, id, &plan, &cancel).await
             };
             let ended = metering::in_turn(work).await;
@@ -729,7 +728,6 @@ impl App {
             request_id: Uuid::new_v4(),
             message: message.clone(),
             cron_id: None,
-            agent: None,
             scheduled: Some(FINISHED_LABEL.to_owned()),
             always_sent: true,
             woken: None,

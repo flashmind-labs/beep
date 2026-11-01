@@ -2,7 +2,6 @@
 
 use super::{Reply, chat_id, found};
 use crate::{
-    agents::AgentId,
     protocol::{search::match_snippet, *},
     router::Cx,
     steps,
@@ -106,23 +105,11 @@ pub(super) async fn get_session_agents(
     cx: Cx,
     GetSessionAgents { session_id }: GetSessionAgents,
 ) -> Reply<Vec<TurnAgent>> {
-    let turns = cx
-        .user
-        .turn_agents(chat_id(&session_id)?)
-        .await?
-        .ok_or(ApiError::NotFound {})?;
-    let agents = cx.app.models.agents();
-    Ok(turns
-        .into_iter()
-        .map(|turn| TurnAgent {
-            message: turn.sent_at,
-            agent: turn
-                .agent
-                .filter(|&id| id != AgentId::General)
-                .and_then(|id| agents.iter().find(|agent| agent.id == id))
-                .map(|agent| agent.name.clone()),
-        })
-        .collect())
+    // No turn runs as an agent now, so the apps show none.
+    if !cx.user.owns_session(chat_id(&session_id)?).await? {
+        return Err(ApiError::NotFound {});
+    }
+    Ok(Vec::new())
 }
 
 pub(super) async fn get_tool_labels(

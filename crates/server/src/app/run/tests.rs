@@ -96,7 +96,6 @@ fn message(session_id: Uuid) -> Message {
         request_id: Uuid::new_v4(),
         message: "Halloween events today in Tokyo".into(),
         cron_id: None,
-        agent: None,
         scheduled: None,
         always_sent: false,
         woken: None,

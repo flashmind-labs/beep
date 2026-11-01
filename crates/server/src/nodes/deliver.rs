@@ -259,7 +259,6 @@ fn message(chat: Uuid, label: &str, text: String) -> Message {
         request_id: Uuid::new_v4(),
         message: text,
         cron_id: None,
-        agent: None,
         scheduled: Some(label.to_owned()),
         always_sent: true,
         woken: None,

@@ -12,7 +12,7 @@ use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
 
 pub(super) const COLUMNS: &str = "id, user_id, label, prompt, schedule, enabled, run_once, created_at, \
-    last_run_at, chat_id::text AS session_id, kind, group_id::text AS group_id, agent";
+    last_run_at, chat_id::text AS session_id, kind, group_id::text AS group_id";
 
 /// A routine that wakes the agent with its prompt; the other kind is
 /// [`crate::digest::DIGEST_KIND`]. A routine's kind never changes.
@@ -25,7 +25,6 @@ pub(super) fn job_from(row: &PgRow) -> Result<CronJob> {
     let session_id: Option<String> = row.try_get("session_id")?;
     let kind: String = row.try_get("kind")?;
     let group_id: Option<String> = row.try_get("group_id")?;
-    let agent: Option<String> = row.try_get("agent")?;
     Ok(CronJob {
         id: id.parse().unwrap_or_else(|_| Uuid::new_v4()),
         schedule: decode_schedule(row.try_get("schedule")?),
@@ -33,7 +32,7 @@ pub(super) fn job_from(row: &PgRow) -> Result<CronJob> {
         enabled: row.try_get("enabled")?,
         once: row.try_get("run_once")?,
         metadata: json!({"user_id": user_id, "label": label, "session_id": session_id, "kind": kind,
-            "group_id": group_id, "agent": agent}),
+            "group_id": group_id}),
         created_at: row.try_get("created_at")?,
         last_run: row.try_get("last_run_at")?,
     })
@@ -94,11 +93,11 @@ impl Store {
         let schedule = encode_schedule(&job.schedule);
         sqlx::query(
             "INSERT INTO crons (user_id, id, label, prompt, schedule, enabled, run_once,
-                 created_at, last_run_at, chat_id, kind, group_id, agent)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                 created_at, last_run_at, chat_id, kind, group_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
              ON CONFLICT (user_id, id) DO UPDATE SET label=$3, prompt=$4, schedule=$5,
                  enabled=$6, run_once=$7, last_run_at=$9,
-                 chat_id=COALESCE($10, crons.chat_id), agent=COALESCE($13, crons.agent)",
+                 chat_id=COALESCE($10, crons.chat_id)",
         )
         .bind(meta(job, "user_id").unwrap_or("unknown"))
         .bind(job.id.to_string())
@@ -112,7 +111,6 @@ impl Store {
         .bind(meta_chat(job, "session_id"))
         .bind(meta(job, "kind").unwrap_or(PROMPT_KIND))
         .bind(meta_chat(job, "group_id"))
-        .bind(meta(job, "agent"))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -270,23 +268,5 @@ mod tests {
                 .expect("reminders load")
                 .is_empty()
         );
-    }
-
-    #[tokio::test]
-    async fn an_edited_routine_keeps_its_agent() {
-        let db = TestDb::new().await.expect("test database");
-        let store = db.store().await.expect("store opens");
-        let made = job(json!({"user_id": "alice", "label": "Fares", "agent": "getting_around"}));
-        store.upsert_cron_job(&made).await.expect("routine saved");
-        let edited = CronJob {
-            task: "Check train fares at 8".to_owned(),
-            metadata: json!({"user_id": "alice", "label": "Fares"}),
-            ..made
-        };
-        store.upsert_cron_job(&edited).await.expect("routine saved");
-
-        let jobs = store.cron_jobs(Some("alice")).await.expect("jobs load");
-        assert_eq!(jobs[0].metadata["agent"], "getting_around");
-        assert_eq!(jobs[0].task, "Check train fares at 8");
     }
 }

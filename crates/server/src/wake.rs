@@ -282,7 +282,6 @@ pub async fn wake_with(
         request_id: Uuid::new_v4(),
         message: event.message(),
         cron_id: None,
-        agent: None,
         scheduled: None,
         always_sent: false,
         woken: Some(Woken {

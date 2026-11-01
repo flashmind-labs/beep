@@ -18,14 +18,6 @@ provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # Optional: a Firebase service account key file. With it the server wakes
 # phones it cannot reach over iroh, sealed so Google cannot read them.
 # fcm_credentials = ".dev/fcm-service-account.json"
-# Optional: agents Jev picks from for every prompt once an admin turns them
-# on in Settings. `general` is required; the others are getting_around,
-# shopping, going_out, research and inbox. Each model must be offered.
-# [agents.general]
-# name = "General"
-# when = "Anything no other agent clearly fits"
-# model = "openrouter:z-ai/glm-5.3-flash"
-# thinking = "low"
 # Optional: researches, started from the Mac. A lead plans with the user,
 # then scouts, a critic and a writer work in the background, each on its
 # own model. Every model must be offered.

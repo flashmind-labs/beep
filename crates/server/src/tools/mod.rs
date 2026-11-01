@@ -33,7 +33,6 @@ pub(crate) use suggest::{
 };
 
 use crate::{
-    agents::AgentId,
     app::{App, Draws},
     protocol::{DeviceAnswer, DeviceKind, Run},
     user::User,
@@ -60,7 +59,6 @@ pub fn registry(
     timezone: Option<&str>,
     origin: DeviceKind,
     draws: Draws,
-    agent: Option<AgentId>,
 ) -> ToolRegistry {
     let run_id = run.id.as_str();
     let mut registry = ToolRegistry::new();
@@ -87,7 +85,6 @@ pub fn registry(
         user.id(),
         &run.session_id,
         timezone,
-        agent,
     );
     registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));
     registry.register(Arc::new(products::ShowProductsTool));
@@ -100,7 +97,6 @@ pub fn registry(
             user: user.clone(),
             kind,
             chat: run.session_id.parse().ok(),
-            agent,
         }));
     }
     registry.register(Arc::new(progress::TaskProgressTool));
