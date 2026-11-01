@@ -21,6 +21,7 @@ mod machines;
 mod markdown;
 mod news;
 mod orb;
+mod palette;
 mod presence;
 mod products;
 mod research;
@@ -51,7 +52,7 @@ use tauri::{
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
 };
-use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_notification::NotificationExt;
 use voice::Voice;
@@ -59,6 +60,8 @@ use voice::Voice;
 /// The server's node id, baked in by build.rs.
 const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
 const TRAY: &str = "beep";
+/// Passed to Beep when it starts as a login item, so it stays in the tray.
+const LOGIN_ARG: &str = "--login";
 /// Chats listed under Recent in the tray menu.
 const RECENT: usize = 5;
 /// Menu ids of Recent's items start with this, then the session id.
@@ -80,7 +83,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
-            None,
+            Some(vec![LOGIN_ARG]),
         ))
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| match event {
@@ -96,15 +99,24 @@ fn main() {
                     voice.minimize();
                 }
             }
-            WindowEvent::Destroyed => research::closed(window.app_handle(), window.label()),
+            WindowEvent::Destroyed => {
+                if window.label() == center::LABEL {
+                    // Its chat is not on screen any more, so its notices must
+                    // not be held back as seen.
+                    window.app_handle().state::<center::Shown>().clear();
+                }
+                research::closed(window.app_handle(), window.label());
+            }
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             center::open_center,
             center::center_home,
             center::center_answer_agent,
-            center::center_compose,
-            center::center_show_bar,
+            center::center_open,
+            center::center_pending,
+            palette::center_palette,
+            palette::center_find,
             commands::status,
             commands::link_offer,
             commands::send_prompt,
@@ -234,11 +246,23 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("the app failed to start")
         .run(|app, event| {
-            // However Beep quits, a downloaded update is installed for next time.
-            if let RunEvent::Exit = event {
-                update::install(app);
-                // Background tasks the agent started here end with the app.
-                beep_node::kill_tasks();
+            match event {
+                // However Beep quits, a downloaded update is installed for next time.
+                RunEvent::Exit => {
+                    update::install(app);
+                    // Background tasks the agent started here end with the app.
+                    beep_node::kill_tasks();
+                }
+                // Opening Beep again while it runs shows the window.
+                #[cfg(target_os = "macos")]
+                RunEvent::Reopen { .. } => {
+                    if app.state::<Arc<Beep>>().link_state() == LinkState::Linked
+                        && let Err(e) = center::open(app)
+                    {
+                        log::warn!("opening the window: {e}");
+                    }
+                }
+                _ => {}
             }
         });
 }
@@ -268,6 +292,9 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(apps::SignIn::default());
     app.manage(update::Updates::default());
     app.manage(machine::Machine::default());
+    app.manage(center::Shown::default());
+    app.manage(center::Pending::default());
+    app.manage(palette::PaletteCache::default());
     app.state::<machine::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
@@ -311,8 +338,29 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     // First launch, or a link still to finish: show the code.
     if beep.link_state() != LinkState::Linked {
         bar::show(&handle, Some("link"));
+    } else if !std::env::args().any(|arg| arg == LOGIN_ARG) {
+        // Opened by the user, not as a login item: show the window.
+        if let Err(e) = center::open(&handle) {
+            log::warn!("opening the window at launch: {e}");
+        }
     }
+    refresh_login_item(&handle);
     Ok(())
+}
+
+/// Login items made before they carried `LOGIN_ARG` open the window at
+/// login; enabling again rewrites them with it.
+fn refresh_login_item(app: &AppHandle) {
+    let manager = app.autolaunch();
+    match manager.is_enabled() {
+        Ok(true) => {
+            if let Err(e) = manager.enable() {
+                log::warn!("refreshing the login item: {e}");
+            }
+        }
+        Ok(false) => {}
+        Err(e) => log::warn!("reading the login item: {e}"),
+    }
 }
 
 /// The server pushes notices to every key on the account. The first one
@@ -348,7 +396,11 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
         {
             let _ = app.emit("work-question", question);
         }
-        if bar::is_open(&app) && beep.session().as_deref() == Some(notice.session_id.as_str()) {
+        let showing = app.state::<center::Shown>().get();
+        if center::on_screen(
+            &seen(&app, beep.session(), showing.session),
+            &notice.session_id,
+        ) {
             continue;
         }
         match voice.wants(&notice) {
@@ -388,13 +440,25 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
         return;
     }
     // An approval still notifies: the bar may be on another chat by then.
-    if bar::is_open(app)
-        && beep.group().as_deref() == Some(id.as_str())
-        && notice.approval.is_none()
+    let showing = app.state::<center::Shown>().get();
+    if center::on_screen(&seen(app, beep.group(), showing.group), &id) && notice.approval.is_none()
     {
         return;
     }
     notify(app, &notice);
+}
+
+/// What is on screen: the bar's chat while the bar is open, the command
+/// center's while its window has focus.
+fn seen(app: &AppHandle, bar: Option<String>, window: Option<String>) -> center::Seen {
+    let focused = app
+        .get_webview_window(center::LABEL)
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false);
+    center::Seen {
+        bar: bar.filter(|_| bar::is_open(app)),
+        window: window.filter(|_| focused),
+    }
 }
 
 fn notify(app: &AppHandle, notice: &Notice) {
@@ -418,16 +482,16 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::new(app)?;
     menu.append(&MenuItem::with_id(
         app,
-        "open-bar",
+        "open-center",
         "Open Beep",
         true,
         None::<&str>,
     )?)?;
     menu.append(&MenuItem::with_id(
         app,
-        "open-center",
-        "Open Beep window",
-        link == LinkState::Linked,
+        "open-bar",
+        "Quick chat",
+        true,
         None::<&str>,
     )?)?;
     // A menu shortcut cannot show a double tap, so it gets a line of its own.
@@ -568,14 +632,39 @@ async fn refresh_recent(app: AppHandle) {
     }
 }
 
+/// The window view a tray item opens once linked, if it opens one.
+fn tray_target(id: &str) -> Option<center::CenterTarget> {
+    match id {
+        "apps" => Some(center::CenterTarget::Apps),
+        "memories" => Some(center::CenterTarget::Memories),
+        "routines" => Some(center::CenterTarget::Routines),
+        "skills" => Some(center::CenterTarget::Skills),
+        "settings" => Some(center::CenterTarget::Settings),
+        _ => None,
+    }
+}
+
 fn on_menu(app: &AppHandle, event: MenuEvent) {
     if let Some(id) = event.id().as_ref().strip_prefix(CHAT_ITEM) {
         app.state::<Arc<Beep>>().set_session(Some(id.to_owned()));
         bar::show(app, Some("open"));
         return;
     }
+    if let Some(target) = tray_target(event.id().as_ref())
+        && app.state::<Arc<Beep>>().link_state() == LinkState::Linked
+    {
+        let pending = app.state::<center::Pending>();
+        if let Err(e) = center::open_on(app, &pending, target) {
+            log::warn!("opening the command center: {e}");
+        }
+        return;
+    }
     match event.id().as_ref() {
         "open-bar" => bar::show(app, Some("tray")),
+        // Before linking, the bar shows the code to link with.
+        "open-center" if app.state::<Arc<Beep>>().link_state() != LinkState::Linked => {
+            bar::show(app, Some("link"))
+        }
         "open-center" => {
             if let Err(e) = center::open(app) {
                 log::warn!("opening the command center: {e}");
@@ -585,6 +674,8 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));
         }
+        // Before linking these stay in the bar, which shows the code to link
+        // with instead.
         view @ ("apps" | "link" | "memories" | "research" | "routines" | "skills" | "settings") => {
             bar::show(app, Some(view))
         }
@@ -623,4 +714,23 @@ pub fn forget_identity(app: &AppHandle) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tray_items_name_their_view() {
+        assert_eq!(
+            tray_target("memories"),
+            Some(center::CenterTarget::Memories)
+        );
+        assert_eq!(
+            tray_target("settings"),
+            Some(center::CenterTarget::Settings)
+        );
+        assert_eq!(tray_target("research"), None);
+        assert_eq!(tray_target("check-update"), None);
+    }
 }

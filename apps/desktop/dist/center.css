@@ -27,7 +27,7 @@ html, body.cbody { background: var(--ink) }
 .cc-si .n.hot { color: var(--ink); background: var(--coral); border-radius: 999px; padding: 0 6px; font-weight: 600 }
 .cc-pdot { width: 8px; height: 8px; border-radius: 3px; flex: none }
 .ddot.busy { background: #E9B949 }
-.cc-foot { margin-top: auto; padding: 8px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); font-size: 11.5px; line-height: 16px; color: var(--muted); display: grid; gap: 3px }
+.cc-foot { margin-top: auto; padding: 8px; font-size: 11.5px; line-height: 16px; color: var(--muted) }
 .cc-foot b { color: var(--fg); font-weight: 500 }
 .cc-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size }
 .cc-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border) }
@@ -96,3 +96,56 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-row:has(.cc-when) { grid-template-columns: 58px minmax(0, 1fr) auto }
 .cc-link { cursor: pointer }
 .cc-link:hover { text-decoration: underline }
+
+/* Views: one box each under the top bar; only the shown one is visible. */
+.cc-box { flex: 1; min-height: 0; display: flex; flex-direction: column }
+.cc-box[hidden] { display: none }
+.cc-top .tools { margin-left: auto; display: flex; gap: 6px }
+#pane-box > .dbar { flex: 1; min-height: 0; height: auto }
+/* The bar's lists, widened into a panel in the pane, as in the mock. */
+#pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]) { flex: none; width: calc(100% - 32px); max-width: 760px; height: calc(100% - 30px);
+  margin: 14px auto 16px; border: 1px solid var(--border); border-radius: 11px; background: rgba(18,25,22,.82) }
+#pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]) .dinput { font-size: 15px; padding: 10px 14px }
+
+/* Sidebar groups. */
+.cc-grp h3 { display: flex; align-items: center; justify-content: space-between }
+.cc-grp h3 button { border: 0; background: transparent; color: var(--muted); padding: 0 2px; line-height: 1; display: grid }
+.cc-grp h3 button:hover { color: var(--fg) }
+.cc-si .tt { min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.cc-si .pin { color: var(--coral); display: grid }
+.cc-si.more { color: var(--muted); font-size: 12px }
+.cc-si.none { color: var(--dim); font-size: 12px }
+.cc-si.none:hover { background: transparent }
+
+/* Cmd+K palette, as in the mock. */
+.cc-si .tt + kbd { margin-left: auto }
+.cc-si kbd { font: inherit; font-size: 10.5px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
+.cc-scrim { position: fixed; inset: 0; z-index: 20; background: rgba(5,8,7,.5); display: grid; justify-items: center; align-content: start; padding-top: 70px }
+.cc-pal { width: 560px; max-width: calc(100% - 40px); border-radius: 14px; border: 1px solid var(--border); background: rgba(18,25,22,.97); box-shadow: 0 28px 70px rgba(0,0,0,.6); overflow: hidden; align-self: start }
+.cc-pal .q { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border) }
+.cc-pal .q svg { color: var(--muted); flex: none }
+.cc-pal .q input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 16px; caret-color: var(--emerald); padding: 0 }
+.cc-pal .q input::placeholder { color: var(--dim) }
+.cc-pal .res { max-height: 340px; overflow: auto; padding: 6px; display: grid; gap: 1px; scrollbar-width: thin }
+.cc-pal h5 { margin: 6px 8px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--dim) }
+.cc-pal .it { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 7px; border: 0; background: transparent; text-align: left; width: 100%; color: var(--fg); font-size: 13px }
+.cc-pal .it[aria-selected="true"] { background: rgba(59,155,122,.26) }
+.cc-pal .it svg { flex: none; color: var(--muted) }
+.cc-pal .it .t { flex: 1; min-width: 0; display: grid; line-height: 17px }
+.cc-pal .it .t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-pal .it .t small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-pal .it .w { font-size: 11px; color: var(--muted); flex: none }
+.cc-pal mark { background: rgba(240,122,106,.3); color: inherit; border-radius: 3px; padding: 0 1px }
+.cc-pal .none { padding: 22px 14px; text-align: center; font-size: 13px; color: var(--muted) }
+.cc-pal .none .dbtn { margin-top: 10px }
+.cc-pal .foot { display: flex; gap: 14px; padding: 7px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--dim) }
+.cc-pal kbd { font: inherit; font-size: 10.5px; padding: 0 4px; margin-right: 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
+
+/* A chat row: the open button and the pin toggle, side by side. */
+.cc-si.cc-chat { padding: 0 }
+.cc-chat .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 5px 0 5px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; white-space: nowrap }
+.cc-chat:has(.open[aria-current="true"]) { background: rgba(59,155,122,.26); color: var(--fg) }
+.cc-chat .pa { flex: none; display: grid; align-self: stretch; align-items: center; padding: 0 8px; border: 0; background: transparent; color: var(--muted); opacity: 0 }
+.cc-chat:hover .pa, .cc-chat .pa:focus-visible { opacity: 1 }
+.cc-chat .pa:hover { color: var(--coral) }
+.cc-grp.pinned .cc-chat .pa { color: var(--coral) }

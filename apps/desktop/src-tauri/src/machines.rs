@@ -39,6 +39,20 @@ impl From<Machine> for MachineView {
     }
 }
 
+impl MachineView {
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn online(&self) -> bool {
+        self.online
+    }
+}
+
 #[tauri::command]
 pub async fn list_machines(beep: Service<'_>) -> Result<Vec<MachineView>> {
     let machines = beep.call(ListMachines {}).await?;

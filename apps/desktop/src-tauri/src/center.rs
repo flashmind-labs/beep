@@ -1,10 +1,10 @@
-//! The command center: one window beside the bar that shows what the
-//! account is doing, starting with Home. This file opens the window and
-//! gathers Home's data from the server.
+//! The command center: one window beside the bar with Home, chats,
+//! memories and routines. This file opens the window, keeps its current
+//! chat apart from the bar's, and gathers Home's data from the server.
 
 use crate::{
     bar,
-    beep::{Beep, Pick, Sent, epoch_ms},
+    beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
 };
 use beep_proto::{
@@ -14,10 +14,14 @@ use beep_proto::{
     PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
 use serde::{Deserialize, Serialize};
-use std::{cmp::Reverse, collections::HashMap, sync::Arc};
+use std::{
+    cmp::Reverse,
+    collections::HashMap,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+};
 use tauri::{
-    ActivationPolicy, AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State,
-    TitleBarStyle, WebviewUrl, WebviewWindowBuilder, ipc::Channel,
+    ActivationPolicy, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, State,
+    TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 use tokio::join;
 use uuid::Uuid;
@@ -58,6 +62,9 @@ fn frame<R: Runtime>(app: &AppHandle<R>) -> Option<(LogicalPosition<f64>, Logica
 pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     bar::hide(app);
     if let Some(window) = app.get_webview_window(LABEL) {
+        if window.is_minimized()? {
+            window.unminimize()?;
+        }
         window.show()?;
         window.set_focus()?;
         return Ok(());
@@ -87,60 +94,70 @@ pub fn open_center(app: AppHandle) -> Result<()> {
     open(&app)
 }
 
-/// Opens the bar on a new chat that holds `prompt`, and sends it.
-#[tauri::command]
-pub fn center_compose(app: AppHandle, beep: Service<'_>, prompt: String) -> Result<()> {
-    let prompt = prompt.trim();
-    if prompt.is_empty() {
-        return Err(DesktopError::BadRequest("say what to ask".into()));
+/// A view of the window that the bar, the tray or another window can hand
+/// over to. `Chat { session: None }` is a new chat.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CenterTarget {
+    Home,
+    Chat { session: Option<Uuid> },
+    Chats,
+    Memories,
+    Routines,
+    Skills,
+    Apps,
+    Settings,
+}
+
+/// The view the window goes to next. It is read once, so a reload does not
+/// go back to it.
+#[derive(Debug, Default)]
+pub(crate) struct Pending(Mutex<Option<CenterTarget>>);
+
+impl Pending {
+    fn slot(&self) -> MutexGuard<'_, Option<CenterTarget>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
-    let session = Uuid::new_v4();
-    beep.set_session(Some(session.to_string()));
-    let sent = Sent {
-        message: prompt.to_owned(),
-        images: Vec::new(),
-        files: Vec::new(),
-        research: false,
-        voice: None,
-        spoken: false,
-    };
-    // The bar follows the run itself, so nothing reads this channel.
-    let events = Channel::new(|_| Ok(()));
-    let beep = beep.inner().clone();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = beep
-            .send(Some(session.to_string()), sent, Pick::default(), events)
-            .await
-        {
-            log::warn!("sending a prompt from the command center: {e}");
-        }
-    });
-    bar::show(&app, Some("open"));
+
+    pub(crate) fn put(&self, target: CenterTarget) {
+        *self.slot() = Some(target);
+    }
+
+    pub(crate) fn take(&self) -> Option<CenterTarget> {
+        self.slot().take()
+    }
+}
+
+/// Opens the window on `target`. A window that is still loading reads it
+/// with `center_pending`; one already open hears `center-open`.
+pub(crate) fn open_on<R: Runtime>(
+    app: &AppHandle<R>,
+    pending: &Pending,
+    target: CenterTarget,
+) -> Result<()> {
+    pending.put(target.clone());
+    open(app)?;
+    // A window still loading reads `Pending` instead, so a lost event only
+    // goes to the log.
+    if let Err(e) = app.emit_to(LABEL, "center-open", &target) {
+        log::warn!("telling the command center what to open: {e}");
+    }
     Ok(())
 }
 
-/// What the sidebar and the cards can ask the bar to open.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BarView {
-    Memories,
-    Routines,
-    Chats,
-    Chat { session: Uuid },
+#[tauri::command]
+pub fn center_open(
+    app: AppHandle,
+    pending: State<'_, Pending>,
+    target: CenterTarget,
+) -> Result<()> {
+    open_on(&app, &pending, target)
 }
 
-/// Shows the bar on one of its own views.
+/// The view the window was asked to show, once.
 #[tauri::command]
-pub fn center_show_bar(app: AppHandle, beep: Service<'_>, view: BarView) {
-    match view {
-        BarView::Memories => bar::show(&app, Some("memories")),
-        BarView::Routines => bar::show(&app, Some("routines")),
-        BarView::Chats => bar::show(&app, Some("chats")),
-        BarView::Chat { session } => {
-            beep.set_session(Some(session.to_string()));
-            bar::show(&app, Some("open"));
-        }
-    }
+pub fn center_pending(pending: State<'_, Pending>) -> Option<CenterTarget> {
+    pending.take()
 }
 
 /// Answers a question an agent session asks.
@@ -278,7 +295,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
 
 /// `None` for a request the server does not know or this account may not
 /// make; any other failure goes to the log.
-fn section<T>(what: &str, result: Result<T>) -> Option<T> {
+pub(crate) fn section<T>(what: &str, result: Result<T>) -> Option<T> {
     match result {
         Ok(listed) => Some(listed),
         Err(e) if is_unsupported(&e) => None,
@@ -488,6 +505,147 @@ fn coming_up(crons: Vec<Cron>) -> Vec<CronRow> {
     rows
 }
 
+/// Which webview a chat command came from. Each keeps its own current chat:
+/// the bar's lives in `Beep`, the window's in `Shown`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Holder {
+    Bar,
+    Center,
+}
+
+/// The holder for a webview label: the command center window, or the bar
+/// for anything else.
+pub(crate) fn holder(label: &str) -> Holder {
+    if label == LABEL {
+        Holder::Center
+    } else {
+        Holder::Bar
+    }
+}
+
+/// What the command center window shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Showing {
+    pub(crate) session: Option<String>,
+    pub(crate) group: Option<String>,
+}
+
+/// The command center's current chat, apart from the bar's.
+#[derive(Debug, Default)]
+pub(crate) struct Shown(Mutex<Showing>);
+
+impl Shown {
+    fn showing(&self) -> MutexGuard<'_, Showing> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn set_session(&self, session: Option<String>) {
+        self.showing().session = session;
+    }
+
+    pub(crate) fn set_group(&self, group: Option<String>) {
+        self.showing().group = group;
+    }
+
+    pub(crate) fn get(&self) -> Showing {
+        self.showing().clone()
+    }
+
+    /// Forgets the chat and group, when the window closes.
+    pub(crate) fn clear(&self) {
+        *self.showing() = Showing::default();
+    }
+
+    /// Leaves group `id` if the window shows it.
+    pub(crate) fn leave_group(&self, id: &str) {
+        let mut showing = self.showing();
+        if showing.group.as_deref() == Some(id) {
+            showing.group = None;
+        }
+    }
+}
+
+/// A chat a webview opened or left: a session or a group, `None` for none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Chat {
+    Session(Option<String>),
+    Group(Option<String>),
+}
+
+/// Where a holder keeps its current chat.
+trait Current {
+    fn set_session(&self, session: Option<String>);
+    fn set_group(&self, group: Option<String>);
+}
+
+impl Current for Beep {
+    fn set_session(&self, session: Option<String>) {
+        Beep::set_session(self, session);
+    }
+
+    fn set_group(&self, group: Option<String>) {
+        Beep::set_group(self, group);
+    }
+}
+
+impl Current for Shown {
+    fn set_session(&self, session: Option<String>) {
+        Shown::set_session(self, session);
+    }
+
+    fn set_group(&self, group: Option<String>) {
+        Shown::set_group(self, group);
+    }
+}
+
+/// Makes `chat` the holder's current chat. A session, or none, also leaves
+/// the holder's group. In the bar a group keeps the session: the bar leaves
+/// a group on every view change and reopens its last chat after. The window
+/// keeps no such chat, so a group it opens replaces its session.
+pub(crate) fn remember(holder: Holder, beep: &Beep, shown: &Shown, chat: Chat) {
+    remember_in(holder, beep, shown, chat);
+}
+
+/// `remember` for the webview a command came from, with the window's
+/// `Shown` from the app's state.
+pub(crate) fn remember_for<R: Runtime>(window: &WebviewWindow<R>, beep: &Beep, chat: Chat) {
+    let shown = window.state::<Shown>();
+    remember(holder(window.label()), beep, &shown, chat);
+}
+
+fn remember_in(holder: Holder, bar: &impl Current, shown: &Shown, chat: Chat) {
+    let current: &dyn Current = match holder {
+        Holder::Bar => bar,
+        Holder::Center => shown,
+    };
+    match chat {
+        Chat::Session(session) => {
+            current.set_session(session);
+            current.set_group(None);
+        }
+        Chat::Group(group) => {
+            if holder == Holder::Center && group.is_some() {
+                current.set_session(None);
+            }
+            current.set_group(group);
+        }
+    }
+}
+
+/// The chat on screen in each place: the bar's only while the bar is open,
+/// the window's only while the window has focus.
+#[derive(Debug, Default)]
+pub(crate) struct Seen {
+    pub(crate) bar: Option<String>,
+    pub(crate) window: Option<String>,
+}
+
+/// Whether the chat `id` is on screen in the bar or the window, so its
+/// messages need no notice.
+pub(crate) fn on_screen(seen: &Seen, id: &str) -> bool {
+    seen.bar.as_deref() == Some(id) || seen.window.as_deref() == Some(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -672,5 +830,158 @@ mod tests {
         });
         assert!(matches!(view.needs_you[0], NeedsYou::Agent { .. }));
         assert!(matches!(view.needs_you[1], NeedsYou::Chat { .. }));
+    }
+
+    /// A stand-in for the bar's current chat in `Beep`, which needs a
+    /// network node to build.
+    fn bar_on(session: &str) -> Shown {
+        let bar = Shown::default();
+        bar.set_session(Some(session.into()));
+        bar
+    }
+
+    #[test]
+    fn closing_the_window_forgets_its_chat() {
+        let shown = Shown::default();
+        shown.set_session(Some("a".into()));
+        shown.set_group(Some("g".into()));
+        shown.clear();
+        assert_eq!(shown.get(), Showing::default());
+    }
+
+    #[test]
+    fn leaving_a_group_clears_only_that_group() {
+        let shown = Shown::default();
+        shown.set_group(Some("g".into()));
+        shown.leave_group("other");
+        assert_eq!(shown.get().group.as_deref(), Some("g"));
+        shown.leave_group("g");
+        assert_eq!(shown.get().group, None);
+    }
+
+    #[test]
+    fn center_label_leaves_bar_chat() {
+        let bar = bar_on("a");
+        let shown = Shown::default();
+        remember_in(
+            Holder::Center,
+            &bar,
+            &shown,
+            Chat::Session(Some("b".into())),
+        );
+        assert_eq!(bar.get().session.as_deref(), Some("a"));
+        assert_eq!(shown.get().session.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn bar_label_moves_bar_chat() {
+        let bar = bar_on("a");
+        let shown = Shown::default();
+        remember_in(Holder::Bar, &bar, &shown, Chat::Session(Some("b".into())));
+        assert_eq!(bar.get().session.as_deref(), Some("b"));
+        assert_eq!(shown.get(), Showing::default());
+    }
+
+    #[test]
+    fn bar_session_leaves_group_and_group_keeps_session() {
+        let bar = bar_on("a");
+        let shown = Shown::default();
+        remember_in(Holder::Bar, &bar, &shown, Chat::Group(Some("g".into())));
+        assert_eq!(
+            bar.get(),
+            Showing {
+                session: Some("a".into()),
+                group: Some("g".into()),
+            }
+        );
+        remember_in(Holder::Bar, &bar, &shown, Chat::Group(None));
+        assert_eq!(bar.get().session.as_deref(), Some("a"));
+        remember_in(Holder::Bar, &bar, &shown, Chat::Session(None));
+        assert_eq!(bar.get(), Showing::default());
+    }
+
+    #[test]
+    fn center_group_replaces_its_session() {
+        let bar = Shown::default();
+        let shown = Shown::default();
+        remember_in(
+            Holder::Center,
+            &bar,
+            &shown,
+            Chat::Session(Some("a".into())),
+        );
+        remember_in(Holder::Center, &bar, &shown, Chat::Group(Some("g".into())));
+        assert_eq!(
+            shown.get(),
+            Showing {
+                session: None,
+                group: Some("g".into()),
+            }
+        );
+        remember_in(Holder::Center, &bar, &shown, Chat::Group(None));
+        assert_eq!(shown.get(), Showing::default());
+        assert_eq!(bar.get(), Showing::default());
+    }
+
+    #[test]
+    fn center_send_leaves_bar_session() {
+        let bar = bar_on("a");
+        let shown = Shown::default();
+        let sent_to = Uuid::new_v4().to_string();
+        remember_in(
+            Holder::Center,
+            &bar,
+            &shown,
+            Chat::Session(Some(sent_to.clone())),
+        );
+        assert_eq!(bar.get().session.as_deref(), Some("a"));
+        assert_eq!(shown.get().session, Some(sent_to));
+    }
+
+    #[test]
+    fn holder_reads_labels() {
+        assert_eq!(holder("center"), Holder::Center);
+        assert_eq!(holder("bar"), Holder::Bar);
+        assert_eq!(holder("research-1"), Holder::Bar);
+    }
+
+    #[test]
+    fn on_screen_in_either_place() {
+        let bar = Seen {
+            bar: Some("a".into()),
+            window: None,
+        };
+        assert!(on_screen(&bar, "a"));
+        assert!(!on_screen(&bar, "b"));
+        let window = Seen {
+            bar: None,
+            window: Some("b".into()),
+        };
+        assert!(on_screen(&window, "b"));
+        assert!(!on_screen(&window, "a"));
+        let nowhere = Seen::default();
+        assert!(!on_screen(&nowhere, "a"));
+        assert!(!on_screen(&nowhere, "b"));
+    }
+
+    #[test]
+    fn target_reads_from_js() {
+        let new_chat: CenterTarget =
+            serde_json::from_str(r#"{"chat":{"session":null}}"#).expect("a new chat parses");
+        assert_eq!(new_chat, CenterTarget::Chat { session: None });
+        let memories: CenterTarget = serde_json::from_str(r#""memories""#).expect("parses");
+        assert_eq!(memories, CenterTarget::Memories);
+        let id = Uuid::new_v4();
+        let chat: CenterTarget =
+            serde_json::from_str(&format!(r#"{{"chat":{{"session":"{id}"}}}}"#)).expect("parses");
+        assert_eq!(chat, CenterTarget::Chat { session: Some(id) });
+    }
+
+    #[test]
+    fn pending_is_taken_once() {
+        let pending = Pending::default();
+        pending.put(CenterTarget::Chats);
+        assert_eq!(pending.take(), Some(CenterTarget::Chats));
+        assert_eq!(pending.take(), None);
     }
 }
