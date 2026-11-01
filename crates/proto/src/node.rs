@@ -441,6 +441,7 @@ mod tests {
             name: "box".into(),
             offers: vec![],
             workspace: None,
+            setup: None,
             credentials: true,
         };
         let body = rmp_serde::to_vec_named(&hello).unwrap();

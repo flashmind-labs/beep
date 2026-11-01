@@ -5,7 +5,7 @@
 use crate::{beep::Beep, desktop, state::LinkState};
 use beep_node::{
     link::{self, Offers},
-    setup::Setup,
+    provision::Provision,
 };
 use beep_proto::node::desktop::{Permission, Permissions};
 use serde::Serialize;
@@ -110,12 +110,12 @@ async fn stay_linked(beep: Arc<Beep>, status: Arc<Mutex<Status>>, dir: PathBuf) 
     let set = |now: Status| *status.lock().unwrap_or_else(PoisonError::into_inner) = now;
     // Installs gh, teacli and the agent skills, and takes the credentials
     // the server sends; the work stops with this task.
-    let setup = Setup::new(&dir);
-    let _setup = setup.start();
+    let provision = Provision::new(&dir);
+    let _provision = provision.start();
     let offers = Offers {
         agents: Arc::default(),
         extra: vec![Arc::new(desktop::Desktop)],
-        setup: Some(setup),
+        provision: Some(provision),
     };
     let name = crate::computer_name();
     let mut wait = FIRST_RETRY;

@@ -2,7 +2,7 @@
 //! the control stream, kept open and reopened when it drops.
 
 use crate::{
-    agents::Agents, env, files::Folders, setup::Setup, shell, state::State, tasks,
+    agents::Agents, env, files::Folders, provision::Provision, shell, state::State, tasks,
     transfer::Transfers,
 };
 use anyhow::{Context, Result, bail};
@@ -83,12 +83,12 @@ pub async fn serve(
     // Made once, so agent sessions outlive each connection.
     // Installs gh, teacli and the agent skills beside serving; the work
     // stops with the node.
-    let setup = Setup::new(&state.dir);
-    let _setup = setup.start();
+    let provision = Provision::new(&state.dir);
+    let _provision = provision.start();
     let mut offers = Offers {
         agents: Arc::new(Agents::new(crate::agents::detect(&state.agents))),
         extra: Vec::new(),
-        setup: Some(setup),
+        provision: Some(provision),
     };
     // Files only when the owner shared folders in node.toml, or this node
     // is the user's environment.
@@ -239,7 +239,7 @@ pub struct Offers {
     pub extra: Vec<Arc<dyn Protocol>>,
     /// Takes the user's credentials and installs the tools they are for.
     /// Without it the node does not ask for credentials.
-    pub setup: Option<Arc<Setup>>,
+    pub provision: Option<Arc<Provision>>,
 }
 
 impl Offers {
@@ -296,7 +296,7 @@ async fn open_as(
         offers: offers.names(),
         workspace: hello.workspace.map(str::to_owned),
         setup: hello.setup.cloned(),
-        credentials: offers.setup.is_some(),
+        credentials: offers.provision.is_some(),
     })
     .await?;
     let mut claimed = None;
@@ -386,9 +386,9 @@ async fn serve_linked(
                 Err(e) => log::warn!("session task failed: {e}"),
             },
             message = rx.recv::<Down>() => match message {
-                Ok(Some(Down::Credentials(credentials))) => match &offers.setup {
-                    Some(setup) => setup.apply(credentials).await,
-                    None => log::debug!("credentials came to a node without a setup"),
+                Ok(Some(Down::Credentials(credentials))) => match &offers.provision {
+                    Some(provision) => provision.apply(credentials).await,
+                    None => log::debug!("credentials came to a node that does not take them"),
                 },
                 Ok(Some(message)) => log::debug!("server sent {message:?}"),
                 Ok(None) => return Ok(()),
@@ -399,7 +399,7 @@ async fn serve_linked(
                 probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
             }
             // A tool was installed: report it without waiting for the tick.
-            () = tool_changed(offers.setup.as_deref()), if probing.is_none() => {
+            () = tool_changed(offers.provision.as_deref()), if probing.is_none() => {
                 probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
             }
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
@@ -454,10 +454,10 @@ async fn session(send: SendStream, recv: RecvStream, offers: Offers) -> Result<(
     }
 }
 
-/// Finishes when `setup` installed a tool; never without one.
-async fn tool_changed(setup: Option<&Setup>) {
-    match setup {
-        Some(setup) => setup.changed().await,
+/// Finishes when `provision` installed a tool; never without one.
+async fn tool_changed(provision: Option<&Provision>) {
+    match provision {
+        Some(provision) => provision.changed().await,
         None => std::future::pending().await,
     }
 }

@@ -4,7 +4,7 @@
 use crate::{
     lines::read_piece,
     process::{GroupLeader, STOP_GRACE},
-    setup::spawn_env,
+    provision::spawn_env,
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
