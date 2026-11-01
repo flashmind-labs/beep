@@ -96,11 +96,17 @@ impl ProtocolHandler for PeerHandler {
                     let (tx, rx) = link(send, recv);
                     streams.spawn(serve(self.syncs.clone(), peer, tx, rx));
                 }
-                Some(ended) = streams.join_next() => match ended {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => log::debug!("a pull from {peer} ended: {e:#}"),
-                    Err(e) => log::warn!("a pull task failed: {e}"),
-                },
+                Some(ended) = streams.join_next() => {
+                    match ended {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => log::debug!("a pull from {peer} ended: {e:#}"),
+                        Err(e) => log::warn!("a pull task failed: {e}"),
+                    }
+                    if !self.syncs.is_peer(&peer) {
+                        connection.close(1u32.into(), b"not a peer");
+                        return Ok(());
+                    }
+                }
             }
         }
     }
@@ -122,7 +128,9 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
         let message = format!("{project} is not synced with this node");
         return tx.send(&Reply::Refused { message }).await;
     };
+    let _serving = syncs.serving();
     let mut seq = shared.subscribe();
+    let mut peers = shared.watch_peers();
     let mut since = if replica == shared.replica() {
         since
     } else {
@@ -145,6 +153,10 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
                 return Ok(());
             },
             () = shared.stopped() => return Ok(()),
+            // A node taken out of the project gets nothing more.
+            changed = peers.changed() => if changed.is_err() || !shared.has_peer(&peer) {
+                return Ok(());
+            },
             // The peer sends nothing more; it closing ends the pull.
             _ = rx.recv::<Request>() => return Ok(()),
         }

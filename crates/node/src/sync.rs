@@ -28,7 +28,10 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 use tokio::{task::spawn_blocking, time::timeout};
@@ -82,6 +85,17 @@ struct Inner {
     projects: Mutex<BTreeMap<String, Running>>,
     /// One configure at a time.
     configuring: AsyncMutex<()>,
+    /// The pulls other nodes have open here.
+    serving: Arc<AtomicUsize>,
+}
+
+/// Counts one pull served while it lives.
+pub(super) struct Serving(Arc<AtomicUsize>);
+
+impl Drop for Serving {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// The node's synced projects.
@@ -143,6 +157,7 @@ impl Syncs {
                 watcher,
                 projects: Mutex::default(),
                 configuring: AsyncMutex::new(()),
+                serving: Arc::default(),
             }),
         };
         for refused in syncs.configure(config.projects).await {
@@ -310,6 +325,16 @@ impl Syncs {
             through_git: walked.through_git,
             truncated: walked.skipped_more,
         })
+    }
+
+    /// How many pulls other nodes have open here now.
+    pub fn pulls_served(&self) -> usize {
+        self.inner.serving.load(Ordering::Relaxed)
+    }
+
+    fn serving(&self) -> Serving {
+        self.inner.serving.fetch_add(1, Ordering::Relaxed);
+        Serving(self.inner.serving.clone())
     }
 
     /// The other nodes `project` syncs with here.

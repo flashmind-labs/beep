@@ -257,6 +257,10 @@ impl Shared {
         self.peers.borrow().iter().any(|addr| addr.id == *peer)
     }
 
+    pub(super) fn watch_peers(&self) -> watch::Receiver<Vec<EndpointAddr>> {
+        self.peers.subscribe()
+    }
+
     pub(super) fn peer_ids(&self) -> Vec<EndpointId> {
         self.peers.borrow().iter().map(|addr| addr.id).collect()
     }
