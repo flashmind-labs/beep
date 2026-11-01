@@ -22,6 +22,9 @@ const IC = {
   home: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg>',
   run: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M10 8l6 4-6 4z" fill="currentColor"/></svg>',
   cal: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  chat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  mem: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg>',
+  rout: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
 const CAPS = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
@@ -157,7 +160,11 @@ function needsCard(n) {
   let head, body, acts;
   if (n.kind === "chat") {
     const a = n.pending.approval;
-    head = [avatar("beep", "b"), h("span", "t", h("b", "", `${a.app}: ${a.action}`), h("span", "", `Chat: ${n.session_title}`))];
+    const title = h("b", "", `${a.app}: ${a.action}`);
+    title.classList.add("cc-link");
+    title.title = "Open this chat";
+    title.addEventListener("click", () => showBar({ chat: { session: n.session_id } }));
+    head = [avatar("beep", "b"), h("span", "t", title, h("span", "", `Chat: ${n.session_title}`))];
     body = a.fields.length ? h("div", "kv", ...a.fields.flatMap(f => [h("span", "", f.label), h("span", "", f.value)])) : null;
     acts = [
       button("Allow", "pri", () => answerChat(n, "allow", "Allowed once")),
@@ -229,6 +236,11 @@ function comingSection(rows) {
 
 // ---------- Sidebar and page ----------
 
+/// Opens one of the bar's own views.
+function showBar(view) {
+  invoke("center_show_bar", { view }).catch(e => console.warn("showing the bar:", e));
+}
+
 function jump(id) {
   const view = $("#view");
   if (!id) view.scrollTo({ top: 0 });
@@ -240,7 +252,8 @@ function sideItem(svg, label, count, opts = {}) {
   b.type = "button";
   if (opts.current) b.setAttribute("aria-current", "true");
   if (count) b.append(h("span", `n${opts.hot ? " hot" : ""}`, String(count)));
-  b.addEventListener("click", () => jump(opts.target));
+  if (opts.bar) b.addEventListener("click", () => showBar(opts.bar));
+  else b.addEventListener("click", () => jump(opts.target));
   return b;
 }
 
@@ -258,6 +271,10 @@ function sidebar(home) {
   if (running) pilot.append(sideItem(IC.run, "Running", running.length, { target: "sec-running" }));
   if (coming) pilot.append(sideItem(IC.cal, "Coming up", coming.length, { target: "sec-coming" }));
   side.push(pilot);
+  side.push(h("div", "cc-grp", h("h3", "", "Library"),
+    sideItem(IC.chat, "Chats", 0, { bar: "chats" }),
+    sideItem(IC.mem, "Memories", 0, { bar: "memories" }),
+    sideItem(IC.rout, "Routines", 0, { bar: "routines" })));
   const projs = running ? projects(running) : [];
   if (projs.length) {
     side.push(h("div", "cc-grp", h("h3", "", "Projects"), ...projs.map(([name, n], i) => {
@@ -276,7 +293,7 @@ function sidebar(home) {
     })));
   }
   let foot;
-  if (!machines) foot = [h("b", "", "Machines unavailable"), "This server does not report machines yet."];
+  if (!machines) foot = [h("b", "", "Machines unavailable"), "Not available for this account or server."];
   else if (!machines.length) foot = [h("b", "", "No machines"), "Link one to run agents on it."];
   else {
     const on = machines.filter(m => m.online).length;
@@ -291,7 +308,7 @@ function page(home) {
   const out = [];
   if (state.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh: ${state.error}`)));
   if (!machines && !running) {
-    out.push(h("div", "cc-note", h("span", "ddot off"), h("span", "", "This server is older than the app, so machines and running sessions are hidden. Chats, approvals and Coming up still work.")));
+    out.push(h("div", "cc-note", h("span", "ddot off"), h("span", "", "Machines and running sessions aren't available for this account or server.")));
   } else {
     const note = machines && offlineNote(machines);
     if (note) out.push(note);
