@@ -553,3 +553,14 @@ button.dachip:hover { border-color: #3A4A41 }
 .dsrc i { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--fg); display: grid; place-items: center; font-style: normal; font-size: 10px; font-weight: 600 }
 .dsrc.more { padding: 0 9px }
 .dsrc:hover { color: var(--fg); border-color: #3A4A41 }
+
+/* The bar's chip that hands the open chat to the command center window. */
+.dhand { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted); font-size: 11.5px; padding: 0 }
+.dhand:hover { color: var(--fg) }
+
+/* The same page as a pane in the command center: it fills its column, has no
+   frame of its own, and the chat's prompt sits under the transcript. */
+.dbar[data-mode="window"] { height: 100%; background: transparent; border: 0; border-radius: 0; box-shadow: none }
+.dbar[data-mode="window"] > .dinput.dgrow { order: 1; border-top: 1px solid var(--border); padding-left: max(16px, calc((100% - 820px) / 2)); padding-right: max(16px, calc((100% - 820px) / 2)) }
+.dbar[data-mode="window"] > .dhints { order: 2; padding-left: max(16px, calc((100% - 820px) / 2)); padding-right: max(16px, calc((100% - 820px) / 2)) }
+.dbar[data-mode="window"] > .dbody { padding-left: max(16px, calc((100% - 820px) / 2)); padding-right: max(26px, calc((100% - 820px) / 2)) }
