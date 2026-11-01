@@ -25,6 +25,7 @@ pub mod desktop;
 pub mod files;
 pub mod process;
 pub mod shell;
+pub mod transfer;
 
 pub const NODE_ALPN: &[u8] = b"beep-node/1";
 

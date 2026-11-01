@@ -45,6 +45,9 @@ pub(crate) enum Acts {
     Always,
     /// Only when it moves mail to another folder, which can bin it.
     WhenMoving,
+    /// Only when it sends to one of the user's machines (`to` names one)
+    /// rather than to the user in the chat.
+    WhenToMachine,
 }
 
 impl Acts {
@@ -53,6 +56,11 @@ impl Acts {
             Acts::Never => false,
             Acts::Always => true,
             Acts::WhenMoving => args.get("folder").is_some_and(|folder| !folder.is_null()),
+            Acts::WhenToMachine => args
+                .get("to")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .is_some_and(|to| !to.is_empty() && !to.eq_ignore_ascii_case("user")),
         }
     }
 
@@ -61,6 +69,9 @@ impl Acts {
         self != Acts::Never
     }
 }
+
+/// `send_file` as rules keep it.
+const SEND_FILE: &str = "SEND_FILE";
 
 /// Composio tags of tools that create or destroy something. Such a tool
 /// asks first even if the catalog lists it as a read.
@@ -131,13 +142,20 @@ impl ToolSlug {
 pub(crate) enum ToolApp {
     Catalog(&'static CatalogApp),
     Added(String),
+    /// Beep's own tools that act on the user's machines, such as
+    /// `send_file` sending to one.
+    Machines,
 }
+
+/// The rules' name for the user's machines.
+pub(crate) const MACHINES_APP: &str = "machines";
 
 impl ToolApp {
     pub(crate) fn slug(&self) -> &str {
         match self {
             ToolApp::Catalog(app) => app.slug,
             ToolApp::Added(slug) => slug,
+            ToolApp::Machines => MACHINES_APP,
         }
     }
 
@@ -148,6 +166,7 @@ impl ToolApp {
             ToolApp::Added(slug) => {
                 capitalize(&slug.trim_start_matches(ADDED_PREFIX).replace('-', " "))
             }
+            ToolApp::Machines => "Your machines".to_owned(),
         }
     }
 }
@@ -159,6 +178,9 @@ impl ToolApp {
 pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     let tool = ToolSlug::new(tool);
     let tool = tool.as_str();
+    if tool == SEND_FILE {
+        return Some((ToolApp::Machines, Acts::WhenToMachine));
+    }
     for app in CATALOG {
         if let Some(picked) = app.tools.iter().find(|picked| picked.slug == tool) {
             return Some((ToolApp::Catalog(app), picked.acts));
@@ -191,7 +213,7 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
 pub(crate) fn call_acts(tool: &str, args: &Value) -> Option<(&'static CatalogApp, bool)> {
     match lookup(tool)? {
         (ToolApp::Catalog(app), acts) => Some((app, acts.on(args))),
-        (ToolApp::Added(_), _) => None,
+        (ToolApp::Added(_) | ToolApp::Machines, _) => None,
     }
 }
 
@@ -952,6 +974,15 @@ pub(crate) async fn allow_always(user: &User, tool: &str) -> Result<()> {
     rule.allowed.insert(ToolSlug::new(tool).0);
     let row = match app {
         ToolApp::Catalog(app) => row(app, rule.level, rule.allowed.into_iter().collect()),
+        ToolApp::Machines => {
+            let mut allowed: Vec<String> = rule.allowed.into_iter().collect();
+            allowed.sort();
+            AppPermissionRow {
+                app: MACHINES_APP.to_owned(),
+                level: rule.level,
+                allowed,
+            }
+        }
         ToolApp::Added(slug) => {
             let mut allowed: Vec<String> = rule.allowed.into_iter().collect();
             allowed.sort();
@@ -1265,6 +1296,40 @@ mod tests {
         async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
             Ok(ToolResult::success(ctx.tool_call_id, ""))
         }
+    }
+
+    #[tokio::test]
+    async fn sending_to_a_machine_asks_first() {
+        let (app, acts) = lookup("send_file").unwrap();
+        assert_eq!(
+            (app.slug(), app.name()),
+            (MACHINES_APP, "Your machines".into())
+        );
+        assert_eq!(acts, Acts::WhenToMachine);
+        let guarded = guard(
+            vec![Arc::new(Named("send_file"))],
+            Rules::default(),
+            Approved(None),
+            &HashSet::new(),
+            None,
+        );
+        let token = tokio_util::sync::CancellationToken::new();
+        let run = |args: Value| {
+            let tool = guarded[0].clone();
+            let token = token.clone();
+            async move {
+                tool.execute(ToolContext::new("call", args, None, &token))
+                    .await
+                    .unwrap()
+            }
+        };
+        let to_machine = run(json!({ "path": "frames", "to": "laptop" })).await;
+        assert!(to_machine.is_interrupt());
+        let to_user = run(json!({ "path": "a.pdf", "to": "User" })).await;
+        assert!(to_user.is_success() && !to_user.is_interrupt());
+        assert!(run(json!({ "path": "a.pdf" })).await.is_success());
+        let approval = approval_for(&app, "send_file", &json!({ "to": "laptop" }));
+        assert_eq!(approval.action, "send file");
     }
 
     #[test]
