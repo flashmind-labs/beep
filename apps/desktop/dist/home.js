@@ -25,6 +25,45 @@ export function machineNow(m) {
   return m.agents ? "working" : "idle";
 }
 
+/// A size in bytes, decimal as disks are sold: "850 MB", "4.3 GB",
+/// "212 GB", "1.2 TB".
+export function bytes(n) {
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let i = 0;
+  while (n >= 1000 && i < units.length - 1) { n /= 1000; i++; }
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
+
+/// GB from MiB, one decimal under 10: "9.1", "32".
+function gb(mb) {
+  const n = mb / 1024;
+  return n >= 10 ? String(Math.round(n)) : n.toFixed(1);
+}
+
+/// The Disk column: free space where the machine keeps the user's files,
+/// low under a tenth free. The title lists each volume measured.
+export function machineDisk(m) {
+  const disks = (m.online && m.stats?.disks) || [];
+  const d = disks[0];
+  if (!d || !d.total_bytes) return { text: "–", low: false, title: "" };
+  return {
+    text: `${bytes(d.free_bytes)} free`,
+    low: d.free_bytes / d.total_bytes < 0.1,
+    title: disks.map(d => `${d.path}: ${bytes(d.free_bytes)} free of ${bytes(d.total_bytes)}`).join("\n"),
+  };
+}
+
+/// The Memory column: used of total, with the load in the title.
+export function machineMemory(m) {
+  const s = m.online && m.stats;
+  if (!s || !s.memory_total_mb) return { text: "–", title: "" };
+  const cores = m.env?.cpus ? ` on ${m.env.cpus} cores` : "";
+  return {
+    text: `${gb(s.memory_used_mb)} / ${gb(s.memory_total_mb)} GB`,
+    title: s.load == null ? "" : `Load ${s.load.toFixed(2)}${cores}`,
+  };
+}
+
 /// The OS line under a machine's name.
 export function machineOs(m) {
   return m.env ? m.env.os_version || m.env.os : "";
