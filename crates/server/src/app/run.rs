@@ -302,7 +302,9 @@ impl App {
                 user: user.clone(),
             }));
         }
-        registry.register(Arc::new(tools::SendFileTool {
+        // Sending to a machine acts, so it goes under the rules with the
+        // app tools below.
+        let send_file: Arc<dyn Tool> = Arc::new(tools::SendFileTool {
             user: user.clone(),
             session_id: chat,
             workspace: workspace.clone(),
@@ -311,7 +313,7 @@ impl App {
                 user: user.clone(),
             }),
             paper: research.is_some(),
-        }));
+        });
         registry.register(Arc::new(tools::SendImageTool {
             user: user.clone(),
             session_id: chat,
@@ -366,10 +368,11 @@ impl App {
             app_tools
         };
         let tools = markdown::wrap(app_tools);
-        let tools = match &workspace {
+        let mut tools = match &workspace {
             Some(workspace) => files::wrap(tools, workspace),
             None => tools,
         };
+        tools.push(send_file);
         // Grants are asked for where routines are set up. A routine's own
         // run and a turn on untrusted text never ask for one.
         if !is_cron && !untrusted && registry.contains("cron_create") {
