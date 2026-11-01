@@ -282,6 +282,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(apps::SignIn::default());
     app.manage(update::Updates::default());
     app.manage(machine::Machine::default());
+    app.manage(center::Shown::default());
     app.state::<machine::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
@@ -381,7 +382,11 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
         {
             let _ = app.emit("work-question", question);
         }
-        if bar::is_open(&app) && beep.session().as_deref() == Some(notice.session_id.as_str()) {
+        let showing = app.state::<center::Shown>().get();
+        if center::on_screen(
+            &seen(&app, beep.session(), showing.session),
+            &notice.session_id,
+        ) {
             continue;
         }
         match voice.wants(&notice) {
@@ -421,13 +426,25 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
         return;
     }
     // An approval still notifies: the bar may be on another chat by then.
-    if bar::is_open(app)
-        && beep.group().as_deref() == Some(id.as_str())
-        && notice.approval.is_none()
+    let showing = app.state::<center::Shown>().get();
+    if center::on_screen(&seen(app, beep.group(), showing.group), &id) && notice.approval.is_none()
     {
         return;
     }
     notify(app, &notice);
+}
+
+/// What is on screen: the bar's chat while the bar is open, the command
+/// center's while its window has focus.
+fn seen(app: &AppHandle, bar: Option<String>, window: Option<String>) -> center::Seen {
+    let focused = app
+        .get_webview_window(center::LABEL)
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false);
+    center::Seen {
+        bar: bar.filter(|_| bar::is_open(app)),
+        window: window.filter(|_| focused),
+    }
 }
 
 fn notify(app: &AppHandle, notice: &Notice) {
