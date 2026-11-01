@@ -18,7 +18,7 @@ use crate::{
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;
-use sqlx::{PgConnection, Row, postgres::PgRow};
+use sqlx::{PgConnection, Postgres, Row, Transaction, postgres::PgRow};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -268,6 +268,145 @@ fn lock_refusal(error: &sqlx::Error) -> Option<StartRefused> {
     }
 }
 
+/// Commits `tx` when `keep`, else rolls it back, and returns `done`.
+/// Transactions end here rather than on drop: a dropped one rolls back only
+/// when its connection is next used, and holds its locks until then. When
+/// `done` already failed, a failed rollback is logged and `done`'s error
+/// returned.
+async fn end<T>(tx: Transaction<'_, Postgres>, keep: bool, done: Result<T>) -> Result<T> {
+    if keep {
+        tx.commit().await?;
+        return done;
+    }
+    match (tx.rollback().await, done) {
+        (Ok(()), done) => done,
+        (Err(error), Ok(_)) => Err(error.into()),
+        (Err(error), Err(first)) => {
+            log::warn!("rolling back a failed transaction failed: {error}");
+            Err(first)
+        }
+    }
+}
+
+/// The body of [`Store::ensure_project_agent`], in its transaction.
+async fn agent_in(tx: &mut PgConnection, user: &UserKey, project: ProjectId) -> Result<Uuid> {
+    // Locking the project makes a second caller wait and find the chat.
+    let name: Option<String> =
+        sqlx::query_scalar("SELECT name FROM projects WHERE id=$1 AND user_id=$2 FOR UPDATE")
+            .bind(project.0)
+            .bind(user.as_str())
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some(name) = name else {
+        bail!("the project is not the user's");
+    };
+    let chat: Option<Uuid> =
+        sqlx::query_scalar("SELECT chat_id FROM project_agents WHERE project_id=$1")
+            .bind(project.0)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if let Some(chat) = chat {
+        return Ok(chat);
+    }
+    let chat = Uuid::new_v4();
+    if ensure_session(&mut *tx, user.as_str(), chat).await? != SessionChat::New {
+        bail!("a fresh chat id was already taken");
+    }
+    sqlx::query("UPDATE chats SET title=$2 WHERE id=$1")
+        .bind(chat)
+        .bind(&name)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO project_agents (project_id, chat_id) VALUES ($1, $2)")
+        .bind(project.0)
+        .bind(chat)
+        .execute(&mut *tx)
+        .await?;
+    Ok(chat)
+}
+
+/// The body of [`Store::set_home`], in its transaction.
+async fn home_in(
+    tx: &mut PgConnection,
+    project: ProjectId,
+    machine: &EndpointId,
+    path: &MachinePath,
+) -> Result<()> {
+    let found = sqlx::query(
+        "UPDATE project_checkouts SET home=true WHERE project_id=$1 AND machine=$2 AND path=$3",
+    )
+    .bind(project.0)
+    .bind(machine.to_string())
+    .bind(path.as_str())
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if found == 0 {
+        bail!("{path} is not a checkout of the project on that machine");
+    }
+    sqlx::query(
+        "UPDATE project_checkouts SET home=false
+         WHERE project_id=$1 AND NOT (machine=$2 AND path=$3)",
+    )
+    .bind(project.0)
+    .bind(machine.to_string())
+    .bind(path.as_str())
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+/// The body of [`Store::create_tasks`], in its transaction.
+async fn tasks_in(
+    tx: &mut PgConnection,
+    project: ProjectId,
+    tasks: &[NewTask],
+) -> Result<Vec<TaskRow>> {
+    // Locking the project keeps two callers from picking the same slug.
+    sqlx::query("SELECT 1 FROM projects WHERE id=$1 FOR UPDATE")
+        .bind(project.0)
+        .fetch_optional(&mut *tx)
+        .await?
+        .context("no such project")?;
+    let mut taken: HashSet<String> =
+        sqlx::query_scalar("SELECT slug FROM project_tasks WHERE project_id=$1")
+            .bind(project.0)
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
+    let mut made = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        let base = TaskSlug::from_title(&task.title);
+        let mut slug = base.clone();
+        let mut n = 1;
+        while taken.contains(slug.as_str()) {
+            n += 1;
+            if n > MAX_SLUG_SUFFIX {
+                bail!("no free slug for {base}");
+            }
+            slug = base.suffixed(n);
+        }
+        taken.insert(slug.as_str().to_owned());
+        let needs: Vec<&'static str> = task.needs.iter().map(|&need| need.into()).collect();
+        let row = sqlx::query(&format!(
+            "INSERT INTO project_tasks AS t (id, project_id, slug, title, body, depends_on, needs)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {TASK_COLUMNS}"
+        ))
+        .bind(Uuid::new_v4())
+        .bind(project.0)
+        .bind(slug.as_str())
+        .bind(task.title.trim())
+        .bind(task.body.trim())
+        .bind(task.depends_on.map(|id| id.0))
+        .bind(&needs)
+        .fetch_one(&mut *tx)
+        .await?;
+        made.push(task_from(&row)?);
+    }
+    Ok(made)
+}
+
 /// The body of [`Store::start_worker`], in its transaction.
 async fn start_in(
     tx: &mut PgConnection,
@@ -291,8 +430,8 @@ async fn start_in(
     };
     let machine = worker.machine.to_string();
     let live = live_states();
-    // Count first, then insert: the advisory lock keeps other starts of
-    // this user out in between.
+    // Count, then insert: the advisory lock keeps other starts of this
+    // user out in between.
     let counts = sqlx::query(
         "SELECT COUNT(*) FILTER (WHERE project_id=$2), COUNT(*) FILTER (WHERE machine=$3),
                 COUNT(*)
@@ -307,6 +446,15 @@ async fn start_in(
     let in_project: i64 = counts.try_get(0)?;
     let on_machine: i64 = counts.try_get(1)?;
     let for_user: i64 = counts.try_get(2)?;
+    if in_project >= MAX_PROJECT_WORKERS {
+        return Ok(Err(StartRefused::ProjectFull));
+    }
+    if on_machine >= MAX_MACHINE_WORKERS {
+        return Ok(Err(StartRefused::MachineFull));
+    }
+    if for_user >= MAX_USER_WORKERS {
+        return Ok(Err(StartRefused::UserFull));
+    }
     let inserted = sqlx::query(&format!(
         "INSERT INTO project_workers AS w
              (id, task_id, project_id, user_id, machine, agent, folder, persona, persona_commit)
@@ -323,7 +471,6 @@ async fn start_in(
     .bind(worker.persona_commit.as_deref())
     .fetch_one(&mut *tx)
     .await;
-    // A lock held by another worker says more than a full slot count.
     let row = match inserted {
         Ok(row) => row,
         Err(error) => match lock_refusal(&error) {
@@ -331,19 +478,6 @@ async fn start_in(
             None => return Err(error.into()),
         },
     };
-    let refused = if in_project >= MAX_PROJECT_WORKERS {
-        Some(StartRefused::ProjectFull)
-    } else if on_machine >= MAX_MACHINE_WORKERS {
-        Some(StartRefused::MachineFull)
-    } else if for_user >= MAX_USER_WORKERS {
-        Some(StartRefused::UserFull)
-    } else {
-        None
-    };
-    if let Some(refused) = refused {
-        // The caller rolls the insert back.
-        return Ok(Err(refused));
-    }
     Ok(Ok(worker_from(&row)?))
 }
 
@@ -425,42 +559,9 @@ impl Store {
         project: ProjectId,
     ) -> Result<Uuid> {
         let mut tx = self.pool.begin().await?;
-        // Locking the project makes a second caller wait and find the chat.
-        let name: Option<String> =
-            sqlx::query_scalar("SELECT name FROM projects WHERE id=$1 AND user_id=$2 FOR UPDATE")
-                .bind(project.0)
-                .bind(user.as_str())
-                .fetch_optional(&mut *tx)
-                .await?;
-        let Some(name) = name else {
-            tx.rollback().await?;
-            bail!("the project is not the user's");
-        };
-        let chat: Option<Uuid> =
-            sqlx::query_scalar("SELECT chat_id FROM project_agents WHERE project_id=$1")
-                .bind(project.0)
-                .fetch_optional(&mut *tx)
-                .await?;
-        if let Some(chat) = chat {
-            tx.commit().await?;
-            return Ok(chat);
-        }
-        let chat = Uuid::new_v4();
-        if ensure_session(&mut tx, user.as_str(), chat).await? != SessionChat::New {
-            bail!("a fresh chat id was already taken");
-        }
-        sqlx::query("UPDATE chats SET title=$2 WHERE id=$1")
-            .bind(chat)
-            .bind(&name)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("INSERT INTO project_agents (project_id, chat_id) VALUES ($1, $2)")
-            .bind(project.0)
-            .bind(chat)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        Ok(chat)
+        let done = agent_in(&mut tx, user, project).await;
+        let keep = done.is_ok();
+        end(tx, keep, done).await
     }
 
     /// Keeps a checkout, replacing the one at the same machine and path.
@@ -530,30 +631,9 @@ impl Store {
         path: &MachinePath,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        let found = sqlx::query(
-            "UPDATE project_checkouts SET home=true WHERE project_id=$1 AND machine=$2 AND path=$3",
-        )
-        .bind(project.0)
-        .bind(machine.to_string())
-        .bind(path.as_str())
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        if found == 0 {
-            tx.rollback().await?;
-            bail!("{path} is not a checkout of the project on that machine");
-        }
-        sqlx::query(
-            "UPDATE project_checkouts SET home=false
-             WHERE project_id=$1 AND NOT (machine=$2 AND path=$3)",
-        )
-        .bind(project.0)
-        .bind(machine.to_string())
-        .bind(path.as_str())
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(())
+        let done = home_in(&mut tx, project, machine, path).await;
+        let keep = done.is_ok();
+        end(tx, keep, done).await
     }
 
     /// Makes `tasks` in `project`, in order. A slug the project already
@@ -564,50 +644,9 @@ impl Store {
         tasks: &[NewTask],
     ) -> Result<Vec<TaskRow>> {
         let mut tx = self.pool.begin().await?;
-        // Locking the project keeps two callers from picking the same slug.
-        sqlx::query("SELECT 1 FROM projects WHERE id=$1 FOR UPDATE")
-            .bind(project.0)
-            .fetch_optional(&mut *tx)
-            .await?
-            .context("no such project")?;
-        let mut taken: HashSet<String> =
-            sqlx::query_scalar("SELECT slug FROM project_tasks WHERE project_id=$1")
-                .bind(project.0)
-                .fetch_all(&mut *tx)
-                .await?
-                .into_iter()
-                .collect();
-        let mut made = Vec::with_capacity(tasks.len());
-        for task in tasks {
-            let base = TaskSlug::from_title(&task.title);
-            let mut slug = base.clone();
-            let mut n = 1;
-            while taken.contains(slug.as_str()) {
-                n += 1;
-                if n > MAX_SLUG_SUFFIX {
-                    bail!("no free slug for {base}");
-                }
-                slug = base.suffixed(n);
-            }
-            taken.insert(slug.as_str().to_owned());
-            let needs: Vec<&'static str> = task.needs.iter().map(|&need| need.into()).collect();
-            let row = sqlx::query(&format!(
-                "INSERT INTO project_tasks AS t (id, project_id, slug, title, body, depends_on, needs)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {TASK_COLUMNS}"
-            ))
-            .bind(Uuid::new_v4())
-            .bind(project.0)
-            .bind(slug.as_str())
-            .bind(task.title.trim())
-            .bind(task.body.trim())
-            .bind(task.depends_on.map(|id| id.0))
-            .bind(&needs)
-            .fetch_one(&mut *tx)
-            .await?;
-            made.push(task_from(&row)?);
-        }
-        tx.commit().await?;
-        Ok(made)
+        let done = tasks_in(&mut tx, project, tasks).await;
+        let keep = done.is_ok();
+        end(tx, keep, done).await
     }
 
     /// The project's tasks, oldest first.
@@ -756,20 +795,21 @@ impl Store {
         user: &UserKey,
         worker: &NewWorker,
     ) -> Result<Result<WorkerRow, StartRefused>> {
-        let mut tx = self.pool.begin().await?;
-        let started = start_in(&mut tx, user, worker).await;
-        // Ending the transaction here, not on drop: a dropped one rolls
-        // back only when its connection is next used, and holds the
-        // advisory lock, and so every other start of the user, until then.
-        if matches!(started, Ok(Ok(_))) {
-            tx.commit().await?;
-        } else if let Err(error) = tx.rollback().await {
-            if started.is_ok() {
-                return Err(error.into());
-            }
-            log::warn!("rolling back a refused worker start failed: {error}");
-        }
-        started
+        // The transaction runs in its own task, so it ends even when the
+        // caller is cancelled: a transaction dropped half way holds the
+        // advisory lock, and so every other start of the user, until its
+        // connection is next used.
+        let pool = self.pool.clone();
+        let user = user.clone();
+        let worker = worker.clone();
+        tokio::spawn(async move {
+            let mut tx = pool.begin().await?;
+            let started = start_in(&mut tx, &user, &worker).await;
+            let keep = matches!(started, Ok(Ok(_)));
+            end(tx, keep, started).await
+        })
+        .await
+        .context("the worker start stopped")?
     }
 
     pub(crate) async fn set_worker_session(&self, id: WorkerId, session: &str) -> Result<()> {
@@ -781,19 +821,23 @@ impl Store {
         Ok(())
     }
 
-    /// Moves the worker to `state`, noting when it ended.
-    pub(crate) async fn set_worker_state(&self, id: WorkerId, state: WorkerState) -> Result<()> {
-        sqlx::query(
+    /// Moves the worker to `state`, noting when it ended. An ended or failed
+    /// worker never comes back to life, so a live `state` only moves a live
+    /// worker. Says whether it moved.
+    pub(crate) async fn set_worker_state(&self, id: WorkerId, state: WorkerState) -> Result<bool> {
+        let moved = sqlx::query(
             "UPDATE project_workers SET state=$2,
-                 ended_at = CASE WHEN $3 THEN COALESCE(ended_at, now()) ELSE NULL END
-             WHERE id=$1",
+                 ended_at = CASE WHEN $3 THEN COALESCE(ended_at, now()) ELSE ended_at END
+             WHERE id=$1 AND ($3 OR state = ANY($4))",
         )
         .bind(id.0)
         .bind(<&str>::from(state))
         .bind(!state.is_live())
+        .bind(live_states())
         .execute(&self.pool)
-        .await?;
-        Ok(())
+        .await?
+        .rows_affected();
+        Ok(moved == 1)
     }
 
     /// Notes a finished turn: the worker waits, not asking anything, with
@@ -1230,6 +1274,84 @@ mod tests {
         start(&store, &user, &worker_for(tasks[3], spare_box, "/srv/d"))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_refused_start_leaves_no_worker() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let user = UserKey::for_test("alice");
+        let project = store
+            .ensure_project(&user, &repo("acme/widget"))
+            .await
+            .unwrap();
+        let tasks = tasks_in(&store, project.id, 4).await;
+        for (n, task) in tasks.iter().take(3).enumerate() {
+            start(
+                &store,
+                &user,
+                &worker_for(*task, machine(), &format!("/srv/{n}")),
+            )
+            .await
+            .unwrap();
+        }
+        let refused = start(&store, &user, &worker_for(tasks[3], machine(), "/srv/3")).await;
+        assert!(matches!(refused, Err(StartRefused::ProjectFull)));
+        let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project_workers")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows, 3);
+    }
+
+    #[tokio::test]
+    async fn an_ended_worker_stays_ended() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let user = UserKey::for_test("alice");
+        let project = store
+            .ensure_project(&user, &repo("acme/widget"))
+            .await
+            .unwrap();
+        let tasks = tasks_in(&store, project.id, 1).await;
+        let worker = start(&store, &user, &worker_for(tasks[0], machine(), "/srv/a"))
+            .await
+            .unwrap();
+        assert!(
+            store
+                .set_worker_state(worker.id, WorkerState::Running)
+                .await
+                .unwrap()
+        );
+        assert!(
+            store
+                .set_worker_state(worker.id, WorkerState::Ended)
+                .await
+                .unwrap()
+        );
+        let ended_at = store
+            .worker(&user, worker.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .ended_at;
+        assert!(ended_at.is_some());
+        for live in WorkerState::LIVE {
+            assert!(!store.set_worker_state(worker.id, live).await.unwrap());
+        }
+        let row = store.worker(&user, worker.id).await.unwrap().unwrap();
+        assert_eq!(row.state, WorkerState::Ended);
+        assert_eq!(row.ended_at, ended_at);
+        // Ending it another way still moves it, keeping when it ended.
+        assert!(
+            store
+                .set_worker_state(worker.id, WorkerState::Failed)
+                .await
+                .unwrap()
+        );
+        let row = store.worker(&user, worker.id).await.unwrap().unwrap();
+        assert_eq!(row.state, WorkerState::Failed);
+        assert_eq!(row.ended_at, ended_at);
     }
 
     #[tokio::test]
