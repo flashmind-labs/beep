@@ -18,9 +18,10 @@ use beep_server::{
     nodes::{self, Online},
     protocol::{
         AgentEntryKind, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
-        CreateNodeToken, DeviceKind, GetAgentSession, ListAgentHosts, ListAgentSessions,
-        ListMachineDetails, ListMachines, ListMemoryScopes, MachineCapability, MemoryScope,
-        MemorySource, RemoveDevice, RevokeNodeToken, StartAgentSession, SteerAgentSession,
+        CreateNodeToken, DeviceKind, GetAgentSession, GetNodeToken, ListAgentHosts,
+        ListAgentSessions, ListMachineDetails, ListMachines, ListMemoryScopes, MachineCapability,
+        MemoryScope, MemorySource, RemoveDevice, RevokeNodeToken, StartAgentSession,
+        SteerAgentSession,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -1807,11 +1808,19 @@ async fn a_machine_sets_itself_up_with_a_token_once() {
     let text = made.token.to_lowercase().replace('-', "");
     assert!(!stored[0].contains(&text[3..30]));
 
+    let status = GetNodeToken {
+        token: made.token.clone(),
+    };
+    assert_eq!(client.call(&status).await.unwrap(), None);
     let key = SecretKey::generate();
     let machine = endpoint(key.clone()).await;
     let claimed = beep_node::link::claim(&machine, addr.clone(), "host", &setup_of(&made.token))
         .await
         .unwrap();
+    assert_eq!(
+        client.call(&status).await.unwrap(),
+        Some(key.public().to_string())
+    );
     assert_eq!(claimed.name, "build box");
     let alice_id = server
         .app

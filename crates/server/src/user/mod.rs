@@ -925,6 +925,12 @@ impl User {
             .await
     }
 
+    /// The key that claimed this user's setup token `hash`: `None` for no
+    /// such token, `Some(None)` while unused.
+    pub async fn node_token_claimer(&self, hash: &str) -> Result<Option<Option<String>>> {
+        self.store.node_token_claimer(&self.key, hash).await
+    }
+
     /// Stops this user's unused setup token `hash` from working; false
     /// when there is none.
     pub async fn revoke_node_token(&self, hash: &str) -> Result<bool> {

@@ -657,6 +657,11 @@ requests! {
     /// the caller made no such token or it was already used; `BadRequest`
     /// when `token` is not one.
     181 RevokeNodeToken { token: String } => Call<()>
+    /// The `Machine::id` that claimed a token `CreateNodeToken` gave, or
+    /// `None` while it is unused, so a sheet waiting on it knows which
+    /// machine linked, even one set up again. `NotFound` when the caller
+    /// made no such token; `BadRequest` when `token` is not one.
+    182 GetNodeToken { token: String } => Call<Option<String>>
 }
 
 /// Something from one of the user's apps worth knowing, as `ListUpdates`

@@ -50,7 +50,9 @@ use groups::{
 use location::{
     cross_place, delete_place, list_places, set_timezone, update_location, update_place,
 };
-use machines::{create_node_token, list_machine_details, list_machines, revoke_node_token};
+use machines::{
+    create_node_token, get_node_token, list_machine_details, list_machines, revoke_node_token,
+};
 use memories::{
     clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
     list_memory_scopes, list_skills, undo_skill, update_memory, update_skill,
@@ -206,6 +208,7 @@ pub fn router() -> Router {
         .call(updates::dismiss_updates)
         .call(create_node_token)
         .call(revoke_node_token)
+        .call(get_node_token)
 }
 
 type Reply<T> = Result<T, ApiError>;

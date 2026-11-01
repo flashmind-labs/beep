@@ -86,6 +86,22 @@ impl Store {
         Ok(deleted > 0)
     }
 
+    /// The key that claimed the user's token `hash`: `None` when there is
+    /// no such token, `Some(None)` while it is unused.
+    pub(crate) async fn node_token_claimer(
+        &self,
+        user: &UserKey,
+        hash: &str,
+    ) -> Result<Option<Option<String>>> {
+        Ok(
+            sqlx::query_scalar("SELECT endpoint_id FROM node_tokens WHERE hash=$1 AND user_id=$2")
+                .bind(hash)
+                .bind(user.as_str())
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
     /// Links the claiming machine's key to the account that made the token,
     /// as an accepted link offer does, and spends the token in the same
     /// transaction. A key of that same account claims it too, as when a
@@ -202,6 +218,10 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(
+            store.node_token_claimer(&alice, "hash-1").await.unwrap(),
+            Some(None)
+        );
         let Claim::Linked(claimed) = store
             .claim_node_token(claim("hash-1", machine))
             .await
@@ -210,6 +230,15 @@ mod tests {
             panic!("a fresh token links");
         };
         assert_eq!(claimed.account, Account::new("alice"));
+        assert_eq!(
+            store.node_token_claimer(&alice, "hash-1").await.unwrap(),
+            Some(Some(machine.to_string()))
+        );
+        let bob = UserKey::for_test("bob");
+        assert_eq!(
+            store.node_token_claimer(&bob, "hash-1").await.unwrap(),
+            None
+        );
         assert_eq!(claimed.account_name, "alice");
         assert_eq!(claimed.name, "build box");
         let SignIn::Account {

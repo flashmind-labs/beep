@@ -45,11 +45,11 @@ export function timeLeft(expiresAt, now) {
   return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 }
 
-/// The machine in `machines` that was not among `knownIds` when the sheet
-/// opened: the one that just claimed the token.
-export function findLinked(knownIds, machines) {
-  const known = new Set(knownIds);
-  return (machines || []).find(m => !known.has(m.id)) || null;
+/// The machine with `id` in `machines`, as node_token_machine names the one
+/// that claimed the token; null until the list has it.
+export function machineById(machines, id) {
+  if (!id) return null;
+  return (machines || []).find(m => m.id === id) || null;
 }
 
 const OS_NAMES = { linux: "Linux", macos: "macOS", windows: "Windows" };

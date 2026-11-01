@@ -1,12 +1,12 @@
 //! The "Add a machine" sheet: a one-time setup token the machine claims
-//! with `beep-node setup <token>`. The sheet learns it was claimed from
-//! `list_machines`, which it polls while open.
+//! with `beep-node setup <token>`. While open, the sheet polls
+//! `node_token_machine` to learn which machine claimed it.
 
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
 };
-use beep_proto::{ApiError, CreateNodeToken, RevokeNodeToken, setup::setup_command};
+use beep_proto::{ApiError, CreateNodeToken, GetNodeToken, RevokeNodeToken, setup::setup_command};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
@@ -37,6 +37,12 @@ pub async fn create_node_token(beep: Service<'_>, name: Option<String>) -> Resul
         token: made.token,
         expires_at: epoch_ms(made.expires_at),
     })
+}
+
+/// The `Machine::id` that claimed `token`, `None` while it is unused.
+#[tauri::command]
+pub async fn node_token_machine(beep: Service<'_>, token: String) -> Result<Option<String>> {
+    beep.call(GetNodeToken { token }).await.map_err(outdated)
 }
 
 /// A token already used, expired or revoked is no error: it works no more

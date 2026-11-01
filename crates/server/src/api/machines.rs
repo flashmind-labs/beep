@@ -82,6 +82,18 @@ pub(super) async fn create_node_token(
     }
 }
 
+/// Only the caller's own tokens.
+pub(super) async fn get_node_token(
+    cx: Cx,
+    GetNodeToken { token }: GetNodeToken,
+) -> Reply<Option<String>> {
+    let token = SetupToken::parse(&token).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    cx.user
+        .node_token_claimer(&token.hash())
+        .await?
+        .ok_or(ApiError::NotFound {})
+}
+
 /// Only the caller's own unused tokens.
 pub(super) async fn revoke_node_token(
     cx: Cx,
