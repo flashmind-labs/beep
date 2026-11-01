@@ -23,8 +23,9 @@ git config --get-regexp '^beep\.'
 
 - A job set to `forgejo` belongs to the `forgejo` skill.
 - A job with no key: if every remote is on github.com, use GitHub. If the
-  project also has a Forgejo or Gitea remote, ask the user which host to
-  use. Do not decide from `.github/` or `.forgejo/` folders, or from where
+  project also has a Forgejo or Gitea remote, ask the user which host to use before you create anything there. To read
+  (CI status, open PRs, issues), check every host and say which one each
+  answer came from. Do not decide from `.github/` or `.forgejo/` folders, or from where
   issues happen to exist.
 
 Remote names say nothing. Find the GitHub remote by its URL. In a fork, push
