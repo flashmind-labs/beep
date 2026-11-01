@@ -30,6 +30,10 @@ pub mod transfer;
 
 pub const NODE_ALPN: &[u8] = b"beep-node/1";
 
+/// The code the server closes a node's connection with when it refuses the
+/// hello's setup token; the reason says why, in words for the user.
+pub const CLOSE_SETUP_REFUSED: u32 = 400;
+
 const MAX_FRAME: usize = 8 * 1024 * 1024;
 
 /// The first message on the control stream.
