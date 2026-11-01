@@ -1,7 +1,7 @@
-//! Token usage and cost per user, day, model and agent.
+//! Token usage and cost per user, day, model and kind of turn.
 
 use super::Store;
-use crate::{agents::AgentId, metering::CallUsage};
+use crate::metering::CallUsage;
 use anyhow::Result;
 
 impl Store {
@@ -22,7 +22,8 @@ impl Store {
         )
         .bind(user)
         .bind(&call.model)
-        .bind(call.agent.map_or("", AgentId::as_str))
+        // The `agent` column keeps its name; only research writes a value.
+        .bind(if call.research { "research" } else { "" })
         .bind(i64::from(usage.prompt_tokens))
         .bind(i64::from(usage.cache_read_tokens))
         .bind(i64::from(usage.cache_creation_tokens))

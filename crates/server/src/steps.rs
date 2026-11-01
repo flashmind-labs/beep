@@ -417,7 +417,6 @@ mod tests {
                     auto_thinking: Some(ReasoningLevel::High),
                     reasoning: String::new(),
                     memory_score: Some(0.8),
-                    agent: None,
                 },
             )]),
         );

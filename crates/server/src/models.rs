@@ -2,7 +2,6 @@
 //! admin who has not picked one, runs on the server default.
 
 use crate::{
-    agents::{Agent, AgentConfig, AgentId},
     config::ProjectConfig,
     protocol::{ModelChoice, Models},
     research::ResearchConfig,
@@ -27,9 +26,6 @@ pub struct ModelChoices {
     routing: HashMap<Model, ProviderPreferences>,
     /// The offered models Jev may pick per prompt, in choice order.
     auto: Vec<AutoModel>,
-    /// The agents Jev may pick per prompt, General first. Empty when the
-    /// config has no usable General.
-    agents: Vec<Agent>,
     /// The models research roles run on; `None` turns research off.
     research: Option<ResearchConfig>,
     /// What project chats plan on; `None` plans on the chat's default.
@@ -66,7 +62,6 @@ impl ModelChoices {
             }],
             routing: HashMap::new(),
             auto: Vec::new(),
-            agents: Vec::new(),
             research: None,
             project: None,
         }
@@ -117,7 +112,6 @@ impl ModelChoices {
             choices,
             routing: HashMap::new(),
             auto: Vec::new(),
-            agents: Vec::new(),
             research: None,
             project: None,
         }
@@ -146,42 +140,6 @@ impl ModelChoices {
         for model in described.keys() {
             log::warn!("auto model is not a model choice; model={model}");
         }
-        self
-    }
-
-    /// Lets Jev pick among these agents. An agent whose model is not
-    /// offered is left out with a warning, and without General there are no
-    /// agents at all.
-    pub fn with_agents(mut self, configured: HashMap<AgentId, AgentConfig>) -> Self {
-        let mut agents: Vec<Agent> = configured
-            .into_iter()
-            .filter_map(|(id, config)| {
-                if self.find(&config.model.to_string()).is_none() {
-                    log::warn!(
-                        "agent model is not a model choice; agent={} model={}",
-                        id.as_str(),
-                        config.model
-                    );
-                    return None;
-                }
-                Some(Agent {
-                    id,
-                    name: config.name,
-                    when: config.when,
-                    model: config.model,
-                    thinking: config.thinking,
-                })
-            })
-            .collect();
-        agents.sort_by_key(|agent| (agent.id != AgentId::General, agent.id.as_str()));
-        if agents
-            .first()
-            .is_some_and(|agent| agent.id != AgentId::General)
-        {
-            log::warn!("agents need a general agent; agents are off");
-            agents.clear();
-        }
-        self.agents = agents;
         self
     }
 
@@ -242,11 +200,6 @@ impl ModelChoices {
     /// The research roles' models, when research is on.
     pub fn research(&self) -> Option<&ResearchConfig> {
         self.research.as_ref()
-    }
-
-    /// The agents Jev may pick, General first; empty when none are set up.
-    pub fn agents(&self) -> &[Agent] {
-        &self.agents
     }
 
     /// The models Jev may pick, empty when Auto is unavailable.
@@ -454,31 +407,6 @@ mod tests {
         let someone = models.for_picker("someone", &on);
         assert!(!someone.auto && !someone.auto_available);
         assert!(!choices().for_picker(ADMIN, &on).auto);
-    }
-
-    fn agent(model: &str) -> AgentConfig {
-        AgentConfig {
-            name: "Agent".into(),
-            when: "Something".into(),
-            model: model.parse().unwrap(),
-            thinking: ReasoningLevel::Low,
-        }
-    }
-
-    #[test]
-    fn agents_take_only_offered_models_with_general_first() {
-        let luna = "openrouter:openai/gpt-6-luna";
-        let models = choices().with_agents(HashMap::from([
-            (AgentId::Research, agent(luna)),
-            (AgentId::Shopping, agent("openrouter:retired/model")),
-            (AgentId::General, agent("openrouter:z-ai/glm-5.3-flash")),
-        ]));
-        let ids: Vec<_> = models.agents().iter().map(|a| a.id).collect();
-        assert_eq!(ids, [AgentId::General, AgentId::Research]);
-
-        let without_general =
-            choices().with_agents(HashMap::from([(AgentId::Research, agent(luna))]));
-        assert!(without_general.agents().is_empty());
     }
 
     #[test]

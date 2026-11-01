@@ -1,4 +1,4 @@
-//! Coding agents (Claude Code, Codex, Gemini CLI, ...) run over ACP: the
+//! Coding agents (Claude Code, Codex, Gemini CLI, pi, flsh) run over ACP: the
 //! table of agents this node can start, the sessions it runs, and the
 //! streams the server follows them on (`beep_proto::node::agent`).
 
@@ -83,6 +83,19 @@ const KNOWN: &[Known] = &[
         name: "gemini",
         cli: "gemini",
         adapter: Adapter::Flags(&["--acp"]),
+    },
+    Known {
+        name: "pi",
+        cli: "pi",
+        adapter: Adapter::Npm {
+            bin: "pi-acp",
+            package: "pi-acp",
+        },
+    },
+    Known {
+        name: "flsh",
+        cli: "flsh",
+        adapter: Adapter::Flags(&["acp"]),
     },
 ];
 

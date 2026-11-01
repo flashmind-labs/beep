@@ -96,7 +96,6 @@ fn message(session_id: Uuid) -> Message {
         request_id: Uuid::new_v4(),
         message: "Halloween events today in Tokyo".into(),
         cron_id: None,
-        agent: None,
         scheduled: None,
         always_sent: false,
         woken: None,
@@ -202,4 +201,13 @@ async fn a_reply_keeps_the_sources_of_its_web_searches() {
         .expect("the chat is alice's");
     let asked = history.first().expect("the prompt is kept");
     assert_eq!(kept[0].message, asked.timestamp());
+}
+
+#[test]
+fn project_chats_run_on_the_project_prompt() {
+    use super::{ASSISTANT_PROMPT, research::LEAD_PROMPT, system_prompt};
+    use crate::projects::turn::PROJECT_PROMPT;
+    assert_eq!(system_prompt(false, true), PROJECT_PROMPT);
+    assert_eq!(system_prompt(true, false), LEAD_PROMPT);
+    assert_eq!(system_prompt(false, false), ASSISTANT_PROMPT);
 }
