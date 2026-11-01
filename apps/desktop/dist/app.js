@@ -4182,6 +4182,7 @@ async function show(view) {
   if (view === "settings") return renderSettings();
   if (S.link === "unlinked" || view === "link") return S.link === "linked" ? renderChat() : renderLink();
   if (view === "new") return newChat();
+  if (view === "chats") return renderChats();
   if (view === "memories") return renderMemories();
   if (view === "routines") return renderRoutines();
   if (view === "skills") return renderSkills();

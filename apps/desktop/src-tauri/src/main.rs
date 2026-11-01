@@ -104,6 +104,7 @@ fn main() {
             center::center_home,
             center::center_answer_agent,
             center::center_compose,
+            center::center_show_bar,
             commands::status,
             commands::link_offer,
             commands::send_prompt,

@@ -13,7 +13,7 @@ use beep_proto::{
     ListResearches, Machine, MachineApp, MachineDetails, MachineEnv, MachineGpu, MachineSession,
     PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{cmp::Reverse, collections::HashMap, sync::Arc};
 use tauri::{
     ActivationPolicy, AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State,
@@ -117,6 +117,30 @@ pub fn center_compose(app: AppHandle, beep: Service<'_>, prompt: String) -> Resu
     });
     bar::show(&app, Some("open"));
     Ok(())
+}
+
+/// What the sidebar and the cards can ask the bar to open.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BarView {
+    Memories,
+    Routines,
+    Chats,
+    Chat { session: Uuid },
+}
+
+/// Shows the bar on one of its own views.
+#[tauri::command]
+pub fn center_show_bar(app: AppHandle, beep: Service<'_>, view: BarView) {
+    match view {
+        BarView::Memories => bar::show(&app, Some("memories")),
+        BarView::Routines => bar::show(&app, Some("routines")),
+        BarView::Chats => bar::show(&app, Some("chats")),
+        BarView::Chat { session } => {
+            beep.set_session(Some(session.to_string()));
+            bar::show(&app, Some("open"));
+        }
+    }
 }
 
 /// Answers a question an agent session asks.
@@ -241,7 +265,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
         beep.sessions(),
         beep.call(ListCrons {}),
     );
-    Ok(home_view(HomeParts {
+    home_view(HomeParts {
         machines,
         details,
         sessions,
@@ -249,7 +273,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
         approvals,
         chats,
         crons,
-    }))
+    })
 }
 
 /// `None` for a request the server does not know or this account may not
@@ -257,7 +281,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
 fn section<T>(what: &str, result: Result<T>) -> Option<T> {
     match result {
         Ok(listed) => Some(listed),
-        Err(DesktopError::Api(ApiError::BadRequest { .. } | ApiError::Unauthorized {})) => None,
+        Err(e) if is_unsupported(&e) => None,
         Err(e) => {
             log::warn!("listing {what} for the command center: {e}");
             None
@@ -265,7 +289,14 @@ fn section<T>(what: &str, result: Result<T>) -> Option<T> {
     }
 }
 
-fn home_view(parts: HomeParts) -> HomeView {
+/// Home from the server's answers. A failed machine list that is not a
+/// plain "not here" means the link itself is down, so the whole Home is
+/// stale and the caller keeps what it showed.
+fn home_view(parts: HomeParts) -> Result<HomeView> {
+    let machines = match parts.machines {
+        Err(e) if !is_unsupported(&e) => return Err(e),
+        other => other,
+    };
     let sessions = section("agent sessions", parts.sessions);
     let live: Vec<&MachineSession> = sessions
         .iter()
@@ -283,8 +314,8 @@ fn home_view(parts: HomeParts) -> HomeView {
         agents.chain(researching).collect()
     });
     let chats = section("chats", parts.chats).unwrap_or_default();
-    HomeView {
-        machines: section("machines", parts.machines).map(|machines| {
+    Ok(HomeView {
+        machines: section("machines", machines).map(|machines| {
             let details = section("machine details", parts.details).unwrap_or_default();
             machine_cards(machines, details, &live)
         }),
@@ -295,7 +326,16 @@ fn home_view(parts: HomeParts) -> HomeView {
             &chats,
         ),
         coming_up: section("routines", parts.crons).map(coming_up),
-    }
+    })
+}
+
+/// Whether the server does not know the request or this account may not
+/// make it, as opposed to a failure on the way.
+fn is_unsupported(e: &DesktopError) -> bool {
+    matches!(
+        e,
+        DesktopError::Api(ApiError::BadRequest { .. } | ApiError::Unauthorized {})
+    )
 }
 
 /// Online machines first, then the busiest, then by name.
@@ -514,6 +554,10 @@ mod tests {
         }
     }
 
+    fn view(parts: HomeParts) -> HomeView {
+        home_view(parts).expect("home built")
+    }
+
     fn parts() -> HomeParts {
         HomeParts {
             machines: Ok(Vec::new()),
@@ -528,7 +572,7 @@ mod tests {
 
     #[test]
     fn machines_count_their_agents() {
-        let view = home_view(HomeParts {
+        let view = view(HomeParts {
             machines: Ok(vec![machine("build-box", true), machine("mac-box", true)]),
             sessions: Ok(vec![agent("build-box", "a", 1), agent("build-box", "b", 2)]),
             ..parts()
@@ -541,7 +585,7 @@ mod tests {
 
     #[test]
     fn unsupported_section_is_none() {
-        let view = home_view(HomeParts {
+        let view = view(HomeParts {
             machines: Ok(vec![machine("build-box", true)]),
             sessions: Err(DesktopError::Api(ApiError::bad_request("unknown op 131"))),
             ..parts()
@@ -552,8 +596,23 @@ mod tests {
     }
 
     #[test]
+    fn machine_list_failure_fails_home() {
+        let failed = home_view(HomeParts {
+            machines: Err(DesktopError::Other(anyhow::anyhow!("link is down"))),
+            ..parts()
+        });
+        assert!(failed.is_err());
+        let unsupported = home_view(HomeParts {
+            machines: Err(DesktopError::Api(ApiError::bad_request("unknown op 130"))),
+            ..parts()
+        })
+        .expect("an old server is not a failure");
+        assert!(unsupported.machines.is_none());
+    }
+
+    #[test]
     fn machines_sort_online_then_by_agents() {
-        let view = home_view(HomeParts {
+        let view = view(HomeParts {
             machines: Ok(vec![
                 machine("off-busy", false),
                 machine("on-idle", true),
@@ -579,7 +638,7 @@ mod tests {
     #[test]
     fn needs_you_puts_oldest_first() {
         let chat = Uuid::new_v4();
-        let view = home_view(HomeParts {
+        let view = view(HomeParts {
             sessions: Ok(vec![
                 asking("build-box", "late", 3000),
                 asking("build-box", "early", 1000),
@@ -606,7 +665,7 @@ mod tests {
 
     #[test]
     fn approval_of_a_missing_chat_comes_last() {
-        let view = home_view(HomeParts {
+        let view = view(HomeParts {
             sessions: Ok(vec![asking("build-box", "agent", 5000)]),
             approvals: Ok(vec![approval(Uuid::new_v4())]),
             ..parts()
