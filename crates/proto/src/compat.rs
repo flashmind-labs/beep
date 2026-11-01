@@ -170,6 +170,10 @@ sample_struct! {
     ResearchSource { number, url, title, quote, agent }
     WebSource { url, title }
     TurnSources { message, sources }
+    ProjectSync { project, pinned, machines }
+    MachineSync { machine_id, machine_name, folder, status, files, bytes, pending, conflicts, rescan_secs, hint, error }
+    SyncSkipped { paths, through_git, truncated }
+    SkippedFile { path, folder, rule }
 }
 
 macro_rules! sample_values {
