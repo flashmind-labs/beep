@@ -5,6 +5,7 @@ use super::{
     Projects,
     commands::{CommandOutput, Shell},
     fleet::{Fleet, Machine},
+    model::WorkerAgent,
 };
 use crate::protocol::node::{
     Capability,
@@ -174,6 +175,8 @@ pub(crate) struct FakeFleet {
     /// Files by path, on any machine.
     pub(crate) files: HashMap<String, String>,
     pub(crate) projects: Projects,
+    /// The sessions closed, by machine.
+    pub(crate) closed: Mutex<Vec<(EndpointId, String)>>,
 }
 
 impl FakeFleet {
@@ -255,5 +258,18 @@ impl Fleet for FakeFleet {
 
     fn projects(&self) -> &Projects {
         &self.projects
+    }
+
+    async fn close_session(
+        &self,
+        machine: &EndpointId,
+        _agent: WorkerAgent,
+        session: &str,
+    ) -> Result<()> {
+        self.closed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((*machine, session.to_owned()));
+        Ok(())
     }
 }

@@ -14,7 +14,7 @@ use flashmind::types::{ToolRegistry, tool::ToolResult};
 use std::sync::Arc;
 use uuid::Uuid;
 
-mod agents;
+pub(crate) mod agents;
 mod code_agent;
 pub(crate) mod copy;
 mod desktop;

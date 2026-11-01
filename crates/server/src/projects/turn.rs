@@ -6,7 +6,7 @@ use super::{
     fleet::{self, Fleet, Machine, NodeFleet},
     issues,
     model::{IssueHost, MachinePath, Visibility},
-    personas,
+    personas::{self, PersonaFileError, ProjectPersona},
 };
 use crate::{
     app::{App, Message},
@@ -275,8 +275,13 @@ async fn memories(ctx: &mut String, user: &User, project: &ProjectRow) {
     }
 }
 
-/// The personas in the home checkout's `.agents/`.
-async fn persona_lines(ctx: &mut String, fleet: &dyn Fleet, home: &CheckoutRow) {
+/// The persona files in the home checkout's `.agents/`, each read as a
+/// persona or with why it does not read as one. Empty when the folder or
+/// the machine is not there.
+pub(crate) async fn read_personas(
+    fleet: &dyn Fleet,
+    home: &CheckoutRow,
+) -> Vec<(String, Result<ProjectPersona, PersonaFileError>)> {
     let dir = home.path.join(PERSONAS_DIR);
     let listed = fleet
         .files(
@@ -289,8 +294,8 @@ async fn persona_lines(ctx: &mut String, fleet: &dyn Fleet, home: &CheckoutRow) 
         .await;
     let entries = match listed {
         Ok(Reply::Entries { entries, .. }) => entries,
-        // No folder, or an offline machine: nothing to say.
-        _ => return,
+        // No folder, or an offline machine: nothing to read.
+        _ => return Vec::new(),
     };
     let mut files: Vec<String> = entries
         .into_iter()
@@ -300,7 +305,7 @@ async fn persona_lines(ctx: &mut String, fleet: &dyn Fleet, home: &CheckoutRow) 
         .collect();
     files.sort();
     files.truncate(MAX_PERSONAS);
-    let mut lines = Vec::new();
+    let mut found = Vec::new();
     for name in files {
         let path: MachinePath = dir.join(&name);
         let read = fleet
@@ -318,7 +323,17 @@ async fn persona_lines(ctx: &mut String, fleet: &dyn Fleet, home: &CheckoutRow) 
             _ => continue,
         };
         let file = format!("{PERSONAS_DIR}/{name}");
-        lines.push(match personas::parse(&file, &text) {
+        let parsed = personas::parse(&file, &text);
+        found.push((file, parsed));
+    }
+    found
+}
+
+/// The personas in the home checkout's `.agents/`.
+async fn persona_lines(ctx: &mut String, fleet: &dyn Fleet, home: &CheckoutRow) {
+    let mut lines = Vec::new();
+    for (file, parsed) in read_personas(fleet, home).await {
+        lines.push(match parsed {
             Ok(found) => {
                 let mut line = format!("- {}", found.persona.name);
                 if let Some(description) = found.persona.description.as_deref() {

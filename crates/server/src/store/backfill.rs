@@ -114,14 +114,10 @@ async fn backfill(tx: &mut PgConnection, chat: Uuid) -> Result<()> {
         ..steps::CallNotes::default()
     };
     let mut saved = steps::steps(transcript.entries(), None, &calls, &turns).steps;
-    // A project chat's exec asks as Project; nowhere else does.
-    let is_project: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM project_agents WHERE chat_id = $1)")
-            .bind(chat)
-            .fetch_one(&mut *tx)
-            .await?;
+    // The backfill runs before the projects tables exist, so no chat it
+    // reads is a project chat.
     if let Some(HistoryEntry::Approval { query_id, approval }) =
-        permissions::waiting_approval(&transcript, is_project)
+        permissions::waiting_approval(&transcript, false)
     {
         let sent_at = transcript
             .entries()

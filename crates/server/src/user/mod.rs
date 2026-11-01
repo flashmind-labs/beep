@@ -1407,6 +1407,10 @@ impl User {
         self.store.set_task_start(task, start).await
     }
 
+    pub(crate) async fn set_task_branch(&self, task: TaskId, branch: &str) -> Result<()> {
+        self.store.set_task_branch(task, branch).await
+    }
+
     pub(crate) async fn set_task_pr(&self, task: TaskId, url: &str) -> Result<()> {
         self.store.set_task_pr(task, url).await
     }
@@ -1430,6 +1434,10 @@ impl User {
         state: WorkerState,
     ) -> Result<bool> {
         self.store.set_worker_state(worker, state).await
+    }
+
+    pub(crate) async fn set_worker_session(&self, worker: WorkerId, session: &str) -> Result<()> {
+        self.store.set_worker_session(worker, session).await
     }
 }
 
