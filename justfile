@@ -38,7 +38,7 @@ desktop-release version:
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/desktop-v{{version}}" > /dev/null || { echo "desktop-v{{version}} already exists" >&2; exit 1; }
-    sed -i '' '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' apps/desktop/src-tauri/Cargo.toml
+    sed -i.bak '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' apps/desktop/src-tauri/Cargo.toml && rm apps/desktop/src-tauri/Cargo.toml.bak
     (cd apps/desktop/src-tauri && cargo update --workspace --offline --quiet)
     git commit --quiet -m "Release Beep for macOS {{version}}" apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
     git tag -a "desktop-v{{version}}" -m "Beep for macOS {{version}}"
@@ -54,7 +54,7 @@ android-release version:
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/android-v{{version}}" > /dev/null || { echo "android-v{{version}} already exists" >&2; exit 1; }
-    sed -i '' 's/^\( *versionName = \)".*"$/\1"{{version}}"/' apps/android/app/build.gradle.kts
+    sed -i.bak 's/^\( *versionName = \)".*"$/\1"{{version}}"/' apps/android/app/build.gradle.kts && rm apps/android/app/build.gradle.kts.bak
     git commit --quiet -m "Release Beep for Android {{version}}" apps/android/app/build.gradle.kts
     git tag -a "android-v{{version}}" -m "Beep for Android {{version}}"
     echo "Tagged android-v{{version}}. Publish it with: git push origin main android-v{{version}}"
