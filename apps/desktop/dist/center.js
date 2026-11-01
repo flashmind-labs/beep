@@ -6,6 +6,7 @@ const { listen } = window.__TAURI__.event;
 import { splitPinned } from "./pinned.js";
 import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
+import { connectProblem } from "./connect.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -426,6 +427,8 @@ function skeleton() {
 }
 
 function footer(machines) {
+  const p = problem();
+  if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), ` ${{ unlinked: "Not linked", revoked: "Removed" }[p.kind] ?? "Refused"}`)];
   if (!state.home) return [h("span", "", h("span", `ddot ${stuck() ? "bad" : "off"}`), stuck() ? " Not connected" : " Connecting…")];
   if (!machines) return ["Machines unavailable"];
   if (!machines.length) return ["No machines linked"];
@@ -652,9 +655,27 @@ function page(home) {
 /// True once the first Home has been waited for too long.
 function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }
 
+/// Before Home first loads, a failure waiting will not fix, or null.
+function problem() { return state.home ? null : connectProblem(state.error); }
+
+/// What is wrong, said plainly, with the way to fix it and a Retry.
+function problemView(p) {
+  const acts = h("div", "acts");
+  if (p.action) acts.append(button(p.action, "pri", () => go("pane", p.view)));
+  const retry = button("Try again", p.action ? "" : "pri", () => { refresh(); retry.disabled = true; });
+  retry.classList.add("retry");
+  retry.disabled = loading;
+  acts.append(retry, button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e))));
+  const box = h("div", "cc-conn stuck", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), h("b", "", p.title), h("span", "why", p.text), acts);
+  box.dataset.problem = `${p.kind}:${p.text}`;
+  return box;
+}
+
 /// What Home shows before the server first answers: pulsing dots, never a
 /// blank page. Once stuck it says so and offers Retry; retries go on anyway.
 function connecting() {
+  const p = problem();
+  if (p) return problemView(p);
   const pulse = h("div", "cc-pulse", h("i"), h("i"), h("i"));
   if (!stuck()) {
     return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"), h("span", "", "Your chats, machines and approvals load once the server answers."));
@@ -672,6 +693,14 @@ function connecting() {
 /// buttons keep their focus.
 function drawConnecting(view) {
   const on = view.querySelector(":scope > .cc-conn");
+  const p = problem(), was = on?.dataset.problem;
+  if (p || was) {
+    if (p && was === `${p.kind}:${p.text}`) {
+      on.querySelector(".acts .retry").disabled = loading;
+      return;
+    }
+    return view.replaceChildren(connecting());
+  }
   if (on && on.classList.contains("stuck") === stuck()) {
     if (!stuck()) return;
     const secs = Math.round((Date.now() - state.since) / 1000);
@@ -900,8 +929,9 @@ async function refresh() {
   reloadGroup("projects");
   reloadGroup("machines");
   if (again) { again = false; refresh(); }
-  // Until Home first loads, a failed try is made again soon, seen or not.
-  else if (!state.home) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
+  // Until Home first loads, a failed try is made again soon, seen or not,
+  // unless waiting will not fix it.
+  else if (!state.home && !problem()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
 }
 
 // "Still connecting" takes over once the wait passes its limit.
@@ -910,7 +940,7 @@ setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 window.addEventListener("focus", refresh);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
 setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 10000);
-for (const name of ["sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected"]) {
+for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected"]) {
   listen(name, () => refresh());
 }
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) {
