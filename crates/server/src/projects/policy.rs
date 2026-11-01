@@ -105,7 +105,12 @@ fn judge_edit(detail: Option<&str>, title_rest: &str, scope: &WorkerScope<'_>) -
 /// Whether `path` has a `.git` part: a repository's own files can name a
 /// config that git runs.
 fn has_git_part(path: &str) -> bool {
-    path.split('/').any(|part| part == ".git")
+    // Case-insensitive filesystems fold case; Windows drops trailing dots and
+    // spaces and also answers to the short name `git~1`.
+    path.split('/').any(|part| {
+        let part = part.trim_end_matches(['.', ' ']);
+        part.eq_ignore_ascii_case(".git") || part.eq_ignore_ascii_case("git~1")
+    })
 }
 
 fn judge_command(command: &str, scope: &WorkerScope<'_>) -> Verdict {
@@ -303,8 +308,13 @@ fn judge_git(sub: &str, args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
         {
             Verdict::AskUser
         }
-        "status" | "diff" | "log" | "show" | "rev-parse" | "add" => Verdict::Allow,
-        "commit" if commit_files_stay_inside(args, scope) => Verdict::Allow,
+        "status" | "diff" | "log" | "show" | "rev-parse" => Verdict::Allow,
+        "add" if pathspec_file_stays_inside(args, scope) => Verdict::Allow,
+        "commit"
+            if pathspec_file_stays_inside(args, scope) && commit_files_stay_inside(args, scope) =>
+        {
+            Verdict::Allow
+        }
         // `git branch -D` deletes, so only the listing forms pass.
         "branch"
             if args.iter().all(|arg| {
@@ -318,6 +328,33 @@ fn judge_git(sub: &str, args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
         }
         _ => Verdict::AskUser,
     }
+}
+
+/// `--pathspec-from-file`, or an abbreviation of it that is not ambiguous
+/// with `--pathspec-file-nul`, reads a list from a file, and git echoes the
+/// lines it cannot use. `-` reads stdin.
+fn pathspec_file_stays_inside(args: &[&str], scope: &WorkerScope<'_>) -> bool {
+    const OPTION: &str = "pathspec-from-file";
+    // Shorter prefixes are ambiguous, so git rejects them.
+    const SHORTEST: usize = "pathspec-f".len();
+    let mut args = args.iter().copied();
+    while let Some(arg) = args.next() {
+        let Some(long) = arg.strip_prefix("--") else {
+            continue;
+        };
+        let (name, inline) = match long.split_once('=') {
+            Some((name, value)) => (name, Some(value)),
+            None => (long, None),
+        };
+        if name.len() < SHORTEST || !OPTION.starts_with(name) {
+            continue;
+        }
+        let value = inline.or_else(|| args.next());
+        if !value.is_some_and(|value| value == "-" || path_is_inside(value, scope)) {
+            return false;
+        }
+    }
+    true
 }
 
 /// `git commit` reads a message from `-F`, `--file` or `--template`; those
@@ -800,6 +837,55 @@ mod tests {
             Verdict::Allow
         );
         assert_eq!(private("rm -rf .git"), Verdict::AskUser);
+    }
+
+    #[test]
+    fn pathspec_files_stay_in_the_worktree() {
+        for command in [
+            "git commit --pathspec-from-file=/abs/secret -m x",
+            "git add --pathspec-from-file=/abs/secret",
+            "git add --pathspec-from-file ../secret",
+            "git add --pathspec-from-fi /abs/secret",
+            "git add --pathspec-f=/abs/secret",
+            "git commit --pathspec-from-file=.git/config -m x",
+        ] {
+            assert_eq!(private(command), Verdict::AskUser, "{command}");
+        }
+        for command in [
+            "git add --pathspec-from-file=-",
+            "git add --pathspec-from-file=list.txt",
+            "git commit --pathspec-from-file list.txt -m x",
+        ] {
+            assert_eq!(private(command), Verdict::Allow, "{command}");
+        }
+    }
+
+    #[test]
+    fn git_dirs_match_like_the_filesystem_does() {
+        let fixture = Fixture::new();
+        let scope = fixture.scope(Visibility::Private, false);
+        for detail in [
+            ".GIT/config",
+            "sub/.Git/hooks/x",
+            ".git./config",
+            ".git /config",
+            ".git.. /config",
+            "GIT~1/config",
+            "a/git~1/config",
+        ] {
+            assert_eq!(
+                judge(&ask("Write file", Some(detail)), &scope),
+                Verdict::AskUser,
+                "{detail}"
+            );
+        }
+        for detail in [".github/ci.yml", "git/x", "my.git/x", ".gitignore"] {
+            assert_eq!(
+                judge(&ask("Write file", Some(detail)), &scope),
+                Verdict::Allow,
+                "{detail}"
+            );
+        }
     }
 
     #[test]
