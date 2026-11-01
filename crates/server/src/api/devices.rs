@@ -159,6 +159,7 @@ pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> R
         code: &link::join_code(&code).unwrap_or_default(),
         target: target.id(),
         adopt_external_id: mine == Some(true) && theirs == Some(false),
+        credential_key: &cx.app.credential_key,
     };
     match cx.user.merge_into(into).await? {
         Merge::Merged { target, keys } => {
