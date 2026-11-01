@@ -1,7 +1,7 @@
 //! The user's machines as the project tools see them. The tools reach the
 //! nodes only through [`Fleet`], so tests can stand in for them.
 
-use super::{commands::Shell, model::MachinePath};
+use super::{Projects, commands::Shell, model::MachinePath};
 use crate::{
     app::App,
     leak::PublicText,
@@ -42,6 +42,9 @@ pub(crate) trait Fleet: Send + Sync {
 
     /// Sends `request` to the files `machine` shares.
     async fn files(&self, machine: &EndpointId, request: &Request) -> Result<Reply>;
+
+    /// The server's project state.
+    fn projects(&self) -> &Projects;
 }
 
 /// The nodes the user has connected to the server.
@@ -97,6 +100,10 @@ impl Fleet for NodeFleet {
             .online(machine)
             .ok_or_else(|| anyhow!("the machine is offline"))?;
         online.files(request).await
+    }
+
+    fn projects(&self) -> &Projects {
+        &self.app.projects
     }
 }
 

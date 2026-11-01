@@ -10,6 +10,8 @@ use crate::{
 use anyhow::Result;
 use model::{TaskState, WorkerState};
 
+pub use service::Projects;
+
 mod commands;
 pub(crate) mod fleet;
 pub(crate) mod gate;
@@ -18,6 +20,7 @@ pub(crate) mod model;
 mod personas;
 pub(crate) mod place;
 pub(crate) mod policy;
+mod service;
 #[cfg(test)]
 mod testing;
 pub(crate) mod tools;

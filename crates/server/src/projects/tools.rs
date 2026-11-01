@@ -1048,10 +1048,11 @@ impl TasksTool {
         if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host)
             && (title.is_some() || body.is_some())
         {
+            let body = issues::issue_body(task.id, new_body);
             let command = HostCommand::EditIssue {
                 number: issue.number,
                 title: new_title,
-                body: new_body,
+                body: &body,
             };
             if let Err(why) = self.on_home(project, host, command).await? {
                 let _ = write!(text, " Its issue was not updated: {why}");

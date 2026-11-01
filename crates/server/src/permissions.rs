@@ -87,7 +87,8 @@ pub(crate) fn hinted_to_act(tags: &[String]) -> bool {
 /// `guard` and `actions_since` off them. It is outside `CATALOG`, so it is
 /// not listed as an app to connect; `kind` means nothing for it. `exec` and
 /// `process` are here because a project chat gates them too, so a reloaded
-/// chat shows their card.
+/// project chat shows their card; [`lookup`] leaves them out, since every
+/// other chat has them as well (see [`lookup_in`]).
 pub(crate) const PROJECT_APP: CatalogApp = CatalogApp {
     slug: "project",
     name: "Project",
@@ -200,10 +201,29 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
         let &(_, acts) = FASTMAIL_TOOLS.iter().find(|(known, _)| *known == name)?;
         return Some((ToolApp::Catalog(catalog_app("fastmail")?), acts));
     }
+    if PROJECT_ONLY.contains(&tool) {
+        return None;
+    }
+    project_tool(tool)
+}
+
+/// Tools every chat has that only a project chat gates as Project's.
+const PROJECT_ONLY: [&str; 2] = ["EXEC", "PROCESS"];
+
+/// [`lookup`] in a chat that is a project's, where `exec` and `process` are
+/// Project's too.
+pub(crate) fn lookup_in(tool: &str, is_project: bool) -> Option<(ToolApp, Acts)> {
+    if is_project && let Some(found) = project_tool(ToolSlug::new(tool).as_str()) {
+        return Some(found);
+    }
+    lookup(tool)
+}
+
+fn project_tool(slug: &str) -> Option<(ToolApp, Acts)> {
     let picked = PROJECT_APP
         .tools
         .iter()
-        .find(|picked| picked.slug == tool)?;
+        .find(|picked| picked.slug == slug)?;
     Some((ToolApp::Catalog(&PROJECT_APP), picked.acts))
 }
 
@@ -564,9 +584,13 @@ pub(crate) fn close_open_calls(conversation: &mut Conversation, output: &str) {
 
 /// The card for the call the session stopped on to ask, when it has one:
 /// its first open call, the one an answer resumes.
-pub(crate) fn waiting_approval(conversation: &Conversation) -> Option<HistoryEntry> {
+/// `is_project` says the chat is a project's, whose `exec` asks as Project.
+pub(crate) fn waiting_approval(
+    conversation: &Conversation,
+    is_project: bool,
+) -> Option<HistoryEntry> {
     let call = open_calls(conversation).into_iter().next()?;
-    let (app, _) = lookup(&call.name)?;
+    let (app, _) = lookup_in(&call.name, is_project)?;
     let mut fields = fields(&call.arguments);
     fields.extend(records(&call, conversation));
     Some(HistoryEntry::Approval {
@@ -966,7 +990,13 @@ fn record_value(record: &Value, key: &str) -> Option<String> {
 
 /// Stops asking for `tool` in its app.
 pub(crate) async fn allow_always(user: &User, tool: &str) -> Result<()> {
-    let Some((app, _)) = lookup(tool) else {
+    allow_always_in(user, tool, false).await
+}
+
+/// [`allow_always`] in a chat that may be a project's, where `EXEC` is
+/// Project's.
+pub(crate) async fn allow_always_in(user: &User, tool: &str, is_project: bool) -> Result<()> {
+    let Some((app, _)) = lookup_in(tool, is_project) else {
         return Ok(());
     };
     let rules = user.app_rules().await?;
@@ -1369,8 +1399,6 @@ mod tests {
         assert_eq!(app.name(), "Project");
         assert!(lookup("PROJECT_WORKER").is_some());
         assert!(lookup("PROJECT_OTHER").is_none());
-        // A parked exec in a project chat shows its card again on reload.
-        assert_eq!(lookup("exec").unwrap().0.slug(), "project");
         let saved = row(
             &PROJECT_APP,
             PermissionLevel::Ask {},
@@ -1542,7 +1570,8 @@ mod tests {
             }],
             None,
         ));
-        let Some(HistoryEntry::Approval { query_id, approval }) = waiting_approval(&conversation)
+        let Some(HistoryEntry::Approval { query_id, approval }) =
+            waiting_approval(&conversation, false)
         else {
             panic!("expected the open call's card");
         };
@@ -1553,7 +1582,35 @@ mod tests {
         );
         assert_eq!(approval.fields.len(), 2);
         conversation.add(ConversationEntry::tool("send", DENIED));
-        assert!(waiting_approval(&conversation).is_none());
+        assert!(waiting_approval(&conversation, false).is_none());
+    }
+
+    #[test]
+    fn only_a_project_chat_shows_a_parked_exec_as_project() {
+        let mut conversation = Conversation::new();
+        conversation.add(ConversationEntry::user("Run the tests"));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![ToolCall {
+                id: "run".into(),
+                name: "exec".into(),
+                arguments: json!({"command": "cargo test"}),
+            }],
+            None,
+        ));
+        assert!(waiting_approval(&conversation, false).is_none());
+        let Some(HistoryEntry::Approval { approval, .. }) = waiting_approval(&conversation, true)
+        else {
+            panic!("expected the project card");
+        };
+        assert_eq!(approval.app, "Project");
+        assert!(lookup("exec").is_none());
+        assert!(lookup("process").is_none());
+        assert_eq!(lookup_in("exec", true).unwrap().0.slug(), "project");
+        assert_eq!(
+            lookup_in("project_plan", false).unwrap().0.slug(),
+            "project"
+        );
     }
 
     #[test]
@@ -1582,7 +1639,8 @@ mod tests {
             }],
             None,
         ));
-        let Some(HistoryEntry::Approval { approval, .. }) = waiting_approval(&conversation) else {
+        let Some(HistoryEntry::Approval { approval, .. }) = waiting_approval(&conversation, false)
+        else {
             panic!("expected the open call's card");
         };
         let shown: Vec<_> = approval
@@ -1625,7 +1683,8 @@ mod tests {
             }],
             None,
         ));
-        let Some(HistoryEntry::Approval { approval, .. }) = waiting_approval(&conversation) else {
+        let Some(HistoryEntry::Approval { approval, .. }) = waiting_approval(&conversation, false)
+        else {
             panic!("expected the open call's card");
         };
         let subjects = approval

@@ -57,31 +57,39 @@ const MIRROR_BUDGET: Duration = Duration::from_secs(30);
 /// The start of each project turn: files the issues earlier tries missed,
 /// then gives the context block.
 pub(crate) async fn start(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
-    let fleet = NodeFleet {
+    let fleet = Arc::new(NodeFleet {
         app: app.clone(),
         user: user.clone(),
-    };
-    start_with(&fleet, user, project, MIRROR_BUDGET).await
+    });
+    start_with(fleet, user, project, MIRROR_BUDGET).await
 }
 
-/// `start` on `fleet`, filing missed issues for at most `budget`. Those it
-/// does not get to are tried on a later turn.
+/// `start` on `fleet`, waiting at most `budget` for the missed issues. The
+/// filing goes on past it, and those it does not get to wait for a later
+/// turn.
 pub(crate) async fn start_with(
-    fleet: &dyn Fleet,
-    user: &User,
+    fleet: Arc<dyn Fleet>,
+    user: &Arc<User>,
     project: &ProjectRow,
     budget: Duration,
 ) -> String {
-    match timeout(budget, issues::mirror_missing(fleet, user, project)).await {
-        Ok(Ok(0)) => {}
-        Ok(Ok(filed)) => log::info!("projects: filed {filed} missing issues"),
-        Ok(Err(error)) => log::warn!("projects: unable to file missing issues: {error:#}"),
-        Err(_) => log::warn!(
-            "projects: filing missing issues took over {}s; the rest wait for a later turn",
+    let work = {
+        let (fleet, user, project) = (fleet.clone(), user.clone(), project.clone());
+        async move {
+            match issues::mirror_missing(fleet.as_ref(), &user, &project).await {
+                Ok(0) => {}
+                Ok(filed) => log::info!("projects: filed {filed} missing issues"),
+                Err(error) => log::warn!("projects: unable to file missing issues: {error:#}"),
+            }
+        }
+    };
+    if !fleet.projects().mirror(project.id, budget, work).await {
+        log::info!(
+            "projects: filing missing issues takes over {}s; the turn goes on without them",
             budget.as_secs()
-        ),
+        );
     }
-    context_with(fleet, user, project).await
+    context_with(fleet.as_ref(), user, project).await
 }
 
 /// What the agent is told about its project each turn.
@@ -558,10 +566,70 @@ mod tests {
         .await
         .unwrap();
         let project = user.project(project.id).await.unwrap().unwrap();
+        let (fleet, user) = (Arc::new(fleet), Arc::new(user));
         // The host never answers; the turn still gets its context.
-        let ctx = start_with(&fleet, &user, &project, Duration::from_millis(100)).await;
+        let ctx = start_with(fleet.clone(), &user, &project, Duration::from_millis(100)).await;
         assert!(ctx.contains("fix-the-build: planned"), "{ctx}");
         assert_eq!(shell.ran_with("issue create").len(), 1);
+        // The next turn does not start a second create beside it.
+        start_with(fleet, &user, &project, Duration::from_millis(10)).await;
+        assert_eq!(shell.ran_with("issue create").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_running_issue_create_is_never_cut_off() {
+        let db = TestDb::new().await.unwrap();
+        let user = Arc::new(User::for_test(db.store().await.unwrap(), "alice"));
+        let mut fleet = FakeFleet::default();
+        let (home, shell) = fleet.add(1, "build-box", &[], "/srv");
+        shell.answer(
+            "issue create",
+            0,
+            "https://github.com/acme/widget/issues/3\n",
+        );
+        let release = shell.block_on("issue create");
+        let project = user
+            .ensure_project(&RepoName::parse("acme/widget").unwrap())
+            .await
+            .unwrap();
+        user.add_checkout(
+            project.id,
+            &CheckoutRow {
+                machine: home,
+                path: MachinePath::parse("/srv/widget").unwrap(),
+                home: true,
+            },
+        )
+        .await
+        .unwrap();
+        let roles = crate::projects::model::Roles {
+            issues: Some(IssueHost::Github),
+            prs: None,
+        };
+        user.set_project_setup(project.id, &roles, Visibility::Private, "main")
+            .await
+            .unwrap();
+        user.create_tasks(
+            project.id,
+            &[NewTask {
+                title: "Fix the build".into(),
+                body: String::new(),
+                depends_on: None,
+                needs: Vec::new(),
+                start: None,
+            }],
+        )
+        .await
+        .unwrap();
+        let project = user.project(project.id).await.unwrap().unwrap();
+        let fleet = Arc::new(fleet);
+        // The create is still running when the budget is spent.
+        let ctx = start_with(fleet.clone(), &user, &project, Duration::from_millis(10)).await;
+        assert!(ctx.contains("fix-the-build: planned"), "{ctx}");
+        release.notify_one();
+        fleet.projects.mirrored(project.id).await;
+        let tasks = user.project_tasks(project.id).await.unwrap();
+        assert_eq!(tasks[0].issue.as_ref().map(|issue| issue.number), Some(3));
     }
 
     #[tokio::test]

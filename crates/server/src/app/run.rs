@@ -337,7 +337,7 @@ impl App {
                 None => Some(call.name.clone()),
             });
         if let Some(slug) = saved
-            && let Err(error) = permissions::allow_always(user, &slug).await
+            && let Err(error) = permissions::allow_always_in(user, &slug, project.is_some()).await
         {
             log::warn!(
                 "permissions: unable to save; run_id={} error={error:#}",

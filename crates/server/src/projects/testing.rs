@@ -2,6 +2,7 @@
 //! shared files kept in memory.
 
 use super::{
+    Projects,
     commands::{CommandOutput, Shell},
     fleet::{Fleet, Machine},
 };
@@ -22,6 +23,7 @@ use std::{
     },
     time::Duration,
 };
+use tokio::sync::Notify;
 
 /// A shell that records each command and answers the first rule whose text
 /// the command holds, else exits 0 printing nothing.
@@ -31,11 +33,23 @@ pub(crate) struct FakeShell {
     rules: Mutex<Vec<(String, CommandOutput)>>,
     /// Commands holding this text never finish.
     hangs: Mutex<Option<String>>,
+    /// Commands holding the text wait for its signal before they answer.
+    blocks: Mutex<Vec<(String, Arc<Notify>)>>,
 }
 
 impl FakeShell {
     pub(crate) fn hang_on(&self, holds: &str) {
         *self.hangs.lock().unwrap_or_else(PoisonError::into_inner) = Some(holds.to_owned());
+    }
+
+    /// Makes commands holding `holds` wait until the returned signal fires.
+    pub(crate) fn block_on(&self, holds: &str) -> Arc<Notify> {
+        let signal = Arc::new(Notify::new());
+        self.blocks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((holds.to_owned(), signal.clone()));
+        signal
     }
 
     pub(crate) fn answer(&self, holds: &str, code: i32, out: &str) {
@@ -84,6 +98,16 @@ impl Shell for FakeShell {
             .clone();
         if hangs.is_some_and(|holds| command.contains(&holds)) {
             std::future::pending::<()>().await;
+        }
+        let block = self
+            .blocks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|(holds, _)| command.contains(holds.as_str()))
+            .map(|(_, signal)| signal.clone());
+        if let Some(signal) = block {
+            signal.notified().await;
         }
         let rules = self.rules.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(rules
@@ -149,6 +173,7 @@ pub(crate) struct FakeFleet {
     pub(crate) roots: HashMap<EndpointId, Vec<String>>,
     /// Files by path, on any machine.
     pub(crate) files: HashMap<String, String>,
+    pub(crate) projects: Projects,
 }
 
 impl FakeFleet {
@@ -226,5 +251,9 @@ impl Fleet for FakeFleet {
             },
             _ => bail!("the fake fleet does not do that"),
         })
+    }
+
+    fn projects(&self) -> &Projects {
+        &self.projects
     }
 }
