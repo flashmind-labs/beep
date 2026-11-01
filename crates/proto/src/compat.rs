@@ -179,6 +179,7 @@ sample_struct! {
     SyncSkipped { paths, through_git, truncated }
     SkippedFile { path, folder, rule }
     NodeToken { token, expires_at }
+    ImportedProject { project, url, machine_id, machine_name, folder, cloned, imported_at }
 }
 
 macro_rules! sample_values {
