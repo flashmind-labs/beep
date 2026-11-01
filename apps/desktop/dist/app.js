@@ -256,6 +256,17 @@ function refreshHints() {
   const old = bar.querySelector(":scope > .dhints");
   if (!old || S.view !== "chat") return;
   old.replaceWith(h(LV.on && LV.view && $("#ldock") ? hints(liveParts(LV.view).keys) : chatHints()));
+  drawStop();
+}
+/// The Stop button beside the prompt while a reply runs, as ⌘. does.
+function drawStop() {
+  const row = bar.querySelector(":scope > .dinput.dgrow"), btn = $("#stopRun");
+  const running = S.view === "chat" && !!here()?.run;
+  if (!row || running === !!btn) return;
+  if (!running) return btn.remove();
+  const stopBtn = h(`<button class="dbtn" id="stopRun" aria-label="Stop the reply"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop<kbd>⌘.</kbd></button>`);
+  stopBtn.onclick = () => { stop(); focusAsk(); };
+  row.insertBefore(stopBtn, $("#grip"));
 }
 
 // ---------- Chat ----------
@@ -280,21 +291,20 @@ function renderChat() {
   });
   dragGrip(ask);
   takeDraft(ask);
+  drawStop();
   focusAsk();
 }
 const ASK_HEIGHT = "bar.askHeight", ASK_MAX = 420;
 /// A height the user dragged the bar's prompt to; null lets it follow its lines.
 let askHeight = null;
 try { askHeight = Number(localStorage.getItem(ASK_HEIGHT)) || null; } catch {}
-/// The prompt grows with its lines, up to six, then scrolls, unless the
-/// user dragged it to a height of their own.
+/// The prompt grows with its lines, up to six, then scrolls. A height the
+/// user dragged it to is the least it shows, so its lines still fit.
 function grow(ask) {
-  if (askHeight && ask.id === "ask") {
-    ask.style.height = Math.min(askHeight, ASK_MAX) + "px";
-    return;
-  }
   ask.style.height = "auto";
-  ask.style.height = Math.min(ask.scrollHeight, 156) + "px";
+  const lines = Math.min(ask.scrollHeight, 156);
+  const dragged = askHeight && ask.id === "ask" ? Math.min(askHeight, ASK_MAX) : 0;
+  ask.style.height = Math.max(lines, dragged) + "px";
 }
 /// Dragging the grip under the prompt sets its height, kept for next time.
 function dragGrip(ask) {
@@ -305,6 +315,8 @@ function dragGrip(ask) {
     grip.classList.add("on");
     const startY = e.clientY, startH = ask.offsetHeight;
     const move = m => {
+      // A click on the grip is not a drag: it would pin the prompt to one line.
+      if (Math.abs(m.clientY - startY) < 4) return;
       askHeight = Math.max(26, Math.min(startH + m.clientY - startY, ASK_MAX));
       grow(ask);
     };
