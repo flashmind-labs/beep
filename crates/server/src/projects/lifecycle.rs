@@ -606,6 +606,8 @@ pub(crate) async fn on_due(app: &Arc<App>, due: Due, now: DateTime<Utc>) -> Resu
             let user = fleet.user.clone();
             idle_close(&fleet, &user, worker, now).await
         }
+        // The projects run a worker's jobs themselves.
+        Due::Worker(_) => Ok(()),
     }
 }
 

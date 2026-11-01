@@ -33,6 +33,8 @@ pub(crate) mod worker;
 /// starting, arms the pending checks and idle closes, and runs the timer.
 pub fn start(app: Arc<App>) {
     app.projects.start_timer(&app);
-    app.projects
-        .spawn(&app, |app| async move { lifecycle::startup(&app).await });
+    let job = service::Job::new(service::JobKind::Startup, |app| async move {
+        lifecycle::startup(&app).await
+    });
+    app.projects.spawn(&app, job);
 }
