@@ -729,17 +729,23 @@ impl Task {
             spawn_blocking(move || create_file_at(&dir, &temp, executable)).await??
         };
         let mut out = AsyncFile::from_std(created);
-        let copied = copy_store(&self.parts.store, hash, &mut out, &self.shared.stop).await?;
-        if copied != file.hash {
-            // The store reads it from a file in place, which was changed
-            // since; a peer sends it again, checked as it comes.
-            log::info!(
-                "{}: the copy of {} on this machine changed; fetching it again",
-                self.shared.name,
-                work.path
-            );
-            self.copy_from_peers(hash, &mut out).await?;
-        }
+        let (store, stop) = (self.parts.store.clone(), self.shared.stop.clone());
+        let path = work.path.clone();
+        copy_out(
+            &store,
+            hash,
+            &mut out,
+            &stop,
+            async |out: &mut AsyncFile| {
+                log::info!(
+                    "{}: the copy of {path} on this machine changed or cannot be read; \
+                 fetching it again",
+                    self.shared.name
+                );
+                self.copy_from_peers(hash, out).await
+            },
+        )
+        .await?;
         out.flush().await?;
         let out = out.into_std().await;
         let stat = {
@@ -1034,6 +1040,26 @@ impl Task {
             status.error = error;
         });
     }
+}
+
+/// Writes blob `hash` into `out` from the store, or with `refetch` when
+/// the store's copy cannot be read or is not that content any more: the
+/// store reads it from a file in place, which may have changed or gone
+/// since. A peer sends it again, checked as it comes.
+async fn copy_out(
+    store: &Store,
+    hash: Hash,
+    out: &mut AsyncFile,
+    stop: &CancellationToken,
+    refetch: impl AsyncFnOnce(&mut AsyncFile) -> Result<()>,
+) -> Result<()> {
+    match copy_store(store, hash, out, stop).await {
+        Ok(copied) if copied == *hash.as_bytes() => return Ok(()),
+        Ok(_) => {}
+        Err(_) if stop.is_cancelled() => bail!("stopped"),
+        Err(e) => log::debug!("reading {hash} from the store: {e:#}"),
+    }
+    refetch(out).await
 }
 
 /// Copies blob `hash` from the store into `out`, giving the hash of what
@@ -1378,6 +1404,53 @@ mod tests {
         // Emptied while it runs: the deletes are real.
         assert!(has_baseline(false, 2, &gone(&[true, true])));
         assert!(has_baseline(true, 0, &[]));
+    }
+
+    #[tokio::test]
+    async fn a_store_copy_that_cannot_be_read_is_fetched_again() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = iroh_blobs::store::fs::FsStore::load(dir.path().join("store"))
+            .await
+            .unwrap();
+        let path = dir.path().join("a.txt");
+        let content = vec![b'a'; 100_000];
+        // Big enough that the store reads it in place, not a copy.
+        fs::write(&path, &content).unwrap();
+        let found = Found {
+            path: "a.txt".into(),
+            abs: path.clone(),
+            stat: Stat::of(&fs::metadata(&path).unwrap()),
+        };
+        let tag = scan::import(&store, &found).await.unwrap();
+        let hash = tag.hash();
+        let stop = CancellationToken::new();
+        // The file the store reads from is gone.
+        fs::remove_file(&path).unwrap();
+        let mut out = AsyncFile::from_std(fs::File::create(dir.path().join("out")).unwrap());
+        assert!(copy_store(&store, hash, &mut out, &stop).await.is_err());
+
+        let mut refetched = false;
+        let mut out = AsyncFile::from_std(fs::File::create(dir.path().join("out")).unwrap());
+        copy_out(
+            &store,
+            hash,
+            &mut out,
+            &stop,
+            async |out: &mut AsyncFile| {
+                refetched = true;
+                out.set_len(0).await?;
+                out.seek(SeekFrom::Start(0)).await?;
+                out.write_all(&content).await?;
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        out.flush().await.unwrap();
+        assert!(refetched, "a peer is asked when the store fails");
+        assert_eq!(fs::read(dir.path().join("out")).unwrap(), content);
+        drop(tag);
+        store.shutdown().await.ok();
     }
 
     #[test]
