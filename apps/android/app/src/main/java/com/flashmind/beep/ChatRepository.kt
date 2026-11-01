@@ -1024,10 +1024,8 @@ class ChatRepository(private val storage: LocalStorage) {
     suspend fun appPermissions(slug: String): AppPermissions = api().getAppPermissions(slug)
     suspend fun setAppPermissions(slug: String, level: PermissionLevel, allowed: List<String>) =
         api().setAppPermissions(slug, level, allowed)
-    /** The last model list the server sent, cached between launches. Its choices are empty unless the user is an admin. */
+    /** The last model list the server sent, cached between launches. */
     val modelChoices = MutableStateFlow(lists.models)
-    /** The server sends model choices only to admins, so this says whether the user is one. */
-    val isAdmin: Boolean get() = modelChoices.value?.choices?.isNotEmpty() == true
     /**
      * A call of background work in [conversationId] that waits for the user, which comes only as a notice:
      * a card at the end of the chat, so it can be answered there. Nothing when the phone does not have the chat.
