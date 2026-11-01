@@ -141,8 +141,11 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-pal .foot { display: flex; gap: 14px; padding: 7px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--dim) }
 .cc-pal kbd { font: inherit; font-size: 10.5px; padding: 0 4px; margin-right: 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
 
-/* Pin toggle on a chat row, shown on hover. */
-.cc-si .pa { margin-left: auto; display: grid; color: var(--muted); opacity: 0 }
-.cc-si:hover .pa { opacity: 1 }
-.cc-si .pa:hover { color: var(--coral) }
-.cc-grp.pinned .cc-si .pa { color: var(--coral) }
+/* A chat row: the open button and the pin toggle, side by side. */
+.cc-si.cc-chat { padding: 0 }
+.cc-chat .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 5px 0 5px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; white-space: nowrap }
+.cc-chat:has(.open[aria-current="true"]) { background: rgba(59,155,122,.26); color: var(--fg) }
+.cc-chat .pa { flex: none; display: grid; align-self: stretch; align-items: center; padding: 0 8px; border: 0; background: transparent; color: var(--muted); opacity: 0 }
+.cc-chat:hover .pa, .cc-chat .pa:focus-visible { opacity: 1 }
+.cc-chat .pa:hover { color: var(--coral) }
+.cc-grp.pinned .cc-chat .pa { color: var(--coral) }
