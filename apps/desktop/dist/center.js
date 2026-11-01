@@ -5,6 +5,7 @@ const { listen } = window.__TAURI__.event;
 
 import { splitPinned } from "./pinned.js";
 import { initPalette, openPalette } from "./palette.js";
+import { initSideResize } from "./sidewidth.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -707,6 +708,8 @@ async function takePending(fallback) {
 listen("center-open", () => takePending(null));
 
 // ---------- Keys ----------
+
+initSideResize($(".cwin"), $("#side-grip"));
 
 initPalette({ go, jump, pane, findIcon: IC.find });
 
