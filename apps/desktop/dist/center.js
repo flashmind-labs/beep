@@ -124,8 +124,9 @@ function setOutcome(key, outcome) { state.outcomes.set(key, outcome); draw(); }
 
 function failure(e) {
   const text = String(e);
-  return /^conflict/i.test(text) ? "Already answered" : text.length > 90 ? text.slice(0, 90) + "..." : text;
+  return conflict(e) ? "Already answered" : text.length > 90 ? text.slice(0, 90) + "..." : text;
 }
+function conflict(e) { return /^conflict/i.test(String(e)); }
 
 function answerChat(n, decision, said) {
   const key = cardKey(n);
@@ -133,7 +134,7 @@ function answerChat(n, decision, said) {
   // The call returns when the run it resumes ends, so the outcome shows now.
   invoke("answer_approval", { session: n.session_id, queryId: n.pending.query_id, decision, onEvent: new Channel() })
     .then(() => refresh())
-    .catch(e => setOutcome(key, { error: failure(e) }));
+    .catch(e => setOutcome(key, { error: failure(e), final: conflict(e) }));
 }
 
 function answerAgent(n, option) {
@@ -141,7 +142,7 @@ function answerAgent(n, option) {
   setOutcome(key, { said: `Answered: ${option.name}` });
   invoke("center_answer_agent", { machineId: n.machine_id, agent: n.agent, session: n.session, question: n.question.id, reply: option.id })
     .then(() => refresh())
-    .catch(e => setOutcome(key, { error: failure(e) }));
+    .catch(e => setOutcome(key, { error: failure(e), final: conflict(e) }));
 }
 
 function button(label, cls, on) {
@@ -171,6 +172,7 @@ function needsCard(n) {
   }
   const actions = h("div", "acts");
   if (out?.said) actions.append(h("span", "ok", out.said));
+  else if (out?.final) actions.append(h("span", "err", out.error));
   else {
     actions.append(...acts);
     if (out?.error) actions.append(h("span", "err", out.error));
@@ -308,9 +310,20 @@ function page(home) {
   return out;
 }
 
+/// Before the first load succeeds: the sidebar frame and what went wrong.
+function drawUnloaded() {
+  const head = h("div", "cc-head", "");
+  head.setAttribute("data-tauri-drag-region", "");
+  const home = h("button", "cc-si", icon(IC.home), "Home");
+  home.type = "button";
+  home.setAttribute("aria-current", "true");
+  $("#side").replaceChildren(head, h("div", "cc-brand", h("span", "dlogo", "b"), h("b", "", "Beep")), h("div", "cc-grp", h("h3", "", "Pilot"), home));
+  $("#view").replaceChildren(h("div", "cc-note", h("span", "ddot bad"), h("span", "", "Can't reach Beep right now. Retrying.")));
+}
+
 function draw() {
   const home = state.home;
-  if (!home) return;
+  if (!home) { if (state.error) drawUnloaded(); return; }
   const view = $("#view"), top = view.scrollTop;
   $("#side").replaceChildren(...sidebar(home));
   view.replaceChildren(...page(home));
@@ -350,14 +363,14 @@ for (const name of ["sessions-changed", "work-question", "work-resolved", "group
 
 $("#comp").addEventListener("submit", async e => {
   e.preventDefault();
-  const input = $("#ask"), prompt = input.value.trim();
+  const input = $("#ask"), note = $("#comp-err"), prompt = input.value.trim();
   if (!prompt) return;
+  note.textContent = "";
   try {
     await invoke("center_compose", { prompt });
     input.value = "";
   } catch (err) {
-    input.placeholder = failure(err);
-    input.value = "";
+    note.textContent = failure(err);
   }
 });
 
