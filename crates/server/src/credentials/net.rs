@@ -56,6 +56,24 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
         || (first == 0x2001 && ip.segments()[1] == 0x0db8))
 }
 
+/// Whether `url`'s host is plainly on the user's own network by its name:
+/// `localhost`, a name with no dot, a `.local`, `.lan`, `.internal` or
+/// `.home.arpa` name, or an address that is not public.
+pub fn is_local_name(url: &Url) -> bool {
+    match url.host() {
+        Some(Host::Ipv4(ip)) => !is_public(IpAddr::V4(ip)),
+        Some(Host::Ipv6(ip)) => !is_public(IpAddr::V6(ip)),
+        Some(Host::Domain(name)) => {
+            let name = name.trim_end_matches('.').to_ascii_lowercase();
+            !name.contains('.')
+                || [".local", ".lan", ".internal", ".home.arpa", ".localhost"]
+                    .iter()
+                    .any(|suffix| name.ends_with(suffix))
+        }
+        None => true,
+    }
+}
+
 /// Whether every address `url`'s host has is public. `false` when the
 /// name does not resolve.
 pub async fn resolves_public(url: &Url) -> bool {
@@ -120,5 +138,21 @@ mod tests {
         for ip in ["1.2.3.4", "2a00:1::1"] {
             assert!(is_public(ip.parse().unwrap()), "{ip}");
         }
+    }
+
+    #[test]
+    fn local_names_are_plain_from_the_url() {
+        for url in [
+            "http://forge",
+            "http://forge.local",
+            "http://git.home.arpa",
+            "http://localhost:3000",
+            "http://10.0.0.5",
+            "http://[fd00::5]",
+        ] {
+            assert!(is_local_name(&url.parse().unwrap()), "{url}");
+        }
+        assert!(!is_local_name(&"http://git.example.com".parse().unwrap()));
+        assert!(!is_local_name(&"http://8.8.8.8".parse().unwrap()));
     }
 }
