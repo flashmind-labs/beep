@@ -211,6 +211,7 @@ fn main() {
             commands::hide_bar,
             commands::quit,
             commands::open_url,
+            commands::open_log,
             commands::group_typing,
             commands::list_memories,
             commands::list_memory_scopes,

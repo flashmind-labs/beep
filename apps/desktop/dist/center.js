@@ -5,6 +5,8 @@ const { listen } = window.__TAURI__.event;
 
 import { splitPinned } from "./pinned.js";
 import { initPalette, openPalette } from "./palette.js";
+import { initSideResize } from "./sidewidth.js";
+import { connectProblem } from "./connect.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -42,8 +44,13 @@ const CAPS = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", x
 const AGENTS = { claude: { cls: "claude", ini: "CC", name: "Claude Code" }, codex: { cls: "codex", ini: "CX", name: "Codex" } };
 const PROJECT_COLORS = ["#F07A6A", "#6FA8DC", "#B18CE0", "#E9B949", "#3B9B7A"];
 const OFFLINE_NOTE_MS = 60 * 60 * 1000;
+/// Before Home first loads: how long "Connecting" shows before "Still
+/// connecting", and how soon a failed try is made again.
+const CONNECT_STUCK_MS = 15000;
+const CONNECT_RETRY_MS = 3000;
 
-const state = { home: null, error: null, outcomes: new Map(), shown: false };
+/// `since` is when the window started waiting for its first Home.
+const state = { home: null, error: null, outcomes: new Map(), shown: false, since: Date.now() };
 
 // ---------- Formatting ----------
 
@@ -205,16 +212,29 @@ function needsCard(n) {
 
 // ---------- Sections ----------
 
+/// The Machines header's note, then its Add a machine button.
+function addMachineButton(cls) {
+  const b = button("", cls, openAddMachine);
+  b.append(icon(IC.plus), " Add a machine");
+  return b;
+}
+
 function machinesSection(machines) {
   const online = machines.filter(m => m.online).length;
+  let el;
   if (!machines.length) {
     const link = h("ol", "", h("li", "", "Install beep-node on the computer."), h("li", "", h("span", "", "Run "), h("code", "", "beep-node link"), h("span", "", " there.")), h("li", "", "Paste the link it prints into a chat here, or into Beep on your phone."));
-    return section("sec-machines", "Machines", "None linked", empty(
+    el = section("sec-machines", "Machines", "None linked", empty(
       h("b", "", "No machines linked yet"),
       h("span", "", "Link a computer to run coding agents and commands on it from here, from the bar or from your phone."),
-      link));
+      link,
+      addMachineButton("pri")));
+  } else {
+    el = section("sec-machines", "Machines", `${online} of ${machines.length} online`, h("div", "cc-machs", ...machines.map(machineCard)));
   }
-  return section("sec-machines", "Machines", `${online} of ${machines.length} online`, h("div", "cc-machs", ...machines.map(machineCard)));
+  const head = el.querySelector(".cc-sec"), note = head.querySelector("small");
+  head.append(h("span", "cc-sec-r", note, addMachineButton("small")));
+  return el;
 }
 
 function offlineNote(machines) {
@@ -270,6 +290,11 @@ export function registerView(name, view) {
 /// Shows view `name`, passing `arg` to its mount. The others are hidden,
 /// not destroyed, so a reply streaming in the pane keeps going under Home.
 export function go(name, arg) {
+  // Settings open over whatever shows, which stays as it is.
+  if (name === "pane" && arg === "settings") {
+    if (!shown) go("home");
+    return openSettings();
+  }
   const view = views.get(name);
   if (!view) return;
   if (shown && shown !== name) views.get(shown).unmount?.();
@@ -362,6 +387,8 @@ function drawSide() {
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [head, h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
+    // Rows that fill in once the server answers, never an empty sidebar.
+    if (name === "chats" && g.items == null && !home) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton()));
     if (g.items == null) continue;
     const grp = h("div", `cc-grp ${name}`);
     if (g.title) {
@@ -370,7 +397,7 @@ function drawSide() {
       grp.append(h3);
     }
     const none = typeof g.empty === "function" ? g.empty() : g.empty;
-    if (none && !g.items.length) grp.append(h("span", "cc-si none", none));
+    if (none && !g.items.length) grp.append(typeof none === "string" ? h("span", "cc-si none", none) : none);
     for (const item of g.items) {
       const el = g.row(item);
       if (g.onPick) el.addEventListener("click", () => g.onPick(item));
@@ -379,14 +406,30 @@ function drawSide() {
     if (g.foot) grp.append(...g.foot());
     if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
   }
-  side.push(h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f))));
+  const foot = h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f)));
+  if (home?.machines) {
+    const add = plusButton("Add a machine", openAddMachine);
+    add.classList.add("dbtn", "quiet");
+    foot.append(add);
+  }
+  side.push(foot);
   $("#side").replaceChildren(...side);
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
 }
 
+function skeleton() {
+  return [70, 55, 62].map(w => {
+    const row = h("div", "cc-skel");
+    row.style.width = `${w}%`;
+    return row;
+  });
+}
+
 function footer(machines) {
-  if (!state.home) return [];
+  const p = problem();
+  if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), ` ${{ unlinked: "Not linked", revoked: "Removed" }[p.kind] ?? "Refused"}`)];
+  if (!state.home) return [h("span", "", h("span", `ddot ${stuck() ? "bad" : "off"}`), stuck() ? " Not connected" : " Connecting…")];
   if (!machines) return ["Machines unavailable"];
   if (!machines.length) return ["No machines linked"];
   const on = machines.filter(m => m.online).length;
@@ -395,7 +438,7 @@ function footer(machines) {
 
 /// Pinned chats and groups, then the newest of the rest, the open one
 /// highlighted.
-const SIDE_CHATS = 12;
+const SIDE_CHATS = 5;
 let chatList = [];
 let chatFetch = null;
 
@@ -452,6 +495,7 @@ function chatRow(c) {
   // Two real buttons in one row, never one inside the other.
   const openBtn = h("button", "open", mark, h("span", "tt", c.title));
   openBtn.type = "button";
+  openBtn.title = c.title;
   if (open) openBtn.setAttribute("aria-current", "true");
   return h("div", "cc-si cc-chat", openBtn, toggle);
 }
@@ -505,7 +549,7 @@ registerSidebarGroup("views", {
     { view: "routines", label: "Routines", svg: IC.loop },
     { view: "settings", label: "Settings", svg: IC.gear },
   ],
-  row: v => sideItem(v.svg, v.label, 0, { current: paneOn().view === v.view }),
+  row: v => sideItem(v.svg, v.label, 0, { current: v.view !== "settings" && paneOn().view === v.view, kbd: v.view === "settings" ? "⌘," : "" }),
   onPick: v => go("pane", v.view),
 });
 
@@ -515,10 +559,43 @@ function projects(running) {
   return [...found];
 }
 
+/// A small + button for a group's heading or the footer.
+function plusButton(label, on) {
+  const b = h("button", "", icon(IC.plus));
+  b.type = "button";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.addEventListener("click", e => { e.stopPropagation(); on(); });
+  return b;
+}
+
+/// An empty group's row: what is missing, and a way to add one.
+function emptyRow(text, on) {
+  const b = h("button", "cc-si none add", `${text} · `, h("span", "act", "Add one"));
+  b.type = "button";
+  b.addEventListener("click", on);
+  return b;
+}
+
+/// Adds a machine. Another branch puts the add-a-machine sheet here; until
+/// then it opens the Machines part of Settings.
+export function openAddMachine() {
+  openSettings("machines");
+}
+
+/// Opens the projects view. Until there is one, Home's Running section,
+/// where the projects here come from.
+export function openProjects() {
+  jump("sec-running");
+}
+
 // Projects found in what runs, until the project view replaces this group.
+// It shows once Home has loaded, empty or not.
 registerSidebarGroup("projects", {
   order: 5,
   title: "Projects",
+  action: () => plusButton("Add a project", openProjects),
+  empty: () => emptyRow("No projects yet", openProjects),
   load: async () => state.home?.running ? projects(state.home.running).map(([name, n], i) => ({ name, n, i })) : null,
   row(p) {
     const b = sideItem(null, p.name, p.n);
@@ -528,6 +605,23 @@ registerSidebarGroup("projects", {
     return b;
   },
   onPick: () => jump("sec-running"),
+});
+
+// The machines Home lists, each with its online dot. It shows once Home has
+// loaded, empty or not, unless the server is too old to list machines.
+registerSidebarGroup("machines", {
+  order: 5.5,
+  title: "Machines",
+  action: () => plusButton("Add a machine", openAddMachine),
+  empty: () => emptyRow("No machines yet", openAddMachine),
+  load: async () => state.home?.machines ?? null,
+  row(m) {
+    const b = sideItem(null, m.name, m.agents || 0);
+    b.prepend(dot(m));
+    b.title = `${m.name}: ${m.online ? (m.agents ? plural(m.agents, "agent", "agents") + " running" : "online") : "offline"}`;
+    return b;
+  },
+  onPick: m => jump(`m-${m.id}`),
 });
 
 // ---------- Home ----------
@@ -556,13 +650,71 @@ function page(home) {
   return out;
 }
 
+// ---------- Connecting ----------
+
+/// True once the first Home has been waited for too long.
+function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }
+
+/// Before Home first loads, a failure waiting will not fix, or null.
+function problem() { return state.home ? null : connectProblem(state.error); }
+
+/// What is wrong, said plainly, with the way to fix it and a Retry.
+function problemView(p) {
+  const acts = h("div", "acts");
+  if (p.action) acts.append(button(p.action, "pri", () => go("pane", p.view)));
+  const retry = button("Try again", p.action ? "" : "pri", () => { refresh(); retry.disabled = true; });
+  retry.classList.add("retry");
+  retry.disabled = loading;
+  acts.append(retry, button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e))));
+  const box = h("div", "cc-conn stuck", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), h("b", "", p.title), h("span", "why", p.text), acts);
+  box.dataset.problem = `${p.kind}:${p.text}`;
+  return box;
+}
+
+/// What Home shows before the server first answers: pulsing dots, never a
+/// blank page. Once stuck it says so and offers Retry; retries go on anyway.
+function connecting() {
+  const p = problem();
+  if (p) return problemView(p);
+  const pulse = h("div", "cc-pulse", h("i"), h("i"), h("i"));
+  if (!stuck()) {
+    return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"), h("span", "", "Your chats, machines and approvals load once the server answers."));
+  }
+  const secs = Math.round((Date.now() - state.since) / 1000);
+  const why = h("span", "why", `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`);
+  const retry = button("Retry now", "pri", () => { refresh(); retry.disabled = true; });
+  retry.disabled = loading;
+  const log = button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e)));
+  const box = h("div", "cc-conn stuck", pulse, h("b", "", "Still connecting to Beep"), why, h("div", "acts", retry, log));
+  return box;
+}
+
+/// Draws the waiting view, or brings the one on screen up to date so its
+/// buttons keep their focus.
+function drawConnecting(view) {
+  const on = view.querySelector(":scope > .cc-conn");
+  const p = problem(), was = on?.dataset.problem;
+  if (p || was) {
+    if (p && was === `${p.kind}:${p.text}`) {
+      on.querySelector(".acts .retry").disabled = loading;
+      return;
+    }
+    return view.replaceChildren(connecting());
+  }
+  if (on && on.classList.contains("stuck") === stuck()) {
+    if (!stuck()) return;
+    const secs = Math.round((Date.now() - state.since) / 1000);
+    on.querySelector(".why").textContent = `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`;
+    on.querySelector(".acts .pri").disabled = loading;
+    return;
+  }
+  view.replaceChildren(connecting());
+}
+
 function draw() {
   const home = state.home, view = $("#view");
   drawSide();
-  if (!home) {
-    if (state.error) view.replaceChildren(h("div", "cc-note", h("span", "ddot bad"), h("span", "", "Can't reach Beep right now. Retrying.")));
-    return;
-  }
+  if (!home) return drawConnecting(view);
   const top = view.scrollTop;
   view.replaceChildren(...page(home));
   view.scrollTop = top;
@@ -659,7 +811,88 @@ async function takePending(fallback) {
 
 listen("center-open", () => takePending(null));
 
+// ---------- Settings ----------
+
+/// Settings as a sheet over the window: a dimmed backdrop and a centered
+/// sheet with its sections on the left. Esc or a click outside closes it;
+/// the view behind keeps its state. The sheet draws at once from what
+/// this Mac knows and fills in the server's parts as they answer.
+let settingsOpen = null;
+
+export function openSettings(section) {
+  if (settingsOpen) return section && showSection(settingsOpen.scrim, section);
+  const sheet = h("div", "cc-set");
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.setAttribute("aria-label", "Settings");
+  sheet.tabIndex = -1;
+  const nav = h("nav", "dset-nav", h("b", "", "Settings"));
+  const body = h("div", "dset-body", h("div", "dset-top", h("span", "tt", h("b", "", "Settings")), h("kbd", "", "esc")), ...skeletonRows());
+  sheet.append(nav, body);
+  const scrim = h("div", "cc-set-scrim", sheet);
+  const back = document.activeElement;
+  scrim.addEventListener("mousedown", e => { if (e.target === scrim) closeSettings(); });
+  // While open, keys stay in the sheet: Esc closes it, and nothing reaches
+  // the page behind.
+  const keys = e => {
+    if (e.key === "Escape") { e.preventDefault(); closeSettings(); }
+    else if (e.metaKey && e.key === ",") e.preventDefault();
+    else if (e.key === "Tab") trapTab(e, sheet);
+    e.stopImmediatePropagation();
+  };
+  window.addEventListener("keydown", keys, true);
+  document.body.append(scrim);
+  settingsOpen = { scrim, keys, back };
+  sheet.focus();
+  pane()?.settings(sheet)
+    .then(() => { if (section) showSection(scrim, section); })
+    .catch(e => console.warn("settings:", e));
+}
+
+/// Scrolls the open sheet to `section`, such as "machines".
+function showSection(scrim, section) {
+  scrim.querySelector(`[data-goto="${section}"]`)?.click();
+}
+
+export function closeSettings() {
+  if (!settingsOpen) return;
+  const { scrim, keys, back } = settingsOpen;
+  settingsOpen = null;
+  window.removeEventListener("keydown", keys, true);
+  scrim.remove();
+  if (back?.isConnected) back.focus();
+}
+
+function skeletonRows() {
+  return [80, 60, 72, 50].map(w => {
+    const row = h("div", "cc-skel");
+    row.style.width = `${w}%`;
+    return row;
+  });
+}
+
+/// Keeps Tab inside the sheet.
+function trapTab(e, sheet) {
+  const all = [...sheet.querySelectorAll("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
+  if (!all.length) return;
+  const first = all[0], last = all[all.length - 1];
+  // Focus lost to the page (a redraw removed it): bring it back in.
+  if (!sheet.contains(document.activeElement)) { e.preventDefault(); return (e.shiftKey ? last : first).focus(); }
+  if (e.shiftKey && (document.activeElement === first || document.activeElement === sheet)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+window.beepOpenSettings = openSettings;
+/// A page Settings leads to, such as Apps: the sheet closes and the pane
+/// shows it; null only closes.
+window.beepSettingsAway = view => {
+  closeSettings();
+  if (view) go("pane", view);
+};
+
 // ---------- Keys ----------
+
+initSideResize($(".cwin"), $("#side-grip"));
 
 initPalette({ go, jump, pane, findIcon: IC.find });
 
@@ -667,18 +900,20 @@ document.addEventListener("keydown", e => {
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
   if (key === "k") { e.preventDefault(); return openPalette(); }
-  const to = { m: "memories", j: "routines", l: "skills", ",": "settings" }[key];
+  if (key === ",") { e.preventDefault(); return openSettings(); }
+  const to = { m: "memories", j: "routines", l: "skills" }[key];
   if (to) { e.preventDefault(); return go("pane", to); }
   if (key === "n" && shown !== "pane") { e.preventDefault(); return go("pane", { chat: { session: null } }); }
 });
 
 // ---------- Refresh ----------
 
-let loading = false, again = false;
+let loading = false, again = false, retryTimer = null;
 
 /// Fetches Home. Never two calls at once: a request during one runs once more after it.
 async function refresh() {
   if (loading) { again = true; return; }
+  clearTimeout(retryTimer);
   loading = true;
   try {
     state.home = await invoke("center_home");
@@ -692,13 +927,20 @@ async function refresh() {
   }
   draw();
   reloadGroup("projects");
+  reloadGroup("machines");
   if (again) { again = false; refresh(); }
+  // Until Home first loads, a failed try is made again soon, seen or not,
+  // unless waiting will not fix it.
+  else if (!state.home && !problem()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
 }
+
+// "Still connecting" takes over once the wait passes its limit.
+setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 
 window.addEventListener("focus", refresh);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
 setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 10000);
-for (const name of ["sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected"]) {
+for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected"]) {
   listen(name, () => refresh());
 }
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) {

@@ -8,7 +8,7 @@ use std::{num::NonZeroUsize, path::PathBuf};
 /// Daily log files kept before the oldest is deleted.
 const LOG_FILES_KEPT: NonZeroUsize = NonZeroUsize::new(7).expect("the count is not zero");
 
-fn dir() -> Option<PathBuf> {
+pub(crate) fn dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join("Library/Logs/Beep"))
 }
