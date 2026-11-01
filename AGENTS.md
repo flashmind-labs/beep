@@ -27,6 +27,19 @@ Do not hand-install APKs on the phone: a locally built APK is signed with
 another key and will not install over the Play build. Use the debug APK on an
 emulator (`./gradlew assembleDebug`).
 
+## Servers and hosting
+
+One `beep-server` runs the agent and owns the database. Every user gets a
+`beep-node` started with `--workspace /home/user` (`BEEP_NODE_WORKSPACE`):
+`exec` and `process` run there by default, and uploads, downloads and app
+attachments are saved there. Other machines link as ordinary nodes. The
+server runs no user code. Per-user nodes are set up by hand for now.
+
+The server is the production server on Neon, the target of
+`just deploy-server`. Desktop and iOS builds pass its node id in
+`BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
+without asking. The on-prem bundle (`deploy/onprem/`) is retired.
+
 ## Deploying the server
 
 Push to main, then `just deploy-server`. It waits for the image CI builds for

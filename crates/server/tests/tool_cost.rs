@@ -61,7 +61,6 @@ fn message(cron_id: Option<String>) -> Message {
         message: "Hello".into(),
         scheduled: cron_id.as_ref().map(|_| "Check".to_owned()),
         cron_id,
-        agent: None,
         always_sent: false,
         woken: None,
         images: Vec::new(),

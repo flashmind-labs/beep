@@ -22,6 +22,7 @@ mod machines;
 mod markdown;
 mod news;
 mod orb;
+mod palette;
 mod presence;
 mod products;
 mod research;
@@ -99,7 +100,14 @@ fn main() {
                     voice.minimize();
                 }
             }
-            WindowEvent::Destroyed => research::closed(window.app_handle(), window.label()),
+            WindowEvent::Destroyed => {
+                if window.label() == center::LABEL {
+                    // Its chat is not on screen any more, so its notices must
+                    // not be held back as seen.
+                    window.app_handle().state::<center::Shown>().clear();
+                }
+                research::closed(window.app_handle(), window.label());
+            }
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
@@ -113,6 +121,8 @@ fn main() {
             center::center_answer_agent,
             center::center_open,
             center::center_pending,
+            palette::center_palette,
+            palette::center_find,
             commands::status,
             commands::link_offer,
             commands::send_prompt,
@@ -290,6 +300,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(machine::Machine::default());
     app.manage(center::Shown::default());
     app.manage(center::Pending::default());
+    app.manage(palette::PaletteCache::default());
     app.state::<machine::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
@@ -335,7 +346,9 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         bar::show(&handle, Some("link"));
     } else if !std::env::args().any(|arg| arg == LOGIN_ARG) {
         // Opened by the user, not as a login item: show the window.
-        center::open(&handle)?;
+        if let Err(e) = center::open(&handle) {
+            log::warn!("opening the window at launch: {e}");
+        }
     }
     refresh_login_item(&handle);
     Ok(())

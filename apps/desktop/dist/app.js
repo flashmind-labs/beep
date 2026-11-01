@@ -155,7 +155,7 @@ function changed() {
   changeQueued = true;
   queueMicrotask(() => {
     changeQueued = false;
-    const now = { view: S.view, session: S.session };
+    const now = { view: S.view, session: S.session, group: GROUP_VIEWS.has(S.view) ? G.id : null };
     for (const fn of changeListeners) { try { fn(now); } catch {} }
   });
 }
@@ -1830,7 +1830,8 @@ function groupHints() {
 /// Opens a group in the bar. `then` opens its info, or info with Leave asked.
 async function renderGroup(id, then) {
   if (G.id !== id) { G.chat = null; G.pending = []; G.error = ""; }
-  G.id = id;
+  // The view may stay "group", so a new group is a change of its own.
+  if (G.id !== id) { G.id = id; changed(); }
   G.mention = null;
   G.leave = false;
   S.view = "group";
@@ -5353,6 +5354,8 @@ const WINDOW_KEYS = new Set(["k", "m", "j", "l", ","]);
 document.addEventListener("keydown", e => {
   const cmd = e.metaKey;
   if (PANE && !paneMounted) return;
+  // A key meant for the sidebar (Enter on a row) is not the pane's.
+  if (PANE && !cmd && e.target !== document.body && !bar.contains(e.target)) return;
   if (PANE && cmd && WINDOW_KEYS.has(e.key.toLowerCase())) return;
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (LV.on && liveKeys(e, cmd)) return;
@@ -5485,8 +5488,9 @@ if (PANE) {
   async function refreshPaneStatus() {
     const st = await invoke("status");
     S.link = st.link;
-    loadResearches();
+    const researches = loadResearches();
     if (S.link === "linked") { loadModels(); loadAgentHosts(); }
+    await researches;
   }
   /// Back on the chat or group the pane still shows, made current again
   /// after `leave`.
@@ -5537,6 +5541,8 @@ if (PANE) {
     },
     /// Chats and groups, newest first, pinned ones as the bar lists them.
     async chatRows() {
+      // The research set loads with the pane, so rows know which open their own window.
+      await start();
       const [sessions, groups] = await Promise.all([invoke("list_sessions"), invoke("list_groups").catch(() => [])]);
       return rows(sessions, groups).map(c => ({ ...c, research: RESEARCHES.has(c.id) }));
     },
