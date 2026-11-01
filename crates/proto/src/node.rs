@@ -94,6 +94,10 @@ impl fmt::Debug for NodeSetup {
 pub enum Up {
     /// What the machine has. Sent after the hello and again when it changes.
     Env(EnvReport),
+    /// How much disk and memory the machine has free now. Sent after the
+    /// first `Env` and about once a minute after. A server from before it
+    /// skips it.
+    Stats(StatsReport),
 }
 
 /// What the server sends on the control stream.
@@ -213,6 +217,30 @@ impl EnvReport {
         found.dedup();
         found
     }
+}
+
+/// A machine's live resources.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StatsReport {
+    /// The workspace's volume first, when the node keeps one, then the
+    /// home folder's when it is on another volume.
+    pub disks: Vec<DiskUsage>,
+    pub memory_used_mb: u64,
+    pub memory_total_mb: u64,
+    /// The load average over the last minute.
+    pub load: Option<f64>,
+}
+
+/// How full the volume holding one folder is.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DiskUsage {
+    /// The folder it was measured at.
+    pub path: String,
+    /// What a user may still write, in bytes.
+    pub free_bytes: u64,
+    pub total_bytes: u64,
 }
 
 /// An installed app worth knowing about.
@@ -460,6 +488,30 @@ mod tests {
         });
         let body = rmp_serde::to_vec_named(&up).unwrap();
         assert_eq!(rmp_serde::from_slice::<Up>(&body).unwrap(), up);
+    }
+
+    #[test]
+    fn stats_round_trip_and_an_older_server_skips_them() {
+        let up = Up::Stats(StatsReport {
+            disks: vec![DiskUsage {
+                path: "/home/user".into(),
+                free_bytes: 212_000_000_000,
+                total_bytes: 500_000_000_000,
+            }],
+            memory_used_mb: 9_300,
+            memory_total_mb: 32_768,
+            load: Some(1.25),
+        });
+        let body = rmp_serde::to_vec_named(&up).unwrap();
+        assert_eq!(rmp_serde::from_slice::<Up>(&body).unwrap(), up);
+        // What a server from before `Up::Stats` knew: it fails to read the
+        // message, which its control loop skips.
+        #[derive(Debug, Deserialize)]
+        enum OldUp {
+            #[allow(dead_code)]
+            Env(EnvReport),
+        }
+        assert!(rmp_serde::from_slice::<OldUp>(&body).is_err());
     }
 
     #[test]

@@ -21,6 +21,7 @@ pub mod service;
 pub mod setup;
 mod shell;
 pub mod state;
+mod stats;
 pub mod sync;
 mod tasks;
 pub mod transfer;

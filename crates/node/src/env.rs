@@ -85,7 +85,7 @@ pub async fn probe() -> EnvReport {
 }
 
 /// What `program args` printed, stdout then stderr, when it ran in time.
-async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
+pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
     let mut command = Command::new(program);
     spawn_env::apply(&mut command, Scope::Probe);
     let run = command
@@ -176,7 +176,7 @@ fn pretty_name(os_release: &str) -> Option<String> {
     Some(line["PRETTY_NAME=".len()..].trim_matches('"').to_owned())
 }
 
-async fn memory_mb() -> Option<u64> {
+pub(crate) async fn memory_mb() -> Option<u64> {
     match env::consts::OS {
         "macos" => {
             let bytes: u64 = output("sysctl", &["-n", "hw.memsize"])
