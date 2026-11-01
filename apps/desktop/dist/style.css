@@ -230,6 +230,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dtoggle span { flex: 1; display: grid; line-height: 19px }
 .dtoggle b { font-weight: 500; font-size: 13.5px }
 .dtoggle small { font-size: 12px; color: var(--muted) }
+/* Stacked settings rows: room between one row's text and the next title. */
+.dtoggle + .dtoggle { margin-top: 10px }
 .dsec.flat { padding: 0; border: 0 }
 .dshare { display: grid; gap: 8px; padding: 10px 12px; margin: 2px 2px 6px }
 .dshare .code { font-size: 12.5px; letter-spacing: 0; overflow-wrap: anywhere }
