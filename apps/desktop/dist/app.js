@@ -255,29 +255,28 @@ function hints(items, extra = "") {
   const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
   return `<div class="dhints">${items.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}${extra}${link}</div>`;
 }
-/// The window has no Option keys and does not hide, and ⌘K searches there.
+/// The window does not hide and has no live mode, and ⌘K searches there.
 function forPane(items) {
   if (!PANE) return items;
   return items
-    .filter(([k, t]) => t !== "to hide" && t !== "live" && t !== "talk" && t !== "open from anywhere")
+    .filter(([k, t]) => t !== "to hide" && t !== "live" && t !== "talk")
     .map(([k, t]) => k === "⌘K" ? [k, "search"] : [k, t]);
 }
-/// The bar's chip that hands the open chat to the window.
-const windowChip = () => PANE ? "" : `<button class="dhand" data-act="openWindow">Open in window<kbd>⌘${ICON.ret}</kbd></button>`;
 function chatHints() {
   const e = here();
-  const model = modelChip(), chip = windowChip() + model;
+  const chip = modelChip();
   const asking = e?.approval ?? (!e?.run && waitingQuestion(S.session));
   if (asking) {
     const grant = e?.approval ? e.approval.grant : forRoutine(asking.action);
-    return hints([[`⌘${ICON.ret}`, "allow"], ...(grant ? [] : [[`⌥⌘${ICON.ret}`, "always"]]), ["⌘D", "deny"], ["esc", "to hide"]], model);
+    return hints([[`⌘${ICON.ret}`, "allow"], ...(grant ? [] : [[`⌥⌘${ICON.ret}`, "always"]]), ["⌘D", "deny"], ["esc", "to hide"]], chip);
   }
   if (e?.run) return hints([[ICON.ret, "queue"], ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
-  if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], model);
+  if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if ($("#ask")?.value.trim()) return hints([[ICON.ret, "ask"], ["⌘R", "research"], ["esc", "to hide"]], chip);
-  if (!PANE && !knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
+  if (PANE) return hints([["⌘K", "search"], ["⌘N", "new chat"], [`⇧${ICON.ret}`, "new line"], ["⌥ ⌥", "quick chat"]], chip);
+  if (!knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["tap ⌥", "live"], ["hold ⌥", "talk"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
 }
 // Shown from first launch until the bar is first opened with a double tap of Option.
@@ -306,7 +305,7 @@ function drawStop() {
 function renderChat() {
   S.view = "chat";
   bar.innerHTML = `<div class="dinput dgrow"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea><div class="dgrip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the prompt" title="Drag to resize, double-click to reset"></div></div>
-    <div class="dbody" id="body"></div>${chatHints()}`;
+    <div class="dbody" id="body"></div>${PANE ? "" : `<div class="dhand"><button class="dbtn" data-act="openWindow">Open in Beep window<kbd>⌘O</kbd></button></div>`}${chatHints()}`;
   const kept = here()?.body;
   if (kept) $("#body").replaceWith(kept);
   const b = body();
@@ -1205,7 +1204,7 @@ function rowActions(c) {
   const pin = `<button class="dbtn" data-a="pin">${c.pinned ? "Unpin" : "Pin"}<kbd>⌘P</kbd></button>`;
   return c.kind === "group"
     ? `<span class="acts">${pin}<button class="dbtn" data-a="invite">Invite</button><button class="dbtn" data-a="info">Info</button><button class="dbtn warn" data-a="leave">Leave</button></span>`
-    : `<span class="acts">${PANE ? "" : '<button class="dbtn" data-a="window">Open in Beep window</button>'}<button class="dbtn" data-a="rename">Rename<kbd>⌘R</kbd></button>${pin}<button class="dbtn" data-a="share">Share</button><button class="dbtn warn" data-a="delete">Delete<kbd>⌘⌫</kbd></button></span>`;
+    : `<span class="acts">${PANE ? "" : '<button class="dbtn" data-a="window">Open in window<kbd>⌘O</kbd></button>'}<button class="dbtn" data-a="rename">Rename<kbd>⌘R</kbd></button>${pin}<button class="dbtn" data-a="share">Share</button><button class="dbtn warn" data-a="delete">Delete<kbd>⌘⌫</kbd></button></span>`;
 }
 
 function chatRow(c, i) {
@@ -4906,6 +4905,9 @@ function chatsKeys(e, cmd) {
   } else if (e.key === "Tab" && c) {
     e.preventDefault();
     chatMode(mode === "actions" ? "list" : "actions");
+  } else if (!PANE && cmd && key === "o" && c?.kind === "chat") {
+    e.preventDefault();
+    chatAction("window");
   } else if (cmd && key === "p" && c) {
     e.preventDefault();
     chatAction("pin");
@@ -5006,7 +5008,7 @@ document.addEventListener("keydown", e => {
     if (cmd && e.key === "Enter" && asked) { e.preventDefault(); return answerWork(S.session, asked, e.altKey ? "always" : "allow"); }
     if (cmd && key === "d" && asked) { e.preventDefault(); return answerWork(S.session, asked, "deny"); }
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
-    if (!PANE && cmd && !e.shiftKey && !e.altKey && e.key === "Enter" && e.target.id === "ask" && !e.target.value.trim()) { e.preventDefault(); return openInWindow(S.session); }
+    if (!PANE && cmd && key === "o") { e.preventDefault(); return openInWindow(S.session); }
     if (cmd && e.shiftKey && e.key === "Enter" && e.target.id === "ask") { e.preventDefault(); return research(e.target.value); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
     if (!PANE && e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
