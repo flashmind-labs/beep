@@ -41,13 +41,13 @@ pub struct Saved {
     #[serde(default)]
     pub researches: Vec<Uuid>,
     /// The "Let Beep use this Mac" switch from before `mac_on`, still
-    /// written so an older app reads a matching value. Since 0.3.17 it can
-    /// be a choice, so a saved file without `mac_on` keeps it as it is.
+    /// written so an older app reads a matching value. It was off unless
+    /// turned on, not a choice, so it no longer decides.
     #[serde(default)]
     pub use_mac: bool,
     /// "Let Beep use this Mac" as this app version saved it. Missing in
-    /// files from before it, where `use_mac` decides. A fresh install has
-    /// no file and starts with the Mac on.
+    /// files from before it, which start with the Mac on once, as a fresh
+    /// install does.
     #[serde(default)]
     pub mac_on: Option<bool>,
     /// The Voice notes switch from before `notice_voice`, still written so
@@ -81,9 +81,17 @@ impl Saved {
         }
     }
 
-    /// "Let Beep use this Mac".
+    /// "Let Beep use this Mac": on unless turned off in this version.
     pub fn uses_mac(&self) -> bool {
-        self.mac_on.unwrap_or(self.use_mac)
+        self.mac_on.unwrap_or(true)
+    }
+
+    /// Brings a file from an older app up to date. Its `use_mac` false was
+    /// the old default rather than a choice, so the Mac starts on.
+    fn migrate(&mut self) {
+        if self.mac_on.is_none() {
+            self.set_use_mac(true);
+        }
     }
 
     pub fn set_use_mac(&mut self, on: bool) {
@@ -121,10 +129,12 @@ impl StateFile {
     }
 
     pub fn load(&self) -> Saved {
-        fs::read(&self.0)
+        let mut saved: Saved = fs::read(&self.0)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        saved.migrate();
+        saved
     }
 
     pub fn save(&self, saved: &Saved) {
@@ -182,14 +192,28 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_switch_keeps_its_value() {
-        // A file from before `mac_on`, where `use_mac` may be a choice.
-        let file = state_file("saved");
+    fn an_old_file_turns_the_mac_on_once() {
+        // A file from before `mac_on`: its false was the old default.
+        let file = state_file("old");
         fs::write(&file.0, r#"{"use_mac":false}"#).expect("the state is written");
-        assert!(!file.load().uses_mac());
-        fs::write(&file.0, r#"{"use_mac":true}"#).expect("the state is written");
+        let mut saved = file.load();
+        assert!(saved.uses_mac());
+        file.save(&saved);
         assert!(file.load().uses_mac());
-        assert!(!parse(r#"{"use_mac":true,"mac_on":false}"#).uses_mac());
+        // Turned off now, it stays off.
+        saved.set_use_mac(false);
+        file.save(&saved);
+        assert!(!file.load().uses_mac());
+        assert!(!file.load().use_mac);
+    }
+
+    #[test]
+    fn a_switch_set_in_this_version_keeps_its_value() {
+        let file = state_file("saved");
+        fs::write(&file.0, r#"{"use_mac":true,"mac_on":false}"#).expect("the state is written");
+        assert!(!file.load().uses_mac());
+        fs::write(&file.0, r#"{"use_mac":false,"mac_on":true}"#).expect("the state is written");
+        assert!(file.load().uses_mac());
     }
 
     #[test]
