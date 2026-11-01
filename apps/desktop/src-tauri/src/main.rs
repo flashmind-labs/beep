@@ -114,6 +114,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             add_machine::create_node_token,
             add_machine::revoke_node_token,
+            add_machine::node_token_machine,
             agents::agent_hosts,
             agents::agent_sessions,
             agents::agent_start,

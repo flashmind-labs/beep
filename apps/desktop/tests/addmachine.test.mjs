@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, timeLeft, findLinked, describeMachine, outdated } from "../dist/addmachine-state.js";
+import { START, next, timeLeft, machineById, describeMachine, outdated } from "../dist/addmachine-state.js";
 
 const created = { type: "created", token: "bk1-x", command: "beep-node setup bk1-x", expiresAt: 600_000 };
 
@@ -38,12 +38,12 @@ test("an old server reads as needing an update", () => {
   assert.ok(!outdated(undefined));
 });
 
-test("the linked machine is the one that was not there before", () => {
-  const before = ["a", "b"];
-  const now = [{ id: "a" }, { id: "c", name: "new" }, { id: "b" }];
-  assert.equal(findLinked(before, now).id, "c");
-  assert.equal(findLinked(before, [{ id: "a" }]), null);
-  assert.equal(findLinked([], null), null);
+test("the linked machine is the one that claimed the token, even one already listed", () => {
+  const machines = [{ id: "a", name: "old box" }, { id: "c", name: "new" }];
+  assert.equal(machineById(machines, "a").name, "old box");
+  assert.equal(machineById(machines, "z"), null);
+  assert.equal(machineById(machines, null), null);
+  assert.equal(machineById(null, "a"), null);
 });
 
 test("a machine reads as its OS and known tools", () => {

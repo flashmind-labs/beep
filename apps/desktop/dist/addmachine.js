@@ -1,15 +1,15 @@
 // The "Add a machine" sheet: Beep makes a one-time setup token, the machine
 // claims it with `beep-node setup <token>` and links itself to this
-// account. The sheet waits, polling the machines list, and flips to Linked
+// account. The sheet waits, asking which machine claimed the token, and flips to Linked
 // by itself. Esc or Cancel closes it and revokes a token nobody used.
-import { INSTALL, START, next, timeLeft, findLinked, describeMachine } from "./addmachine-state.js";
+import { INSTALL, START, next, timeLeft, machineById, describeMachine } from "./addmachine-state.js";
 
 const { invoke } = window.__TAURI__.core;
 
 const POLL_MS = 2000;
 const TICK_MS = 1000;
 
-let root = null, sheet = null, state = START, known = [];
+let root = null, sheet = null, state = START;
 let ticker = null, poller = null, back = null, onClose = null;
 
 function el(tag, cls, ...kids) {
@@ -86,16 +86,11 @@ function onKey(e) {
   closeAddMachine();
 }
 
-/// Notes the machines already there, then asks for a token.
+/// Asks for a token.
 async function start() {
   update({ type: "renew" });
   clearInterval(poller);
   poller = null;
-  try {
-    known = (await invoke("list_machines")).map(m => m.id);
-  } catch {
-    known = [];
-  }
   try {
     const made = await invoke("create_node_token", { name: null });
     if (!root) {
@@ -111,9 +106,13 @@ async function start() {
 
 async function poll() {
   if (state.step !== "waiting") return;
+  const token = state.token;
   try {
-    const machine = findLinked(known, await invoke("list_machines"));
-    if (machine) update({ type: "found", machine });
+    const id = await invoke("node_token_machine", { token });
+    if (!id) return;
+    // Matched by id, so a machine set up again is found too.
+    const machine = machineById(await invoke("list_machines"), id);
+    if (machine && state.token === token) update({ type: "found", machine });
   } catch {
     // The next poll tries again.
   }
