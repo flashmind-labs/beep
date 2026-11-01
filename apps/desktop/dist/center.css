@@ -1,0 +1,94 @@
+/* The command center window, as in the desktop mock. */
+html, body.cbody { background: var(--ink) }
+.cwin { height: 100vh; display: grid; grid-template-columns: 184px minmax(0, 1fr);
+  background: radial-gradient(90% 70% at 0% 110%, #183F31 0%, transparent 55%), linear-gradient(165deg, #121C18, var(--ink)) }
+/* The traffic lights sit over the top of the sidebar; both bars drag the window. */
+.cc-head { height: 38px; flex: none }
+.cc-top { min-height: 38px }
+.cc-err { color: var(--err); font-size: 12px }
+.cc-ask .err { font-size: 12px; color: var(--err) }
+.cc-ask .acts .dbtn:disabled { opacity: .5 }
+.cc-comp input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--emerald); padding: 0; user-select: text }
+.cc-comp input::placeholder { color: var(--dim) }
+.cc-view { user-select: text; cursor: auto }
+.cc-si { cursor: default }
+.cc-row.link { cursor: default }
+.cc-mach { cursor: default }
+.cc-side { display: flex; flex-direction: column; gap: 12px; padding: 10px 8px; min-width: 0; border-right: 1px solid var(--border); background: rgba(10,14,12,.55); overflow-y: auto; scrollbar-width: none; min-height: 0 }
+.cc-brand { display: flex; align-items: center; gap: 9px; padding: 0 6px }
+.cc-brand b { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: -0.03em }
+.cc-grp { display: grid; gap: 1px }
+.cc-grp h3 { margin: 0 0 3px; padding: 0 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--dim) }
+.cc-si { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; border: 0; background: transparent; text-align: left; width: 100%; font-size: 13px; color: rgba(228,238,232,.86); white-space: nowrap }
+.cc-si:hover { background: rgba(228,238,232,.06) }
+.cc-si[aria-current="true"] { background: rgba(59,155,122,.26); color: var(--fg) }
+.cc-si svg { flex: none; color: var(--muted) }
+.cc-si .n { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums }
+.cc-si .n.hot { color: var(--ink); background: var(--coral); border-radius: 999px; padding: 0 6px; font-weight: 600 }
+.cc-pdot { width: 8px; height: 8px; border-radius: 3px; flex: none }
+.ddot.busy { background: #E9B949 }
+.cc-foot { margin-top: auto; padding: 8px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); font-size: 11.5px; line-height: 16px; color: var(--muted); display: grid; gap: 3px }
+.cc-foot b { color: var(--fg); font-weight: 500 }
+.cc-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size }
+.cc-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border) }
+.cc-top h2 { margin: 0; font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -0.03em; line-height: 1 }
+.cc-top small { font-size: 12px; color: var(--muted) }
+.cc-view { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
+.cc-sec { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px }
+.cc-sec h4 { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--dim) }
+.cc-sec small { font-size: 11.5px; color: var(--muted) }
+.cc-panel { border: 1px solid var(--border); border-radius: 11px; background: rgba(18,25,22,.82); min-width: 0 }
+.cc-cols { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px }
+.cc-machs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px }
+.cc-mach { padding: 10px 11px; display: grid; gap: 6px; align-content: start; text-align: left; border: 1px solid var(--border); border-radius: 11px; background: rgba(18,25,22,.82); color: var(--fg) }
+.cc-mach:hover { border-color: #3A4A41 }
+.cc-mach.off { opacity: .6 }
+.cc-mach .h { display: flex; align-items: center; gap: 7px; min-width: 0 }
+.cc-mach .h b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-mach .os { font-size: 11.5px; color: var(--muted) }
+.cc-caps { display: flex; flex-wrap: wrap; gap: 4px }
+.cc-cap { font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 5px; background: var(--elev); border: 1px solid var(--border); color: rgba(228,238,232,.82); white-space: nowrap }
+.cc-meter { height: 4px; border-radius: 4px; background: var(--elev); overflow: hidden }
+.cc-meter i { display: block; height: 100%; border-radius: 4px; background: var(--emerald) }
+.cc-mach .st { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums }
+.cc-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 11px; text-align: left; width: 100%; border: 0; background: transparent; color: var(--fg) }
+.cc-row + .cc-row { border-top: 1px solid var(--border) }
+button.cc-row:hover { background: rgba(228,238,232,.04) }
+.cc-row .t { display: grid; min-width: 0; line-height: 18px }
+.cc-row .t b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-row .t span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-row .r { font-size: 11.5px; color: var(--muted); display: grid; justify-items: end; gap: 2px; font-variant-numeric: tabular-nums }
+.cc-ag { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev) }
+.cc-ag.claude { color: #F2A27A } .cc-ag.codex { color: #9DC3F0 }
+.cc-ag.beep { color: var(--ink); background: var(--coral); border-color: transparent; font-family: var(--display); font-weight: 800; font-size: 14px }
+.cc-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 500; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap }
+.cc-tag.run { color: var(--emerald); border-color: rgba(59,155,122,.45) }
+.cc-tag.wait { color: #E9B949; border-color: rgba(233,185,73,.45) }
+.cc-tag.term { color: var(--fg) }
+.cc-tag .dspin { width: 9px; height: 9px }
+.cc-ask { padding: 11px; display: grid; gap: 8px }
+.cc-ask + .cc-ask { border-top: 1px solid var(--border) }
+.cc-ask .h { display: flex; gap: 10px; align-items: center }
+.cc-ask .h .t { display: grid; line-height: 18px; min-width: 0 }
+.cc-ask .h b { font-weight: 500; font-size: 13px }
+.cc-ask .h .t span { font-size: 11.5px; color: var(--muted) }
+.cc-ask .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; padding: 7px 9px; border-radius: 8px; background: var(--ink); border: 1px solid var(--border); font-size: 12px }
+.cc-ask .kv span:nth-child(odd) { color: var(--muted) }
+.cc-ask .acts { display: flex; flex-wrap: wrap; gap: 6px }
+.cc-ask .ok { font-size: 12px; color: var(--emerald) }
+.cc-when { width: 58px; text-align: center; font-size: 10.5px; font-weight: 600; color: var(--muted); line-height: 13px; font-variant-numeric: tabular-nums }
+.cc-when b { display: block; font-size: 12.5px; color: var(--fg) }
+.cc-note { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--elev); font-size: 12.5px; line-height: 18px; color: rgba(228,238,232,.9) }
+.cc-note .ddot { margin-top: 1px }
+.cc-empty { padding: 22px 18px; display: grid; justify-items: center; gap: 8px; text-align: center; font-size: 13px; line-height: 19px; color: var(--muted) }
+.cc-empty b { color: var(--fg); font-size: 14px; font-weight: 500 }
+.cc-empty ol { margin: 0; padding-left: 18px; text-align: left; display: grid; gap: 3px; color: rgba(228,238,232,.86) }
+.cc-empty code { font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
+.cc-comp { flex: none; margin: 0 16px 14px; padding: 6px 6px 6px 14px; border-radius: 12px; border: 1px solid var(--border); background: rgba(26,35,30,.92); display: flex; align-items: center; gap: 10px }
+.cc-comp .in { flex: 1; min-width: 0; font-size: 14px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-comp .in .ph { color: var(--dim) }
+.cc-comp .in .caret { height: 15px }
+@container (max-width: 520px) {
+  .cc-cols { grid-template-columns: minmax(0, 1fr) }
+}
+.cc-view > * { flex: none }

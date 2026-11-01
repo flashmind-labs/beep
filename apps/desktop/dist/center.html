@@ -8,10 +8,14 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="center.css">
 </head>
-<body>
+<body class="cbody">
 <div class="cwin" role="main" aria-label="Beep">
-  <div class="tb" data-tauri-drag-region></div>
-  <div id="center"></div>
+  <aside class="cc-side" id="side"></aside>
+  <div class="cc-main">
+    <div class="cc-top" data-tauri-drag-region><h2 data-tauri-drag-region id="title">Home</h2><small id="date" data-tauri-drag-region></small></div>
+    <div class="cc-view" id="view"></div>
+    <form class="cc-comp" id="comp"><input id="ask" type="text" autocomplete="off" spellcheck="false" aria-label="Ask Beep" placeholder="Ask Beep anything"><button class="dbtn pri" type="submit">Send<kbd>&#9166;</kbd></button></form>
+  </div>
 </div>
 <script src="center.js"></script>
 </body>
