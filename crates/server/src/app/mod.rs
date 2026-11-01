@@ -19,6 +19,7 @@ use crate::{
     AsyncMutex,
     apps::{Composio, ComposioSettings},
     compaction::{self, Summarizer},
+    credentials::CredentialKey,
     decision::DecisionTool,
     images::Describer,
     instance::{Instance, InstanceConfig, Privilege},
@@ -113,6 +114,8 @@ pub struct App {
     instance: Option<Instance>,
     /// Agents that read finished chats over (see `crate::watchers`).
     pub watchers: crate::watchers::Hub,
+    /// Seals and opens users' credentials.
+    pub credential_key: CredentialKey,
 }
 
 /// Optional tools and integrations that need server credentials, and the
@@ -139,6 +142,9 @@ pub struct ServerTools {
     pub mistral: Option<Arc<dyn LlmProvider>>,
     /// Runs the server for one owner; `None` serves everyone.
     pub instance: Option<InstanceConfig>,
+    /// Seals users' credentials (see `crate::credentials`). `None` makes a
+    /// key that lasts as long as the process, for tests.
+    pub credential_key: Option<CredentialKey>,
 }
 
 /// The part of `ServerTools` a run registers itself.
@@ -307,6 +313,7 @@ impl App {
             realtime,
             mistral,
             instance,
+            credential_key,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
         let tool_images = Arc::new(ToolImages::default());
@@ -353,6 +360,7 @@ impl App {
             subagents,
             instance: instance.map(Instance::new),
             watchers: crate::watchers::Hub::default(),
+            credential_key: credential_key.unwrap_or_else(CredentialKey::random),
         })
     }
 
