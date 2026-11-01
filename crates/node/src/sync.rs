@@ -133,12 +133,14 @@ impl Syncs {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default(),
             Err(e) => return Err(e).with_context(|| format!("reading {CONFIG}")),
         };
+        // Reading the watch budget walks `/proc`.
+        let watcher = spawn_blocking(Watcher::new).await?;
         let syncs = Self {
             inner: Arc::new(Inner {
                 parts,
                 folders,
                 dir,
-                watcher: Watcher::new(),
+                watcher,
                 projects: Mutex::default(),
                 configuring: AsyncMutex::new(()),
             }),

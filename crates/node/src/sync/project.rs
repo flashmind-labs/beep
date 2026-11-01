@@ -365,7 +365,9 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
     watcher.add(shared.key, shared.root(), shared.rules.clone(), wake);
     // The folder itself is watched before the first walk, so a change
     // made during it is not missed; the walk adds the rest.
-    let first_mode = watcher.set_dirs(shared.key, &[shared.root().to_owned()]);
+    let first_mode = watcher
+        .set_dirs(shared.key, vec![shared.root().to_owned()])
+        .await;
     let mut task = Task {
         shared: shared.clone(),
         parts,
@@ -429,7 +431,7 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
         }
         task.save().await;
     }
-    watcher.remove(shared.key);
+    watcher.remove(shared.key).await;
     task.save().await;
 }
 
@@ -487,7 +489,10 @@ impl Task {
             })
             .await??
         };
-        self.mode = self.watcher.set_dirs(self.shared.key, &walked.dirs);
+        self.mode = self
+            .watcher
+            .set_dirs(self.shared.key, walked.dirs.clone())
+            .await;
         let prior: Vec<Option<Seen>> = {
             let state = self.shared.lock();
             walked
