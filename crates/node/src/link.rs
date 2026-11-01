@@ -1,7 +1,7 @@
 //! The connection to the server: the link code that joins the account, then
 //! the control stream, kept open and reopened when it drops.
 
-use crate::{agents::Agents, env, files::Folders, shell, state::State, tasks};
+use crate::{agents::Agents, env, files::Folders, shell, state::State, tasks, transfer::Transfers};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     link::LinkOffer,
@@ -93,6 +93,12 @@ pub async fn serve(
         .filter(|dir| folders.first() == Some(dir.as_path()))
         .map(|dir| dir.to_string_lossy().into_owned());
     if !folders.is_empty() {
+        // Transfers reach the same folders; without its store the node
+        // still serves the rest.
+        match Transfers::start(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
+            Ok(transfers) => offers.extra.push(Arc::new(transfers)),
+            Err(e) => log::warn!("not offering transfers: {e:#}"),
+        }
         offers.extra.push(Arc::new(folders));
     }
     let hello = Hello {

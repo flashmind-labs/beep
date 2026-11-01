@@ -61,7 +61,7 @@ impl Folders {
 
     /// `path` with its symlinks resolved, when it lies in a shared folder.
     /// For a path that does not exist yet, its folder must.
-    fn resolve(&self, path: &str) -> Result<PathBuf> {
+    pub(crate) fn resolve(&self, path: &str) -> Result<PathBuf> {
         let Some(first) = self.roots.first() else {
             bail!("this node shares no folders");
         };

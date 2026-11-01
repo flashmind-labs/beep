@@ -18,5 +18,6 @@ pub mod service;
 mod shell;
 pub mod state;
 mod tasks;
+pub mod transfer;
 
 pub use tasks::kill_all as kill_tasks;
