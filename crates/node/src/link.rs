@@ -149,6 +149,11 @@ pub async fn serve(
         () = stay => {}
         () = stop => {}
     }
+    // Stopped, the machine keeps no token: teacli's config, its shim and
+    // the env vars go.
+    if let Some(provision) = &offers.provision {
+        provision.forget().await;
+    }
     log::info!("stopping the agent sessions");
     offers.agents.shutdown().await;
     if let Some(transfers) = started
