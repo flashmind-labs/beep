@@ -245,3 +245,87 @@ async fn exec_process_and_copy_on_real_nodes() {
 
     router.shutdown().await.expect("the router stops");
 }
+
+#[tokio::test]
+#[ignore = "needs Docker, BEEP_LIVE_NODE_IMAGE, BEEP_LIVE_NODE_BIN and github.com"]
+async fn import_project_on_a_real_node() {
+    let harness = Harness::new(Scripted::default()).await;
+    let app = harness.app.clone();
+    let endpoint = Endpoint::builder(presets::N0)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .expect("the server endpoint binds");
+    let handler = nodes::NodeHandler::new(app.clone(), endpoint.id());
+    let router = Router::builder(endpoint)
+        .accept(nodes::NODE_ALPN, handler)
+        .spawn();
+    let server = router.endpoint().id().to_string();
+    let states = tempfile::tempdir().expect("a state folder");
+    let (_home, key) = start_node(&harness, &server, "beep-live-import", true, states.path()).await;
+    timeout(Duration::from_secs(60), async {
+        while app.nodes.online(&key).is_none() {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    })
+    .await
+    .expect("the node came online");
+    let machines = Machines {
+        app: app.clone(),
+        user: harness.alice.clone(),
+    };
+    let import = crate::imports::ImportProjectTool {
+        machines: machines.clone(),
+    };
+    let exec = ExecTool { machines };
+
+    let first = call(
+        &import,
+        json!({ "repo": "https://github.com/octocat/Hello-World" }),
+    )
+    .await;
+    println!("import:\n{}", first.output());
+    assert!(first.is_success(), "{}", first.output());
+    assert!(
+        first
+            .output()
+            .starts_with("Cloned octocat/Hello-World on beep-live-import in /home/user/projects/octocat/Hello-World"),
+        "{}",
+        first.output()
+    );
+    let checked = call(
+        &exec,
+        json!({ "command": "git -C projects/octocat/Hello-World remote get-url origin; ls -A projects/octocat" }),
+    )
+    .await;
+    println!("checkout:\n{}", checked.output());
+    assert_eq!(
+        checked.output(),
+        "[exit code: 0]\nhttps://github.com/octocat/Hello-World.git\nHello-World"
+    );
+
+    let again = call(&import, json!({ "repo": "octocat/Hello-World" })).await;
+    println!("import again:\n{}", again.output());
+    assert!(
+        again
+            .output()
+            .starts_with("Found an existing checkout of octocat/Hello-World"),
+        "{}",
+        again.output()
+    );
+
+    let missing = call(&import, json!({ "repo": "octocat/no-such-repo-beep-test" })).await;
+    println!("import missing:\n{}", missing.output());
+    assert_eq!(
+        missing.output(),
+        "Could not find octocat/no-such-repo-beep-test on GitHub. If it is private, add a \
+         token for GitHub in Settings > Credentials."
+    );
+    let listed = crate::imports::imported(&harness.alice)
+        .await
+        .expect("imports list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].project, "octocat/Hello-World");
+
+    router.shutdown().await.expect("the router stops");
+}

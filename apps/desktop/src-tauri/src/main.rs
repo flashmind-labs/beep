@@ -27,6 +27,7 @@ mod orb;
 mod palette;
 mod presence;
 mod products;
+mod projects;
 mod research;
 mod state;
 mod sync;
@@ -171,6 +172,7 @@ fn main() {
             credentials::list_credentials,
             credentials::save_credential,
             credentials::remove_credential,
+            projects::import_project,
             commands::open_file,
             commands::picture,
             commands::save_file,

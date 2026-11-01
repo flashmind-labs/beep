@@ -706,6 +706,21 @@ requests! {
     /// is offline or has not sent any yet is left out. Admins only, like
     /// `ListMachines`.
     165 ListMachineStats {} => Call<Vec<MachineStats>>
+    /// Clones a repository onto one of the caller's machines and lists it
+    /// as a project. `repo` is `org/repo` (GitHub), a GitHub URL, or a URL
+    /// on a Forgejo or Gitea server in the caller's credentials.
+    /// `machine_id` names the machine; without it, the caller's environment
+    /// (the machine with a workspace), else the only one online. On Linux
+    /// it goes to `<workspace or home>/projects/<org>/<repo>`, on macOS and
+    /// Windows to `~/Projects/<org>/<repo>`; a folder that already holds
+    /// that repository is used as it is. `BadRequest` saying why: the repo
+    /// is malformed or on an unknown host, it is not found or the token has
+    /// no access, the machine is offline, or the clone failed. Admins only.
+    166 ImportProject { repo: String, machine_id: Option<String> } => Call<ImportedProject>
+    /// The projects the caller imported, by name, then machine; those on
+    /// machines no longer linked are left out. `cloned` is always false.
+    /// Admins only.
+    167 ListImportedProjects {} => Call<Vec<ImportedProject>>
     /// A one-time setup token that links a machine to the caller's account:
     /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
     /// It works for ten minutes. `name` is what the machine is called once
@@ -722,6 +737,24 @@ requests! {
     /// machine linked, even one set up again. `NotFound` when the caller
     /// made no such token; `BadRequest` when `token` is not one.
     182 GetNodeToken { token: String } => Call<Option<String>>
+}
+
+/// A project imported onto one of the caller's machines.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportedProject {
+    /// `org/repo`.
+    pub project: String,
+    /// The repository's web page, such as `https://github.com/org/repo`.
+    pub url: String,
+    /// The `Machine::id` it is on.
+    pub machine_id: String,
+    pub machine_name: String,
+    /// Its absolute folder on that machine.
+    pub folder: String,
+    /// This import cloned it, rather than finding it already there.
+    pub cloned: bool,
+    pub imported_at: SystemTime,
 }
 
 /// One project's sync across the caller's machines.

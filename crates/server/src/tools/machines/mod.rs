@@ -283,7 +283,7 @@ fn finish(call_id: &str, result: Result<String, String>) -> ToolResult {
 }
 
 /// The `in` parameter every machine tool takes.
-fn in_parameter(default: &str) -> serde_json::Value {
+pub(crate) fn in_parameter(default: &str) -> serde_json::Value {
     serde_json::json!({
         "type": "string",
         "description": format!("The machine to use, by its name in the machines list. Pick one \
