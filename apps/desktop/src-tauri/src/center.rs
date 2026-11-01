@@ -583,8 +583,9 @@ impl Current for Shown {
 }
 
 /// Makes `chat` the holder's current chat. A session, or none, also leaves
-/// the holder's group. A group keeps the session: the bar leaves a group on
-/// every view change and reopens its last chat after.
+/// the holder's group. In the bar a group keeps the session: the bar leaves
+/// a group on every view change and reopens its last chat after. The window
+/// keeps no such chat, so a group it opens replaces its session.
 pub(crate) fn remember(holder: Holder, beep: &Beep, shown: &Shown, chat: Chat) {
     remember_in(holder, beep, shown, chat);
 }
@@ -606,7 +607,12 @@ fn remember_in(holder: Holder, bar: &impl Current, shown: &Shown, chat: Chat) {
             current.set_session(session);
             current.set_group(None);
         }
-        Chat::Group(group) => current.set_group(group),
+        Chat::Group(group) => {
+            if holder == Holder::Center && group.is_some() {
+                current.set_session(None);
+            }
+            current.set_group(group);
+        }
     }
 }
 
@@ -842,9 +848,27 @@ mod tests {
     }
 
     #[test]
-    fn session_leaves_group_and_group_keeps_session() {
+    fn bar_session_leaves_group_and_group_keeps_session() {
+        let bar = bar_on("a");
         let shown = Shown::default();
+        remember_in(Holder::Bar, &bar, &shown, Chat::Group(Some("g".into())));
+        assert_eq!(
+            bar.get(),
+            Showing {
+                session: Some("a".into()),
+                group: Some("g".into()),
+            }
+        );
+        remember_in(Holder::Bar, &bar, &shown, Chat::Group(None));
+        assert_eq!(bar.get().session.as_deref(), Some("a"));
+        remember_in(Holder::Bar, &bar, &shown, Chat::Session(None));
+        assert_eq!(bar.get(), Showing::default());
+    }
+
+    #[test]
+    fn center_group_replaces_its_session() {
         let bar = Shown::default();
+        let shown = Shown::default();
         remember_in(
             Holder::Center,
             &bar,
@@ -855,12 +879,13 @@ mod tests {
         assert_eq!(
             shown.get(),
             Showing {
-                session: Some("a".into()),
+                session: None,
                 group: Some("g".into()),
             }
         );
-        remember_in(Holder::Center, &bar, &shown, Chat::Session(None));
+        remember_in(Holder::Center, &bar, &shown, Chat::Group(None));
         assert_eq!(shown.get(), Showing::default());
+        assert_eq!(bar.get(), Showing::default());
     }
 
     #[test]
