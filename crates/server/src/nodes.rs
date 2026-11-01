@@ -357,6 +357,27 @@ pub fn describe(env: &EnvReport) -> String {
             .collect();
         lines.push(format!("Tools: {}", tools.join(", ")));
     }
+    for gpu in &env.gpus {
+        lines.push(match gpu.vram_mb {
+            Some(mb) => format!("GPU: {} ({} GB)", gpu.model, (mb + 512) / 1024),
+            None => format!("GPU: {}", gpu.model),
+        });
+    }
+    if !env.apps.is_empty() {
+        let apps: Vec<_> = env
+            .apps
+            .iter()
+            .map(|app| match &app.version {
+                Some(version) => format!("{} {version}", app.name),
+                None => app.name.to_string(),
+            })
+            .collect();
+        lines.push(format!("Apps: {}", apps.join(", ")));
+    }
+    let capabilities: Vec<&'static str> = env.capabilities().into_iter().map(Into::into).collect();
+    if !capabilities.is_empty() {
+        lines.push(format!("Can: {}", capabilities.join(", ")));
+    }
     for login in &env.logins {
         lines.push(match (login.signed_in, &login.account) {
             (true, Some(account)) => format!("{}: signed in as {account}", login.tool),
@@ -373,7 +394,40 @@ pub fn describe(env: &EnvReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::node::{Login, ToolInfo};
+    use crate::protocol::node::{AppInfo, AppName, GpuInfo, GpuVendor, Login, ToolInfo};
+
+    #[test]
+    fn describe_names_capabilities() {
+        let env = EnvReport {
+            gpus: vec![GpuInfo {
+                vendor: GpuVendor::Nvidia,
+                model: "NVIDIA GeForce RTX 4090".into(),
+                vram_mb: Some(24564),
+                driver: None,
+            }],
+            apps: vec![
+                AppInfo {
+                    name: AppName::Blender,
+                    version: Some("4.2".into()),
+                },
+                AppInfo {
+                    name: AppName::UnrealEngine,
+                    version: Some("5.4".into()),
+                },
+            ],
+            ..EnvReport::default()
+        };
+        let text = describe(&env);
+        assert!(
+            text.contains("GPU: NVIDIA GeForce RTX 4090 (24 GB)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("Apps: Blender 4.2, Unreal Engine 5.4"),
+            "{text}"
+        );
+        assert!(text.contains("Can: gpu, cuda, blender, unreal"), "{text}");
+    }
 
     #[test]
     fn the_machines_section_shows_each_machine_on_a_line() {
@@ -447,6 +501,7 @@ mod tests {
             describe(&env),
             "linux Ubuntu 24.04 (x86_64), 16 CPUs, 64 GB memory, host build-box, home /home/user\n\
              Tools: git (2.51.0), docker\n\
+             Can: docker\n\
              gh: not signed in"
         );
     }

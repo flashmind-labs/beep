@@ -191,7 +191,9 @@ pub struct GpuInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, IntoStaticStr)]
 #[serde(rename_all = "snake_case")]
 pub enum GpuVendor {
+    #[strum(serialize = "NVIDIA")]
     Nvidia,
+    #[strum(serialize = "AMD")]
     Amd,
     Intel,
     Apple,

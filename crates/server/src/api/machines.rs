@@ -3,7 +3,10 @@
 use super::Reply;
 use crate::{
     instance::Privilege,
-    protocol::{node::EnvReport, *},
+    protocol::{
+        node::{AppInfo, AppName, Capability, EnvReport, GpuInfo},
+        *,
+    },
     router::Cx,
     store::NodeRow,
 };
@@ -33,6 +36,81 @@ pub(super) async fn list_machines(cx: Cx, _: ListMachines) -> Reply<Vec<Machine>
             machine(node, online)
         })
         .collect())
+}
+
+/// Admins only, like `list_machines`. A machine that has not reported
+/// yet is listed with nothing in it.
+pub(super) async fn list_machine_details(
+    cx: Cx,
+    _: ListMachineDetails,
+) -> Reply<Vec<MachineDetails>> {
+    if !cx.app.allows(Privilege::Nodes, &cx.user) {
+        return Err(ApiError::Unauthorized {});
+    }
+    let keys: HashSet<String> = cx
+        .user
+        .account_keys()
+        .await?
+        .into_iter()
+        .map(|key| key.endpoint_id)
+        .collect();
+    Ok(cx
+        .user
+        .nodes()
+        .await?
+        .into_iter()
+        .filter(|node| keys.contains(&node.endpoint))
+        .map(|node| machine_details(node.endpoint, node.env.unwrap_or_default()))
+        .collect())
+}
+
+fn machine_details(id: String, env: EnvReport) -> MachineDetails {
+    MachineDetails {
+        id,
+        capabilities: env
+            .capabilities()
+            .into_iter()
+            .map(machine_capability)
+            .collect(),
+        apps: env.apps.into_iter().map(machine_app).collect(),
+        gpus: env.gpus.into_iter().map(machine_gpu).collect(),
+    }
+}
+
+/// "Unreal Engine 5.4" for the engine, whose versions are part of its name;
+/// the others keep theirs in `version`.
+fn machine_app(app: AppInfo) -> MachineApp {
+    match (app.name, &app.version) {
+        (AppName::UnrealEngine, Some(version)) => MachineApp {
+            name: format!("{} {version}", app.name),
+            version: app.version,
+        },
+        _ => MachineApp {
+            name: app.name.to_string(),
+            version: app.version,
+        },
+    }
+}
+
+fn machine_gpu(gpu: GpuInfo) -> MachineGpu {
+    MachineGpu {
+        vendor: gpu.vendor.to_string(),
+        model: gpu.model,
+        vram_mb: gpu.vram_mb,
+        driver: gpu.driver,
+    }
+}
+
+fn machine_capability(capability: Capability) -> MachineCapability {
+    match capability {
+        Capability::Gpu => MachineCapability::Gpu {},
+        Capability::Cuda => MachineCapability::Cuda {},
+        Capability::Blender => MachineCapability::Blender {},
+        Capability::Unreal => MachineCapability::Unreal {},
+        Capability::Xcode => MachineCapability::Xcode {},
+        Capability::Android => MachineCapability::Android {},
+        Capability::Docker => MachineCapability::Docker {},
+    }
 }
 
 fn machine(node: NodeRow, online: bool) -> Machine {

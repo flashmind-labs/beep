@@ -595,6 +595,58 @@ requests! {
     /// reply. Turns that used none are left out. `NotFound` when the caller
     /// has no such session.
     129 GetSessionSources { session_id: Uuid } => Call<Vec<TurnSources>>
+    /// What each machine has installed and can be asked to do, for the
+    /// command center. Admins only, like `ListMachines`; a machine that has
+    /// not reported yet has empty lists.
+    130 ListMachineDetails {} => Call<Vec<MachineDetails>>
+}
+
+/// The apps, graphics cards and abilities of one machine, as
+/// `ListMachineDetails` lists them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineDetails {
+    /// The `Machine::id` it describes.
+    pub id: String,
+    pub apps: Vec<MachineApp>,
+    pub gpus: Vec<MachineGpu>,
+    pub capabilities: Vec<MachineCapability>,
+}
+
+/// An app installed on a machine.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineApp {
+    /// Its display name, such as "Blender" or "Unreal Engine 5.4".
+    pub name: String,
+    pub version: Option<String>,
+}
+
+/// A graphics card in a machine.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineGpu {
+    /// Its maker, such as "NVIDIA" or "Apple".
+    pub vendor: String,
+    pub model: String,
+    /// Video memory in MB, when known.
+    pub vram_mb: Option<u64>,
+    pub driver: Option<String>,
+}
+
+wire_enum! {
+    /// What a machine can be asked to do.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum MachineCapability {
+        0 Gpu {}
+        1 Cuda {}
+        2 Blender {}
+        3 Unreal {}
+        4 Xcode {}
+        5 Android {}
+        6 Docker {}
+    }
 }
 
 /// A problem the improvement watcher found in users' chats, as

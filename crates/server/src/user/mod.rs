@@ -917,11 +917,13 @@ impl User {
         self.store.link_key(&self.key, key).await
     }
 
-    pub(crate) async fn node_connected(&self, node: NewNode<'_>) -> Result<()> {
+    /// Records that a node said hello.
+    pub async fn node_connected(&self, node: NewNode<'_>) -> Result<()> {
         self.store.node_connected(&self.key, node).await
     }
 
-    pub(crate) async fn save_node_env(&self, node: &EndpointId, env: &EnvReport) -> Result<()> {
+    /// Stores what a node reported about its machine.
+    pub async fn save_node_env(&self, node: &EndpointId, env: &EnvReport) -> Result<()> {
         self.store.save_node_env(&self.key, node, env).await
     }
 
