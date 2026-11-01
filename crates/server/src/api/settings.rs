@@ -2,8 +2,8 @@
 
 use super::Reply;
 use crate::{
-    apps::catalog_app, feeds, instance::Privilege, models::Picked, permissions, profile,
-    protocol::*, router::Cx, store::Feed,
+    apps::catalog_app, feeds, models::Picked, permissions, profile, protocol::*, router::Cx,
+    store::Feed,
 };
 
 pub(super) async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {
@@ -88,48 +88,21 @@ pub(super) async fn set_auto_model(
     picker(&cx).await
 }
 
-pub(super) async fn get_agents(cx: Cx, _: GetAgents) -> Reply<Agents> {
-    if !cx.app.allows(Privilege::Agents, &cx.user) {
-        return Err(ApiError::Unauthorized {});
-    }
-    agents(&cx).await
+/// The per-prompt agents are gone: the list is empty and they are off.
+pub(super) async fn get_agents(_: Cx, _: GetAgents) -> Reply<Agents> {
+    Ok(no_agents())
 }
 
-pub(super) async fn set_agents(cx: Cx, SetAgents { enabled }: SetAgents) -> Reply<Agents> {
-    if !cx.app.allows(Privilege::Agents, &cx.user) {
-        return Err(ApiError::Unauthorized {});
-    }
-    if enabled && cx.app.models.agents().is_empty() {
-        return Err(ApiError::bad_request("the server has no agents set up"));
-    }
-    cx.user.set_agents_enabled(enabled).await?;
-    log::info!("agents set; user={} enabled={enabled}", cx.user.id());
-    agents(&cx).await
+/// Accepted and ignored: there are no agents to turn on.
+pub(super) async fn set_agents(_: Cx, _: SetAgents) -> Reply<Agents> {
+    Ok(no_agents())
 }
 
-/// Whether agents are on, with the agents the server has.
-async fn agents(cx: &Cx) -> Reply<Agents> {
-    let agents = cx
-        .app
-        .models
-        .agents()
-        .iter()
-        .map(|agent| AgentInfo {
-            id: agent.id.as_str().to_owned(),
-            name: agent.name.clone(),
-            when: agent.when.clone(),
-            model: agent.model.to_string(),
-            thinking: agent.thinking,
-        })
-        .collect();
-    Ok(Agents {
-        enabled: cx
-            .app
-            .store
-            .agents_enabled(cx.app.agents_by_default())
-            .await?,
-        agents,
-    })
+fn no_agents() -> Agents {
+    Agents {
+        enabled: false,
+        agents: Vec::new(),
+    }
 }
 
 pub(super) async fn get_app_permissions(

@@ -1,5 +1,5 @@
 //! Server-only Jev decisions through OpenRouter. The key and upstream error bodies never reach clients.
-use crate::{agents::Agent, models::AutoModel};
+use crate::models::AutoModel;
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use flashmind::llm::{JEV_LATEST_MODEL, JevQuestion, JevRequest, JevResponse, OpenRouterProvider};
@@ -20,12 +20,6 @@ pub struct Criteria {
     pub no: &'static str,
 }
 
-/// The agent and thinking Jev picked for a prompt.
-pub struct AgentRouted<'a> {
-    pub agent: &'a Agent,
-    pub thinking: ReasoningLevel,
-}
-
 /// The model and thinking Jev picked for a prompt.
 pub struct Routed<'a> {
     pub model: &'a AutoModel,
@@ -33,7 +27,6 @@ pub struct Routed<'a> {
 }
 
 const PICK_MODEL: &str = "Which model should answer the user's latest message? Pick the one whose description fits the task best; prefer the faster model when both would do it well.";
-const PICK_AGENT: &str = "Which agent should answer the user's latest message? Pick the one whose description fits the task. When the message continues the task of the current agent, like a follow-up question, keep the current agent. Pick general when no other agent clearly fits.";
 const PICK_THINKING: &str =
     "How long should the model think before answering the user's latest message?";
 /// The thinking levels Jev picks from, with what each suits.
@@ -232,40 +225,6 @@ impl DecisionTool {
         Ok(Routed { model, thinking })
     }
 
-    /// Jev's pick of one of `agents` and a thinking level for the prompt in
-    /// `state`, asked together in one request.
-    pub async fn route_agent<'a>(
-        &self,
-        state: &str,
-        agents: &'a [Agent],
-    ) -> Result<AgentRouted<'a>> {
-        let criteria = agents
-            .iter()
-            .map(|agent| (agent.id.as_str().to_owned(), agent.when.clone()))
-            .collect();
-        let questions = BTreeMap::from([
-            ("thinking".to_owned(), thinking_question()),
-            (
-                "agent".to_owned(),
-                JevQuestion::Choice {
-                    instructions: PICK_AGENT.into(),
-                    criteria,
-                },
-            ),
-        ]);
-        let response = self.provider.decide(request(state, questions)).await?;
-        let thinking = choice(&response, "thinking")
-            .and_then(|level| level.parse().ok())
-            .ok_or_else(|| anyhow::anyhow!("Jev picked no thinking level"))?;
-        let picked =
-            choice(&response, "agent").ok_or_else(|| anyhow::anyhow!("Jev picked no agent"))?;
-        let agent = agents
-            .iter()
-            .find(|agent| agent.id.as_str() == picked)
-            .ok_or_else(|| anyhow::anyhow!("Jev picked an unknown agent: {picked}"))?;
-        Ok(AgentRouted { agent, thinking })
-    }
-
     async fn judge(
         &self,
         state: &str,
@@ -418,7 +377,6 @@ impl Tool for DecisionTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::AgentId;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
@@ -571,35 +529,6 @@ mod tests {
         }];
         let routed = tool.route("User: thanks!", &models).await.unwrap();
         assert_eq!(routed.thinking, ReasoningLevel::Off);
-    }
-
-    #[tokio::test]
-    async fn routes_to_an_agent_and_thinking() {
-        let body = r#"{"model":"jev-1.13","answers":{"agent":{"choice":"getting_around"},"thinking":{"choice":"medium"}}}"#;
-        let (tool, mut requests) = mock("200 OK", body).await;
-        let agent = |id, when: &str| Agent {
-            id,
-            name: when.into(),
-            when: when.into(),
-            model: "openrouter:z-ai/glm-5.3-flash".parse().unwrap(),
-            thinking: ReasoningLevel::Low,
-        };
-        let agents = [
-            agent(AgentId::General, "Anything else"),
-            agent(AgentId::GettingAround, "Directions and transit"),
-        ];
-        let routed = tool
-            .route_agent(
-                "Current agent: getting_around\n\nLatest message from the user: which exit",
-                &agents,
-            )
-            .await
-            .unwrap();
-        assert_eq!(routed.agent.id, AgentId::GettingAround);
-        assert_eq!(routed.thinking, ReasoningLevel::Medium);
-        let request = requests.recv().await.unwrap();
-        assert!(request.contains("\"Directions and transit\""));
-        assert!(request.contains("keep the current agent"));
     }
 
     #[tokio::test]

@@ -51,7 +51,8 @@ pub struct InstanceConfig {
     /// Machines running `beep-node`.
     #[serde(default = "on")]
     pub nodes: bool,
-    /// Agents start on, and the owner may turn them off in Settings.
+    /// Once turned the removed per-prompt agents off. Unused now; kept so
+    /// configs that set it still load.
     #[serde(default = "on")]
     pub agents: bool,
     /// The folder shared with the bundled node.
@@ -72,7 +73,6 @@ fn default_name() -> String {
 pub enum Privilege {
     Events,
     Nodes,
-    Agents,
 }
 
 /// The bundled node, as its file names it.
@@ -102,7 +102,6 @@ impl Instance {
         match privilege {
             Privilege::Events => self.config.events,
             Privilege::Nodes => self.config.nodes,
-            Privilege::Agents => self.config.agents,
         }
     }
 
@@ -221,7 +220,7 @@ mod tests {
     #[test]
     fn every_privilege_is_on_by_default() {
         let instance = Instance::new(config(""));
-        for privilege in [Privilege::Events, Privilege::Nodes, Privilege::Agents] {
+        for privilege in [Privilege::Events, Privilege::Nodes] {
             assert!(instance.allows(privilege), "{privilege:?} is on");
         }
         assert_eq!(instance.name(), "Beep");
@@ -229,7 +228,6 @@ mod tests {
         let off = Instance::new(config("events = false\nnodes = false"));
         assert!(!off.allows(Privilege::Events));
         assert!(!off.allows(Privilege::Nodes));
-        assert!(off.allows(Privilege::Agents));
     }
 
     #[test]

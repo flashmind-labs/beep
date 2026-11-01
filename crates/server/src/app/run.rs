@@ -2,7 +2,7 @@
 
 use super::{
     App, Message,
-    auto::{AgentTurn, Prompt},
+    auto::Prompt,
     device::Parked,
     learning::{
         MEMORY_THRESHOLD, ServerCall, TurnState, add_server_calls, drop_follow_ups,
@@ -11,7 +11,6 @@ use super::{
     research,
 };
 use crate::{
-    agents::AgentId,
     apps::{files, markdown},
     attachments::{self, Handed},
     cron, events, followups, gates,
@@ -66,6 +65,9 @@ use uuid::Uuid;
 
 /// The longest any run may take. A model stuck repeating itself is stopped
 /// sooner by the repeat guards.
+/// The system prompt of every chat turn.
+const ASSISTANT_PROMPT: &str = include_str!("../../prompts/assistant.md");
+
 const MAX_RUN: Duration = Duration::from_secs(15 * 60);
 /// How many times a reply that stopped partway through the user's task is
 /// sent back to keep going.
@@ -125,63 +127,35 @@ impl App {
             message: &message.message,
             images: message.images.len(),
             conversation: &conversation,
-            session: chat,
         };
         let one_off = message.model.is_some() || message.thinking.is_some();
         // The picks ask a model, so a stop does not wait for them.
         let picking = async {
             if research.is_some() {
-                return (None, None);
+                return None;
             }
-            // With agents on, every chat turn runs as one: Jev picks it, and a
-            // resumed turn keeps the one it started as. A routine runs as the
-            // agent that set it up; other routines and woken turns as General.
-            let turn_agent = match answer {
-                _ if message.woken.is_some() || !self.agents_on().await => None,
-                _ if is_cron => {
-                    message
-                        .agent
-                        .and_then(|id| self.configured_agent(id))
-                        .map(|agent| AgentTurn {
-                            wanted: agent.thinking,
-                            agent,
-                        })
-                }
-                Some(_) => self.resumed_agent(user, chat).await.map(|agent| AgentTurn {
-                    wanted: agent.thinking,
-                    agent,
-                }),
-                None => Some(self.agent_pick(user, &prompt).await),
-            };
-            // An admin's one-off model or thinking wins over Auto and the agent;
-            // a resumed turn keeps the pick it started with. Auto picks for chats
-            // only: a routine without an agent runs on the user's selected model.
-            let auto = match (one_off, answer, &turn_agent) {
-                (true, ..) => None,
-                (false, Some(_), _) => self.resumed_pick(user, chat).await,
-                (false, None, Some(agent)) => self.agent_choice(user, agent).await,
-                (false, None, None) if background => None,
-                (false, None, None) => self.auto_pick(user, &prompt).await,
-            };
-            (turn_agent, auto)
+            // An admin's one-off model or thinking wins over Auto; a resumed
+            // turn keeps the pick it started with. Auto picks for chats only:
+            // a routine runs on the user's selected model.
+            match (one_off, answer) {
+                (true, _) => None,
+                (false, Some(_)) => self.resumed_pick(user, chat).await,
+                (false, None) if background => None,
+                (false, None) => self.auto_pick(user, &prompt).await,
+            }
         };
-        let Some((turn_agent, auto)) = cancel.run_until_cancelled(picking).await else {
+        let Some(auto) = cancel.run_until_cancelled(picking).await else {
             return self.stopped_early(user, run, live).await;
         };
-        if let Some(turn) = &turn_agent {
-            metering::turn_agent(turn.agent.id);
-        } else if research.is_some() {
-            metering::turn_agent(AgentId::Research);
+        if research.is_some() {
+            metering::research_turn();
         }
         // Always set the server-owned prompt, including when loading an older
-        // conversation. It stays the same per agent and user so the provider
-        // can cache it: only the user's languages are added.
+        // conversation. It stays the same per user so the provider can cache
+        // it: only the user's languages are added.
         let prompt = match &research {
             Some(_) => research::LEAD_PROMPT,
-            None => turn_agent
-                .as_ref()
-                .map_or(AgentId::General, |turn| turn.agent.id)
-                .prompt(),
+            None => ASSISTANT_PROMPT,
         };
         conversation.set_system(match user.spoken_languages().await {
             Ok(Some(languages)) => format!("{prompt}\n\n{}", languages_line(&languages)),
@@ -232,7 +206,6 @@ impl App {
             timezone.as_deref(),
             message.origin,
             message.draws,
-            turn_agent.as_ref().map(|turn| turn.agent.id),
         );
         if is_cron {
             cron::remove_changing_tools(&mut registry);
@@ -944,7 +917,6 @@ impl App {
         let record = TurnRecord {
             model: model.to_string(),
             auto_thinking: auto.as_ref().map(|auto| auto.thinking),
-            agent: turn_agent.as_ref().map(|turn| turn.agent.id),
             reasoning: String::new(),
             memory_score: if answer.is_none() { memory_score } else { None },
         };

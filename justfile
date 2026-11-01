@@ -222,7 +222,7 @@ test: test-db
 tool-schema *args:
     uv run -q --with 'psycopg[binary]' --with httpx python -I scripts/tool-schema.py --config {{server_config}} {{args}}
 
-# Model spend per agent and the costliest user-days: just usage [days]
+# Model spend per kind of turn and the costliest user-days: just usage [days]
 usage days="14":
     uv run -q --with 'psycopg[binary]' python -I scripts/usage.py --config {{server_config}} {{days}}
 
@@ -231,17 +231,6 @@ usage days="14":
 eval filter="": test-db
     BEEP_TEST_DATABASE_URL={{test_db_url}} BEEP_EVAL="{{filter}}" \
         cargo test -p beep-server --test evals -- --ignored --nocapture
-
-# The agent evals with every agent on each model in turn, a pass count per
-# agent and model. They cost money.
-# just eval-agent-models openrouter:openai/gpt-6-luna openrouter:z-ai/glm-5.3-flash
-eval-agent-models +models: test-db
-    #!/usr/bin/env bash
-    for model in {{models}}; do
-        BEEP_TEST_DATABASE_URL={{test_db_url}} BEEP_EVAL_AGENT_MODEL="$model" \
-            cargo test -p beep-server --test evals agent_evals -- --ignored --nocapture \
-            | grep -E '^(all agents|AGENT|FAIL)'
-    done
 
 # Follow-up chips for fixed turns, each graded by a judge model: just eval-followups [filter]
 eval-followups filter="":
@@ -254,10 +243,6 @@ eval-leak filter="":
 # The reply gates on fixed replies, judged by Jev: just eval-gates [filter]
 eval-gates filter="":
     BEEP_EVAL="{{filter}}" cargo test -p beep-server --test gates -- --ignored --nocapture
-
-# Jev's agent pick for fixed prompts and follow-ups: just eval-agents [filter]
-eval-agents filter="":
-    BEEP_EVAL="{{filter}}" cargo test -p beep-server --test agents -- --ignored --nocapture
 
 # List the OpenRouter models Beep could use, newest first: just models [max-output-price] [filter]
 models *args:
