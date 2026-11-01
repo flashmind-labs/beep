@@ -12,7 +12,7 @@ use crate::{
     nodes::SessionRefused,
     protocol::node::{
         Capability,
-        agent::{Question, Request as AgentRequest, SessionInfo},
+        agent::{Question, Request as AgentRequest, SessionInfo, State as AgentState, Status},
         files::{FileEntry, FileKind, Reply, Request},
     },
     store::{ProjectRow, TaskRow, WorkerRow},
@@ -208,6 +208,8 @@ pub(crate) struct FakeFleet {
     pub(crate) sent: Mutex<Vec<AgentRequest>>,
     /// The questions put to the user.
     pub(crate) asked: Mutex<Vec<Question>>,
+    /// The status [`Fleet::session_info`] gives; none fails it.
+    pub(crate) live: Mutex<Option<Status>>,
     /// What [`Fleet::attach`] answers.
     pub(crate) attach: Mutex<FakeAttach>,
 }
@@ -374,6 +376,20 @@ impl Fleet for FakeFleet {
     ) -> Result<()> {
         push(&self.asked, question);
         Ok(())
+    }
+
+    async fn session_info(&self, worker: &WorkerRow) -> Result<SessionInfo> {
+        let Some(status) = *self.live.lock().unwrap_or_else(PoisonError::into_inner) else {
+            bail!("the machine is offline");
+        };
+        Ok(SessionInfo {
+            id: worker.session.clone().unwrap_or_default(),
+            state: AgentState {
+                status,
+                ..AgentState::default()
+            },
+            ..SessionInfo::default()
+        })
     }
 
     async fn attach(&self, worker: &WorkerRow, _chat: Uuid) -> Result<SessionInfo> {

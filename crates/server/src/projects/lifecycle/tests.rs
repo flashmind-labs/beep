@@ -216,6 +216,32 @@ async fn asking_workers_are_not_idle() {
 }
 
 #[tokio::test]
+async fn a_steered_worker_is_not_idle() {
+    let h = harness().await;
+    let (task, worker) = h.working(TaskState::Running, minutes_ago(31)).await;
+    // Prompted outside project_worker: the store still says waiting.
+    *h.fleet.live.lock().expect("the fake") = Some(Status::Working);
+    idle_close(&h.fleet, &h.user, worker.id, now())
+        .await
+        .expect("it looks");
+    assert_eq!(h.worker(&worker).await.state, WorkerState::Waiting);
+    assert_eq!(h.task(&task).await.state, TaskState::Running);
+    assert!(h.fleet.closes().is_empty());
+    let due = h
+        .fleet
+        .projects
+        .armed_at(&Due::Idle(worker.id))
+        .expect("armed again");
+    assert!(due > now() + TimeDelta::minutes(29), "{due}");
+    // Idle for real, it closes.
+    *h.fleet.live.lock().expect("the fake") = Some(Status::Idle);
+    idle_close(&h.fleet, &h.user, worker.id, now())
+        .await
+        .expect("it closes");
+    assert_eq!(h.worker(&worker).await.state, WorkerState::Ended);
+}
+
+#[tokio::test]
 async fn merged_pr_finishes_the_task() {
     let h = harness().await;
     let (task, worker) = h.working(TaskState::Review, minutes_ago(5)).await;
