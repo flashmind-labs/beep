@@ -87,6 +87,7 @@ sample_struct! {
     PendingApproval { run_id, query_id, approval }
     ChatApproval { session_id, session_title, pending }
     AppUpdate { id, summary, app, app_name, at }
+    Credential { id, kind, last4, account, env_var, to_machines, created_at }
     Models { choices, selected, thinking, auto, auto_available }
     AutoPick { model, thinking }
     Agents { enabled, agents }
@@ -225,6 +226,12 @@ impl<T: Sample> Sample for Option<T> {
 impl<T: Sample> Sample for Vec<T> {
     fn samples(wire: u32) -> Vec<Self> {
         vec![T::samples(wire)]
+    }
+}
+
+impl Sample for SecretText {
+    fn samples(_: u32) -> Vec<Self> {
+        vec![SecretText::new("secret-1234")]
     }
 }
 

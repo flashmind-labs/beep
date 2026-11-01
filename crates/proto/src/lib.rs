@@ -14,6 +14,7 @@ pub mod names;
 pub mod node;
 pub mod seal;
 pub mod search;
+pub mod secret;
 pub mod version;
 pub mod wire;
 
@@ -26,6 +27,7 @@ uniffi::setup_scaffolding!();
 
 pub use flashmind_types::ReasoningLevel;
 use link::LinkOffer;
+pub use secret::SecretText;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{fmt, time::SystemTime};
 use uuid::Uuid;
@@ -645,7 +647,117 @@ requests! {
     /// Dismisses updates by `AppUpdate::id`, so they leave the list. Ids
     /// the caller does not have are skipped.
     161 DismissUpdates { ids: Vec<i64> } => Call<()>
+    /// The caller's credentials: a GitHub token, a token per Forgejo or
+    /// Gitea server, and API keys, one per provider. Never the secrets
+    /// themselves, only their last four characters.
+    162 ListCredentials {} => Call<Vec<Credential>>
+    /// Saves a credential, replacing the caller's one of the same kind (for
+    /// Forgejo, the same server). A GitHub or Forgejo token is checked with
+    /// its host first, and an OpenRouter key with OpenRouter; `BadRequest`
+    /// saying why when the host refuses it, or for an unknown provider or a
+    /// bad server URL. Git tokens always go to the caller's machines; an API
+    /// key only with `to_machines`, as its provider's env var.
+    163 SaveCredential { kind: CredentialKind, secret: SecretText, to_machines: bool } => Call<Credential>
+    /// Removes one of the caller's credentials, by `Credential::id`, from
+    /// Beep and their machines. `NotFound` when the caller has no such one.
+    164 RemoveCredential { id: String } => Call<()>
 }
+
+/// A credential as `ListCredentials` lists it. The secret stays on the
+/// server.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Credential {
+    pub id: String,
+    pub kind: CredentialKind,
+    /// The secret's last four characters.
+    pub last4: String,
+    /// Who the token signs in as, such as a GitHub login. `None` for API
+    /// keys, and for a Forgejo server the server could not reach to check.
+    pub account: Option<String>,
+    /// The env var the machines get it as, such as `GH_TOKEN`. Empty for
+    /// Forgejo, whose tokens go into teacli's config instead.
+    pub env_var: String,
+    /// Whether the caller's machines get it.
+    pub to_machines: bool,
+    pub created_at: SystemTime,
+}
+
+wire_enum! {
+    /// What a credential is for. `url` is a Forgejo or Gitea server's base
+    /// URL, such as `https://git.example.com`; `provider` an `ApiProvider`
+    /// slug, such as `openrouter`.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum CredentialKind {
+        0 GitHub {}
+        1 Forgejo { url: String }
+        2 ApiKey { provider: String }
+    }
+}
+
+/// The providers an API key can be saved for. On the wire a provider is its
+/// slug, so a newer server can add one without changing a reply's shape.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    strum::IntoStaticStr,
+    strum::EnumString,
+    strum::EnumIter,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum ApiProvider {
+    OpenRouter,
+    ElevenLabs,
+    OpenAi,
+    Anthropic,
+    Gemini,
+    DeepSeek,
+    Moonshot,
+    Zai,
+}
+
+impl ApiProvider {
+    /// The slug the wire and the database carry, such as `openrouter`.
+    pub fn slug(self) -> &'static str {
+        self.into()
+    }
+
+    /// What the user knows it as.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "OpenRouter",
+            Self::ElevenLabs => "ElevenLabs",
+            Self::OpenAi => "OpenAI",
+            Self::Anthropic => "Anthropic",
+            Self::Gemini => "Gemini",
+            Self::DeepSeek => "DeepSeek",
+            Self::Moonshot => "Moonshot",
+            Self::Zai => "Z.ai",
+        }
+    }
+
+    /// The env var tools read the key from.
+    pub fn env_var(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "OPENROUTER_API_KEY",
+            Self::ElevenLabs => "ELEVENLABS_API_KEY",
+            Self::OpenAi => "OPENAI_API_KEY",
+            Self::Anthropic => "ANTHROPIC_API_KEY",
+            Self::Gemini => "GEMINI_API_KEY",
+            Self::DeepSeek => "DEEPSEEK_API_KEY",
+            Self::Moonshot => "MOONSHOT_API_KEY",
+            Self::Zai => "ZAI_API_KEY",
+        }
+    }
+}
+
+/// The env var `gh` reads its token from.
+pub const GITHUB_ENV_VAR: &str = "GH_TOKEN";
 
 /// Something from one of the user's apps worth knowing, as `ListUpdates`
 /// lists it.
