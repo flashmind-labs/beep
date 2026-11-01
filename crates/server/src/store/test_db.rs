@@ -206,6 +206,13 @@ impl TestDb {
         Ok(pool)
     }
 
+    /// A pool on this schema, for tests that check rows no store method
+    /// reads back.
+    #[doc(hidden)]
+    pub async fn raw_pool(&self) -> Result<PgPool> {
+        self.pool().await
+    }
+
     async fn pool(&self) -> Result<PgPool> {
         let options = PgConnectOptions::from_str(&self.url)?
             .options([("search_path", format!("{},public", self.schema))]);
