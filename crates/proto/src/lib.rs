@@ -722,6 +722,11 @@ pub enum ApiProvider {
 }
 
 impl ApiProvider {
+    /// Every provider, in the order Settings lists them.
+    pub fn all() -> impl Iterator<Item = Self> {
+        <Self as strum::IntoEnumIterator>::iter()
+    }
+
     /// The slug the wire and the database carry, such as `openrouter`.
     pub fn slug(self) -> &'static str {
         self.into()

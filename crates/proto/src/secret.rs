@@ -37,6 +37,9 @@ mod tests {
         let secret = SecretText::new("ghp_example1234");
         assert!(!format!("{secret:?}").contains("1234"));
         let body = rmp_serde::to_vec(&secret).unwrap();
-        assert_eq!(rmp_serde::from_slice::<String>(&body).unwrap(), "ghp_example1234");
+        assert_eq!(
+            rmp_serde::from_slice::<String>(&body).unwrap(),
+            "ghp_example1234"
+        );
     }
 }
