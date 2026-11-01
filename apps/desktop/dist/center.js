@@ -492,6 +492,7 @@ function chatRow(c) {
   // Two real buttons in one row, never one inside the other.
   const openBtn = h("button", "open", mark, h("span", "tt", c.title));
   openBtn.type = "button";
+  openBtn.title = c.title;
   if (open) openBtn.setAttribute("aria-current", "true");
   return h("div", "cc-si cc-chat", openBtn, toggle);
 }
