@@ -83,34 +83,10 @@ struct PulsingDots: View {
     }
 }
 
-/// The progress line under a pending reply: a playful verb that changes every few
-/// seconds, with a highlight sweeping across its letters.
+/// The progress line under a pending reply, with a highlight sweeping across its letters.
 struct StatusLine: View {
-    private static let verbs = [
-        "Thinking", "Pondering", "Mulling it over", "Noodling", "Brewing", "Tinkering", "Puzzling",
-        "Musing", "Percolating", "Untangling", "Cooking", "Conjuring", "Scheming", "Wrangling",
-        "Ruminating", "Doodling", "Hatching", "Simmering", "Crunching", "Figuring",
-    ]
-    @State private var index = Int.random(in: 0..<verbs.count)
-
     var body: some View {
-        let text = Self.verbs[index] + "…"
-        // The old verb leaves upward while the new one comes in, in the same spot.
-        ZStack(alignment: .leading) {
-            Shimmer(text: text)
-                .id(text)
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .offset(y: 8)),
-                    removal: .opacity.combined(with: .offset(y: -8))))
-        }
-        .task {
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(2.6))
-                    withAnimation(.easeOut(duration: 0.26)) {
-                        index = (index + Int.random(in: 1..<Self.verbs.count)) % Self.verbs.count
-                    }
-                }
-            }
+        Shimmer(text: "Thinking…")
     }
 }
 
