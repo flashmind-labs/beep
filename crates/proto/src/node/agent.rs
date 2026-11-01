@@ -17,6 +17,7 @@
 //! server closes the stream. `Resume` takes one of them over once nothing
 //! else runs it.
 
+use crate::Upload;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -59,6 +60,10 @@ pub enum Request {
     /// Sends the agent a message. While a turn runs it waits for the turn
     /// to end.
     Prompt { text: String },
+    /// `Prompt` with images, sent to the agent after the text. Refused,
+    /// not sent without them, when the agent takes no images. A node from
+    /// before it answers that it does not know the request.
+    PromptImages { text: String, images: Vec<Upload> },
     /// Answers the open question. `reply` is one of its options, by id,
     /// number or name; anything else declines and goes to the agent as the
     /// next prompt.

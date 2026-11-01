@@ -9,6 +9,7 @@ use crate::{
     center::{self, Chat, Shown},
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
+    logfile,
     machine::{self, Machine},
     markdown, orb,
     state::{LinkState, NoticeVoice},
@@ -751,6 +752,17 @@ pub fn open_url(url: String) -> Result<()> {
     }
     Command::new("open")
         .arg(&url)
+        .spawn()
+        .map_err(anyhow::Error::from)?;
+    Ok(())
+}
+
+/// Shows the app's log folder in Finder, for the window's Show log.
+#[tauri::command]
+pub fn open_log() -> Result<()> {
+    let dir = logfile::dir().ok_or_else(|| DesktopError::BadRequest("no home folder".into()))?;
+    Command::new("open")
+        .arg(&dir)
         .spawn()
         .map_err(anyhow::Error::from)?;
     Ok(())

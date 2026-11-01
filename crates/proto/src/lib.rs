@@ -639,6 +639,13 @@ requests! {
     /// `GetAgentSession`; `BadRequest` saying why when the node refuses.
     /// Admins only.
     143 SteerAgentSession { machine_id: String, agent: String, session: String, steer: AgentSteer } => Call<()>
+    /// What the event triage agent found worth telling the user and that
+    /// they have not seen or dismissed yet, from the last two days, newest
+    /// first, at most 20. Apps show them on their own, apart from any chat.
+    160 ListUpdates {} => Call<Vec<AppUpdate>>
+    /// Dismisses updates by `AppUpdate::id`, so they leave the list. Ids
+    /// the caller does not have are skipped.
+    161 DismissUpdates { ids: Vec<i64> } => Call<()>
     /// A one-time setup token that links a machine to the caller's account:
     /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
     /// It works for ten minutes. `name` is what the machine is called once
@@ -650,6 +657,23 @@ requests! {
     /// the caller made no such token or it was already used; `BadRequest`
     /// when `token` is not one.
     181 RevokeNodeToken { token: String } => Call<()>
+}
+
+/// Something from one of the user's apps worth knowing, as `ListUpdates`
+/// lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppUpdate {
+    pub id: i64,
+    /// One line, such as "Your TestFlight build is ready."
+    pub summary: String,
+    /// The app's slug, as `AppIntegration::slug` gives it, such as `gmail`.
+    /// Empty when the events it came from are gone.
+    pub app: String,
+    /// How the user knows the app, such as "Gmail"; empty with `app`.
+    pub app_name: String,
+    /// When the triage agent decided to tell.
+    pub at: SystemTime,
 }
 
 /// A setup token as `CreateNodeToken` made it.
@@ -753,12 +777,86 @@ wire_enum! {
     /// What `SteerAgentSession` does to a session: `Prompt` sends it a
     /// message after the running turn, `Cancel` stops the turn and drops
     /// waiting messages, `Close` ends the session and stops the agent.
+    /// `PromptImages` is `Prompt` with images after the text, as
+    /// `check_agent_images` allows them; `text` may then be empty. A
+    /// server older than `Feature::AGENT_IMAGES` refuses it, and so does an
+    /// agent that takes no images.
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentSteer {
         0 Prompt { text: String }
         1 Cancel {}
         2 Close {}
+        3 PromptImages { text: String, images: Vec<Upload> } since AGENT_IMAGES
+    }
+}
+
+/// The image types `AgentSteer::PromptImages` may carry.
+pub const AGENT_IMAGE_TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
+/// The most images one `AgentSteer::PromptImages` may carry.
+pub const MAX_AGENT_IMAGES: usize = 5;
+/// The largest one image may be.
+pub const MAX_AGENT_IMAGE: usize = 5 * 1024 * 1024;
+/// The most all of a message's images may hold, so the request stays
+/// under a frame.
+pub const MAX_AGENT_IMAGES_TOTAL: usize = 7 * 1024 * 1024;
+
+/// Refuses images an agent prompt may not carry: too many, too large, or
+/// not a PNG, JPEG, GIF or WebP whose bytes say so too.
+pub fn check_agent_images(images: &[Upload]) -> Result<(), ApiError> {
+    if images.len() > MAX_AGENT_IMAGES {
+        return Err(ApiError::bad_request(format!(
+            "At most {MAX_AGENT_IMAGES} images go with one message."
+        )));
+    }
+    let mut total = 0usize;
+    for image in images {
+        let name = if image.name.is_empty() {
+            "An image"
+        } else {
+            image.name.as_str()
+        };
+        if !AGENT_IMAGE_TYPES.contains(&image.mime.as_str()) {
+            return Err(ApiError::bad_request(format!(
+                "{name} is not a PNG, JPEG, GIF or WebP image."
+            )));
+        }
+        if image.data.len() > MAX_AGENT_IMAGE {
+            return Err(ApiError::bad_request(format!(
+                "{name} is over {} MB; images up to {} MB go.",
+                MAX_AGENT_IMAGE >> 20,
+                MAX_AGENT_IMAGE >> 20
+            )));
+        }
+        if sniff_image(&image.data) != Some(image.mime.as_str()) {
+            return Err(ApiError::bad_request(format!(
+                "{name} is not the {} it says it is.",
+                image.mime
+            )));
+        }
+        total = total.saturating_add(image.data.len());
+    }
+    if total > MAX_AGENT_IMAGES_TOTAL {
+        return Err(ApiError::bad_request(format!(
+            "The images are over {} MB together.",
+            MAX_AGENT_IMAGES_TOTAL >> 20
+        )));
+    }
+    Ok(())
+}
+
+/// The image type `data` starts like, of `AGENT_IMAGE_TYPES`.
+fn sniff_image(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if data.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
     }
 }
 
@@ -1048,7 +1146,7 @@ pub const MAX_UPLOAD: usize = 5 * 1024 * 1024;
 
 /// A file sent with a message, such as a PDF or a spreadsheet.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Upload {
     pub name: String,
     pub mime: String,
@@ -3030,5 +3128,65 @@ mod tests {
         );
         // A request with no fields yet, given one.
         assert!(rmp_serde::from_slice::<Health>(&[0x91, 0xc0]).is_ok());
+    }
+
+    fn image(name: &str, mime: &str, data: Vec<u8>) -> Upload {
+        Upload {
+            name: name.into(),
+            mime: mime.into(),
+            data,
+        }
+    }
+
+    fn png(size: usize) -> Vec<u8> {
+        let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+        data.resize(size.max(data.len()), 0);
+        data
+    }
+
+    #[test]
+    fn agent_images_of_the_four_types_pass() {
+        let mut webp = b"RIFF\0\0\0\0WEBPVP8 ".to_vec();
+        webp.push(0);
+        let images = [
+            image("a.png", "image/png", png(100)),
+            image("b.jpg", "image/jpeg", vec![0xff, 0xd8, 0xff, 0xe0]),
+            image("c.gif", "image/gif", b"GIF89a..".to_vec()),
+            image("d.webp", "image/webp", webp),
+        ];
+        assert_eq!(check_agent_images(&images), Ok(()));
+        assert_eq!(check_agent_images(&[]), Ok(()));
+    }
+
+    #[test]
+    fn agent_images_over_the_limits_are_refused() {
+        let six: Vec<Upload> = (0..6)
+            .map(|_| image("a.png", "image/png", png(10)))
+            .collect();
+        let error = check_agent_images(&six).unwrap_err().to_string();
+        assert!(error.contains("At most 5 images"), "{error}");
+
+        let big = [image("big.png", "image/png", png(MAX_AGENT_IMAGE + 1))];
+        let error = check_agent_images(&big).unwrap_err().to_string();
+        assert!(error.contains("big.png is over 5 MB"), "{error}");
+        let at_limit = [image("ok.png", "image/png", png(MAX_AGENT_IMAGE))];
+        assert_eq!(check_agent_images(&at_limit), Ok(()));
+
+        let two = [
+            image("a.png", "image/png", png(4 << 20)),
+            image("b.png", "image/png", png(4 << 20)),
+        ];
+        let error = check_agent_images(&two).unwrap_err().to_string();
+        assert!(error.contains("over 7 MB together"), "{error}");
+    }
+
+    #[test]
+    fn agent_images_of_other_types_are_refused() {
+        let svg = [image("a.svg", "image/svg+xml", b"<svg/>".to_vec())];
+        let error = check_agent_images(&svg).unwrap_err().to_string();
+        assert!(error.contains("a.svg is not a PNG"), "{error}");
+        let lying = [image("a.png", "image/png", vec![0xff, 0xd8, 0xff])];
+        let error = check_agent_images(&lying).unwrap_err().to_string();
+        assert!(error.contains("not the image/png it says"), "{error}");
     }
 }

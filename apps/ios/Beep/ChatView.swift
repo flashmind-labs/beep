@@ -656,6 +656,7 @@ private struct ErrorRow<Extra: View>: View {
 
 private struct EmptyChat: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     let send: (String) -> Void
     let fill: (String) -> Void
     @State private var loading = false
@@ -670,6 +671,15 @@ private struct EmptyChat: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Updates from the user's apps sit on their own card, never inside a reply. Tapping one
+            // fills the composer with its summary, for the user to send or change.
+            if !model.updates.isEmpty {
+                UpdatesCard(updates: model.updates, open: { update in
+                    model.dismissUpdates([update.id])
+                    fill(update.summary)
+                }, dismiss: model.dismissUpdates)
+                .padding(.top, 16)
+            }
             (Text("A little help.\n".display) + Text("Right here.".display).foregroundColor(Mint.ok))
                 .font(.display(40)).foregroundStyle(Mint.ink)
                 .lineSpacing(0)
@@ -731,6 +741,10 @@ private struct EmptyChat: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 4)
             }
+        }
+        .task { await model.loadUpdates() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await model.loadUpdates() } }
         }
     }
 }

@@ -55,7 +55,7 @@ pub use blobs::{Blobs, PgBlobs};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::{PushDevice, PushService, PushToken};
 pub use digest::AttentionItem;
-pub use events::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow};
+pub use events::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow, UpdateRow};
 pub use feeds::Feed;
 pub use files::{NewAttachment, NewFile, NewPicture, PicturesOf};
 pub use findings::{FindingRow, NewFinding, SeenIn, Sighting};

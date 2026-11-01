@@ -33,6 +33,7 @@ mod research;
 mod sessions;
 mod settings;
 mod transcribe;
+mod updates;
 mod work;
 
 use crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron};
@@ -201,6 +202,8 @@ pub fn router() -> Router {
         .call(agent_control::get_agent_session)
         .call(agent_control::steer_agent_session)
         .call(work::list_pending_approvals)
+        .call(updates::list_updates)
+        .call(updates::dismiss_updates)
         .call(create_node_token)
         .call(revoke_node_token)
 }

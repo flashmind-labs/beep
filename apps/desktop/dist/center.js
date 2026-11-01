@@ -5,6 +5,9 @@ const { listen } = window.__TAURI__.event;
 
 import { splitPinned } from "./pinned.js";
 import { initPalette, openPalette } from "./palette.js";
+import { initSideResize } from "./sidewidth.js";
+import { connectProblem } from "./connect.js";
+import { withoutDismissed } from "./updates.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -32,6 +35,7 @@ const IC = {
   loop: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>',
   plus: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   gear: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
+  x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   pin: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3l6 6-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z"/></svg>',
   group: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14a5 5 0 016 5"/></svg>',
   doc: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
@@ -42,8 +46,13 @@ const CAPS = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", x
 const AGENTS = { claude: { cls: "claude", ini: "CC", name: "Claude Code" }, codex: { cls: "codex", ini: "CX", name: "Codex" } };
 const PROJECT_COLORS = ["#F07A6A", "#6FA8DC", "#B18CE0", "#E9B949", "#3B9B7A"];
 const OFFLINE_NOTE_MS = 60 * 60 * 1000;
+/// Before Home first loads: how long "Connecting" shows before "Still
+/// connecting", and how soon a failed try is made again.
+const CONNECT_STUCK_MS = 15000;
+const CONNECT_RETRY_MS = 3000;
 
-const state = { home: null, error: null, outcomes: new Map(), shown: false };
+/// `since` is when the window started waiting for its first Home.
+const state = { home: null, error: null, outcomes: new Map(), shown: false, since: Date.now() };
 
 // ---------- Formatting ----------
 
@@ -205,16 +214,29 @@ function needsCard(n) {
 
 // ---------- Sections ----------
 
+/// The Machines header's note, then its Add a machine button.
+function addMachineButton(cls) {
+  const b = button("", cls, openAddMachine);
+  b.append(icon(IC.plus), " Add a machine");
+  return b;
+}
+
 function machinesSection(machines) {
   const online = machines.filter(m => m.online).length;
+  let el;
   if (!machines.length) {
     const link = h("ol", "", h("li", "", "Install beep-node on the computer."), h("li", "", h("span", "", "Run "), h("code", "", "beep-node link"), h("span", "", " there.")), h("li", "", "Paste the link it prints into a chat here, or into Beep on your phone."));
-    return section("sec-machines", "Machines", "None linked", empty(
+    el = section("sec-machines", "Machines", "None linked", empty(
       h("b", "", "No machines linked yet"),
       h("span", "", "Link a computer to run coding agents and commands on it from here, from the bar or from your phone."),
-      link));
+      link,
+      addMachineButton("pri")));
+  } else {
+    el = section("sec-machines", "Machines", `${online} of ${machines.length} online`, h("div", "cc-machs", ...machines.map(machineCard)));
   }
-  return section("sec-machines", "Machines", `${online} of ${machines.length} online`, h("div", "cc-machs", ...machines.map(machineCard)));
+  const head = el.querySelector(".cc-sec"), note = head.querySelector("small");
+  head.append(h("span", "cc-sec-r", note, addMachineButton("small")));
+  return el;
 }
 
 function offlineNote(machines) {
@@ -248,6 +270,65 @@ function comingSection(rows) {
   return section("sec-coming", "Coming up", "Runs Beep starts on its own", body);
 }
 
+/// When an update came: "09:41" today, then "Yesterday", "Thu" this week, "3 Oct".
+function updateTime(ms) {
+  const at = new Date(ms);
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
+  if (days <= 0) return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (days === 1) return "Yesterday";
+  if (days < 7) return at.toLocaleDateString([], { weekday: "short" });
+  return at.toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
+/// Updates dismissed here that a list may still carry, by id.
+const dismissedUpdates = new Set();
+
+/// Takes updates off Home at once and tells the server; a failed dismiss
+/// brings them back on the next refresh.
+function dismissUpdates(ids) {
+  if (!ids.length) return;
+  for (const id of ids) dismissedUpdates.add(id);
+  if (state.home?.updates) state.home.updates = state.home.updates.filter(u => !ids.includes(u.id));
+  draw();
+  invoke("center_dismiss_updates", { ids }).catch(e => {
+    console.warn("dismissing updates:", e);
+    for (const id of ids) dismissedUpdates.delete(id);
+    refresh();
+  });
+}
+
+/// Starts a new chat with the update's summary in the composer, not sent.
+async function openUpdate(u) {
+  dismissUpdates([u.id]);
+  go("pane", { chat: { session: null } });
+  try {
+    await pane()?.draft(u.summary);
+  } catch (e) {
+    console.warn("opening an update:", e);
+  }
+}
+
+function updateRow(u) {
+  const letter = (u.app_name || "").slice(0, 1).toUpperCase();
+  const open = h("button", "t", h("b", "", u.summary), h("span", "", u.app_name ? `${u.app_name} · ${updateTime(u.at)}` : updateTime(u.at)));
+  open.type = "button";
+  open.title = "Ask Beep about this";
+  open.addEventListener("click", () => openUpdate(u));
+  const close = button(icon(IC.x), "quiet", () => dismissUpdates([u.id]));
+  close.setAttribute("aria-label", "Dismiss");
+  close.style.padding = "2px 6px";
+  return h("div", "cc-row cc-upd", letter ? avatar("beep", letter) : avatar("beep", icon(IC.chat)), open, h("span", "r", close));
+}
+
+/// What the event triage agent found in the user's apps, apart from any
+/// chat. Hidden while there is nothing.
+function updatesSection(updates) {
+  const clear = button("Clear", "quiet small", () => dismissUpdates(updates.map(u => u.id)));
+  const el = section("sec-updates", "Updates", "From your apps", h("div", "cc-panel", ...updates.map(updateRow)));
+  el.querySelector(".cc-sec").append(h("span", "cc-sec-r", el.querySelector(".cc-sec small"), clear));
+  return el;
+}
+
 // ---------- Views ----------
 
 const pane = () => window.beepPane;
@@ -270,6 +351,11 @@ export function registerView(name, view) {
 /// Shows view `name`, passing `arg` to its mount. The others are hidden,
 /// not destroyed, so a reply streaming in the pane keeps going under Home.
 export function go(name, arg) {
+  // Settings open over whatever shows, which stays as it is.
+  if (name === "pane" && arg === "settings") {
+    if (!shown) go("home");
+    return openSettings();
+  }
   const view = views.get(name);
   if (!view) return;
   if (shown && shown !== name) views.get(shown).unmount?.();
@@ -362,6 +448,8 @@ function drawSide() {
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [head, h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
+    // Rows that fill in once the server answers, never an empty sidebar.
+    if (name === "chats" && g.items == null && !home) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton()));
     if (g.items == null) continue;
     const grp = h("div", `cc-grp ${name}`);
     if (g.title) {
@@ -370,7 +458,7 @@ function drawSide() {
       grp.append(h3);
     }
     const none = typeof g.empty === "function" ? g.empty() : g.empty;
-    if (none && !g.items.length) grp.append(h("span", "cc-si none", none));
+    if (none && !g.items.length) grp.append(typeof none === "string" ? h("span", "cc-si none", none) : none);
     for (const item of g.items) {
       const el = g.row(item);
       if (g.onPick) el.addEventListener("click", () => g.onPick(item));
@@ -379,14 +467,30 @@ function drawSide() {
     if (g.foot) grp.append(...g.foot());
     if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
   }
-  side.push(h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f))));
+  const foot = h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f)));
+  if (home?.machines) {
+    const add = plusButton("Add a machine", openAddMachine);
+    add.classList.add("dbtn", "quiet");
+    foot.append(add);
+  }
+  side.push(foot);
   $("#side").replaceChildren(...side);
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
 }
 
+function skeleton() {
+  return [70, 55, 62].map(w => {
+    const row = h("div", "cc-skel");
+    row.style.width = `${w}%`;
+    return row;
+  });
+}
+
 function footer(machines) {
-  if (!state.home) return [];
+  const p = problem();
+  if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), ` ${{ unlinked: "Not linked", revoked: "Removed" }[p.kind] ?? "Refused"}`)];
+  if (!state.home) return [h("span", "", h("span", `ddot ${stuck() ? "bad" : "off"}`), stuck() ? " Not connected" : " Connecting…")];
   if (!machines) return ["Machines unavailable"];
   if (!machines.length) return ["No machines linked"];
   const on = machines.filter(m => m.online).length;
@@ -395,7 +499,7 @@ function footer(machines) {
 
 /// Pinned chats and groups, then the newest of the rest, the open one
 /// highlighted.
-const SIDE_CHATS = 12;
+const SIDE_CHATS = 5;
 let chatList = [];
 let chatFetch = null;
 
@@ -452,6 +556,7 @@ function chatRow(c) {
   // Two real buttons in one row, never one inside the other.
   const openBtn = h("button", "open", mark, h("span", "tt", c.title));
   openBtn.type = "button";
+  openBtn.title = c.title;
   if (open) openBtn.setAttribute("aria-current", "true");
   return h("div", "cc-si cc-chat", openBtn, toggle);
 }
@@ -505,7 +610,7 @@ registerSidebarGroup("views", {
     { view: "routines", label: "Routines", svg: IC.loop },
     { view: "settings", label: "Settings", svg: IC.gear },
   ],
-  row: v => sideItem(v.svg, v.label, 0, { current: paneOn().view === v.view }),
+  row: v => sideItem(v.svg, v.label, 0, { current: v.view !== "settings" && paneOn().view === v.view, kbd: v.view === "settings" ? "⌘," : "" }),
   onPick: v => go("pane", v.view),
 });
 
@@ -515,10 +620,43 @@ function projects(running) {
   return [...found];
 }
 
+/// A small + button for a group's heading or the footer.
+function plusButton(label, on) {
+  const b = h("button", "", icon(IC.plus));
+  b.type = "button";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.addEventListener("click", e => { e.stopPropagation(); on(); });
+  return b;
+}
+
+/// An empty group's row: what is missing, and a way to add one.
+function emptyRow(text, on) {
+  const b = h("button", "cc-si none add", `${text} · `, h("span", "act", "Add one"));
+  b.type = "button";
+  b.addEventListener("click", on);
+  return b;
+}
+
+/// Adds a machine. Another branch puts the add-a-machine sheet here; until
+/// then it opens the Machines part of Settings.
+export function openAddMachine() {
+  openSettings("machines");
+}
+
+/// Opens the projects view. Until there is one, Home's Running section,
+/// where the projects here come from.
+export function openProjects() {
+  jump("sec-running");
+}
+
 // Projects found in what runs, until the project view replaces this group.
+// It shows once Home has loaded, empty or not.
 registerSidebarGroup("projects", {
   order: 5,
   title: "Projects",
+  action: () => plusButton("Add a project", openProjects),
+  empty: () => emptyRow("No projects yet", openProjects),
   load: async () => state.home?.running ? projects(state.home.running).map(([name, n], i) => ({ name, n, i })) : null,
   row(p) {
     const b = sideItem(null, p.name, p.n);
@@ -528,6 +666,23 @@ registerSidebarGroup("projects", {
     return b;
   },
   onPick: () => jump("sec-running"),
+});
+
+// The machines Home lists, each with its online dot. It shows once Home has
+// loaded, empty or not, unless the server is too old to list machines.
+registerSidebarGroup("machines", {
+  order: 5.5,
+  title: "Machines",
+  action: () => plusButton("Add a machine", openAddMachine),
+  empty: () => emptyRow("No machines yet", openAddMachine),
+  load: async () => state.home?.machines ?? null,
+  row(m) {
+    const b = sideItem(null, m.name, m.agents || 0);
+    b.prepend(dot(m));
+    b.title = `${m.name}: ${m.online ? (m.agents ? plural(m.agents, "agent", "agents") + " running" : "online") : "offline"}`;
+    return b;
+  },
+  onPick: m => jump(`m-${m.id}`),
 });
 
 // ---------- Home ----------
@@ -544,25 +699,86 @@ function page(home) {
     if (machines) out.push(machinesSection(machines));
   }
   const cols = h("div", "cc-cols");
+  const updates = home.updates?.length ? updatesSection(home.updates) : null;
   if (running) {
     cols.append(runningSection(running), needsSection(needs));
     out.push(cols);
-    if (coming) out.push(comingSection(coming));
+    if (updates && coming) out.push(h("div", "cc-cols", updates, comingSection(coming)));
+    else if (updates || coming) out.push(updates || comingSection(coming));
   } else {
     cols.append(needsSection(needs));
     if (coming) cols.append(comingSection(coming)); else cols.style.gridTemplateColumns = "minmax(0, 1fr)";
     out.push(cols);
+    if (updates) out.push(updates);
   }
   return out;
+}
+
+// ---------- Connecting ----------
+
+/// True once the first Home has been waited for too long.
+function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }
+
+/// Before Home first loads, a failure waiting will not fix, or null.
+function problem() { return state.home ? null : connectProblem(state.error); }
+
+/// What is wrong, said plainly, with the way to fix it and a Retry.
+function problemView(p) {
+  const acts = h("div", "acts");
+  if (p.action) acts.append(button(p.action, "pri", () => go("pane", p.view)));
+  const retry = button("Try again", p.action ? "" : "pri", () => { refresh(); retry.disabled = true; });
+  retry.classList.add("retry");
+  retry.disabled = loading;
+  acts.append(retry, button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e))));
+  const box = h("div", "cc-conn stuck", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), h("b", "", p.title), h("span", "why", p.text), acts);
+  box.dataset.problem = `${p.kind}:${p.text}`;
+  return box;
+}
+
+/// What Home shows before the server first answers: pulsing dots, never a
+/// blank page. Once stuck it says so and offers Retry; retries go on anyway.
+function connecting() {
+  const p = problem();
+  if (p) return problemView(p);
+  const pulse = h("div", "cc-pulse", h("i"), h("i"), h("i"));
+  if (!stuck()) {
+    return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"), h("span", "", "Your chats, machines and approvals load once the server answers."));
+  }
+  const secs = Math.round((Date.now() - state.since) / 1000);
+  const why = h("span", "why", `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`);
+  const retry = button("Retry now", "pri", () => { refresh(); retry.disabled = true; });
+  retry.disabled = loading;
+  const log = button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e)));
+  const box = h("div", "cc-conn stuck", pulse, h("b", "", "Still connecting to Beep"), why, h("div", "acts", retry, log));
+  return box;
+}
+
+/// Draws the waiting view, or brings the one on screen up to date so its
+/// buttons keep their focus.
+function drawConnecting(view) {
+  const on = view.querySelector(":scope > .cc-conn");
+  const p = problem(), was = on?.dataset.problem;
+  if (p || was) {
+    if (p && was === `${p.kind}:${p.text}`) {
+      on.querySelector(".acts .retry").disabled = loading;
+      return;
+    }
+    return view.replaceChildren(connecting());
+  }
+  if (on && on.classList.contains("stuck") === stuck()) {
+    if (!stuck()) return;
+    const secs = Math.round((Date.now() - state.since) / 1000);
+    on.querySelector(".why").textContent = `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`;
+    on.querySelector(".acts .pri").disabled = loading;
+    return;
+  }
+  view.replaceChildren(connecting());
 }
 
 function draw() {
   const home = state.home, view = $("#view");
   drawSide();
-  if (!home) {
-    if (state.error) view.replaceChildren(h("div", "cc-note", h("span", "ddot bad"), h("span", "", "Can't reach Beep right now. Retrying.")));
-    return;
-  }
+  if (!home) return drawConnecting(view);
   const top = view.scrollTop;
   view.replaceChildren(...page(home));
   view.scrollTop = top;
@@ -659,7 +875,88 @@ async function takePending(fallback) {
 
 listen("center-open", () => takePending(null));
 
+// ---------- Settings ----------
+
+/// Settings as a sheet over the window: a dimmed backdrop and a centered
+/// sheet with its sections on the left. Esc or a click outside closes it;
+/// the view behind keeps its state. The sheet draws at once from what
+/// this Mac knows and fills in the server's parts as they answer.
+let settingsOpen = null;
+
+export function openSettings(section) {
+  if (settingsOpen) return section && showSection(settingsOpen.scrim, section);
+  const sheet = h("div", "cc-set");
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.setAttribute("aria-label", "Settings");
+  sheet.tabIndex = -1;
+  const nav = h("nav", "dset-nav", h("b", "", "Settings"));
+  const body = h("div", "dset-body", h("div", "dset-top", h("span", "tt", h("b", "", "Settings")), h("kbd", "", "esc")), ...skeletonRows());
+  sheet.append(nav, body);
+  const scrim = h("div", "cc-set-scrim", sheet);
+  const back = document.activeElement;
+  scrim.addEventListener("mousedown", e => { if (e.target === scrim) closeSettings(); });
+  // While open, keys stay in the sheet: Esc closes it, and nothing reaches
+  // the page behind.
+  const keys = e => {
+    if (e.key === "Escape") { e.preventDefault(); closeSettings(); }
+    else if (e.metaKey && e.key === ",") e.preventDefault();
+    else if (e.key === "Tab") trapTab(e, sheet);
+    e.stopImmediatePropagation();
+  };
+  window.addEventListener("keydown", keys, true);
+  document.body.append(scrim);
+  settingsOpen = { scrim, keys, back };
+  sheet.focus();
+  pane()?.settings(sheet)
+    .then(() => { if (section) showSection(scrim, section); })
+    .catch(e => console.warn("settings:", e));
+}
+
+/// Scrolls the open sheet to `section`, such as "machines".
+function showSection(scrim, section) {
+  scrim.querySelector(`[data-goto="${section}"]`)?.click();
+}
+
+export function closeSettings() {
+  if (!settingsOpen) return;
+  const { scrim, keys, back } = settingsOpen;
+  settingsOpen = null;
+  window.removeEventListener("keydown", keys, true);
+  scrim.remove();
+  if (back?.isConnected) back.focus();
+}
+
+function skeletonRows() {
+  return [80, 60, 72, 50].map(w => {
+    const row = h("div", "cc-skel");
+    row.style.width = `${w}%`;
+    return row;
+  });
+}
+
+/// Keeps Tab inside the sheet.
+function trapTab(e, sheet) {
+  const all = [...sheet.querySelectorAll("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
+  if (!all.length) return;
+  const first = all[0], last = all[all.length - 1];
+  // Focus lost to the page (a redraw removed it): bring it back in.
+  if (!sheet.contains(document.activeElement)) { e.preventDefault(); return (e.shiftKey ? last : first).focus(); }
+  if (e.shiftKey && (document.activeElement === first || document.activeElement === sheet)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+window.beepOpenSettings = openSettings;
+/// A page Settings leads to, such as Apps: the sheet closes and the pane
+/// shows it; null only closes.
+window.beepSettingsAway = view => {
+  closeSettings();
+  if (view) go("pane", view);
+};
+
 // ---------- Keys ----------
+
+initSideResize($(".cwin"), $("#side-grip"));
 
 initPalette({ go, jump, pane, findIcon: IC.find });
 
@@ -667,21 +964,25 @@ document.addEventListener("keydown", e => {
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
   if (key === "k") { e.preventDefault(); return openPalette(); }
-  const to = { m: "memories", j: "routines", l: "skills", ",": "settings" }[key];
+  if (key === ",") { e.preventDefault(); return openSettings(); }
+  const to = { m: "memories", j: "routines", l: "skills" }[key];
   if (to) { e.preventDefault(); return go("pane", to); }
   if (key === "n" && shown !== "pane") { e.preventDefault(); return go("pane", { chat: { session: null } }); }
 });
 
 // ---------- Refresh ----------
 
-let loading = false, again = false;
+let loading = false, again = false, retryTimer = null;
 
 /// Fetches Home. Never two calls at once: a request during one runs once more after it.
 async function refresh() {
   if (loading) { again = true; return; }
+  clearTimeout(retryTimer);
   loading = true;
   try {
-    state.home = await invoke("center_home");
+    const home = await invoke("center_home");
+    if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
+    state.home = home;
     state.error = null;
     const live = new Set(state.home.needs_you.map(cardKey));
     for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);
@@ -692,13 +993,20 @@ async function refresh() {
   }
   draw();
   reloadGroup("projects");
+  reloadGroup("machines");
   if (again) { again = false; refresh(); }
+  // Until Home first loads, a failed try is made again soon, seen or not,
+  // unless waiting will not fix it.
+  else if (!state.home && !problem()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
 }
+
+// "Still connecting" takes over once the wait passes its limit.
+setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 
 window.addEventListener("focus", refresh);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
 setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 10000);
-for (const name of ["sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected"]) {
+for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected"]) {
   listen(name, () => refresh());
 }
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) {
