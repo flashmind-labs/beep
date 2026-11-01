@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "../dist/home.js";
+import { homeColumns, homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "../dist/home.js";
 
 const machine = (over = {}) => ({
   online: true, agents: 0, capabilities: [], gpus: [], apps: [], env: null, ...over,
@@ -47,4 +47,15 @@ test("sections pair up and empty ones drop out", () => {
   assert.deepEqual(homeRows(full), [["running", "needs"], ["updates", "coming"]]);
   assert.deepEqual(homeRows({ ...full, running: [], updates: null }), [["needs"], ["coming"]]);
   assert.deepEqual(homeRows({ running: null, needs_you: [], updates: [], coming_up: null }), []);
+});
+
+test("a wide Home puts what to act on left and machines right", () => {
+  const full = { machines: [], running: [1], needs_you: [1], updates: [1], coming_up: [1] };
+  assert.deepEqual(homeColumns(full), { left: ["needs", "running", "updates"], right: ["machines", "coming"] });
+  assert.deepEqual(homeColumns({ ...full, running: [], coming_up: null }), { left: ["needs", "updates"], right: ["machines"] });
+});
+
+test("a wide Home keeps one column when a side would be empty", () => {
+  assert.equal(homeColumns({ machines: [], running: [], needs_you: null, updates: [], coming_up: [1] }), null);
+  assert.equal(homeColumns({ machines: null, running: null, needs_you: [1], updates: [1], coming_up: null }), null);
 });
