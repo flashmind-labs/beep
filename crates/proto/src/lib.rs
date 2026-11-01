@@ -614,6 +614,131 @@ requests! {
     /// The approvals background work waits on in any of the caller's chats,
     /// oldest first. Answer one with `AnswerApproval`.
     133 ListPendingApprovals {} => Call<Vec<ChatApproval>>
+    /// The caller's online machines that offer a coding agent, for
+    /// starting one from the app. Admins only, like `ListMachines`.
+    140 ListAgentHosts {} => Call<Vec<AgentHost>>
+    /// Starts a coding-agent session on `prompt` in `cwd` (the machine's
+    /// workspace or home folder when `None`). `machine_id` names the
+    /// machine; without it the server picks one that offers `agent` (any
+    /// when `None`) and has every capability in `needs` and those the
+    /// prompt and folder call for, such as Xcode for an iOS app. `chat`, one
+    /// of the caller's chats, then hears when a turn ends or the agent
+    /// asks something. `NotFound` when the machine is not one of the
+    /// caller's online ones or `chat` is not theirs; `BadRequest` saying
+    /// why when no machine fits or the node refuses. Admins only.
+    141 StartAgentSession { machine_id: Option<String>, agent: Option<String>, cwd: Option<String>, prompt: String, needs: Vec<MachineCapability>, chat: Option<Uuid> } => Call<StartedAgent>
+    /// One session as `ListAgentSessions` lists it, with its plan, the
+    /// files it changed and the last `last` entries of its transcript (at
+    /// most 200). An outside session has no plan or files. `NotFound` when
+    /// the machine is not one of the caller's online ones or has no such
+    /// session. Admins only.
+    142 GetAgentSession { machine_id: String, agent: String, session: String, last: u32 } => Call<AgentSessionView>
+    /// Sends a session Beep started a message, stops its turn or ends it.
+    /// A message waits for a running turn to end. `NotFound` as for
+    /// `GetAgentSession`; `BadRequest` saying why when the node refuses.
+    /// Admins only.
+    143 SteerAgentSession { machine_id: String, agent: String, session: String, steer: AgentSteer } => Call<()>
+}
+
+/// A machine that can run coding agents, as `ListAgentHosts` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentHost {
+    /// The `Machine::id` it is.
+    pub machine_id: String,
+    pub machine_name: String,
+    /// The agents it offers, such as `claude` and `codex`.
+    pub agents: Vec<String>,
+    /// The user's environment folder, when this machine is it.
+    pub workspace: Option<String>,
+    /// Its home folder, as it last reported it.
+    pub home: Option<String>,
+    pub capabilities: Vec<MachineCapability>,
+}
+
+/// The session `StartAgentSession` started.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StartedAgent {
+    pub session: MachineSession,
+    /// Why it runs on that machine, such as "It has Xcode." Empty when the
+    /// caller named the machine.
+    pub why: String,
+}
+
+/// One session in full, as `GetAgentSession` reads it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionView {
+    pub session: MachineSession,
+    pub plan: Vec<AgentPlanStep>,
+    /// Files it changed, newest last.
+    pub files: Vec<String>,
+    /// Its last message, cut short.
+    pub last_message: String,
+    /// Why it failed or its last turn went wrong.
+    pub error: Option<String>,
+    /// Messages waiting for the running turn to end.
+    pub queued: u32,
+    pub turns: u32,
+    pub entries: Vec<AgentEntry>,
+    /// Transcript entries before `entries`.
+    pub earlier: u32,
+}
+
+/// One step of a session's plan.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentPlanStep {
+    pub content: String,
+    pub status: AgentPlanStatus,
+}
+
+wire_enum! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum AgentPlanStatus {
+        0 Pending {}
+        1 InProgress {}
+        2 Completed {}
+    }
+}
+
+/// One entry of a session's transcript.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentEntry {
+    pub kind: AgentEntryKind,
+    pub text: String,
+}
+
+wire_enum! {
+    /// Who an entry is from: a prompt, the agent's text, a tool call, or a
+    /// permission question and its answer.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "lowercase")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum AgentEntryKind {
+        0 User {}
+        1 Agent {}
+        2 Tool {}
+        3 Question {}
+        4 Other {}
+    }
+}
+
+wire_enum! {
+    /// What `SteerAgentSession` does to a session: `Prompt` sends it a
+    /// message after the running turn, `Cancel` stops the turn and drops
+    /// waiting messages, `Close` ends the session and stops the agent.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum AgentSteer {
+        0 Prompt { text: String }
+        1 Cancel {}
+        2 Close {}
+    }
 }
 
 /// An approval waiting in one chat, as `ListPendingApprovals` lists it.
@@ -737,6 +862,21 @@ wire_enum! {
         4 Xcode {}
         5 Android {}
         6 Docker {}
+    }
+}
+
+impl MachineCapability {
+    /// Its name for people, such as "Xcode" or "GPU".
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Gpu {} => "a GPU",
+            Self::Cuda {} => "CUDA",
+            Self::Blender {} => "Blender",
+            Self::Unreal {} => "Unreal Engine",
+            Self::Xcode {} => "Xcode",
+            Self::Android {} => "Android tools",
+            Self::Docker {} => "Docker",
+        }
     }
 }
 

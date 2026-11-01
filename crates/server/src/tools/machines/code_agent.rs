@@ -1,4 +1,4 @@
-//! `code_agent`: coding agents (Claude Code, Codex, Gemini CLI) running in
+//! `code_agent`: coding agents (Claude Code, Codex, Gemini CLI, pi, flsh) running in
 //! sessions on the user's machines.
 
 use super::{
@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use uuid::Uuid;
 
-const DESCRIPTION: &str = "Run coding agents (Claude Code, Codex, Gemini CLI) on the user's \
+const DESCRIPTION: &str = "Run coding agents (Claude Code, Codex, Gemini CLI, pi, flsh) on the user's \
     machines, in sessions that keep running between calls. `start` begins a session with \
     `prompt` (in `cwd` if given) and waits up to `wait_secs` (default 90) for the turn to end or \
     a question, then returns the session id and its state: status, what it is doing, its plan, \
@@ -190,7 +190,7 @@ impl Tool for CodeAgentTool {
                     "type": "string",
                     "enum": ["start", "status", "sessions", "prompt", "answer", "cancel", "close", "transcript", "follow", "unfollow", "takeover"]
                 },
-                "agent": { "type": "string", "enum": ["claude", "codex", "gemini"] },
+                "agent": { "type": "string", "enum": ["claude", "codex", "gemini", "pi", "flsh"] },
                 "id": { "type": "string", "description": "The session id" },
                 "prompt": { "type": "string", "description": "The prompt for start, prompt and takeover, or the answer for answer" },
                 "cwd": { "type": "string", "description": "The folder start runs the agent in" },

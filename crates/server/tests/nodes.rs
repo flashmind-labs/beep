@@ -17,16 +17,17 @@ use beep_server::{
     models::ModelChoices,
     nodes::{self, Online},
     protocol::{
-        AgentStatus, AnswerAgentQuestion, ApiError, DeviceKind, ListAgentSessions,
-        ListMachineDetails, ListMachines, ListMemoryScopes, MachineCapability, MemoryScope,
-        MemorySource, RemoveDevice,
+        AgentEntryKind, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
+        DeviceKind, GetAgentSession, ListAgentHosts, ListAgentSessions, ListMachineDetails,
+        ListMachines, ListMemoryScopes, MachineCapability, MemoryScope, MemorySource, RemoveDevice,
+        StartAgentSession, SteerAgentSession,
         link::LinkOffer,
         node::{
             EnvReport,
             agent::{
-                AnswerOption, EntryKind, Event, ExternalSession, OptionKind, Presence, Question,
-                Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State,
-                Status, StopReason,
+                AnswerOption, Entry, EntryKind, Event, ExternalSession, OptionKind, PlanEntry,
+                PlanStatus, Presence, Question, Request, SESSIONS_PROTOCOL, SessionInfo,
+                SessionsReply, SessionsRequest, State, Status, StopReason,
             },
         },
     },
@@ -906,6 +907,13 @@ impl Protocol for FakeSessions {
                 (SessionsRequest::List {}, _) => SessionsReply::Sessions {
                     sessions: fake.sessions.clone(),
                 },
+                (SessionsRequest::Transcript { session, last }, _) => SessionsReply::Transcript {
+                    entries: vec![Entry {
+                        kind: EntryKind::Agent,
+                        text: format!("{session}: the last {last}"),
+                    }],
+                    earlier: 4,
+                },
                 (SessionsRequest::External { agent, .. }, Some(external)) => {
                     SessionsReply::External {
                         sessions: external
@@ -934,7 +942,28 @@ impl Protocol for FakeClaude {
     fn serve(&self, mut tx: LinkTx, mut rx: LinkRx) -> Session {
         let fake = self.0.clone();
         Box::pin(async move {
-            let Some(Request::Attach { session }) = rx.recv::<Request>().await? else {
+            let first = rx.recv::<Request>().await?;
+            if let Some(Request::Start { cwd, prompt }) = &first {
+                if let Some(orders) = &fake.orders {
+                    orders
+                        .send(first.clone().expect("a start"))
+                        .expect("the test still listens");
+                }
+                let info = SessionInfo {
+                    id: "b0b0b0".into(),
+                    agent: "claude".into(),
+                    cwd: cwd.clone().unwrap_or_else(|| "/home/user".into()),
+                    title: Some(prompt.clone()),
+                    started_at: 1_760_000_300,
+                    ..SessionInfo::default()
+                };
+                return tx
+                    .send(&Event::Attached {
+                        session: Box::new(info),
+                    })
+                    .await;
+            }
+            let Some(Request::Attach { session }) = first else {
                 return Ok(());
             };
             let Some(info) = fake.sessions.iter().find(|info| info.id == session) else {
@@ -1370,6 +1399,240 @@ async fn agent_sessions_need_nodes_privilege() {
     let center = CommandCenter::new(0).await;
     let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
     let refused = bob.call(&ListAgentSessions {}).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::Unauthorized {}
+    ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_hosts_list_machines_with_agents() {
+    let mut center = CommandCenter::new(1).await;
+    let build = center.node(0, "build-box", FakeAgents::default()).await;
+    let (_node, client) = center.phone(0).await;
+    let hosts = client.call(&ListAgentHosts {}).await.unwrap();
+    assert_eq!(hosts.len(), 1, "{hosts:?}");
+    assert_eq!(hosts[0].machine_id, build);
+    assert_eq!(hosts[0].machine_name, "build-box");
+    assert_eq!(hosts[0].agents, ["claude"]);
+    center.shutdown().await;
+}
+
+fn start(machine_id: Option<String>, prompt: &str) -> StartAgentSession {
+    StartAgentSession {
+        machine_id,
+        agent: None,
+        cwd: Some("/srv/project".into()),
+        prompt: prompt.into(),
+        needs: Vec::new(),
+        chat: None,
+    }
+}
+
+#[tokio::test]
+async fn start_agent_session_on_a_named_machine() {
+    let mut center = CommandCenter::new(1).await;
+    let (orders, mut received) = mpsc::unbounded_channel();
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                orders: Some(orders),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let started = client
+        .call(&start(Some(build.clone()), "Fix the tests"))
+        .await
+        .unwrap();
+    assert_eq!(started.why, "");
+    assert_eq!(started.session.machine_id, build);
+    assert_eq!(started.session.id, "b0b0b0");
+    assert_eq!(started.session.cwd, "/srv/project");
+    let order = timeout(Duration::from_secs(5), received.recv())
+        .await
+        .expect("the node got the start")
+        .expect("the fake still runs");
+    assert_eq!(
+        order,
+        Request::Start {
+            cwd: Some("/srv/project".into()),
+            prompt: "Fix the tests".into()
+        }
+    );
+    let refused = client.call(&start(Some(build), "   ")).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::BadRequest { .. }
+    ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn auto_starts_on_the_least_busy_machine_and_refuses_what_none_has() {
+    let mut center = CommandCenter::new(1).await;
+    center
+        .node(
+            0,
+            "busy-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let idle = center.node(0, "idle-box", FakeAgents::default()).await;
+    let (_node, client) = center.phone(0).await;
+    let started = client.call(&start(None, "Fix the tests")).await.unwrap();
+    assert_eq!(started.session.machine_id, idle);
+    assert_eq!(started.why, "It runs the fewest sessions.");
+    // The fakes report no capabilities, so an iOS task fits none.
+    let refused = client
+        .call(&start(None, "Fix the iOS widget"))
+        .await
+        .unwrap_err();
+    let ApiError::BadRequest { message } = refused.downcast::<ApiError>().unwrap() else {
+        panic!("not a bad request");
+    };
+    assert!(message.contains("has Xcode"), "{message}");
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn get_agent_session_reads_plan_files_and_transcript() {
+    let mut center = CommandCenter::new(1).await;
+    let mut session = beep_session("a3f9c1", None);
+    session.state.plan = vec![
+        PlanEntry {
+            content: "Find the bug".into(),
+            status: PlanStatus::Completed,
+        },
+        PlanEntry {
+            content: "Fix it".into(),
+            status: PlanStatus::InProgress,
+        },
+    ];
+    session.state.files_touched = vec!["src/main.rs".into()];
+    session.turns = 2;
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![session],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let get = |session: &str| GetAgentSession {
+        machine_id: build.clone(),
+        agent: "claude".into(),
+        session: session.into(),
+        last: 30,
+    };
+    let view = client.call(&get("a3f9c1")).await.unwrap();
+    assert_eq!(view.session.status, AgentStatus::Working {});
+    let plan: Vec<AgentPlanStatus> = view.plan.iter().map(|step| step.status).collect();
+    assert_eq!(
+        plan,
+        [
+            AgentPlanStatus::Completed {},
+            AgentPlanStatus::InProgress {}
+        ]
+    );
+    assert_eq!(view.files, ["src/main.rs"]);
+    assert_eq!(view.turns, 2);
+    assert_eq!(view.entries.len(), 1);
+    assert_eq!(view.entries[0].kind, AgentEntryKind::Agent {});
+    assert_eq!(view.entries[0].text, "a3f9c1: the last 30");
+    assert_eq!(view.earlier, 4);
+    let missing = client.call(&get("000000")).await.unwrap_err();
+    assert!(matches!(
+        missing.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn steer_agent_session_sends_prompts_and_stops() {
+    let mut center = CommandCenter::new(1).await;
+    let (orders, mut received) = mpsc::unbounded_channel();
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                orders: Some(orders),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let steer = |session: &str, steer: AgentSteer| SteerAgentSession {
+        machine_id: build.clone(),
+        agent: "claude".into(),
+        session: session.into(),
+        steer,
+    };
+    client
+        .call(&steer(
+            "a3f9c1",
+            AgentSteer::Prompt {
+                text: "Also run clippy".into(),
+            },
+        ))
+        .await
+        .unwrap();
+    client
+        .call(&steer("a3f9c1", AgentSteer::Cancel {}))
+        .await
+        .unwrap();
+    let mut got = Vec::new();
+    for _ in 0..2 {
+        got.push(
+            timeout(Duration::from_secs(5), received.recv())
+                .await
+                .expect("the node got an order")
+                .expect("the fake still runs"),
+        );
+    }
+    assert_eq!(
+        got,
+        [
+            Request::Prompt {
+                text: "Also run clippy".into()
+            },
+            Request::Cancel {}
+        ]
+    );
+    let missing = client
+        .call(&steer("000000", AgentSteer::Close {}))
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        missing.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_control_needs_nodes_privilege() {
+    let center = CommandCenter::new(0).await;
+    let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
+    let refused = bob.call(&ListAgentHosts {}).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::Unauthorized {}
+    ));
+    let refused = bob.call(&start(None, "Fix the tests")).await.unwrap_err();
     assert!(matches!(
         refused.downcast::<ApiError>().unwrap(),
         ApiError::Unauthorized {}
