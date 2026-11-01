@@ -38,10 +38,13 @@ fn vendor_of(text: &str) -> GpuVendor {
     let text = text.to_lowercase();
     if text.contains("nvidia") {
         GpuVendor::Nvidia
-    } else if text.contains("amd") || text.contains("ati") || text.contains("radeon") {
-        GpuVendor::Amd
     } else if text.contains("intel") {
         GpuVendor::Intel
+    } else if ["advanced micro devices", "amd", "radeon"]
+        .iter()
+        .any(|name| text.contains(name))
+    {
+        GpuVendor::Amd
     } else if text.contains("apple") {
         GpuVendor::Apple
     } else {
@@ -173,6 +176,14 @@ mod tests {
         assert_eq!(gpus[0].vendor, GpuVendor::Apple);
         assert_eq!(gpus[0].model, "Apple M2 Ultra");
         assert!(parse_displays_json("not json").is_empty());
+    }
+
+    #[test]
+    fn lspci_intel_is_not_amd() {
+        let gpus =
+            parse_lspci("00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 630");
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].vendor, GpuVendor::Intel);
     }
 
     #[test]
