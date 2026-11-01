@@ -22,8 +22,8 @@ use std::{
 use tokio::{sync::Notify, task::spawn_blocking};
 use tokio_util::task::AbortOnDropHandle;
 
-/// The machine's setup, made once per node process.
-pub struct Setup {
+/// What the node readies on the machine, made once per node process.
+pub struct Provision {
     /// The node's own folder: `bin` for the tools it installs, `shims` and
     /// `teacli` for teacli's config.
     dir: PathBuf,
@@ -34,17 +34,17 @@ pub struct Setup {
     changed: Notify,
 }
 
-impl Setup {
-    /// The setup for a node whose folder is `dir`. Processes started from
+impl Provision {
+    /// The provisioning for a node whose folder is `dir`. Processes started from
     /// now on find the tools it installs.
     pub fn new(dir: &Path) -> Arc<Self> {
-        let setup = Self {
+        let provision = Self {
             dir: dir.to_owned(),
             forgejo: Mutex::default(),
             changed: Notify::new(),
         };
-        spawn_env::set_path(vec![setup.bin()]);
-        Arc::new(setup)
+        spawn_env::set_path(vec![provision.bin()]);
+        Arc::new(provision)
     }
 
     fn bin(&self) -> PathBuf {
@@ -55,16 +55,16 @@ impl Setup {
     /// background. A failure is logged and the node goes on without it.
     /// Dropping the handle stops the work.
     pub fn start(self: &Arc<Self>) -> AbortOnDropHandle<()> {
-        let setup = self.clone();
+        let provision = self.clone();
         AbortOnDropHandle::new(tokio::spawn(async move {
             match spawn_blocking(install_skills).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => log::warn!("agent skills not installed: {e:#}"),
                 Err(e) => log::warn!("installing agent skills failed: {e}"),
             }
-            if setup.install_tools().await {
-                setup.configure_teacli().await;
-                setup.changed.notify_one();
+            if provision.install_tools().await {
+                provision.configure_teacli().await;
+                provision.changed.notify_one();
             }
         }))
     }

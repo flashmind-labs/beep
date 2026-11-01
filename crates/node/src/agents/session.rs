@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     process::{GroupLeader, STOP_GRACE},
-    setup::spawn_env,
+    provision::spawn_env,
 };
 use agent_client_protocol::{
     Agent, Client, ConnectionTo, JsonRpcRequest, Responder, on_receive_notification,

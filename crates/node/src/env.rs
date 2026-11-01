@@ -4,7 +4,7 @@
 mod apps;
 mod gpu;
 
-use crate::setup::spawn_env;
+use crate::provision::spawn_env;
 use beep_proto::node::{EnvReport, Login, ToolInfo};
 use std::{env, path::PathBuf, process::Stdio, time::Duration};
 use tokio::{process::Command, time::timeout};
