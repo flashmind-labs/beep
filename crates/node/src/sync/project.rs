@@ -20,22 +20,29 @@ use super::{
 };
 use crate::transfer::place::{Folder, Partial, Reserved, create_file_at, space_at};
 use anyhow::{Context, Result, anyhow, bail};
+use bao_tree::io::BaoContentItem;
 use beep_proto::node::sync::{ProjectStatus, State as SyncState};
+use futures::StreamExt as _;
 use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
-use iroh_blobs::{BlobFormat, Hash, HashAndFormat, api::TempTag, hashseq::HashSeq};
+use iroh_blobs::{
+    BlobFormat, Hash, HashAndFormat,
+    api::{Store, TempTag},
+    get::request::{GetBlobItem, get_blob},
+    hashseq::HashSeq,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     ffi::OsString,
     fs,
-    io::Write as _,
+    io::{SeekFrom, Write as _},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock},
     time::Duration,
 };
 use tokio::{
     fs::File as AsyncFile,
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::{Notify, mpsc, watch},
     task::{JoinSet, spawn_blocking},
     time::{Instant, sleep, sleep_until, timeout},
@@ -676,20 +683,16 @@ impl Task {
             spawn_blocking(move || create_file_at(&dir, &temp, executable)).await??
         };
         let mut out = AsyncFile::from_std(created);
-        let mut reader = self.parts.store.blobs().reader(hash);
-        let mut buffer = vec![0; CHUNK];
-        loop {
-            if self.shared.stop.is_cancelled() {
-                bail!("stopped");
-            }
-            let read = reader
-                .read(&mut buffer)
-                .await
-                .context("reading the store")?;
-            if read == 0 {
-                break;
-            }
-            out.write_all(&buffer[..read]).await?;
+        let copied = copy_store(&self.parts.store, hash, &mut out, &self.shared.stop).await?;
+        if copied != file.hash {
+            // The store reads it from a file in place, which was changed
+            // since; a peer sends it again, checked as it comes.
+            log::info!(
+                "{}: the copy of {} on this machine changed; fetching it again",
+                self.shared.name,
+                work.path
+            );
+            self.copy_from_peers(hash, &mut out).await?;
         }
         out.flush().await?;
         let out = out.into_std().await;
@@ -850,6 +853,30 @@ impl Task {
         })
     }
 
+    /// Writes blob `hash` into `out` from the first peer that sends all of
+    /// it, verified as it comes, without the store.
+    async fn copy_from_peers(&mut self, hash: Hash, out: &mut AsyncFile) -> Result<()> {
+        let peers = self.shared.peers.borrow().clone();
+        let mut last = anyhow!("no other machine syncs it");
+        for peer in peers {
+            out.set_len(0).await?;
+            out.seek(SeekFrom::Start(0)).await?;
+            let copied = match self.blobs_to(&peer).await {
+                Ok(connection) => copy_blob(connection, hash, out, &self.shared.stop).await,
+                Err(e) => Err(e),
+            };
+            match copied {
+                Ok(copied) if copied == *hash.as_bytes() => return Ok(()),
+                Ok(_) => last = anyhow!("{} sent other content", peer.id),
+                Err(e) => {
+                    self.blobs.remove(&peer.id);
+                    last = e.context(format!("{}", peer.id));
+                }
+            }
+        }
+        Err(last.context("no machine could send it again"))
+    }
+
     async fn blobs_to(&mut self, peer: &EndpointAddr) -> Result<Connection> {
         if let Some(connection) = self.blobs.get(&peer.id)
             && connection.close_reason().is_none()
@@ -955,6 +982,68 @@ impl Task {
             status.hint = hint;
             status.error = error;
         });
+    }
+}
+
+/// Copies blob `hash` from the store into `out`, giving the hash of what
+/// was written: another hash when the file the store reads it from was
+/// changed in place.
+async fn copy_store(
+    store: &Store,
+    hash: Hash,
+    out: &mut AsyncFile,
+    stop: &CancellationToken,
+) -> Result<[u8; 32]> {
+    let mut reader = store.blobs().reader(hash);
+    let mut buffer = vec![0; CHUNK];
+    let mut hasher = blake3::Hasher::new();
+    loop {
+        if stop.is_cancelled() {
+            bail!("stopped");
+        }
+        let read = reader
+            .read(&mut buffer)
+            .await
+            .context("reading the store")?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        out.write_all(&buffer[..read]).await?;
+    }
+    Ok(*hasher.finalize().as_bytes())
+}
+
+/// Copies blob `hash` from a peer into `out`, giving the hash of what was
+/// written. The blobs protocol checks every chunk against `hash`.
+async fn copy_blob(
+    connection: Connection,
+    hash: Hash,
+    out: &mut AsyncFile,
+    stop: &CancellationToken,
+) -> Result<[u8; 32]> {
+    let mut items = get_blob(connection, hash);
+    let mut hasher = blake3::Hasher::new();
+    let mut at = 0u64;
+    loop {
+        let item = tokio::select! {
+            item = items.next() => item,
+            () = stop.cancelled() => bail!("stopped"),
+        };
+        match item {
+            Some(GetBlobItem::Item(BaoContentItem::Leaf(leaf))) => {
+                if leaf.offset != at {
+                    bail!("the blob came out of order");
+                }
+                hasher.update(&leaf.data);
+                out.write_all(&leaf.data).await?;
+                at += leaf.data.len() as u64;
+            }
+            Some(GetBlobItem::Item(BaoContentItem::Parent(_))) => {}
+            Some(GetBlobItem::Done(_)) => return Ok(*hasher.finalize().as_bytes()),
+            Some(GetBlobItem::Error(e)) => return Err(e.into()),
+            None => bail!("the blob ended early"),
+        }
     }
 }
 
@@ -1172,6 +1261,43 @@ mod tests {
         let merged = merge_peer(&mut map, &peer.since(0, 10).entries);
         assert_eq!(merged.refused, 0);
         assert_eq!(map.get("f/0").unwrap().file, Some(meta(3)));
+    }
+
+    #[tokio::test]
+    async fn a_file_changed_under_the_store_is_not_copied_as_its_old_content() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = iroh_blobs::store::fs::FsStore::load(dir.path().join("store"))
+            .await
+            .unwrap();
+        let path = dir.path().join("a.txt");
+        // Big enough that the store reads it in place, not a copy.
+        fs::write(&path, vec![b'a'; 100_000]).unwrap();
+        let found = Found {
+            path: "a.txt".into(),
+            abs: path.clone(),
+            stat: Stat::of(&fs::metadata(&path).unwrap()),
+        };
+        let tag = scan::import(&store, &found).await.unwrap();
+        let hash = tag.hash();
+        let stop = CancellationToken::new();
+        let copy = |name: &str| {
+            let file = fs::File::create(dir.path().join(name)).unwrap();
+            AsyncFile::from_std(file)
+        };
+
+        let mut out = copy("one");
+        let copied = copy_store(&store, hash, &mut out, &stop).await.unwrap();
+        assert_eq!(copied, *hash.as_bytes());
+
+        // Edited in place: the same file and size, other bytes.
+        let mut file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.write_all(b"b").unwrap();
+        drop(file);
+        let mut out = copy("two");
+        let copied = copy_store(&store, hash, &mut out, &stop).await.unwrap();
+        assert_ne!(copied, *hash.as_bytes(), "the change is noticed");
+        drop(tag);
+        store.shutdown().await.ok();
     }
 
     #[test]
