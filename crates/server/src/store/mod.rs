@@ -13,6 +13,7 @@ mod apps;
 mod backfill;
 mod blobs;
 mod chats;
+mod credentials;
 mod cron_jobs;
 mod crons;
 mod devices;
@@ -30,9 +31,11 @@ mod location;
 mod memories;
 mod merge;
 mod messages;
+mod node_tokens;
 mod nodes;
 mod places;
 mod profile;
+mod project_sync;
 mod projects;
 mod research;
 mod routes;
@@ -52,10 +55,11 @@ pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
+pub use credentials::{CredentialRow, NewCredential};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::{PushDevice, PushService, PushToken};
 pub use digest::AttentionItem;
-pub use events::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow};
+pub use events::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow, UpdateRow};
 pub use feeds::Feed;
 pub use files::{NewAttachment, NewFile, NewPicture, PicturesOf};
 pub use findings::{FindingRow, NewFinding, SeenIn, Sighting};
@@ -65,9 +69,11 @@ pub use location::Location;
 pub use memories::{Fact, Scope, Scored, Superseded, WordEmbedder};
 pub use merge::{Invite, Inviter, Merge, MergeInto};
 pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnRecord};
+pub use node_tokens::{Claim, ClaimNode, ClaimedNode};
 pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
+pub use project_sync::SyncRow;
 pub(crate) use projects::{
     After, CheckoutRow, NewTask, NewWorker, ProjectRow, StartRefused, TaskRow, WorkerRow,
 };
@@ -334,9 +340,29 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         include_str!("../../migrations/0053_turn_sources.sql"),
     ),
     (
-        54,
+        55,
+        "project_sync",
+        include_str!("../../migrations/0055_project_sync.sql"),
+    ),
+    (
+        56,
+        "node tokens",
+        include_str!("../../migrations/0056_node_tokens.sql"),
+    ),
+    (
+        58,
+        "credentials",
+        include_str!("../../migrations/0058_credentials.sql"),
+    ),
+    (
+        59,
+        "auto model set",
+        include_str!("../../migrations/0059_auto_model_set.sql"),
+    ),
+    (
+        60,
         "projects",
-        include_str!("../../migrations/0054_projects.sql"),
+        include_str!("../../migrations/0060_projects.sql"),
     ),
 ];
 

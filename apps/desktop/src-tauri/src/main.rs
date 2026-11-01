@@ -1,5 +1,6 @@
 //! Beep for macOS. A tray app whose bar opens on a double tap of Option.
 
+mod add_machine;
 mod agents;
 mod apps;
 mod audio;
@@ -8,6 +9,7 @@ mod beep;
 mod cards;
 mod center;
 mod commands;
+mod credentials;
 mod desktop;
 mod devices;
 mod error;
@@ -93,7 +95,7 @@ fn main() {
             WindowEvent::Focused(false)
                 if window.label() == bar::LABEL && window.is_visible().unwrap_or(false) =>
             {
-                let _ = window.hide();
+                bar::hide(window.app_handle());
                 if let Some(voice) = window.app_handle().try_state::<Arc<Voice>>()
                     && voice.is_live()
                 {
@@ -111,6 +113,9 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            add_machine::create_node_token,
+            add_machine::revoke_node_token,
+            add_machine::node_token_machine,
             agents::agent_hosts,
             agents::agent_sessions,
             agents::agent_start,
@@ -119,6 +124,7 @@ fn main() {
             center::open_center,
             center::center_home,
             center::center_answer_agent,
+            center::center_dismiss_updates,
             center::center_open,
             center::center_pending,
             palette::center_palette,
@@ -161,6 +167,10 @@ fn main() {
             grants::list_grants,
             grants::revoke_grant,
             machines::list_machines,
+            credentials::credential_providers,
+            credentials::list_credentials,
+            credentials::save_credential,
+            credentials::remove_credential,
             commands::open_file,
             commands::picture,
             commands::save_file,
@@ -211,6 +221,7 @@ fn main() {
             commands::hide_bar,
             commands::quit,
             commands::open_url,
+            commands::open_log,
             commands::group_typing,
             commands::list_memories,
             commands::list_memory_scopes,
@@ -297,7 +308,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(research::Cache::default());
     app.manage(apps::SignIn::default());
     app.manage(update::Updates::default());
-    app.manage(machine::Machine::default());
+    app.manage(machine::Machine::new(&dir.join("node")));
     app.manage(center::Shown::default());
     app.manage(center::Pending::default());
     app.manage(palette::PaletteCache::default());

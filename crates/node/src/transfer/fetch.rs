@@ -8,7 +8,9 @@
 
 use super::{
     Ticker,
-    place::{self, Folder, Journal, Partial, create_file_at, make_dirs_at, relative_path},
+    place::{
+        self, Folder, Journal, Partial, Reserved, Room, create_file_at, make_dirs_at, relative_path,
+    },
 };
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use beep_proto::node::{
@@ -99,7 +101,17 @@ pub(super) struct Fetcher<'a> {
     /// Where the store keeps its data, for its free space.
     pub(super) store_dir: &'a Path,
     pub(super) journal: &'a Journal,
+    /// The free space the running fetches hold.
+    pub(super) room: &'a Arc<Room>,
     pub(super) cancel: &'a CancellationToken,
+}
+
+/// A fetch written out into its partial folder, holding its disk space
+/// until it is placed.
+struct Written {
+    plan: Plan,
+    partial: Partial,
+    _room: Reserved,
 }
 
 pub(super) async fn fetch(cx: Fetcher<'_>, job: Job, tx: &mut LinkTx) -> Result<Fetched> {
@@ -108,7 +120,11 @@ pub(super) async fn fetch(cx: Fetcher<'_>, job: Job, tx: &mut LinkTx) -> Result<
     let connection = connect(&cx, &job.from).await?;
     let result = transfer(&cx, &job, &connection, tx).await;
     connection.close(0u32.into(), b"done");
-    let (plan, partial) = result?;
+    let Written {
+        plan,
+        partial,
+        _room,
+    } = result?;
     let files = plan.items.iter().filter(|item| item.blob.is_some()).count() as u64;
     let size = plan.total;
     let Job { name, kind, .. } = job;
@@ -145,9 +161,9 @@ async fn transfer(
     job: &Job,
     connection: &Connection,
     tx: &mut LinkTx,
-) -> Result<(Plan, Partial)> {
+) -> Result<Written> {
     let mut plan = cancellable(cx, probe(cx, job, connection)).await?;
-    check_space(cx, job, plan.total).await?;
+    let room = reserve_space(cx, job, plan.total).await?;
     download(cx, job, connection, &plan, tx).await?;
     if let Some(manifest) = plan.manifest {
         apply_manifest(cx.store, manifest, job, &mut plan).await?;
@@ -164,7 +180,11 @@ async fn transfer(
         }
         return Err(e);
     }
-    Ok((plan, partial))
+    Ok(Written {
+        plan,
+        partial,
+        _room: room,
+    })
 }
 
 async fn cancellable<T>(cx: &Fetcher<'_>, work: impl Future<Output = Result<T>>) -> Result<T> {
@@ -250,13 +270,14 @@ async fn probe(cx: &Fetcher<'_>, job: &Job, connection: &Connection) -> Result<P
     Ok(plan)
 }
 
-/// Fails unless the store's disk and the target folder's disk both hold
-/// `need` bytes, twice over when they are one disk.
-async fn check_space(cx: &Fetcher<'_>, job: &Job, need: u64) -> Result<()> {
-    let (store_dir, folder) = (cx.store_dir.to_owned(), job.folder.clone());
+/// Holds `need` bytes on the store's disk and the target folder's disk,
+/// twice over when they are one disk, beside what the other running
+/// fetches hold; fails when they do not have it.
+async fn reserve_space(cx: &Fetcher<'_>, job: &Job, need: u64) -> Result<Reserved> {
+    let (store_dir, folder, room) = (cx.store_dir.to_owned(), job.folder.clone(), cx.room.clone());
     spawn_blocking(move || {
         let store = place::space_at(&store_dir)?;
-        place::check_room(need, store, folder.space()?, SPACE_MARGIN)
+        room.reserve(need, store, folder.space()?, SPACE_MARGIN)
     })
     .await?
 }
@@ -315,7 +336,17 @@ async fn apply_manifest(store: &Store, hash: Hash, job: &Job, plan: &mut Plan) -
     for item in &mut plan.items {
         item.executable = executable.contains(&item.path);
     }
-    for folder in &manifest.empty_folders {
+    add_empty_folders(plan, root, &manifest.empty_folders)
+}
+
+/// Adds the empty folders a manifest names, which count against the file
+/// limit like files.
+fn add_empty_folders(plan: &mut Plan, root: &Path, folders: &[String]) -> Result<()> {
+    ensure!(
+        (plan.items.len() as u64).saturating_add(folders.len() as u64) <= MAX_FILES,
+        "the folder holds more than {MAX_FILES} files and folders"
+    );
+    for folder in folders {
         plan.items.push(Item {
             path: root.join(relative_path(folder)?),
             blob: None,
@@ -393,4 +424,39 @@ async fn export(
     }
     file.flush().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan(files: usize) -> Plan {
+        Plan {
+            items: (0..files)
+                .map(|n| Item {
+                    path: PathBuf::from(format!("out/{n}")),
+                    blob: Some(Hash::new(n.to_string())),
+                    executable: false,
+                })
+                .collect(),
+            manifest: None,
+            total: 0,
+            expected: 0,
+        }
+    }
+
+    #[test]
+    fn empty_folders_count_against_the_file_limit() {
+        let root = Path::new("out");
+        let mut fits = plan(MAX_FILES as usize - 2);
+        add_empty_folders(&mut fits, root, &["a".into(), "b/c".into()]).unwrap();
+        assert_eq!(fits.items.len() as u64, MAX_FILES);
+        assert_eq!(fits.items.last().unwrap().path, Path::new("out/b/c"));
+
+        let mut over = plan(MAX_FILES as usize - 2);
+        let folders: Vec<String> = (0..3).map(|n| format!("empty{n}")).collect();
+        let refused = add_empty_folders(&mut over, root, &folders).unwrap_err();
+        assert!(format!("{refused:#}").contains("more than"), "{refused:#}");
+        assert_eq!(over.items.len() as u64, MAX_FILES - 2);
+    }
 }

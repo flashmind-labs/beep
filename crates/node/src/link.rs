@@ -1,15 +1,21 @@
 //! The connection to the server: the link code that joins the account, then
 //! the control stream, kept open and reopened when it drops.
 
-use crate::{agents::Agents, env, files::Folders, shell, state::State, tasks, transfer::Transfers};
+use crate::{
+    agents::Agents, env, files::Folders, provision::Provision, shell, state::State, tasks,
+    transfer::Transfers,
+};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     link::LinkOffer,
-    node::{Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, Open, Opened, Up, agent, link},
+    node::{
+        CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, NodeSetup,
+        Open, Opened, Up, agent, link,
+    },
 };
 use iroh::{
     Endpoint, EndpointAddr,
-    endpoint::{Connection, RecvStream, SendStream, presets},
+    endpoint::{Connection, ConnectionError, RecvStream, SendStream, VarInt, presets},
 };
 use std::{
     future::Future,
@@ -75,9 +81,14 @@ pub async fn serve(
         .await?;
     log::info!("node key {}", endpoint.id());
     // Made once, so agent sessions outlive each connection.
+    // Installs gh, teacli and the agent skills beside serving; the work
+    // stops with the node.
+    let provision = Provision::new(&state.dir);
+    let _provision = provision.start();
     let mut offers = Offers {
         agents: Arc::new(Agents::new(crate::agents::detect(&state.agents))),
         extra: Vec::new(),
+        provision: Some(provision),
     };
     // Files only when the owner shared folders in node.toml, or this node
     // is the user's environment.
@@ -92,11 +103,16 @@ pub async fn serve(
         .and_then(|dir| dir.canonicalize().ok())
         .filter(|dir| folders.first() == Some(dir.as_path()))
         .map(|dir| dir.to_string_lossy().into_owned());
+    let mut started = None;
     if !folders.is_empty() {
         // Transfers reach the same folders; without its store the node
         // still serves the rest.
         match Transfers::start(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
-            Ok(transfers) => offers.extra.push(Arc::new(transfers)),
+            Ok(transfers) => {
+                offers.extra.push(Arc::new(transfers.syncs()));
+                offers.extra.push(Arc::new(transfers.clone()));
+                started = Some(transfers);
+            }
             Err(e) => log::warn!("not offering transfers: {e:#}"),
         }
         offers.extra.push(Arc::new(folders));
@@ -104,6 +120,7 @@ pub async fn serve(
     let hello = Hello {
         name: &state.name,
         workspace: workspace.as_deref(),
+        setup: None,
     };
     log::info!("offering {:?}", offers.names());
     // Claude Code's hooks report to the node over a socket in its folder.
@@ -132,8 +149,18 @@ pub async fn serve(
         () = stay => {}
         () = stop => {}
     }
+    // Stopped, the machine keeps no token: teacli's config, its shim and
+    // the env vars go.
+    if let Some(provision) = &offers.provision {
+        provision.forget().await;
+    }
     log::info!("stopping the agent sessions");
     offers.agents.shutdown().await;
+    if let Some(transfers) = started
+        && let Err(e) = transfers.shutdown().await
+    {
+        log::warn!("transfers did not stop cleanly: {e:#}");
+    }
     Ok(())
 }
 
@@ -150,6 +177,7 @@ pub async fn connect(
     let hello = Hello {
         name,
         workspace: None,
+        setup: None,
     };
     connect_as(endpoint, server, &hello, offers).await
 }
@@ -158,6 +186,40 @@ pub async fn connect(
 struct Hello<'a> {
     name: &'a str,
     workspace: Option<&'a str>,
+    /// A setup token to claim (`beep-node setup`).
+    setup: Option<&'a NodeSetup>,
+}
+
+/// What claiming a setup token gave.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Claimed {
+    /// The account's name, such as mega-fox-trot.
+    pub account: String,
+    /// What the server calls this machine.
+    pub name: String,
+}
+
+/// Connects to `server` once to claim `setup` with this endpoint's key,
+/// then closes. `name` is the machine's name when neither `setup` nor the
+/// token gives one. Errors say why in words for the user.
+pub async fn claim(
+    endpoint: &Endpoint,
+    server: EndpointAddr,
+    name: &str,
+    setup: &NodeSetup,
+) -> Result<Claimed> {
+    let hello = Hello {
+        name,
+        workspace: None,
+        setup: Some(setup),
+    };
+    let linked = open_as(endpoint, server, &hello, &Offers::default()).await?;
+    linked
+        .connection
+        .close(VarInt::from_u32(0), b"set up; reconnecting");
+    linked
+        .claimed
+        .context("the server welcomed this node without linking it")
 }
 
 async fn connect_as(
@@ -180,6 +242,9 @@ pub struct Offers {
     pub agents: Arc<Agents>,
     /// Protocols the host adds, such as the Mac app's `desktop/1`.
     pub extra: Vec<Arc<dyn Protocol>>,
+    /// Takes the user's credentials and installs the tools they are for.
+    /// Without it the node does not ask for credentials.
+    pub provision: Option<Arc<Provision>>,
 }
 
 impl Offers {
@@ -198,6 +263,8 @@ pub struct Linked {
     tx: LinkTx,
     rx: LinkRx,
     offers: Offers,
+    /// What the hello's setup token gave, when it carried one.
+    claimed: Option<Claimed>,
 }
 
 /// Connects to `server` and says hello; `Ok` once the server welcomed this
@@ -211,6 +278,7 @@ pub async fn open(
     let hello = Hello {
         name,
         workspace: None,
+        setup: None,
     };
     open_as(endpoint, server, &hello, offers).await
 }
@@ -232,15 +300,23 @@ async fn open_as(
         name: name.to_owned(),
         offers: offers.names(),
         workspace: hello.workspace.map(str::to_owned),
+        setup: hello.setup.cloned(),
+        credentials: offers.provision.is_some(),
     })
     .await?;
-    match rx.recv::<Down>().await {
-        Ok(Some(Down::Welcome {})) => {}
-        Ok(Some(other)) => bail!("expected a welcome, got {other:?}"),
-        Ok(None) | Err(_) => match connection.close_reason() {
-            Some(reason) => bail!("the server refused this node: {reason}"),
-            None => bail!("the server closed before its welcome"),
-        },
+    let mut claimed = None;
+    loop {
+        match rx.recv::<Down>().await {
+            Ok(Some(Down::Welcome {})) => break,
+            Ok(Some(Down::Linked { account, name })) if hello.setup.is_some() => {
+                claimed = Some(Claimed { account, name });
+            }
+            Ok(Some(other)) => bail!("expected a welcome, got {other:?}"),
+            Ok(None) | Err(_) => match connection.close_reason() {
+                Some(reason) => bail!("{}", refusal(&reason, hello.setup.is_some())),
+                None => bail!("the server closed before its welcome"),
+            },
+        }
     }
     log::info!("connected as {name:?}");
     Ok(Linked {
@@ -248,7 +324,26 @@ async fn open_as(
         tx,
         rx,
         offers: offers.clone(),
+        claimed,
     })
+}
+
+/// Why the server closed before its welcome, in words for the user.
+fn refusal(reason: &ConnectionError, setting_up: bool) -> String {
+    if let ConnectionError::ApplicationClosed(close) = reason {
+        let text = String::from_utf8_lossy(&close.reason);
+        if close.error_code == VarInt::from_u32(CLOSE_SETUP_REFUSED) {
+            return text.into_owned();
+        }
+        // A server from before setup tokens turns the unknown key away
+        // without reading the hello.
+        if setting_up && text == "not linked" {
+            return "This server does not take setup tokens yet. Update it, or link the \
+                    machine with `beep-node link`."
+                .to_owned();
+        }
+    }
+    format!("the server refused this node: {reason}")
 }
 
 impl Linked {
@@ -260,8 +355,15 @@ impl Linked {
             mut tx,
             mut rx,
             offers,
+            claimed: _,
         } = self;
-        serve_linked(&connection, &mut tx, &mut rx, &offers).await
+        let served = serve_linked(&connection, &mut tx, &mut rx, &offers).await;
+        // Revoked or only cut off, the node keeps no token it cannot hear
+        // about being removed; the server sends them again on reconnecting.
+        if let Some(provision) = &offers.provision {
+            provision.forget().await;
+        }
+        served
     }
 }
 
@@ -295,12 +397,20 @@ async fn serve_linked(
                 Err(e) => log::warn!("session task failed: {e}"),
             },
             message = rx.recv::<Down>() => match message {
+                Ok(Some(Down::Credentials(credentials))) => match &offers.provision {
+                    Some(provision) => provision.apply(credentials).await,
+                    None => log::debug!("credentials came to a node that does not take them"),
+                },
                 Ok(Some(message)) => log::debug!("server sent {message:?}"),
                 Ok(None) => return Ok(()),
                 Err(e) if connection.close_reason().is_none() => log::debug!("skipped a message: {e:#}"),
                 Err(e) => return Err(e),
             },
             _ = reprobe.tick(), if probing.is_none() => {
+                probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
+            }
+            // A tool was installed: report it without waiting for the tick.
+            () = tool_changed(offers.provision.as_deref()), if probing.is_none() => {
                 probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
             }
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
@@ -352,6 +462,14 @@ async fn session(send: SendStream, recv: RecvStream, offers: Offers) -> Result<(
                 tx.send(&Opened::Refused { reason }).await
             }
         },
+    }
+}
+
+/// Finishes when `provision` installed a tool; never without one.
+async fn tool_changed(provision: Option<&Provision>) {
+    match provision {
+        Some(provision) => provision.changed().await,
+        None => std::future::pending().await,
     }
 }
 

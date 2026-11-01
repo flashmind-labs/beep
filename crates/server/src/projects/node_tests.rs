@@ -151,6 +151,7 @@ impl World {
         let offers = Offers {
             agents: Arc::new(Agents::new(vec![fake_claude()])),
             extra: vec![Arc::new(folders) as Arc<dyn Protocol>],
+            provision: None,
         };
         let node = Endpoint::builder(presets::N0)
             .secret_key(key.clone())

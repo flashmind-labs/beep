@@ -6,6 +6,7 @@ pub mod attachments;
 pub mod cache_session;
 pub mod compaction;
 pub mod config;
+pub mod credentials;
 pub mod cron;
 pub mod decision;
 pub mod digest;

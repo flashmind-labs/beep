@@ -191,6 +191,8 @@ final class AppModel {
     /// The server's places; `-places sample` swaps in made up ones.
     @ObservationIgnored lazy var placesStore: any PlacesStore = ServerPlaces { [unowned self] in try self.api() }
     private(set) var starters: [PromptSuggestion] = []
+    /// What the event triage agent found in the user's apps, newest first, for the Updates card.
+    private(set) var updates: [AppUpdate] = []
     private(set) var models: Models?
 
     private var client: BeepClient?
@@ -310,6 +312,7 @@ final class AppModel {
         if !chat.busy { await refreshOpenChat() }
         await refreshQuestions(chat.id)
         await loadStarters(refresh: false)
+        await loadUpdates()
         models = try? await client?.getModels()
         await reportTimezone()
         await registerPush()
@@ -735,6 +738,42 @@ final class AppModel {
     func loadStarters(refresh: Bool) async {
         guard let fresh = try? await api().suggestPrompts(refresh: refresh) else { return }
         starters = fresh.suggestions
+    }
+
+    // MARK: Updates
+
+    /// True while a list of updates is on its way, so a second one waits for the next chance.
+    @ObservationIgnored private var loadingUpdates = false
+
+    /// A server from before updates answers with an error, which leaves none. Before the client
+    /// connects this does nothing; connecting loads them.
+    func loadUpdates() async {
+        guard !loadingUpdates else { return }
+        loadingUpdates = true
+        defer { loadingUpdates = false }
+        guard let fresh = try? await api().listUpdates() else { return }
+        // A list asked for before a dismiss reached the server may still carry it; an id the
+        // server no longer lists is gone there too.
+        dismissedUpdates.formIntersection(fresh.map(\.id))
+        updates = fresh.filter { !dismissedUpdates.contains($0.id) }
+    }
+
+    /// Updates dismissed here that a list may still carry, by id.
+    @ObservationIgnored private var dismissedUpdates: Set<Int64> = []
+
+    /// Takes updates off the card at once and tells the server, which keeps them gone on every device.
+    func dismissUpdates(_ ids: [Int64]) {
+        guard !ids.isEmpty else { return }
+        dismissedUpdates.formUnion(ids)
+        updates.removeAll { ids.contains($0.id) }
+        Task {
+            do {
+                try await api().dismissUpdates(ids: ids)
+            } catch {
+                // Not dismissed after all: the next list shows them again.
+                dismissedUpdates.subtract(ids)
+            }
+        }
     }
 
     // MARK: Runs
@@ -1500,6 +1539,7 @@ final class AppModel {
         sessions = []
         groups = []
         starters = []
+        updates = []
         previews = [:]
         ChatPreview.save(previews)
         waitingWork = [:]
@@ -1567,9 +1607,6 @@ final class AppModel {
 
     /// The machines running beep-node on the account. Admins only.
     func machines() async throws -> [Machine] { try await api().listMachines() }
-
-    /// The server sends model choices only to admins.
-    var isAdmin: Bool { models?.choices.isEmpty == false }
 
     func memoryReads() async -> [MemoryRead] { (try? await api().listMemoryReads()) ?? [] }
     func updateMemory(_ id: String, _ content: String) async throws { try await api().updateMemory(id: id, content: content) }

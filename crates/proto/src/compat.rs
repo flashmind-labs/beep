@@ -89,6 +89,8 @@ sample_struct! {
     ProjectAgent { project_id, name, chat_id, open_tasks, open_workers }
     ProjectTask { id, slug, title, body, state, depends_on, issue_number, issue_url, branch, pr_url, created_at, updated_at }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
+    AppUpdate { id, summary, app, app_name, at }
+    Credential { id, kind, last4, account, env_var, to_machines, created_at, unreadable }
     Models { choices, selected, thinking, auto, auto_available }
     AutoPick { model, thinking }
     Agents { enabled, agents }
@@ -173,6 +175,11 @@ sample_struct! {
     ResearchSource { number, url, title, quote, agent }
     WebSource { url, title }
     TurnSources { message, sources }
+    ProjectSync { project, pinned, machines }
+    MachineSync { machine_id, machine_name, folder, status, files, bytes, pending, conflicts, rescan_secs, hint, error }
+    SyncSkipped { paths, through_git, truncated }
+    SkippedFile { path, folder, rule }
+    NodeToken { token, expires_at }
 }
 
 macro_rules! sample_values {
@@ -227,6 +234,12 @@ impl<T: Sample> Sample for Option<T> {
 impl<T: Sample> Sample for Vec<T> {
     fn samples(wire: u32) -> Vec<Self> {
         vec![T::samples(wire)]
+    }
+}
+
+impl Sample for SecretText {
+    fn samples(_: u32) -> Vec<Self> {
+        vec![SecretText::new("secret-1234")]
     }
 }
 

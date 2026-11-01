@@ -5,6 +5,7 @@
 use crate::{
     lines::read_piece,
     process::{GroupLeader, STOP_GRACE, killpg},
+    provision::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -259,6 +260,7 @@ fn spawn(command: &str, cwd: Option<PathBuf>) -> Result<(GroupLeader, ChildStdou
     if let Some(cwd) = cwd {
         child.current_dir(cwd);
     }
+    spawn_env::apply(&mut child, Scope::Shell);
     let mut child = child
         .spawn()
         .with_context(|| format!("starting {program}"))?;
@@ -437,13 +439,27 @@ mod tests {
             panic!("no status");
         };
         assert_eq!(task.state, TaskState::Stopped);
-        // Gone, or a zombie its new parent has yet to reap.
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
-        let running = stat
-            .rsplit_once(") ")
-            .is_some_and(|(_, rest)| !rest.starts_with('Z'));
+        // Gone, or a zombie its new parent has yet to reap. The kill is
+        // delivered asynchronously, so watch /proc until it lands.
+        let stat_file = format!("/proc/{pid}/stat");
+        let stopped = timeout(Duration::from_secs(10), async {
+            loop {
+                let stat = tokio::fs::read_to_string(&stat_file)
+                    .await
+                    .unwrap_or_default();
+                let running = stat
+                    .rsplit_once(") ")
+                    .is_some_and(|(_, rest)| !rest.starts_with('Z'));
+                if !running {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        let stat = std::fs::read_to_string(&stat_file).unwrap_or_default();
         assert!(
-            !running,
+            stopped.is_ok(),
             "the background sleep was stopped with its group: {stat}"
         );
         std::fs::remove_dir_all(dir).expect("the test folder is removed");
