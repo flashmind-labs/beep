@@ -324,11 +324,22 @@ function sideItem(svg, label, count, opts = {}) {
   return b;
 }
 
+/// Element Home scrolls to once it has drawn.
+let scrollTarget = null;
+
 function jump(id) {
   go("home");
   const view = $("#view");
-  if (!id) view.scrollTo({ top: 0 });
-  else document.getElementById(id)?.scrollIntoView({ block: "start" });
+  if (!id) return view.scrollTo({ top: 0 });
+  scrollTarget = id;
+  // Home redraws when it mounts, so the target is also applied after that draw.
+  applyScroll();
+}
+
+function applyScroll() {
+  if (!scrollTarget) return;
+  const el = document.getElementById(scrollTarget);
+  if (el) { el.scrollIntoView({ block: "start" }); scrollTarget = null; }
 }
 
 /// What the pane shows, for the sidebar's highlight.
@@ -486,6 +497,8 @@ function draw() {
   const top = view.scrollTop;
   view.replaceChildren(...page(home));
   view.scrollTop = top;
+  applyScroll();
+  scrollTarget = null;
   $("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
 }
 
@@ -578,7 +591,7 @@ listen("center-open", () => takePending(null));
 
 // ---------- Keys ----------
 
-initPalette({ go, jump, pane });
+initPalette({ go, jump, pane, findIcon: IC.find });
 
 document.addEventListener("keydown", e => {
   if (!e.metaKey) return;
