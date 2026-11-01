@@ -5,7 +5,7 @@
 //!     BEEP_LIVE_NODE_IMAGE=beep-node:test BEEP_LIVE_NODE_BIN=target/debug/beep-node \
 //!     cargo test -p beep-server live_tests -- --ignored --nocapture
 
-use super::{Machines, exec::ExecTool, import::ImportProjectTool, process::ProcessTool};
+use super::{Machines, exec::ExecTool, process::ProcessTool};
 use crate::{
     nodes,
     protocol::DeviceKind,
@@ -273,7 +273,7 @@ async fn import_project_on_a_real_node() {
         app: app.clone(),
         user: harness.alice.clone(),
     };
-    let import = ImportProjectTool {
+    let import = crate::imports::ImportProjectTool {
         machines: machines.clone(),
     };
     let exec = ExecTool { machines };
@@ -320,7 +320,7 @@ async fn import_project_on_a_real_node() {
         "Could not find octocat/no-such-repo-beep-test on GitHub. If it is private, add a \
          token for GitHub in Settings > Credentials."
     );
-    let listed = crate::project_import::imported(&harness.alice)
+    let listed = crate::imports::imported(&harness.alice)
         .await
         .expect("imports list");
     assert_eq!(listed.len(), 1);

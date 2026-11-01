@@ -28,13 +28,13 @@ use crate::{
     starters::Cached,
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
-        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, ImportRow, Invite,
-        Join, JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow,
-        MemoryRow, Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewImport, NewKey,
-        NewMessage, NewNode, NewPicture, NewPlace, NewPlaceRoutine, NodeRow, PicturesOf,
-        PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice, ResearchRow, RunStatus,
-        SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, Store, StoredContext,
-        StoredMessage, SyncRow, TurnRecord, TurnsToDelete,
+        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite, Join,
+        JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow,
+        Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode,
+        NewPicture, NewPlace, NewPlaceRoutine, NodeRow, PicturesOf, PlaceRoutine, Posted,
+        ProfileNote, ProfileRead, PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share,
+        SkillOwner, SkillPatch, SkillRow, Store, StoredContext, StoredMessage, SyncRow, TurnRecord,
+        TurnsToDelete,
     },
 };
 use anyhow::Result;
@@ -970,12 +970,15 @@ impl User {
     }
 
     /// Records a project imported onto a machine.
-    pub async fn save_import(&self, import: NewImport<'_>) -> Result<ImportRow> {
+    pub async fn save_import(
+        &self,
+        import: crate::store::NewImport<'_>,
+    ) -> Result<crate::store::ImportRow> {
         self.store.save_import(&self.key, import).await
     }
 
     /// The projects the user imported, by project, then machine.
-    pub async fn imports(&self) -> Result<Vec<ImportRow>> {
+    pub async fn imports(&self) -> Result<Vec<crate::store::ImportRow>> {
         self.store.imports(&self.key).await
     }
 

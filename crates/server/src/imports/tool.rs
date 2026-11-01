@@ -1,8 +1,8 @@
 //! `import_project`: clones a repository onto one of the user's machines and
 //! lists it as a project, as the Import a project sheet does.
 
-use super::{Machines, find};
-use crate::project_import::{self, ImportError};
+use super::{ImportError, service};
+use crate::tools::machines::{Machines, find, in_parameter};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -43,7 +43,7 @@ impl Tool for ImportProjectTool {
                     "type": "string",
                     "description": "org/repo, such as n0-computer/iroh, or the repository's URL"
                 },
-                "in": super::in_parameter("Omit for the user's own Linux environment, or the only machine online.")
+                "in": in_parameter("Omit for the user's own Linux environment, or the only machine online.")
             },
             "required": ["repo"],
             "additionalProperties": false
@@ -81,7 +81,7 @@ impl Tool for ImportProjectTool {
             _ => None,
         };
         Ok(
-            match project_import::import(app, user, &args.repo, machine.as_deref()).await {
+            match service::import(app, user, &args.repo, machine.as_deref()).await {
                 Ok(done) => ToolResult::success(
                     ctx.tool_call_id,
                     format!(
