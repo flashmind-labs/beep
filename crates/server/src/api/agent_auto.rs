@@ -1,9 +1,10 @@
 //! Auto: the machine a session started from the app runs on when the app
-//! names none, from what the prompt calls for and what each machine can do.
+//! names none. What the app asks for (`needs`) and the folder are hard
+//! requirements; what the prompt mentions (hints) only steers the pick.
 
 use crate::protocol::MachineCapability;
 
-/// Words that call for a capability, matched against whole words of the
+/// Words that hint at a capability, matched against whole words of the
 /// prompt and folder, lowercase. Two-word phrases are matched joined by a
 /// space.
 const CALLS_FOR: &[(MachineCapability, &[&str])] = &[
@@ -25,7 +26,7 @@ const CALLS_FOR: &[(MachineCapability, &[&str])] = &[
         MachineCapability::Android {},
         &["android", "adb", "apk", "gradle", "avd"],
     ),
-    (MachineCapability::Blender {}, &["blender", "blend"]),
+    (MachineCapability::Blender {}, &["blender"]),
     (MachineCapability::Unreal {}, &["unreal", "ue5", "uasset"]),
     (MachineCapability::Cuda {}, &["cuda", "nvcc"]),
     (
@@ -61,19 +62,6 @@ pub(super) fn called_for(text: &str) -> Vec<MachineCapability> {
         .collect()
 }
 
-/// `needs` with `more` added, each once.
-pub(super) fn with(
-    mut needs: Vec<MachineCapability>,
-    more: Vec<MachineCapability>,
-) -> Vec<MachineCapability> {
-    for need in more {
-        if !needs.contains(&need) {
-            needs.push(need);
-        }
-    }
-    needs
-}
-
 /// What Auto knows of one online machine.
 #[derive(Debug)]
 pub(super) struct Candidate<'a> {
@@ -83,28 +71,111 @@ pub(super) struct Candidate<'a> {
     pub(super) capabilities: &'a [MachineCapability],
     /// The user's environment.
     pub(super) workspace: bool,
+    /// The folder asked for is there, or none was asked for.
+    pub(super) has_folder: bool,
     /// Sessions running on it now; only read to break a tie.
     pub(super) running: u32,
 }
 
 impl Candidate<'_> {
-    fn fits(&self, needs: &[MachineCapability]) -> bool {
-        self.offers && needs.iter().all(|need| self.capabilities.contains(need))
+    pub(super) fn has(&self, needs: &[MachineCapability]) -> bool {
+        needs.iter().all(|need| self.capabilities.contains(need))
     }
 }
 
-/// The machines that offer the agent and have every capability `needs`
-/// names, by index.
-pub(super) fn fitting(candidates: &[Candidate<'_>], needs: &[MachineCapability]) -> Vec<usize> {
-    (0..candidates.len())
-        .filter(|&at| candidates[at].fits(needs))
-        .collect()
+/// Why no machine fits a start.
+#[derive(Debug, PartialEq, thiserror::Error)]
+pub(super) enum AutoError {
+    #[error("None of your machines online offers {agent}.")]
+    NoAgent { agent: String },
+    #[error("No machine online with {agent} has {needs}. With {agent}: {offering}.")]
+    Missing {
+        agent: String,
+        needs: String,
+        offering: String,
+    },
+    #[error("There is no folder {folder} on {checked}.")]
+    NoFolder { folder: String, checked: String },
 }
 
-/// Whether picking among `fit` needs each machine's running sessions: when
+/// What a start asks of its machine.
+pub(super) struct Wants<'a> {
+    /// The agent's name for messages, such as "Claude Code".
+    pub(super) agent: &'a str,
+    /// Asked for by the app: a machine must have all of them.
+    pub(super) needs: &'a [MachineCapability],
+    /// Mentioned in the prompt or folder: preferred, not required.
+    pub(super) hints: &'a [MachineCapability],
+    pub(super) folder: Option<&'a str>,
+}
+
+/// The machines Auto picks among, by index, and the hints none of them met.
+#[derive(Debug, PartialEq)]
+pub(super) struct Pool {
+    pub(super) at: Vec<usize>,
+    pub(super) missed: Vec<MachineCapability>,
+}
+
+/// The machines that offer the agent, have every need and the folder, and,
+/// when some of them do, every hint they can.
+pub(super) fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoError> {
+    let agent = wants.agent.to_owned();
+    let names = |at: &[usize]| list(at.iter().map(|&at| candidates[at].name));
+    let offering: Vec<usize> = (0..candidates.len())
+        .filter(|&at| candidates[at].offers)
+        .collect();
+    if offering.is_empty() {
+        return Err(AutoError::NoAgent { agent });
+    }
+    let able: Vec<usize> = offering
+        .iter()
+        .copied()
+        .filter(|&at| candidates[at].has(wants.needs))
+        .collect();
+    if able.is_empty() {
+        return Err(AutoError::Missing {
+            agent,
+            needs: list(wants.needs.iter().map(|need| need.label())),
+            offering: names(&offering),
+        });
+    }
+    let there: Vec<usize> = able
+        .iter()
+        .copied()
+        .filter(|&at| candidates[at].has_folder)
+        .collect();
+    if there.is_empty() {
+        return Err(AutoError::NoFolder {
+            folder: wants.folder.unwrap_or_default().to_owned(),
+            checked: names(&able),
+        });
+    }
+    let (met, missed): (Vec<MachineCapability>, Vec<MachineCapability>) =
+        wants.hints.iter().copied().partition(|hint| {
+            there
+                .iter()
+                .any(|&at| candidates[at].capabilities.contains(hint))
+        });
+    let hinted: Vec<usize> = there
+        .iter()
+        .copied()
+        .filter(|&at| candidates[at].has(&met))
+        .collect();
+    Ok(if hinted.is_empty() {
+        // No one machine has every hint some machine has.
+        Pool {
+            at: there,
+            missed: wants.hints.to_vec(),
+        }
+    } else {
+        Pool { at: hinted, missed }
+    })
+}
+
+/// Whether picking in `pool` needs each machine's running sessions: when
 /// several fit and none is the user's environment.
-pub(super) fn needs_load(candidates: &[Candidate<'_>], fit: &[usize]) -> bool {
-    fit.len() > 1 && !fit.iter().any(|&at| candidates[at].workspace)
+pub(super) fn needs_load(candidates: &[Candidate<'_>], pool: &Pool) -> bool {
+    pool.at.len() > 1 && !pool.at.iter().any(|&at| candidates[at].workspace)
 }
 
 /// The machine Auto picks and why, said to the user.
@@ -114,53 +185,54 @@ pub(super) struct Choice {
     pub(super) why: String,
 }
 
-/// Picks among `fit`: the user's environment, else the machine running the
-/// fewest sessions, then by name. The error says why none fits.
-pub(super) fn choose(
-    candidates: &[Candidate<'_>],
-    fit: &[usize],
-    needs: &[MachineCapability],
-    agent: &str,
-) -> Result<Choice, String> {
-    let has = list(needs.iter().map(|need| need.label()));
-    let Some(&first) = fit.first() else {
-        let offering: Vec<&str> = candidates
-            .iter()
-            .filter(|candidate| candidate.offers)
-            .map(|candidate| candidate.name)
-            .collect();
-        return Err(if offering.is_empty() {
-            format!("None of your machines online offers {agent}.")
-        } else {
-            format!(
-                "No machine online with {agent} has {has}. With {agent}: {}.",
-                offering.join(", ")
-            )
-        });
-    };
-    if let Some(&at) = fit.iter().find(|&&at| candidates[at].workspace) {
-        let why = if needs.is_empty() {
-            "It is your environment.".to_owned()
-        } else {
-            format!("It has {has} and is your environment.")
-        };
-        return Ok(Choice { at, why });
-    }
-    let at = fit
+/// Picks in `pool` (never empty, as `pool` makes it): the user's
+/// environment, else the machine running the fewest sessions, then by name.
+pub(super) fn choose(candidates: &[Candidate<'_>], pool: &Pool, wants: &Wants<'_>) -> Choice {
+    let wanted: Vec<&str> = wants
+        .needs
         .iter()
-        .copied()
-        .min_by(|&a, &b| {
-            let (a, b) = (&candidates[a], &candidates[b]);
-            a.running.cmp(&b.running).then_with(|| a.name.cmp(b.name))
-        })
-        .unwrap_or(first);
-    let why = match (needs.is_empty(), fit.len()) {
-        (true, 1) => format!("It is the only machine with {agent}."),
-        (true, _) => "It runs the fewest sessions.".to_owned(),
-        (false, 1) => format!("It is the only one with {has}."),
-        (false, _) => format!("It has {has} and runs the fewest sessions."),
+        .chain(
+            wants
+                .hints
+                .iter()
+                .filter(|hint| !pool.missed.contains(hint)),
+        )
+        .map(|capability| capability.label())
+        .collect();
+    let has = list(wanted.iter().copied());
+    let missed = if pool.missed.is_empty() {
+        String::new()
+    } else {
+        let missed = list(pool.missed.iter().map(|hint| hint.label()));
+        format!(" No machine has {missed}, which the task mentions.")
     };
-    Ok(Choice { at, why })
+    let workspace = pool.at.iter().copied().find(|&at| candidates[at].workspace);
+    let (at, why) = match workspace {
+        Some(at) if has.is_empty() => (at, "It is your environment.".to_owned()),
+        Some(at) => (at, format!("It has {has} and is your environment.")),
+        None => {
+            let at = pool
+                .at
+                .iter()
+                .copied()
+                .min_by(|&a, &b| {
+                    let (a, b) = (&candidates[a], &candidates[b]);
+                    a.running.cmp(&b.running).then_with(|| a.name.cmp(b.name))
+                })
+                .unwrap_or_default();
+            let why = match (has.is_empty(), pool.at.len()) {
+                (true, 1) => format!("It is the only machine with {}.", wants.agent),
+                (true, _) => "It runs the fewest sessions.".to_owned(),
+                (false, 1) => format!("It is the only one with {has}."),
+                (false, _) => format!("It has {has} and runs the fewest sessions."),
+            };
+            (at, why)
+        }
+    };
+    Choice {
+        at,
+        why: why + &missed,
+    }
 }
 
 /// "a, b and c".
@@ -192,12 +264,27 @@ mod tests {
             offers: true,
             capabilities,
             workspace,
+            has_folder: true,
             running,
         }
     }
 
+    fn wants<'a>(needs: &'a [MachineCapability], hints: &'a [MachineCapability]) -> Wants<'a> {
+        Wants {
+            agent: "Codex",
+            needs,
+            hints,
+            folder: None,
+        }
+    }
+
+    fn pick(machines: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Choice, AutoError> {
+        let pool = pool(machines, wants)?;
+        Ok(choose(machines, &pool, wants))
+    }
+
     #[test]
-    fn prompts_call_for_what_they_name() {
+    fn prompts_hint_at_what_they_name() {
         assert_eq!(called_for("Fix the iOS widget in Xcode"), [XCODE]);
         assert_eq!(called_for("Fine-tune the model with CUDA"), [CUDA, GPU]);
         assert_eq!(
@@ -205,33 +292,55 @@ mod tests {
             [MachineCapability::Android {}]
         );
         assert_eq!(
-            called_for("Render scene.blend"),
+            called_for("Open it in Blender"),
             [MachineCapability::Blender {}]
         );
+        // "blend" is an ordinary word, not Blender.
+        assert!(called_for("Blend the two colour themes").is_empty());
         // Part of a word is not the word.
         assert!(called_for("Fix the bios check and the gpuless path").is_empty());
         assert!(called_for("Fix the failing login test").is_empty());
     }
 
     #[test]
-    fn needs_join_without_repeats() {
-        assert_eq!(with(vec![XCODE], vec![GPU, XCODE]), [XCODE, GPU]);
-    }
-
-    #[test]
-    fn auto_picks_the_only_machine_with_what_is_needed() {
+    fn a_hint_steers_to_the_machine_that_has_it() {
         let machines = [
             candidate("home", &[], true, 0),
             candidate("studio", &[XCODE], false, 3),
         ];
-        let fit = fitting(&machines, &[XCODE]);
-        assert_eq!(fit, [1]);
-        assert!(!needs_load(&machines, &fit));
+        let wants = wants(&[], &[XCODE]);
+        let pool = pool(&machines, &wants).unwrap();
+        assert_eq!(pool.at, [1]);
+        assert!(!needs_load(&machines, &pool));
         assert_eq!(
-            choose(&machines, &fit, &[XCODE], "Claude Code"),
-            Ok(Choice {
+            choose(&machines, &pool, &wants),
+            Choice {
                 at: 1,
                 why: "It is the only one with Xcode.".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_hint_no_machine_meets_falls_back_with_a_note() {
+        let machines = [
+            candidate("home", &[GPU], true, 0),
+            candidate("mac", &[], false, 0),
+        ];
+        assert_eq!(
+            pick(&machines, &wants(&[], &[XCODE, GPU])),
+            Ok(Choice {
+                at: 0,
+                why: "It has a GPU and is your environment. No machine has Xcode, which the task mentions."
+                    .into()
+            })
+        );
+        assert_eq!(
+            pick(&machines, &wants(&[], &[XCODE])),
+            Ok(Choice {
+                at: 0,
+                why: "It is your environment. No machine has Xcode, which the task mentions."
+                    .into()
             })
         );
     }
@@ -243,28 +352,27 @@ mod tests {
             candidate("gpu-a", &[GPU], false, 2),
             candidate("gpu-c", &[GPU], false, 1),
         ];
-        let fit = fitting(&machines, &[GPU]);
-        assert!(needs_load(&machines, &fit));
+        let need = wants(&[GPU], &[]);
+        let pool = pool(&machines, &need).unwrap();
+        assert!(needs_load(&machines, &pool));
         assert_eq!(
-            choose(&machines, &fit, &[GPU], "Codex"),
-            Ok(Choice {
+            choose(&machines, &pool, &need),
+            Choice {
                 at: 2,
                 why: "It has a GPU and runs the fewest sessions.".into()
-            })
+            }
         );
         let tied = [
             candidate("gpu-b", &[GPU], false, 1),
             candidate("gpu-a", &[GPU], false, 1),
         ];
-        assert_eq!(choose(&tied, &[0, 1], &[GPU], "Codex").map(|c| c.at), Ok(1));
+        assert_eq!(pick(&tied, &need).map(|c| c.at), Ok(1));
         let with_home = [
             candidate("mac", &[], false, 0),
             candidate("home", &[], true, 5),
         ];
-        let fit = fitting(&with_home, &[]);
-        assert!(!needs_load(&with_home, &fit));
         assert_eq!(
-            choose(&with_home, &fit, &[], "Codex"),
+            pick(&with_home, &wants(&[], &[])),
             Ok(Choice {
                 at: 1,
                 why: "It is your environment.".into()
@@ -273,19 +381,39 @@ mod tests {
     }
 
     #[test]
+    fn the_folder_rules_out_machines_without_it() {
+        let mut machines = [
+            candidate("home", &[], true, 0),
+            candidate("mac", &[], false, 0),
+        ];
+        machines[0].has_folder = false;
+        let mut want = wants(&[], &[]);
+        want.folder = Some("/Users/sam/app");
+        assert_eq!(pick(&machines, &want).map(|c| c.at), Ok(1));
+        machines[1].has_folder = false;
+        assert_eq!(
+            pick(&machines, &want),
+            Err(AutoError::NoFolder {
+                folder: "/Users/sam/app".into(),
+                checked: "home and mac".into()
+            })
+        );
+    }
+
+    #[test]
     fn auto_says_why_nothing_fits() {
         let mut machines = [candidate("home", &[GPU], true, 0)];
+        let mut need = wants(&[XCODE, CUDA], &[]);
+        need.agent = "Claude Code";
         assert_eq!(
-            choose(&machines, &[], &[XCODE, CUDA], "Claude Code"),
-            Err(
-                "No machine online with Claude Code has Xcode and CUDA. With Claude Code: home."
-                    .into()
-            )
+            pick(&machines, &need).unwrap_err().to_string(),
+            "No machine online with Claude Code has Xcode and CUDA. With Claude Code: home."
         );
         machines[0].offers = false;
+        need.agent = "pi";
         assert_eq!(
-            choose(&machines, &[], &[], "pi"),
-            Err("None of your machines online offers pi.".into())
+            pick(&machines, &need),
+            Err(AutoError::NoAgent { agent: "pi".into() })
         );
     }
 }
