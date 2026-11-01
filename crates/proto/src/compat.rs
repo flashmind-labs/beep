@@ -105,6 +105,11 @@ sample_struct! {
     MachineSession { machine_id, machine_name, id, agent, title, cwd, status, doing, started_at, last_activity, external, question }
     AgentQuestion { id, text, detail, options }
     AgentOption { id, name, allow }
+    AgentHost { machine_id, machine_name, agents, workspace, home, capabilities }
+    StartedAgent { session, why }
+    AgentSessionView { session, plan, files, last_message, error, queued, turns, entries, earlier }
+    AgentPlanStep { content, status }
+    AgentEntry { kind, text }
     AppIntegration { slug, name, description, logo_url, connected, configured, kind }
     ConnectLink { url }
     AppAccount { id, address }

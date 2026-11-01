@@ -20,6 +20,7 @@ pub(crate) mod copy;
 mod desktop;
 pub(crate) mod exec;
 pub(crate) mod process;
+pub(crate) mod transfer;
 
 /// Registers each tool some machine of the user's online now can serve.
 pub(crate) fn register(registry: &mut ToolRegistry, app: &Arc<App>, user: &Arc<User>, chat: Uuid) {

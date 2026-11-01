@@ -199,24 +199,34 @@ async fn exec_process_and_copy_on_real_nodes() {
         machines: Some(machines.clone()),
         paper: false,
     };
+    let folder = call(
+        &exec,
+        json!({ "command": "mkdir -p ~/in", "in": "beep-live-other" }),
+    )
+    .await;
+    assert!(folder.is_success(), "{}", folder.output());
     let copied = call(
         &send,
-        json!({ "path": "big.bin", "to": "beep-live-other", "dst_path": "~/in/big.bin" }),
+        json!({ "path": "big.bin", "to": "beep-live-other", "dst_folder": "~/in" }),
     )
     .await;
     println!("send_file copy:\n{}", copied.output());
     assert!(copied.is_success(), "{}", copied.output());
     assert!(
-        copied.output().starts_with("Copied 9000000 bytes"),
+        copied.output().starts_with("Sent 8.6 MiB"),
         "{}",
         copied.output()
     );
     let again = call(
         &send,
-        json!({ "path": "big.bin", "to": "beep-live-other", "dst_path": "~/in/big.bin" }),
+        json!({ "path": "big.bin", "to": "beep-live-other", "dst_folder": "~/in" }),
     )
     .await;
-    assert!(!again.is_success(), "no overwrite without asking");
+    assert!(
+        again.output().contains("big (2).bin"),
+        "a second send keeps both: {}",
+        again.output()
+    );
     let there = call(
         &exec,
         json!({ "command": "sha256sum ~/in/big.bin | cut -d' ' -f1", "in": "beep-live-other" }),
@@ -226,7 +236,7 @@ async fn exec_process_and_copy_on_real_nodes() {
     assert_eq!(there.output(), format!("[exit code: 0]\n{sum}"));
     let back = call(
         &send,
-        json!({ "from": "beep-live-other", "path": "~/in/big.bin", "to": "beep-live-home", "dst_path": "back.bin" }),
+        json!({ "from": "beep-live-other", "path": "~/in/big.bin", "to": "beep-live-home" }),
     )
     .await;
     println!("send_file copy back:\n{}", back.output());

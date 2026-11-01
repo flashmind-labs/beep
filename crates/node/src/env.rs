@@ -27,6 +27,7 @@ const KNOWN_TOOLS: &[(&str, &[&str])] = &[
     ("codex", &["--version"]),
     ("gemini", &["--version"]),
     ("pi", &["--version"]),
+    ("flsh", &["--version"]),
     ("kubectl", &["version", "--client"]),
     ("adb", &["version"]),
     ("xcodebuild", &["-version"]),
