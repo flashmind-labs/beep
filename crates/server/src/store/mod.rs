@@ -35,6 +35,7 @@ mod node_tokens;
 mod nodes;
 mod places;
 mod profile;
+mod project_imports;
 mod project_sync;
 mod projects;
 mod research;
@@ -73,6 +74,7 @@ pub use node_tokens::{Claim, ClaimNode, ClaimedNode};
 pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
+pub use project_imports::{ImportRow, NewImport};
 pub use project_sync::SyncRow;
 pub(crate) use projects::{
     After, CheckoutRow, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused, TaskRow,
@@ -364,6 +366,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         60,
         "projects",
         include_str!("../../migrations/0060_projects.sql"),
+    ),
+    (
+        61,
+        "project imports",
+        include_str!("../../migrations/0061_project_imports.sql"),
     ),
 ];
 

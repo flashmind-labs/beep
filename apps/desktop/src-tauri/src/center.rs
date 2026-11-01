@@ -6,13 +6,14 @@ use crate::{
     bar,
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
+    projects::ProjectRow,
 };
 use beep_proto::{
     AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate, ChatApproval, Cron,
-    DismissUpdates, ListAgentSessions, ListCrons, ListMachineDetails, ListMachineStats,
-    ListMachines, ListPendingApprovals, ListResearches, ListUpdates, Machine, MachineApp,
-    MachineDetails, MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats,
-    PendingApproval, ResearchStatus, ResearchSummary, Session,
+    DismissUpdates, ImportedProject, ListAgentSessions, ListCrons, ListImportedProjects,
+    ListMachineDetails, ListMachineStats, ListMachines, ListPendingApprovals, ListResearches,
+    ListUpdates, Machine, MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu,
+    MachineSession, MachineStats, PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -196,6 +197,8 @@ pub struct HomeView {
     needs_you: Vec<NeedsYou>,
     coming_up: Option<Vec<CronRow>>,
     updates: Option<Vec<UpdateRow>>,
+    /// The projects imported onto the user's machines.
+    projects: Option<Vec<ProjectRow>>,
 }
 
 /// Something the event triage agent found in one of the user's apps.
@@ -333,11 +336,23 @@ struct HomeParts {
     chats: Result<Vec<Session>>,
     crons: Result<Vec<Cron>>,
     updates: Result<Vec<AppUpdate>>,
+    projects: Result<Vec<ImportedProject>>,
 }
 
 #[tauri::command]
 pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
-    let (machines, details, stats, sessions, researches, approvals, chats, crons, updates) = join!(
+    let (
+        machines,
+        details,
+        stats,
+        sessions,
+        researches,
+        approvals,
+        chats,
+        crons,
+        updates,
+        projects,
+    ) = join!(
         beep.call(ListMachines {}),
         beep.call(ListMachineDetails {}),
         beep.call(ListMachineStats {}),
@@ -347,6 +362,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
         beep.sessions(),
         beep.call(ListCrons {}),
         beep.call(ListUpdates {}),
+        beep.call(ListImportedProjects {}),
     );
     home_view(HomeParts {
         machines,
@@ -358,6 +374,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
         chats,
         crons,
         updates,
+        projects,
     })
 }
 
@@ -414,6 +431,8 @@ fn home_view(parts: HomeParts) -> Result<HomeView> {
         coming_up: section("routines", parts.crons).map(coming_up),
         updates: section("updates", parts.updates)
             .map(|updates| updates.into_iter().map(UpdateRow::from).collect()),
+        projects: section("projects", parts.projects)
+            .map(|projects| projects.into_iter().map(ProjectRow::from).collect()),
     })
 }
 
@@ -803,7 +822,31 @@ mod tests {
             chats: Ok(Vec::new()),
             crons: Ok(Vec::new()),
             updates: Ok(Vec::new()),
+            projects: Ok(Vec::new()),
         }
+    }
+
+    #[test]
+    fn imported_projects_list_and_an_old_server_hides_them() {
+        let listed = view(HomeParts {
+            projects: Ok(vec![ImportedProject {
+                project: "org/repo".into(),
+                url: "https://github.com/org/repo".into(),
+                machine_id: "m1".into(),
+                machine_name: "build-box".into(),
+                folder: "/srv/work/projects/org/repo".into(),
+                cloned: false,
+                imported_at: at(9000),
+            }]),
+            ..parts()
+        });
+        let projects = listed.projects.expect("projects were listed");
+        assert_eq!(projects.len(), 1);
+        let old = view(HomeParts {
+            projects: Err(DesktopError::Api(ApiError::bad_request("unknown op 167"))),
+            ..parts()
+        });
+        assert!(old.projects.is_none());
     }
 
     #[test]

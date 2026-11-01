@@ -10,6 +10,7 @@ use crate::{
     AsyncMutex,
     app::{App, UserNotice},
     apps::{Composio, mcp::KEEP_ALIVE},
+    credentials::Opened,
     decision::DecisionTool,
     feeds::{self, SYNC_SWEEP, mail::Mailbox},
     images::Picture,
@@ -971,6 +972,31 @@ impl User {
         self.store
             .remove_project_sync(&self.key, project, endpoint)
             .await
+    }
+
+    /// Records a project imported onto a machine.
+    pub async fn save_import(
+        &self,
+        import: crate::store::NewImport<'_>,
+    ) -> Result<crate::store::ImportRow> {
+        self.store.save_import(&self.key, import).await
+    }
+
+    /// The projects the user imported, by project, then machine.
+    pub async fn imports(&self) -> Result<Vec<crate::store::ImportRow>> {
+        self.store.imports(&self.key).await
+    }
+
+    /// The user's git credentials (GitHub, Forgejo servers), opened.
+    pub async fn git_credentials(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<Opened>> {
+        let opened = self.store.machine_credentials(&self.key, key).await?;
+        Ok(opened
+            .into_iter()
+            .filter(|opened| opened.slot.always_to_machines())
+            .collect())
     }
 
     pub async fn pinned_projects(&self) -> Result<Vec<String>> {

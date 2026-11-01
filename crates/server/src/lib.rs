@@ -20,6 +20,7 @@ pub mod gates;
 pub mod grants;
 mod guest;
 pub mod images;
+pub mod imports;
 pub mod instance;
 pub mod leak;
 pub mod live;
