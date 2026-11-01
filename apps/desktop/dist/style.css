@@ -554,13 +554,18 @@ button.dachip:hover { border-color: #3A4A41 }
 .dsrc.more { padding: 0 9px }
 .dsrc:hover { color: var(--fg); border-color: #3A4A41 }
 
-/* The bar's chip that hands the open chat to the command center window. */
-.dhand { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted); font-size: 11.5px; padding: 0 }
-.dhand:hover { color: var(--fg) }
+/* The bar's row that hands the open chat to the command center window. */
+.dhand { flex: none; display: flex; justify-content: flex-end; padding: 0 16px 8px }
+.dbar:has(#ldock) > .dhand { display: none }
 
-/* The same page as a pane in the command center: it fills its column, has no
-   frame of its own, and the chat's prompt sits under the transcript. */
+/* The same page as a pane in the command center: it fills its column with no
+   frame of its own. The transcript is a 700px column, and the chat's prompt
+   is a card under it with the hints below. */
 .dbar[data-mode="window"] { height: 100%; background: transparent; border: 0; border-radius: 0; box-shadow: none }
-.dbar[data-mode="window"] > .dinput.dgrow { order: 1; border-top: 1px solid var(--border); padding-left: max(16px, calc((100% - 820px) / 2)); padding-right: max(16px, calc((100% - 820px) / 2)) }
-.dbar[data-mode="window"] > .dhints { order: 2; padding-left: max(16px, calc((100% - 820px) / 2)); padding-right: max(16px, calc((100% - 820px) / 2)) }
-.dbar[data-mode="window"] > .dbody { padding-left: max(16px, calc((100% - 820px) / 2)); padding-right: max(26px, calc((100% - 820px) / 2)) }
+.dbar[data-mode="window"] > .dbody { padding: 16px max(26px, calc((100% - 656px) / 2)) 10px max(22px, calc((100% - 656px) / 2)) }
+.dbar[data-mode="window"] > .dthumbs { order: 1; padding: 0 17px 8px }
+.dbar[data-mode="window"] > .dinput.dgrow { order: 1; margin: 0 16px 14px; padding: 8px 10px 8px 14px; border: 1px solid var(--border); border-radius: 12px;
+  background: rgba(26, 35, 30, .92); font-size: 14px; line-height: 22px }
+.dbar[data-mode="window"] > .dhints { order: 2; justify-content: center; gap: 4px 14px; margin: -6px 16px 10px; padding: 0; border-top: 0; background: transparent; color: var(--dim) }
+.dbar[data-mode="window"] > .dhints .dmodel { margin-left: 0 }
+.dbar[data-mode="window"] > .dlatest { bottom: 110px }
