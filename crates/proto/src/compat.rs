@@ -175,6 +175,7 @@ sample_struct! {
     MachineSync { machine_id, machine_name, folder, status, files, bytes, pending, conflicts, rescan_secs, hint, error }
     SyncSkipped { paths, through_git, truncated }
     SkippedFile { path, folder, rule }
+    NodeToken { token, expires_at }
 }
 
 macro_rules! sample_values {

@@ -5,11 +5,14 @@ use crate::{agents::Agents, env, files::Folders, shell, state::State, tasks, tra
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     link::LinkOffer,
-    node::{Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, Open, Opened, Up, agent, link},
+    node::{
+        CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, NodeSetup,
+        Open, Opened, Up, agent, link,
+    },
 };
 use iroh::{
     Endpoint, EndpointAddr,
-    endpoint::{Connection, RecvStream, SendStream, presets},
+    endpoint::{Connection, ConnectionError, RecvStream, SendStream, VarInt, presets},
 };
 use std::{
     future::Future,
@@ -109,6 +112,7 @@ pub async fn serve(
     let hello = Hello {
         name: &state.name,
         workspace: workspace.as_deref(),
+        setup: None,
     };
     log::info!("offering {:?}", offers.names());
     // Claude Code's hooks report to the node over a socket in its folder.
@@ -160,6 +164,7 @@ pub async fn connect(
     let hello = Hello {
         name,
         workspace: None,
+        setup: None,
     };
     connect_as(endpoint, server, &hello, offers).await
 }
@@ -168,6 +173,40 @@ pub async fn connect(
 struct Hello<'a> {
     name: &'a str,
     workspace: Option<&'a str>,
+    /// A setup token to claim (`beep-node setup`).
+    setup: Option<&'a NodeSetup>,
+}
+
+/// What claiming a setup token gave.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Claimed {
+    /// The account's name, such as mega-fox-trot.
+    pub account: String,
+    /// What the server calls this machine.
+    pub name: String,
+}
+
+/// Connects to `server` once to claim `setup` with this endpoint's key,
+/// then closes. `name` is the machine's name when neither `setup` nor the
+/// token gives one. Errors say why in words for the user.
+pub async fn claim(
+    endpoint: &Endpoint,
+    server: EndpointAddr,
+    name: &str,
+    setup: &NodeSetup,
+) -> Result<Claimed> {
+    let hello = Hello {
+        name,
+        workspace: None,
+        setup: Some(setup),
+    };
+    let linked = open_as(endpoint, server, &hello, &Offers::default()).await?;
+    linked
+        .connection
+        .close(VarInt::from_u32(0), b"set up; reconnecting");
+    linked
+        .claimed
+        .context("the server welcomed this node without linking it")
 }
 
 async fn connect_as(
@@ -208,6 +247,8 @@ pub struct Linked {
     tx: LinkTx,
     rx: LinkRx,
     offers: Offers,
+    /// What the hello's setup token gave, when it carried one.
+    claimed: Option<Claimed>,
 }
 
 /// Connects to `server` and says hello; `Ok` once the server welcomed this
@@ -221,6 +262,7 @@ pub async fn open(
     let hello = Hello {
         name,
         workspace: None,
+        setup: None,
     };
     open_as(endpoint, server, &hello, offers).await
 }
@@ -242,15 +284,22 @@ async fn open_as(
         name: name.to_owned(),
         offers: offers.names(),
         workspace: hello.workspace.map(str::to_owned),
+        setup: hello.setup.cloned(),
     })
     .await?;
-    match rx.recv::<Down>().await {
-        Ok(Some(Down::Welcome {})) => {}
-        Ok(Some(other)) => bail!("expected a welcome, got {other:?}"),
-        Ok(None) | Err(_) => match connection.close_reason() {
-            Some(reason) => bail!("the server refused this node: {reason}"),
-            None => bail!("the server closed before its welcome"),
-        },
+    let mut claimed = None;
+    loop {
+        match rx.recv::<Down>().await {
+            Ok(Some(Down::Welcome {})) => break,
+            Ok(Some(Down::Linked { account, name })) if hello.setup.is_some() => {
+                claimed = Some(Claimed { account, name });
+            }
+            Ok(Some(other)) => bail!("expected a welcome, got {other:?}"),
+            Ok(None) | Err(_) => match connection.close_reason() {
+                Some(reason) => bail!("{}", refusal(&reason, hello.setup.is_some())),
+                None => bail!("the server closed before its welcome"),
+            },
+        }
     }
     log::info!("connected as {name:?}");
     Ok(Linked {
@@ -258,7 +307,26 @@ async fn open_as(
         tx,
         rx,
         offers: offers.clone(),
+        claimed,
     })
+}
+
+/// Why the server closed before its welcome, in words for the user.
+fn refusal(reason: &ConnectionError, setting_up: bool) -> String {
+    if let ConnectionError::ApplicationClosed(close) = reason {
+        let text = String::from_utf8_lossy(&close.reason);
+        if close.error_code == VarInt::from_u32(CLOSE_SETUP_REFUSED) {
+            return text.into_owned();
+        }
+        // A server from before setup tokens turns the unknown key away
+        // without reading the hello.
+        if setting_up && text == "not linked" {
+            return "This server does not take setup tokens yet. Update it, or link the \
+                    machine with `beep-node link`."
+                .to_owned();
+        }
+    }
+    format!("the server refused this node: {reason}")
 }
 
 impl Linked {
@@ -270,6 +338,7 @@ impl Linked {
             mut tx,
             mut rx,
             offers,
+            claimed: _,
         } = self;
         serve_linked(&connection, &mut tx, &mut rx, &offers).await
     }

@@ -913,6 +913,30 @@ impl User {
         self.store.link_key(&self.key, key).await
     }
 
+    /// Keeps a new setup token's hash; returns when it expires.
+    pub async fn create_node_token(
+        &self,
+        hash: &str,
+        name: Option<&str>,
+        ttl: Duration,
+    ) -> Result<DateTime<Utc>> {
+        self.store
+            .create_node_token(&self.key, hash, name, ttl)
+            .await
+    }
+
+    /// The key that claimed this user's setup token `hash`: `None` for no
+    /// such token, `Some(None)` while unused.
+    pub async fn node_token_claimer(&self, hash: &str) -> Result<Option<Option<String>>> {
+        self.store.node_token_claimer(&self.key, hash).await
+    }
+
+    /// Stops this user's unused setup token `hash` from working; false
+    /// when there is none.
+    pub async fn revoke_node_token(&self, hash: &str) -> Result<bool> {
+        self.store.revoke_node_token(&self.key, hash).await
+    }
+
     /// Records that a node said hello.
     pub async fn node_connected(&self, node: NewNode<'_>) -> Result<()> {
         self.store.node_connected(&self.key, node).await

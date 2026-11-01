@@ -1,7 +1,8 @@
 //! The tools that use the user's machines, the nodes running `beep-node`:
 //! `exec` and `process` for commands, `desktop` for a Mac's screen and
 //! `code_agent` for coding agents. Each takes `in`, a machine's name; left
-//! out, it picks the machine the way `Need` says.
+//! out, it picks the machine the way `Need` says. `add_machine` links a new
+//! one.
 
 use crate::{
     app::App,
@@ -14,6 +15,7 @@ use flashmind::types::{ToolRegistry, tool::ToolResult};
 use std::sync::Arc;
 use uuid::Uuid;
 
+pub(crate) mod add;
 mod agents;
 mod code_agent;
 pub(crate) mod copy;

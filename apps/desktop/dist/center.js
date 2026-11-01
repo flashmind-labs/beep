@@ -9,6 +9,7 @@ import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
 import { agentOf, base, homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "./home.js";
+import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -618,10 +619,9 @@ function emptyRow(text, on) {
   return b;
 }
 
-/// Adds a machine. Another branch puts the add-a-machine sheet here; until
-/// then it opens the Machines part of Settings.
+/// Opens the Add a machine sheet; Home refreshes once it closes.
 export function openAddMachine() {
-  openSettings("machines");
+  openAddMachineSheet({ onClose: refresh });
 }
 
 /// Opens the projects view. Until there is one, Home's Running section,
