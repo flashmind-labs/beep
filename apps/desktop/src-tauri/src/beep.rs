@@ -470,11 +470,11 @@ impl Beep {
     }
 
     pub fn use_mac(&self) -> bool {
-        self.saved().use_mac
+        self.saved().uses_mac()
     }
 
     pub fn set_use_mac(&self, on: bool) {
-        self.update_saved(|s| s.use_mac = on);
+        self.update_saved(|s| s.set_use_mac(on));
     }
 
     /// The chats copied from the server.

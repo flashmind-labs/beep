@@ -40,9 +40,15 @@ pub struct Saved {
     /// Chats started here as researches, which open in their own window.
     #[serde(default)]
     pub researches: Vec<Uuid>,
-    /// "Let Beep use this Mac": serve as a node with desktop control.
+    /// The "Let Beep use this Mac" switch from before `mac_off`. It was
+    /// false for everyone, never a choice, so it no longer decides; it is
+    /// still written so an older app reads a matching value.
     #[serde(default)]
     pub use_mac: bool,
+    /// The user turned "Let Beep use this Mac" off. Unless they did, the
+    /// Mac serves as a node with desktop control.
+    #[serde(default)]
+    pub mac_off: bool,
     /// The Voice notes switch from before `notice_voice`, still written so
     /// an older app reads a matching value.
     #[serde(default = "on")]
@@ -74,6 +80,16 @@ impl Saved {
         }
     }
 
+    /// "Let Beep use this Mac": on unless the user turned it off.
+    pub fn uses_mac(&self) -> bool {
+        !self.mac_off
+    }
+
+    pub fn set_use_mac(&mut self, on: bool) {
+        self.mac_off = !on;
+        self.use_mac = on;
+    }
+
     pub fn set_notice_voice(&mut self, choice: NoticeVoice) {
         self.notice_voice = Some(choice);
         self.voice_notes = choice != NoticeVoice::Off;
@@ -86,7 +102,8 @@ impl Default for Saved {
             link: LinkState::default(),
             session: None,
             researches: Vec::new(),
-            use_mac: false,
+            use_mac: true,
+            mac_off: false,
             voice_notes: true,
             notice_voice: None,
             send_on_pause: true,
@@ -142,6 +159,20 @@ mod tests {
             parse(r#"{"voice_notes":true,"notice_voice":"aloud"}"#).notice_voice(),
             NoticeVoice::Aloud
         );
+    }
+
+    #[test]
+    fn the_mac_is_used_unless_turned_off() {
+        assert!(parse("{}").uses_mac());
+        // Every saved state had this, though nobody chose it.
+        assert!(parse(r#"{"use_mac":false}"#).uses_mac());
+        assert!(!parse(r#"{"use_mac":false,"mac_off":true}"#).uses_mac());
+        let mut saved = parse(r#"{"use_mac":false}"#);
+        saved.set_use_mac(false);
+        assert!(!saved.uses_mac());
+        saved.set_use_mac(true);
+        assert!(saved.uses_mac());
+        assert!(saved.use_mac);
     }
 
     #[test]
