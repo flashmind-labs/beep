@@ -10,7 +10,6 @@ use flashmind::types::{
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    mem,
     sync::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicUsize, Ordering},
@@ -144,9 +143,7 @@ impl Tool for CallGuard {
             ));
         }
         let mut result = self.tool.execute(ctx).await?;
-        if let ToolResult::Success { output, .. } = &mut result {
-            *output = paging::mark(mem::take(output));
-        }
+        paging::rewrite_text(&mut result, |output| Some(paging::mark(output)));
         Ok(result)
     }
 

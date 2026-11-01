@@ -7,14 +7,12 @@
 //! syncs, and the state keeps that id with the folder's device and inode.
 
 use super::rules::MARKER;
-use crate::transfer::place::Folder;
+use crate::{fsat, transfer::place::Folder};
 use anyhow::{Context, Result, bail};
-use rustix::fs::fstat;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
     io::{ErrorKind, Write as _},
-    os::unix::fs::MetadataExt,
     path::Path,
 };
 
@@ -33,11 +31,11 @@ const CHANGED: &str = "the folder changed or is not mounted";
 /// any file seen there, and gives its identity now. Writes the marker when
 /// the folder has none yet and is the same folder, or nothing was seen.
 pub(super) fn check(root: &Folder, saved: Option<&RootId>, seen_any: bool) -> Result<RootId> {
-    let at_path = fs::metadata(root.path())
+    let at_path = fsat::id_of_path(root.path())
         .with_context(|| format!("{CHANGED}: {} is missing", root.path().display()))?;
-    let open = fstat(root.fd()).context("reading the open folder")?;
-    let (device, inode) = (at_path.dev(), at_path.ino());
-    if (open.st_dev as u64, open.st_ino as u64) != (device, inode) {
+    let open = root.dir().id().context("reading the open folder")?;
+    let (device, inode) = (at_path.device, at_path.inode);
+    if open != at_path {
         bail!("{CHANGED}: {} is another folder now", root.path().display());
     }
     let same_place = saved.is_some_and(|saved| (saved.device, saved.inode) == (device, inode));

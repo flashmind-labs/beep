@@ -4,12 +4,14 @@
 //! with in `turns`.
 
 use super::{
-    Store,
+    RunStatus, Store,
     updates::{Bumped, Readers, UpdateOp, log_messages},
 };
 use crate::protocol::{
-    Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, ToolLabel, TurnInfo,
+    Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, PendingApproval,
+    ToolLabel, TurnInfo,
 };
+use crate::user::UserKey;
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use flashmind::types::ReasoningLevel;
@@ -595,6 +597,66 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         self.complete(rows).await
+    }
+
+    /// The card each of `chats` waits on: the chat's latest run waits for
+    /// the user's OK, and its latest approval is what it asks. Oldest
+    /// first, each with its chat.
+    pub(crate) async fn open_approvals(
+        &self,
+        user: &UserKey,
+        chats: &[Uuid],
+    ) -> Result<Vec<(Uuid, PendingApproval)>> {
+        if chats.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query(
+            "SELECT latest.chat_id, latest.id FROM (
+                 SELECT DISTINCT ON (chat_id) chat_id, id, status FROM runs
+                 WHERE user_id = $1 AND chat_id = ANY($2)
+                 ORDER BY chat_id, seq DESC
+             ) latest WHERE latest.status = $3",
+        )
+        .bind(user.as_str())
+        .bind(chats)
+        .bind(RunStatus::Waiting.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        let mut runs: HashMap<Uuid, String> = HashMap::new();
+        for row in rows {
+            runs.insert(row.try_get(0)?, row.try_get(1)?);
+        }
+        if runs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let waiting: Vec<Uuid> = runs.keys().copied().collect();
+        let ids: Vec<i64> = sqlx::query_scalar(
+            "SELECT DISTINCT ON (m.chat_id) m.id FROM messages m
+             JOIN approvals a ON a.message_id = m.id
+             WHERE m.chat_id = ANY($1)
+             ORDER BY m.chat_id, m.id DESC",
+        )
+        .bind(&waiting)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut open = Vec::with_capacity(ids.len());
+        for message in self.messages_by_id(&ids).await? {
+            let StoredBody::Approval { query_id, approval } = message.body else {
+                continue;
+            };
+            let Some(run_id) = runs.remove(&message.chat_id) else {
+                continue;
+            };
+            open.push((
+                message.chat_id,
+                PendingApproval {
+                    run_id,
+                    query_id,
+                    approval,
+                },
+            ));
+        }
+        Ok(open)
     }
 
     /// The messages with `ids` that still exist, by id.

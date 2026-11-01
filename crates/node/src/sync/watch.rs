@@ -532,10 +532,12 @@ mod tests {
     }
 
     /// Lets the counting test's `recount` finish, from an async task.
+    #[cfg(target_os = "linux")]
     static RECOUNTED: Mutex<Option<std::sync::mpsc::Receiver<()>>> = Mutex::new(None);
 
     /// Counts other programs' watches, as long as an async task on the same
     /// worker can run meanwhile: true when it did.
+    #[cfg(target_os = "linux")]
     fn recount_beside_a_task() -> u64 {
         let rx = lock(&RECOUNTED).take().expect("the test set it");
         u64::from(rx.recv_timeout(Duration::from_secs(5)).is_err())

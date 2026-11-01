@@ -650,8 +650,13 @@ impl Beep {
     }
 
     pub async fn call<R: Call>(&self, request: R) -> Result<R::Reply> {
+        self.call_within(request, CALL_TIMEOUT).await
+    }
+
+    /// `call` for a request that may take longer, such as a clone.
+    pub async fn call_within<R: Call>(&self, request: R, limit: Duration) -> Result<R::Reply> {
         let client = self.client().await?;
-        match timeout(CALL_TIMEOUT, client.call(&request)).await {
+        match timeout(limit, client.call(&request)).await {
             Ok(Ok(reply)) => Ok(reply),
             Ok(Err(e)) => Err(self.failed(e).await),
             Err(_) => Err(DesktopError::BadRequest("the server took too long".into())),

@@ -253,9 +253,25 @@ impl Drop for TestDb {
                 .build()?;
             runtime.block_on(async {
                 let mut admin = PgConnection::connect(&url).await?;
-                admin
-                    .execute(format!("DROP SCHEMA IF EXISTS {schema} CASCADE").as_str())
-                    .await?;
+                admin.execute("SET lock_timeout = '5s'").await?;
+                let drop = format!("DROP SCHEMA IF EXISTS {schema} CASCADE");
+                if admin.execute(drop.as_str()).await.is_ok() {
+                    return anyhow::Ok(());
+                }
+                // A task the test left mid-transaction, such as a chat turn
+                // a worker report started, was dropped with the runtime; its
+                // rollback needed that runtime, so the transaction stays
+                // open and holds its locks.
+                sqlx::query(
+                    "SELECT pg_terminate_backend(l.pid) FROM pg_locks l
+                     JOIN pg_class c ON c.oid = l.relation
+                     JOIN pg_namespace n ON n.oid = c.relnamespace
+                     WHERE n.nspname = $1 AND l.pid <> pg_backend_pid()",
+                )
+                .bind(&schema)
+                .execute(&mut admin)
+                .await?;
+                admin.execute(drop.as_str()).await?;
                 anyhow::Ok(())
             })
         })

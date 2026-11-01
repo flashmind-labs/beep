@@ -31,7 +31,7 @@ const MAX_LAST_MESSAGE: usize = 4 * 1024;
 const MAX_FILES: usize = 50;
 const MAX_PLAN: usize = 30;
 /// The longest summary or question detail.
-const MAX_LINE: usize = 300;
+const MAX_LINE: usize = beep_proto::node::agent::MAX_QUESTION_LINE;
 
 /// ACP tool kinds that change files.
 const EDIT_KINDS: &[ToolKind] = &[ToolKind::Edit, ToolKind::Delete, ToolKind::Move];

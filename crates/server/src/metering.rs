@@ -204,6 +204,7 @@ mod tests {
                     completion: Some(Decimal::new(2, 6)),
                     ..Default::default()
                 },
+                image: Default::default(),
             }])
         }
         fn complete(&self, request: CompletionRequest) -> CompletionStream {

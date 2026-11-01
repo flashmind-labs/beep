@@ -1,7 +1,7 @@
 //! `beep-node service`: runs the node in the background under the system's
-//! service manager, so it starts with the machine (or the login, on macOS)
-//! and comes back when it stops. Linux uses a systemd user unit, macOS a
-//! LaunchAgent.
+//! service manager, so it starts with the machine (or the login, on macOS
+//! and Windows) and comes back when it stops. Linux uses a systemd user
+//! unit, macOS a LaunchAgent, Windows a scheduled task.
 
 use anyhow::{Context, Result, bail};
 use std::{
@@ -10,7 +10,10 @@ use std::{
 };
 
 mod launchd;
+#[cfg(windows)]
+mod parent;
 mod systemd;
+mod windows;
 
 /// How the service starts the node: the same command `setup` would serve.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,10 +58,15 @@ impl Launch {
 
     /// The node's arguments after the binary.
     fn args(&self) -> Vec<String> {
-        let mut args = vec!["--dir".to_owned(), self.dir.display().to_string()];
+        self.args_shown(|path| path.display().to_string())
+    }
+
+    /// The node's arguments, with paths written by `show`.
+    fn args_shown(&self, show: impl Fn(&Path) -> String) -> Vec<String> {
+        let mut args = vec!["--dir".to_owned(), show(&self.dir)];
         if let Some(workspace) = &self.workspace {
             args.push("--workspace".to_owned());
-            args.push(workspace.display().to_string());
+            args.push(show(workspace));
         }
         args.push("run".to_owned());
         args
@@ -72,6 +80,8 @@ pub enum Manager {
     Systemd,
     /// A LaunchAgent (macOS).
     Launchd,
+    /// A scheduled task started at logon (Windows).
+    TaskScheduler,
 }
 
 /// Why the node cannot run as a service on this machine.
@@ -111,6 +121,7 @@ fn choose(
             .map(|()| Manager::Systemd)
             .map_err(Unusable::NoSystemd),
         "macos" => Ok(Manager::Launchd),
+        "windows" => Ok(Manager::TaskScheduler),
         other => Err(Unusable::Os(other)),
     }
 }
@@ -122,6 +133,7 @@ impl Manager {
         match self {
             Self::Systemd => systemd::install(launch),
             Self::Launchd => launchd::install(launch),
+            Self::TaskScheduler => windows::install(launch),
         }
         .map(|file| Installed {
             manager: self,
@@ -134,6 +146,7 @@ impl Manager {
         match self {
             Self::Systemd => systemd::uninstall(),
             Self::Launchd => launchd::uninstall(),
+            Self::TaskScheduler => windows::uninstall(),
         }
     }
 }
@@ -167,8 +180,32 @@ impl Installed {
                 self.file.display(),
                 launchd::log_path()?.display()
             ),
+            Manager::TaskScheduler => format!(
+                "Beep runs in the background as the scheduled task {:?} ({}) and \
+                 starts when you log in.\n\
+                 Logs: {}\n\
+                 Stop and remove it: beep-node service uninstall",
+                windows::TASK,
+                self.file.display(),
+                windows::log_dir()?.display()
+            ),
         })
     }
+}
+
+/// Finishes when the process that started this one exits: on Windows, the
+/// service's node passes `--with-parent` so stopping the scheduled task,
+/// which ends only the process it started, stops the node too. Never
+/// finishes elsewhere.
+pub async fn parent_exited() -> Result<()> {
+    #[cfg(windows)]
+    {
+        let parent = parent::open_parent()?;
+        tokio::task::spawn_blocking(move || parent::wait(&parent)).await??;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    std::future::pending().await
 }
 
 /// `beep-node service install`.
@@ -184,8 +221,18 @@ pub fn uninstall() -> Result<()> {
     match env::consts::OS {
         "linux" => Manager::Systemd.uninstall(),
         "macos" => Manager::Launchd.uninstall(),
+        "windows" => Manager::TaskScheduler.uninstall(),
         other => bail!(Unusable::Os(other)),
     }
+}
+
+/// Text escaped for XML.
+fn escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 #[cfg(test)]
@@ -217,8 +264,14 @@ mod tests {
     }
 
     #[test]
+    fn windows_uses_task_scheduler() {
+        let asked = choose("windows", || panic!("systemd asked on Windows"));
+        assert_eq!(asked, Ok(Manager::TaskScheduler));
+    }
+
+    #[test]
     fn other_systems_serve_in_the_foreground() {
-        assert_eq!(choose("windows", || Ok(())), Err(Unusable::Os("windows")));
+        assert_eq!(choose("freebsd", || Ok(())), Err(Unusable::Os("freebsd")));
     }
 
     #[test]

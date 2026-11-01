@@ -16,12 +16,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 pub(crate) mod add;
-mod agents;
+pub(crate) mod agents;
 mod code_agent;
 pub(crate) mod copy;
 mod desktop;
-mod exec;
-mod process;
+pub(crate) mod exec;
+pub(crate) mod process;
 pub(crate) mod transfer;
 
 /// Registers each tool some machine of the user's online now can serve.
@@ -283,10 +283,12 @@ fn finish(call_id: &str, result: Result<String, String>) -> ToolResult {
 }
 
 /// The `in` parameter every machine tool takes.
-fn in_parameter(default: &str) -> serde_json::Value {
+pub(crate) fn in_parameter(default: &str) -> serde_json::Value {
     serde_json::json!({
         "type": "string",
-        "description": format!("The machine to use, by its name in the machines list. {default}")
+        "description": format!("The machine to use, by its name in the machines list. Pick one \
+            whose OS and `can` list fit the task: iOS, iPadOS and macOS work (Xcode, the iOS \
+            simulator) runs on a macOS machine that can xcode. {default}")
     })
 }
 

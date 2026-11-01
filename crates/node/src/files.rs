@@ -3,7 +3,10 @@
 //! its symlinks before it is checked, so neither `..` nor a link leads out
 //! of a shared folder, and a write never follows a link in its last part.
 
-use crate::link::{Protocol, Session};
+use crate::{
+    fsat,
+    link::{Protocol, Session},
+};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -12,7 +15,6 @@ use beep_proto::node::{
 use std::{
     fs::{self, File, Metadata, OpenOptions},
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
-    os::unix::fs::OpenOptionsExt,
     path::{Component, Path, PathBuf},
     sync::Arc,
     time::UNIX_EPOCH,
@@ -149,14 +151,13 @@ impl Folders {
         }
         let path = self.resolve(path)?;
         let mut options = OpenOptions::new();
-        options.create(true).custom_flags(libc::O_NOFOLLOW);
+        options.create(true);
         if append {
             options.append(true);
         } else {
             options.write(true).truncate(true);
         }
-        let mut file = options
-            .open(&path)
+        let mut file = fsat::open_no_follow(&mut options, &path)
             .with_context(|| format!("opening {}", path.display()))?;
         file.write_all(data)?;
         Ok(Reply::Written {
@@ -257,11 +258,13 @@ async fn serve(mut tx: LinkTx, mut rx: LinkRx, folders: Folders) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     struct Fixture {
         dir: PathBuf,
         shared: PathBuf,
+        #[cfg_attr(windows, allow(dead_code))]
         outside: PathBuf,
         folders: Folders,
     }
@@ -347,6 +350,7 @@ mod tests {
         assert_eq!(entries[0].kind, FileKind::File);
     }
 
+    #[cfg(unix)]
     #[test]
     fn nothing_outside_the_shared_folders_is_reachable() {
         let f = fixture("outside");

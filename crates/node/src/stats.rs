@@ -1,10 +1,9 @@
 //! The machine's live resources, for `Up::Stats`: free disk where the
 //! user's files live, memory in use and the load average.
 
-use crate::env;
+use crate::fsat;
 use anyhow::{Context, Result};
 use beep_proto::node::{DiskUsage, StatsReport};
-use rustix::fs::{Dev, stat, statvfs};
 use std::path::{Path, PathBuf};
 use tokio::task::spawn_blocking;
 
@@ -52,15 +51,14 @@ fn disks(folders: &[PathBuf]) -> Vec<DiskUsage> {
 
 /// The volume's device id, so a second folder on it is skipped, and how
 /// full it is.
-fn disk(folder: &Path) -> Result<(Dev, DiskUsage)> {
-    let device = stat(folder).context("stat")?.st_dev;
-    let vfs = statvfs(folder).context("statvfs")?;
+fn disk(folder: &Path) -> Result<(u64, DiskUsage)> {
+    let volume = fsat::volume(folder).context("reading the disk's size")?;
     let usage = DiskUsage {
         path: folder.display().to_string(),
-        free_bytes: vfs.f_bavail.saturating_mul(vfs.f_frsize),
-        total_bytes: vfs.f_blocks.saturating_mul(vfs.f_frsize),
+        free_bytes: volume.free,
+        total_bytes: volume.total,
     };
-    Ok((device, usage))
+    Ok((volume.device, usage))
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -69,7 +67,9 @@ struct Memory {
     total_mb: u64,
 }
 
+#[cfg(unix)]
 async fn memory() -> Result<Memory> {
+    use crate::env;
     if cfg!(target_os = "macos") {
         let total_mb = env::memory_mb().await.context("hw.memsize")?;
         let vm_stat = env::output("vm_stat", &[]).await.context("vm_stat")?;
@@ -86,6 +86,27 @@ async fn memory() -> Result<Memory> {
     }
 }
 
+#[cfg(windows)]
+async fn memory() -> Result<Memory> {
+    use std::mem::size_of;
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX {
+        dwLength: u32::try_from(size_of::<MEMORYSTATUSEX>())?,
+        ..MEMORYSTATUSEX::default()
+    };
+    // SAFETY: `status` is the struct the call fills, with its length set
+    // as the call requires.
+    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+        return Err(std::io::Error::last_os_error()).context("GlobalMemoryStatusEx");
+    }
+    let mb = 1024 * 1024;
+    Ok(Memory {
+        used_mb: status.ullTotalPhys.saturating_sub(status.ullAvailPhys) / mb,
+        total_mb: status.ullTotalPhys / mb,
+    })
+}
+
+#[cfg_attr(windows, allow(dead_code))]
 /// Used and total memory from `/proc/meminfo`, which gives kB. Used is
 /// what the kernel cannot hand out without swapping.
 fn meminfo_memory(meminfo: &str) -> Option<Memory> {
@@ -101,6 +122,7 @@ fn meminfo_memory(meminfo: &str) -> Option<Memory> {
     })
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 /// Free, inactive and speculative pages from `vm_stat`, in MB: what macOS
 /// can hand out without compressing or swapping.
 fn vm_stat_available_mb(vm_stat: &str) -> Option<u64> {
@@ -121,12 +143,19 @@ fn vm_stat_available_mb(vm_stat: &str) -> Option<u64> {
 }
 
 /// The load average over the last minute.
+#[cfg(unix)]
 fn load() -> Option<f64> {
     let mut averages = [0f64; 3];
     // SAFETY: `averages` has room for the 3 values asked for, and
     // getloadavg writes no more than it is given.
     let got = unsafe { libc::getloadavg(averages.as_mut_ptr(), 3) };
     (got >= 1).then_some(averages[0])
+}
+
+/// Windows keeps no load average.
+#[cfg(windows)]
+fn load() -> Option<f64> {
+    None
 }
 
 #[cfg(test)]
@@ -180,6 +209,6 @@ mod tests {
         assert_eq!(report.disks.len(), 1);
         assert!(report.memory_total_mb > 0);
         assert!(report.memory_used_mb <= report.memory_total_mb);
-        assert!(report.load.is_some());
+        assert_eq!(report.load.is_some(), cfg!(unix));
     }
 }

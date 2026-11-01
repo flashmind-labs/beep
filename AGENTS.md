@@ -153,6 +153,12 @@ https://releases.flashmind.com/beep/node/. Machines install it with:
 then link with `beep-node setup <token>`. Rerunning the installer upgrades
 in place and restarts the service. There is no Intel Mac build.
 
+On Windows, `crates/node/install.ps1` does the same from PowerShell
+(`irm https://releases.flashmind.com/beep/node/install.ps1 | iex`): it
+installs `beep-node-<version>-x86_64-pc-windows-msvc.zip` into
+`%LOCALAPPDATA%\Programs\beep-node`, and `setup` registers the scheduled task
+"Beep node". The release workflow has no Windows job yet.
+
 ## iOS app
 
 `apps/ios` is the SwiftUI port. `just ios-run` builds, installs and launches

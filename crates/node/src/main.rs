@@ -4,9 +4,15 @@ use beep_node::{agents::Agents, claude::hooks, env, link, local, service, setup,
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use logforth::{append::Stderr, filter::rustlog::RustLogFilterBuilder};
-use std::path::{Path, PathBuf};
-use tokio::signal::unix::{SignalKind, signal};
+use logforth::{
+    append::{Stderr, file::FileBuilder},
+    filter::rustlog::RustLogFilterBuilder,
+    layout::TextLayout,
+};
+use std::{
+    num::NonZeroUsize,
+    path::{Path, PathBuf},
+};
 
 #[derive(Parser)]
 #[command(version, about = "Lets Beep run work on this machine")]
@@ -19,6 +25,14 @@ struct Cli {
     /// `local`.
     #[arg(long, global = true, env = "BEEP_NODE_WORKSPACE")]
     workspace: Option<PathBuf>,
+    /// Logs to this file, a new one each day, instead of stderr. The
+    /// Windows service uses it, having no console.
+    #[arg(long, global = true, hide = true)]
+    log_file: Option<PathBuf>,
+    /// Stops when the process that started this one exits. The Windows
+    /// service uses it, as ending a scheduled task ends only that process.
+    #[arg(long, global = true, hide = true)]
+    with_parent: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -70,7 +84,7 @@ enum Command {
     /// Prints what this machine would report.
     Env,
     /// Runs the node in the background as a service: a systemd user unit on
-    /// Linux, a LaunchAgent on macOS.
+    /// Linux, a LaunchAgent on macOS, a scheduled task on Windows.
     Service {
         #[command(subcommand)]
         action: ServiceAction,
@@ -111,7 +125,8 @@ enum HooksAction {
 
 #[derive(Subcommand)]
 enum ServiceAction {
-    /// Writes the unit or LaunchAgent, enables it and starts it.
+    /// Writes the unit, LaunchAgent or scheduled task, enables it and
+    /// starts it.
     Install,
     /// Stops the service and removes it.
     Uninstall,
@@ -129,7 +144,9 @@ fn in_background(dir: &Path, workspace: Option<&Path>) -> Result<String> {
 }
 
 /// Finishes on Ctrl-C or SIGTERM, which a service manager sends to stop.
+#[cfg(unix)]
 fn stopped() -> Result<impl Future<Output = ()>> {
+    use tokio::signal::unix::{SignalKind, signal};
     let mut term = signal(SignalKind::terminate())?;
     Ok(async move {
         tokio::select! {
@@ -139,15 +156,59 @@ fn stopped() -> Result<impl Future<Output = ()>> {
     })
 }
 
+/// Finishes on Ctrl-C, or when the console closes or Windows shuts down.
+#[cfg(windows)]
+fn stopped() -> Result<impl Future<Output = ()>> {
+    use tokio::signal::windows::{ctrl_close, ctrl_shutdown};
+    let mut close = ctrl_close()?;
+    let mut shutdown = ctrl_shutdown()?;
+    Ok(async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = close.recv() => {}
+            _ = shutdown.recv() => {}
+        }
+    })
+}
+
+/// Logs to stderr, or to daily files next to `log_file` when given.
+fn start_logging(log_file: Option<&Path>) -> Result<()> {
+    let filter = || RustLogFilterBuilder::from_default_env_or("info").build();
+    let Some(log_file) = log_file else {
+        logforth::starter_log::builder()
+            .dispatch(|d| d.filter(filter()).append(Stderr::default()))
+            .apply();
+        return Ok(());
+    };
+    let folder = log_file.parent().unwrap_or(Path::new("."));
+    // `beep-node.log` rolls over to `beep-node.<date>.log`.
+    let stem = log_file
+        .file_stem()
+        .context("--log-file names no file")?
+        .to_string_lossy();
+    let mut file = FileBuilder::new(folder, stem);
+    if let Some(extension) = log_file.extension() {
+        file = file.filename_suffix(extension.to_string_lossy());
+    }
+    let file = file
+        .layout(TextLayout::default().no_color())
+        .rollover_daily()
+        .max_log_files(LOG_FILES)
+        .build()
+        .with_context(|| format!("opening the log in {}", folder.display()))?;
+    logforth::starter_log::builder()
+        .dispatch(|d| d.filter(filter()).append(file))
+        .apply();
+    Ok(())
+}
+
+/// The daily log files kept.
+const LOG_FILES: NonZeroUsize = NonZeroUsize::new(7).expect("seven is not zero");
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    logforth::starter_log::builder()
-        .dispatch(|d| {
-            d.filter(RustLogFilterBuilder::from_default_env_or("info").build())
-                .append(Stderr::default())
-        })
-        .apply();
     let cli = Cli::parse();
+    start_logging(cli.log_file.as_deref())?;
     let dir = match cli.dir {
         Some(dir) => dir,
         None => state::default_dir()?,
@@ -186,7 +247,25 @@ async fn main() -> Result<()> {
         }
         Command::Run => {
             let state = state::State::load(&dir)?;
-            link::serve(state, cli.workspace.as_deref(), stopped()?).await
+            let stop = stopped()?;
+            if !cli.with_parent {
+                return link::serve(state, cli.workspace.as_deref(), stop).await;
+            }
+            let parent = service::parent_exited();
+            let stop = async move {
+                tokio::pin!(stop);
+                tokio::select! {
+                    () = &mut stop => {}
+                    exited = parent => match exited {
+                        Ok(()) => log::info!("the service stopped"),
+                        Err(e) => {
+                            log::warn!("not following the service: {e:#}");
+                            stop.await;
+                        }
+                    },
+                }
+            };
+            link::serve(state, cli.workspace.as_deref(), stop).await
         }
         Command::Local { link: shared, name } => {
             let mut stop = Box::pin(stopped()?);
