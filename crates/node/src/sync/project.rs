@@ -36,6 +36,7 @@ use std::{
     ffi::OsString,
     fs,
     io::{SeekFrom, Write as _},
+    mem,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock},
     time::Duration,
@@ -250,6 +251,15 @@ impl Shared {
 
     pub(super) fn root(&self) -> &Path {
         self.root.path()
+    }
+
+    pub(super) fn key(&self) -> Key {
+        self.key
+    }
+
+    /// Where its state is kept.
+    pub(super) fn file(&self) -> &Path {
+        &self.file
     }
 
     pub(super) fn replica(&self) -> Replica {
@@ -549,17 +559,19 @@ impl Task {
                 Err(e) => log::debug!("{}: {e:#}", self.shared.name),
             }
         }
-        self.first = false;
+        let first = mem::replace(&mut self.first, false);
         let kept: HashSet<&str> = walked.files.iter().map(|f| f.path.as_str()).collect();
-        let gone: Vec<String> = self
-            .shared
-            .lock()
-            .saved
-            .seen
-            .keys()
-            .filter(|path| !kept.contains(path.as_str()))
-            .cloned()
-            .collect();
+        let (gone, seen_count): (Vec<String>, usize) = {
+            let state = self.shared.lock();
+            let gone = state
+                .saved
+                .seen
+                .keys()
+                .filter(|path| !kept.contains(path.as_str()))
+                .cloned()
+                .collect();
+            (gone, state.saved.seen.len())
+        };
         // A file the rules left out since, or git took over, is not
         // deleted elsewhere; only one missing from disk is.
         let deleted = {
@@ -574,6 +586,15 @@ impl Task {
             })
             .await?
         };
+        let baseline = has_baseline(first, seen_count, &deleted);
+        if !baseline {
+            log::warn!(
+                "{}: none of the {seen_count} files synced before are in {}; they are \
+                 fetched again, not deleted elsewhere",
+                self.shared.name,
+                self.shared.root().display()
+            );
+        }
         let (before, seq) = {
             let mut state = self.shared.lock();
             let before = state.saved.map.seq();
@@ -584,7 +605,7 @@ impl Task {
                 let Some(old) = state.remove_seen(&path) else {
                     continue;
                 };
-                if missing {
+                if missing && baseline {
                     state.saved.map.edit(&path, &old.version, None);
                 }
             }
@@ -1084,6 +1105,15 @@ fn ensure_size(size: u64) -> Result<()> {
     Ok(())
 }
 
+/// Whether the files a scan found missing are deletes. On the first scan
+/// after a start, a folder that holds none of the files seen before was
+/// emptied or replaced while sync was off: what it misses is fetched
+/// again rather than deleted on every other machine.
+fn has_baseline(first: bool, seen: usize, gone: &[(String, bool)]) -> bool {
+    let all_missing = gone.len() == seen && gone.iter().all(|(_, missing)| *missing);
+    !(first && seen > 0 && all_missing)
+}
+
 /// The name of the store tag that keeps project `key`'s files.
 pub(super) fn tag_name(key: Key) -> String {
     format!("sync/{key:016x}")
@@ -1328,6 +1358,26 @@ mod tests {
         assert_ne!(copied, *hash.as_bytes(), "the change is noticed");
         drop(tag);
         store.shutdown().await.ok();
+    }
+
+    #[test]
+    fn an_emptied_folder_found_at_start_deletes_nothing() {
+        let gone = |missing: &[bool]| -> Vec<(String, bool)> {
+            missing
+                .iter()
+                .enumerate()
+                .map(|(n, missing)| (format!("f/{n}"), *missing))
+                .collect()
+        };
+        // Every file missing at the first scan: no baseline.
+        assert!(!has_baseline(true, 2, &gone(&[true, true])));
+        // Some still there: the rest were deleted while the node was down.
+        assert!(has_baseline(true, 3, &gone(&[true, true])));
+        // Left out by the rules, not missing.
+        assert!(has_baseline(true, 2, &gone(&[true, false])));
+        // Emptied while it runs: the deletes are real.
+        assert!(has_baseline(false, 2, &gone(&[true, true])));
+        assert!(has_baseline(true, 0, &[]));
     }
 
     #[test]
