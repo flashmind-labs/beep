@@ -33,6 +33,29 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release --package beep-node --bin beep-node \
     && cp target/release/beep-node /usr/local/bin/
 
+# The static beep-node release binaries for Linux, cross-built with zig:
+# `docker build --target node-dist --output type=local,dest=<dir> .` writes
+# <dir>/<target>/beep-node. The node workflow runs it.
+FROM rust:1-slim-trixie AS node-dist-build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --break-system-packages ziglang==0.15.2 cargo-zigbuild==0.23.4 \
+    && rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/target \
+    for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do \
+        cargo zigbuild --release --locked --package beep-node --bin beep-node --target "$target" \
+        && mkdir -p "/dist/$target" \
+        && cp "target/$target/release/beep-node" "/dist/$target/" || exit 1; \
+    done
+
+FROM scratch AS node-dist
+COPY --from=node-dist-build /dist /
+
 # The user's environment: beep-node in Ubuntu, bundled with a single-user
 # server (deploy/onprem) or run on any other machine, linked over iroh. The
 # agent runs code and keeps the user's files in /home/user, a volume, as the
