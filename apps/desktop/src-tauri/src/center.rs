@@ -20,7 +20,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 use tauri::{
-    ActivationPolicy, AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State,
+    ActivationPolicy, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, State,
     TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder, ipc::Channel,
 };
 use tokio::join;
@@ -89,6 +89,68 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
 #[tauri::command]
 pub fn open_center(app: AppHandle) -> Result<()> {
     open(&app)
+}
+
+/// A view of the window that the bar, the tray or another window can hand
+/// over to. `Chat { session: None }` is a new chat.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CenterTarget {
+    Home,
+    Chat { session: Option<Uuid> },
+    Chats,
+    Memories,
+    Routines,
+    Skills,
+    Apps,
+    Settings,
+}
+
+/// The view the window goes to next. It is read once, so a reload does not
+/// go back to it.
+#[derive(Debug, Default)]
+pub(crate) struct Pending(Mutex<Option<CenterTarget>>);
+
+impl Pending {
+    fn slot(&self) -> MutexGuard<'_, Option<CenterTarget>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn put(&self, target: CenterTarget) {
+        *self.slot() = Some(target);
+    }
+
+    pub(crate) fn take(&self) -> Option<CenterTarget> {
+        self.slot().take()
+    }
+}
+
+/// Opens the window on `target`. A window that is still loading reads it
+/// with `center_pending`; one already open hears `center-open`.
+pub(crate) fn open_on<R: Runtime>(
+    app: &AppHandle<R>,
+    pending: &Pending,
+    target: CenterTarget,
+) -> Result<()> {
+    pending.put(target.clone());
+    open(app)?;
+    app.emit_to(LABEL, "center-open", &target)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn center_open(
+    app: AppHandle,
+    pending: State<'_, Pending>,
+    target: CenterTarget,
+) -> Result<()> {
+    open_on(&app, &pending, target)
+}
+
+/// The view the window was asked to show, once.
+#[tauri::command]
+pub fn center_pending(pending: State<'_, Pending>) -> Option<CenterTarget> {
+    pending.take()
 }
 
 /// Opens the bar on a new chat that holds `prompt`, and sends it.
@@ -889,5 +951,26 @@ mod tests {
         let nowhere = Seen::default();
         assert!(!on_screen(&nowhere, "a"));
         assert!(!on_screen(&nowhere, "b"));
+    }
+
+    #[test]
+    fn target_reads_from_js() {
+        let new_chat: CenterTarget =
+            serde_json::from_str(r#"{"chat":{"session":null}}"#).expect("a new chat parses");
+        assert_eq!(new_chat, CenterTarget::Chat { session: None });
+        let memories: CenterTarget = serde_json::from_str(r#""memories""#).expect("parses");
+        assert_eq!(memories, CenterTarget::Memories);
+        let id = Uuid::new_v4();
+        let chat: CenterTarget =
+            serde_json::from_str(&format!(r#"{{"chat":{{"session":"{id}"}}}}"#)).expect("parses");
+        assert_eq!(chat, CenterTarget::Chat { session: Some(id) });
+    }
+
+    #[test]
+    fn pending_is_taken_once() {
+        let pending = Pending::default();
+        pending.put(CenterTarget::Chats);
+        assert_eq!(pending.take(), Some(CenterTarget::Chats));
+        assert_eq!(pending.take(), None);
     }
 }

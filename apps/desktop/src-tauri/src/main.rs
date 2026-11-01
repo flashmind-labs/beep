@@ -107,6 +107,8 @@ fn main() {
             center::center_answer_agent,
             center::center_compose,
             center::center_show_bar,
+            center::center_open,
+            center::center_pending,
             commands::status,
             commands::link_offer,
             commands::send_prompt,
@@ -283,6 +285,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(update::Updates::default());
     app.manage(machine::Machine::default());
     app.manage(center::Shown::default());
+    app.manage(center::Pending::default());
     app.state::<machine::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
@@ -639,6 +642,23 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));
         }
+        view @ ("apps" | "memories" | "routines" | "skills" | "settings")
+            if app.state::<Arc<Beep>>().link_state() == LinkState::Linked =>
+        {
+            let target = match view {
+                "apps" => center::CenterTarget::Apps,
+                "memories" => center::CenterTarget::Memories,
+                "routines" => center::CenterTarget::Routines,
+                "skills" => center::CenterTarget::Skills,
+                _ => center::CenterTarget::Settings,
+            };
+            let pending = app.state::<center::Pending>();
+            if let Err(e) = center::open_on(app, &pending, target) {
+                log::warn!("opening the command center: {e}");
+            }
+        }
+        // Before linking these stay in the bar, which shows the code to link
+        // with instead.
         view @ ("apps" | "link" | "memories" | "research" | "routines" | "skills" | "settings") => {
             bar::show(app, Some(view))
         }
