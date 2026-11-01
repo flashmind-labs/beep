@@ -9,7 +9,6 @@ const ICONS = {
   chat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
   memory: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg>',
   routine: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>',
-  find: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
 };
 
 const GROUPS = { action: "Actions", chat: "Chats", memory: "Memories", routine: "Routines", machine: "Machines" };
@@ -21,7 +20,7 @@ let root = null, input = null, list = null;
 let hits = [], sel = 0, query = "";
 let sent = 0, timer = null, ready = null, back = null;
 
-/// `go(view, arg)` and `jump(id)` from the window, `pane()` for the bar's page.
+/// `go(view, arg)` and `jump(id)` from the window, `pane()` for the bar's page, `findIcon` markup.
 export function initPalette(window_) { deps = window_; }
 
 export function paletteOpen() { return root != null; }
@@ -59,12 +58,16 @@ export function openPalette() {
   input.autocomplete = "off";
   input.spellcheck = false;
   input.setAttribute("aria-label", "Search");
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-controls", "pal-list");
+  input.setAttribute("aria-expanded", "true");
   input.addEventListener("input", onType);
   list = el("div", "res");
   list.setAttribute("role", "listbox");
+  list.id = "pal-list";
   const foot = el("div", "foot");
   for (const [k, t] of [["↑↓", "move"], ["↵", "open"], ["⌘↵", "ask Beep"], ["esc", "close"]]) foot.append(el("span", "", el("kbd", "", k), t));
-  const box = el("div", "cc-pal", el("div", "q", svg(ICONS.find), input), list, foot);
+  const box = el("div", "cc-pal", el("div", "q", svg(deps.findIcon), input), list, foot);
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-label", "Search");
   root = el("div", "cc-scrim", box);
@@ -84,11 +87,14 @@ function close() {
   root = input = list = ready = null;
   const to = back;
   back = null;
-  if (to && to.isConnected) to.focus();
+  // The sidebar is redrawn now and then, so its Search row may be a new element.
+  (to?.isConnected ? to : document.querySelector(".cc-search"))?.focus();
 }
 
 function onType() {
   query = input.value;
+  // A reply to an earlier query must not draw while this one waits.
+  sent++;
   clearTimeout(timer);
   timer = setTimeout(() => search(query), DEBOUNCE_MS);
 }
@@ -133,6 +139,7 @@ function row(hit, i, q) {
   b.type = "button";
   b.tabIndex = -1;
   b.setAttribute("role", "option");
+  b.id = `pal-opt-${i}`;
   b.addEventListener("mousemove", () => { if (sel !== i) { sel = i; mark(); } });
   b.addEventListener("click", () => pick(hit));
   return b;
@@ -153,6 +160,8 @@ function noHits(q) {
 function mark() {
   const items = list.querySelectorAll(".it");
   items.forEach((b, i) => b.setAttribute("aria-selected", String(i === sel)));
+  if (items[sel]) input.setAttribute("aria-activedescendant", items[sel].id);
+  else input.removeAttribute("aria-activedescendant");
   items[sel]?.scrollIntoView({ block: "nearest" });
 }
 
@@ -187,7 +196,9 @@ window.addEventListener("keydown", e => {
   if (e.key === "Escape") { stop(); return close(); }
   if (e.metaKey && e.key.toLowerCase() === "k") { stop(); return close(); }
   if (e.metaKey && e.key === "Enter") { stop(); return ask_(input.value); }
+  if (e.isComposing) return;
   if (e.key === "Enter") { stop(); if (hits[sel]) pick(hits[sel]); return; }
+  if (e.key === "Tab") { stop(); return input.focus(); }
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     stop();
     if (!hits.length) return;
