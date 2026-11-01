@@ -72,6 +72,9 @@ const SEND_FILE: &str = "SEND_FILE";
 /// `add_machine` as rules keep it: a setup token grants access to the
 /// account, so making one acts.
 const ADD_MACHINE: &str = "ADD_MACHINE";
+/// `import_project` as rules keep it: it clones onto a machine with the
+/// user's tokens.
+const IMPORT_PROJECT: &str = "IMPORT_PROJECT";
 
 /// Composio tags of tools that create or destroy something. Such a tool
 /// asks first even if the catalog lists it as a read.
@@ -142,7 +145,7 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     if tool == SEND_FILE {
         return Some((ToolApp::Machines, Acts::WhenToMachine));
     }
-    if tool == ADD_MACHINE {
+    if tool == ADD_MACHINE || tool == IMPORT_PROJECT {
         return Some((ToolApp::Machines, Acts::Always));
     }
     for app in CATALOG {
@@ -1307,6 +1310,29 @@ mod tests {
         assert!(result.is_interrupt());
         let approval = approval_for(&app, "add_machine", &json!({ "name": "build box" }));
         assert_eq!(approval.action, "add machine");
+    }
+
+    #[tokio::test]
+    async fn importing_a_project_asks_first() {
+        let (app, acts) = lookup("import_project").unwrap();
+        assert_eq!(app.slug(), MACHINES_APP);
+        assert_eq!(acts, Acts::Always);
+        let guarded = guard(
+            vec![Arc::new(Named("import_project"))],
+            Rules::default(),
+            Approved(None),
+            &HashSet::new(),
+            None,
+        );
+        let token = tokio_util::sync::CancellationToken::new();
+        let args = json!({ "repo": "n0-computer/iroh" });
+        let result = guarded[0]
+            .execute(ToolContext::new("call", args.clone(), None, &token))
+            .await
+            .unwrap();
+        assert!(result.is_interrupt());
+        let approval = approval_for(&app, "import_project", &args);
+        assert_eq!(approval.action, "import project");
     }
 
     #[test]
