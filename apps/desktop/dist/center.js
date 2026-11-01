@@ -3,6 +3,7 @@
 const { invoke, Channel } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+import { splitPinned } from "./pinned.js";
 import { initPalette, openPalette } from "./palette.js";
 
 const $ = sel => document.querySelector(sel);
@@ -365,7 +366,8 @@ function drawSide() {
       if (g.action) h3.append(g.action());
       grp.append(h3);
     }
-    if (g.empty && !g.items.length) grp.append(h("span", "cc-si none", g.empty));
+    const none = typeof g.empty === "function" ? g.empty() : g.empty;
+    if (none && !g.items.length) grp.append(h("span", "cc-si none", none));
     for (const item of g.items) {
       const el = g.row(item);
       if (g.onPick) el.addEventListener("click", () => g.onPick(item));
@@ -388,13 +390,73 @@ function footer(machines) {
   return [h("span", "", h("span", "ddot"), " ", h("b", "", String(on)), ` of ${plural(machines.length, "machine", "machines")} online`)];
 }
 
-/// The newest chats, the open one highlighted.
+/// Pinned chats and groups, then the newest of the rest, the open one
+/// highlighted.
 const SIDE_CHATS = 12;
 let chatList = [];
+let chatFetch = null;
+
+/// One fetch feeds both groups, even when both ask at once.
+function fetchChats() {
+  chatFetch ??= pane().chatRows().then(rows => (chatList = rows)).finally(() => { chatFetch = null; });
+  return chatFetch;
+}
+
+function reloadChats() {
+  reloadGroup("pinned");
+  reloadGroup("chats");
+}
+
+/// Pinned projects join the Pinned group here once projects can be pinned:
+/// return items shaped like chat rows ({ kind: "project", id, title }) and
+/// give `chatRow` and the group's `onPick` a branch for them.
+async function pinnedProjects() { return []; }
+
+async function setPinned(c, pinned) {
+  try {
+    await invoke(c.kind === "group" ? "pin_group" : "pin_session", { id: c.id, pinned });
+  } catch (e) {
+    console.warn("pinning a chat:", e);
+  }
+  reloadChats();
+}
+
+function chatRow(c) {
+  const on = paneOn();
+  const open = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
+  const mark = c.kind === "group" ? icon(IC.group) : icon(c.research ? IC.doc : IC.chat);
+  const toggle = h("span", "pa", icon(IC.pin));
+  toggle.setAttribute("role", "button");
+  toggle.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
+  toggle.addEventListener("click", e => { e.stopPropagation(); setPinned(c, !c.pinned); });
+  const b = h("button", "cc-si", mark, h("span", "tt", c.title), toggle);
+  b.type = "button";
+  if (open) b.setAttribute("aria-current", "true");
+  return b;
+}
+
+function pickChat(c) {
+  if (c.kind === "group") return go("pane", { group: { id: c.id } });
+  // A research opens in its own window, as from the bar's list.
+  if (c.research) return invoke("open_research", { session: c.id }).catch(() => go("pane", { chat: { session: c.id } }));
+  go("pane", { chat: { session: c.id } });
+}
+
+registerSidebarGroup("pinned", {
+  order: 2,
+  title: "Pinned",
+  async load() {
+    if (!pane()) return [];
+    return [...splitPinned(await fetchChats(), SIDE_CHATS).pinned, ...await pinnedProjects()];
+  },
+  row: chatRow,
+  onPick: pickChat,
+});
+
 registerSidebarGroup("chats", {
   order: 3,
   title: "Chats",
-  empty: "No chats yet",
+  empty: () => (chatList.length ? "" : "No chats yet"),
   action() {
     const b = h("button", "", icon(IC.plus));
     b.type = "button";
@@ -404,26 +466,12 @@ registerSidebarGroup("chats", {
   },
   async load() {
     if (!pane()) return [];
-    chatList = await pane().chatRows();
-    return chatList.slice(0, SIDE_CHATS);
+    return splitPinned(await fetchChats(), SIDE_CHATS).recent;
   },
-  row(c) {
-    const on = paneOn();
-    const open = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
-    const mark = c.kind === "group" ? icon(IC.group) : c.pinned ? h("span", "pin", icon(IC.pin)) : icon(c.research ? IC.doc : IC.chat);
-    const b = h("button", "cc-si", mark, h("span", "tt", c.title));
-    b.type = "button";
-    if (open) b.setAttribute("aria-current", "true");
-    return b;
-  },
-  onPick(c) {
-    if (c.kind === "group") return go("pane", { group: { id: c.id } });
-    // A research opens in its own window, as from the bar's list.
-    if (c.research) return invoke("open_research", { session: c.id }).catch(() => go("pane", { chat: { session: c.id } }));
-    go("pane", { chat: { session: c.id } });
-  },
+  row: chatRow,
+  onPick: pickChat,
   foot() {
-    if (!this.items?.length) return [];
+    if (!chatList.length) return [];
     return [sideItem(null, "All chats", 0, { cls: "more", current: paneOn().view === "chats", on: () => go("pane", "chats") })];
   },
 });
@@ -533,20 +581,16 @@ function paneTitle() {
     // A chat just started is not in the list until the server has it.
     return { title: c?.title ?? "New chat", tools: c ? [pinButton(c)] : [] };
   }
-  if (on.group) return { title: chatList.find(x => x.id === on.group)?.title ?? "Group" };
+  if (on.group) {
+    const g = chatList.find(x => x.id === on.group);
+    return { title: g?.title ?? "Group", tools: g ? [pinButton(g)] : [] };
+  }
   const [title, sub] = PANE_TITLES[on.view] ?? ["Beep", ""];
   return { title, sub };
 }
 
 function pinButton(c) {
-  return button(c.pinned ? "Unpin" : "Pin", "", async () => {
-    try {
-      await invoke("pin_session", { id: c.id, pinned: !c.pinned });
-    } catch (e) {
-      console.warn("pinning a chat:", e);
-    }
-    reloadGroup("chats");
-  });
+  return button(c.pinned ? "Unpin" : "Pin", "", () => setPinned(c, !c.pinned));
 }
 
 registerView("pane", {
@@ -632,7 +676,7 @@ for (const name of ["sessions-changed", "work-question", "work-resolved", "group
   listen(name, () => refresh());
 }
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) {
-  listen(name, () => reloadGroup("chats"));
+  listen(name, () => reloadChats());
 }
 
 $("#home-comp").addEventListener("submit", async e => {
@@ -650,7 +694,7 @@ $("#home-comp").addEventListener("submit", async e => {
     go("home");
     note.textContent = failure(err);
   }
-  reloadGroup("chats");
+  reloadChats();
 });
 
 takePending("home");
