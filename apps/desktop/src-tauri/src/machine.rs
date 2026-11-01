@@ -1,6 +1,6 @@
 //! "Let Beep use this Mac": while on, the app is a node like `beep-node`
 //! on a server, signed in with this Mac's own key, offering a shell and
-//! desktop control. Off by default.
+//! desktop control. On for a fresh install.
 
 use crate::{beep::Beep, desktop, state::LinkState};
 use beep_node::{
@@ -32,15 +32,41 @@ pub enum Status {
     Connected,
     /// The server lets only admins use their computers this way for now.
     NotAllowed,
+    /// The last try failed for another reason; `View::error` says why.
+    /// The link tries again on its own.
+    Failed,
     /// This Mac is not linked to an account.
     Unlinked,
 }
 
-/// What Settings shows under This Mac.
+/// Where the link stands and, after a failed try, why it failed.
+#[derive(Debug, Clone, Default)]
+struct Link {
+    status: Status,
+    error: Option<String>,
+}
+
+impl Link {
+    fn new(status: Status) -> Self {
+        Self {
+            status,
+            error: None,
+        }
+    }
+}
+
+/// What Settings shows under This Mac, and what the command center needs
+/// to tell this Mac apart in the machine list.
 #[derive(Debug, Serialize)]
 pub struct View {
+    /// This Mac's key, the `Machine::id` the server lists it under.
+    id: String,
+    /// The name this Mac links with.
+    name: String,
     enabled: bool,
     status: Status,
+    /// Why the last try failed, while `status` is `Failed`.
+    error: Option<String>,
     permissions: Permissions,
 }
 
@@ -48,7 +74,9 @@ pub struct View {
 /// which closes the connection and every session with it.
 pub struct Machine {
     task: Mutex<Option<JoinHandle<()>>>,
-    status: Arc<Mutex<Status>>,
+    link: Arc<Mutex<Link>>,
+    /// The computer name, read once.
+    name: String,
     /// gh, teacli and the skills, in the node's own folder, and the
     /// credentials the server sends while the link is up.
     provision: Arc<Provision>,
@@ -59,19 +87,24 @@ impl Machine {
     pub fn new(dir: &Path) -> Self {
         Self {
             task: Mutex::default(),
-            status: Arc::default(),
+            link: Arc::default(),
+            name: crate::computer_name(),
             provision: Provision::new(dir),
         }
     }
 
-    fn status(&self) -> MutexGuard<'_, Status> {
-        self.status.lock().unwrap_or_else(PoisonError::into_inner)
+    fn link(&self) -> MutexGuard<'_, Link> {
+        lock(&self.link)
     }
 
     pub fn view(&self, beep: &Beep) -> View {
+        let link = self.link().clone();
         View {
+            id: beep.id().to_string(),
+            name: self.name.clone(),
             enabled: beep.use_mac(),
-            status: *self.status(),
+            status: link.status,
+            error: link.error,
             permissions: desktop::permissions(),
         }
     }
@@ -84,10 +117,12 @@ impl Machine {
             .as_ref()
             .is_some_and(|task| !task.inner().is_finished());
         if wanted && !running {
+            log::info!("joining as a machine: Let Beep use this Mac is on");
             *task = Some(async_runtime::spawn(stay_linked(
                 beep.clone(),
-                self.status.clone(),
+                self.link.clone(),
                 self.provision.clone(),
+                self.name.clone(),
             )));
         } else if !wanted {
             if let Some(task) = task.take() {
@@ -96,11 +131,19 @@ impl Machine {
                 let provision = self.provision.clone();
                 async_runtime::spawn(async move { provision.forget().await });
             }
-            *self.status() = if beep.use_mac() {
+            let now = if beep.use_mac() {
                 Status::Unlinked
             } else {
                 Status::Off
             };
+            let mut link = self.link();
+            if link.status != now {
+                match now {
+                    Status::Off => log::info!("not a machine: Let Beep use this Mac is off"),
+                    _ => log::info!("not a machine: this Mac is not linked to an account"),
+                }
+            }
+            *link = Link::new(now);
         }
     }
 }
@@ -110,9 +153,18 @@ pub fn allow(permission: Permission) {
     desktop::request(permission);
 }
 
+fn lock(link: &Mutex<Link>) -> MutexGuard<'_, Link> {
+    link.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Keeps the node link up, waiting longer after each failure, until aborted.
-async fn stay_linked(beep: Arc<Beep>, status: Arc<Mutex<Status>>, provision: Arc<Provision>) {
-    let set = |now: Status| *status.lock().unwrap_or_else(PoisonError::into_inner) = now;
+async fn stay_linked(
+    beep: Arc<Beep>,
+    shared: Arc<Mutex<Link>>,
+    provision: Arc<Provision>,
+    name: String,
+) {
+    let set = |now: Status| *lock(&shared) = Link::new(now);
     // Installs gh, teacli and the agent skills, and takes the credentials
     // the server sends; the work stops with this task.
     let _provision = provision.start();
@@ -121,7 +173,6 @@ async fn stay_linked(beep: Arc<Beep>, status: Arc<Mutex<Status>>, provision: Arc
         extra: vec![Arc::new(desktop::Desktop)],
         provision: Some(provision),
     };
-    let name = crate::computer_name();
     let mut wait = FIRST_RETRY;
     loop {
         // A Mac removed from the account has nothing to sign in with.
@@ -129,9 +180,14 @@ async fn stay_linked(beep: Arc<Beep>, status: Arc<Mutex<Status>>, provision: Arc
             set(Status::Unlinked);
             return;
         }
-        set(Status::Connecting);
+        // After a refusal or a failure, it says so until a try works.
+        if !matches!(lock(&shared).status, Status::Failed | Status::NotAllowed) {
+            set(Status::Connecting);
+        }
+        log::info!("opening this Mac's node link as {name:?}");
         match link::open(beep.endpoint(), beep.server().into(), &name, &offers).await {
             Ok(linked) => {
+                log::info!("this Mac's node link is open");
                 set(Status::Connected);
                 wait = FIRST_RETRY;
                 match linked.serve().await {
@@ -140,12 +196,27 @@ async fn stay_linked(beep: Arc<Beep>, status: Arc<Mutex<Status>>, provision: Arc
                 }
             }
             Err(e) if format!("{e:#}").contains("admins") => {
-                log::info!("the server does not let this account use its Mac: {e:#}");
+                log::info!(
+                    "the server does not let this account add machines, asking again in {} minutes: {e:#}",
+                    REFUSED_RETRY.as_secs() / 60
+                );
                 set(Status::NotAllowed);
                 sleep(REFUSED_RETRY).await;
                 continue;
             }
-            Err(e) => log::warn!("node link failed: {e:#}"),
+            Err(e) => {
+                log::info!(
+                    "this Mac's node link failed, trying again in {}s: {e:#}",
+                    wait.as_secs()
+                );
+                *lock(&shared) = Link {
+                    status: Status::Failed,
+                    error: Some(format!("{e:#}")),
+                };
+                sleep(wait).await;
+                wait = (wait * 2).min(LAST_RETRY);
+                continue;
+            }
         }
         set(Status::Connecting);
         sleep(wait).await;
