@@ -2,7 +2,7 @@
 //! a command made, instead of mailing it to them; or copies a file from one
 //! of the user's machines to another.
 
-use super::machines::{Machines, Need, copy};
+use super::machines::{Machines, Need, copy, transfer};
 use crate::{fetch, user::User, workspace::Workspace};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
@@ -56,9 +56,9 @@ impl Tool for SendFileTool {
     }
     fn description(&self) -> &str {
         if self.paper {
-            return "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `paper: true` for this research's paper as a typeset PDF, with its sources; `url` for a file at an https URL; `path` for a file in the user's home folder, where exec runs (relative to it, or absolute), or on the machine `from` names; or `email_id` with `blob_id` for a Fastmail attachment. Files up to 20 MiB. To copy a file between the user's machines instead, give `path`, `from` (omit for the user's own environment) and `to`, the machine it goes to; it lands at `~/<file name>` there unless `dst_path` says where, folders are made as needed, an existing file is replaced only with `overwrite: true`, and files up to 2 GiB copy. Folders do not copy: tar one with exec first.";
+            return "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `paper: true` for this research's paper as a typeset PDF, with its sources; `url` for a file at an https URL; `path` for a file in the user's home folder, where exec runs (relative to it, or absolute), or on the machine `from` names; or `email_id` with `blob_id` for a Fastmail attachment. Files up to 20 MiB. To send a file or a whole folder from one of the user's machines to another instead, such as a render to the machine that needs it, give `path`, `from` (omit for the user's own environment) and `to`, the machine it goes to; it lands in `dst_folder` there (an existing folder, default the home folder), sent machine to machine. Nothing is replaced: a taken name gets a number, as `report (2).pdf`, and the result says where it landed. Both paths must be in folders the machines share.";
         }
-        "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `url` for a file at an https URL, such as the s3url GMAIL_GET_ATTACHMENT or OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT returns; `path` for a file in the user's home folder, where exec runs (relative to it, or absolute), or on the machine `from` names; or `email_id` with `blob_id` for a Fastmail attachment, as FASTMAIL_READ_EMAIL lists it. Files up to 20 MiB. To copy a file between the user's machines instead, give `path`, `from` (omit for the user's own environment) and `to`, the machine it goes to; it lands at `~/<file name>` there unless `dst_path` says where, folders are made as needed, an existing file is replaced only with `overwrite: true`, and files up to 2 GiB copy. Folders do not copy: tar one with exec first."
+        "Send the user a file, such as a PDF, in this chat; it shows as a file they can open or share. For an image to look at, use send_image instead. Use it whenever the user asks you to send, give or share a file with them, rather than emailing it. Give exactly one source: `url` for a file at an https URL, such as the s3url GMAIL_GET_ATTACHMENT or OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT returns; `path` for a file in the user's home folder, where exec runs (relative to it, or absolute), or on the machine `from` names; or `email_id` with `blob_id` for a Fastmail attachment, as FASTMAIL_READ_EMAIL lists it. Files up to 20 MiB. To send a file or a whole folder from one of the user's machines to another instead, such as a render to the machine that needs it, give `path`, `from` (omit for the user's own environment) and `to`, the machine it goes to; it lands in `dst_folder` there (an existing folder, default the home folder), sent machine to machine. Nothing is replaced: a taken name gets a number, as `report (2).pdf`, and the result says where it landed. Both paths must be in folders the machines share."
     }
     fn parameters(&self) -> Value {
         let mut schema = self.schema();
@@ -71,16 +71,16 @@ impl Tool for SendFileTool {
         schema
     }
     fn timeout_secs(&self) -> Option<u64> {
-        // A copy between machines may move up to 2 GiB, which takes 35
-        // minutes on a machine capped at 1 MiB/s.
-        Some(60 * 60)
+        // A folder sent between machines may be many gigabytes, and some
+        // machines are capped at 1 MiB/s.
+        Some(6 * 60 * 60)
     }
     fn humanize(&self, args: &Value) -> String {
         if args.get("paper").and_then(Value::as_bool) == Some(true) {
             return "Typesetting the paper…".into();
         }
         if let Some(to) = to_machine(args) {
-            return format!("Copying a file to {to}");
+            return format!("Sending to {to}");
         }
         "Sending file…".into()
     }
@@ -95,11 +95,10 @@ impl SendFileTool {
             "type": "object",
             "properties": {
                 "url": { "type": "string", "description": "https URL of the file" },
-                "path": { "type": "string", "description": "The file on the `from` machine, such as report.pdf in the user's home folder; `~` is the home folder there" },
+                "path": { "type": "string", "description": "The file on the `from` machine, such as report.pdf in the user's home folder, or a folder when sending to a machine; `~` is the home folder there" },
                 "from": { "type": "string", "description": "The machine `path` is on, by its name in the machines list; omit for the user's own environment" },
                 "to": { "type": "string", "description": "\"user\" (the default) to send the file in this chat, or a machine's name to copy it there" },
-                "dst_path": { "type": "string", "description": "Where the copy lands on `to`, such as ~/Downloads/report.pdf; default ~/<file name>" },
-                "overwrite": { "type": "boolean", "description": "Replace an existing file at the destination" },
+                "dst_folder": { "type": "string", "description": "The folder on `to` it lands in, such as ~/Downloads; it must exist. Default the home folder" },
                 "email_id": { "type": "string", "description": "Fastmail email id the attachment belongs to" },
                 "blob_id": { "type": "string", "description": "The Fastmail attachment's blobId" },
                 "account": { "type": "string", "description": "The Fastmail account the email is in, when the FASTMAIL tools take an `account`" },
@@ -118,17 +117,20 @@ impl SendFileTool {
                 .filter(|v| !v.is_empty())
         };
         let paper = self.paper && ctx.args.get("paper").and_then(Value::as_bool) == Some(true);
+        if let Err(e) = no_old_args(&ctx.args) {
+            return Ok(ToolResult::failure(ctx.tool_call_id, format!("{e:#}")));
+        }
         if let Some(to) = to_machine(&ctx.args) {
-            let result = self.copy(&ctx.args, to).await;
+            let result = self.copy(&ctx, to).await;
             return Ok(match result {
                 Ok(text) => ToolResult::success(ctx.tool_call_id, text),
                 Err(e) => ToolResult::failure(ctx.tool_call_id, format!("{e:#}")),
             });
         }
-        if arg("dst_path").is_some() {
+        if arg("dst_folder").is_some() {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
-                "`dst_path` is for copying to a machine with `to`.",
+                "`dst_folder` is for sending to a machine with `to`.",
             ));
         }
         let source = match (arg("url"), arg("path"), arg("email_id"), arg("blob_id")) {
@@ -265,17 +267,18 @@ impl SendFileTool {
             .context("this turn cannot use the user's machines")
     }
 
-    /// Copies `path` on `from` to the machine `to`; the text is the result.
-    async fn copy(&self, args: &Value, to: &str) -> Result<String> {
+    /// Sends `path` on `from` to the machine `to`; the text is the result.
+    async fn copy(&self, ctx: &ToolContext<'_>, to: &str) -> Result<String> {
+        let args = &ctx.args;
         let arg = |key| {
             args.get(key)
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
         };
-        let path = arg("path").context("copying to a machine takes `path`, the file to copy")?;
+        let path = arg("path").context("sending to a machine takes `path`, what to send")?;
         if arg("url").is_some() || arg("email_id").is_some() {
-            bail!("copying to a machine takes only `path` and `from` as the source");
+            bail!("sending to a machine takes only `path` and `from` as the source");
         }
         let machines = self.machines()?;
         let source = machines
@@ -287,23 +290,58 @@ impl SendFileTool {
             .await
             .map_err(anyhow::Error::msg)?;
         let src = copy::picked_path(&source, path)?;
-        let dst = match arg("dst_path") {
-            Some(dst) => copy::picked_path(&target, dst)?,
-            None => {
-                let name = copy::file_name(&src).context("the path names no file")?;
-                copy::picked_path(&target, &format!("~/{name}"))?
-            }
+        let folder = transfer::folder_on_machine(
+            arg("dst_folder").unwrap_or("~"),
+            target.cwd(),
+            target.home.as_deref(),
+        )?;
+        let mut progress = |line: String| ctx.progress(&line);
+        let sent = transfer::send(
+            &source,
+            &src,
+            &target,
+            &folder,
+            &mut progress,
+            ctx.cancel_token(),
+        )
+        .await?;
+        let what = match sent.files {
+            1 => transfer::size(sent.size),
+            files => format!("{files} files, {}", transfer::size(sent.size)),
         };
-        let overwrite = args.get("overwrite").and_then(Value::as_bool) == Some(true);
-        let copied = copy::copy(&source.online, &src, &target.online, &dst, overwrite).await?;
-        Ok(format!(
-            "Copied {} bytes from {}:{src} to {}:{}.",
-            copied.bytes,
+        let mut text = format!(
+            "Sent {what} from {}:{src} to {}:{}.",
             source.shown(),
             target.shown(),
-            copied.path
-        ))
+            sent.path
+        );
+        if sent.skipped > 0 {
+            text.push_str(&format!(
+                " Left out {} symlinks or special files.",
+                sent.skipped
+            ));
+        }
+        if !sent.direct {
+            text.push_str(
+                " It went through the server: a machine needs a newer beep-node to send directly.",
+            );
+        }
+        Ok(text)
     }
+}
+
+/// Refuses the arguments sending to a machine used to take, so a call
+/// written for them does not quietly do something else.
+fn no_old_args(args: &Value) -> Result<()> {
+    for old in ["dst_path", "overwrite"] {
+        if args.get(old).is_some_and(|value| !value.is_null()) {
+            bail!(
+                "`{old}` is no longer taken: give `dst_folder`, the existing folder on `to` it lands in. \
+                 Nothing is replaced; a taken name gets a number, and the result says where it landed."
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The machine a call copies to, when `to` names one rather than the user.
@@ -473,6 +511,14 @@ mod tests {
         assert_eq!(clean_name(".hidden"), "hidden");
         assert_eq!(clean_name("  "), "file");
         assert_eq!(clean_name("Boarding Pass.pdf"), "Boarding Pass.pdf");
+    }
+
+    #[test]
+    fn the_old_destination_arguments_are_refused() {
+        let refused = no_old_args(&json!({"to": "build-box", "path": "a", "dst_path": "/x/a"}));
+        assert!(format!("{:#}", refused.unwrap_err()).contains("`dst_path` is no longer taken"));
+        assert!(no_old_args(&json!({"to": "build-box", "overwrite": true})).is_err());
+        assert!(no_old_args(&json!({"to": "build-box", "path": "a", "dst_folder": "~"})).is_ok());
     }
 
     #[test]
