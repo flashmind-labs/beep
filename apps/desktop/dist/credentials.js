@@ -109,7 +109,7 @@ export function credentialsHtml(state, machines, esc, ago) {
     ? form(state, esc, { title: "New Forgejo server", url: "one token per server, teacli on every machine", note: "Make one in Forgejo: Settings, Applications, Access tokens, with repository and issue access." })
     : `<button class="dbtn" style="font-size:11.5px;padding:3px 9px;margin-top:8px;justify-self:start" data-cred-edit="forgejo">+ Add a Forgejo server</button>`;
   html += head("API keys", 14);
-  html += `<div style="font-size:12.5px;color:var(--muted);margin:4px 0 8px;max-width:60ch">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and gives each to your machines as its env var when they run agents and tools.</div>`;
+  html += `<div style="font-size:12.5px;color:var(--muted);margin:4px 0 8px;max-width:60ch">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and, when you choose, gives each to commands and terminals on your machines as its env var. Agents do not get API keys.</div>`;
   for (const p of state.providers ?? []) {
     const cred = list.find(c => c.kind === "api_key" && c.provider === p.slug);
     html += e?.kind === "api_key" && e.provider === p.slug
