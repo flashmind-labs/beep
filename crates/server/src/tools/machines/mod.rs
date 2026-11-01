@@ -286,7 +286,9 @@ fn finish(call_id: &str, result: Result<String, String>) -> ToolResult {
 fn in_parameter(default: &str) -> serde_json::Value {
     serde_json::json!({
         "type": "string",
-        "description": format!("The machine to use, by its name in the machines list. {default}")
+        "description": format!("The machine to use, by its name in the machines list. Pick one \
+            whose OS and `can` list fit the task: iOS, iPadOS and macOS work (Xcode, the iOS \
+            simulator) runs on a macOS machine that can xcode. {default}")
     })
 }
 
