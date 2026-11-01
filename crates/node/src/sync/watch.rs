@@ -20,7 +20,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock},
     time::Duration,
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::spawn_blocking};
 
 /// How often a project that cannot be watched is rescanned.
 pub(super) const RESCAN: Duration = Duration::from_secs(45);
@@ -288,8 +288,15 @@ impl Watcher {
         );
     }
 
-    /// Stops watching the project.
-    pub(super) fn remove(&self, key: Key) {
+    /// Stops watching the project, off the async workers.
+    pub(super) async fn remove(&self, key: Key) {
+        let this = self.clone();
+        if let Err(e) = spawn_blocking(move || this.remove_now(key)).await {
+            log::warn!("unwatching a project failed: {e}");
+        }
+    }
+
+    fn remove_now(&self, key: Key) {
         lock(&self.routes).remove(&key);
         let mut inner = lock(&self.inner);
         if let Some(watched) = inner.projects.remove(&key) {
@@ -302,8 +309,21 @@ impl Watcher {
 
     /// Watches exactly `dirs`, the folders a scan of the project kept, and
     /// says how the project learns of changes now. A project that did not
-    /// fit tries again with each call.
-    pub(super) fn set_dirs(&self, key: Key, dirs: &[PathBuf]) -> Mode {
+    /// fit tries again with each call. Counting other programs' watches
+    /// walks `/proc` and each watch is a system call, so it runs off the
+    /// async workers.
+    pub(super) async fn set_dirs(&self, key: Key, dirs: Vec<PathBuf>) -> Mode {
+        let this = self.clone();
+        match spawn_blocking(move || this.set_dirs_now(key, &dirs)).await {
+            Ok(mode) => mode,
+            Err(e) => {
+                log::warn!("watching a project failed: {e}");
+                Mode::Rescan { hint: WATCHES_HINT }
+            }
+        }
+    }
+
+    fn set_dirs_now(&self, key: Key, dirs: &[PathBuf]) -> Mode {
         let mut guard = lock(&self.inner);
         let inner = &mut *guard;
         let Some(mut watched) = inner.projects.remove(&key) else {
@@ -464,7 +484,7 @@ mod tests {
         let (wake, mut woken) = mpsc::channel(1);
         watcher.add(1, &root, rules, wake);
         assert_eq!(
-            watcher.set_dirs(1, std::slice::from_ref(&root)),
+            watcher.set_dirs(1, vec![root.clone()]).await,
             Mode::Watching
         );
         std::fs::write(root.join("notes.txt"), "x").unwrap();
@@ -474,8 +494,8 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    #[test]
-    fn a_project_that_does_not_fit_is_rescanned_and_others_still_watch() {
+    #[tokio::test]
+    async fn a_project_that_does_not_fit_is_rescanned_and_others_still_watch() {
         let dir = tempfile::TempDir::new().unwrap();
         let dirs: Vec<PathBuf> = (0..4)
             .map(|n| {
@@ -490,15 +510,55 @@ mod tests {
         let (wake, _woken) = mpsc::channel(1);
         watcher.add(1, dir.path(), rules.clone(), wake.clone());
         watcher.add(2, dir.path(), rules, wake);
-        assert_eq!(watcher.set_dirs(1, &dirs[..2]), Mode::Watching);
-        let mode = watcher.set_dirs(2, &dirs[2..]);
+        assert_eq!(
+            watcher.set_dirs(1, dirs[..2].to_vec()).await,
+            Mode::Watching
+        );
+        let mode = watcher.set_dirs(2, dirs[2..].to_vec()).await;
         let Mode::Rescan { hint } = mode else {
             panic!("the second project does not fit");
         };
         assert!(hint.contains("fs.inotify.max_user_watches"));
         // The first keeps its watches, and the second fits once it left.
-        assert_eq!(watcher.set_dirs(1, &dirs[..2]), Mode::Watching);
-        watcher.remove(1);
-        assert_eq!(watcher.set_dirs(2, &dirs[2..]), Mode::Watching);
+        assert_eq!(
+            watcher.set_dirs(1, dirs[..2].to_vec()).await,
+            Mode::Watching
+        );
+        watcher.remove(1).await;
+        assert_eq!(
+            watcher.set_dirs(2, dirs[2..].to_vec()).await,
+            Mode::Watching
+        );
+    }
+
+    /// Lets the counting test's `recount` finish, from an async task.
+    static RECOUNTED: Mutex<Option<std::sync::mpsc::Receiver<()>>> = Mutex::new(None);
+
+    /// Counts other programs' watches, as long as an async task on the same
+    /// worker can run meanwhile: true when it did.
+    fn recount_beside_a_task() -> u64 {
+        let rx = lock(&RECOUNTED).take().expect("the test set it");
+        u64::from(rx.recv_timeout(Duration::from_secs(5)).is_err())
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn counting_watches_leaves_the_async_worker_free() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        *lock(&RECOUNTED) = Some(rx);
+        let watcher =
+            Watcher::with_budget(Some(Budget::new(100_000, 0)), Some(recount_beside_a_task));
+        let rules = Arc::new(RwLock::new(Rules::load(dir.path()).unwrap()));
+        let (wake, _woken) = mpsc::channel(1);
+        watcher.add(1, dir.path(), rules, wake);
+        // Runs on the only worker only if counting does not hold it.
+        let beside = tokio::spawn(async move { tx.send(()).unwrap() });
+        let mode = watcher.set_dirs(1, vec![dir.path().to_owned()]).await;
+        beside.await.unwrap();
+        assert_eq!(mode, Mode::Watching);
+        // The recount saw the task's message, so it counted 0 others.
+        let inner = lock(&watcher.inner);
+        assert_eq!(inner.budget.as_ref().unwrap().others, 0);
     }
 }
