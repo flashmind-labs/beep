@@ -37,6 +37,8 @@ use tokio_util::task::AbortOnDropHandle;
 
 /// The most prompts waiting behind a running turn.
 const MAX_QUEUED: usize = 8;
+/// The most bytes, text and images, waiting behind a running turn.
+const MAX_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 /// The stderr lines kept to say why an agent stopped.
 const STDERR_LINES: usize = 5;
 /// The longest stderr line read whole; a longer one is skipped.
@@ -513,10 +515,8 @@ impl Actor {
                 if let Err(refused) = self.can_take(&prompt) {
                     return Ok(Err(refused));
                 }
-                if self.queued.len() >= MAX_QUEUED {
-                    return Ok(Err(format!(
-                        "{MAX_QUEUED} prompts already wait for this turn"
-                    )));
+                if let Err(full) = queue_room(&self.queued, &prompt) {
+                    return Ok(Err(full));
                 }
                 self.queued.push_back(prompt);
                 self.show_queued();
@@ -712,6 +712,24 @@ impl Actor {
             live.info.state.queued = queued;
         });
     }
+}
+
+/// Refuses a prompt the queue has no room for: too many waiting already,
+/// or too many bytes with this one.
+fn queue_room(queued: &VecDeque<Prompt>, prompt: &Prompt) -> Result<(), String> {
+    if queued.len() >= MAX_QUEUED {
+        return Err(format!("{MAX_QUEUED} prompts already wait for this turn"));
+    }
+    let waiting = queued
+        .iter()
+        .fold(prompt.size(), |n, queued| n.saturating_add(queued.size()));
+    if waiting > MAX_QUEUED_BYTES {
+        return Err(format!(
+            "Too much already waits for this turn (over {} MB); send this once it is done",
+            MAX_QUEUED_BYTES >> 20
+        ));
+    }
+    Ok(())
 }
 
 /// What people call the agent `name`, such as Claude Code for `claude`.
@@ -1139,6 +1157,34 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             .await
             .unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_queue_is_bounded_in_prompts_and_bytes() {
+        let text = |len: usize| Prompt::from("x".repeat(len));
+        let mut queued = VecDeque::new();
+        assert_eq!(queue_room(&queued, &text(10)), Ok(()));
+
+        let image = |len: usize| Prompt {
+            text: String::new(),
+            images: vec![Upload {
+                name: "shot.png".into(),
+                mime: "image/png".into(),
+                data: vec![0; len],
+            }],
+        };
+        queued.push_back(image(MAX_QUEUED_BYTES / 2));
+        queued.push_back(image(MAX_QUEUED_BYTES / 2 - 10));
+        assert_eq!(queue_room(&queued, &text(10)), Ok(()), "exactly the limit");
+        let full = queue_room(&queued, &text(11)).unwrap_err();
+        assert!(full.starts_with("Too much already waits"), "{full}");
+
+        let many: VecDeque<_> = (0..MAX_QUEUED).map(|_| text(1)).collect();
+        let full = queue_room(&many, &text(1)).unwrap_err();
+        assert_eq!(
+            full,
+            format!("{MAX_QUEUED} prompts already wait for this turn")
+        );
     }
 
     #[test]

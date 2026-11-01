@@ -106,6 +106,13 @@ impl Prompt {
         })?;
         Ok(Self { text, images })
     }
+
+    /// The bytes it holds, to bound what waits in a queue.
+    pub(super) fn size(&self) -> usize {
+        self.images.iter().fold(self.text.len(), |n, image| {
+            n.saturating_add(image.data.len())
+        })
+    }
 }
 
 /// Whether the agent the `initialize` answer describes takes image blocks.
