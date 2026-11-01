@@ -77,6 +77,7 @@ const MOVED: &[(&str, &[&str])] = &[
     ("event_triggers", &["slug", "account_id"]),
     ("event_polls", &["source"]),
     ("nodes", &[]),
+    ("credentials", &["kind", "provider", "host_url"]),
 ];
 
 impl Store {
