@@ -38,7 +38,7 @@ mod offer;
 mod place;
 
 use grants::Grants;
-use place::{Folder, Journal};
+use place::{Folder, Journal, Room};
 
 /// The most transfers, offers and fetches together, running at once.
 const MAX_RUNNING: usize = 4;
@@ -121,6 +121,8 @@ struct Inner {
     folders: Folders,
     grants: Arc<Grants>,
     journal: Journal,
+    /// The free space running fetches hold.
+    room: Arc<Room>,
     running: Arc<Semaphore>,
     // Dropping the router stops serving blobs; the handle ends the task
     // that answers its events.
@@ -161,6 +163,7 @@ impl Transfers {
                 folders,
                 grants,
                 journal,
+                room: Arc::default(),
                 running: Arc::new(Semaphore::new(MAX_RUNNING)),
                 _router: router,
                 _events: events_task,
@@ -320,6 +323,7 @@ async fn serve_fetch(
         store: &inner.store,
         store_dir: &inner.store_dir,
         journal: &inner.journal,
+        room: &inner.room,
         cancel: &cancel,
     };
     let result = {

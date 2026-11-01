@@ -115,6 +115,10 @@ fn walk(root: &Path) -> Result<Walked> {
                 .push(prefix.trim_end_matches('/').to_owned());
         }
     }
+    ensure!(
+        (walked.entries.len() + walked.empty_folders.len()) as u64 <= MAX_FILES,
+        "the folder holds more than {MAX_FILES} files and folders"
+    );
     walked.entries.sort_by(|a, b| a.name.cmp(&b.name));
     walked.empty_folders.sort();
     Ok(walked)

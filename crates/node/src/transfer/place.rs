@@ -16,13 +16,14 @@ use rustix::{
     io::Errno,
 };
 use std::{
+    collections::HashMap,
     ffi::OsStr,
     fs::{self, File},
     io::{self, ErrorKind},
     os::{fd::OwnedFd, unix::ffi::OsStrExt},
     path::{Component, Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicU64, Ordering},
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -431,31 +432,111 @@ impl Drop for Partial {
     }
 }
 
-/// Whether a transfer of `need` bytes fits: the store holds it once and
-/// the folder once, on one disk or two, with `margin` left on each.
-pub(super) fn check_room(need: u64, store: Space, folder: Space, margin: u64) -> Result<()> {
-    let short = |free: u64, wanted: u64| free < wanted.saturating_add(margin);
-    if store.device == folder.device {
-        let wanted = need.saturating_mul(2);
-        ensure!(
-            !short(store.free, wanted),
-            "not enough free space: the transfer needs {wanted} bytes on the target's disk \
-             while it is written out, and {} are free",
-            store.free
-        );
-    } else {
-        ensure!(
-            !short(store.free, need),
-            "not enough free space for the node's store: {need} bytes needed, {} free",
-            store.free
-        );
-        ensure!(
-            !short(folder.free, need),
-            "not enough free space in the target folder: {need} bytes needed, {} free",
-            folder.free
-        );
+/// Bytes promised to the fetches running now, by disk, so fetches that
+/// start together do not each count the same free space.
+#[derive(Debug, Default)]
+pub(crate) struct Room {
+    reserved: Mutex<HashMap<u64, u64>>,
+}
+
+/// What one disk must hold for a fetch.
+#[derive(Debug, Clone, Copy)]
+struct Want {
+    space: Space,
+    bytes: u64,
+}
+
+/// Space a running fetch holds on its disks until it drops.
+#[derive(Debug)]
+pub(crate) struct Reserved {
+    room: Arc<Room>,
+    held: Vec<Want>,
+}
+
+impl Drop for Reserved {
+    fn drop(&mut self) {
+        let mut reserved = self.room.lock();
+        for want in &self.held {
+            if let Some(bytes) = reserved.get_mut(&want.space.device) {
+                *bytes = bytes.saturating_sub(want.bytes);
+                if *bytes == 0 {
+                    reserved.remove(&want.space.device);
+                }
+            }
+        }
     }
-    Ok(())
+}
+
+impl Room {
+    fn lock(&self) -> MutexGuard<'_, HashMap<u64, u64>> {
+        self.reserved.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Holds room for a fetch of `need` bytes: the store holds it once and
+    /// the folder once, on one disk or two, with `margin` left on each
+    /// beside what the other running fetches hold.
+    pub(crate) fn reserve(
+        self: &Arc<Self>,
+        need: u64,
+        store: Space,
+        folder: Space,
+        margin: u64,
+    ) -> Result<Reserved> {
+        let held = if store.device == folder.device {
+            vec![Want {
+                space: store,
+                bytes: need.saturating_mul(2),
+            }]
+        } else {
+            vec![
+                Want {
+                    space: store,
+                    bytes: need,
+                },
+                Want {
+                    space: folder,
+                    bytes: need,
+                },
+            ]
+        };
+        let mut reserved = self.lock();
+        for (at, want) in held.iter().enumerate() {
+            let others = reserved.get(&want.space.device).copied().unwrap_or(0);
+            let free = want.space.free.saturating_sub(others);
+            if free >= want.bytes.saturating_add(margin) {
+                continue;
+            }
+            let busy = if others > 0 {
+                format!(" ({others} bytes are held for other transfers)")
+            } else {
+                String::new()
+            };
+            match (held.len(), at) {
+                (1, _) => bail!(
+                    "not enough free space: the transfer needs {} bytes on the target's disk \
+                     while it is written out, and {free} are free{busy}",
+                    want.bytes
+                ),
+                (_, 0) => bail!(
+                    "not enough free space for the node's store: {need} bytes needed, \
+                     {free} free{busy}"
+                ),
+                _ => bail!(
+                    "not enough free space in the target folder: {need} bytes needed, \
+                     {free} free{busy}"
+                ),
+            }
+        }
+        for want in &held {
+            let bytes = reserved.entry(want.space.device).or_default();
+            *bytes = bytes.saturating_add(want.bytes);
+        }
+        drop(reserved);
+        Ok(Reserved {
+            room: self.clone(),
+            held,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -625,11 +706,40 @@ mod tests {
     #[test]
     fn room_counts_one_disk_twice() {
         let disk = |free, device| Space { free, device };
-        assert!(check_room(40, disk(100, 1), disk(100, 1), 10).is_ok());
-        assert!(check_room(50, disk(100, 1), disk(100, 1), 10).is_err());
-        assert!(check_room(50, disk(100, 1), disk(100, 2), 10).is_ok());
-        assert!(check_room(95, disk(100, 1), disk(200, 2), 10).is_err());
-        assert!(check_room(95, disk(200, 1), disk(100, 2), 10).is_err());
-        assert!(check_room(u64::MAX, disk(100, 1), disk(100, 1), 10).is_err());
+        let fits = |need, store, folder| {
+            Arc::new(Room::default())
+                .reserve(need, store, folder, 10)
+                .is_ok()
+        };
+        assert!(fits(40, disk(100, 1), disk(100, 1)));
+        assert!(!fits(50, disk(100, 1), disk(100, 1)));
+        assert!(fits(50, disk(100, 1), disk(100, 2)));
+        assert!(!fits(95, disk(100, 1), disk(200, 2)));
+        assert!(!fits(95, disk(200, 1), disk(100, 2)));
+        assert!(!fits(u64::MAX, disk(100, 1), disk(100, 1)));
+    }
+
+    #[test]
+    fn running_fetches_share_the_free_space() {
+        let disk = |free, device| Space { free, device };
+        let room = Arc::new(Room::default());
+        let (store, folder) = (disk(1000, 1), disk(1000, 2));
+        let held: Vec<_> = (0..4)
+            .map(|_| room.reserve(200, store, folder, 100).unwrap())
+            .collect();
+        // Four hold 800 of each disk's 1000; a fifth would leave less
+        // than the margin.
+        let refused = room.reserve(200, store, folder, 100).unwrap_err();
+        assert!(format!("{refused:#}").contains("held for other transfers"));
+        // Another disk pair is not affected.
+        let other = room
+            .reserve(200, disk(1000, 3), disk(1000, 4), 100)
+            .unwrap();
+        drop(held);
+        let big = room.reserve(800, store, folder, 100).unwrap();
+        drop(other);
+        assert_eq!(room.lock().len(), 2);
+        drop(big);
+        assert!(room.lock().is_empty());
     }
 }
