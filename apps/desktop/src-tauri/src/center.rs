@@ -9,10 +9,10 @@ use crate::{
 };
 use beep_proto::{
     AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate, ChatApproval, Cron,
-    DismissUpdates, ListAgentSessions, ListCrons, ListMachineDetails, ListMachines,
-    ListPendingApprovals, ListResearches, ListUpdates, Machine, MachineApp, MachineDetails,
-    MachineEnv, MachineGpu, MachineSession, PendingApproval, ResearchStatus, ResearchSummary,
-    Session,
+    DismissUpdates, ListAgentSessions, ListCrons, ListMachineDetails, ListMachineStats,
+    ListMachines, ListPendingApprovals, ListResearches, ListUpdates, Machine, MachineApp,
+    MachineDetails, MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats,
+    PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -238,6 +238,33 @@ struct MachineCard {
     capabilities: Vec<&'static str>,
     /// Agent sessions on it that have not ended.
     agents: u32,
+    /// Its live resources; `None` while offline, before its first sample,
+    /// or from a server or node from before them.
+    stats: Option<CardStats>,
+}
+
+/// What a machine last said it has free.
+#[derive(Debug, Serialize)]
+struct CardStats {
+    /// In milliseconds since the Unix epoch.
+    sampled_at: u64,
+    /// The workspace's volume first, then home's when it is another.
+    disks: Vec<MachineDisk>,
+    memory_used_mb: u64,
+    memory_total_mb: u64,
+    load: Option<f64>,
+}
+
+impl From<MachineStats> for CardStats {
+    fn from(stats: MachineStats) -> Self {
+        Self {
+            sampled_at: epoch_ms(stats.sampled_at),
+            disks: stats.disks,
+            memory_used_mb: stats.memory_used_mb,
+            memory_total_mb: stats.memory_total_mb,
+            load: stats.load,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -299,6 +326,7 @@ struct CronRow {
 struct HomeParts {
     machines: Result<Vec<Machine>>,
     details: Result<Vec<MachineDetails>>,
+    stats: Result<Vec<MachineStats>>,
     sessions: Result<Vec<MachineSession>>,
     researches: Result<Vec<ResearchSummary>>,
     approvals: Result<Vec<ChatApproval>>,
@@ -309,9 +337,10 @@ struct HomeParts {
 
 #[tauri::command]
 pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
-    let (machines, details, sessions, researches, approvals, chats, crons, updates) = join!(
+    let (machines, details, stats, sessions, researches, approvals, chats, crons, updates) = join!(
         beep.call(ListMachines {}),
         beep.call(ListMachineDetails {}),
+        beep.call(ListMachineStats {}),
         beep.call(ListAgentSessions {}),
         beep.call(ListResearches {}),
         beep.call(ListPendingApprovals {}),
@@ -322,6 +351,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
     home_view(HomeParts {
         machines,
         details,
+        stats,
         sessions,
         researches,
         approvals,
@@ -372,7 +402,8 @@ fn home_view(parts: HomeParts) -> Result<HomeView> {
     Ok(HomeView {
         machines: section("machines", machines).map(|machines| {
             let details = section("machine details", parts.details).unwrap_or_default();
-            machine_cards(machines, details, &live)
+            let stats = section("machine stats", parts.stats).unwrap_or_default();
+            machine_cards(machines, details, stats, &live)
         }),
         running,
         needs_you: needs_you(
@@ -399,6 +430,7 @@ fn is_unsupported(e: &DesktopError) -> bool {
 fn machine_cards(
     machines: Vec<Machine>,
     details: Vec<MachineDetails>,
+    stats: Vec<MachineStats>,
     live: &[&MachineSession],
 ) -> Vec<MachineCard> {
     let mut agents: HashMap<&str, u32> = HashMap::new();
@@ -407,11 +439,14 @@ fn machine_cards(
     }
     let mut details: HashMap<String, MachineDetails> =
         details.into_iter().map(|d| (d.id.clone(), d)).collect();
+    let mut stats: HashMap<String, MachineStats> =
+        stats.into_iter().map(|s| (s.id.clone(), s)).collect();
     let mut cards: Vec<MachineCard> = machines
         .into_iter()
         .map(|machine| {
             let detail = details.remove(&machine.id);
             MachineCard {
+                stats: stats.remove(&machine.id).map(CardStats::from),
                 agents: agents.get(machine.id.as_str()).copied().unwrap_or(0),
                 seen_at: epoch_ms(machine.seen_at),
                 apps: detail.as_ref().map(|d| d.apps.clone()).unwrap_or_default(),
@@ -761,6 +796,7 @@ mod tests {
         HomeParts {
             machines: Ok(Vec::new()),
             details: Ok(Vec::new()),
+            stats: Ok(Vec::new()),
             sessions: Ok(Vec::new()),
             researches: Ok(Vec::new()),
             approvals: Ok(Vec::new()),
@@ -804,6 +840,41 @@ mod tests {
         let build = cards.iter().find(|c| c.id == "build-box").expect("card");
         let mac = cards.iter().find(|c| c.id == "mac-box").expect("card");
         assert_eq!((build.agents, mac.agents), (2, 0));
+    }
+
+    #[test]
+    fn machines_carry_their_stats() {
+        let listed = view(HomeParts {
+            machines: Ok(vec![machine("build-box", true), machine("mac-box", true)]),
+            stats: Ok(vec![MachineStats {
+                id: "build-box".into(),
+                sampled_at: at(9000),
+                disks: vec![MachineDisk {
+                    path: "/srv/project".into(),
+                    free_bytes: 212_000_000_000,
+                    total_bytes: 500_000_000_000,
+                }],
+                memory_used_mb: 9300,
+                memory_total_mb: 32768,
+                load: Some(1.5),
+            }]),
+            ..parts()
+        });
+        let cards = listed.machines.expect("machines were listed");
+        let build = cards.iter().find(|c| c.id == "build-box").expect("card");
+        let stats = build.stats.as_ref().expect("stats");
+        assert_eq!((stats.sampled_at, stats.memory_used_mb), (9000, 9300));
+        assert!(cards.iter().any(|c| c.id == "mac-box" && c.stats.is_none()));
+        let old = view(HomeParts {
+            machines: Ok(vec![machine("build-box", true)]),
+            stats: Err(DesktopError::Api(ApiError::bad_request("unknown op 165"))),
+            ..parts()
+        });
+        assert!(
+            old.machines.expect("machines were listed")[0]
+                .stats
+                .is_none()
+        );
     }
 
     #[test]

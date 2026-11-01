@@ -101,6 +101,8 @@ sample_struct! {
     MachineDetails { id, apps, gpus, capabilities }
     MachineApp { name, version }
     MachineGpu { vendor, model, vram_mb, driver }
+    MachineStats { id, sampled_at, disks, memory_used_mb, memory_total_mb, load }
+    MachineDisk { path, free_bytes, total_bytes }
     MachineSession { machine_id, machine_name, id, agent, title, cwd, status, doing, started_at, last_activity, external, question }
     AgentQuestion { id, text, detail, options }
     AgentOption { id, name, allow }

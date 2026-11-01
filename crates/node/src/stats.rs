@@ -1,0 +1,185 @@
+//! The machine's live resources, for `Up::Stats`: free disk where the
+//! user's files live, memory in use and the load average.
+
+use crate::env;
+use anyhow::{Context, Result};
+use beep_proto::node::{DiskUsage, StatsReport};
+use rustix::fs::{Dev, stat, statvfs};
+use std::path::{Path, PathBuf};
+use tokio::task::spawn_blocking;
+
+/// Samples the machine. `folders` are measured in order, each volume once:
+/// the workspace, then the home folder.
+pub async fn sample(folders: Vec<PathBuf>) -> StatsReport {
+    // statvfs can hang on a stuck network mount, so it stays off the
+    // async workers.
+    let disks = match spawn_blocking(move || disks(&folders)).await {
+        Ok(disks) => disks,
+        Err(e) => {
+            log::warn!("measuring the disks failed: {e}");
+            Vec::new()
+        }
+    };
+    let memory = memory().await.unwrap_or_else(|e| {
+        log::debug!("reading memory use failed: {e:#}");
+        Memory::default()
+    });
+    StatsReport {
+        disks,
+        memory_used_mb: memory.used_mb,
+        memory_total_mb: memory.total_mb,
+        load: load(),
+    }
+}
+
+/// The volume of each folder, skipping a folder that is on the volume of
+/// one before it or cannot be measured.
+fn disks(folders: &[PathBuf]) -> Vec<DiskUsage> {
+    let mut seen = Vec::new();
+    let mut disks = Vec::new();
+    for folder in folders {
+        match disk(folder) {
+            Ok((device, usage)) if !seen.contains(&device) => {
+                seen.push(device);
+                disks.push(usage);
+            }
+            Ok(_) => {}
+            Err(e) => log::debug!("not measuring {}: {e:#}", folder.display()),
+        }
+    }
+    disks
+}
+
+/// The volume's device id, so a second folder on it is skipped, and how
+/// full it is.
+fn disk(folder: &Path) -> Result<(Dev, DiskUsage)> {
+    let device = stat(folder).context("stat")?.st_dev;
+    let vfs = statvfs(folder).context("statvfs")?;
+    let usage = DiskUsage {
+        path: folder.display().to_string(),
+        free_bytes: vfs.f_bavail.saturating_mul(vfs.f_frsize),
+        total_bytes: vfs.f_blocks.saturating_mul(vfs.f_frsize),
+    };
+    Ok((device, usage))
+}
+
+#[derive(Debug, Default, PartialEq)]
+struct Memory {
+    used_mb: u64,
+    total_mb: u64,
+}
+
+async fn memory() -> Result<Memory> {
+    if cfg!(target_os = "macos") {
+        let total_mb = env::memory_mb().await.context("hw.memsize")?;
+        let vm_stat = env::output("vm_stat", &[]).await.context("vm_stat")?;
+        let available_mb = vm_stat_available_mb(&vm_stat).context("vm_stat output")?;
+        Ok(Memory {
+            used_mb: total_mb.saturating_sub(available_mb),
+            total_mb,
+        })
+    } else {
+        let meminfo = tokio::fs::read_to_string("/proc/meminfo")
+            .await
+            .context("/proc/meminfo")?;
+        meminfo_memory(&meminfo).context("/proc/meminfo has no MemTotal or MemAvailable")
+    }
+}
+
+/// Used and total memory from `/proc/meminfo`, which gives kB. Used is
+/// what the kernel cannot hand out without swapping.
+fn meminfo_memory(meminfo: &str) -> Option<Memory> {
+    let field = |name: &str| -> Option<u64> {
+        let line = meminfo.lines().find(|line| line.starts_with(name))?;
+        line[name.len()..].split_whitespace().next()?.parse().ok()
+    };
+    let total_kb = field("MemTotal:")?;
+    let available_kb = field("MemAvailable:")?;
+    Some(Memory {
+        used_mb: total_kb.saturating_sub(available_kb) / 1024,
+        total_mb: total_kb / 1024,
+    })
+}
+
+/// Free, inactive and speculative pages from `vm_stat`, in MB: what macOS
+/// can hand out without compressing or swapping.
+fn vm_stat_available_mb(vm_stat: &str) -> Option<u64> {
+    let page_size: u64 = vm_stat
+        .split("page size of ")
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    let pages = |name: &str| -> Option<u64> {
+        let line = vm_stat.lines().find(|line| line.starts_with(name))?;
+        line[name.len()..].trim().trim_end_matches('.').parse().ok()
+    };
+    let available =
+        pages("Pages free:")? + pages("Pages inactive:")? + pages("Pages speculative:")?;
+    Some(available.saturating_mul(page_size) / (1024 * 1024))
+}
+
+/// The load average over the last minute.
+fn load() -> Option<f64> {
+    let mut averages = [0f64; 3];
+    // SAFETY: `averages` has room for the 3 values asked for, and
+    // getloadavg writes no more than it is given.
+    let got = unsafe { libc::getloadavg(averages.as_mut_ptr(), 3) };
+    (got >= 1).then_some(averages[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_meminfo() {
+        let meminfo =
+            "MemTotal:       32768000 kB\nMemFree:  1000 kB\nMemAvailable:   23244800 kB\n";
+        assert_eq!(
+            meminfo_memory(meminfo),
+            Some(Memory {
+                used_mb: 9300,
+                total_mb: 32000
+            })
+        );
+        assert_eq!(meminfo_memory("MemTotal: 1 kB\n"), None);
+    }
+
+    #[test]
+    fn reads_vm_stat() {
+        let vm_stat = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n\
+            Pages free:                               64000.\n\
+            Pages active:                            500000.\n\
+            Pages inactive:                          128000.\n\
+            Pages speculative:                         2000.\n\
+            Pages throttled:                              0.\n";
+        // 194000 pages of 16 KiB.
+        assert_eq!(vm_stat_available_mb(vm_stat), Some(3031));
+        assert_eq!(vm_stat_available_mb("Pages free: 1."), None);
+    }
+
+    #[test]
+    fn measures_each_volume_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let inner = dir.path().join("inner");
+        std::fs::create_dir(&inner).unwrap();
+        let missing = dir.path().join("missing");
+        let disks = disks(&[dir.path().to_path_buf(), missing, inner]);
+        assert_eq!(disks.len(), 1);
+        assert_eq!(disks[0].path, dir.path().display().to_string());
+        assert!(disks[0].total_bytes > 0);
+        assert!(disks[0].free_bytes <= disks[0].total_bytes);
+    }
+
+    #[tokio::test]
+    async fn samples_this_machine() {
+        let home = std::env::temp_dir();
+        let report = sample(vec![home]).await;
+        assert_eq!(report.disks.len(), 1);
+        assert!(report.memory_total_mb > 0);
+        assert!(report.memory_used_mb <= report.memory_total_mb);
+        assert!(report.load.is_some());
+    }
+}

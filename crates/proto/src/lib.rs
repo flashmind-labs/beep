@@ -683,6 +683,11 @@ requests! {
     /// Removes one of the caller's credentials, by `Credential::id`, from
     /// Beep and their machines. `NotFound` when the caller has no such one.
     164 RemoveCredential { id: String } => Call<()>
+    /// What each of the caller's online machines last said it has free:
+    /// disk, memory and load, sampled about once a minute. A machine that
+    /// is offline or has not sent any yet is left out. Admins only, like
+    /// `ListMachines`.
+    165 ListMachineStats {} => Call<Vec<MachineStats>>
     /// A one-time setup token that links a machine to the caller's account:
     /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
     /// It works for ten minutes. `name` is what the machine is called once
@@ -1203,6 +1208,34 @@ pub struct MachineGpu {
     /// Video memory in MB, when known.
     pub vram_mb: Option<u64>,
     pub driver: Option<String>,
+}
+
+/// A machine's live resources, as `ListMachineStats` lists them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineStats {
+    /// The `Machine::id` it describes.
+    pub id: String,
+    /// When the server got the sample.
+    pub sampled_at: SystemTime,
+    /// The workspace's volume first, when the machine keeps one, then the
+    /// home folder's when it is on another volume.
+    pub disks: Vec<MachineDisk>,
+    pub memory_used_mb: u64,
+    pub memory_total_mb: u64,
+    /// The load average over the last minute, when the machine gives one.
+    pub load: Option<f64>,
+}
+
+/// How full the volume holding one folder is.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineDisk {
+    /// The folder it was measured at.
+    pub path: String,
+    /// What a user may still write, in bytes.
+    pub free_bytes: u64,
+    pub total_bytes: u64,
 }
 
 wire_enum! {

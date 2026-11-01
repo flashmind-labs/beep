@@ -8,7 +8,7 @@ import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
-import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "./home.js";
+import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine } from "./home.js";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 
 const $ = sel => document.querySelector(sel);
@@ -129,10 +129,10 @@ function addMachineButton(cls) {
   return b;
 }
 
-/// One machine per row: name and OS, agents, what it can run, and what it
-/// is doing now. The node does not report load or sync progress yet.
+/// One machine per row: name and OS, agents, what it can run, free disk,
+/// memory in use and what it is doing now.
 function machineTable(machines) {
-  const table = h("div", "cc-mt", ...["Machine", "Agents", "Can run", "Now"].map(t => h("span", "th", t)));
+  const table = h("div", "cc-mt", ...["Machine", "Agents", "Can run", "Disk", "Memory", "Now"].map(t => h("span", "th", t)));
   for (const m of machines) {
     const off = m.online ? "" : " off";
     const name = h("span", `nm${off}`, h("b", "", dot(m), h("span", "", m.name)), h("span", "os", machineOs(m)));
@@ -143,7 +143,12 @@ function machineTable(machines) {
     if (caps.length) can.title = caps.join(", ");
     const now = h("span", `num${off}`, machineNow(m));
     if (!m.online) now.title = ago(m.seen_at) === "now" ? "Seen just now" : `Seen ${ago(m.seen_at)} ago`;
-    table.append(name, h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–"), can, now);
+    const d = machineDisk(m), mem = machineMemory(m);
+    const disk = h("span", `num${off}${d.low ? " low" : ""}`, d.text);
+    if (d.title) disk.title = d.title;
+    const memory = h("span", `num${off}`, mem.text);
+    if (mem.title) memory.title = mem.title;
+    table.append(name, h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–"), can, disk, memory, now);
   }
   return table;
 }

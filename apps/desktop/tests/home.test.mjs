@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { homeColumns, homeRows, machineCaps, machineNow, machineOs, needsLine, runningLine } from "../dist/home.js";
+import { bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine } from "../dist/home.js";
 
 const machine = (over = {}) => ({
   online: true, agents: 0, capabilities: [], gpus: [], apps: [], env: null, ...over,
@@ -58,4 +58,30 @@ test("a wide Home puts what to act on left and machines right", () => {
 test("a wide Home keeps one column when a side would be empty", () => {
   assert.equal(homeColumns({ machines: [], running: [], needs_you: null, updates: [], coming_up: [1] }), null);
   assert.equal(homeColumns({ machines: null, running: null, needs_you: [1], updates: [1], coming_up: null }), null);
+});
+
+test("sizes read as disks are sold", () => {
+  assert.equal(bytes(850e6), "850 MB");
+  assert.equal(bytes(4.3e9), "4.3 GB");
+  assert.equal(bytes(212.4e9), "212 GB");
+  assert.equal(bytes(1.2e12), "1.2 TB");
+  assert.equal(bytes(0), "0 B");
+});
+
+test("Disk shows free space and warns under a tenth free", () => {
+  const disks = [{ path: "/srv/project", free_bytes: 212e9, total_bytes: 500e9 }, { path: "/home/user", free_bytes: 4e9, total_bytes: 100e9 }];
+  const d = machineDisk(machine({ stats: { disks } }));
+  assert.deepEqual([d.text, d.low], ["212 GB free", false]);
+  assert.equal(d.title, "/srv/project: 212 GB free of 500 GB\n/home/user: 4.0 GB free of 100 GB");
+  assert.equal(machineDisk(machine({ stats: { disks: disks.slice(1) } })).low, true);
+  assert.equal(machineDisk(machine()).text, "–");
+  assert.equal(machineDisk(machine({ online: false, stats: { disks } })).text, "–");
+});
+
+test("Memory shows used of total in GB with the load in its title", () => {
+  const stats = { memory_used_mb: 9318, memory_total_mb: 32768, load: 1.5 };
+  assert.deepEqual(machineMemory(machine({ stats, env: { cpus: 8 } })), { text: "9.1 / 32 GB", title: "Load 1.50 on 8 cores" });
+  assert.deepEqual(machineMemory(machine({ stats: { ...stats, load: null } })), { text: "9.1 / 32 GB", title: "" });
+  assert.equal(machineMemory(machine({ stats: { ...stats, memory_total_mb: 0 } })).text, "–");
+  assert.equal(machineMemory(machine()).text, "–");
 });
