@@ -34,6 +34,7 @@ mod research;
 mod sessions;
 mod settings;
 mod transcribe;
+mod updates;
 mod work;
 
 use crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron};
@@ -206,6 +207,8 @@ pub fn router() -> Router {
         .call(project_sync::list_project_sync)
         .call(project_sync::get_sync_skipped)
         .call(project_sync::pin_project)
+        .call(updates::list_updates)
+        .call(updates::dismiss_updates)
 }
 
 type Reply<T> = Result<T, ApiError>;

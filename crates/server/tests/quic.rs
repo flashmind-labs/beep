@@ -6,13 +6,13 @@ use beep_server::{
     models::ModelChoices,
     protocol::{
         ActiveRun, ApiError, AppKind, CancelRun, CancelWork, Chat, ConnectApp, CreateCron,
-        DeletePlace, DeleteSkill, DeviceKind, Event, ExistingSessions, Filler, GetAgents,
-        GetEvents, GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetUpdates, Health,
-        HistoryEntry, InviteDevice, LinkDevice, ListApps, ListCrons, ListDevices,
-        ListPendingApprovals, ListPlaces, ListQuestions, ListSessions, ListSkills, ListWork,
-        MAX_SAY_CHARS, MemorySource, MessageBody, Notice, PeekInvite, RemoveDevice, RunEvent, Say,
-        Session, SetAgents, SpeakNotice, SpokenTurns, StartAppAuth, StreamUpdates, SuggestPrompts,
-        UndoSkill, Update, UpdateLocation, UpdatePlace, UpdateSkill, Upload,
+        DeletePlace, DeleteSkill, DeviceKind, DismissUpdates, Event, ExistingSessions, Filler,
+        GetAgents, GetEvents, GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetUpdates,
+        Health, HistoryEntry, InviteDevice, LinkDevice, ListApps, ListCrons, ListDevices,
+        ListPendingApprovals, ListPlaces, ListQuestions, ListSessions, ListSkills, ListUpdates,
+        ListWork, MAX_SAY_CHARS, MemorySource, MessageBody, Notice, PeekInvite, RemoveDevice,
+        RunEvent, Say, Session, SetAgents, SpeakNotice, SpokenTurns, StartAppAuth, StreamUpdates,
+        SuggestPrompts, UndoSkill, Update, UpdateLocation, UpdatePlace, UpdateSkill, Upload,
         link::{LinkOffer, OFFER_TTL},
         wire::framed,
     },
@@ -1645,6 +1645,9 @@ async fn a_chat_lists_its_background_work_and_refuses_ids_it_does_not_have() {
     assert!(questions.is_empty());
     let waiting = c.call(&ListPendingApprovals {}).await.unwrap();
     assert!(waiting.is_empty());
+    let updates = c.call(&ListUpdates {}).await.unwrap();
+    assert!(updates.is_empty());
+    c.call(&DismissUpdates { ids: vec![1, 2] }).await.unwrap();
     for id in ["w1", "not an id"] {
         let refused = c
             .call(&CancelWork {

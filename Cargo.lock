@@ -485,6 +485,7 @@ dependencies = [
  "agent-client-protocol",
  "anyhow",
  "bao-tree",
+ "base64 0.22.1",
  "beep-proto",
  "blake3",
  "clap",

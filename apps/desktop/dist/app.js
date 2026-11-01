@@ -253,7 +253,8 @@ function hints(items, extra = "") {
   items = forPane(items);
   const st = { unlinked: ["off", "Not linked"], revoked: ["bad", "Removed"] }[S.link];
   const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
-  return `<div class="dhints">${items.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}${extra}${link}</div>`;
+  // The first two say the most; the rest give way when the row is narrow.
+  return `<div class="dhints">${items.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}${extra}${link}</div>`;
 }
 /// The window does not hide and has no live mode, and ⌘K searches there.
 function forPane(items) {
@@ -385,6 +386,9 @@ function drawLatest() {
   bar.append(el);
 }
 
+/// Past this many prompts the map hides until the chat is hovered.
+const MAP_QUIET_AFTER = 12;
+
 /// A tick per prompt on the right edge once the chat scrolls: hover one to read
 /// the prompt, click it to jump there. Ticks are only rebuilt when the prompts
 /// change, since fit() calls this from the bar's MutationObserver.
@@ -394,6 +398,8 @@ function drawMap() {
   let map = $("#map");
   if (turns.length < 2 || b.scrollHeight <= b.clientHeight + 4) return map?.remove();
   if (!map) map = bar.appendChild(h('<div class="dmap" id="map" aria-label="Prompts in this chat"></div>'));
+  // A long chat's ticks are a wall of noise: they show only on hover.
+  map.classList.toggle("many", turns.length > MAP_QUIET_AFTER);
   if (map.turns?.length !== turns.length || map.turns.some((t, i) => t !== turns[i])) {
     map.turns = turns;
     map.replaceChildren(...turns.map(t => {
@@ -1462,6 +1468,11 @@ async function shrinkPic(file) {
 }
 
 document.addEventListener("paste", e => {
+  if (S.view === "agent" && $("#agmsg")) {
+    const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+    if (files.length) { e.preventDefault(); agentAttach(files); }
+    return;
+  }
   if (S.view !== "chat" || !$("#ask")) return;
   const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
   if (files.length) { e.preventDefault(); attach(files); }
@@ -1469,13 +1480,19 @@ document.addEventListener("paste", e => {
 
 // Dropping images and files on the chat attaches them too.
 bar.addEventListener("dragover", e => {
-  if (S.view !== "chat" || !e.dataTransfer?.types.includes("Files")) return;
+  const agent = S.view === "agent" && $("#agmsg");
+  if ((S.view !== "chat" && !agent) || !e.dataTransfer?.types.includes("Files")) return;
   e.preventDefault();
-  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}Drop images or files to ask about them</div>`));
+  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}${agent ? "Drop images to send them to the agent" : "Drop images or files to ask about them"}</div>`));
 });
 bar.addEventListener("dragleave", e => { if (!bar.contains(e.relatedTarget)) $("#ddrop")?.remove(); });
 bar.addEventListener("drop", e => {
   $("#ddrop")?.remove();
+  if (S.view === "agent" && $("#agmsg") && e.dataTransfer?.files.length) {
+    e.preventDefault();
+    agentAttach(e.dataTransfer.files).then(() => $("#agmsg")?.focus());
+    return;
+  }
   if (S.view !== "chat" || !e.dataTransfer?.files.length) return;
   e.preventDefault();
   attach(e.dataTransfer.files).then(() => focusAsk());
@@ -2391,37 +2408,29 @@ function sendRow(onPause) {
     <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:-6px 0 8px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
 }
 
-// Permissions are granted in System Settings; coming back shows them.
-window.addEventListener("focus", () => { if (S.view === "settings" && !$("#unlinkYes")) renderSettings(); });
+/// Settings: drawn at once from what this Mac knows (its own settings and
+/// the last devices, apps and machines seen), then each server-backed
+/// section fills in on its own as its call answers. The calls run side by
+/// side: one after another they took as long as all four together. In the
+/// bar it is the bar's page; in the window it is a sheet over the view
+/// (`SET.root`), which `settingsSheet` opens.
+const SET = { root: null, token: 0, devices: null, machines: undefined, confirm: false };
+const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["general", "General"]];
 
-async function renderSettings(confirm = false) {
-  S.view = "settings";
-  let set;
-  try {
-    set = await invoke("settings");
-  } catch (e) {
-    bar.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(e)}</p></div>`;
-    return;
-  }
-  if (S.view !== "settings") return;
-  const linked = S.link === "linked";
-  let devices = [];
-  if (linked) {
-    try {
-      devices = await invoke("list_devices");
-    } catch (e) {
-      console.warn(e);
-    }
-    if (S.view !== "settings") return;
-    if (!A.apps) A.apps = await invoke("list_apps").catch(() => null);
-    if (S.view !== "settings") return;
-  }
-  const mac = linked ? await invoke("mac_control").catch(e => { console.warn(e); return null; }) : null;
-  if (S.view !== "settings") return;
-  // Only admins may list machines; for anyone else the row stays out.
-  MC.list = linked ? await invoke("list_machines").catch(() => null) : null;
-  if (S.view !== "settings") return;
-  const machines = MC.list ? `<div class="dtoggle"><span><b>Other machines</b><small>${MC.list.length ? esc(`${MC.list.length} linked: ${MC.list.map(m => m.name).join(", ")}`) : "None linked yet"}</small></span><button class="dbtn" id="machines">Show…</button></div>` : "";
+const setRoot = () => SET.root ?? bar;
+/// The sheet is open, or the bar still shows Settings.
+const setShown = () => SET.root ? SET.root.isConnected : S.view === "settings";
+
+// Permissions are granted in System Settings; coming back shows them.
+window.addEventListener("focus", () => { if (setShown() && !$("#unlinkYes")) renderSettings(); });
+
+/// Rows that stand in for a section until the server answers.
+const setSkeleton = n => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
+
+function setDevicesHtml(linked, set) {
+  if (!linked) return `<div class="dtoggle"><span><b>Not linked</b><small>Link to see your chats and memories here</small></span><button class="dbtn pri" id="link">Link to phone…</button></div>`;
+  if (SET.devices === null) return setSkeleton(2);
+  const devices = SET.devices;
   // Whether this Mac made the account, and so links and removes devices.
   const owner = devices.some(d => d.this_device && d.primary);
   const row = d => {
@@ -2430,50 +2439,64 @@ async function renderSettings(confirm = false) {
     const remove = owner && !d.this_device ? `<button class="dbtn quiet" data-remove="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">${ICON.x}</button>` : "";
     return `<div class="dtoggle"><span><b style="display:flex;gap:7px;align-items:center">${esc(d.name)}${tags}</b><small>${d.kind === "phone" ? "Phone" : "Computer"}</small></span>${remove}</div>`;
   };
-  const link = !linked
-    ? `<div class="dtoggle"><span><b>Not linked</b><small>Link to see your chats and memories here</small></span><button class="dbtn pri" id="link">Link to phone…</button></div>`
-    : devices.map(row).join("") + (owner
-      ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'
-      : confirm ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn" id="invite">Link a phone…</button><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`);
-  const ask = linked && confirm ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+  const ask = SET.confirm ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px">
       <b style="font-size:13.5px">Unlink this Mac?</b><div class="dmuted" style="display:block">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
       <div style="display:flex;gap:8px"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn" id="unlinkNo">Cancel</button></div>
       <div class="derr" id="unlinkErr"></div></div></div>` : "";
-  const on = (A.apps ?? []).filter(a => a.connected).map(a => a.name);
-  const apps = linked ? `<div class="dsec flat" style="padding-top:6px">Apps</div>
-      <div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>` : "";
-  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
-    <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">
-      <div class="dsec flat">Devices</div>${link}${ask}${apps}${mac ? thisMac(mac) : ""}${machines}
-      <div class="dsec flat" style="padding-top:6px">General</div>
-      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
-        <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
-      ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}
-    </div>${hints([["esc", "close"]])}`;
-  $("#link")?.addEventListener("click", renderLink);
-  $("#invite")?.addEventListener("click", renderInvitePhone);
-  $("#apps")?.addEventListener("click", renderApps);
-  $("#machines")?.addEventListener("click", renderMachines);
-  bar.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", async () => {
+  return devices.map(row).join("") + (owner
+    ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'
+    : SET.confirm ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn" id="invite">Link a phone…</button><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`) + ask;
+}
+
+function setAppsHtml() {
+  if (!A.apps) return setSkeleton(1);
+  const on = A.apps.filter(a => a.connected).map(a => a.name);
+  return `<div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>`;
+}
+
+/// Other machines; only admins may list them, so for anyone else it stays out.
+function setMachinesHtml() {
+  if (SET.machines === undefined) return setSkeleton(1);
+  const list = SET.machines;
+  if (!list) return "";
+  return `<div class="dtoggle"><span><b>Other machines</b><small>${list.length ? esc(`${list.length} linked: ${list.map(m => m.name).join(", ")}`) : "None linked yet"}</small></span><button class="dbtn" id="machines">Show…</button></div>`;
+}
+
+/// Leaves Settings for another page: in the window the sheet closes and
+/// the pane shows it.
+function setAway(view, inBar) {
+  if (SET.root && window.beepSettingsAway) return window.beepSettingsAway(view);
+  inBar();
+}
+
+/// Binds the controls inside `el`, a section or the whole page.
+function bindSettings(el) {
+  const $in = sel => el.querySelector(sel);
+  $in("#link")?.addEventListener("click", () => setAway("link", renderLink));
+  $in("#invite")?.addEventListener("click", () => setAway("invite", renderInvitePhone));
+  $in("#apps")?.addEventListener("click", () => setAway("apps", renderApps));
+  $in("#machines")?.addEventListener("click", () => setAway("machines", renderMachines));
+  el.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", async () => {
     b.disabled = true;
     try {
       await invoke("remove_device", { id: b.dataset.remove });
     } catch (e) {
       console.warn(e);
     }
-    renderSettings();
+    if (setShown()) renderSettings();
   }));
-  $("#unlink")?.addEventListener("click", () => renderSettings(true));
-  $("#unlinkNo")?.addEventListener("click", () => renderSettings());
-  $("#unlinkYes")?.addEventListener("click", async () => {
+  $in("#unlink")?.addEventListener("click", () => renderSettings(true));
+  $in("#unlinkNo")?.addEventListener("click", () => renderSettings());
+  $in("#unlinkYes")?.addEventListener("click", async () => {
     try {
       await invoke("unlink");
+      if (SET.root) window.beepSettingsAway?.(null);
       show(null);
     } catch (e) {
       $("#unlinkErr").textContent = String(e);
     }
   });
-  $("#usemac")?.addEventListener("click", async e => {
+  $in("#usemac")?.addEventListener("click", async e => {
     const sw = e.currentTarget;
     sw.disabled = true;
     try {
@@ -2481,19 +2504,19 @@ async function renderSettings(confirm = false) {
     } catch (err) {
       console.warn(err);
     }
-    renderSettings();
+    if (setShown()) renderSettings();
   });
-  bar.querySelectorAll("[data-allow]").forEach(b => b.addEventListener("click", () =>
+  el.querySelectorAll("[data-allow]").forEach(b => b.addEventListener("click", () =>
     invoke("allow_mac_permission", { permission: b.dataset.allow }).catch(e => console.warn(e))));
-  bar.querySelectorAll("[data-vn]").forEach(b => b.addEventListener("click", async () => {
+  el.querySelectorAll("[data-vn]").forEach(b => b.addEventListener("click", async () => {
     await invoke("set_notice_voice", { choice: b.dataset.vn }).catch(e => console.warn(e));
-    if (S.view === "settings") renderSettings();
+    if (setShown()) renderSettings();
   }));
-  bar.querySelectorAll("[data-pause]").forEach(b => b.addEventListener("click", async () => {
+  el.querySelectorAll("[data-pause]").forEach(b => b.addEventListener("click", async () => {
     await invoke("set_send_on_pause", { enabled: b.dataset.pause === "1" }).catch(e => console.warn(e));
-    if (S.view === "settings") renderSettings();
+    if (setShown()) renderSettings();
   }));
-  $("#autostart").addEventListener("click", async e => {
+  $in("#autostart")?.addEventListener("click", async e => {
     const sw = e.currentTarget, on = sw.getAttribute("aria-checked") !== "true";
     try {
       await invoke("set_autostart", { enabled: on });
@@ -2502,6 +2525,104 @@ async function renderSettings(confirm = false) {
       console.warn(err);
     }
   });
+}
+
+/// Redraws one section in place, once its data came.
+function fillSection(id, html) {
+  const box = setRoot().querySelector(`#set-${id}`);
+  if (!box) return;
+  const focus = focusKey(box);
+  box.innerHTML = html;
+  bindSettings(box);
+  if (focus) refocus(box, focus);
+}
+
+// The data attributes that name a Settings control when it has no id.
+const FOCUS_KEYS = ["remove", "vn", "pause", "allow", "goto"];
+
+/// What has focus inside `box`, as a selector that finds it again after
+/// a redraw; null when focus is elsewhere.
+function focusKey(box) {
+  const a = document.activeElement;
+  // A button disabled while it waited drops focus to the body; in the
+  // sheet that would let Tab reach the page behind.
+  if (!a || a === document.body) return box.closest(".cc-set") ? "*" : null;
+  if (a === box || !box.contains(a)) return null;
+  if (a.id) return `#${CSS.escape(a.id)}`;
+  const k = FOCUS_KEYS.find(k => k in a.dataset);
+  return k ? `[data-${k}="${CSS.escape(a.dataset[k])}"]` : "*";
+}
+
+/// Puts focus back after a redraw, on the same control when it is still
+/// there, else on the sheet, so Tab never lands on the page behind.
+function refocus(box, key) {
+  const again = key === "*" ? null : box.querySelector(key);
+  if (again && !again.disabled) return again.focus();
+  (box.closest(".cc-set") || box).focus();
+}
+
+/// Draws Settings into `root` (the window's sheet), or the bar when none.
+async function renderSettings(confirm = false, root = undefined) {
+  if (root !== undefined) SET.root = root;
+  else if (SET.root && !SET.root.isConnected) SET.root = null;
+  // The window shows Settings as its sheet, never as a page of the pane.
+  if (PANE && !SET.root && window.beepOpenSettings) return window.beepOpenSettings();
+  if (!SET.root) S.view = "settings";
+  SET.confirm = confirm;
+  const token = ++SET.token;
+  const alive = () => SET.token === token && setShown();
+  // Local: answered by this Mac, never the server.
+  const [set, mac] = await Promise.all([
+    invoke("settings"),
+    invoke("mac_control").catch(e => { console.warn(e); return null; }),
+  ]).catch(e => [e, null]);
+  if (!alive()) return;
+  const el = setRoot();
+  if (set instanceof Error || typeof set !== "object") {
+    el.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(set)}</p></div>`;
+    return;
+  }
+  const linked = S.link === "linked";
+  const sec = (id, title, body) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dsec flat" style="padding-top:6px">${title}</div><div id="set-${id}">${body}</div></section>`;
+  const sections = sec("devices", "Devices", setDevicesHtml(linked, set))
+    + (linked ? sec("apps", "Apps", setAppsHtml()) : "")
+    + (linked && mac ? `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>` : "")
+    + (linked ? sec("machines", "Machines", setMachinesHtml()) : "")
+    + `<section id="set-general-sec" data-sec="general"><div class="dsec flat" style="padding-top:6px">General</div>
+      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
+        <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
+      ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}</section>`;
+  if (SET.root) {
+    const shown = new Set([...sections.matchAll(/data-sec="(\w+)"/g)].map(m => m[1]));
+    const nav = SET_SECTIONS.filter(([id]) => shown.has(id))
+      .map(([id, label], i) => `<button class="cc-si" data-goto="${id}"${i === 0 ? ' aria-current="true"' : ""}>${label}</button>`).join("");
+    const top = el.querySelector(".dset-body")?.scrollTop ?? 0;
+    const focus = focusKey(el);
+    el.innerHTML = `<nav class="dset-nav" aria-label="Settings sections"><b>Settings</b>${nav}</nav>
+      <div class="dset-body"><div class="dset-top"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span><kbd>esc</kbd></div>
+      <div class="dform" style="display:flex;flex-direction:column">${sections}</div></div>`;
+    const body = el.querySelector(".dset-body");
+    body.scrollTop = top;
+    el.querySelectorAll("[data-goto]").forEach(b => b.addEventListener("click", () => {
+      el.querySelectorAll("[data-goto]").forEach(x => x.removeAttribute("aria-current"));
+      b.setAttribute("aria-current", "true");
+      el.querySelector(`#set-${b.dataset.goto}-sec`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }));
+    bindSettings(el);
+    if (focus) refocus(el, focus);
+  } else {
+    el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
+      <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">${sections}</div>${hints([["esc", "close"]])}`;
+    bindSettings(el);
+  }
+  if (!linked) return;
+  // The server's parts, side by side; each fills its section as it answers.
+  invoke("list_devices").then(d => { SET.devices = d; }, e => { console.warn(e); SET.devices ??= []; })
+    .then(() => { if (alive()) fillSection("devices", setDevicesHtml(true, set)); });
+  invoke("list_apps").then(a => { A.apps = a; }, () => { A.apps ??= []; })
+    .then(() => { if (alive()) fillSection("apps", setAppsHtml()); });
+  invoke("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
+    .then(() => { if (alive()) fillSection("machines", setMachinesHtml()); });
 }
 
 // ---------- Apps ----------
@@ -4213,10 +4334,32 @@ function drawMachines() {
 const AG = {
   hosts: null, sessions: [], error: "", busy: false,
   form: { prompt: "", machine: "auto", agent: null, cwd: "", chat: null },
-  open: null, page: null, why: "", back: "chat", timer: 0, inflight: false, note: "", sel: 0,
+  open: null, page: null, why: "", back: "chat", timer: 0, inflight: null, note: "", sel: 0,
+  // Polling: what the last answer looked like, when it last changed,
+  // whether it stopped for quiet, and the question an answer is going to.
+  sig: "", changed: 0, paused: false, answering: null, barHidden: false,
+  // Images pasted or dropped into the session's field, the error from the
+  // last one, and the session the server turned images down for.
+  att: [], attError: "", noImages: null,
 };
+/// What a coding agent takes with a message, as the server checks it.
+const AGENT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const AGENT_MAX_IMAGES = 5;
+const AGENT_MAX_IMAGE = 5 * 1024 * 1024;
+const AGENT_MAX_IMAGES_TOTAL = 7 * 1024 * 1024;
+/// Thumbnails of images sent from here, by session and name, so the
+/// transcript's `[image: name]` lines show the picture.
+const agentPics = new Map();
+const AGENT_PICS_KEPT = 60;
+let pastedCount = 0;
 /// How often the session view asks for its session while on screen.
 const AGENT_POLL_MS = 1500;
+/// A quiet session (idle, or started outside Beep) unchanged this long is
+/// asked every `AGENT_SLOW_MS`, and after `AGENT_PAUSE_AFTER` no more.
+const AGENT_SLOW_AFTER = 2 * 60_000;
+const AGENT_SLOW_MS = 10_000;
+const AGENT_PAUSE_AFTER = 5 * 60_000;
+const AGENT_ACTIVE = new Set(["asking", "working", "running", "starting"]);
 const AGENT_LAST = 60;
 const AGENT_KINDS = {
   claude: { ini: "CC", name: "Claude Code", cls: "claude" },
@@ -4376,38 +4519,158 @@ function openAgent(s, { why = "", back: from } = {}) {
   AG.why = why;
   AG.back = from;
   AG.note = "";
+  AG.sig = "";
+  AG.changed = Date.now();
+  AG.paused = false;
+  AG.answering = null;
+  AG.att = [];
+  AG.attError = "";
+  AG.noImages = null;
   drawAgentFrame();
   pollAgent();
 }
 
 const isOpen = o => S.view === "agent" && AG.open && o === AG.open;
 
-/// Asks for the open session, then again after `AGENT_POLL_MS` while it
-/// stays on screen. Never two calls at once.
+/// Whether the session view can be seen: the window is not hidden, and
+/// the bar, when this is the bar, is up.
+const agentOnScreen = () => document.visibilityState === "visible" && !AG.barHidden;
+
+/// How long until the open session is asked again, or null to stop: an
+/// ended session, or a quiet one that has not changed for a while.
+function agentDelay() {
+  const s = AG.page?.session;
+  if (!s || s.status === "ended") return null;
+  if (!s.external && AGENT_ACTIVE.has(s.status)) return AGENT_POLL_MS;
+  const still = Date.now() - AG.changed;
+  if (still >= AGENT_PAUSE_AFTER) return null;
+  return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
+}
+
+/// Asks for the open session, then again after `agentDelay()` while it
+/// stays on screen. Never two calls at once for one session.
 async function pollAgent() {
   clearTimeout(AG.timer);
   const o = AG.open;
-  if (!isOpen(o) || AG.inflight) return;
-  if (document.visibilityState === "visible") {
-    AG.inflight = true;
-    try {
-      const page = await invoke("agent_view", { machineId: o.machine_id, agent: o.agent, session: o.session, last: AGENT_LAST });
-      if (isOpen(o)) { AG.page = page; AG.note = AG.note === "gone" ? "" : AG.note; drawAgentBody(); }
-    } catch (e) {
-      if (isOpen(o)) { AG.note = /not found/i.test(String(e)) ? "gone" : String(e); drawAgentBody(); }
-    } finally {
-      AG.inflight = false;
+  if (!isOpen(o) || AG.inflight === o || !agentOnScreen()) return;
+  AG.inflight = o;
+  try {
+    const page = await invoke("agent_view", { machineId: o.machine_id, agent: o.agent, session: o.session, last: AGENT_LAST });
+    if (isOpen(o)) {
+      const sig = JSON.stringify(page);
+      if (sig !== AG.sig) { AG.sig = sig; AG.changed = Date.now(); }
+      if (page.session.question?.id !== AG.answering) AG.answering = null;
+      AG.page = page;
+      AG.note = AG.note === "gone" ? "" : AG.note;
+      drawAgentBody();
     }
+  } catch (e) {
+    if (isOpen(o)) { AG.note = /not found/i.test(String(e)) ? "gone" : String(e); drawAgentBody(); }
+  } finally {
+    if (AG.inflight === o) AG.inflight = null;
   }
-  if (isOpen(o) && AG.page?.session.status !== "ended") AG.timer = setTimeout(pollAgent, AGENT_POLL_MS);
+  // Another session opened while this one was asked: follow that one.
+  if (AG.open !== o) { if (isOpen(AG.open) && !AG.inflight) pollAgent(); return; }
+  if (!isOpen(o) || !agentOnScreen()) return;
+  const delay = agentDelay();
+  const paused = delay === null && AG.page?.session.status !== "ended";
+  if (paused !== AG.paused) { AG.paused = paused; drawAgentBody(); }
+  if (delay !== null) AG.timer = setTimeout(pollAgent, delay);
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.view === "agent") pollAgent(); });
+
+/// Follows the open session again after a pause or a message.
+function resumeAgent() {
+  AG.changed = Date.now();
+  AG.paused = false;
+  pollAgent();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") { if (S.view === "agent") pollAgent(); } else clearTimeout(AG.timer);
+});
+if (!PANE) {
+  listen("bar-hidden", () => { AG.barHidden = true; clearTimeout(AG.timer); });
+  listen("bar-shown", () => { AG.barHidden = false; if (S.view === "agent") pollAgent(); });
+}
+
+/// Whether the server turned images down for the open session.
+const noAgentImages = () => AG.noImages != null && AG.noImages === AG.open?.session;
 
 function agentHints() {
   const s = AG.page?.session, q = s?.question;
   if (q) return hints([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
   if (s?.external || s?.status === "ended") return hints([["esc", "back"]]);
-  return hints([[ICON.ret, "send"], ["⌘.", "stop the turn"], ["esc", "back"]]);
+  // Once one is attached its chip says enough.
+  const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
+  return hints([...paste, [ICON.ret, "send"], ["⌘.", "stop the turn"], ["esc", "back"]]);
+}
+
+// ----- Images for the agent -----
+
+/// A name for an image, unique among those waiting; a pasted one is
+/// named "Pasted image 1.png" and so on rather than "image.png".
+function agentImageName(f) {
+  const ext = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" }[f.type] || "png";
+  let name = f.name && f.name !== `image.${ext}` && f.name !== "image.png" ? f.name : `Pasted image ${++pastedCount}.${ext}`;
+  const dot = name.lastIndexOf(".");
+  const base = name;
+  for (let n = 2; AG.att.some(a => a.name === name); n++) name = dot > 0 ? `${base.slice(0, dot)} ${n}${base.slice(dot)}` : `${base} ${n}`;
+  return name;
+}
+
+function agentAttachError(text) {
+  AG.attError = text;
+  drawAgentAttached();
+  clearTimeout(AG.attTimer);
+  AG.attTimer = setTimeout(() => { AG.attError = ""; drawAgentAttached(); }, 5000);
+}
+
+/// Adds pasted or dropped images to the session's next message, refusing
+/// what the agent cannot take rather than shrinking or dropping it.
+async function agentAttach(files) {
+  if (noAgentImages()) return agentAttachError("This Beep server does not take images yet.");
+  for (const f of [...files]) {
+    if (!AGENT_IMAGE_TYPES.includes(f.type)) { agentAttachError(`${f.name || "That file"} is not a PNG, JPEG, GIF or WebP image`); continue; }
+    if (AG.att.length >= AGENT_MAX_IMAGES) { agentAttachError(`Up to ${AGENT_MAX_IMAGES} images in one message`); break; }
+    if (f.size > AGENT_MAX_IMAGE) { agentAttachError(`${f.name || "That image"} is over ${AGENT_MAX_IMAGE >> 20} MB`); continue; }
+    const used = AG.att.reduce((n, a) => n + a.size, 0);
+    if (used + f.size > AGENT_MAX_IMAGES_TOTAL) { agentAttachError(`Images up to ${AGENT_MAX_IMAGES_TOTAL >> 20} MB in all in one message`); continue; }
+    try {
+      const data = await fileBase64(f);
+      AG.att.push({ name: agentImageName(f), mime: f.type, size: f.size, data, url: `data:${f.type};base64,${data}` });
+    } catch {
+      agentAttachError(`${f.name || "That image"} could not be read`);
+    }
+  }
+  drawAgentAttached();
+}
+
+/// The chips of waiting images above the field, as in the mock.
+function drawAgentAttached() {
+  const field = $("#agfield");
+  if (!field) return;
+  const old = $("#agatt");
+  const el = AG.att.length || AG.attError ? h(`<div class="ag-att" id="agatt">${AG.att.map((a, i) =>
+    `<span class="chip"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button aria-label="Remove ${esc(a.name)}" data-agatt="${i}">${ICON.x}</button></span>`).join("")}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
+  el?.querySelectorAll("[data-agatt]").forEach(b => b.addEventListener("click", () => {
+    AG.att.splice(Number(b.dataset.agatt), 1);
+    drawAgentAttached();
+    $("#agmsg")?.focus();
+  }));
+  if (old) el ? old.replaceWith(el) : old.remove();
+  else if (el) field.before(el);
+  const hint = bar.querySelector(":scope > .dhints");
+  if (hint && S.view === "agent") hint.replaceWith(h(agentHints()));
+}
+
+/// Keeps the thumbnails of images just sent, for the transcript.
+function keepAgentPics(o, images) {
+  for (const a of images) {
+    const key = `${o.session}\n${a.name}`;
+    agentPics.delete(key);
+    agentPics.set(key, a.url);
+  }
+  while (agentPics.size > AGENT_PICS_KEPT) agentPics.delete(agentPics.keys().next().value);
 }
 
 /// The parts that stay while the session updates: the head, the body and the field.
@@ -4418,6 +4681,7 @@ function drawAgentFrame() {
     : `<div class="dinput small" id="agfield"><input id="agmsg" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"><button class="dbtn" id="agstop" aria-label="Stop the turn"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop<kbd>⌘.</kbd></button><button class="dbtn quiet" id="agclose">Close session</button></div>`;
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)">${esc(s.cwd)}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="dbody" id="agbody" style="padding-top:10px"></div>${field}${agentHints()}`;
+  drawAgentAttached();
   const b = $("#agbody");
   b.stuck = true;
   b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; };
@@ -4427,14 +4691,36 @@ function drawAgentFrame() {
     if (S.view !== "agent") return;
     const opt = e.target.closest("[data-agopt]");
     if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
+    if (e.target.closest("#agresume")) return resumeAgent();
     if (e.target.closest("#agstop")) return steerAgent({ cancel: null });
     if (e.target.closest("#agclose")) return steerAgent({ close: null });
   };
 }
 
+/// A user entry's text and the images it carried: the node writes each
+/// as a line `[image: name]` after the text.
+function userImages(text) {
+  const lines = String(text).split("\n"), names = [];
+  while (lines.length) {
+    const m = /^\[image: (.+)\]$/.exec(lines[lines.length - 1]);
+    if (!m) break;
+    names.unshift(m[1]);
+    lines.pop();
+  }
+  return { text: lines.join("\n"), names };
+}
+
 function entryRow(en) {
   const text = esc(en.text);
-  if (en.kind === "user") return `<div class="dcoderen user"><b>You</b><span>${text}</span></div>`;
+  if (en.kind === "user") {
+    const { text: said, names } = userImages(en.text);
+    if (!names.length) return `<div class="dcoderen user"><b>You</b><span>${text}</span></div>`;
+    const pics = names.map(n => {
+      const url = AG.open && agentPics.get(`${AG.open.session}\n${n}`);
+      return url ? `<img class="pic" src="${esc(url)}" alt="${esc(n)}" title="${esc(n)}">` : `<span class="pic none" title="${esc(n)}">${ICON.image}${esc(n)}</span>`;
+    }).join("");
+    return `<div class="dcoderen user"><b>You</b>${said ? `<span>${esc(said)}</span>` : ""}<span class="pics">${pics}</span></div>`;
+  }
   if (en.kind === "agent") return `<div class="dcoderen agent">${text}</div>`;
   if (en.kind === "tool") return `<div class="dcoderen tool">${text}</div>`;
   return `<div class="dcoderen other">${text}</div>`;
@@ -4449,7 +4735,7 @@ function drawAgentBody() {
   const mark = x => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
   const doing = s.doing && s.status !== "ended" ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${esc(s.doing)}</div>` : "";
   const question = q ? `<div class="q"><b style="font-weight:600">${esc(q.text)}</b>${q.detail ? `<code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(q.detail)}</code>` : ""}
-      <div class="dups">${q.options.map((o, i) => `<button class="dbtn${o.allow && i === q.options.findIndex(x => x.allow) ? " pri" : !o.allow && i === q.options.findIndex(x => !x.allow) ? " warn" : ""}" data-agopt="${i}">${esc(o.name)}${o.allow && i === q.options.findIndex(x => x.allow) ? `<kbd>⌘${ICON.ret}</kbd>` : !o.allow && i === q.options.findIndex(x => !x.allow) ? "<kbd>⌘D</kbd>" : ""}</button>`).join("")}</div></div>` : "";
+      <div class="dups">${q.options.map((o, i) => `<button class="dbtn${o.allow && i === q.options.findIndex(x => x.allow) ? " pri" : !o.allow && i === q.options.findIndex(x => !x.allow) ? " warn" : ""}" data-agopt="${i}"${q.id === AG.answering ? " disabled" : ""}>${esc(o.name)}${o.allow && i === q.options.findIndex(x => x.allow) ? `<kbd>⌘${ICON.ret}</kbd>` : !o.allow && i === q.options.findIndex(x => !x.allow) ? "<kbd>⌘D</kbd>" : ""}</button>`).join("")}</div></div>` : "";
   const plan = p.plan.length ? `<div class="sec">Plan</div><div class="plan">${p.plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
   const files = p.files.length ? `<div class="sec">Files changed</div><div class="files">${p.files.slice(-12).map(f => `<span><b>${esc(f)}</b></span>`).join("")}${p.files.length > 12 ? `<span style="color:var(--muted)">and ${p.files.length - 12} more</span>` : ""}</div>` : "";
   const queued = p.queued ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${p.queued === 1 ? "1 message waits" : `${p.queued} messages wait`} for the turn to end</div>` : "";
@@ -4462,7 +4748,8 @@ function drawAgentBody() {
   const err = p.error ? `<div class="derr">${esc(p.error)}</div>` : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
-  b.innerHTML = why + card + entries + err + note;
+  const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
+  b.innerHTML = why + card + entries + err + note + paused;
   const hint = bar.querySelector(":scope > .dhints");
   if (hint) hint.replaceWith(h(agentHints()));
   const field = $("#agfield");
@@ -4470,18 +4757,26 @@ function drawAgentBody() {
   if (b.stuck !== false) b.scrollTop = b.scrollHeight;
 }
 
+/// Answers the open question once: its buttons stay disabled, and a poll
+/// that still shows it does not bring them back, until the node moves on.
 async function answerAgentQuestion(i) {
   const o = AG.open, q = AG.page?.session.question, opt = q?.options[i];
-  if (!opt) return;
-  AG.page.session.question = null;
-  AG.page.session.status = "working";
+  if (!opt || AG.answering === q.id) return;
+  AG.answering = q.id;
   drawAgentBody();
   try {
     await invoke("center_answer_agent", { machineId: o.machine_id, agent: o.agent, session: o.session, question: q.id, reply: opt.id });
+    if (isOpen(o) && AG.page.session.question?.id === q.id) {
+      AG.page.session.question = null;
+      AG.page.session.status = "working";
+    }
   } catch (e) {
-    if (isOpen(o)) { AG.note = /^conflict/i.test(String(e)) ? "" : String(e); drawAgentBody(); }
+    // A conflict means it was answered already, so it stays answered.
+    const conflict = /^conflict/i.test(String(e));
+    if (!conflict && AG.answering === q.id) AG.answering = null;
+    if (isOpen(o)) AG.note = conflict ? "" : String(e);
   }
-  if (isOpen(o)) pollAgent();
+  if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
 }
 /// The first option of the open question that allows, or that does not.
 function answerFirst(allow) {
@@ -4491,25 +4786,50 @@ function answerFirst(allow) {
   return i >= 0;
 }
 
+/// Sends `steer` to the open session; true when the node took it.
 async function steerAgent(steer) {
   const o = AG.open;
-  if (!o || AG.page?.session.external) return;
+  if (!o || AG.page?.session.external) return false;
+  let ok = false;
   try {
     await invoke("agent_steer", { machineId: o.machine_id, agent: o.agent, session: o.session, steer: "prompt" in steer ? steer : Object.keys(steer)[0] });
     AG.note = "";
+    ok = true;
   } catch (e) {
     AG.note = String(e).replace(/^bad request: /, "");
   }
-  if (isOpen(o)) { drawAgentBody(); pollAgent(); }
+  if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
+  return ok;
 }
 
-function sendAgentMessage() {
-  const input = $("#agmsg"), text = input?.value.trim();
-  if (!text) return;
+async function sendAgentMessage() {
+  const input = $("#agmsg"), text = input?.value.trim() ?? "", images = AG.att;
+  if (!text && !images.length) return;
+  const o = AG.open;
   input.value = "";
-  AG.page.entries.push({ kind: "user", text });
+  if (!images.length) {
+    AG.page.entries.push({ kind: "user", text });
+    drawAgentBody();
+    return steerAgent({ prompt: { text } });
+  }
+  AG.att = [];
+  drawAgentAttached();
+  keepAgentPics(o, images);
+  const page = AG.page, mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
+  page.entries.push(mine);
   drawAgentBody();
-  steerAgent({ prompt: { text } });
+  const sent = await steerAgent({ prompt: { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } });
+  if (sent || !isOpen(o)) return;
+  // Nothing went: the message and its images wait in the field again.
+  if (/does not take images yet/.test(AG.note)) AG.noImages = o.session;
+  // A poll may have drawn more since: take out this message, not the last.
+  const at = page.entries.indexOf(mine);
+  if (at >= 0) page.entries.splice(at, 1);
+  const field = $("#agmsg");
+  if (field && !field.value) field.value = text;
+  AG.att = images;
+  drawAgentBody();
+  drawAgentAttached();
 }
 
 // ----- Every session -----
@@ -5506,8 +5826,19 @@ if (PANE) {
     skills: renderSkills,
     apps: renderApps,
     settings: renderSettings,
+    // Pages Settings leads to, which the window shows in the pane.
+    machines: renderMachines,
+    link: renderLink,
+    invite: renderInvitePhone,
+    // The command center leads here when the server says this Mac was removed.
+    revoked: renderRevoked,
   };
   window.beepPane = {
+    /// Draws Settings into `el`, the window's sheet, leaving the pane as it is.
+    async settings(el) {
+      await start();
+      return renderSettings(false, el);
+    },
     /// Shows `target`, a CenterTarget in its JSON form.
     async open(target) {
       await start();
@@ -5538,6 +5869,18 @@ if (PANE) {
       await start();
       await newChat();
       return send(text);
+    },
+    /// Starts a new chat with `text` in the composer, not sent, for the
+    /// user to send or change.
+    async draft(text) {
+      await start();
+      await newChat();
+      const ask = $("#ask");
+      if (!ask) return;
+      ask.value = text;
+      grow(ask);
+      refreshHints();
+      focusAsk();
     },
     /// Chats and groups, newest first, pinned ones as the bar lists them.
     async chatRows() {
