@@ -60,6 +60,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// What every disk keeps free beyond a fetch.
 const SPACE_MARGIN: u64 = 64 << 20;
 const CHUNK: usize = 1 << 20;
+/// How often a changing state is saved; it is saved on stop as well.
+const SAVE_EVERY: Duration = Duration::from_secs(2);
 
 /// The last change this node has from a peer's replica.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,7 +81,7 @@ pub(super) struct Seen {
 }
 
 /// What a project keeps on disk between runs.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Saved {
     map: Map,
     seen: BTreeMap<String, Seen>,
@@ -108,6 +110,15 @@ impl State {
             have,
             unsaved: false,
         }
+    }
+
+    /// A copy of what to save, once after each change.
+    fn snapshot(&mut self) -> Option<Saved> {
+        if !self.unsaved {
+            return None;
+        }
+        self.unsaved = false;
+        Some(self.saved.clone())
     }
 
     fn set_seen(&mut self, path: &str, seen: Seen) {
@@ -359,6 +370,7 @@ struct Task {
     error: Option<String>,
     /// The last scan failed, so nothing on disk is recorded.
     scan_failed: bool,
+    saved_at: Instant,
     /// The folder is not the one synced before, so nothing is written.
     root_failed: bool,
 }
@@ -384,6 +396,7 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
         error: None,
         scan_failed: false,
         root_failed: false,
+        saved_at: Instant::now(),
     };
     let mut peers = shared.peers.subscribe();
     let mut pulls = JoinSet::new();
@@ -391,7 +404,7 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
     // down merge as edits.
     task.scan().await;
     task.apply().await;
-    task.save().await;
+    task.save(true).await;
     start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
     let mut settle: Option<Instant> = None;
     let mut last_scan = Instant::now();
@@ -401,6 +414,8 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
             Mode::Rescan { .. } => RESCAN,
         };
         let mut apply = false;
+        // A change waiting to be saved is saved once `SAVE_EVERY` passed.
+        let unsaved = shared.lock().unsaved;
         tokio::select! {
             () = shared.stop.cancelled() => break,
             Some(()) = woken.recv() => {
@@ -419,6 +434,7 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
             }
             () = shared.merged.notified() => apply = true,
             () = sleep(RETRY), if task.pending > 0 => apply = true,
+            () = sleep_until(task.saved_at + SAVE_EVERY), if unsaved => {}
             changed = peers.changed() => {
                 if changed.is_err() {
                     break;
@@ -433,10 +449,10 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
         if apply && settle.is_none() {
             task.apply().await;
         }
-        task.save().await;
+        task.save(false).await;
     }
     watcher.remove(shared.key).await;
-    task.save().await;
+    task.save(true).await;
 }
 
 fn start_pulls(
@@ -935,24 +951,29 @@ impl Task {
         Ok(())
     }
 
-    async fn save(&mut self) {
-        let bytes = {
-            let mut state = self.shared.lock();
-            if !state.unsaved {
-                return;
-            }
-            state.unsaved = false;
-            rmp_serde::to_vec_named(&state.saved)
+    /// Saves the state when it changed and the last save is `SAVE_EVERY`
+    /// old, or now when `now`. The state is copied under its lock and
+    /// written outside it.
+    async fn save(&mut self, now: bool) {
+        if !now && self.saved_at.elapsed() < SAVE_EVERY {
+            return;
+        }
+        let Some(snapshot) = self.shared.lock().snapshot() else {
+            return;
         };
-        let bytes = match bytes {
-            Ok(bytes) => bytes,
-            Err(e) => return log::warn!("could not save {}: {e}", self.shared.name),
-        };
+        self.saved_at = Instant::now();
         let file = self.shared.file.clone();
-        match spawn_blocking(move || write_atomic(&file, &bytes)).await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => log::warn!("could not save {}: {e:#}", self.shared.name),
-            Err(e) => log::warn!("could not save {}: {e}", self.shared.name),
+        let written = spawn_blocking(move || {
+            let bytes = rmp_serde::to_vec_named(&snapshot)?;
+            write_atomic(&file, &bytes)
+        })
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|written| written);
+        if let Err(e) = written {
+            log::warn!("could not save {}: {e:#}", self.shared.name);
+            // Tried again on the next pass.
+            self.shared.lock().unsaved = true;
         }
     }
 
@@ -1307,6 +1328,20 @@ mod tests {
         assert_ne!(copied, *hash.as_bytes(), "the change is noticed");
         drop(tag);
         store.shutdown().await.ok();
+    }
+
+    #[test]
+    fn the_state_is_copied_to_save_once_after_each_change() {
+        let mut state = State::new(Saved::default());
+        assert!(state.snapshot().is_none(), "nothing changed");
+        state
+            .saved
+            .map
+            .edit("a.txt", &Version::default(), Some(meta(1)));
+        state.unsaved = true;
+        let saved = state.snapshot().expect("changed");
+        assert!(saved.map.get("a.txt").is_some());
+        assert!(state.snapshot().is_none(), "saved already");
     }
 
     #[test]
