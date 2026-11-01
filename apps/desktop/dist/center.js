@@ -415,7 +415,7 @@ registerSidebarGroup("chats", {
 });
 
 registerSidebarGroup("views", {
-  order: 4,
+  order: 6,
   title: "Beep",
   load: async () => [
     { view: "memories", label: "Memories", svg: IC.mem },
@@ -626,6 +626,9 @@ $("#home-comp").addEventListener("submit", async e => {
   try {
     await pane().compose(prompt);
   } catch (err) {
+    // Back on Home with the prompt as typed, where the error shows.
+    input.value = prompt;
+    go("home");
     note.textContent = failure(err);
   }
   reloadGroup("chats");
