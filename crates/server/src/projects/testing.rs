@@ -9,6 +9,7 @@ use super::{
     worker::{StartError, Started},
 };
 use crate::{
+    nodes::SessionRefused,
     protocol::node::{
         Capability,
         agent::{Question, Request as AgentRequest, SessionInfo},
@@ -207,6 +208,19 @@ pub(crate) struct FakeFleet {
     pub(crate) sent: Mutex<Vec<AgentRequest>>,
     /// The questions put to the user.
     pub(crate) asked: Mutex<Vec<Question>>,
+    /// What [`Fleet::attach`] answers.
+    pub(crate) attach: Mutex<FakeAttach>,
+}
+
+/// What the fake fleet's `attach` answers.
+#[derive(Default)]
+pub(crate) enum FakeAttach {
+    /// The stream fails, as on a machine that flaps.
+    #[default]
+    Fails,
+    /// The machine no longer has the session.
+    Refused,
+    Info(Box<SessionInfo>),
 }
 
 fn take<T: Clone>(list: &Mutex<Vec<T>>) -> Vec<T> {
@@ -362,7 +376,14 @@ impl Fleet for FakeFleet {
         Ok(())
     }
 
-    async fn attach(&self, _worker: &WorkerRow, _chat: Uuid) -> Result<SessionInfo> {
-        bail!("the fake fleet has no sessions")
+    async fn attach(&self, worker: &WorkerRow, _chat: Uuid) -> Result<SessionInfo> {
+        match &*self.attach.lock().unwrap_or_else(PoisonError::into_inner) {
+            FakeAttach::Fails => bail!("the node closed the session stream"),
+            FakeAttach::Refused => Err(SessionRefused {
+                reason: format!("there is no session {:?}", worker.session),
+            }
+            .into()),
+            FakeAttach::Info(info) => Ok((**info).clone()),
+        }
     }
 }
