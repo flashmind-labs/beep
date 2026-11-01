@@ -638,6 +638,30 @@ requests! {
     /// `GetAgentSession`; `BadRequest` saying why when the node refuses.
     /// Admins only.
     143 SteerAgentSession { machine_id: String, agent: String, session: String, steer: AgentSteer } => Call<()>
+    /// What the event triage agent found worth telling the user and that
+    /// they have not seen or dismissed yet, from the last two days, newest
+    /// first, at most 20. Apps show them on their own, apart from any chat.
+    160 ListUpdates {} => Call<Vec<AppUpdate>>
+    /// Dismisses updates by `AppUpdate::id`, so they leave the list. Ids
+    /// the caller does not have are skipped.
+    161 DismissUpdates { ids: Vec<i64> } => Call<()>
+}
+
+/// Something from one of the user's apps worth knowing, as `ListUpdates`
+/// lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppUpdate {
+    pub id: i64,
+    /// One line, such as "Your TestFlight build is ready."
+    pub summary: String,
+    /// The app's slug, as `AppIntegration::slug` gives it, such as `gmail`.
+    /// Empty when the events it came from are gone.
+    pub app: String,
+    /// How the user knows the app, such as "Gmail"; empty with `app`.
+    pub app_name: String,
+    /// When the triage agent decided to tell.
+    pub at: SystemTime,
 }
 
 /// A machine that can run coding agents, as `ListAgentHosts` lists it.

@@ -68,6 +68,16 @@ pub struct TriageRow {
     pub delivered: bool,
 }
 
+/// An inform waiting for the user to see it, as the apps list it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateRow {
+    pub id: i64,
+    pub decided_at: DateTime<Utc>,
+    pub summary: String,
+    /// The app of the first event it covers; `None` when those are gone.
+    pub app: Option<EventApp>,
+}
+
 /// A decision to log, before it has an id.
 #[derive(Debug, Clone)]
 pub struct NewTriage<'a> {
@@ -202,6 +212,33 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(triage_row).collect()
+    }
+
+    /// Informs not yet delivered, decided after `since`, newest first,
+    /// each with the app it came from.
+    pub(crate) async fn waiting_updates(
+        &self,
+        user: &UserKey,
+        since: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<UpdateRow>> {
+        let rows = sqlx::query(
+            "SELECT t.id, t.decided_at, COALESCE(t.summary, '') AS summary,
+                    (SELECT e.app FROM app_events e
+                     WHERE e.user_id=t.user_id AND e.id = ANY(t.refs)
+                     ORDER BY e.id LIMIT 1) AS app
+             FROM event_triage t
+             WHERE t.user_id=$1 AND t.decision=$2 AND t.delivered_at IS NULL
+                 AND t.decided_at > $3
+             ORDER BY t.decided_at DESC, t.id DESC LIMIT $4",
+        )
+        .bind(user.as_str())
+        .bind(Verdict::Inform.as_str())
+        .bind(since)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(update_row).collect()
     }
 
     /// Marks informs as handed to the main agent, in run `run_id` if a wake.
@@ -463,6 +500,18 @@ fn event_row(row: &PgRow) -> Result<EventRow> {
     })
 }
 
+fn update_row(row: &PgRow) -> Result<UpdateRow> {
+    let app: Option<String> = row.try_get("app")?;
+    Ok(UpdateRow {
+        id: row.try_get("id")?,
+        decided_at: row.try_get("decided_at")?,
+        summary: row.try_get("summary")?,
+        app: app
+            .map(|app| EventApp::from_str(&app).with_context(|| format!("event app {app}")))
+            .transpose()?,
+    })
+}
+
 fn triage_row(row: &PgRow) -> Result<TriageRow> {
     triage_fields(row, row.try_get("id")?, "summary")
 }
@@ -603,6 +652,69 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pending.len(), 1);
+    }
+
+    /// Logs an inform about a new event of `user`'s, as a triage does.
+    async fn inform(store: &Store, user: &UserKey, mail_id: &str, summary: &str) -> i64 {
+        let id = store
+            .insert_event(user, &mail(mail_id, Source::Trigger))
+            .await
+            .unwrap()
+            .unwrap();
+        store
+            .move_events(user, &[id], EventState::Pending, EventState::Triaging, None)
+            .await
+            .unwrap();
+        let triage = NewTriage {
+            verdict: Verdict::Inform,
+            urgency: Some(Urgency::Later),
+            summary: Some(summary),
+            reason: "worth knowing",
+            refs: &[id],
+        };
+        store.insert_triage(user, &triage, &[id]).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn waiting_updates_are_the_users_newest_first_until_delivered() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let (alice, bob) = (UserKey::for_test("alice"), UserKey::for_test("bob"));
+        let first = inform(&store, &alice, "m1", "The build is ready").await;
+        let second = inform(&store, &alice, "m2", "The invoice came").await;
+        let theirs = inform(&store, &bob, "m3", "Bob's news").await;
+        let since = Utc::now() - chrono::Duration::days(2);
+
+        let waiting = store.waiting_updates(&alice, since, 20).await.unwrap();
+        let ids: Vec<i64> = waiting.iter().map(|row| row.id).collect();
+        assert_eq!(ids, [second, first]);
+        assert_eq!(waiting[0].summary, "The invoice came");
+        assert_eq!(waiting[0].app, Some(EventApp::Gmail));
+        assert_eq!(
+            store.waiting_updates(&alice, since, 1).await.unwrap().len(),
+            1
+        );
+        assert!(
+            store
+                .waiting_updates(&alice, Utc::now(), 20)
+                .await
+                .unwrap()
+                .is_empty(),
+            "older than `since` is left out"
+        );
+
+        // Another user's id is not alice's to dismiss.
+        store
+            .mark_delivered(&alice, &[first, theirs], None)
+            .await
+            .unwrap();
+        let waiting = store.waiting_updates(&alice, since, 20).await.unwrap();
+        assert_eq!(
+            waiting.iter().map(|row| row.id).collect::<Vec<_>>(),
+            [second]
+        );
+        let bobs = store.waiting_updates(&bob, since, 20).await.unwrap();
+        assert_eq!(bobs.iter().map(|row| row.id).collect::<Vec<_>>(), [theirs]);
     }
 
     #[tokio::test]
