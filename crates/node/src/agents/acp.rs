@@ -14,7 +14,7 @@ use agent_client_protocol::{
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use beep_proto::Upload;
+use beep_proto::{ApiError, Upload, check_agent_images};
 use futures::{Sink, Stream, sink, stream};
 use serde::Serialize;
 use std::io;
@@ -94,6 +94,17 @@ impl Prompt {
             shown.push_str(&format!("[image: {name}]"));
         }
         shown
+    }
+
+    /// A prompt with images, refused as the server refuses it: too many,
+    /// too large, or not the image it says it is. The node checks again
+    /// because a server is not the only thing that can reach it.
+    pub(super) fn with_images(text: String, images: Vec<Upload>) -> Result<Self, String> {
+        check_agent_images(&images).map_err(|e| match e {
+            ApiError::BadRequest { message } => message,
+            other => other.to_string(),
+        })?;
+        Ok(Self { text, images })
     }
 }
 
@@ -360,6 +371,42 @@ mod tests {
         let sent = serde_json::to_value(prompt(&SessionId::new("s"), &only)).unwrap();
         assert_eq!(sent["prompt"][0]["type"], "image", "no empty text block");
         assert_eq!(only.shown(), "[image: shot.png]");
+    }
+
+    fn png(name: &str, len: usize) -> Upload {
+        let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+        data.resize(len.max(data.len()), 0);
+        Upload {
+            name: name.into(),
+            mime: "image/png".into(),
+            data,
+        }
+    }
+
+    #[test]
+    fn the_node_refuses_images_the_server_would() {
+        let text = || "look".to_owned();
+        let ok = Prompt::with_images(text(), vec![png("a.png", 100)]).unwrap();
+        assert_eq!(ok.images.len(), 1);
+
+        let many = (0..=beep_proto::MAX_AGENT_IMAGES)
+            .map(|i| png(&format!("{i}.png"), 10))
+            .collect();
+        let refused = Prompt::with_images(text(), many).unwrap_err();
+        assert!(refused.starts_with("At most"), "{refused}");
+
+        let big = png("big.png", beep_proto::MAX_AGENT_IMAGE + 1);
+        let refused = Prompt::with_images(text(), vec![big]).unwrap_err();
+        assert!(refused.starts_with("big.png is over"), "{refused}");
+
+        let mut fake = png("fake.png", 10);
+        fake.mime = "image/jpeg".into();
+        let refused = Prompt::with_images(text(), vec![fake]).unwrap_err();
+        assert!(refused.contains("not the image/jpeg"), "{refused}");
+
+        let mut svg = png("x.svg", 10);
+        svg.mime = "image/svg+xml".into();
+        assert!(Prompt::with_images(text(), vec![svg]).is_err());
     }
 
     #[test]

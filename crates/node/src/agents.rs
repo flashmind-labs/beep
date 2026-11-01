@@ -409,7 +409,13 @@ pub async fn serve_session(
                 let command = match request {
                     Ok(Some(Request::Prompt { text })) => Command::Prompt(text.into()),
                     Ok(Some(Request::PromptImages { text, images })) => {
-                        Command::Prompt(Prompt { text, images })
+                        match Prompt::with_images(text, images) {
+                            Ok(prompt) => Command::Prompt(prompt),
+                            Err(error) => {
+                                tx.send(&Event::Ack { error: Some(error) }).await?;
+                                continue;
+                            }
+                        }
                     }
                     Ok(Some(Request::Answer { question, reply })) => Command::Answer { question, reply },
                     Ok(Some(Request::Cancel {})) => Command::Cancel,
