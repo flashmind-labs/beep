@@ -352,7 +352,13 @@ impl Linked {
             offers,
             claimed: _,
         } = self;
-        serve_linked(&connection, &mut tx, &mut rx, &offers).await
+        let served = serve_linked(&connection, &mut tx, &mut rx, &offers).await;
+        // Revoked or only cut off, the node keeps no token it cannot hear
+        // about being removed; the server sends them again on reconnecting.
+        if let Some(provision) = &offers.provision {
+            provision.forget().await;
+        }
+        served
     }
 }
 

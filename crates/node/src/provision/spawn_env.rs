@@ -52,6 +52,11 @@ static SPAWN_ENV: RwLock<SpawnEnv> = RwLock::new(SpawnEnv {
     vars: Vec::new(),
 });
 
+/// Held by tests that set the process-wide env, so they do not see each
+/// other's.
+#[cfg(test)]
+pub(super) static TEST_LOCK: crate::AsyncMutex<()> = crate::AsyncMutex::const_new(());
+
 /// Puts `dirs` before the inherited `PATH` of every process started from
 /// now on.
 pub(super) fn set_path(dirs: Vec<PathBuf>) {
@@ -134,6 +139,7 @@ mod tests {
 
     #[tokio::test]
     async fn each_process_gets_only_its_credentials() {
+        let _env = TEST_LOCK.lock().await;
         set_vars(vec![
             EnvSecret {
                 name: "BEEP_TEST_CREDENTIAL".into(),
