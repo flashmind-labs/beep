@@ -599,6 +599,82 @@ requests! {
     /// command center. Admins only, like `ListMachines`; a machine that has
     /// not reported yet has empty lists.
     130 ListMachineDetails {} => Call<Vec<MachineDetails>>
+    /// The coding-agent sessions on the caller's online machines, newest
+    /// activity first: those Beep started, and those started outside Beep
+    /// that something runs now. A machine that does not answer in time is
+    /// left out. Admins only, like `ListMachines`.
+    131 ListAgentSessions {} => Call<Vec<MachineSession>>
+    /// Answers the question a session Beep started asks, by
+    /// `AgentQuestion::id`. `reply` is one of its options, by id or name;
+    /// anything else declines and goes to the agent as its next prompt.
+    /// `NotFound` when the machine is not one of the caller's online ones
+    /// or has no such session, `Conflict` when the session no longer asks
+    /// `question`. Admins only.
+    132 AnswerAgentQuestion { machine_id: String, agent: String, session: String, question: u32, reply: String } => Call<()>
+}
+
+/// A coding-agent session on one of the user's machines, as
+/// `ListAgentSessions` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineSession {
+    /// The `Machine::id` it runs on.
+    pub machine_id: String,
+    pub machine_name: String,
+    /// The node's id for it, or the agent's own for an external session.
+    pub id: String,
+    /// The agent, such as `claude` or `codex`.
+    pub agent: String,
+    pub title: Option<String>,
+    pub cwd: String,
+    pub status: AgentStatus,
+    /// What the agent is doing now, such as "Edit src/main.rs".
+    pub doing: Option<String>,
+    pub started_at: SystemTime,
+    pub last_activity: SystemTime,
+    /// Started outside Beep, such as Claude Code in a terminal.
+    pub external: bool,
+    /// What it waits on an answer to; never set for an external session.
+    pub question: Option<AgentQuestion>,
+}
+
+wire_enum! {
+    /// What a session is doing. `Waiting` and `Running` are only for
+    /// external sessions: waiting for the user, or running with nothing
+    /// more known.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum AgentStatus {
+        0 Starting {}
+        1 Working {}
+        2 Asking {}
+        3 Idle {}
+        4 Ended {}
+        5 Waiting {}
+        6 Running {}
+    }
+}
+
+/// A permission question a session asks before it acts.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentQuestion {
+    pub id: u32,
+    /// What the agent wants to do, such as "Run cargo test".
+    pub text: String,
+    /// The command, path or other input it would act on, cut short.
+    pub detail: Option<String>,
+    pub options: Vec<AgentOption>,
+}
+
+/// One answer to an `AgentQuestion`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentOption {
+    pub id: String,
+    pub name: String,
+    /// It lets the agent go ahead, once or always.
+    pub allow: bool,
 }
 
 /// The apps, graphics cards and abilities of one machine, as
