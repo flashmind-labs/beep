@@ -86,6 +86,15 @@ restart_service() {
     esac
 }
 
+# The startup file of the user's login shell, for the PATH hint.
+shell_profile() {
+    case ${SHELL:-} in
+        */zsh) echo .zshrc ;;
+        */bash) if [ "$(uname -s)" = Darwin ]; then echo .bash_profile; else echo .bashrc; fi ;;
+        *) echo .profile ;;
+    esac
+}
+
 main() {
     target=$(detect_target)
     trap cleanup EXIT
@@ -130,7 +139,7 @@ main() {
             say "$bindir is not on your PATH. Add it with:"
             # Printed for the user to run; $PATH must stay unexpanded.
             # shellcheck disable=SC2016
-            say '  echo '\''export PATH="$HOME/.local/bin:$PATH"'\'' >> ~/.profile'
+            say '  echo '\''export PATH="$HOME/.local/bin:$PATH"'\'' >> ~/'"$(shell_profile)"
             say "then open a new shell."
             ;;
     esac
