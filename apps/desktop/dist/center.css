@@ -116,3 +116,27 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-si.more { color: var(--muted); font-size: 12px }
 .cc-si.none { color: var(--dim); font-size: 12px }
 .cc-si.none:hover { background: transparent }
+
+/* Cmd+K palette, as in the mock. */
+.cc-si .tt + kbd { margin-left: auto }
+.cc-si kbd { font: inherit; font-size: 10.5px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
+.cc-scrim { position: fixed; inset: 0; z-index: 20; background: rgba(5,8,7,.5); display: grid; justify-items: center; align-content: start; padding-top: 70px }
+.cc-pal { width: 560px; max-width: calc(100% - 40px); border-radius: 14px; border: 1px solid var(--border); background: rgba(18,25,22,.97); box-shadow: 0 28px 70px rgba(0,0,0,.6); overflow: hidden; align-self: start }
+.cc-pal .q { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border) }
+.cc-pal .q svg { color: var(--muted); flex: none }
+.cc-pal .q input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 16px; caret-color: var(--emerald); padding: 0 }
+.cc-pal .q input::placeholder { color: var(--dim) }
+.cc-pal .res { max-height: 340px; overflow: auto; padding: 6px; display: grid; gap: 1px; scrollbar-width: thin }
+.cc-pal h5 { margin: 6px 8px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--dim) }
+.cc-pal .it { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 7px; border: 0; background: transparent; text-align: left; width: 100%; color: var(--fg); font-size: 13px }
+.cc-pal .it[aria-selected="true"] { background: rgba(59,155,122,.26) }
+.cc-pal .it svg { flex: none; color: var(--muted) }
+.cc-pal .it .t { flex: 1; min-width: 0; display: grid; line-height: 17px }
+.cc-pal .it .t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-pal .it .t small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-pal .it .w { font-size: 11px; color: var(--muted); flex: none }
+.cc-pal mark { background: rgba(240,122,106,.3); color: inherit; border-radius: 3px; padding: 0 1px }
+.cc-pal .none { padding: 22px 14px; text-align: center; font-size: 13px; color: var(--muted) }
+.cc-pal .none .dbtn { margin-top: 10px }
+.cc-pal .foot { display: flex; gap: 14px; padding: 7px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--dim) }
+.cc-pal kbd { font: inherit; font-size: 10.5px; padding: 0 4px; margin-right: 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }

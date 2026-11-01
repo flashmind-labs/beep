@@ -45,9 +45,8 @@ pub(crate) struct ChatHits {
 }
 
 /// A view the palette can go to without a search.
-#[derive(Clone, Copy, strum::EnumIter, strum::IntoStaticStr, Serialize)]
+#[derive(Clone, Copy, strum::EnumIter, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub(crate) enum PaletteAction {
     NewChat,
     Home,
@@ -169,7 +168,11 @@ fn chat_hits(query: &str, chats: &ChatHits) -> Vec<Hit> {
     }
     for m in &chats.text {
         match at.get(m.session.id.as_str()) {
-            Some(&i) => found[i].snippet = &m.snippet,
+            Some(&i) => {
+                if found[i].snippet.is_empty() {
+                    found[i].snippet = &m.snippet;
+                }
+            }
             None => {
                 at.insert(&m.session.id, found.len());
                 found.push(Found {
@@ -269,12 +272,18 @@ pub async fn center_find(
     cache: State<'_, PaletteCache>,
     query: String,
 ) -> Result<Vec<Hit>> {
-    let titles = section("chats", beep.sessions().await).unwrap_or_default();
-    let text = if query.trim().chars().count() >= MIN_TEXT_QUERY {
-        section("chat text", beep.search(query.trim().to_owned()).await).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let wants_text = query.trim().chars().count() >= MIN_TEXT_QUERY;
+    let (titles, text) = join!(beep.sessions(), async {
+        if wants_text {
+            Some(beep.search(query.trim().to_owned()).await)
+        } else {
+            None
+        }
+    });
+    let titles = section("chats", titles).unwrap_or_default();
+    let text = text
+        .and_then(|found| section("chat text", found))
+        .unwrap_or_default();
     let lists = cache.0.lock().unwrap_or_else(PoisonError::into_inner);
     Ok(rank(&query, &lists, &ChatHits { titles, text }))
 }
@@ -353,6 +362,71 @@ mod tests {
         let routines = of_kind(&hits, HitKind::Routine);
         assert_eq!(routines[0].title, "Brief review");
         assert_eq!(routines[1].title, "Morning brief");
+    }
+
+    #[test]
+    fn word_start_beats_substring() {
+        let lists = PaletteLists {
+            routines: Some(vec![routine("Prebrief"), routine("Morning brief")]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("bri", &lists, &none());
+        let routines = of_kind(&hits, HitKind::Routine);
+        assert_eq!(routines[0].title, "Morning brief");
+        assert_eq!(routines[1].title, "Prebrief");
+    }
+
+    #[test]
+    fn title_match_beats_text_only_match() {
+        let text_only = session("a", "Groceries", 9);
+        let chats = ChatHits {
+            titles: vec![text_only.clone(), session("b", "Trip plan", 1)],
+            text: vec![SessionMatch {
+                session: text_only,
+                snippet: "...trip...".to_owned(),
+                from_user: true,
+            }],
+        };
+        let hits = rank("trip", &PaletteLists::default(), &chats);
+        let ids: Vec<&str> = of_kind(&hits, HitKind::Chat)
+            .iter()
+            .map(|h| h.id.as_str())
+            .collect();
+        assert_eq!(ids, ["b", "a"]);
+    }
+
+    #[test]
+    fn equal_tiers_list_newest_first() {
+        let chats = ChatHits {
+            titles: vec![
+                session("old", "Tea one", 1),
+                session("new", "Tea two", 5),
+                session("mid", "Tea three", 3),
+            ],
+            text: Vec::new(),
+        };
+        let hits = rank("tea", &PaletteLists::default(), &chats);
+        let ids: Vec<&str> = of_kind(&hits, HitKind::Chat)
+            .iter()
+            .map(|h| h.id.as_str())
+            .collect();
+        assert_eq!(ids, ["new", "mid", "old"]);
+    }
+
+    #[test]
+    fn first_text_snippet_is_kept() {
+        let found = session("a", "Trip plan", 1);
+        let m = |snippet: &str| SessionMatch {
+            session: found.clone(),
+            snippet: snippet.to_owned(),
+            from_user: true,
+        };
+        let chats = ChatHits {
+            titles: vec![found.clone()],
+            text: vec![m("first"), m("second")],
+        };
+        let hits = rank("trip", &PaletteLists::default(), &chats);
+        assert_eq!(of_kind(&hits, HitKind::Chat)[0].detail, "first");
     }
 
     #[test]

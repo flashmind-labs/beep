@@ -3,6 +3,8 @@
 const { invoke, Channel } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+import { initPalette, openPalette } from "./palette.js";
+
 const $ = sel => document.querySelector(sel);
 
 /// An element with `cls`; string children become text, never markup.
@@ -317,6 +319,7 @@ function sideItem(svg, label, count, opts = {}) {
   b.type = "button";
   if (opts.current) b.setAttribute("aria-current", "true");
   if (count) b.append(h("span", `n${opts.hot ? " hot" : ""}`, String(count)));
+  if (opts.kbd) b.append(h("kbd", "", opts.kbd));
   if (opts.on) b.addEventListener("click", opts.on);
   return b;
 }
@@ -338,7 +341,7 @@ function drawSide() {
   const head = h("div", "cc-head", "");
   head.setAttribute("data-tauri-drag-region", "");
   const top = h("div", "cc-grp",
-    sideItem(IC.find, "Search", 0, { on: () => go("pane", "chats") }),
+    sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: "⌘K" }),
     sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
   if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { on: () => jump("sec-running") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
@@ -575,10 +578,13 @@ listen("center-open", () => takePending(null));
 
 // ---------- Keys ----------
 
+initPalette({ go, jump, pane });
+
 document.addEventListener("keydown", e => {
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
-  const to = { k: "chats", m: "memories", j: "routines", l: "skills", ",": "settings" }[key];
+  if (key === "k") { e.preventDefault(); return openPalette(); }
+  const to = { m: "memories", j: "routines", l: "skills", ",": "settings" }[key];
   if (to) { e.preventDefault(); return go("pane", to); }
   if (key === "n" && shown !== "pane") { e.preventDefault(); return go("pane", { chat: { session: null } }); }
 });
