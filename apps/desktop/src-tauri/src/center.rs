@@ -769,7 +769,7 @@ mod tests {
 
     #[test]
     fn updates_come_with_their_app_and_time() {
-        let view = view(HomeParts {
+        let listed = view(HomeParts {
             updates: Ok(vec![AppUpdate {
                 id: 7,
                 summary: "The build is ready.".into(),
@@ -779,7 +779,7 @@ mod tests {
             }]),
             ..parts()
         });
-        let updates = view.updates.expect("updates were listed");
+        let updates = listed.updates.expect("updates were listed");
         assert_eq!(updates.len(), 1);
         assert_eq!((updates[0].id, updates[0].at), (7, 5000));
         assert_eq!(updates[0].app_name, "Gmail");
