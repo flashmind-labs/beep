@@ -5870,6 +5870,18 @@ if (PANE) {
       await newChat();
       return send(text);
     },
+    /// Starts a new chat with `text` in the composer, not sent, for the
+    /// user to send or change.
+    async draft(text) {
+      await start();
+      await newChat();
+      const ask = $("#ask");
+      if (!ask) return;
+      ask.value = text;
+      grow(ask);
+      refreshHints();
+      focusAsk();
+    },
     /// Chats and groups, newest first, pinned ones as the bar lists them.
     async chatRows() {
       // The research set loads with the pane, so rows know which open their own window.

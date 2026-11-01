@@ -7,6 +7,7 @@ import { splitPinned } from "./pinned.js";
 import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
+import { withoutDismissed } from "./updates.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -34,6 +35,7 @@ const IC = {
   loop: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>',
   plus: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   gear: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
+  x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   pin: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3l6 6-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z"/></svg>',
   group: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14a5 5 0 016 5"/></svg>',
   doc: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
@@ -266,6 +268,65 @@ function comingSection(rows) {
       h("span", "r", tag("", scheduleText(c.schedule))));
   })) : h("div", "cc-panel cc-empty", "No routines are scheduled.");
   return section("sec-coming", "Coming up", "Runs Beep starts on its own", body);
+}
+
+/// When an update came: "09:41" today, then "Yesterday", "Thu" this week, "3 Oct".
+function updateTime(ms) {
+  const at = new Date(ms);
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
+  if (days <= 0) return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (days === 1) return "Yesterday";
+  if (days < 7) return at.toLocaleDateString([], { weekday: "short" });
+  return at.toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
+/// Updates dismissed here that a list may still carry, by id.
+const dismissedUpdates = new Set();
+
+/// Takes updates off Home at once and tells the server; a failed dismiss
+/// brings them back on the next refresh.
+function dismissUpdates(ids) {
+  if (!ids.length) return;
+  for (const id of ids) dismissedUpdates.add(id);
+  if (state.home?.updates) state.home.updates = state.home.updates.filter(u => !ids.includes(u.id));
+  draw();
+  invoke("center_dismiss_updates", { ids }).catch(e => {
+    console.warn("dismissing updates:", e);
+    for (const id of ids) dismissedUpdates.delete(id);
+    refresh();
+  });
+}
+
+/// Starts a new chat with the update's summary in the composer, not sent.
+async function openUpdate(u) {
+  dismissUpdates([u.id]);
+  go("pane", { chat: { session: null } });
+  try {
+    await pane()?.draft(u.summary);
+  } catch (e) {
+    console.warn("opening an update:", e);
+  }
+}
+
+function updateRow(u) {
+  const letter = (u.app_name || "").slice(0, 1).toUpperCase();
+  const open = h("button", "t", h("b", "", u.summary), h("span", "", u.app_name ? `${u.app_name} · ${updateTime(u.at)}` : updateTime(u.at)));
+  open.type = "button";
+  open.title = "Ask Beep about this";
+  open.addEventListener("click", () => openUpdate(u));
+  const close = button(icon(IC.x), "quiet", () => dismissUpdates([u.id]));
+  close.setAttribute("aria-label", "Dismiss");
+  close.style.padding = "2px 6px";
+  return h("div", "cc-row cc-upd", letter ? avatar("beep", letter) : avatar("beep", icon(IC.chat)), open, h("span", "r", close));
+}
+
+/// What the event triage agent found in the user's apps, apart from any
+/// chat. Hidden while there is nothing.
+function updatesSection(updates) {
+  const clear = button("Clear", "quiet small", () => dismissUpdates(updates.map(u => u.id)));
+  const el = section("sec-updates", "Updates", "From your apps", h("div", "cc-panel", ...updates.map(updateRow)));
+  el.querySelector(".cc-sec").append(h("span", "cc-sec-r", el.querySelector(".cc-sec small"), clear));
+  return el;
 }
 
 // ---------- Views ----------
@@ -638,14 +699,17 @@ function page(home) {
     if (machines) out.push(machinesSection(machines));
   }
   const cols = h("div", "cc-cols");
+  const updates = home.updates?.length ? updatesSection(home.updates) : null;
   if (running) {
     cols.append(runningSection(running), needsSection(needs));
     out.push(cols);
-    if (coming) out.push(comingSection(coming));
+    if (updates && coming) out.push(h("div", "cc-cols", updates, comingSection(coming)));
+    else if (updates || coming) out.push(updates || comingSection(coming));
   } else {
     cols.append(needsSection(needs));
     if (coming) cols.append(comingSection(coming)); else cols.style.gridTemplateColumns = "minmax(0, 1fr)";
     out.push(cols);
+    if (updates) out.push(updates);
   }
   return out;
 }
@@ -916,7 +980,9 @@ async function refresh() {
   clearTimeout(retryTimer);
   loading = true;
   try {
-    state.home = await invoke("center_home");
+    const home = await invoke("center_home");
+    if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
+    state.home = home;
     state.error = null;
     const live = new Set(state.home.needs_you.map(cardKey));
     for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);

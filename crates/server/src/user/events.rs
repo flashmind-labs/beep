@@ -3,7 +3,7 @@
 use super::User;
 use crate::{
     events::{AppEvent, Topic},
-    store::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow},
+    store::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow, UpdateRow},
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -72,6 +72,15 @@ impl User {
         self.store
             .undelivered_informs(&self.key, since, limit)
             .await
+    }
+
+    /// Informs the user has not seen, decided after `since`, newest first.
+    pub(crate) async fn waiting_updates(
+        &self,
+        since: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<UpdateRow>> {
+        self.store.waiting_updates(&self.key, since, limit).await
     }
 
     pub(crate) async fn mark_delivered(&self, ids: &[i64], run_id: Option<&str>) -> Result<()> {

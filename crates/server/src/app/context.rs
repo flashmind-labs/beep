@@ -2,7 +2,7 @@
 
 use super::{App, Message};
 use crate::{
-    cron, events,
+    cron,
     instance::Privilege,
     memories::PROFILE_HEADER,
     nodes::{self, MACHINES_HEADER},
@@ -103,15 +103,6 @@ impl App {
         if let Some(woken) = &message.woken {
             let _ = writeln!(ctx, "{}", wake::woken_context(woken));
         }
-        // What the event triage agent kept for later comes up once, in the
-        // user's next turn.
-        if message.is_prompt()
-            && events::enabled(self, user)
-            && let Some(waiting) = events::waiting_context(user).await
-        {
-            let _ = writeln!(ctx, "{waiting}");
-        }
-
         // Ends in a blank line, which is where `last_index` stops reading.
         match self.store.owned_skills(&user.skill_owner()).await {
             Ok(owned) => {

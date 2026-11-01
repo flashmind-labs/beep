@@ -30,7 +30,7 @@ pub use limit::Limits;
 pub use model::{AppEvent, DedupeKey, EventApp, EventKind, Source, Topic};
 pub use pipeline::{Accepted, Hub, Settings, accept, start, submit};
 pub use realtime::deliver;
-pub use triage::{EventsConfig, Urgency, Verdict, waiting_context};
+pub use triage::{EventsConfig, Urgency, Verdict, waiting_updates};
 
 use crate::{app::App, instance::Privilege, user::User};
 
