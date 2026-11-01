@@ -1,7 +1,7 @@
 //! The node as a macOS LaunchAgent: started at login and restarted when it
 //! stops, with its output in the user's Logs folder.
 
-use super::Launch;
+use super::{Launch, escape};
 use anyhow::{Context, Result, bail};
 use std::{
     fs,
@@ -107,15 +107,6 @@ fn plist(launch: &Launch, log: &std::path::Path) -> String {
          </plist>\n",
         path = escape(&launch.search),
     )
-}
-
-/// Text escaped for XML.
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 /// Stops and unloads `service`. Its failure is ignored on purpose: it fails

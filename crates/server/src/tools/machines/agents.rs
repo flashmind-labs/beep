@@ -478,7 +478,8 @@ fn describe(node: &str, agent: &str, watched: &Watched, waited: Option<Duration>
         let _ = writeln!(
             out,
             "Answer with {} and the option as `prompt`. Any other text declines and goes \
-             to the agent as its next prompt.",
+             to the agent as its next prompt. Answer only when it is clearly within what the \
+             user asked; leave a risky or destructive one, such as a force push, to the user.",
             agent_call(node, agent, "answer", id)
         );
     }
@@ -570,7 +571,8 @@ mod tests {
              Options: 1. Allow (allow), 2. Reject (reject)\n\
              Answer with code_agent with action `answer`, agent `claude`, id `a3f9c1` and \
              in `build-box` and the option as `prompt`. Any other text declines and goes \
-             to the agent as its next prompt."
+             to the agent as its next prompt. Answer only when it is clearly within what the \
+             user asked; leave a risky or destructive one, such as a force push, to the user."
         );
     }
 

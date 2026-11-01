@@ -12,6 +12,7 @@ pub mod agents;
 pub mod claude;
 pub mod env;
 pub mod files;
+mod fsat;
 mod lines;
 pub mod link;
 pub mod local;

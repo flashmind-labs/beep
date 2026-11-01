@@ -7,7 +7,6 @@ use sha2::{Digest, Sha256};
 use std::{
     env, fs,
     io::{self, Read},
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
@@ -153,7 +152,8 @@ impl Pinned {
             }
             None => download,
         };
-        tokio::fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).await?;
+        let executable = program.clone();
+        tokio::task::spawn_blocking(move || crate::fsat::set_mode(&executable, 0o755)).await??;
         let target = bin.join(self.name);
         tokio::fs::rename(&program, &target)
             .await

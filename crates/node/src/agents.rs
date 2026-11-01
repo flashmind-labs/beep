@@ -609,12 +609,13 @@ mod tests {
 
     #[test]
     fn a_folder_must_exist_and_be_absolute() {
-        assert!(folder(Some("/")).is_ok());
+        assert!(folder(Some(if cfg!(windows) { "C:\\" } else { "/" })).is_ok());
         assert!(folder(None).is_ok());
         assert!(folder(Some("relative/dir")).is_err());
         assert!(folder(Some("/no/such/folder/here")).is_err());
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn one_session_cannot_be_taken_over_twice() {
         // An adapter that never answers: the session stays starting.

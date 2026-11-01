@@ -8,7 +8,7 @@ use super::{
     live::{Live, cut},
 };
 use crate::{
-    process::{GroupLeader, STOP_GRACE},
+    process::{GroupLeader, STOP_GRACE, command, own_group},
     provision::spawn_env::{self, Scope},
 };
 use agent_client_protocol::{
@@ -33,7 +33,7 @@ use std::{
 };
 use tokio::{
     io::BufReader,
-    process::{Child, ChildStderr, Command as Process},
+    process::{Child, ChildStderr},
     sync::{mpsc, oneshot, watch},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -92,17 +92,17 @@ impl Session {
             prompt,
             resume,
         } = start;
-        let mut process = Process::new(&kind.program);
+        let mut process = command(&kind.program);
         spawn_env::apply(&mut process, Scope::Agent);
-        let child = process
+        process
             .args(&kind.args)
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            // Its own process group, so closing it stops what it started.
-            .process_group(0)
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        // Its own process group, so closing it stops what it started.
+        let child = own_group(&mut process)
             .spawn()
             .with_context(|| format!("starting {}", kind.program))?;
         let info = SessionInfo {
@@ -774,6 +774,9 @@ pub(super) fn choose<'a>(options: &'a [AnswerOption], reply: &str) -> Option<&'a
 
 #[cfg(test)]
 mod tests {
+    // The fake agents are sh scripts, so most tests run on Unix only.
+    #![cfg_attr(windows, allow(dead_code, unused_imports))]
+
     use super::*;
     use beep_proto::Upload;
     use serde_json::Value;
@@ -866,6 +869,7 @@ cat > /dev/null
         .unwrap();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_takeover_resumes_without_permission_prompts() {
         let dir = temp("takeover");
@@ -911,6 +915,7 @@ cat > /dev/null
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn other_agents_still_ask() {
         let dir = temp("asks");
@@ -952,6 +957,7 @@ reply '{"stopReason":"end_turn"}'
 cat > /dev/null
 "#;
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
         let dir = temp("burst");
@@ -1009,6 +1015,7 @@ read -r line
     const UPDATE: &str =
         r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":"#;
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn an_oversized_message_is_dropped_and_the_session_goes_on() {
         let dir = temp("oversized");
@@ -1034,6 +1041,7 @@ cat > /dev/null
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn an_update_of_an_unknown_kind_is_skipped() {
         let dir = temp("unknown");
@@ -1056,6 +1064,7 @@ cat > /dev/null
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn closing_stops_the_agent_with_sigterm() {
         let dir = temp("close");
@@ -1118,6 +1127,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
         }
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn images_go_to_an_agent_that_takes_them() {
         let dir = temp("images");
@@ -1147,6 +1157,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn an_agent_without_images_refuses_them() {
         let dir = temp("no-images");

@@ -1,9 +1,10 @@
 //! Claude Code hooks that tell the node when a session ends a turn or waits
 //! for the user. `beep-node hooks install` adds them to Claude Code's
 //! settings; each one runs `beep-node hook`, which hands the event to the
-//! running node over a Unix socket in the node's folder and always exits 0,
+//! running node over a local socket (`socket`) and always exits 0,
 //! so a node that is not running never gets in Claude Code's way.
 
+use super::socket;
 use super::watch::MAX_MESSAGE;
 use crate::agents::cut;
 use anyhow::{Context, Result, bail};
@@ -16,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tokio::{io::AsyncWriteExt, net::UnixStream, time::timeout};
+use tokio::{io::AsyncWriteExt, time::timeout};
 
 /// The events the hooks are installed for.
 const EVENTS: &[&str] = &["Stop", "Notification", "SessionStart", "SessionEnd"];
@@ -263,7 +264,7 @@ pub fn status(settings_path: &Path, dir: &Path) -> Result<String> {
         )
     };
     let socket = socket_path(dir);
-    let listening = if std::os::unix::net::UnixStream::connect(&socket).is_ok() {
+    let listening = if socket::is_listening(&socket) {
         "The node is running and listens for them."
     } else {
         "The node is not running here (`beep-node run`), so hook events are dropped."
@@ -368,7 +369,7 @@ pub(super) async fn send(socket: &Path, message: &HookMessage) -> Result<()> {
     let mut line = serde_json::to_string(message)?;
     line.push('\n');
     timeout(SEND_TIMEOUT, async {
-        let mut stream = UnixStream::connect(socket).await?;
+        let mut stream = socket::connect(socket).await?;
         stream.write_all(line.as_bytes()).await?;
         stream.shutdown().await
     })

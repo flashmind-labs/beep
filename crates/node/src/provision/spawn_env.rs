@@ -113,6 +113,7 @@ mod tests {
     use beep_proto::SecretText;
     use std::process::Stdio;
 
+    #[cfg(unix)]
     #[test]
     fn the_tools_come_first_and_once() {
         let prefix = [PathBuf::from("/srv/node/bin")];

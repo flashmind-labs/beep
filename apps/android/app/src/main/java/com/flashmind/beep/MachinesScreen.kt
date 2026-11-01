@@ -50,9 +50,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
+import kotlin.math.roundToLong
 import com.flashmind.beep.proto.Machine
 import com.flashmind.beep.proto.MachineEnv
+import com.flashmind.beep.proto.MachineStats
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -66,11 +71,20 @@ import kotlinx.coroutines.withContext
 internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var machines by remember { mutableStateOf<List<Machine>?>(null) }
+    var stats by remember { mutableStateOf(emptyMap<String, MachineStats>()) }
     var error by remember { mutableStateOf("") }
     var open by rememberSaveable { mutableStateOf<String?>(null) }
     fun refresh() = scope.launch {
-        runCatching { withContext(Dispatchers.IO) { repository.listMachines() } }
-            .onSuccess { machines = it; error = "" }
+        runCatching {
+            withContext(Dispatchers.IO) {
+                coroutineScope {
+                    val live = async { repository.machineStats() }
+                    val list = repository.listMachines()
+                    list to live.await()
+                }
+            }
+        }
+            .onSuccess { (list, live) -> machines = list; stats = live; error = "" }
             .onFailure { error = userMessage(it) }
     }
     LaunchedEffect(Unit) { refresh() }
@@ -85,7 +99,7 @@ internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
         if (shown != null) {
-            MachineDetail(shown, Modifier.padding(padding))
+            MachineDetail(shown, stats[shown.id], Modifier.padding(padding))
             return@Scaffold
         }
         Column(Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -100,7 +114,7 @@ internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
                         fontSize = 13.sp, lineHeight = 20.sp, color = Beep.colors.muted, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = 12.dp))
                     else -> {
-                        list.forEach { machine -> MachineCard(machine) { open = machine.id } }
+                        list.forEach { machine -> MachineCard(machine, stats[machine.id]) { open = machine.id } }
                         Text("Beep runs commands and coding agents on these when you ask. Each one runs beep-node and is linked like a computer.",
                             fontSize = 12.sp, lineHeight = 18.sp, color = Beep.colors.muted, modifier = Modifier.padding(horizontal = 4.dp))
                     }
@@ -127,6 +141,57 @@ private fun system(env: MachineEnv): String =
 internal fun signIns(env: MachineEnv): String =
     env.logins.filter { it.signedIn }.joinToString(", ") { login -> login.account?.let { "${login.tool} as $it" } ?: "${login.tool} signed in" }
 
+/** Bytes in SI units, as the desktop shows them: "212 GB", "9.1 GB". */
+internal fun bytes(n: ULong): String {
+    val units = listOf("B", "KB", "MB", "GB", "TB", "PB")
+    var v = n.toDouble()
+    var i = 0
+    while (v >= 1000 && i < units.size - 1) { v /= 1000; i++ }
+    val number = if (v >= 10 || i == 0) v.roundToLong().toString() else String.format(Locale.ROOT, "%.1f", v)
+    return "$number ${units[i]}"
+}
+
+/** GB from MiB, one decimal under 10: "9.1", "32". */
+private fun gb(mb: ULong): String {
+    val n = mb.toDouble() / 1024
+    return if (n >= 10) n.roundToLong().toString() else String.format(Locale.ROOT, "%.1f", n)
+}
+
+/** Free space on a volume, low under a tenth free. */
+internal class DiskFree(val text: String, val low: Boolean)
+
+internal fun diskFree(free: ULong, total: ULong): DiskFree =
+    DiskFree("${bytes(free)} free", free.toDouble() / total.toDouble() < 0.1)
+
+/** Free space where the machine keeps the user's files, or null without a measured volume. */
+internal fun diskFree(stats: MachineStats?): DiskFree? =
+    stats?.disks?.firstOrNull()?.takeIf { it.totalBytes > 0u }?.let { diskFree(it.freeBytes, it.totalBytes) }
+
+/** "9.1 / 32 GB", or null without a memory reading. */
+internal fun memoryUse(stats: MachineStats?): String? =
+    stats?.takeIf { it.memoryTotalMb > 0u }?.let { "${gb(it.memoryUsedMb)} / ${gb(it.memoryTotalMb)} GB" }
+
+/** "1.25 on 8 cores", or null when the machine gives no load. */
+internal fun loadText(load: Double?, cpus: UInt?): String? =
+    load?.let { value ->
+        String.format(Locale.ROOT, "%.2f", value) + (cpus?.takeIf { n -> n > 0u }?.let { n -> " on $n cores" } ?: "")
+    }
+
+/** Disk free and memory in use on one line, coral when the disk is low. Nothing when offline or unmeasured. */
+@Composable
+private fun StatsLine(machine: Machine, stats: MachineStats?) {
+    if (!machine.online) return
+    val disk = diskFree(stats)
+    val memory = memoryUse(stats)
+    if (disk == null && memory == null) return
+    Row {
+        if (disk != null) Text(disk.text, fontSize = 12.sp, color = if (disk.low) Beep.colors.error else Beep.colors.muted,
+            fontWeight = if (disk.low) FontWeight.Medium else null)
+        if (disk != null && memory != null) Text(" · ", fontSize = 12.sp, color = Beep.colors.dim)
+        if (memory != null) Text("$memory memory", fontSize = 12.sp, color = Beep.colors.muted)
+    }
+}
+
 @Composable
 private fun StatusDot(online: Boolean) {
     Box(Modifier.size(8.dp).background(if (online) Beep.colors.ok else Beep.colors.dim, CircleShape))
@@ -142,7 +207,7 @@ private fun MachineIcon(online: Boolean, size: Int) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MachineCard(machine: Machine, onClick: () -> Unit) {
+private fun MachineCard(machine: Machine, stats: MachineStats?, onClick: () -> Unit) {
     BeepCard(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
             MachineIcon(machine.online, 40)
@@ -153,6 +218,7 @@ private fun MachineCard(machine: Machine, onClick: () -> Unit) {
                     StatusDot(machine.online); Spacer(Modifier.width(6.dp))
                     Text(seen(machine), fontSize = 12.sp, color = Beep.colors.muted)
                 }
+                StatsLine(machine, stats)
                 val env = machine.env
                 if (env == null) Text("No report yet", fontSize = 12.sp, color = Beep.colors.dim)
                 else {
@@ -178,7 +244,7 @@ private fun ToolTag(name: String) {
 
 /** Everything a machine reported, in sections. */
 @Composable
-private fun MachineDetail(machine: Machine, modifier: Modifier) {
+private fun MachineDetail(machine: Machine, stats: MachineStats?, modifier: Modifier) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -193,6 +259,7 @@ private fun MachineDetail(machine: Machine, modifier: Modifier) {
                 Text("beep-node ${machine.version}", fontSize = 12.sp, color = Beep.colors.muted)
             }
         }
+        if (machine.online && stats != null) LiveStats(stats, machine.env?.cpus)
         val env = machine.env
         if (env == null) {
             Text("It has not reported what it has yet.", fontSize = 13.sp, color = Beep.colors.muted, modifier = Modifier.padding(4.dp))
@@ -213,6 +280,33 @@ private fun MachineDetail(machine: Machine, modifier: Modifier) {
         if (env.avds.isNotEmpty()) {
             Section("Android emulators")
             Facts(env.avds.map { it to "" })
+        }
+    }
+}
+
+/** Memory and load, then each volume measured with how much is free. */
+@Composable
+private fun LiveStats(stats: MachineStats, cpus: UInt?) {
+    val memory = memoryUse(stats)
+    val load = loadText(stats.load, cpus)
+    if (memory != null || load != null) {
+        Section("Memory")
+        Facts(listOfNotNull(memory?.let { "In use" to it }, load?.let { "Load" to it }))
+    }
+    val disks = stats.disks.filter { it.totalBytes > 0u }
+    if (disks.isEmpty()) return
+    Section("Disk")
+    BeepCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            disks.forEach { disk ->
+                val free = diskFree(disk.freeBytes, disk.totalBytes)
+                Column {
+                    Text(disk.path, fontSize = 13.sp, color = Beep.colors.ink, fontFamily = FontFamily.Monospace)
+                    Text("${free.text} of ${bytes(disk.totalBytes)}", fontSize = 12.sp,
+                        color = if (free.low) Beep.colors.error else Beep.colors.muted,
+                        fontWeight = if (free.low) FontWeight.Medium else null)
+                }
+            }
         }
     }
 }
