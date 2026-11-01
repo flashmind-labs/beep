@@ -621,10 +621,31 @@ async fn refresh_recent(app: AppHandle) {
     }
 }
 
+/// The window view a tray item opens once linked, if it opens one.
+fn tray_target(id: &str) -> Option<center::CenterTarget> {
+    match id {
+        "apps" => Some(center::CenterTarget::Apps),
+        "memories" => Some(center::CenterTarget::Memories),
+        "routines" => Some(center::CenterTarget::Routines),
+        "skills" => Some(center::CenterTarget::Skills),
+        "settings" => Some(center::CenterTarget::Settings),
+        _ => None,
+    }
+}
+
 fn on_menu(app: &AppHandle, event: MenuEvent) {
     if let Some(id) = event.id().as_ref().strip_prefix(CHAT_ITEM) {
         app.state::<Arc<Beep>>().set_session(Some(id.to_owned()));
         bar::show(app, Some("open"));
+        return;
+    }
+    if let Some(target) = tray_target(event.id().as_ref())
+        && app.state::<Arc<Beep>>().link_state() == LinkState::Linked
+    {
+        let pending = app.state::<center::Pending>();
+        if let Err(e) = center::open_on(app, &pending, target) {
+            log::warn!("opening the command center: {e}");
+        }
         return;
     }
     match event.id().as_ref() {
@@ -641,21 +662,6 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
         "new" => {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));
-        }
-        view @ ("apps" | "memories" | "routines" | "skills" | "settings")
-            if app.state::<Arc<Beep>>().link_state() == LinkState::Linked =>
-        {
-            let target = match view {
-                "apps" => center::CenterTarget::Apps,
-                "memories" => center::CenterTarget::Memories,
-                "routines" => center::CenterTarget::Routines,
-                "skills" => center::CenterTarget::Skills,
-                _ => center::CenterTarget::Settings,
-            };
-            let pending = app.state::<center::Pending>();
-            if let Err(e) = center::open_on(app, &pending, target) {
-                log::warn!("opening the command center: {e}");
-            }
         }
         // Before linking these stay in the bar, which shows the code to link
         // with instead.
@@ -697,4 +703,23 @@ pub fn forget_identity(app: &AppHandle) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tray_items_name_their_view() {
+        assert_eq!(
+            tray_target("memories"),
+            Some(center::CenterTarget::Memories)
+        );
+        assert_eq!(
+            tray_target("settings"),
+            Some(center::CenterTarget::Settings)
+        );
+        assert_eq!(tray_target("research"), None);
+        assert_eq!(tray_target("check-update"), None);
+    }
 }

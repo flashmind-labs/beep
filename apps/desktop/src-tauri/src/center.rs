@@ -134,7 +134,11 @@ pub(crate) fn open_on<R: Runtime>(
 ) -> Result<()> {
     pending.put(target.clone());
     open(app)?;
-    app.emit_to(LABEL, "center-open", &target)?;
+    // A window still loading reads `Pending` instead, so a lost event only
+    // goes to the log.
+    if let Err(e) = app.emit_to(LABEL, "center-open", &target) {
+        log::warn!("telling the command center what to open: {e}");
+    }
     Ok(())
 }
 

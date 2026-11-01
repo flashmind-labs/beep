@@ -754,7 +754,7 @@ pub fn open_url(url: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{file_name, free_name, image_mime};
+    use super::{ApprovalAnswered, file_name, free_name, image_mime};
     use std::{env, fs};
     use uuid::Uuid;
 
@@ -786,6 +786,19 @@ mod tests {
         assert_eq!(file_name(".hidden"), "hidden");
         assert_eq!(file_name(".."), "file");
         assert_eq!(file_name(""), "file");
+    }
+
+    #[test]
+    fn approval_answered_names_its_keys() {
+        let payload = serde_json::to_value(ApprovalAnswered {
+            session: "chat".into(),
+            query_id: "query".into(),
+        })
+        .expect("a plain struct serializes");
+        assert_eq!(
+            payload,
+            serde_json::json!({ "session": "chat", "query_id": "query" })
+        );
     }
 }
 
