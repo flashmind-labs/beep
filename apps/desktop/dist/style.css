@@ -567,14 +567,17 @@ button.dachip:hover { border-color: #3A4A41 }
 /* The bar's row that hands the open chat to the command center window. */
 
 /* The same page as a pane in the command center: it fills its column with no
-   frame of its own. The transcript is a 700px column, and the chat's prompt
-   is a card under it with the hints below. */
+   frame of its own. The transcript is a column that grows with the window
+   from 720px to 960px, and the chat's prompt is a card under it with the
+   hints below. */
 .dbar[data-mode="window"] { height: 100%; background: transparent; border: 0; border-radius: 0; box-shadow: none }
 /* The chat, the prompt and its hints share one centred column. */
-.dbar[data-mode="window"] { --col: max(16px, calc((100% - 720px) / 2)) }
+.dbar[data-mode="window"] { --col: max(16px, calc((100% - clamp(720px, 60%, 960px)) / 2)) }
 .dbar[data-mode="window"] > .dbody { padding: 16px calc(var(--col) + 10px) 10px calc(var(--col) + 6px) }
 /* The window keeps an empty chat's body as the space that holds the prompt at the bottom. */
 .dbar[data-mode="window"] > .dbody:empty { display: flex }
+/* Prose keeps a readable line in a wide column; code, tables and cards use all of it. */
+.dbar[data-mode="window"] > .dbody :is(p, li, blockquote, h1, h2, h3, h4) { max-width: 52em }
 .dbar[data-mode="window"] > .dthumbs { order: 1; padding: 0 calc(var(--col) + 1px) 8px }
 .dbar[data-mode="window"] > .dinput.dgrow { order: 1; margin: 0 var(--col) 14px; padding: 8px 10px 8px 14px; border: 1px solid var(--border); border-radius: 12px;
   background: rgba(26, 35, 30, .92); font-size: 14px; line-height: 22px }
