@@ -20,6 +20,7 @@ use uuid::Uuid;
 mod agent_auto;
 mod agent_control;
 mod agent_sessions;
+mod credentials;
 mod crons;
 mod devices;
 mod findings;
@@ -214,6 +215,9 @@ pub fn router() -> Router {
         .call(create_node_token)
         .call(revoke_node_token)
         .call(get_node_token)
+        .call(credentials::list_credentials)
+        .call(credentials::save_credential)
+        .call(credentials::remove_credential)
 }
 
 type Reply<T> = Result<T, ApiError>;

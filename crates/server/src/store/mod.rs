@@ -13,6 +13,7 @@ mod apps;
 mod backfill;
 mod blobs;
 mod chats;
+mod credentials;
 mod cron_jobs;
 mod crons;
 mod devices;
@@ -53,6 +54,7 @@ pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
+pub use credentials::{CredentialRow, NewCredential};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::{PushDevice, PushService, PushToken};
 pub use digest::AttentionItem;
@@ -342,6 +344,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         56,
         "node tokens",
         include_str!("../../migrations/0056_node_tokens.sql"),
+    ),
+    (
+        58,
+        "credentials",
+        include_str!("../../migrations/0058_credentials.sql"),
     ),
 ];
 
