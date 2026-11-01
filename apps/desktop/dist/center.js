@@ -24,6 +24,7 @@ const IC = {
   cal: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
   chat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
   mem: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg>',
+  find: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
   rout: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
@@ -100,7 +101,7 @@ function machineCard(m) {
 function runningRow(r) {
   if (r.kind === "research") {
     const row = h("button", "cc-row link",
-      avatar("beep", "b"),
+      avatar("beep", icon(IC.find)),
       h("span", "t", h("b", "", r.topic), h("span", "", `Research, round ${r.round}, ${plural(r.sources, "source", "sources")}`)),
       h("span", "r", tag("run", h("span", "dspin"), r.status), ago(r.started_at)));
     row.addEventListener("click", () => invoke("open_research", { session: r.session }).catch(() => {}));
@@ -164,7 +165,7 @@ function needsCard(n) {
     title.classList.add("cc-link");
     title.title = "Open this chat";
     title.addEventListener("click", () => showBar({ chat: { session: n.session_id } }));
-    head = [avatar("beep", "b"), h("span", "t", title, h("span", "", `Chat: ${n.session_title}`))];
+    head = [avatar("beep", icon(IC.chat)), h("span", "t", title, h("span", "", `Chat: ${n.session_title}`))];
     body = a.fields.length ? h("div", "kv", ...a.fields.flatMap(f => [h("span", "", f.label), h("span", "", f.value)])) : null;
     acts = [
       button("Allow", "pri", () => answerChat(n, "allow", "Allowed once")),
@@ -265,7 +266,7 @@ function projects(running) {
 
 function sidebar(home) {
   const { machines, running, coming_up: coming, needs_you: needs } = home;
-  const side = [h("div", "cc-head", ""), h("div", "cc-brand", h("span", "dlogo", "b"), h("b", "", "Beep"))];
+  const side = [h("div", "cc-head", ""), h("div", "cc-brand", h("b", "", "Beep"))];
   side[0].setAttribute("data-tauri-drag-region", "");
   const pilot = h("div", "cc-grp", h("h3", "", "Pilot"), sideItem(IC.home, "Home", needs.length, { current: true, hot: true }));
   if (running) pilot.append(sideItem(IC.run, "Running", running.length, { target: "sec-running" }));
@@ -334,7 +335,7 @@ function drawUnloaded() {
   const home = h("button", "cc-si", icon(IC.home), "Home");
   home.type = "button";
   home.setAttribute("aria-current", "true");
-  $("#side").replaceChildren(head, h("div", "cc-brand", h("span", "dlogo", "b"), h("b", "", "Beep")), h("div", "cc-grp", h("h3", "", "Pilot"), home));
+  $("#side").replaceChildren(head, h("div", "cc-brand", h("b", "", "Beep")), h("div", "cc-grp", h("h3", "", "Pilot"), home));
   $("#view").replaceChildren(h("div", "cc-note", h("span", "ddot bad"), h("span", "", "Can't reach Beep right now. Retrying.")));
 }
 
