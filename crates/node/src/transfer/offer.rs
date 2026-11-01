@@ -5,6 +5,7 @@
 //! or another file after the walk is refused rather than sent.
 
 use super::Ticker;
+use crate::fsat;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::{
     LinkTx,
@@ -22,7 +23,6 @@ use iroh_blobs::{
 };
 use std::{
     fs::{self, Metadata, OpenOptions},
-    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 use tokio::task::spawn_blocking;
@@ -37,9 +37,10 @@ pub(crate) struct Identity {
 
 impl Identity {
     fn of(metadata: &Metadata) -> Self {
+        let id = fsat::id_of_metadata(metadata);
         Self {
-            device: metadata.dev(),
-            inode: metadata.ino(),
+            device: id.device,
+            inode: id.inode,
         }
     }
 }
@@ -65,7 +66,7 @@ struct Walked {
 }
 
 fn is_executable(metadata: &Metadata) -> bool {
-    metadata.permissions().mode() & 0o111 != 0
+    fsat::is_executable(metadata)
 }
 
 fn walk(root: &Path) -> Result<Walked> {
@@ -135,10 +136,7 @@ pub(super) struct Offered {
 /// Fails unless `path` opens, without following a link, as the file
 /// `identity` names.
 pub(crate) fn check_same(path: &Path, identity: Identity) -> Result<()> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
+    let file = fsat::open_no_follow(OpenOptions::new().read(true), path)
         .with_context(|| format!("opening {}", path.display()))?;
     let opened = Identity::of(&file.metadata()?);
     let named = Identity::of(&fs::symlink_metadata(path)?);
@@ -301,7 +299,7 @@ pub(super) async fn offer(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
@@ -319,8 +317,7 @@ mod tests {
         fs::create_dir_all(dir.join("links-only")).expect("made");
         symlink("/etc/hostname", dir.join("link")).expect("linked");
         symlink("/etc/hostname", dir.join("links-only/link")).expect("linked");
-        fs::set_permissions(dir.join("scene.blend"), fs::Permissions::from_mode(0o755))
-            .expect("made executable");
+        fsat::set_mode(&dir.join("scene.blend"), 0o755).expect("made executable");
         let walked = walk(&dir).unwrap();
         let names: Vec<_> = walked.entries.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(

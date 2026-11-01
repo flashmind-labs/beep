@@ -63,7 +63,9 @@ const CLOSE_NOT_ALLOWED: u32 = 401;
 /// The line the machines section starts with, also how a chat finds the
 /// one it last got.
 pub(crate) const MACHINES_HEADER: &str = "The user's machines (exec, process, desktop and \
-    code_agent run on the one `in` names; send_file copies files between them):";
+    code_agent run on the one `in` names; send_file copies files between them). Pick the \
+    machine whose OS and `can` list fit the task: iOS, iPadOS and macOS builds, Xcode and the \
+    iOS simulator need a macOS machine that can xcode, whichever machine is the default:";
 const CLOSE_UNAVAILABLE: u32 = 503;
 
 /// A node with its connection open.
@@ -561,20 +563,32 @@ fn is_check_code(text: &str) -> bool {
 }
 
 /// The machines section of a turn's context: each machine on a line with
-/// whether it is online, its OS and which coding agents are signed in.
+/// whether it is online, its OS, what it can do and which coding agents are
+/// signed in.
 pub(crate) fn machines(nodes: &[NodeRow], online: &Nodes) -> Option<String> {
     if nodes.is_empty() {
         return None;
     }
     let mut out = String::from(MACHINES_HEADER);
     for node in nodes {
-        let mut facts = vec![if online.online(&node.endpoint).is_some() {
+        let connected = online.online(&node.endpoint);
+        let mut facts = vec![if connected.is_some() {
             "online".to_owned()
         } else {
             "offline".to_owned()
         }];
+        if connected.is_some_and(|online| online.workspace.is_some()) {
+            facts.push("the user's environment".to_owned());
+        }
         if let Some(env) = &node.env {
             facts.push(env.os_version.clone());
+            let capabilities: Vec<&'static str> =
+                env.capabilities().into_iter().map(Into::into).collect();
+            facts.push(if capabilities.is_empty() {
+                "can: nothing special".to_owned()
+            } else {
+                format!("can: {}", capabilities.join(", "))
+            });
             for login in &env.logins {
                 facts.push(match (login.signed_in, &login.account) {
                     (true, Some(account)) => format!("{} signed in as {account}", login.tool),
@@ -717,6 +731,10 @@ mod tests {
             hostname: "studio".into(),
             cpus: 12,
             home: "/Users/someone".into(),
+            tools: vec![ToolInfo {
+                name: "xcodebuild".into(),
+                version: None,
+            }],
             logins: vec![Login {
                 tool: "gh".into(),
                 signed_in: false,
@@ -725,16 +743,22 @@ mod tests {
             avds: vec!["Pixel_7".into()],
             ..EnvReport::default()
         };
+        let linux = EnvReport {
+            os_version: "Ubuntu 24.04".into(),
+            ..EnvReport::default()
+        };
         let nodes = [
             node(&key, "mac", Some(mac)),
-            node(&other, "build box", None),
+            node(&other, "build box", Some(linux)),
+            node(&other, "laptop", None),
         ];
         assert_eq!(
             machines(&nodes, &Nodes::default()).unwrap(),
             format!(
                 "{MACHINES_HEADER}\n\
-                 - mac: offline; macOS 26.3; gh not signed in\n\
-                 - build box: offline"
+                 - mac: offline; macOS 26.3; can: xcode; gh not signed in\n\
+                 - build box: offline; Ubuntu 24.04; can: nothing special\n\
+                 - laptop: offline"
             )
         );
         assert_eq!(machines(&[], &Nodes::default()), None);

@@ -3,7 +3,10 @@
 //! reference (`TryReference`), so a big file is read but not copied.
 
 use super::rules::{GitIgnored, Rules, Skip};
-use crate::transfer::offer::{Identity, check_same};
+use crate::{
+    fsat,
+    transfer::offer::{Identity, check_same},
+};
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::sync::{Rule, SkippedPath};
 use iroh_blobs::{
@@ -12,7 +15,6 @@ use iroh_blobs::{
 };
 use std::{
     fs::{self, Metadata},
-    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 use tokio::task::spawn_blocking;
@@ -35,13 +37,14 @@ pub(super) struct Stat {
 
 impl Stat {
     pub(super) fn of(meta: &Metadata) -> Self {
+        let id = fsat::id_of_metadata(meta);
         Self {
             size: meta.len(),
-            mtime_ns: meta.mtime().saturating_mul(1_000_000_000) + meta.mtime_nsec(),
-            ctime_ns: meta.ctime().saturating_mul(1_000_000_000) + meta.ctime_nsec(),
-            inode: meta.ino(),
-            device: meta.dev(),
-            executable: meta.permissions().mode() & 0o111 != 0,
+            mtime_ns: fsat::mtime_ns(meta),
+            ctime_ns: fsat::ctime_ns(meta),
+            inode: id.inode,
+            device: id.device,
+            executable: fsat::is_executable(meta),
         }
     }
 
@@ -197,7 +200,7 @@ pub(super) async fn import(store: &Store, found: &Found) -> Result<TempTag> {
     Ok(tag)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;

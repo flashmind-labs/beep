@@ -2,6 +2,7 @@
 //! every `Watch` stream through a broadcast, and for sessions that send no
 //! hooks, their transcripts read as they grow.
 
+use super::socket::{self, Listener, Stream};
 use super::{
     discover::Store,
     hooks::HookMessage,
@@ -14,13 +15,11 @@ use beep_proto::node::{
 };
 use std::{
     fs::{self, File},
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     time::Duration,
 };
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
-    net::{UnixListener, UnixStream},
     sync::broadcast::{self, error::RecvError},
     task::spawn_blocking,
     time::{MissedTickBehavior, interval, timeout},
@@ -59,17 +58,10 @@ impl Hub {
 /// Takes hook events on `socket` until the node stops, one connection at a
 /// time, each a single line.
 pub(crate) async fn listen(socket: &Path, hub: &Hub) -> Result<()> {
-    match fs::remove_file(socket) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e).with_context(|| format!("removing {}", socket.display())),
-    }
-    let listener =
-        UnixListener::bind(socket).with_context(|| format!("listening on {}", socket.display()))?;
-    fs::set_permissions(socket, fs::Permissions::from_mode(0o600))?;
-    log::info!("taking Claude Code hooks on {}", socket.display());
+    let mut listener = Listener::bind(socket)?;
+    log::info!("taking Claude Code hooks on {}", socket::shown(socket));
     loop {
-        let (stream, _) = listener.accept().await?;
+        let stream = listener.accept().await?;
         match timeout(HOOK_READ, read_hook(stream)).await {
             Ok(Ok(Some(activity))) => {
                 log::debug!(
@@ -86,7 +78,7 @@ pub(crate) async fn listen(socket: &Path, hub: &Hub) -> Result<()> {
     }
 }
 
-async fn read_hook(stream: UnixStream) -> Result<Option<Activity>> {
+async fn read_hook(stream: Stream) -> Result<Option<Activity>> {
     use tokio::io::AsyncReadExt;
     let mut line = String::new();
     BufReader::new(stream.take(MAX_HOOK_LINE))

@@ -4,8 +4,9 @@
 
 use crate::{
     lines::read_piece,
-    process::{GroupLeader, STOP_GRACE, killpg},
+    process::{Group, GroupLeader, STOP_GRACE, own_group},
     provision::spawn_env::{self, Scope},
+    shell,
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -21,7 +22,7 @@ use std::{
 };
 use tokio::{
     io::BufReader,
-    process::{ChildStdout, Command},
+    process::ChildStdout,
     sync::{oneshot, watch},
     time::timeout,
 };
@@ -95,7 +96,7 @@ struct Job {
     /// Dropping the job ends its task, and the group with it.
     _task: AbortOnDropHandle<()>,
     /// The task's process group, for `kill_all` at exit.
-    group: Option<libc::pid_t>,
+    group: Option<Group>,
 }
 
 struct Shared {
@@ -184,8 +185,8 @@ impl Tasks {
         for job in &lock(&self.inner).jobs {
             // A finished task's leader is reaped, so its group id may be
             // someone else's now.
-            if let Some(group) = job.group.filter(|_| !*job.done.borrow()) {
-                killpg(group, libc::SIGKILL);
+            if let Some(group) = job.group.as_ref().filter(|_| !*job.done.borrow()) {
+                group.kill();
             }
         }
     }
@@ -243,20 +244,13 @@ fn unknown(id: TaskId) -> Reply {
 
 /// Starts `command` in its own process group, stderr merged into stdout.
 fn spawn(command: &str, cwd: Option<PathBuf>) -> Result<(GroupLeader, ChildStdout)> {
-    let program = if which::which("bash").is_ok() {
-        "bash"
-    } else {
-        "sh"
-    };
-    let mut child = Command::new(program);
+    let (program, mut child) = shell::one_shot(command);
     child
-        .arg("-c")
-        .arg(format!("exec 2>&1\n{command}"))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .process_group(0)
         .kill_on_drop(true);
+    own_group(&mut child);
     if let Some(cwd) = cwd {
         child.current_dir(cwd);
     }
@@ -374,10 +368,15 @@ mod tests {
     #[tokio::test]
     async fn a_task_keeps_its_last_lines_and_exit_code() {
         let tasks = Tasks::default();
+        let command = if cfg!(windows) {
+            "1..150; cmd /c \"(echo oops) 1>&2\"; exit 3"
+        } else {
+            "seq 1 150; echo oops >&2; exit 3"
+        };
         let id = started(
             tasks
                 .answer(Request::Start {
-                    command: "seq 1 150; echo oops >&2; exit 3".into(),
+                    command: command.into(),
                     cwd: None,
                 })
                 .await,

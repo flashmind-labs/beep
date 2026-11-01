@@ -14,6 +14,7 @@ use tokio::task::spawn_blocking;
 mod discover;
 pub mod hooks;
 mod procs;
+mod socket;
 mod transcript;
 mod watch;
 

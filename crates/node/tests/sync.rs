@@ -160,7 +160,8 @@ fn files(dir: &Path) -> Vec<String> {
                     path.strip_prefix(dir)
                         .unwrap()
                         .to_string_lossy()
-                        .into_owned(),
+                        // As sync names them, on Windows too.
+                        .replace('\\', "/"),
                 );
             }
         }
@@ -181,6 +182,7 @@ async fn a_folder_syncs_both_ways_and_build_output_stays() {
     write(&a.path("src/main.rs"), "fn main() {}\n");
     write(&a.path("assets/big.bin"), data(300_000, 1));
     write(&a.path("target/debug/game"), data(1000, 2));
+    #[cfg(unix)]
     fs::set_permissions(
         a.path("src/main.rs"),
         std::os::unix::fs::PermissionsExt::from_mode(0o755),
@@ -199,10 +201,13 @@ async fn a_folder_syncs_both_ways_and_build_output_stays() {
         landed.modified().unwrap(),
         UNIX_EPOCH + Duration::from_secs(1_700_000_000)
     );
-    let mode = std::os::unix::fs::PermissionsExt::mode(
-        &fs::metadata(b.path("src/main.rs")).unwrap().permissions(),
-    );
-    assert_ne!(mode & 0o100, 0, "the executable bit carries over");
+    #[cfg(unix)]
+    {
+        let mode = std::os::unix::fs::PermissionsExt::mode(
+            &fs::metadata(b.path("src/main.rs")).unwrap().permissions(),
+        );
+        assert_ne!(mode & 0o100, 0, "the executable bit carries over");
+    }
 
     // The other way.
     write(&b.path("src/main.rs"), "fn main() { println!(\"hi\"); }\n");
