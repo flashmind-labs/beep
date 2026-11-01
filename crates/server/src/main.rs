@@ -80,7 +80,8 @@ async fn main() -> Result<()> {
     .await
     .with_routing(config.model_routing())
     .with_auto(config.auto_models.clone())
-    .with_research(config.research.clone());
+    .with_research(config.research.clone())
+    .with_project(config.project.clone());
 
     let search = config
         .firecrawl_key
@@ -134,6 +135,7 @@ async fn main() -> Result<()> {
     admin::serve(app.clone(), admin::default_path(Path::new(&config_path)))?;
     beep_server::compaction::start(app.clone());
     beep_server::titles::start(app.clone());
+    beep_server::projects::start(app.clone());
     beep_server::memories::start_purge(app.clone());
     beep_server::store::start_pruning(app.store.clone());
     beep_server::events::start(

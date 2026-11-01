@@ -19,7 +19,7 @@ use futures::{SinkExt, StreamExt};
 use iroh::endpoint::{RecvStream, SendStream};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt;
-use strum::{Display, IntoStaticStr};
+use strum::{Display, EnumString, IntoStaticStr};
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 pub mod agent;
@@ -307,7 +307,17 @@ pub enum GpuVendor {
 
 /// What a machine can be asked to do.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, IntoStaticStr,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    IntoStaticStr,
+    EnumString,
 )]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "lowercase")]

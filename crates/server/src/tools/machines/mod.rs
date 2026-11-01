@@ -16,12 +16,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 pub(crate) mod add;
-mod agents;
+pub(crate) mod agents;
 mod code_agent;
 pub(crate) mod copy;
 mod desktop;
-mod exec;
-mod process;
+pub(crate) mod exec;
+pub(crate) mod process;
 pub(crate) mod transfer;
 
 /// Registers each tool some machine of the user's online now can serve.

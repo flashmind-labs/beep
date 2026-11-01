@@ -2,6 +2,7 @@
 //! Markdown before the model reads them. A newsletter's markup and CSS can be
 //! ten times the length of its text, and the line that matters gets lost in it.
 
+use crate::paging;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::Value;
@@ -41,11 +42,7 @@ impl Tool for Markdown {
 
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let mut result = self.0.execute(ctx).await?;
-        if let ToolResult::Success { output, .. } = &mut result
-            && let Some(converted) = convert_output(output)
-        {
-            *output = converted;
-        }
+        paging::rewrite_text(&mut result, |output| convert_output(&output));
         Ok(result)
     }
 

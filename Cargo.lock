@@ -574,6 +574,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "serde_yaml",
  "shlex 1.3.0",
  "sqlx",
  "sqlx-core",
@@ -1881,7 +1882,7 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 [[package]]
 name = "flashmind"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
+source = "git+https://github.com/flashmind-labs/flashmind.git#273f1f56d10fcd1ba1dd338620c308927f55ec33"
 dependencies = [
  "flashmind-core",
  "flashmind-cron",
@@ -1894,7 +1895,7 @@ dependencies = [
 [[package]]
 name = "flashmind-core"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
+source = "git+https://github.com/flashmind-labs/flashmind.git#273f1f56d10fcd1ba1dd338620c308927f55ec33"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1914,7 +1915,7 @@ dependencies = [
 [[package]]
 name = "flashmind-cron"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
+source = "git+https://github.com/flashmind-labs/flashmind.git#273f1f56d10fcd1ba1dd338620c308927f55ec33"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1935,7 +1936,7 @@ dependencies = [
 [[package]]
 name = "flashmind-llm"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
+source = "git+https://github.com/flashmind-labs/flashmind.git#273f1f56d10fcd1ba1dd338620c308927f55ec33"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1969,7 +1970,7 @@ dependencies = [
 [[package]]
 name = "flashmind-memory"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
+source = "git+https://github.com/flashmind-labs/flashmind.git#273f1f56d10fcd1ba1dd338620c308927f55ec33"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1994,7 +1995,7 @@ dependencies = [
 [[package]]
 name = "flashmind-skills"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
+source = "git+https://github.com/flashmind-labs/flashmind.git#273f1f56d10fcd1ba1dd338620c308927f55ec33"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2010,7 +2011,7 @@ dependencies = [
 [[package]]
 name = "flashmind-tools"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
+source = "git+https://github.com/flashmind-labs/flashmind.git#273f1f56d10fcd1ba1dd338620c308927f55ec33"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2035,8 +2036,10 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "serde_yaml",
  "similar",
  "strum 0.28.0",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tracing",
@@ -2048,7 +2051,7 @@ dependencies = [
 [[package]]
 name = "flashmind-types"
 version = "0.1.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#26a28451bd869c8246720e9bfbb5a210a443396e"
+source = "git+https://github.com/flashmind-labs/flashmind.git#273f1f56d10fcd1ba1dd338620c308927f55ec33"
 dependencies = [
  "anyhow",
  "async-trait",

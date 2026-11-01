@@ -51,6 +51,7 @@ pub use crate::protocol::node::{
     NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,
     sync::PROTOCOL as SYNC, transfer::PROTOCOL as TRANSFER,
 };
+pub(crate) use agent::News;
 pub use agent::{AgentLink, Mark, Watched};
 pub(crate) use deliver::agent_name;
 pub use deliver::{Ask, Deliveries, Post};
@@ -430,6 +431,8 @@ async fn serve(
         },
     );
     app.nodes.follows.reconnected(app, &endpoint.to_string());
+    // The project workers on the node report again, or are marked gone.
+    app.projects.reconnected(app, &user, endpoint);
     // Sends the node its synced projects, and its peers how it is reached
     // now. Ends with the connection.
     let _push = {
