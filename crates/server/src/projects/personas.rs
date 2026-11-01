@@ -52,15 +52,15 @@ pub(crate) fn parse(file: &str, text: &str) -> Result<ProjectPersona, PersonaFil
     let engine = match meta.remove("engine") {
         None | Some(Value::Null) => None,
         Some(value) => {
-            let name = scalar(&value);
+            let name = scalar(&value)?;
             Some(WorkerAgent::from_str(&name).map_err(|_| PersonaFileError::Engine(name))?)
         }
     };
-    let needs = names(meta.remove("needs"))
+    let needs = names(meta.remove("needs"))?
         .into_iter()
         .map(|name| Capability::from_str(&name).map_err(|_| PersonaFileError::Need(name)))
         .collect::<Result<Vec<_>, _>>()?;
-    let mcp = names(meta.remove("mcp"));
+    let mcp = names(meta.remove("mcp"))?;
     let rest = format!("---\n{}---\n{body}", serde_yaml::to_string(&meta)?);
     let persona = Persona::from_markdown(&rest, &[] as &[&str])?;
     Ok(ProjectPersona {
@@ -94,22 +94,19 @@ fn split(text: &str) -> Option<(Mapping, String)> {
     Some((meta, lines.collect::<Vec<_>>().join("\n")))
 }
 
-fn scalar(value: &Value) -> String {
-    match value {
+fn scalar(value: &Value) -> Result<String, serde_yaml::Error> {
+    Ok(match value {
         Value::String(text) => text.clone(),
-        other => serde_yaml::to_string(other)
-            .unwrap_or_default()
-            .trim()
-            .to_owned(),
-    }
+        other => serde_yaml::to_string(other)?.trim().to_owned(),
+    })
 }
 
 /// A list of names, or a single name.
-fn names(value: Option<Value>) -> Vec<String> {
+fn names(value: Option<Value>) -> Result<Vec<String>, serde_yaml::Error> {
     match value {
-        None | Some(Value::Null) => Vec::new(),
+        None | Some(Value::Null) => Ok(Vec::new()),
         Some(Value::Sequence(items)) => items.iter().map(scalar).collect(),
-        Some(single) => vec![scalar(&single)],
+        Some(single) => Ok(vec![scalar(&single)?]),
     }
 }
 
