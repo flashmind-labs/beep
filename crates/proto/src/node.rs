@@ -130,7 +130,7 @@ impl EnvReport {
         if has_tool("adb") || has_app(AppName::AndroidStudio) {
             found.push(Capability::Android);
         }
-        if has_tool("docker") {
+        if has_tool("docker") || has_app(AppName::DockerDesktop) {
             found.push(Capability::Docker);
         }
         found.sort();
@@ -363,6 +363,18 @@ mod tests {
         let name: &'static str = Capability::Cuda.into();
         assert_eq!(name, "cuda");
         assert_eq!(AppName::UnrealEngine.to_string(), "Unreal Engine");
+    }
+
+    #[test]
+    fn docker_desktop_gives_docker() {
+        let report = EnvReport {
+            apps: vec![AppInfo {
+                name: AppName::DockerDesktop,
+                version: None,
+            }],
+            ..EnvReport::default()
+        };
+        assert_eq!(report.capabilities(), [Capability::Docker]);
     }
 
     #[test]

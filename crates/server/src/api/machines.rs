@@ -72,7 +72,12 @@ fn machine_details(id: String, env: EnvReport) -> MachineDetails {
             .into_iter()
             .map(machine_capability)
             .collect(),
-        apps: env.apps.into_iter().map(machine_app).collect(),
+        apps: env
+            .apps
+            .into_iter()
+            .filter(|app| app.name != AppName::Unknown)
+            .map(machine_app)
+            .collect(),
         gpus: env.gpus.into_iter().map(machine_gpu).collect(),
     }
 }
@@ -151,5 +156,30 @@ fn machine_env(env: EnvReport) -> MachineEnv {
             })
             .collect(),
         avds: env.avds,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn details_leave_out_unknown_apps() {
+        let env = EnvReport {
+            apps: vec![
+                AppInfo {
+                    name: AppName::Unknown,
+                    version: None,
+                },
+                AppInfo {
+                    name: AppName::Blender,
+                    version: Some("4.2".into()),
+                },
+            ],
+            ..EnvReport::default()
+        };
+        let details = machine_details("id".into(), env);
+        assert_eq!(details.apps.len(), 1);
+        assert_eq!(details.apps[0].name, "Blender");
     }
 }

@@ -1,12 +1,12 @@
 //! Creative and developer apps: app bundles on macOS, desktop entries on Linux.
 
-use super::first_line;
+use super::{PROBE_TIMEOUT, first_line};
 use beep_proto::node::{AppInfo, AppName};
 use std::{
     env, fs,
     path::{Path, PathBuf},
 };
-use tokio::task::spawn_blocking;
+use tokio::{task::spawn_blocking, time::timeout};
 
 const APPLICATIONS: &str = "/Applications";
 const UNREAL_ROOT: &str = "/Users/Shared/Epic Games";
@@ -16,15 +16,16 @@ const DESKTOP_DIRS: [&str; 2] = [
 ];
 
 pub(crate) async fn apps() -> Vec<AppInfo> {
-    let found = match env::consts::OS {
-        "macos" => {
-            spawn_blocking(|| mac_apps(Path::new(APPLICATIONS), Path::new(UNREAL_ROOT))).await
-        }
-        "linux" => spawn_blocking(linux_apps).await,
+    let scan = match env::consts::OS {
+        "macos" => spawn_blocking(|| mac_apps(Path::new(APPLICATIONS), Path::new(UNREAL_ROOT))),
+        "linux" => spawn_blocking(linux_apps),
         _ => return Vec::new(),
     };
-    // A blocking task only fails when it panics; no apps is the honest answer then.
-    found.unwrap_or_default()
+    // A slow disk or a panicking task means no apps; the report still goes out.
+    match timeout(PROBE_TIMEOUT, scan).await {
+        Ok(Ok(found)) => found,
+        Ok(Err(_)) | Err(_) => Vec::new(),
+    }
 }
 
 /// Bundles in `applications`, and one Unreal entry per `UE_*` folder in `unreal_root`.

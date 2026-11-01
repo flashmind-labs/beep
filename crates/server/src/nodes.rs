@@ -10,7 +10,7 @@ use crate::{
     protocol::{
         DeviceKind,
         link::LinkOffer,
-        node::{Down, EnvReport, NodeHello, Up, link},
+        node::{AppName, Down, EnvReport, NodeHello, Up, link},
     },
     push::CLOSE_REVOKED,
     store::{LinkKey, NewKey, NewNode, NodeRow},
@@ -363,10 +363,14 @@ pub fn describe(env: &EnvReport) -> String {
             None => format!("GPU: {}", gpu.model),
         });
     }
-    if !env.apps.is_empty() {
-        let apps: Vec<_> = env
-            .apps
-            .iter()
+    let known_apps: Vec<_> = env
+        .apps
+        .iter()
+        .filter(|app| app.name != AppName::Unknown)
+        .collect();
+    if !known_apps.is_empty() {
+        let apps: Vec<_> = known_apps
+            .into_iter()
             .map(|app| match &app.version {
                 Some(version) => format!("{} {version}", app.name),
                 None => app.name.to_string(),
@@ -394,7 +398,7 @@ pub fn describe(env: &EnvReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::node::{AppInfo, AppName, GpuInfo, GpuVendor, Login, ToolInfo};
+    use crate::protocol::node::{AppInfo, GpuInfo, GpuVendor, Login, ToolInfo};
 
     #[test]
     fn describe_names_capabilities() {
@@ -427,6 +431,18 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("Can: gpu, cuda, blender, unreal"), "{text}");
+    }
+
+    #[test]
+    fn describe_skips_unknown_apps() {
+        let env = EnvReport {
+            apps: vec![AppInfo {
+                name: AppName::Unknown,
+                version: None,
+            }],
+            ..EnvReport::default()
+        };
+        assert!(!describe(&env).contains("Apps:"));
     }
 
     #[test]
