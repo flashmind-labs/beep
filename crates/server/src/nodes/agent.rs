@@ -40,6 +40,14 @@ pub(crate) use wake::News;
 
 mod wake;
 
+/// The node refused the session stream's first request; for an attach, it
+/// no longer has the session.
+#[derive(Debug, thiserror::Error)]
+#[error("{reason}")]
+pub(crate) struct SessionRefused {
+    pub(crate) reason: String,
+}
+
 /// Unreadable messages in a row before a link gives up.
 const MAX_BAD_MESSAGES: u32 = 8;
 const ORDERS: usize = 8;
@@ -299,7 +307,7 @@ impl Online {
             .context("the node closed the session stream")?;
         let info = match event {
             Event::Attached { session } => *session,
-            Event::Refused { reason } => bail!("{reason}"),
+            Event::Refused { reason } => return Err(SessionRefused { reason }.into()),
             other => bail!("the node answered {other:?}"),
         };
         let id = info.id.clone();

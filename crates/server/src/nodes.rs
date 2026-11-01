@@ -51,8 +51,8 @@ pub use crate::protocol::node::{
     NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,
     sync::PROTOCOL as SYNC, transfer::PROTOCOL as TRANSFER,
 };
-pub(crate) use agent::News;
 pub use agent::{AgentLink, Mark, Watched};
+pub(crate) use agent::{News, SessionRefused};
 pub(crate) use deliver::agent_name;
 pub use deliver::{Ask, Deliveries, Post};
 pub use follow::{Follower, Follows};

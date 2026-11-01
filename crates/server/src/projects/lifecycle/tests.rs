@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     projects::{
         model::{IssueRef, MachinePath, RepoName, Roles, StartRequest, Visibility, WorkerAgent},
-        testing::{FakeFleet, FakeShell},
+        testing::{FakeAttach, FakeFleet, FakeShell},
     },
     store::{CheckoutRow, NewTask, NewWorker, TestDb},
 };
@@ -406,4 +406,31 @@ async fn questions_inside_the_worktree_are_answered() {
         .await
         .expect("it judges");
     assert_eq!(h.fleet.questions().len(), 1);
+}
+
+#[tokio::test]
+async fn a_failed_reattach_leaves_the_worker() {
+    let h = harness().await;
+    let (task, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
+    reattach(&h.fleet, &h.user, &worker)
+        .await
+        .expect("it tries");
+    assert_eq!(h.worker(&worker).await.state, WorkerState::Waiting);
+    assert_eq!(h.task(&task).await.state, TaskState::Running);
+    assert!(h.fleet.posts().is_empty(), "{:?}", h.fleet.posts());
+    assert_eq!(h.fleet.projects.worker_of(&h.home, "s1"), Some(worker.id));
+    // Refused: the machine no longer has the session.
+    *h.fleet.attach.lock().expect("the fake") = FakeAttach::Refused;
+    reattach(&h.fleet, &h.user, &worker)
+        .await
+        .expect("it tries");
+    assert_eq!(h.worker(&worker).await.state, WorkerState::Failed);
+    assert_eq!(h.task(&task).await.state, TaskState::Blocked);
+    let posts = h.fleet.posts();
+    assert!(
+        posts
+            .iter()
+            .any(|(label, text)| label == REPLAN_LABEL && text.contains("is gone")),
+        "{posts:?}"
+    );
 }

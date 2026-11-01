@@ -19,7 +19,7 @@ use super::{
 };
 use crate::{
     app::App,
-    nodes::News,
+    nodes::{News, SessionRefused},
     protocol::node::agent::{OptionKind, Question, Request as AgentRequest, SessionInfo, Status},
     store::{ProjectRow, StartRefused, TaskRow, WorkerRow},
     transport::READ_TIMEOUT,
@@ -538,9 +538,16 @@ async fn reattach(fleet: &dyn Fleet, user: &Arc<User>, worker: &WorkerRow) -> Re
     fleet.projects().track(worker.machine, session, worker.id);
     match timeout(READ_TIMEOUT, fleet.attach(worker, chat)).await {
         Ok(Ok(info)) => catch_up(fleet, user, worker.id, info).await,
-        Ok(Err(why)) => {
+        Ok(Err(why)) if why.downcast_ref::<SessionRefused>().is_some() => {
             log::info!("projects: a worker's session is gone: {why:#}");
             gone(fleet, user, worker.id).await
+        }
+        // A stream that would not open or closed early, as a machine that
+        // flaps does: the worker stays as it was and the next reconnect tries
+        // again.
+        Ok(Err(why)) => {
+            log::warn!("projects: unable to re-attach a worker; it stays as it was: {why:#}");
+            Ok(())
         }
         Err(_) => {
             log::warn!("projects: the machine did not answer for a worker; it stays as it was");
