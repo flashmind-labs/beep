@@ -4,6 +4,7 @@
 mod apps;
 mod gpu;
 
+use crate::setup::spawn_env;
 use beep_proto::node::{EnvReport, Login, ToolInfo};
 use std::{env, path::PathBuf, process::Stdio, time::Duration};
 use tokio::{process::Command, time::timeout};
@@ -17,6 +18,7 @@ const MAX_VERSION: usize = 80;
 const KNOWN_TOOLS: &[(&str, &[&str])] = &[
     ("git", &["--version"]),
     ("gh", &["--version"]),
+    ("teacli", &["--version"]),
     ("docker", &["--version"]),
     ("cargo", &["--version"]),
     ("node", &["--version"]),
@@ -36,8 +38,11 @@ const KNOWN_TOOLS: &[(&str, &[&str])] = &[
 
 pub async fn probe() -> EnvReport {
     let mut tools = Vec::new();
+    // Found as the processes the node starts find them, with the tools it
+    // installed.
+    let path = spawn_env::search_path();
     for (name, args) in KNOWN_TOOLS {
-        if which::which(name).is_ok() {
+        if which::which_in(name, path.as_ref(), "/").is_ok() {
             let version = output(name, args).await.as_deref().and_then(first_line);
             tools.push(ToolInfo {
                 name: (*name).to_owned(),
@@ -81,7 +86,9 @@ pub async fn probe() -> EnvReport {
 
 /// What `program args` printed, stdout then stderr, when it ran in time.
 async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
-    let run = Command::new(program)
+    let mut command = Command::new(program);
+    spawn_env::apply(&mut command);
+    let run = command
         .args(args)
         .stdin(Stdio::null())
         .kill_on_drop(true)
@@ -100,7 +107,10 @@ fn first_line(text: &str) -> Option<String> {
 /// Whether `tool` is signed in, from its status command: it succeeds only
 /// when signed in, and `account` picks the account from what it printed.
 async fn login(tool: &str, args: &[&str], account: fn(&str) -> Option<String>) -> Login {
-    let run = Command::new(tool)
+    let mut command = Command::new(tool);
+    // With the credentials, so `gh auth status` sees the token Beep gave.
+    spawn_env::apply(&mut command);
+    let run = command
         .args(args)
         .stdin(Stdio::null())
         .kill_on_drop(true)
