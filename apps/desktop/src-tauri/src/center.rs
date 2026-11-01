@@ -292,7 +292,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
 
 /// `None` for a request the server does not know or this account may not
 /// make; any other failure goes to the log.
-fn section<T>(what: &str, result: Result<T>) -> Option<T> {
+pub(crate) fn section<T>(what: &str, result: Result<T>) -> Option<T> {
     match result {
         Ok(listed) => Some(listed),
         Err(e) if is_unsupported(&e) => None,
