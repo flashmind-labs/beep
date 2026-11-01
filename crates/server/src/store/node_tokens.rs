@@ -100,14 +100,22 @@ impl Store {
         .bind(claim.hash)
         .fetch_optional(&mut *tx)
         .await?;
+        // A dropped transaction only rolls back when its connection is next
+        // used, keeping the row locked until then, so each refusal ends it.
         let Some(row) = row else {
+            tx.rollback().await?;
             return Ok(Claim::Unknown);
         };
-        if row.try_get::<bool, _>("used")? {
-            return Ok(Claim::Used);
-        }
-        if row.try_get::<bool, _>("expired")? {
-            return Ok(Claim::Expired);
+        let refused = if row.try_get::<bool, _>("used")? {
+            Some(Claim::Used)
+        } else if row.try_get::<bool, _>("expired")? {
+            Some(Claim::Expired)
+        } else {
+            None
+        };
+        if let Some(refused) = refused {
+            tx.rollback().await?;
+            return Ok(refused);
         }
         let user: String = row.try_get("user_id")?;
         let token_name: Option<String> = row.try_get("name")?;
