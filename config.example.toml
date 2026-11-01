@@ -35,6 +35,10 @@ provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # critic = { model = "openrouter:openai/gpt-6-luna" }
 # writer = { model = "openrouter:anthropic/claude-haiku-5.5" }
 # scout_choices = ["openrouter:z-ai/glm-5.3-flash"]
+# Optional: the model project chats plan on (a new request, a re-plan).
+# Worker reports and checks run on the chat's default. It must be offered.
+# [project]
+# planner = { model = "openrouter:anthropic/claude-sonnet-5.5", thinking = "high" }
 
 # Agents that read admins' chats once they go quiet or a task in them ends:
 # memories, skills, and findings on where Beep failed (ListFindings).

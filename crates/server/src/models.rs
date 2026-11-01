@@ -3,6 +3,7 @@
 
 use crate::{
     agents::{Agent, AgentConfig, AgentId},
+    config::ProjectConfig,
     protocol::{ModelChoice, Models},
     research::ResearchConfig,
 };
@@ -31,6 +32,8 @@ pub struct ModelChoices {
     agents: Vec<Agent>,
     /// The models research roles run on; `None` turns research off.
     research: Option<ResearchConfig>,
+    /// What project chats plan on; `None` plans on the chat's default.
+    project: Option<ProjectConfig>,
 }
 
 /// A model Jev may pick, with what it is good for.
@@ -65,6 +68,7 @@ impl ModelChoices {
             auto: Vec::new(),
             agents: Vec::new(),
             research: None,
+            project: None,
         }
     }
 
@@ -115,6 +119,7 @@ impl ModelChoices {
             auto: Vec::new(),
             agents: Vec::new(),
             research: None,
+            project: None,
         }
     }
 
@@ -211,6 +216,27 @@ impl ModelChoices {
         });
         self.research = Some(config);
         self
+    }
+
+    /// Lets project chats plan on `configured`'s planner, when it is offered.
+    pub fn with_project(mut self, configured: Option<ProjectConfig>) -> Self {
+        let Some(config) = configured else {
+            return self;
+        };
+        if self.find(&config.planner.model.to_string()).is_none() {
+            log::warn!(
+                "project planner is not a model choice; projects plan on the default; model={}",
+                config.planner.model
+            );
+            return self;
+        }
+        self.project = Some(config);
+        self
+    }
+
+    /// What project chats plan on, when it is set up.
+    pub fn project(&self) -> Option<&ProjectConfig> {
+        self.project.as_ref()
     }
 
     /// The research roles' models, when research is on.

@@ -245,7 +245,7 @@ pub struct Message {
 impl Message {
     /// Something the user typed, rather than a routine, an event or an
     /// answer to a card.
-    fn is_prompt(&self) -> bool {
+    pub(crate) fn is_prompt(&self) -> bool {
         self.cron_id.is_none()
             && self.scheduled.is_none()
             && self.woken.is_none()

@@ -17,8 +17,8 @@ const DESCRIPTION: &str = "List background shell tasks, read their latest output
     machine; completed tasks may be removed when new tasks start. Stopping a task stops \
     everything it started.";
 
-pub(super) struct ProcessTool {
-    pub(super) machines: Machines,
+pub(crate) struct ProcessTool {
+    pub(crate) machines: Machines,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Clone, Copy)]

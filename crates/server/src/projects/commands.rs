@@ -20,7 +20,7 @@ const MAX_OUTPUT: usize = 64 * 1024;
 
 /// Where a project's commands run.
 #[async_trait]
-pub(crate) trait Shell: Sync {
+pub(crate) trait Shell: Send + Sync {
     async fn run(&self, command: &str, limit: Duration) -> Result<CommandOutput>;
 }
 

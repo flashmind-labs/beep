@@ -69,7 +69,9 @@ pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnAgentRow
 pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
-pub(crate) use projects::{NewWorker, ProjectRow, StartRefused, TaskRow, WorkerRow};
+pub(crate) use projects::{
+    After, CheckoutRow, NewTask, NewWorker, ProjectRow, StartRefused, TaskRow, WorkerRow,
+};
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};

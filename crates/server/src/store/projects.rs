@@ -94,8 +94,17 @@ pub(crate) struct WorkerRow {
 pub(crate) struct NewTask {
     pub(crate) title: String,
     pub(crate) body: String,
-    pub(crate) depends_on: Option<TaskId>,
+    pub(crate) depends_on: Option<After>,
     pub(crate) needs: Vec<Capability>,
+}
+
+/// The task a new one waits for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum After {
+    /// A task the project has.
+    Task(TaskId),
+    /// One made earlier in the same call, by its index there.
+    Earlier(usize),
 }
 
 /// A worker to start.
@@ -388,6 +397,15 @@ async fn tasks_in(
             slug = base.suffixed(n);
         }
         taken.insert(slug.as_str().to_owned());
+        let depends_on = match task.depends_on {
+            None => None,
+            Some(After::Task(id)) => Some(id),
+            Some(After::Earlier(at)) => Some(
+                made.get(at)
+                    .map(|earlier: &TaskRow| earlier.id)
+                    .with_context(|| format!("task {} waits for a later one", made.len() + 1))?,
+            ),
+        };
         let needs: Vec<&'static str> = task.needs.iter().map(|&need| need.into()).collect();
         let row = sqlx::query(&format!(
             "INSERT INTO project_tasks AS t (id, project_id, slug, title, body, depends_on, needs)
@@ -398,7 +416,7 @@ async fn tasks_in(
         .bind(slug.as_str())
         .bind(task.title.trim())
         .bind(task.body.trim())
-        .bind(task.depends_on.map(|id| id.0))
+        .bind(depends_on.map(|id| id.0))
         .bind(&needs)
         .fetch_one(&mut *tx)
         .await?;
@@ -713,6 +731,16 @@ impl Store {
         .bind(&issue.url)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    /// Sets or clears the task it waits for.
+    pub(crate) async fn set_task_after(&self, id: TaskId, after: Option<TaskId>) -> Result<()> {
+        sqlx::query("UPDATE project_tasks SET depends_on=$2, updated_at=now() WHERE id=$1")
+            .bind(id.0)
+            .bind(after.map(|after| after.0))
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -1161,6 +1189,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tasks_wait_for_earlier_ones_of_the_same_call() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let user = UserKey::for_test("alice");
+        let project = store
+            .ensure_project(&user, &repo("acme/widget"))
+            .await
+            .unwrap();
+        let second = NewTask {
+            depends_on: Some(After::Earlier(0)),
+            ..new_task("Render")
+        };
+        let made = store
+            .create_tasks(project.id, &[new_task("Build"), second])
+            .await
+            .unwrap();
+        assert_eq!(made[1].depends_on, Some(made[0].id));
+        let later = NewTask {
+            depends_on: Some(After::Earlier(1)),
+            ..new_task("Ship")
+        };
+        assert!(store.create_tasks(project.id, &[later]).await.is_err());
+        assert_eq!(store.tasks(project.id).await.unwrap().len(), 2);
+        store.set_task_after(made[1].id, None).await.unwrap();
+        let render = store.task_by_slug(project.id, "render").await.unwrap();
+        assert_eq!(render.unwrap().depends_on, None);
+    }
+
+    #[tokio::test]
     async fn tasks_keep_their_fields() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
@@ -1176,7 +1233,7 @@ mod tests {
         let second = NewTask {
             title: "Render".into(),
             body: "On the GPU".into(),
-            depends_on: Some(first[0].id),
+            depends_on: Some(After::Task(first[0].id)),
             needs: vec![Capability::Cuda, Capability::Blender],
         };
         let made = store.create_tasks(project.id, &[second]).await.unwrap();
