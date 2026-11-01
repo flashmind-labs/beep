@@ -10,6 +10,7 @@ use crate::{
     AsyncMutex,
     app::{App, UserNotice},
     apps::{Composio, mcp::KEEP_ALIVE},
+    credentials::Opened,
     decision::DecisionTool,
     feeds::{self, SYNC_SWEEP, mail::Mailbox},
     images::Picture,
@@ -27,13 +28,13 @@ use crate::{
     starters::Cached,
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
-        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite, Join,
-        JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow,
-        Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode,
-        NewPicture, NewPlace, NewPlaceRoutine, NodeRow, PicturesOf, PlaceRoutine, Posted,
-        ProfileNote, ProfileRead, PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share,
-        SkillOwner, SkillPatch, SkillRow, Store, StoredContext, StoredMessage, SyncRow, TurnRecord,
-        TurnsToDelete,
+        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, ImportRow, Invite,
+        Join, JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow,
+        MemoryRow, Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewImport, NewKey,
+        NewMessage, NewNode, NewPicture, NewPlace, NewPlaceRoutine, NodeRow, PicturesOf,
+        PlaceRoutine, Posted, ProfileNote, ProfileRead, PushDevice, ResearchRow, RunStatus,
+        SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, Store, StoredContext,
+        StoredMessage, SyncRow, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::Result;
@@ -966,6 +967,28 @@ impl User {
         self.store
             .remove_project_sync(&self.key, project, endpoint)
             .await
+    }
+
+    /// Records a project imported onto a machine.
+    pub async fn save_import(&self, import: NewImport<'_>) -> Result<ImportRow> {
+        self.store.save_import(&self.key, import).await
+    }
+
+    /// The projects the user imported, by project, then machine.
+    pub async fn imports(&self) -> Result<Vec<ImportRow>> {
+        self.store.imports(&self.key).await
+    }
+
+    /// The user's git credentials (GitHub, Forgejo servers), opened.
+    pub async fn git_credentials(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<Opened>> {
+        let opened = self.store.machine_credentials(&self.key, key).await?;
+        Ok(opened
+            .into_iter()
+            .filter(|opened| opened.slot.always_to_machines())
+            .collect())
     }
 
     pub async fn pinned_projects(&self) -> Result<Vec<String>> {

@@ -35,6 +35,7 @@ mod node_tokens;
 mod nodes;
 mod places;
 mod profile;
+mod project_imports;
 mod project_sync;
 mod research;
 mod routes;
@@ -72,6 +73,7 @@ pub use node_tokens::{Claim, ClaimNode, ClaimedNode};
 pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
+pub use project_imports::{ImportRow, NewImport};
 pub use project_sync::SyncRow;
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
@@ -354,6 +356,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         59,
         "auto model set",
         include_str!("../../migrations/0059_auto_model_set.sql"),
+    ),
+    (
+        61,
+        "project imports",
+        include_str!("../../migrations/0061_project_imports.sql"),
     ),
 ];
 
