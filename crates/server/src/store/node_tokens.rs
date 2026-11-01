@@ -29,9 +29,10 @@ pub enum Claim {
     Unknown,
     Expired,
     Used,
-    /// The machine's key already signs into another account, or was
-    /// removed from one.
-    Taken,
+    /// The machine's key belongs to another account, signing into it or
+    /// removed from it. Only a new key, made by deleting the node's key
+    /// folder, can link that machine here.
+    OtherAccount,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -87,8 +88,9 @@ impl Store {
 
     /// Links the claiming machine's key to the account that made the token,
     /// as an accepted link offer does, and spends the token in the same
-    /// transaction. A key already linked to that same account claims it
-    /// too, as when a machine is set up again.
+    /// transaction. A key of that same account claims it too, as when a
+    /// machine is set up again or comes back after the user removed it:
+    /// the key row is restored and takes the new name.
     pub async fn claim_node_token(&self, claim: ClaimNode<'_>) -> Result<Claim> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
@@ -139,17 +141,20 @@ impl Store {
         .rows_affected()
             > 0;
         if !linked {
-            let already_ours: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM user_keys
-                 WHERE endpoint_id=$1 AND user_id=$2 AND revoked_at IS NULL)",
+            let ours = sqlx::query(
+                "UPDATE user_keys SET name=$3, revoked_at=NULL
+                 WHERE endpoint_id=$1 AND user_id=$2 AND NOT is_primary",
             )
             .bind(&endpoint)
             .bind(&user)
-            .fetch_one(&mut *tx)
-            .await?;
-            if !already_ours {
+            .bind(&name)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+                > 0;
+            if !ours {
                 tx.rollback().await?;
-                return Ok(Claim::Taken);
+                return Ok(Claim::OtherAccount);
             }
         }
         sqlx::query("UPDATE node_tokens SET used_at=now(), endpoint_id=$2 WHERE hash=$1")
@@ -278,7 +283,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             store.claim_node_token(claim("t", machine)).await.unwrap(),
-            Claim::Taken
+            Claim::OtherAccount
         );
         // Still good for the right machine.
         let fresh = SecretKey::generate().public();
@@ -290,6 +295,50 @@ mod tests {
             panic!("the token was not spent");
         };
         assert_eq!(claimed.name, "laptop");
+    }
+
+    #[tokio::test]
+    async fn a_removed_machine_comes_back_under_its_new_name() {
+        let db = TestDb::new().await.expect("test database");
+        let store = db.store().await.expect("test store");
+        let alice = UserKey::for_test("alice");
+        let machine = SecretKey::generate().public();
+        store
+            .create_node_token(&alice, "first", Some("old box"), TTL)
+            .await
+            .unwrap();
+        let first = store
+            .claim_node_token(claim("first", machine))
+            .await
+            .unwrap();
+        assert!(matches!(first, Claim::Linked(_)));
+        assert!(
+            store
+                .revoke_key(&alice, &machine.to_string())
+                .await
+                .unwrap()
+        );
+        assert_eq!(store.sign_in(&machine).await.unwrap(), SignIn::Revoked);
+
+        store
+            .create_node_token(&alice, "again", Some("new box"), TTL)
+            .await
+            .unwrap();
+        let again = store
+            .claim_node_token(claim("again", machine))
+            .await
+            .unwrap();
+        assert!(matches!(again, Claim::Linked(ref node) if node.name == "new box"));
+        let keys = store.account_keys(&alice).await.unwrap();
+        let key = keys
+            .iter()
+            .find(|key| key.endpoint_id == machine.to_string())
+            .expect("the key is back");
+        assert_eq!(key.name, "new box");
+        assert!(matches!(
+            store.sign_in(&machine).await.unwrap(),
+            SignIn::Account { .. }
+        ));
     }
 
     #[tokio::test]
