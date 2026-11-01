@@ -5,6 +5,7 @@ mod audio;
 mod bar;
 mod beep;
 mod cards;
+mod center;
 mod commands;
 mod desktop;
 mod devices;
@@ -99,6 +100,10 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            center::open_center,
+            center::center_home,
+            center::center_answer_agent,
+            center::center_compose,
             commands::status,
             commands::link_offer,
             commands::send_prompt,
@@ -417,6 +422,13 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         None::<&str>,
     )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "open-center",
+        "Open Beep window",
+        link == LinkState::Linked,
+        None::<&str>,
+    )?)?;
     // A menu shortcut cannot show a double tap, so it gets a line of its own.
     menu.append(&MenuItem::with_id(
         app,
@@ -563,6 +575,11 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
     }
     match event.id().as_ref() {
         "open-bar" => bar::show(app, Some("tray")),
+        "open-center" => {
+            if let Err(e) = center::open(app) {
+                log::warn!("opening the command center: {e}");
+            }
+        }
         "new" => {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));

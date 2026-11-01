@@ -1720,6 +1720,34 @@ impl ApprovalDecision {
     }
 }
 
+impl AgentStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Starting {} => "starting",
+            Self::Working {} => "working",
+            Self::Asking {} => "asking",
+            Self::Idle {} => "idle",
+            Self::Ended {} => "ended",
+            Self::Waiting {} => "waiting",
+            Self::Running {} => "running",
+        }
+    }
+}
+
+impl MachineCapability {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Gpu {} => "gpu",
+            Self::Cuda {} => "cuda",
+            Self::Blender {} => "blender",
+            Self::Unreal {} => "unreal",
+            Self::Xcode {} => "xcode",
+            Self::Android {} => "android",
+            Self::Docker {} => "docker",
+        }
+    }
+}
+
 impl ResearchStatus {
     pub fn as_str(self) -> &'static str {
         match self {
