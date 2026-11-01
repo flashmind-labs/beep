@@ -87,6 +87,11 @@ pub(crate) fn worktree_add(checkout: &MachinePath, slug: &TaskSlug, base: &str) 
     )
 }
 
+/// Prints the commit the checkout is at.
+pub(crate) fn head_commit(checkout: &MachinePath) -> String {
+    format!("git -C {} rev-parse HEAD", quote(checkout.as_str()))
+}
+
 /// Removes the task's worktree and its `beep/<slug>` branch, nothing else.
 pub(crate) fn worktree_remove(checkout: &MachinePath, slug: &TaskSlug) -> String {
     let repo = quote(checkout.as_str());

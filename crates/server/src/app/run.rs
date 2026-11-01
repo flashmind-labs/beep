@@ -302,6 +302,17 @@ impl App {
         }
         // Sending to a machine acts, so it goes under the rules with the
         // app tools below.
+        // In a project chat a copy to a machine lands only in a checkout.
+        let copy_into = match &project {
+            Some(project) => Some(
+                user.checkouts(project.id)
+                    .await?
+                    .into_iter()
+                    .map(|checkout| (checkout.machine, checkout.path))
+                    .collect(),
+            ),
+            None => None,
+        };
         let send_file: Arc<dyn Tool> = Arc::new(tools::SendFileTool {
             user: user.clone(),
             session_id: chat,
@@ -311,6 +322,7 @@ impl App {
                 user: user.clone(),
             }),
             paper: research.is_some(),
+            copy_into,
         });
         registry.register(Arc::new(tools::SendImageTool {
             user: user.clone(),

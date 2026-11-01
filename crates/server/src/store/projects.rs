@@ -748,6 +748,15 @@ impl Store {
         Ok(())
     }
 
+    pub(crate) async fn set_task_branch(&self, id: TaskId, branch: &str) -> Result<()> {
+        sqlx::query("UPDATE project_tasks SET branch=$2, updated_at=now() WHERE id=$1")
+            .bind(id.0)
+            .bind(branch)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub(crate) async fn set_task_pr(&self, id: TaskId, url: &str) -> Result<()> {
         sqlx::query("UPDATE project_tasks SET pr_url=$2, updated_at=now() WHERE id=$1")
             .bind(id.0)

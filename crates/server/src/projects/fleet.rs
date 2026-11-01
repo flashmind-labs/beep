@@ -1,13 +1,18 @@
 //! The user's machines as the project tools see them. The tools reach the
 //! nodes only through [`Fleet`], so tests can stand in for them.
 
-use super::{Projects, commands::Shell, model::MachinePath};
+use super::{
+    Projects,
+    commands::Shell,
+    model::{MachinePath, WorkerAgent},
+};
 use crate::{
     app::App,
     leak::PublicText,
     nodes::{Online, SHELL},
     protocol::node::{
         Capability,
+        agent::Request as AgentRequest,
         files::{Reply, Request},
     },
     store::{CheckoutRow, ProjectRow},
@@ -45,6 +50,15 @@ pub(crate) trait Fleet: Send + Sync {
 
     /// The server's project state.
     fn projects(&self) -> &Projects;
+
+    /// Cancels what `agent`'s session `session` on `machine` is doing and
+    /// closes it.
+    async fn close_session(
+        &self,
+        machine: &EndpointId,
+        agent: WorkerAgent,
+        session: &str,
+    ) -> Result<()>;
 }
 
 /// The nodes the user has connected to the server.
@@ -104,6 +118,23 @@ impl Fleet for NodeFleet {
 
     fn projects(&self) -> &Projects {
         &self.app.projects
+    }
+
+    async fn close_session(
+        &self,
+        machine: &EndpointId,
+        agent: WorkerAgent,
+        session: &str,
+    ) -> Result<()> {
+        let online = self
+            .online(machine)
+            .ok_or_else(|| anyhow!("the machine is offline"))?;
+        let link = online.agent_session(agent.into(), session).await?;
+        // Closing ends the turn too; a failed cancel only costs the turn.
+        if let Err(error) = link.send(AgentRequest::Cancel {}).await {
+            log::warn!("projects: unable to cancel a worker's turn: {error:#}");
+        }
+        link.send(AgentRequest::Close {}).await
     }
 }
 

@@ -105,6 +105,7 @@ pub(crate) fn saved_as(tool: &str, args: &Value, project: &ProjectRow) -> Option
         SETUP => (text("action") == Some("checkout")).then_some(CHECKOUT_SLUG),
         "exec" => gate::exec_slug(text("command").unwrap_or_default(), &project.default_branch),
         "process" => (text("action") == Some("stop")).then_some(gate::PROCESS_STOP_SLUG),
+        worker::WORKER => worker::start_saved(args),
         _ => None,
     };
     slug.map(str::to_owned)
@@ -151,6 +152,10 @@ pub(crate) fn register(
     }));
     registry.register(Arc::new(TasksTool {
         tools: tools.clone(),
+    }));
+    registry.register(Arc::new(worker::WorkerTool {
+        tools: tools.clone(),
+        app: app.clone(),
     }));
     let machines = Machines {
         app: app.clone(),
@@ -1084,7 +1089,7 @@ impl TasksTool {
             .await?;
         for worker in tools.user.live_workers().await? {
             if worker.task == task.id {
-                super::stop_worker(&tools.user, &worker).await?;
+                super::worker::stop_worker_on(tools.fleet.as_ref(), &tools.user, &worker).await?;
             }
         }
         let mut text = format!("Dropped {}.", task.slug);
@@ -1216,6 +1221,8 @@ impl TasksTool {
             .map_err(|error| format!("{error:#}.")))
     }
 }
+
+mod worker;
 
 #[cfg(test)]
 mod tests;
