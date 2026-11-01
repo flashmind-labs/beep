@@ -8,10 +8,11 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, ChatApproval, Cron,
-    ListAgentSessions, ListCrons, ListMachineDetails, ListMachines, ListPendingApprovals,
-    ListResearches, Machine, MachineApp, MachineDetails, MachineEnv, MachineGpu, MachineSession,
-    PendingApproval, ResearchStatus, ResearchSummary, Session,
+    AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate, ChatApproval, Cron,
+    DismissUpdates, ListAgentSessions, ListCrons, ListMachineDetails, ListMachines,
+    ListPendingApprovals, ListResearches, ListUpdates, Machine, MachineApp, MachineDetails,
+    MachineEnv, MachineGpu, MachineSession, PendingApproval, ResearchStatus, ResearchSummary,
+    Session,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -180,6 +181,12 @@ pub async fn center_answer_agent(
     .await
 }
 
+/// Dismisses updates from the user's apps, by `AppUpdate::id`.
+#[tauri::command]
+pub async fn center_dismiss_updates(beep: Service<'_>, ids: Vec<i64>) -> Result<()> {
+    beep.call(DismissUpdates { ids }).await
+}
+
 /// What Home shows. A section is `None` when the server cannot list it for
 /// this account.
 #[derive(Debug, Serialize)]
@@ -188,6 +195,32 @@ pub struct HomeView {
     running: Option<Vec<RunningRow>>,
     needs_you: Vec<NeedsYou>,
     coming_up: Option<Vec<CronRow>>,
+    updates: Option<Vec<UpdateRow>>,
+}
+
+/// Something the event triage agent found in one of the user's apps.
+#[derive(Debug, Serialize)]
+struct UpdateRow {
+    id: i64,
+    summary: String,
+    /// The app's slug, such as `gmail`; empty when unknown.
+    app: String,
+    /// How the user knows the app, such as "Gmail"; empty when unknown.
+    app_name: String,
+    /// In milliseconds since the Unix epoch.
+    at: u64,
+}
+
+impl From<AppUpdate> for UpdateRow {
+    fn from(update: AppUpdate) -> Self {
+        Self {
+            id: update.id,
+            summary: update.summary,
+            app: update.app,
+            app_name: update.app_name,
+            at: epoch_ms(update.at),
+        }
+    }
 }
 
 /// A machine with what it reported and what runs on it.
@@ -269,11 +302,12 @@ struct HomeParts {
     approvals: Result<Vec<ChatApproval>>,
     chats: Result<Vec<Session>>,
     crons: Result<Vec<Cron>>,
+    updates: Result<Vec<AppUpdate>>,
 }
 
 #[tauri::command]
 pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
-    let (machines, details, sessions, researches, approvals, chats, crons) = join!(
+    let (machines, details, sessions, researches, approvals, chats, crons, updates) = join!(
         beep.call(ListMachines {}),
         beep.call(ListMachineDetails {}),
         beep.call(ListAgentSessions {}),
@@ -281,6 +315,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
         beep.call(ListPendingApprovals {}),
         beep.sessions(),
         beep.call(ListCrons {}),
+        beep.call(ListUpdates {}),
     );
     home_view(HomeParts {
         machines,
@@ -290,6 +325,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
         approvals,
         chats,
         crons,
+        updates,
     })
 }
 
@@ -343,6 +379,8 @@ fn home_view(parts: HomeParts) -> Result<HomeView> {
             &chats,
         ),
         coming_up: section("routines", parts.crons).map(coming_up),
+        updates: section("updates", parts.updates)
+            .map(|updates| updates.into_iter().map(UpdateRow::from).collect()),
     })
 }
 
@@ -725,7 +763,31 @@ mod tests {
             approvals: Ok(Vec::new()),
             chats: Ok(Vec::new()),
             crons: Ok(Vec::new()),
+            updates: Ok(Vec::new()),
         }
+    }
+
+    #[test]
+    fn updates_come_with_their_app_and_time() {
+        let view = view(HomeParts {
+            updates: Ok(vec![AppUpdate {
+                id: 7,
+                summary: "The build is ready.".into(),
+                app: "gmail".into(),
+                app_name: "Gmail".into(),
+                at: at(5000),
+            }]),
+            ..parts()
+        });
+        let updates = view.updates.expect("updates were listed");
+        assert_eq!(updates.len(), 1);
+        assert_eq!((updates[0].id, updates[0].at), (7, 5000));
+        assert_eq!(updates[0].app_name, "Gmail");
+        let old = view(HomeParts {
+            updates: Err(DesktopError::Api(ApiError::bad_request("unknown op 160"))),
+            ..parts()
+        });
+        assert!(old.updates.is_none(), "a server without updates hides them");
     }
 
     #[test]
