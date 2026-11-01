@@ -3,8 +3,8 @@
 use crate::{
     bar,
     beep::{
-        BarEvent, Beep, DataImage, Decision, FileUpload, LinkView, Pick, Pictures, RunNews, Sent,
-        Turn, image_uris, qr_svg,
+        self, BarEvent, Beep, DataImage, Decision, FileUpload, LinkView, Pick, Pictures, RunNews,
+        Sent, Turn, image_uris, qr_svg,
     },
     center::{self, Chat, Shown},
     error::{DesktopError, Result},
@@ -63,6 +63,7 @@ pub fn link_offer(beep: Service<'_>) -> Result<LinkView> {
 
 #[tauri::command]
 pub async fn send_prompt(
+    window: WebviewWindow,
     beep: Service<'_>,
     session: Option<String>,
     message: String,
@@ -78,19 +79,26 @@ pub async fn send_prompt(
         voice: None,
         spoken: false,
     };
-    beep.send(session, sent, Pick::default(), on_event).await
+    let session_id = beep::chat_id(session.as_deref());
+    // Made current before the run, so its own notices stay quiet.
+    center::remember_for(&window, &beep, Chat::Session(Some(session_id.to_string())));
+    beep.post(session_id, sent, Pick::default(), on_event)
+        .await?;
+    Ok(session_id.to_string())
 }
 
 /// Sends the chat's `index`th prompt again on another model or thinking,
 /// dropping it and the turns after it first. Admins only.
 #[tauri::command]
 pub async fn rerun_prompt(
+    window: WebviewWindow,
     beep: Service<'_>,
     session: String,
     index: usize,
     pick: Pick,
     on_event: Channel<BarEvent>,
 ) -> Result<()> {
+    center::remember_for(&window, &beep, Chat::Session(Some(session.clone())));
     beep.rerun(session, index, pick, on_event).await
 }
 
@@ -209,16 +217,10 @@ pub async fn search_sessions(beep: Service<'_>, query: String) -> Result<Vec<Ses
 pub async fn open_session(
     window: WebviewWindow,
     beep: Service<'_>,
-    shown: State<'_, Shown>,
     id: String,
 ) -> Result<Vec<Turn>> {
     // Made current before loading, so leaving the chat meanwhile is not undone.
-    center::remember(
-        center::holder(window.label()),
-        &beep,
-        &shown,
-        Chat::Session(Some(id.clone())),
-    );
+    center::remember_for(&window, &beep, Chat::Session(Some(id.clone())));
     beep.history(id).await
 }
 
@@ -239,13 +241,8 @@ pub async fn session_sources(beep: Service<'_>, id: String) -> Result<Vec<TurnSo
 }
 
 #[tauri::command]
-pub fn new_chat(window: WebviewWindow, beep: Service<'_>, shown: State<'_, Shown>) {
-    center::remember(
-        center::holder(window.label()),
-        &beep,
-        &shown,
-        Chat::Session(None),
-    );
+pub fn new_chat(window: WebviewWindow, beep: Service<'_>) {
+    center::remember_for(&window, &beep, Chat::Session(None));
 }
 
 #[tauri::command]
@@ -298,16 +295,10 @@ pub async fn list_groups(beep: Service<'_>) -> Result<Vec<GroupView>> {
 pub async fn open_group(
     window: WebviewWindow,
     beep: Service<'_>,
-    shown: State<'_, Shown>,
     id: String,
 ) -> Result<GroupChatView> {
     // Made current before loading, so closing the group meanwhile is not undone.
-    center::remember(
-        center::holder(window.label()),
-        &beep,
-        &shown,
-        Chat::Group(Some(id.clone())),
-    );
+    center::remember_for(&window, &beep, Chat::Group(Some(id.clone())));
     if let Some(view) = Uuid::parse_str(&id)
         .ok()
         .and_then(|g| beep.chats().group(g))
@@ -330,13 +321,8 @@ pub async fn open_group(
 
 /// The webview left the group, so its messages notify again.
 #[tauri::command]
-pub fn close_group(window: WebviewWindow, beep: Service<'_>, shown: State<'_, Shown>) {
-    center::remember(
-        center::holder(window.label()),
-        &beep,
-        &shown,
-        Chat::Group(None),
-    );
+pub fn close_group(window: WebviewWindow, beep: Service<'_>) {
+    center::remember_for(&window, &beep, Chat::Group(None));
 }
 
 #[tauri::command]
