@@ -1,4 +1,4 @@
-//! Coding agents (Claude Code, Codex, Gemini CLI, ...) run over ACP: the
+//! Coding agents (Claude Code, Codex, Gemini CLI, pi, flsh) run over ACP: the
 //! table of agents this node can start, the sessions it runs, and the
 //! streams the server follows them on (`beep_proto::node::agent`).
 
@@ -83,6 +83,19 @@ const KNOWN: &[Known] = &[
         name: "gemini",
         cli: "gemini",
         adapter: Adapter::Flags(&["--acp"]),
+    },
+    Known {
+        name: "pi",
+        cli: "pi",
+        adapter: Adapter::Npm {
+            bin: "pi-acp",
+            package: "pi-acp",
+        },
+    },
+    Known {
+        name: "flsh",
+        cli: "flsh",
+        adapter: Adapter::Flags(&["acp"]),
     },
 ];
 
@@ -556,6 +569,19 @@ mod tests {
         let kinds = detect(std::slice::from_ref(&custom));
         assert_eq!(kinds.iter().filter(|kind| kind.name == "claude").count(), 1);
         assert!(kinds.contains(&custom));
+    }
+
+    #[test]
+    fn pi_and_flsh_are_known() {
+        let known = |name: &str| KNOWN.iter().find(|known| known.name == name);
+        assert!(matches!(
+            known("pi").map(|known| &known.adapter),
+            Some(Adapter::Npm { bin: "pi-acp", .. })
+        ));
+        assert!(matches!(
+            known("flsh").map(|known| &known.adapter),
+            Some(Adapter::Flags(["acp"]))
+        ));
     }
 
     #[test]
