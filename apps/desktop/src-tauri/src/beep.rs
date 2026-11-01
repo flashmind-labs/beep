@@ -40,6 +40,10 @@ use uuid::Uuid;
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
+/// How long opening a connection may take, all of it: the dial and the
+/// first stream. Without a limit an unreachable server held the client
+/// lock, and every call behind it, for good.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const NOT_HERE: &str = "not available on desktop";
 /// Chats remembered as live ones, for the mic in the chat list.
 const MAX_LIVE_CHATS: usize = 200;
@@ -622,7 +626,10 @@ impl Beep {
                 return Ok(client.clone());
             }
         }
-        let client = Arc::new(self.node.connect().await?);
+        // A closed or revoked client is not kept while a new one is made,
+        // so a connect that fails leaves nothing behind.
+        *cached = None;
+        let client = Arc::new(connect_in_time(self.node.connect(), CONNECT_TIMEOUT).await?);
         *cached = Some(client.clone());
         Ok(client)
     }
@@ -1251,9 +1258,55 @@ fn turn(entry: HistoryEntry, pictures: &mut Pictures) -> Turn {
     }
 }
 
+/// What `connect` makes, or an error once `limit` passes without it.
+async fn connect_in_time<T>(
+    connect: impl Future<Output = anyhow::Result<T>>,
+    limit: Duration,
+) -> Result<T> {
+    match timeout(limit, connect).await {
+        Ok(connected) => Ok(connected?),
+        Err(_) => Err(DesktopError::BadRequest(format!(
+            "the server did not answer in {} seconds",
+            limit.as_secs()
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::future::pending;
+    use tokio::time::{Instant, sleep};
+
+    // The clock is paused, so tokio moves it straight to the next timer
+    // instead of the test sleeping.
+    #[tokio::test(start_paused = true)]
+    async fn a_connect_that_never_answers_gives_up_in_time() {
+        let started = Instant::now();
+        let connect = pending::<anyhow::Result<()>>();
+        let error = connect_in_time(connect, CONNECT_TIMEOUT)
+            .await
+            .expect_err("a server that never answers is an error");
+        assert_eq!(started.elapsed(), CONNECT_TIMEOUT);
+        assert_eq!(error.to_string(), "the server did not answer in 15 seconds");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_connect_inside_the_limit_is_kept() {
+        let connect = async {
+            sleep(CONNECT_TIMEOUT - Duration::from_secs(1)).await;
+            Ok(7)
+        };
+        let connected = connect_in_time(connect, CONNECT_TIMEOUT).await;
+        assert_eq!(connected.expect("it answered in time"), 7);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_connect_keeps_its_error() {
+        let connect = async { Err::<(), _>(anyhow::anyhow!("no route to the server")) };
+        let error = connect_in_time(connect, CONNECT_TIMEOUT).await.unwrap_err();
+        assert_eq!(error.to_string(), "no route to the server");
+    }
 
     #[test]
     fn with_labels_prefers_the_live_description() {

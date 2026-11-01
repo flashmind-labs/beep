@@ -42,8 +42,13 @@ const CAPS = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", x
 const AGENTS = { claude: { cls: "claude", ini: "CC", name: "Claude Code" }, codex: { cls: "codex", ini: "CX", name: "Codex" } };
 const PROJECT_COLORS = ["#F07A6A", "#6FA8DC", "#B18CE0", "#E9B949", "#3B9B7A"];
 const OFFLINE_NOTE_MS = 60 * 60 * 1000;
+/// Before Home first loads: how long "Connecting" shows before "Still
+/// connecting", and how soon a failed try is made again.
+const CONNECT_STUCK_MS = 15000;
+const CONNECT_RETRY_MS = 3000;
 
-const state = { home: null, error: null, outcomes: new Map(), shown: false };
+/// `since` is when the window started waiting for its first Home.
+const state = { home: null, error: null, outcomes: new Map(), shown: false, since: Date.now() };
 
 // ---------- Formatting ----------
 
@@ -362,6 +367,8 @@ function drawSide() {
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [head, h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
+    // Rows that fill in once the server answers, never an empty sidebar.
+    if (name === "chats" && g.items == null && !home) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton()));
     if (g.items == null) continue;
     const grp = h("div", `cc-grp ${name}`);
     if (g.title) {
@@ -385,8 +392,16 @@ function drawSide() {
   if (shown === "pane") drawTop();
 }
 
+function skeleton() {
+  return [70, 55, 62].map(w => {
+    const row = h("div", "cc-skel");
+    row.style.width = `${w}%`;
+    return row;
+  });
+}
+
 function footer(machines) {
-  if (!state.home) return [];
+  if (!state.home) return [h("span", "", h("span", `ddot ${stuck() ? "bad" : "off"}`), stuck() ? " Not connected" : " Connecting…")];
   if (!machines) return ["Machines unavailable"];
   if (!machines.length) return ["No machines linked"];
   const on = machines.filter(m => m.online).length;
@@ -556,13 +571,45 @@ function page(home) {
   return out;
 }
 
+// ---------- Connecting ----------
+
+/// True once the first Home has been waited for too long.
+function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }
+
+/// What Home shows before the server first answers: pulsing dots, never a
+/// blank page. Once stuck it says so and offers Retry; retries go on anyway.
+function connecting() {
+  const pulse = h("div", "cc-pulse", h("i"), h("i"), h("i"));
+  if (!stuck()) {
+    return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"), h("span", "", "Your chats, machines and approvals load once the server answers."));
+  }
+  const secs = Math.round((Date.now() - state.since) / 1000);
+  const why = h("span", "why", `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`);
+  const retry = button("Retry now", "pri", () => { refresh(); retry.disabled = true; });
+  retry.disabled = loading;
+  const log = button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e)));
+  const box = h("div", "cc-conn stuck", pulse, h("b", "", "Still connecting to Beep"), why, h("div", "acts", retry, log));
+  return box;
+}
+
+/// Draws the waiting view, or brings the one on screen up to date so its
+/// buttons keep their focus.
+function drawConnecting(view) {
+  const on = view.querySelector(":scope > .cc-conn");
+  if (on && on.classList.contains("stuck") === stuck()) {
+    if (!stuck()) return;
+    const secs = Math.round((Date.now() - state.since) / 1000);
+    on.querySelector(".why").textContent = `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`;
+    on.querySelector(".acts .pri").disabled = loading;
+    return;
+  }
+  view.replaceChildren(connecting());
+}
+
 function draw() {
   const home = state.home, view = $("#view");
   drawSide();
-  if (!home) {
-    if (state.error) view.replaceChildren(h("div", "cc-note", h("span", "ddot bad"), h("span", "", "Can't reach Beep right now. Retrying.")));
-    return;
-  }
+  if (!home) return drawConnecting(view);
   const top = view.scrollTop;
   view.replaceChildren(...page(home));
   view.scrollTop = top;
@@ -674,11 +721,12 @@ document.addEventListener("keydown", e => {
 
 // ---------- Refresh ----------
 
-let loading = false, again = false;
+let loading = false, again = false, retryTimer = null;
 
 /// Fetches Home. Never two calls at once: a request during one runs once more after it.
 async function refresh() {
   if (loading) { again = true; return; }
+  clearTimeout(retryTimer);
   loading = true;
   try {
     state.home = await invoke("center_home");
@@ -693,7 +741,12 @@ async function refresh() {
   draw();
   reloadGroup("projects");
   if (again) { again = false; refresh(); }
+  // Until Home first loads, a failed try is made again soon, seen or not.
+  else if (!state.home) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
 }
+
+// "Still connecting" takes over once the wait passes its limit.
+setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 
 window.addEventListener("focus", refresh);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });

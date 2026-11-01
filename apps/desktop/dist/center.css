@@ -149,3 +149,18 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-chat:hover .pa, .cc-chat .pa:focus-visible { opacity: 1 }
 .cc-chat .pa:hover { color: var(--coral) }
 .cc-grp.pinned .cc-chat .pa { color: var(--coral) }
+
+/* Before Home first loads: pulsing dots, then Retry, as in the mock. */
+.cc-view > .cc-conn { flex: 1 }
+.cc-conn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 360px; color: var(--muted); font-size: 13px; text-align: center }
+.cc-conn b { color: var(--fg); font-weight: 600; font-size: 14px }
+.cc-conn .why { max-width: 46ch }
+.cc-conn .acts { display: flex; gap: 8px }
+.cc-pulse { display: flex; gap: 6px }
+.cc-pulse i { width: 8px; height: 8px; border-radius: 50%; background: var(--emerald); animation: ccpulse 1.2s ease-in-out infinite }
+.cc-pulse i:nth-child(2) { animation-delay: .15s }
+.cc-pulse i:nth-child(3) { animation-delay: .3s }
+@keyframes ccpulse { 0%, 80%, 100% { opacity: .25; transform: scale(.8) } 40% { opacity: 1; transform: scale(1) } }
+.cc-skel { height: 10px; margin: 8px 10px; border-radius: 5px; background: var(--elev); animation: ccskel 1.4s ease-in-out infinite }
+@keyframes ccskel { 50% { opacity: .45 } }
+@media (prefers-reduced-motion: reduce) { .cc-pulse i, .cc-skel { animation: none } }
