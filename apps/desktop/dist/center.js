@@ -7,6 +7,7 @@ import { splitPinned } from "./pinned.js";
 import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
+import { withoutDismissed } from "./updates.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -279,13 +280,21 @@ function updateTime(ms) {
   return at.toLocaleDateString([], { day: "numeric", month: "short" });
 }
 
+/// Updates dismissed here that a list may still carry, by id.
+const dismissedUpdates = new Set();
+
 /// Takes updates off Home at once and tells the server; a failed dismiss
 /// brings them back on the next refresh.
 function dismissUpdates(ids) {
   if (!ids.length) return;
+  for (const id of ids) dismissedUpdates.add(id);
   if (state.home?.updates) state.home.updates = state.home.updates.filter(u => !ids.includes(u.id));
   draw();
-  invoke("center_dismiss_updates", { ids }).catch(e => { console.warn("dismissing updates:", e); refresh(); });
+  invoke("center_dismiss_updates", { ids }).catch(e => {
+    console.warn("dismissing updates:", e);
+    for (const id of ids) dismissedUpdates.delete(id);
+    refresh();
+  });
 }
 
 /// Starts a new chat with the update's summary in the composer, not sent.
@@ -971,7 +980,9 @@ async function refresh() {
   clearTimeout(retryTimer);
   loading = true;
   try {
-    state.home = await invoke("center_home");
+    const home = await invoke("center_home");
+    if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
+    state.home = home;
     state.error = null;
     const live = new Set(state.home.needs_you.map(cardKey));
     for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);
