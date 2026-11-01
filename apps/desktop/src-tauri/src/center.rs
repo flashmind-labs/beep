@@ -1,10 +1,10 @@
-//! The command center: one window beside the bar that shows what the
-//! account is doing, starting with Home. This file opens the window and
-//! gathers Home's data from the server.
+//! The command center: one window beside the bar with Home, chats,
+//! memories and routines. This file opens the window, keeps its current
+//! chat apart from the bar's, and gathers Home's data from the server.
 
 use crate::{
     bar,
-    beep::{Beep, Pick, Sent, epoch_ms},
+    beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
 };
 use beep_proto::{
@@ -21,7 +21,7 @@ use std::{
 };
 use tauri::{
     ActivationPolicy, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, State,
-    TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder, ipc::Channel,
+    TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 use tokio::join;
 use uuid::Uuid;
@@ -155,59 +155,6 @@ pub fn center_open(
 #[tauri::command]
 pub fn center_pending(pending: State<'_, Pending>) -> Option<CenterTarget> {
     pending.take()
-}
-
-/// Opens the bar on a new chat that holds `prompt`, and sends it.
-#[tauri::command]
-pub fn center_compose(app: AppHandle, beep: Service<'_>, prompt: String) -> Result<()> {
-    let prompt = prompt.trim();
-    if prompt.is_empty() {
-        return Err(DesktopError::BadRequest("say what to ask".into()));
-    }
-    let session = Uuid::new_v4();
-    beep.set_session(Some(session.to_string()));
-    let sent = Sent {
-        message: prompt.to_owned(),
-        images: Vec::new(),
-        files: Vec::new(),
-        research: false,
-        voice: None,
-        spoken: false,
-    };
-    // The bar follows the run itself, so nothing reads this channel.
-    let events = Channel::new(|_| Ok(()));
-    let beep = beep.inner().clone();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = beep.post(session, sent, Pick::default(), events).await {
-            log::warn!("sending a prompt from the command center: {e}");
-        }
-    });
-    bar::show(&app, Some("open"));
-    Ok(())
-}
-
-/// What the sidebar and the cards can ask the bar to open.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BarView {
-    Memories,
-    Routines,
-    Chats,
-    Chat { session: Uuid },
-}
-
-/// Shows the bar on one of its own views.
-#[tauri::command]
-pub fn center_show_bar(app: AppHandle, beep: Service<'_>, view: BarView) {
-    match view {
-        BarView::Memories => bar::show(&app, Some("memories")),
-        BarView::Routines => bar::show(&app, Some("routines")),
-        BarView::Chats => bar::show(&app, Some("chats")),
-        BarView::Chat { session } => {
-            beep.set_session(Some(session.to_string()));
-            bar::show(&app, Some("open"));
-        }
-    }
 }
 
 /// Answers a question an agent session asks.

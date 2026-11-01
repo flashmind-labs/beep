@@ -5099,6 +5099,13 @@ if (PANE) {
     loadResearches();
     if (S.link === "linked") loadModels();
   }
+  /// Back on the chat or group the pane still shows, made current again
+  /// after `leave`.
+  function backOn() {
+    if (S.view === "group") return renderGroup(G.id);
+    if (S.session) invoke("open_session", { id: S.session }).catch(() => {});
+    focusAsk();
+  }
   const VIEWS = {
     chats: renderChats,
     memories: renderMemories,
@@ -5114,12 +5121,20 @@ if (PANE) {
       if (target && typeof target === "object" && "chat" in target) {
         const id = target.chat?.session ?? null;
         if (!id) return newChat();
-        if (id === S.session && S.view === "chat" && $("#ask")) return focusAsk();
+        if (id === S.session && S.view === "chat" && $("#ask")) return backOn();
         return openSession(id);
       }
+      // Groups are not a CenterTarget: only the window's sidebar opens them.
+      if (target && typeof target === "object" && "group" in target) return renderGroup(target.group.id);
       if (VIEWS[target]) return VIEWS[target]();
-      if (S.view === "chat" && $("#ask")) return focusAsk();
+      if ((S.view === "chat" && $("#ask")) || (S.view === "group" && G.id)) return backOn();
       return S.session ? openSession(S.session) : renderChat();
+    },
+    /// The pane goes off screen: the window stops showing its chat or group,
+    /// so their notices show again.
+    leave() {
+      if (S.view === "chat") invoke("new_chat").catch(() => {});
+      else if (GROUP_VIEWS.has(S.view)) invoke("close_group").catch(() => {});
     },
     /// Starts a new chat with `text` and streams it here.
     async compose(text) {
@@ -5130,9 +5145,9 @@ if (PANE) {
     /// Chats and groups, newest first, pinned ones as the bar lists them.
     async chatRows() {
       const [sessions, groups] = await Promise.all([invoke("list_sessions"), invoke("list_groups").catch(() => [])]);
-      return rows(sessions, groups);
+      return rows(sessions, groups).map(c => ({ ...c, research: RESEARCHES.has(c.id) }));
     },
-    current: () => ({ view: S.view, session: S.session }),
+    current: () => ({ view: S.view, session: S.session, group: GROUP_VIEWS.has(S.view) ? G.id : null }),
     onChange(fn) { changeListeners.push(fn); },
     /// Whether the pane is on screen and takes the keys.
     mounted(on) {

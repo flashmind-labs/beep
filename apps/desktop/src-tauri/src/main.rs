@@ -105,8 +105,6 @@ fn main() {
             center::open_center,
             center::center_home,
             center::center_answer_agent,
-            center::center_compose,
-            center::center_show_bar,
             center::center_open,
             center::center_pending,
             commands::status,
