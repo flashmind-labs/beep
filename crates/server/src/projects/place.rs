@@ -6,7 +6,6 @@ use super::model::{MAX_MACHINE_WORKERS, MachinePath};
 use crate::protocol::node::Capability;
 use crate::tools::machines::command_name;
 use iroh::EndpointId;
-use strum::IntoStaticStr;
 
 /// What placement knows about one machine for one project.
 #[derive(Debug, Clone)]
@@ -57,7 +56,7 @@ pub(crate) struct PlaceRequest<'a> {
     pub(crate) needs: &'a [Capability],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Unfit {
     Offline,
     NoAgent,
@@ -134,21 +133,32 @@ pub(crate) fn place(request: &PlaceRequest<'_>, fits: &[MachineFit]) -> Result<u
     if request.needs.is_empty() {
         return Err(PlaceError::NoneFree);
     }
-    // Nothing fits: say whether the right machine only lacks a checkout.
+    // Nothing fits: say why the machines that cover the needs cannot take it.
     let covering: Vec<&MachineFit> = fits
         .iter()
-        .filter(|fit| fit.online && fit.offers_agent && fit.covers(request.needs))
+        .filter(|fit| fit.covers(request.needs))
         .collect();
-    if let Some(fit) = covering.iter().find(|fit| fit.checkout.is_none()) {
+    if let Some(fit) = covering
+        .iter()
+        .find(|fit| fit.online && fit.offers_agent && fit.checkout.is_none())
+    {
         return Err(PlaceError::NeedsCheckout {
             name: fit.name.clone(),
         });
     }
     if covering.is_empty() {
-        Err(PlaceError::NoneCovers(request.needs.to_vec()))
-    } else {
-        Err(PlaceError::NoneFree)
+        return Err(PlaceError::NoneCovers(request.needs.to_vec()));
     }
+    covering
+        .iter()
+        .find_map(|fit| match fit.unfit() {
+            Some(Unfit::Full) | None => None,
+            Some(why) => Some(PlaceError::Unfit {
+                name: fit.name.clone(),
+                why,
+            }),
+        })
+        .map_or(Err(PlaceError::NoneFree), Err)
 }
 
 #[cfg(test)]
@@ -263,6 +273,24 @@ mod tests {
             place(&request, &fits),
             Err(PlaceError::NeedsCheckout {
                 name: "gpu-box".into()
+            })
+        );
+    }
+
+    #[test]
+    fn offline_machine_with_the_capability_is_named() {
+        let mut gpu = fit(2, "gpu-box", &[Capability::Cuda]);
+        gpu.online = false;
+        let fits = [fit(1, "build-box", &[]), gpu];
+        let request = PlaceRequest {
+            needs: &[Capability::Cuda],
+            ..any()
+        };
+        assert_eq!(
+            place(&request, &fits),
+            Err(PlaceError::Unfit {
+                name: "gpu-box".into(),
+                why: Unfit::Offline
             })
         );
     }
