@@ -9,18 +9,14 @@ use std::{
 };
 
 use crate::{
-    agents::{AgentConfig, AgentId},
-    events::EventsConfig,
-    instance::InstanceConfig,
-    research::ResearchConfig,
-    voice::VoiceConfig,
+    events::EventsConfig, instance::InstanceConfig, research::ResearchConfig, voice::VoiceConfig,
     watchers::WatchersConfig,
 };
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
 use iroh::{EndpointId, SecretKey};
 use secrecy::SecretString;
-use serde::Deserialize;
+use serde::{Deserialize, de::IgnoredAny};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,11 +32,10 @@ pub struct Config {
     /// what it is good for. Only offered models take part.
     #[serde(default)]
     pub auto_models: HashMap<Model, String>,
-    /// The agents Jev picks from for every prompt once an admin turns
-    /// agents on, keyed by id (`general`, `getting_around`, ...). Each model
-    /// must be one of `model_choices`, and `general` is required.
-    #[serde(default)]
-    pub agents: HashMap<AgentId, AgentConfig>,
+    /// The removed per-prompt agents. Ignored; kept so configs that still
+    /// have an `[agents]` table load.
+    #[serde(default, rename = "agents")]
+    _agents: Option<IgnoredAny>,
     /// The models research roles run on. Research is off without it.
     pub research: Option<ResearchConfig>,
     /// Endpoint ids of the users who get admin features.
@@ -221,6 +216,30 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
         let again = load_secret_key(Some(&path)).expect("the same key");
         assert_eq!(again.public(), key.public());
+    }
+
+    #[test]
+    fn a_config_with_agent_tables_still_loads() {
+        let config: Config = toml::from_str(
+            r#"
+            model = "openrouter:z-ai/glm-5.3-flash"
+            model_choices = ["openrouter:openai/gpt-6-luna"]
+
+            [agents.general]
+            name = "General"
+            when = "Anything"
+            model = "openrouter:z-ai/glm-5.3-flash"
+            thinking = "low"
+
+            [agents.shopping]
+            name = "Shopping"
+            when = "Buying things"
+            model = "openrouter:openai/gpt-6-luna"
+            thinking = "medium"
+            "#,
+        )
+        .expect("old agent tables are ignored");
+        assert_eq!(config.model_choices.len(), 1);
     }
 
     #[test]
