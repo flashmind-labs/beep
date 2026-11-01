@@ -1607,6 +1607,11 @@ final class AppModel {
 
     /// The machines running beep-node on the account. Admins only.
     func machines() async throws -> [Machine] { try await api().listMachines() }
+    /// Live disk, memory and load by machine id, online machines only. Empty on servers from before stats.
+    func machineStats() async -> [String: MachineStats] {
+        let list = (try? await api().listMachineStats()) ?? []
+        return Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
 
     func memoryReads() async -> [MemoryRead] { (try? await api().listMemoryReads()) ?? [] }
     func updateMemory(_ id: String, _ content: String) async throws { try await api().updateMemory(id: id, content: content) }
