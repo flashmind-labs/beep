@@ -1487,18 +1487,49 @@ async fn auto_starts_on_the_least_busy_machine_and_refuses_what_none_has() {
         .await;
     let idle = center.node(0, "idle-box", FakeAgents::default()).await;
     let (_node, client) = center.phone(0).await;
-    let started = client.call(&start(None, "Fix the tests")).await.unwrap();
+    // Both fake nodes run here, so both have this folder.
+    let here = std::env::temp_dir().to_string_lossy().into_owned();
+    let auto = |prompt: &str, cwd: &str| StartAgentSession {
+        cwd: Some(cwd.into()),
+        ..start(None, prompt)
+    };
+    let started = client.call(&auto("Fix the tests", &here)).await.unwrap();
     assert_eq!(started.session.machine_id, idle);
     assert_eq!(started.why, "It runs the fewest sessions.");
-    // The fakes report no capabilities, so an iOS task fits none.
-    let refused = client
-        .call(&start(None, "Fix the iOS widget"))
+    // The fakes report no capabilities: a prompt naming iOS still starts,
+    // and says what it could not meet.
+    let hinted = client
+        .call(&auto("Fix the iOS widget", &here))
         .await
-        .unwrap_err();
-    let ApiError::BadRequest { message } = refused.downcast::<ApiError>().unwrap() else {
-        panic!("not a bad request");
+        .unwrap();
+    assert_eq!(hinted.session.machine_id, idle);
+    assert_eq!(
+        hinted.why,
+        "It runs the fewest sessions. No machine has Xcode, which the task mentions."
+    );
+    let message = |refused: anyhow::Error| match refused.downcast::<ApiError>().unwrap() {
+        ApiError::BadRequest { message } => message,
+        other => panic!("not a bad request: {other:?}"),
     };
-    assert!(message.contains("has Xcode"), "{message}");
+    // What the app asks for is required.
+    let needs_xcode = StartAgentSession {
+        needs: vec![MachineCapability::Xcode {}],
+        ..auto("Fix the widget", &here)
+    };
+    let refused = message(client.call(&needs_xcode).await.unwrap_err());
+    assert!(refused.contains("has Xcode"), "{refused}");
+    // A folder no machine has is said, not started in the environment.
+    let missing = "/srv/no-such-project-for-auto";
+    let refused = message(
+        client
+            .call(&auto("Fix the tests", missing))
+            .await
+            .unwrap_err(),
+    );
+    assert_eq!(
+        refused,
+        format!("There is no folder {missing} on busy-box and idle-box.")
+    );
     center.shutdown().await;
 }
 
@@ -1620,6 +1651,60 @@ async fn steer_agent_session_sends_prompts_and_stops() {
         missing.downcast::<ApiError>().unwrap(),
         ApiError::NotFound {}
     ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_control_keeps_to_the_callers_machines_and_chats() {
+    let mut center = CommandCenter::new(2).await;
+    let mine = center.node(0, "build-box", FakeAgents::default()).await;
+    let theirs = center
+        .node(
+            1,
+            "gpu-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let not_found = |error: anyhow::Error| {
+        matches!(error.downcast::<ApiError>().unwrap(), ApiError::NotFound {})
+    };
+    let hosts = client.call(&ListAgentHosts {}).await.unwrap();
+    let listed: Vec<&str> = hosts.iter().map(|host| host.machine_id.as_str()).collect();
+    assert_eq!(listed, [mine.as_str()]);
+    let refused = client
+        .call(&start(Some(theirs.clone()), "Fix the tests"))
+        .await
+        .unwrap_err();
+    assert!(not_found(refused));
+    let get = GetAgentSession {
+        machine_id: theirs.clone(),
+        agent: "claude".into(),
+        session: "a3f9c1".into(),
+        last: 30,
+    };
+    assert!(not_found(client.call(&get).await.unwrap_err()));
+    let steer = SteerAgentSession {
+        machine_id: theirs,
+        agent: "claude".into(),
+        session: "a3f9c1".into(),
+        steer: AgentSteer::Cancel {},
+    };
+    assert!(not_found(client.call(&steer).await.unwrap_err()));
+    // A chat of another user's is not one to start in.
+    let chat = uuid::Uuid::new_v4();
+    center.users[1]
+        .start_research(chat, "Shaders")
+        .await
+        .unwrap();
+    let in_their_chat = StartAgentSession {
+        chat: Some(chat),
+        ..start(Some(mine), "Fix the tests")
+    };
+    assert!(not_found(client.call(&in_their_chat).await.unwrap_err()));
     center.shutdown().await;
 }
 
