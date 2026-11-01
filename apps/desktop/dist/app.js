@@ -4953,6 +4953,7 @@ document.addEventListener("keydown", e => {
     if (cmd && e.key === "Enter" && asked) { e.preventDefault(); return answerWork(S.session, asked, e.altKey ? "always" : "allow"); }
     if (cmd && key === "d" && asked) { e.preventDefault(); return answerWork(S.session, asked, "deny"); }
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
+    if (cmd && !e.shiftKey && !e.altKey && e.key === "Enter" && e.target.id === "ask" && !e.target.value.trim()) { e.preventDefault(); return invoke("open_center").catch(() => {}); }
     if (cmd && e.shiftKey && e.key === "Enter" && e.target.id === "ask") { e.preventDefault(); return research(e.target.value); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
     if (e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }

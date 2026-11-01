@@ -5,6 +5,7 @@
 use crate::{
     bar,
     beep::{BarEvent, Beep, Pick, Sent, Turn},
+    center,
     commands::{file_name, free_name},
     error::{DesktopError, Result},
     markdown,
@@ -125,15 +126,18 @@ fn label(session: Uuid) -> String {
 fn open_windows<R: Runtime>(app: &AppHandle<R>, closing: Option<&str>) -> usize {
     app.webview_windows()
         .keys()
-        .filter(|label| label.starts_with(PREFIX) && Some(label.as_str()) != closing)
+        .filter(|label| {
+            (label.starts_with(PREFIX) || label.as_str() == center::LABEL)
+                && Some(label.as_str()) != closing
+        })
         .count()
 }
 
-/// Research windows are ordinary windows: while one is open Beep sits in
+/// Research windows and the command center are ordinary windows: while one is open Beep sits in
 /// the Dock and Cmd-Tab, and goes back to the menu bar once the last
 /// closes.
 pub fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    if label.starts_with(PREFIX)
+    if (label.starts_with(PREFIX) || label == center::LABEL)
         && open_windows(app, Some(label)) == 0
         && let Err(e) = app.set_activation_policy(ActivationPolicy::Accessory)
     {
