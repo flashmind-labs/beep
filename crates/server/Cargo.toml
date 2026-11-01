@@ -34,6 +34,7 @@ sqlx-core = { version = "0.8.6", features = ["migrate"] }
 # flashmind's rusqlite over libsqlite3-sys.
 sqlx-postgres = { version = "0.8.6", features = ["chrono", "json", "migrate", "uuid"] }
 tokio = { version = "1", features = ["full"] }
+url = "2"
 tokio-util = { version = "0.7", features = ["codec", "rt"] }
 # Composio trigger events arrive over a Pusher websocket.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }

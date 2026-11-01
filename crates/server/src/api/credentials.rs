@@ -76,11 +76,13 @@ pub(super) async fn remove_credential(
 }
 
 /// Asks the host whether `secret` works, and who it signs in as. A Forgejo
-/// server or OpenRouter the server cannot reach is saved unchecked: a
-/// Forgejo server is often on the user's own network.
+/// server on a private address, or a Forgejo server or OpenRouter the server cannot
+/// reach, is saved unchecked: a Forgejo server is often on the user's own
+/// network, and the server must not probe its own.
 async fn check(slot: &Slot, secret: &SecretString) -> Reply<Option<String>> {
     let checked = match slot {
         Slot::GitHub => Checker::new()?.github(secret).await,
+        Slot::Forgejo(url) if !url.is_public().await => return Ok(None),
         Slot::Forgejo(url) => Checker::new()?.forgejo(url, secret).await,
         Slot::ApiKey(ApiProvider::OpenRouter) => Checker::new()?.openrouter(secret).await,
         Slot::ApiKey(_) => return Ok(None),
