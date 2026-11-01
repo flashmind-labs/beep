@@ -3,5 +3,5 @@
 //! Projects: a folder of work with its own agent, whose personas live in
 //! Markdown files next to the code.
 
-mod model;
+pub(crate) mod model;
 mod personas;
