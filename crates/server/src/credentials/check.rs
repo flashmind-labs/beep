@@ -41,6 +41,8 @@ impl Checker {
                 .user_agent("beep-server")
                 // A redirect could send the token, or the probe, anywhere.
                 .redirect(Policy::none())
+                // A proxy would resolve the name itself, past the resolver.
+                .no_proxy()
                 .dns_resolver(Arc::new(PublicOnly))
                 .build()?,
         })

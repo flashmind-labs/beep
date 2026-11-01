@@ -18,11 +18,33 @@ use url::Host;
 pub fn is_public(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => is_public_v4(v4),
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+        IpAddr::V6(v6) => match embedded_v4(v6) {
             Some(v4) => is_public_v4(v4),
             None => is_public_v6(v6),
         },
     }
+}
+
+/// The IPv4 address an IPv6 one carries and reaches: IPv4-mapped
+/// `::ffff:a.b.c.d`, IPv4-compatible `::a.b.c.d`, NAT64 `64:ff9b::/96` and
+/// 6to4 `2002::/16`.
+fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+    if let Some(v4) = ip.to_ipv4_mapped() {
+        return Some(v4);
+    }
+    let seg = ip.segments();
+    let octets = ip.octets();
+    let last = Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]);
+    if seg[..6] == [0; 6] && !ip.is_loopback() && !ip.is_unspecified() {
+        return Some(last);
+    }
+    if seg[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+        return Some(last);
+    }
+    if seg[0] == 0x2002 {
+        return Some(Ipv4Addr::new(octets[2], octets[3], octets[4], octets[5]));
+    }
+    None
 }
 
 fn is_public_v4(ip: Ipv4Addr) -> bool {
@@ -132,10 +154,21 @@ mod tests {
             "fd00:ec2::254",
             "fe80::1",
             "::ffff:10.0.0.1",
+            "::10.0.0.1",
+            "::127.0.0.1",
+            "64:ff9b::a9fe:a9fe",
+            "64:ff9b::192.168.0.1",
+            "2002:7f00:1::1",
+            "2002:a9fe:a9fe::1",
         ] {
             assert!(!is_public(ip.parse().unwrap()), "{ip}");
         }
-        for ip in ["1.2.3.4", "2a00:1::1"] {
+        for ip in [
+            "1.2.3.4",
+            "2a00:1::1",
+            "64:ff9b::102:304",
+            "2002:102:304::1",
+        ] {
             assert!(is_public(ip.parse().unwrap()), "{ip}");
         }
     }
