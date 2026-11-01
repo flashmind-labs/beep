@@ -40,15 +40,16 @@ pub struct Saved {
     /// Chats started here as researches, which open in their own window.
     #[serde(default)]
     pub researches: Vec<Uuid>,
-    /// The "Let Beep use this Mac" switch from before `mac_off`. It was
-    /// false for everyone, never a choice, so it no longer decides; it is
-    /// still written so an older app reads a matching value.
+    /// The "Let Beep use this Mac" switch from before `mac_on`, still
+    /// written so an older app reads a matching value. Since 0.3.17 it can
+    /// be a choice, so a saved file without `mac_on` keeps it as it is.
     #[serde(default)]
     pub use_mac: bool,
-    /// The user turned "Let Beep use this Mac" off. Unless they did, the
-    /// Mac serves as a node with desktop control.
+    /// "Let Beep use this Mac" as this app version saved it. Missing in
+    /// files from before it, where `use_mac` decides. A fresh install has
+    /// no file and starts with the Mac on.
     #[serde(default)]
-    pub mac_off: bool,
+    pub mac_on: Option<bool>,
     /// The Voice notes switch from before `notice_voice`, still written so
     /// an older app reads a matching value.
     #[serde(default = "on")]
@@ -80,13 +81,13 @@ impl Saved {
         }
     }
 
-    /// "Let Beep use this Mac": on unless the user turned it off.
+    /// "Let Beep use this Mac".
     pub fn uses_mac(&self) -> bool {
-        !self.mac_off
+        self.mac_on.unwrap_or(self.use_mac)
     }
 
     pub fn set_use_mac(&mut self, on: bool) {
-        self.mac_off = !on;
+        self.mac_on = Some(on);
         self.use_mac = on;
     }
 
@@ -103,7 +104,7 @@ impl Default for Saved {
             session: None,
             researches: Vec::new(),
             use_mac: true,
-            mac_off: false,
+            mac_on: Some(true),
             voice_notes: true,
             notice_voice: None,
             send_on_pause: true,
@@ -161,18 +162,47 @@ mod tests {
         );
     }
 
+    /// A state file in a fresh directory of its own.
+    fn state_file(name: &str) -> StateFile {
+        let dir = std::env::temp_dir().join(format!("beep-state-{}-{name}", std::process::id()));
+        fs::create_dir_all(&dir).expect("the test directory is made");
+        let path = dir.join("state.json");
+        if path.exists() {
+            fs::remove_file(&path).expect("an earlier run's file is removed");
+        }
+        StateFile::new(path)
+    }
+
     #[test]
-    fn the_mac_is_used_unless_turned_off() {
-        assert!(parse("{}").uses_mac());
-        // Every saved state had this, though nobody chose it.
-        assert!(parse(r#"{"use_mac":false}"#).uses_mac());
-        assert!(!parse(r#"{"use_mac":false,"mac_off":true}"#).uses_mac());
+    fn a_fresh_install_uses_the_mac() {
+        let file = state_file("fresh");
+        assert!(file.load().uses_mac());
+        file.save(&file.load());
+        assert!(file.load().uses_mac());
+    }
+
+    #[test]
+    fn a_saved_switch_keeps_its_value() {
+        // A file from before `mac_on`, where `use_mac` may be a choice.
+        let file = state_file("saved");
+        fs::write(&file.0, r#"{"use_mac":false}"#).expect("the state is written");
+        assert!(!file.load().uses_mac());
+        fs::write(&file.0, r#"{"use_mac":true}"#).expect("the state is written");
+        assert!(file.load().uses_mac());
+        assert!(!parse(r#"{"use_mac":true,"mac_on":false}"#).uses_mac());
+    }
+
+    #[test]
+    fn turning_the_mac_on_or_off_sticks() {
         let mut saved = parse(r#"{"use_mac":false}"#);
-        saved.set_use_mac(false);
-        assert!(!saved.uses_mac());
         saved.set_use_mac(true);
-        assert!(saved.uses_mac());
-        assert!(saved.use_mac);
+        let json = serde_json::to_string(&saved).expect("the state serializes");
+        assert!(parse(&json).uses_mac());
+        assert!(parse(&json).use_mac);
+        saved.set_use_mac(false);
+        let json = serde_json::to_string(&saved).expect("the state serializes");
+        assert!(!parse(&json).uses_mac());
+        assert!(!parse(&json).use_mac);
     }
 
     #[test]
