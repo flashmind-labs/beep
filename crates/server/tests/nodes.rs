@@ -1933,6 +1933,47 @@ async fn an_expired_unknown_or_foreign_token_is_refused() {
 }
 
 #[tokio::test]
+async fn an_unlinked_key_gets_only_a_small_hello_read() {
+    let Server {
+        _db,
+        router,
+        addr,
+        app,
+        ..
+    } = server().await;
+    let key = SecretKey::generate();
+    let stranger = endpoint(key.clone()).await;
+    // Offers padding the hello far past what a real one carries.
+    let offers = Offers {
+        agents: Arc::default(),
+        extra: (0..200)
+            .map(|_| Arc::new(BigName) as Arc<dyn Protocol>)
+            .collect(),
+    };
+    let refused = beep_node::link::connect(&stranger, addr, "stranger", &offers)
+        .await
+        .unwrap_err();
+    // Closed for the hello it would not read, before any "not linked".
+    assert!(format!("{refused:#}").contains("no hello"), "{refused:#}");
+    assert!(app.nodes.online(&key.public().to_string()).is_none());
+    router.shutdown().await.unwrap();
+}
+
+/// A protocol with a long name, to make a hello large.
+struct BigName;
+
+impl Protocol for BigName {
+    fn name(&self) -> &str {
+        static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        NAME.get_or_init(|| "x".repeat(200))
+    }
+
+    fn serve(&self, _tx: LinkTx, _rx: LinkRx) -> Session {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[tokio::test]
 async fn only_the_maker_revokes_a_token() {
     let server = one_endpoint().await;
     let addr = server.router.endpoint().addr();
