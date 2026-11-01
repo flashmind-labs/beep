@@ -171,6 +171,15 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-grip:hover::after, .cc-grip:focus-visible::after, .cwin.resizing .cc-grip::after { background: var(--emerald) }
 .cwin.resizing { cursor: col-resize; user-select: none }
 
+/* Adding machines and projects: the empty groups' rows, the + buttons. */
+.cc-si.none.add { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-si.none.add .act { color: var(--emerald); margin-left: 3px }
+.cc-si.none.add:hover .act { text-decoration: underline }
+.cc-sec-r { display: flex; align-items: center; gap: 10px }
+.dbtn.small { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
+.cc-foot { display: flex; align-items: center; gap: 6px }
+.cc-foot > button { margin-left: auto; min-height: 22px; padding: 0 5px; display: grid; place-items: center }
+
 /* Settings, a sheet over the window, as in the mock. */
 .cc-set-scrim { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center }
 .cc-set { width: min(720px, 86%); height: min(520px, 84%); display: grid; grid-template-columns: 170px minmax(0, 1fr); border-radius: 14px; border: 1px solid var(--border); background: #121815; box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; outline: 0 }

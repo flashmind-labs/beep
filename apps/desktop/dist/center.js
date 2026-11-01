@@ -211,16 +211,29 @@ function needsCard(n) {
 
 // ---------- Sections ----------
 
+/// The Machines header's note, then its Add a machine button.
+function addMachineButton(cls) {
+  const b = button("", cls, openAddMachine);
+  b.append(icon(IC.plus), " Add a machine");
+  return b;
+}
+
 function machinesSection(machines) {
   const online = machines.filter(m => m.online).length;
+  let el;
   if (!machines.length) {
     const link = h("ol", "", h("li", "", "Install beep-node on the computer."), h("li", "", h("span", "", "Run "), h("code", "", "beep-node link"), h("span", "", " there.")), h("li", "", "Paste the link it prints into a chat here, or into Beep on your phone."));
-    return section("sec-machines", "Machines", "None linked", empty(
+    el = section("sec-machines", "Machines", "None linked", empty(
       h("b", "", "No machines linked yet"),
       h("span", "", "Link a computer to run coding agents and commands on it from here, from the bar or from your phone."),
-      link));
+      link,
+      addMachineButton("pri")));
+  } else {
+    el = section("sec-machines", "Machines", `${online} of ${machines.length} online`, h("div", "cc-machs", ...machines.map(machineCard)));
   }
-  return section("sec-machines", "Machines", `${online} of ${machines.length} online`, h("div", "cc-machs", ...machines.map(machineCard)));
+  const head = el.querySelector(".cc-sec"), note = head.querySelector("small");
+  head.append(h("span", "cc-sec-r", note, addMachineButton("small")));
+  return el;
 }
 
 function offlineNote(machines) {
@@ -383,7 +396,7 @@ function drawSide() {
       grp.append(h3);
     }
     const none = typeof g.empty === "function" ? g.empty() : g.empty;
-    if (none && !g.items.length) grp.append(h("span", "cc-si none", none));
+    if (none && !g.items.length) grp.append(typeof none === "string" ? h("span", "cc-si none", none) : none);
     for (const item of g.items) {
       const el = g.row(item);
       if (g.onPick) el.addEventListener("click", () => g.onPick(item));
@@ -392,7 +405,13 @@ function drawSide() {
     if (g.foot) grp.append(...g.foot());
     if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
   }
-  side.push(h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f))));
+  const foot = h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f)));
+  if (home?.machines) {
+    const add = plusButton("Add a machine", openAddMachine);
+    add.classList.add("dbtn", "quiet");
+    foot.append(add);
+  }
+  side.push(foot);
   $("#side").replaceChildren(...side);
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
@@ -536,10 +555,43 @@ function projects(running) {
   return [...found];
 }
 
+/// A small + button for a group's heading or the footer.
+function plusButton(label, on) {
+  const b = h("button", "", icon(IC.plus));
+  b.type = "button";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.addEventListener("click", e => { e.stopPropagation(); on(); });
+  return b;
+}
+
+/// An empty group's row: what is missing, and a way to add one.
+function emptyRow(text, on) {
+  const b = h("button", "cc-si none add", `${text} · `, h("span", "act", "Add one"));
+  b.type = "button";
+  b.addEventListener("click", on);
+  return b;
+}
+
+/// Adds a machine. Another branch puts the add-a-machine sheet here; until
+/// then it opens the Machines part of Settings.
+export function openAddMachine() {
+  openSettings("machines");
+}
+
+/// Opens the projects view. Until there is one, Home's Running section,
+/// where the projects here come from.
+export function openProjects() {
+  jump("sec-running");
+}
+
 // Projects found in what runs, until the project view replaces this group.
+// It shows once Home has loaded, empty or not.
 registerSidebarGroup("projects", {
   order: 5,
   title: "Projects",
+  action: () => plusButton("Add a project", openProjects),
+  empty: () => emptyRow("No projects yet", openProjects),
   load: async () => state.home?.running ? projects(state.home.running).map(([name, n], i) => ({ name, n, i })) : null,
   row(p) {
     const b = sideItem(null, p.name, p.n);
@@ -549,6 +601,23 @@ registerSidebarGroup("projects", {
     return b;
   },
   onPick: () => jump("sec-running"),
+});
+
+// The machines Home lists, each with its online dot. It shows once Home has
+// loaded, empty or not, unless the server is too old to list machines.
+registerSidebarGroup("machines", {
+  order: 5.5,
+  title: "Machines",
+  action: () => plusButton("Add a machine", openAddMachine),
+  empty: () => emptyRow("No machines yet", openAddMachine),
+  load: async () => state.home?.machines ?? null,
+  row(m) {
+    const b = sideItem(null, m.name, m.agents || 0);
+    b.prepend(dot(m));
+    b.title = `${m.name}: ${m.online ? (m.agents ? plural(m.agents, "agent", "agents") + " running" : "online") : "offline"}`;
+    return b;
+  },
+  onPick: m => jump(`m-${m.id}`),
 });
 
 // ---------- Home ----------
@@ -720,8 +789,8 @@ listen("center-open", () => takePending(null));
 /// this Mac knows and fills in the server's parts as they answer.
 let settingsOpen = null;
 
-export function openSettings() {
-  if (settingsOpen) return;
+export function openSettings(section) {
+  if (settingsOpen) return section && showSection(settingsOpen.scrim, section);
   const sheet = h("div", "cc-set");
   sheet.setAttribute("role", "dialog");
   sheet.setAttribute("aria-modal", "true");
@@ -745,7 +814,14 @@ export function openSettings() {
   document.body.append(scrim);
   settingsOpen = { scrim, keys, back };
   sheet.focus();
-  pane()?.settings(sheet).catch(e => console.warn("settings:", e));
+  pane()?.settings(sheet)
+    .then(() => { if (section) showSection(scrim, section); })
+    .catch(e => console.warn("settings:", e));
+}
+
+/// Scrolls the open sheet to `section`, such as "machines".
+function showSection(scrim, section) {
+  scrim.querySelector(`[data-goto="${section}"]`)?.click();
 }
 
 export function closeSettings() {
@@ -819,6 +895,7 @@ async function refresh() {
   }
   draw();
   reloadGroup("projects");
+  reloadGroup("machines");
   if (again) { again = false; refresh(); }
   // Until Home first loads, a failed try is made again soon, seen or not.
   else if (!state.home) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
