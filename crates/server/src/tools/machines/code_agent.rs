@@ -31,9 +31,12 @@ const DESCRIPTION: &str = "Run coding agents (Claude Code, Codex, Gemini CLI, pi
     `transcript` reads one, `follow` posts in this chat when it finishes a turn or waits for \
     the user (`unfollow` stops), and `takeover` resumes one that nothing runs any more as a \
     session here, with an optional `prompt`. One open in the user's terminal can only be \
-    followed. When an agent asks permission, answer it yourself if the action is clearly \
-    within what the user asked; ask the user in the chat when it is risky, destructive or \
-    unclear. `agent` picks the agent when the machine has several.";
+    followed. Start a session on a machine that can do the work: iOS and Mac apps build only \
+    on macOS with xcode. When an agent asks permission, answer it yourself if the action is \
+    clearly within what the user asked. When it is risky, destructive or unclear, such as a \
+    force push or deleting data, do not answer it either way, not even to deny: tell the user \
+    what it wants to do and what you recommend, and they answer on its card or in the chat. \
+    `agent` picks the agent when the machine has several.";
 
 pub(super) struct CodeAgentTool {
     pub(super) machines: Machines,
