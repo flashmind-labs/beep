@@ -188,8 +188,13 @@ pub(crate) async fn turn_done(
     {
         return Ok(());
     }
-    user.worker_turn(worker.id, done.turn, done.last_message, now)
-        .await?;
+    // Stale: a newer turn was noted since this one was read.
+    if !user
+        .worker_turn(worker.id, done.turn, done.last_message, now)
+        .await?
+    {
+        return Ok(());
+    }
     fleet
         .projects()
         .arm(Due::Idle(worker.id), after(now, IDLE_CLOSE));

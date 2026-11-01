@@ -1568,7 +1568,7 @@ impl User {
         turns: u32,
         last_output: &str,
         at: DateTime<Utc>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         self.store.worker_turn(worker, turns, last_output, at).await
     }
 
