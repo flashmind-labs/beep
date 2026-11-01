@@ -226,6 +226,8 @@ pub(crate) fn agent_name(agent: &str) -> &str {
         "claude" => "Claude Code",
         "codex" => "Codex",
         "gemini" => "Gemini CLI",
+        "pi" => "pi",
+        "flsh" => "flsh",
         other => other,
     }
 }
