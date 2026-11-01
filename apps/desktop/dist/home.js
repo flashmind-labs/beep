@@ -1,0 +1,60 @@
+// What Home's rows say and how its sections are laid out, apart from the
+// DOM so it can be tested.
+
+const CAPS = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
+const AGENTS = { claude: { cls: "claude", ini: "CC", name: "Claude Code" }, codex: { cls: "codex", ini: "CX", name: "Codex" } };
+
+export function base(path) { return String(path || "").split("/").filter(Boolean).pop() || ""; }
+
+export function agentOf(name) {
+  return AGENTS[name] || { cls: "", ini: String(name || "?").slice(0, 2).toUpperCase(), name: name || "Agent" };
+}
+
+/// What a machine can run: its abilities, graphics cards and apps, once
+/// each. A named card stands in for the plain "GPU".
+export function machineCaps(m) {
+  const gpus = m.gpus.map(g => g.model);
+  const out = m.capabilities.filter(c => !(c === "gpu" && gpus.length)).map(c => CAPS[c] || c);
+  out.push(...gpus, ...m.apps.map(a => a.name));
+  return [...new Set(out)];
+}
+
+/// The machine table's Now column.
+export function machineNow(m) {
+  if (!m.online) return "offline";
+  return m.agents ? "working" : "idle";
+}
+
+/// The OS line under a machine's name.
+export function machineOs(m) {
+  return m.env ? m.env.os_version || m.env.os : "";
+}
+
+/// A Running now row: a title and one muted line.
+export function runningLine(r) {
+  if (r.kind === "research") return { title: r.topic, sub: `Research · round ${r.round}` };
+  const ag = agentOf(r.agent), project = base(r.cwd);
+  return { title: r.title || project || ag.name, sub: [project || ag.name, r.machine_name].filter(Boolean).join(" · ") };
+}
+
+/// A Needs you row: a title, one muted line and its one button. A chat
+/// approval is allowed from the row; an agent's question opens its session.
+export function needsLine(n) {
+  if (n.kind === "chat") {
+    const a = n.pending.approval;
+    const action = a.action ? a.action[0].toUpperCase() + a.action.slice(1) : "Allow this";
+    return { title: `${action}?`, sub: [a.app, n.session_title].filter(Boolean).join(" · "), button: "Allow" };
+  }
+  return { title: n.question.text, sub: [agentOf(n.agent).name, n.title || n.machine_name].filter(Boolean).join(" · "), button: "Answer" };
+}
+
+/// Home's rows of sections under Machines, each one or two wide. A section
+/// with nothing in it is left out, and a row left empty goes too.
+export function homeRows(home) {
+  const has = list => Array.isArray(list) && list.length > 0;
+  const pairs = [
+    [has(home.running) && "running", has(home.needs_you) && "needs"],
+    [has(home.updates) && "updates", has(home.coming_up) && "coming"],
+  ];
+  return pairs.map(p => p.filter(Boolean)).filter(p => p.length);
+}
