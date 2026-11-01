@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, timeLeft, machineById, describeMachine, outdated } from "../dist/addmachine-state.js";
+import { START, next, timeLeft, machineById, describeMachine, outdated, macOption } from "../dist/addmachine-state.js";
+import { MAC_NOT_ALLOWED } from "../dist/home.js";
 
 const created = { type: "created", token: "bk1-x", command: "beep-node setup bk1-x", expiresAt: 600_000 };
 
@@ -50,4 +51,20 @@ test("a machine reads as its OS and known tools", () => {
   const env = { os: "linux", tools: [{ name: "git" }, { name: "docker" }, { name: "claude" }, { name: "codex" }] };
   assert.equal(describeMachine({ env }), "Linux, Docker, Claude Code, Codex");
   assert.equal(describeMachine({ env: null }), "");
+});
+
+test("Use this Mac is offered while the Mac is off and follows it once asked", () => {
+  const mac = (over = {}) => ({ id: "mac-key", name: "Studio", enabled: true, status: "connecting", error: null, ...over });
+  assert.equal(macOption(null, false), null);
+  assert.equal(macOption(mac({ status: "unlinked" }), false), null);
+  assert.equal(macOption(mac({ status: "connected" }), false), null);
+  const off = macOption(mac({ enabled: false, status: "off" }), false);
+  assert.equal(off.button, "Use this Mac");
+  assert.equal(macOption(mac(), true).busy, true);
+  assert.equal(macOption(mac({ status: "connected" }), true).done, true);
+  const refused = macOption(mac({ status: "not_allowed" }), true);
+  assert.equal(refused.text, MAC_NOT_ALLOWED);
+  assert.equal(refused.bad, true);
+  assert.equal(refused.button, undefined);
+  assert.match(macOption(mac({ status: "failed", error: "connect timed out" }), true).text, /connect timed out/);
 });

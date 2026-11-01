@@ -2375,7 +2375,8 @@ function renderRevoked() {
 function thisMac(mac) {
   const p = mac.permissions;
   const sub = !mac.enabled ? "Beep can see the screen, click, type and run commands here when you ask"
-    : mac.status === "not_allowed" ? "Only admins can use this for now"
+    : mac.status === "not_allowed" ? "This account can't add machines on this server"
+    : mac.status === "failed" ? `Couldn't connect: ${esc(mac.error || "unknown error")}. Beep tries again on its own.`
     : mac.status === "connected" ? (p.screen_recording && p.accessibility ? "Connected. Ask Beep to do something on this Mac" : "Connected. Allow both below so Beep can see and use the screen")
     : "Connecting…";
   const perm = (key, name, why, ok) => `<div class="dtoggle"><span><b>${name}</b><small>${why}</small></span>${ok
