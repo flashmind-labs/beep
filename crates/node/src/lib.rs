@@ -17,7 +17,10 @@ mod process;
 pub mod service;
 mod shell;
 pub mod state;
+pub mod sync;
 mod tasks;
 pub mod transfer;
 
 pub use tasks::kill_all as kill_tasks;
+
+pub type AsyncMutex<T> = tokio::sync::Mutex<T>;

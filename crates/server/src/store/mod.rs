@@ -33,6 +33,7 @@ mod messages;
 mod nodes;
 mod places;
 mod profile;
+mod project_sync;
 mod research;
 mod routes;
 mod runs;
@@ -67,6 +68,7 @@ pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnRecord};
 pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
+pub use project_sync::SyncRow;
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
 pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
@@ -328,6 +330,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         53,
         "turn sources",
         include_str!("../../migrations/0053_turn_sources.sql"),
+    ),
+    (
+        55,
+        "project_sync",
+        include_str!("../../migrations/0055_project_sync.sql"),
     ),
 ];
 
