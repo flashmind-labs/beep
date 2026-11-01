@@ -6,6 +6,10 @@ COPY . .
 # CI runs this stage before building the image. The tests need the Postgres
 # named by BEEP_TEST_DATABASE_URL, so build it with `--network host`.
 FROM source AS check
+# The node tests run a fake coding agent written in Python.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
 RUN rustup component add rustfmt clippy
 ARG BEEP_TEST_DATABASE_URL
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
