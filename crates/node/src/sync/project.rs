@@ -381,8 +381,6 @@ struct Task {
     /// The last scan failed, so nothing on disk is recorded.
     scan_failed: bool,
     saved_at: Instant,
-    /// The folder is not the one synced before, so nothing is written.
-    root_failed: bool,
 }
 
 /// Runs the project until it stops.
@@ -405,7 +403,6 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
         pending: 0,
         error: None,
         scan_failed: false,
-        root_failed: false,
         saved_at: Instant::now(),
     };
     let mut peers = shared.peers.subscribe();
@@ -621,16 +618,13 @@ impl Task {
 
     /// Checks the folder is the one synced before; until it is, nothing
     /// is scanned or written.
-    async fn check_root(&mut self) -> Result<()> {
+    async fn check_root(&self) -> Result<()> {
         let (saved, seen_any) = {
             let state = self.shared.lock();
             (state.saved.root.clone(), !state.saved.seen.is_empty())
         };
         let folder = self.shared.root.clone();
-        let checked =
-            spawn_blocking(move || root::check(&folder, saved.as_ref(), seen_any)).await?;
-        self.root_failed = checked.is_err();
-        let id = checked?;
+        let id = spawn_blocking(move || root::check(&folder, saved.as_ref(), seen_any)).await??;
         let mut state = self.shared.lock();
         if state.saved.root.as_ref() != Some(&id) {
             state.saved.root = Some(id);
@@ -641,7 +635,12 @@ impl Task {
 
     /// Brings the folder in line with the list.
     async fn apply(&mut self) {
-        if self.root_failed {
+        // A merge may set this off long after the last scan; the folder
+        // may have been swapped or unmounted since.
+        if let Err(e) = self.check_root().await {
+            self.scan_failed = true;
+            self.fail("not syncing", &e);
+            self.publish_status(None);
             return;
         }
         let work = {
