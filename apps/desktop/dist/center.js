@@ -847,6 +847,8 @@ function trapTab(e, sheet) {
   const all = [...sheet.querySelectorAll("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
   if (!all.length) return;
   const first = all[0], last = all[all.length - 1];
+  // Focus lost to the page (a redraw removed it): bring it back in.
+  if (!sheet.contains(document.activeElement)) { e.preventDefault(); return (e.shiftKey ? last : first).focus(); }
   if (e.shiftKey && (document.activeElement === first || document.activeElement === sheet)) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }

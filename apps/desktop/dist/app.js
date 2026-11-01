@@ -2483,7 +2483,7 @@ function bindSettings(el) {
     } catch (e) {
       console.warn(e);
     }
-    renderSettings();
+    if (setShown()) renderSettings();
   }));
   $in("#unlink")?.addEventListener("click", () => renderSettings(true));
   $in("#unlinkNo")?.addEventListener("click", () => renderSettings());
@@ -2504,7 +2504,7 @@ function bindSettings(el) {
     } catch (err) {
       console.warn(err);
     }
-    renderSettings();
+    if (setShown()) renderSettings();
   });
   el.querySelectorAll("[data-allow]").forEach(b => b.addEventListener("click", () =>
     invoke("allow_mac_permission", { permission: b.dataset.allow }).catch(e => console.warn(e))));
@@ -2531,8 +2531,34 @@ function bindSettings(el) {
 function fillSection(id, html) {
   const box = setRoot().querySelector(`#set-${id}`);
   if (!box) return;
+  const focus = focusKey(box);
   box.innerHTML = html;
   bindSettings(box);
+  if (focus) refocus(box, focus);
+}
+
+// The data attributes that name a Settings control when it has no id.
+const FOCUS_KEYS = ["remove", "vn", "pause", "allow", "goto"];
+
+/// What has focus inside `box`, as a selector that finds it again after
+/// a redraw; null when focus is elsewhere.
+function focusKey(box) {
+  const a = document.activeElement;
+  // A button disabled while it waited drops focus to the body; in the
+  // sheet that would let Tab reach the page behind.
+  if (!a || a === document.body) return box.closest(".cc-set") ? "*" : null;
+  if (a === box || !box.contains(a)) return null;
+  if (a.id) return `#${CSS.escape(a.id)}`;
+  const k = FOCUS_KEYS.find(k => k in a.dataset);
+  return k ? `[data-${k}="${CSS.escape(a.dataset[k])}"]` : "*";
+}
+
+/// Puts focus back after a redraw, on the same control when it is still
+/// there, else on the sheet, so Tab never lands on the page behind.
+function refocus(box, key) {
+  const again = key === "*" ? null : box.querySelector(key);
+  if (again && !again.disabled) return again.focus();
+  (box.closest(".cc-set") || box).focus();
 }
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
@@ -2571,6 +2597,7 @@ async function renderSettings(confirm = false, root = undefined) {
     const nav = SET_SECTIONS.filter(([id]) => shown.has(id))
       .map(([id, label], i) => `<button class="cc-si" data-goto="${id}"${i === 0 ? ' aria-current="true"' : ""}>${label}</button>`).join("");
     const top = el.querySelector(".dset-body")?.scrollTop ?? 0;
+    const focus = focusKey(el);
     el.innerHTML = `<nav class="dset-nav" aria-label="Settings sections"><b>Settings</b>${nav}</nav>
       <div class="dset-body"><div class="dset-top"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span><kbd>esc</kbd></div>
       <div class="dform" style="display:flex;flex-direction:column">${sections}</div></div>`;
@@ -2581,11 +2608,13 @@ async function renderSettings(confirm = false, root = undefined) {
       b.setAttribute("aria-current", "true");
       el.querySelector(`#set-${b.dataset.goto}-sec`)?.scrollIntoView({ block: "start", behavior: "smooth" });
     }));
+    bindSettings(el);
+    if (focus) refocus(el, focus);
   } else {
     el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
       <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">${sections}</div>${hints([["esc", "close"]])}`;
+    bindSettings(el);
   }
-  bindSettings(el);
   if (!linked) return;
   // The server's parts, side by side; each fills its section as it answers.
   invoke("list_devices").then(d => { SET.devices = d; }, e => { console.warn(e); SET.devices ??= []; })
