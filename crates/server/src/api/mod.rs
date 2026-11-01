@@ -53,7 +53,8 @@ use location::{
     cross_place, delete_place, list_places, set_timezone, update_location, update_place,
 };
 use machines::{
-    create_node_token, get_node_token, list_machine_details, list_machines, revoke_node_token,
+    create_node_token, get_node_token, list_machine_details, list_machine_stats, list_machines,
+    revoke_node_token,
 };
 use memories::{
     clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
@@ -199,6 +200,7 @@ pub fn router() -> Router {
         .call(findings::list_findings)
         .call(findings::update_finding)
         .call(list_machine_details)
+        .call(list_machine_stats)
         .call(agent_sessions::list_agent_sessions)
         .call(agent_sessions::answer_agent_question)
         .call(agent_control::list_agent_hosts)
