@@ -4317,12 +4317,12 @@ function drawMachines() {
   const sum = !MC.list ? "Where Beep runs commands and coding agents" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
   const head = `<div class="dhead"><span class="tt"><b>Machines</b><small>${esc(sum || "Where Beep runs commands and coding agents")}</small></span></div>`;
   const err = MC.error ? `<div class="derr" style="padding:8px 18px 0">${esc(MC.error)}</div>` : "";
-  const link = '<code>beep-node link</code>';
+  const setup = '<code>beep-node setup</code>';
   bar.innerHTML = head + err + (MC.list && !list.length
     ? `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${SERVER_ICON}</span><b style="font-size:14px">No machines yet.</b>
-      <span class="dmuted" style="display:block">Run ${link} on a server and paste the link into Beep, or turn on Let Beep use this Mac in Settings.</span></div>`
+      <span class="dmuted" style="display:block">Press Add a machine in the Beep window and run the ${setup} command it shows on that computer, or turn on Let Beep use this Mac in Settings.</span></div>`
     : `<div class="dlist" style="padding-top:6px">${list.map(machineCard).join("")}</div>
-      ${MC.list ? `<div class="dmuted" style="display:block;padding:0 18px 12px">To add one, run ${link} on it and paste the link into Beep.</div>` : ""}`)
+      ${MC.list ? `<div class="dmuted" style="display:block;padding:0 18px 12px">To add one, press Add a machine in the Beep window and run the ${setup} command it shows.</div>` : ""}`)
     + hints([["esc", "back"]]);
 }
 

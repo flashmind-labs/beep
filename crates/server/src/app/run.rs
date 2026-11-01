@@ -346,6 +346,15 @@ impl App {
             None => tools,
         };
         tools.push(send_file);
+        // A setup token grants access to the account, so it asks first too.
+        if use_machines {
+            tools.push(Arc::new(tools::machines::add::AddMachineTool {
+                machines: tools::machines::Machines {
+                    app: self.clone(),
+                    user: user.clone(),
+                },
+            }));
+        }
         // Grants are asked for where routines are set up. A routine's own
         // run and a turn on untrusted text never ask for one.
         if !is_cron && !untrusted && registry.contains("cron_create") {

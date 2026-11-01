@@ -9,14 +9,19 @@ use crate::{
     instance::Privilege,
     protocol::{
         DeviceKind,
-        link::LinkOffer,
-        node::{AppName, Down, EnvReport, NodeHello, Up, link},
+        link::{LinkOffer, MAX_NAME},
+        node::{
+            AppName, CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MAX_FRAME, NodeHello,
+            NodeSetup, Up, link,
+        },
+        setup::{SetupToken, TOKEN_TTL},
     },
     push::CLOSE_REVOKED,
-    store::{LinkKey, NewKey, NewNode, NodeRow},
+    store::{Claim, ClaimNode, ClaimedNode, LinkKey, NewKey, NewNode, NodeRow},
     user::User,
 };
 use anyhow::{Context, Result, bail};
+use chrono::{DateTime, Utc};
 use iroh::{
     EndpointId,
     endpoint::{Connection, VarInt},
@@ -184,8 +189,46 @@ impl NodeHandler {
 impl ProtocolHandler for NodeHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let endpoint = connection.remote_id();
-        // A node joins an account with a link code first; an unknown key gets
-        // no account of its own here.
+        // The hello comes first: it may carry a setup token that links this
+        // key before it signs in.
+        // A key nobody linked gets only a small hello read, so a stranger
+        // cannot make the server buffer megabytes before it is refused.
+        let linked = match self.app.store.linked_sign_in(&endpoint).await {
+            Ok(sign_in) => sign_in.is_some(),
+            Err(e) => {
+                log::debug!("node {endpoint} looked up as unlinked: {e:#}");
+                false
+            }
+        };
+        let (tx, rx, mut hello) = match read_hello(&connection, linked).await {
+            Ok(opened) => opened,
+            Err(e) => {
+                log::debug!("node {endpoint} sent no hello: {e:#}");
+                connection.close(VarInt::from_u32(CLOSE_UNAVAILABLE), b"no hello");
+                return Ok(());
+            }
+        };
+        let mut claimed = None;
+        if let Some(setup) = hello.setup.take() {
+            match claim(&self.app, &endpoint, &setup, &hello.name).await {
+                Ok(node) => {
+                    hello.name = node.name.clone();
+                    claimed = Some(node);
+                }
+                Err(Refused::Setup(reason)) => {
+                    log::info!("node setup refused; key={endpoint} reason={reason:?}");
+                    connection.close(VarInt::from_u32(CLOSE_SETUP_REFUSED), reason.as_bytes());
+                    return Ok(());
+                }
+                Err(Refused::Failed(e)) => {
+                    log::warn!("node setup failed: {e:#}");
+                    connection.close(VarInt::from_u32(CLOSE_UNAVAILABLE), b"unavailable");
+                    return Ok(());
+                }
+            }
+        }
+        // Otherwise a node joins an account with a link code or setup token
+        // first; an unknown key gets no account of its own here.
         let user = match self.app.sign_in_linked(&endpoint).await {
             Ok(Some(signed_in)) => signed_in.user,
             Ok(None) => {
@@ -202,7 +245,13 @@ impl ProtocolHandler for NodeHandler {
             connection.close(VarInt::from_u32(CLOSE_NOT_ALLOWED), b"nodes are for admins");
             return Ok(());
         }
-        if let Err(e) = serve(&self.app, user, &connection).await {
+        let control = Control {
+            tx,
+            rx,
+            hello,
+            claimed,
+        };
+        if let Err(e) = serve(&self.app, user, &connection, control).await {
             log::debug!("node {endpoint} left: {e:#}");
         }
         self.app.nodes.remove(&endpoint, &connection);
@@ -210,21 +259,127 @@ impl ProtocolHandler for NodeHandler {
     }
 }
 
-/// Reads the control stream until the node goes away.
-async fn serve(app: &Arc<App>, user: Arc<User>, connection: &Connection) -> Result<()> {
-    let endpoint = connection.remote_id();
-    let (send, recv) = connection.accept_bi().await?;
-    let (mut tx, mut rx) = link(send, recv);
+/// The control stream once its hello is read.
+struct Control {
+    tx: LinkTx,
+    rx: LinkRx,
+    hello: NodeHello,
+    /// The token the hello claimed, when it carried one.
+    claimed: Option<ClaimedNode>,
+}
+
+/// The longest hello read from a key nobody linked: a name, a version, a
+/// few offers and a setup token fit in far less.
+const MAX_UNLINKED_HELLO: usize = 16 * 1024;
+
+async fn read_hello(connection: &Connection, linked: bool) -> Result<(LinkTx, LinkRx, NodeHello)> {
+    let (send, recv) = timeout(crate::transport::READ_TIMEOUT, connection.accept_bi())
+        .await
+        .context("no control stream")??;
+    let (tx, mut rx) = link(send, recv);
+    if !linked {
+        rx.set_max_frame(MAX_UNLINKED_HELLO);
+    }
     let hello: NodeHello = timeout(crate::transport::READ_TIMEOUT, rx.recv())
         .await
         .context("no hello")??
         .context("closed before its hello")?;
+    rx.set_max_frame(MAX_FRAME);
+    Ok((tx, rx, hello))
+}
+
+/// Why a setup token did not link the node.
+enum Refused {
+    /// In words for the user, sent as the close reason.
+    Setup(String),
+    Failed(anyhow::Error),
+}
+
+impl From<anyhow::Error> for Refused {
+    fn from(e: anyhow::Error) -> Self {
+        Self::Failed(e)
+    }
+}
+
+/// Claims the hello's setup token for the node's key `endpoint`, whose
+/// hello calls it `fallback`.
+async fn claim(
+    app: &Arc<App>,
+    endpoint: &EndpointId,
+    setup: &NodeSetup,
+    fallback: &str,
+) -> Result<ClaimedNode, Refused> {
+    let refuse = |reason: &str| Err(Refused::Setup(reason.to_owned()));
+    let Ok(token) = SetupToken::parse(&setup.token) else {
+        return refuse("That is not a setup token. Copy the whole command from Beep again.");
+    };
+    if app.nodes.server() != Some(token.server) {
+        return refuse("This setup token is for another server.");
+    }
+    let named = setup.name.as_deref().map(str::trim);
+    if named.is_some_and(|name| name.is_empty() || name.len() > MAX_NAME) {
+        return refuse("The machine's name is empty or too long.");
+    }
+    let fallback = match fallback.trim() {
+        name if name.is_empty() || name.len() > MAX_NAME => "Machine",
+        name => name,
+    };
+    let hash = token.hash();
+    let claim = ClaimNode {
+        hash: &hash,
+        endpoint: *endpoint,
+        named,
+        fallback,
+    };
+    match app.store.claim_node_token(claim).await? {
+        Claim::Linked(node) => {
+            log::info!(
+                "node linked by setup token; user={} key={endpoint}",
+                node.account.id
+            );
+            Ok(node)
+        }
+        Claim::Unknown => refuse("This setup token is unknown here. Make a new one in Beep."),
+        Claim::Expired => refuse("This setup token expired. Make a new one in Beep."),
+        Claim::Used => refuse("This setup token was already used. Make a new one in Beep."),
+        Claim::OtherAccount => refuse(
+            "This machine's key belongs to another Beep account. On the machine, delete \
+             beep-node's key folder (beep-node in its config folder, or the --dir you gave) \
+             and run setup again.",
+        ),
+    }
+}
+
+/// Reads the control stream until the node goes away.
+async fn serve(
+    app: &Arc<App>,
+    user: Arc<User>,
+    connection: &Connection,
+    control: Control,
+) -> Result<()> {
+    let endpoint = connection.remote_id();
+    let Control {
+        mut tx,
+        mut rx,
+        hello,
+        claimed,
+    } = control;
     user.node_connected(NewNode {
         endpoint,
         name: &hello.name,
         version: &hello.version,
     })
     .await?;
+    if let Some(claimed) = claimed {
+        // Tells the user's devices their list of devices changed, as a
+        // link offer does.
+        user.changed("");
+        tx.send(&Down::Linked {
+            account: claimed.account_name,
+            name: claimed.name,
+        })
+        .await?;
+    }
     tx.send(&Down::Welcome {}).await?;
     log::info!(
         "node connected; user={} name={:?} version={} offers={:?} workspace={:?}",
@@ -314,6 +469,47 @@ pub async fn link_machine(nodes: &Nodes, user: &User, text: &str) -> Result<Stri
         }
         LinkKey::Taken => bail!("That machine is already linked to an account."),
     }
+}
+
+/// A setup token `create_token` made.
+pub struct NewToken {
+    pub token: SetupToken,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Why `create_token` made none.
+#[derive(Debug, thiserror::Error)]
+pub enum TokenRefusal {
+    #[error("Only admins can add machines on this server.")]
+    NotAllowed,
+    #[error("This server does not take machines.")]
+    NoServer,
+    #[error("The machine's name is empty or too long.")]
+    BadName,
+    #[error(transparent)]
+    Failed(#[from] anyhow::Error),
+}
+
+/// A one-time token that links the machine running `beep-node setup
+/// <token>` to `user`, for `TOKEN_TTL`. `name` is what to call it.
+pub async fn create_token(
+    app: &App,
+    user: &User,
+    name: Option<&str>,
+) -> Result<NewToken, TokenRefusal> {
+    if !app.allows(Privilege::Nodes, user) {
+        return Err(TokenRefusal::NotAllowed);
+    }
+    let server = app.nodes.server().ok_or(TokenRefusal::NoServer)?;
+    let name = name.map(str::trim).filter(|name| !name.is_empty());
+    if name.is_some_and(|name| name.len() > MAX_NAME) {
+        return Err(TokenRefusal::BadName);
+    }
+    let token = SetupToken::generate(server);
+    let expires_at = user
+        .create_node_token(&token.hash(), name, TOKEN_TTL)
+        .await?;
+    Ok(NewToken { token, expires_at })
 }
 
 /// Six letters and digits, as the check code `beep-node link` prints.
