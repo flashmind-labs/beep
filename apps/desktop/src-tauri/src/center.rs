@@ -288,6 +288,8 @@ enum NeedsYou {
 struct CronRow {
     id: String,
     label: String,
+    /// What it asks Beep, the title when it has no label.
+    prompt: String,
     schedule: String,
     /// RFC 3339, in UTC.
     next_run_at: String,
@@ -535,6 +537,7 @@ fn coming_up(crons: Vec<Cron>) -> Vec<CronRow> {
                 next_run_at: c.next_run_at?,
                 id: c.id,
                 label: c.label,
+                prompt: c.prompt,
                 schedule: c.schedule,
             })
         })

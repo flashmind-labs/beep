@@ -5834,6 +5834,8 @@ if (PANE) {
     revoked: renderRevoked,
   };
   window.beepPane = {
+    /// A routine's schedule in words, as Routines shows it.
+    when: routineWhen,
     /// Draws Settings into `el`, the window's sheet, leaving the pane as it is.
     async settings(el) {
       await start();
