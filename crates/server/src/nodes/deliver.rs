@@ -15,6 +15,7 @@ use crate::{
         node::agent::{OptionKind, Question, Request},
     },
     store::CreateRun,
+    user::User,
 };
 use flashmind::types::GateAnswer;
 use std::{
@@ -45,7 +46,8 @@ const QUESTION_TOOL: &str = "node_agent_question";
 
 /// A turn to start in a chat.
 pub struct Post {
-    pub follower: Follower,
+    pub user: Arc<User>,
+    pub chat: Uuid,
     /// The turn's label, such as "Claude Code".
     pub label: String,
     pub text: String,
@@ -58,6 +60,8 @@ pub struct Post {
 pub struct Ask {
     pub follower: Follower,
     pub question: Question,
+    /// The project task the session works on, shown on the card.
+    pub task: Option<String>,
     pub gone: Pending,
     pub answer: Box<dyn FnOnce(Request) -> Pending + Send>,
 }
@@ -139,22 +143,16 @@ async fn deliver(app: Weak<App>, post: Post) {
         let ended = app.subagents.turn_ended.notified();
         tokio::pin!(ended);
         ended.as_mut().enable();
-        let message = message(post.follower.chat, &post.label, post.text.clone());
-        match app.submit(&post.follower.user, message).await {
+        let message = message(post.chat, &post.label, post.text.clone());
+        match app.submit(&post.user, message).await {
             Ok(CreateRun::Conflict) if Instant::now() < deadline => {}
             Ok(CreateRun::Conflict) => {
-                log::warn!(
-                    "nodes: chat {} stayed busy; report dropped",
-                    post.follower.chat
-                );
+                log::warn!("nodes: chat {} stayed busy; report dropped", post.chat);
                 return;
             }
             Ok(_) => return,
             Err(e) => {
-                log::warn!(
-                    "nodes: could not report to chat {}: {e:#}",
-                    post.follower.chat
-                );
+                log::warn!("nodes: could not report to chat {}: {e:#}", post.chat);
                 return;
             }
         }
@@ -180,7 +178,7 @@ async fn put(app: Weak<App>, ask: Ask) {
         user.id(),
         *chat,
         QUESTION_TOOL,
-        approval(node, agent, &ask.question),
+        approval(node, agent, ask.task.as_deref(), &ask.question),
     );
     // The app is not held while the user thinks.
     drop(strong);
@@ -197,8 +195,15 @@ async fn put(app: Weak<App>, ask: Ask) {
 }
 
 /// The card for an agent's permission question.
-fn approval(node: &str, agent: &str, question: &Question) -> Approval {
-    let mut fields = vec![
+fn approval(node: &str, agent: &str, task: Option<&str>, question: &Question) -> Approval {
+    let mut fields = Vec::new();
+    if let Some(task) = task {
+        fields.push(ApprovalField {
+            label: "Task".into(),
+            value: task.to_owned(),
+        });
+    }
+    fields.extend([
         ApprovalField {
             label: "Machine".into(),
             value: node.to_owned(),
@@ -207,7 +212,7 @@ fn approval(node: &str, agent: &str, question: &Question) -> Approval {
             label: "Asks".into(),
             value: question.text.clone(),
         },
-    ];
+    ]);
     if let Some(detail) = &question.detail {
         fields.push(ApprovalField {
             label: "Detail".into(),
@@ -325,7 +330,7 @@ mod tests {
 
     #[test]
     fn the_card_names_the_agent_machine_and_command() {
-        let card = approval("build-box", "codex", &question());
+        let card = approval("build-box", "codex", None, &question());
         assert_eq!(card.app, "Codex");
         assert_eq!(card.action, "Run cargo test");
         let values: Vec<&str> = card.fields.iter().map(|f| f.value.as_str()).collect();
@@ -333,5 +338,8 @@ mod tests {
             values,
             ["build-box", "Run cargo test", "cargo test -p core"]
         );
+        let card = approval("build-box", "codex", Some("fix-it: Fix it"), &question());
+        assert_eq!(card.fields[0].label, "Task");
+        assert_eq!(card.fields[0].value, "fix-it: Fix it");
     }
 }

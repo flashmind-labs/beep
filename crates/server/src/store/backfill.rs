@@ -114,8 +114,10 @@ async fn backfill(tx: &mut PgConnection, chat: Uuid) -> Result<()> {
         ..steps::CallNotes::default()
     };
     let mut saved = steps::steps(transcript.entries(), None, &calls, &turns).steps;
+    // The backfill runs before the projects tables exist, so no chat it
+    // reads is a project chat.
     if let Some(HistoryEntry::Approval { query_id, approval }) =
-        permissions::waiting_approval(&transcript)
+        permissions::waiting_approval(&transcript, false)
     {
         let sent_at = transcript
             .entries()

@@ -3,11 +3,12 @@
 //! of the user's machines to another.
 
 use super::machines::{Machines, Need, copy, transfer};
-use crate::{fetch, user::User, workspace::Workspace};
+use crate::{fetch, projects::model::MachinePath, user::User, workspace::Workspace};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
+use iroh::EndpointId;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -22,6 +23,33 @@ pub(crate) struct SendFileTool {
     pub(crate) machines: Option<Machines>,
     /// The chat is a research, so its paper can be sent as a PDF.
     pub(crate) paper: bool,
+    /// In a project chat, the project's checkouts by machine: a copy to a
+    /// machine must land inside one of them.
+    pub(crate) copy_into: Option<Vec<(EndpointId, MachinePath)>>,
+}
+
+/// Refuses a copy into `folder` on `target` unless it is inside one of the
+/// checkouts `copy_into` lists for that machine.
+fn copy_reaches(
+    copy_into: Option<&[(EndpointId, MachinePath)]>,
+    target: &EndpointId,
+    folder: &str,
+) -> Result<()> {
+    let Some(checkouts) = copy_into else {
+        return Ok(());
+    };
+    let inside = MachinePath::parse(folder).is_ok_and(|folder| {
+        checkouts
+            .iter()
+            .any(|(machine, checkout)| machine == target && checkout.contains(&folder))
+    });
+    if !inside {
+        bail!(
+            "in a project chat a file is copied only into one of the project's checkouts, \
+             such as a worker's worktree; {folder} is outside them"
+        );
+    }
+    Ok(())
 }
 
 /// Where the file comes from, by which arguments were given.
@@ -295,6 +323,11 @@ impl SendFileTool {
             target.cwd(),
             target.home.as_deref(),
         )?;
+        let target_id: EndpointId = target
+            .endpoint
+            .parse()
+            .context("the machine's stored key does not parse")?;
+        copy_reaches(self.copy_into.as_deref(), &target_id, &folder)?;
         let mut progress = |line: String| ctx.progress(&line);
         let sent = transfer::send(
             &source,
@@ -466,7 +499,29 @@ fn mime_for(name: &str, data: &[u8]) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iroh::SecretKey;
     use rmcp::model::{ContentBlock, ResourceContents};
+
+    #[test]
+    fn a_project_copy_lands_only_in_a_checkout() {
+        let (build, other) = (
+            SecretKey::from_bytes(&[1; 32]).public(),
+            SecretKey::from_bytes(&[2; 32]).public(),
+        );
+        let checkouts = vec![(
+            build,
+            MachinePath::parse("/srv/project/widget").expect("a path"),
+        )];
+        let into = Some(checkouts.as_slice());
+        assert!(copy_reaches(into, &build, "/srv/project/widget/.worktrees/a/.beep").is_ok());
+        assert!(copy_reaches(into, &build, "/srv/project/widget").is_ok());
+        assert!(copy_reaches(into, &build, "/srv/project/widget-old").is_err());
+        assert!(copy_reaches(into, &build, "/srv/project").is_err());
+        assert!(copy_reaches(into, &build, "/srv/project/widget/../x").is_err());
+        assert!(copy_reaches(into, &other, "/srv/project/widget").is_err());
+        // Outside a project chat it goes anywhere.
+        assert!(copy_reaches(None, &other, "/tmp").is_ok());
+    }
 
     /// What the MCP client gives `call_mcp` for a block that is not text.
     fn as_seen(block: ContentBlock) -> Value {

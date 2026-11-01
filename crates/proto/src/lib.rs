@@ -617,6 +617,24 @@ requests! {
     /// The approvals background work waits on in any of the caller's chats,
     /// oldest first. Answer one with `AnswerApproval`.
     133 ListPendingApprovals {} => Call<Vec<ChatApproval>>
+    /// The project agent for `project` (`org/repo`), made with its chat on
+    /// the first ask. `BadRequest` for a malformed name. Admins only.
+    134 GetProjectAgent { project: String } => Call<ProjectAgent>
+    /// The tasks of a project, oldest first. `NotFound` when there is no
+    /// such project. Admins only.
+    135 ListProjectTasks { project: Uuid } => Call<Vec<ProjectTask>>
+    /// The workers of a project, including those that ended in the last
+    /// day. `NotFound` when there is no such project. Admins only.
+    136 ListProjectWorkers { project: Uuid } => Call<Vec<ProjectWorker>>
+    /// Moves a task to `Dropped`, or back to `Planned` to reopen it; any
+    /// other state is a `BadRequest`. `NotFound` when there is no such
+    /// task. Admins only.
+    137 UpdateProjectTask { task: Uuid, state: ProjectTaskState } => Call<ProjectTask>
+    /// Stops a running worker. `NotFound` when there is no such worker.
+    /// Admins only.
+    138 StopProjectWorker { worker: Uuid } => Call<()>
+    /// Every project agent, for the command center. Admins only.
+    139 ListProjects {} => Call<Vec<ProjectAgent>>
     /// The caller's online machines that offer a coding agent, for
     /// starting one from the app. Admins only, like `ListMachines`.
     140 ListAgentHosts {} => Call<Vec<AgentHost>>
@@ -925,6 +943,89 @@ pub struct NodeToken {
     /// The token as text, such as `bk1-0f3ka-...`.
     pub token: String,
     pub expires_at: SystemTime,
+}
+
+/// A project and its agent chat, as `GetProjectAgent` and `ListProjects`
+/// return it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectAgent {
+    pub project_id: Uuid,
+    /// `org/repo`.
+    pub name: String,
+    pub chat_id: Uuid,
+    pub open_tasks: u32,
+    pub open_workers: u32,
+}
+
+/// One task of a project.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectTask {
+    pub id: Uuid,
+    pub slug: String,
+    pub title: String,
+    pub body: String,
+    pub state: ProjectTaskState,
+    /// The task that must finish first.
+    pub depends_on: Option<Uuid>,
+    pub issue_number: Option<u64>,
+    pub issue_url: Option<String>,
+    pub branch: Option<String>,
+    pub pr_url: Option<String>,
+    pub created_at: SystemTime,
+    pub updated_at: SystemTime,
+}
+
+wire_enum! {
+    /// Where a project task stands.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "lowercase")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ProjectTaskState {
+        0 Planned {}
+        1 Running {}
+        2 Blocked {}
+        3 Review {}
+        4 Done {}
+        5 Dropped {}
+    }
+}
+
+/// A coding agent working on a project task.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectWorker {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    /// The `Machine::id` it runs on.
+    pub machine_id: String,
+    pub machine_name: String,
+    /// The agent, such as `claude` or `codex`.
+    pub agent: String,
+    /// The node's id for its session, once it has started.
+    pub session: Option<String>,
+    pub folder: String,
+    pub state: ProjectWorkerState,
+    /// The last thing it said, cut short.
+    pub last_output: Option<String>,
+    pub persona: Option<String>,
+    pub started_at: SystemTime,
+    pub ended_at: Option<SystemTime>,
+}
+
+wire_enum! {
+    /// What a project worker is doing.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "lowercase")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ProjectWorkerState {
+        0 Starting {}
+        1 Running {}
+        2 Waiting {}
+        3 Ended {}
+        4 Failed {}
+    }
 }
 
 /// A machine that can run coding agents, as `ListAgentHosts` lists it.

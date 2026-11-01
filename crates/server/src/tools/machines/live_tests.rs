@@ -193,6 +193,7 @@ async fn exec_process_and_copy_on_real_nodes() {
     assert!(made.is_success(), "{}", made.output());
     let sum = made.output().lines().nth(1).expect("a checksum").to_owned();
     let send = SendFileTool {
+        copy_into: None,
         user: harness.alice.clone(),
         session_id: Uuid::new_v4(),
         workspace: None,

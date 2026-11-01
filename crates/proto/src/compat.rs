@@ -86,6 +86,9 @@ sample_struct! {
     ApprovalField { label, value }
     PendingApproval { run_id, query_id, approval }
     ChatApproval { session_id, session_title, pending }
+    ProjectAgent { project_id, name, chat_id, open_tasks, open_workers }
+    ProjectTask { id, slug, title, body, state, depends_on, issue_number, issue_url, branch, pr_url, created_at, updated_at }
+    ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }
     Credential { id, kind, last4, account, env_var, to_machines, created_at, unreadable }
     Models { choices, selected, thinking, auto, auto_available }

@@ -31,6 +31,7 @@ mod location;
 mod machines;
 mod memories;
 mod project_sync;
+mod projects;
 mod research;
 mod sessions;
 mod settings;
@@ -208,6 +209,12 @@ pub fn router() -> Router {
         .call(agent_control::get_agent_session)
         .call(agent_control::steer_agent_session)
         .call(work::list_pending_approvals)
+        .call(projects::get_project_agent)
+        .call(projects::list_project_tasks)
+        .call(projects::list_project_workers)
+        .call(projects::update_project_task)
+        .call(projects::stop_project_worker)
+        .call(projects::list_projects)
         .call(project_sync::set_project_sync)
         .call(project_sync::list_project_sync)
         .call(project_sync::get_sync_skipped)
