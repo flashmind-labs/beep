@@ -15,10 +15,11 @@ bundle and uploads it to Play, and the phone updates from Play:
 - Releases stay drafts until the repository variable `PLAY_RELEASE_STATUS` is
   `completed`.
 
-To release Android and the desktop app together, run `just release`. It bumps
-each app's patch number from its latest tag, runs both release recipes below
-and pushes main with both tags. Pass versions to pick them:
-`just release 0.2.0 0.4.0` (Android first, then desktop).
+To release Android, the desktop app and beep-node together, run
+`just release`. It bumps each app's patch number from its latest tag, runs the
+release recipes and pushes main with the tags. Pass versions to pick them:
+`just release 0.2.0 0.4.0 0.1.1` (Android, desktop, then node). The node is
+left out until its first `node-v` tag exists.
 
 Only release an app when it gets a new version. Do not run a release recipe,
 tag or upload a build unless a new version number is being cut for that app.
@@ -137,6 +138,20 @@ hours, download an update quietly and offer "Restart to Update Beep" in the
 tray menu; quitting installs it too. The update signing key is the
 `TAURI_SIGNING_PRIVATE_KEY` secret, with its public half in `tauri.conf.json`;
 losing it means installed apps can no longer update.
+
+## beep-node releases
+
+`just node-release 0.1.1` sets the version in `crates/node/Cargo.toml`,
+updates both lockfiles, commits and tags `node-v0.1.1`. Pushing the tag runs
+`.forgejo/workflows/node.yml`: static Linux musl builds (x86_64, aarch64)
+from the Dockerfile's `node-dist` stage, an Apple silicon build on the Mac
+runner, then a Forgejo release and an upload to R2 at
+https://releases.flashmind.com/beep/node/. Machines install it with:
+
+    curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh
+
+then link with `beep-node setup <token>`. Rerunning the installer upgrades
+in place and restarts the service. There is no Intel Mac build.
 
 ## iOS app
 
