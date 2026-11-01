@@ -170,6 +170,7 @@ sample_struct! {
     ResearchSource { number, url, title, quote, agent }
     WebSource { url, title }
     TurnSources { message, sources }
+    NodeToken { token, expires_at }
 }
 
 macro_rules! sample_values {
