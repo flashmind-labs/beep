@@ -2,6 +2,7 @@
 //! message searches return a page at a time, and a model that reads one
 //! page as the whole answer reports a partial list as complete.
 
+use flashmind::types::{ContentPart, tool::ToolResult};
 use serde_json::Value;
 
 /// Put before the result, where cutting a long output cannot drop it and
@@ -14,6 +15,27 @@ is partial.\n";
 /// How deep in a result the paging fields are looked for. Composio puts
 /// them under `data`, sometimes one level further down.
 const MAX_DEPTH: usize = 3;
+
+/// Replace the text of a successful result with `rewrite(text)`, keeping
+/// its media parts after it. Does nothing for other results or when
+/// `rewrite` returns `None`.
+pub fn rewrite_text(result: &mut ToolResult, rewrite: impl FnOnce(String) -> Option<String>) {
+    let ToolResult::Success { content, .. } = result else {
+        return;
+    };
+    let text: String = content
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    let Some(new) = rewrite(text) else {
+        return;
+    };
+    content.retain(|part| !matches!(part, ContentPart::Text { .. }));
+    content.insert(0, ContentPart::Text { text: new });
+}
 
 /// `output` with a note in front when it says more results are left.
 pub fn mark(output: String) -> String {

@@ -120,7 +120,9 @@ pub fn steps(
                     });
                 }
             }
-            EntryKind::Tool { call_id, output } => out.steps.push(Step {
+            EntryKind::Tool {
+                call_id, output, ..
+            } => out.steps.push(Step {
                 sent_at,
                 body: StepBody::Tool {
                     name: names
