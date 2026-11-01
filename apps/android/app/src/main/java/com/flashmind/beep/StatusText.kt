@@ -33,9 +33,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,34 +55,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlin.math.abs
 
-/** Statuses that only mean "waiting on Beep". They become a rotating verb instead of literal text. */
+/** Statuses that only mean "waiting on Beep". They all read as "Thinking…". */
 private val idleStatuses = setOf("Sending…", "Beep is thinking…", "Working...")
 
-private val verbs = listOf(
-    "Thinking", "Pondering", "Mulling it over", "Noodling", "Brewing", "Tinkering", "Puzzling",
-    "Musing", "Percolating", "Untangling", "Cooking", "Conjuring", "Scheming", "Wrangling",
-    "Ruminating", "Doodling", "Hatching", "Simmering", "Crunching", "Figuring",
-)
-
 /**
- * The progress line under a pending reply. While Beep is just busy it cycles through playful
- * verbs; anything more specific, like "Stopping…", is shown as is. Either way a highlight sweeps
- * across the letters.
+ * The progress line under a pending reply: "Thinking…" while Beep is just busy, anything more
+ * specific, like "Stopping…", as is. Either way a highlight sweeps across the letters.
  */
 @Composable
 fun StatusText(status: String) {
-    val idle = status in idleStatuses
-    var index by remember { mutableIntStateOf(verbs.indices.random()) }
-    LaunchedEffect(idle) {
-        while (idle) {
-            delay(2600)
-            index = (index + 1 + (0 until verbs.size - 1).random()) % verbs.size
-        }
-    }
-    val text = if (idle) verbs[index] + "…" else status
+    val text = if (status in idleStatuses) "Thinking…" else status
     AnimatedContent(text, label = "status",
         transitionSpec = {
             (slideInVertically(tween(260)) { it / 2 } + fadeIn(tween(260))) togetherWith
