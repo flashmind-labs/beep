@@ -14,7 +14,11 @@ use beep_proto::{
     PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
 use serde::{Deserialize, Serialize};
-use std::{cmp::Reverse, collections::HashMap, sync::Arc};
+use std::{
+    cmp::Reverse,
+    collections::HashMap,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+};
 use tauri::{
     ActivationPolicy, AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State,
     TitleBarStyle, WebviewUrl, WebviewWindowBuilder, ipc::Channel,
@@ -488,6 +492,121 @@ fn coming_up(crons: Vec<Cron>) -> Vec<CronRow> {
     rows
 }
 
+/// Which webview a chat command came from. Each keeps its own current chat:
+/// the bar's lives in `Beep`, the window's in `Shown`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Holder {
+    Bar,
+    Center,
+}
+
+/// The holder for a webview label: the command center window, or the bar
+/// for anything else.
+pub(crate) fn holder(label: &str) -> Holder {
+    if label == LABEL {
+        Holder::Center
+    } else {
+        Holder::Bar
+    }
+}
+
+/// What the command center window shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Showing {
+    pub(crate) session: Option<String>,
+    pub(crate) group: Option<String>,
+}
+
+/// The command center's current chat, apart from the bar's.
+#[derive(Debug, Default)]
+pub(crate) struct Shown(Mutex<Showing>);
+
+impl Shown {
+    fn showing(&self) -> MutexGuard<'_, Showing> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn set_session(&self, session: Option<String>) {
+        self.showing().session = session;
+    }
+
+    pub(crate) fn set_group(&self, group: Option<String>) {
+        self.showing().group = group;
+    }
+
+    pub(crate) fn get(&self) -> Showing {
+        self.showing().clone()
+    }
+}
+
+/// A chat a webview opened or left: a session or a group, `None` for none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Chat {
+    Session(Option<String>),
+    Group(Option<String>),
+}
+
+/// Where a holder keeps its current chat.
+trait Current {
+    fn set_session(&self, session: Option<String>);
+    fn set_group(&self, group: Option<String>);
+}
+
+impl Current for Beep {
+    fn set_session(&self, session: Option<String>) {
+        Beep::set_session(self, session);
+    }
+
+    fn set_group(&self, group: Option<String>) {
+        Beep::set_group(self, group);
+    }
+}
+
+impl Current for Shown {
+    fn set_session(&self, session: Option<String>) {
+        Shown::set_session(self, session);
+    }
+
+    fn set_group(&self, group: Option<String>) {
+        Shown::set_group(self, group);
+    }
+}
+
+/// Makes `chat` the holder's current chat. A session, or none, also leaves
+/// the holder's group. A group keeps the session: the bar leaves a group on
+/// every view change and reopens its last chat after.
+pub(crate) fn remember(holder: Holder, beep: &Beep, shown: &Shown, chat: Chat) {
+    remember_in(holder, beep, shown, chat);
+}
+
+fn remember_in(holder: Holder, bar: &impl Current, shown: &Shown, chat: Chat) {
+    let current: &dyn Current = match holder {
+        Holder::Bar => bar,
+        Holder::Center => shown,
+    };
+    match chat {
+        Chat::Session(session) => {
+            current.set_session(session);
+            current.set_group(None);
+        }
+        Chat::Group(group) => current.set_group(group),
+    }
+}
+
+/// The chat on screen in each place: the bar's only while the bar is open,
+/// the window's only while the window has focus.
+#[derive(Debug, Default)]
+pub(crate) struct Seen {
+    pub(crate) bar: Option<String>,
+    pub(crate) window: Option<String>,
+}
+
+/// Whether the chat `id` is on screen in the bar or the window, so its
+/// messages need no notice.
+pub(crate) fn on_screen(seen: &Seen, id: &str) -> bool {
+    seen.bar.as_deref() == Some(id) || seen.window.as_deref() == Some(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -672,5 +791,84 @@ mod tests {
         });
         assert!(matches!(view.needs_you[0], NeedsYou::Agent { .. }));
         assert!(matches!(view.needs_you[1], NeedsYou::Chat { .. }));
+    }
+
+    /// A stand-in for the bar's current chat in `Beep`, which needs a
+    /// network node to build.
+    fn bar_on(session: &str) -> Shown {
+        let bar = Shown::default();
+        bar.set_session(Some(session.into()));
+        bar
+    }
+
+    #[test]
+    fn center_label_leaves_bar_chat() {
+        let bar = bar_on("a");
+        let shown = Shown::default();
+        remember_in(
+            Holder::Center,
+            &bar,
+            &shown,
+            Chat::Session(Some("b".into())),
+        );
+        assert_eq!(bar.get().session.as_deref(), Some("a"));
+        assert_eq!(shown.get().session.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn bar_label_moves_bar_chat() {
+        let bar = bar_on("a");
+        let shown = Shown::default();
+        remember_in(Holder::Bar, &bar, &shown, Chat::Session(Some("b".into())));
+        assert_eq!(bar.get().session.as_deref(), Some("b"));
+        assert_eq!(shown.get(), Showing::default());
+    }
+
+    #[test]
+    fn session_leaves_group_and_group_keeps_session() {
+        let shown = Shown::default();
+        let bar = Shown::default();
+        remember_in(
+            Holder::Center,
+            &bar,
+            &shown,
+            Chat::Session(Some("a".into())),
+        );
+        remember_in(Holder::Center, &bar, &shown, Chat::Group(Some("g".into())));
+        assert_eq!(
+            shown.get(),
+            Showing {
+                session: Some("a".into()),
+                group: Some("g".into()),
+            }
+        );
+        remember_in(Holder::Center, &bar, &shown, Chat::Session(None));
+        assert_eq!(shown.get(), Showing::default());
+    }
+
+    #[test]
+    fn holder_reads_labels() {
+        assert_eq!(holder("center"), Holder::Center);
+        assert_eq!(holder("bar"), Holder::Bar);
+        assert_eq!(holder("research-1"), Holder::Bar);
+    }
+
+    #[test]
+    fn on_screen_in_either_place() {
+        let bar = Seen {
+            bar: Some("a".into()),
+            window: None,
+        };
+        assert!(on_screen(&bar, "a"));
+        assert!(!on_screen(&bar, "b"));
+        let window = Seen {
+            bar: None,
+            window: Some("b".into()),
+        };
+        assert!(on_screen(&window, "b"));
+        assert!(!on_screen(&window, "a"));
+        let nowhere = Seen::default();
+        assert!(!on_screen(&nowhere, "a"));
+        assert!(!on_screen(&nowhere, "b"));
     }
 }

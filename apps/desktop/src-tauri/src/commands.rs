@@ -6,6 +6,7 @@ use crate::{
         BarEvent, Beep, DataImage, Decision, FileUpload, LinkView, Pick, Pictures, RunNews, Sent,
         Turn, image_uris, qr_svg,
     },
+    center::{self, Chat, Shown},
     error::{DesktopError, Result},
     groups::{GroupChatView, GroupView, InviteView, MessageView},
     machine::{self, Machine},
@@ -34,7 +35,7 @@ use std::{
     process::Command,
     sync::Arc,
 };
-use tauri::{AppHandle, Emitter, Manager, State, ipc::Channel};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, ipc::Channel};
 use tauri_plugin_autostart::ManagerExt;
 use tokio::join;
 use uuid::Uuid;
@@ -205,10 +206,19 @@ pub async fn search_sessions(beep: Service<'_>, query: String) -> Result<Vec<Ses
 }
 
 #[tauri::command]
-pub async fn open_session(beep: Service<'_>, id: String) -> Result<Vec<Turn>> {
+pub async fn open_session(
+    window: WebviewWindow,
+    beep: Service<'_>,
+    shown: State<'_, Shown>,
+    id: String,
+) -> Result<Vec<Turn>> {
     // Made current before loading, so leaving the chat meanwhile is not undone.
-    beep.set_session(Some(id.clone()));
-    beep.set_group(None);
+    center::remember(
+        center::holder(window.label()),
+        &beep,
+        &shown,
+        Chat::Session(Some(id.clone())),
+    );
     beep.history(id).await
 }
 
@@ -229,9 +239,13 @@ pub async fn session_sources(beep: Service<'_>, id: String) -> Result<Vec<TurnSo
 }
 
 #[tauri::command]
-pub fn new_chat(beep: Service<'_>) {
-    beep.set_session(None);
-    beep.set_group(None);
+pub fn new_chat(window: WebviewWindow, beep: Service<'_>, shown: State<'_, Shown>) {
+    center::remember(
+        center::holder(window.label()),
+        &beep,
+        &shown,
+        Chat::Session(None),
+    );
 }
 
 #[tauri::command]
@@ -245,13 +259,16 @@ pub async fn pin_session(beep: Service<'_>, id: String, pinned: bool) -> Result<
 }
 
 #[tauri::command]
-pub async fn delete_session(beep: Service<'_>, id: String) -> Result<()> {
+pub async fn delete_session(beep: Service<'_>, shown: State<'_, Shown>, id: String) -> Result<()> {
     beep.call(DeleteSession { id: id.clone() }).await?;
     if let Ok(chat) = Uuid::parse_str(&id) {
         beep.chats().forget(chat);
     }
     if beep.session().as_deref() == Some(id.as_str()) {
         beep.set_session(None);
+    }
+    if shown.get().session.as_deref() == Some(id.as_str()) {
+        shown.set_session(None);
     }
     Ok(())
 }
@@ -278,9 +295,19 @@ pub async fn list_groups(beep: Service<'_>) -> Result<Vec<GroupView>> {
 }
 
 #[tauri::command]
-pub async fn open_group(beep: Service<'_>, id: String) -> Result<GroupChatView> {
+pub async fn open_group(
+    window: WebviewWindow,
+    beep: Service<'_>,
+    shown: State<'_, Shown>,
+    id: String,
+) -> Result<GroupChatView> {
     // Made current before loading, so closing the group meanwhile is not undone.
-    beep.set_group(Some(id.clone()));
+    center::remember(
+        center::holder(window.label()),
+        &beep,
+        &shown,
+        Chat::Group(Some(id.clone())),
+    );
     if let Some(view) = Uuid::parse_str(&id)
         .ok()
         .and_then(|g| beep.chats().group(g))
@@ -301,10 +328,15 @@ pub async fn open_group(beep: Service<'_>, id: String) -> Result<GroupChatView> 
     Ok(view)
 }
 
-/// The bar left the group, so its messages notify again.
+/// The webview left the group, so its messages notify again.
 #[tauri::command]
-pub fn close_group(beep: Service<'_>) {
-    beep.set_group(None);
+pub fn close_group(window: WebviewWindow, beep: Service<'_>, shown: State<'_, Shown>) {
+    center::remember(
+        center::holder(window.label()),
+        &beep,
+        &shown,
+        Chat::Group(None),
+    );
 }
 
 #[tauri::command]
