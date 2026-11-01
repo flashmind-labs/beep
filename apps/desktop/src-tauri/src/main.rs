@@ -1,5 +1,6 @@
 //! Beep for macOS. A tray app whose bar opens on a double tap of Option.
 
+mod add_machine;
 mod agents;
 mod apps;
 mod audio;
@@ -111,6 +112,8 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            add_machine::create_node_token,
+            add_machine::revoke_node_token,
             agents::agent_hosts,
             agents::agent_sessions,
             agents::agent_start,
