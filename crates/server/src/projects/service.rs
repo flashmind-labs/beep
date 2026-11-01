@@ -1,21 +1,51 @@
 //! What the server keeps in memory about projects: which node session is
 //! which worker, which workers edited a build file since a build was last
-//! allowed, and the issue mirroring running for each project.
+//! allowed, the issue mirroring running for each project, the lifecycle's
+//! schedule and the jobs that carry out what workers report.
 
 use super::{
+    lifecycle,
     model::{ProjectId, WorkerId},
     policy::{self, Verdict, WorkerScope},
+    schedule::{self, Due, Schedule},
 };
-use crate::protocol::node::agent::Question;
+use crate::{
+    app::App,
+    nodes::{News, Post},
+    protocol::node::agent::Question,
+    user::User,
+};
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use futures::future::BoxFuture;
 use iroh::EndpointId;
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
     time::Duration,
 };
-use tokio::{sync::watch, time::timeout};
+use tokio::{
+    sync::{Notify, mpsc, watch},
+    task::JoinSet,
+    time::timeout,
+};
 use tokio_util::task::AbortOnDropHandle;
+use uuid::Uuid;
+
+/// Lifecycle jobs running at once, and waiting to run; more are dropped.
+const JOBS_RUNNING: usize = 16;
+const JOBS_QUEUED: usize = 64;
+
+/// Whether the projects took a session's news.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Handled {
+    Yes,
+    No,
+}
+
+/// One piece of lifecycle work, run with the app once it starts.
+type Job = Box<dyn FnOnce(Arc<App>) -> BoxFuture<'static, Result<()>> + Send>;
 
 /// The projects' shared state, one per server.
 #[derive(Default)]
@@ -26,6 +56,36 @@ pub struct Projects {
     build_edited: Mutex<HashSet<WorkerId>>,
     /// The issue mirroring of each project, the last one started.
     mirrors: Mutex<HashMap<ProjectId, Mirror>>,
+    /// The last turn and question of each worker's that was handled, so a
+    /// report seen twice (live and on re-attach) is handled once.
+    seen: Mutex<HashMap<WorkerId, Seen>>,
+    schedule: Mutex<Schedule>,
+    /// Wakes the schedule's runner when something is armed.
+    armed: Arc<Notify>,
+    /// Runs the schedule; set by [`super::start`].
+    timer: Mutex<Option<AbortOnDropHandle<()>>>,
+    jobs: Mutex<Option<Jobs>>,
+    /// What [`Self::post`] posted, for the tests to wait on.
+    #[cfg(test)]
+    posted: Mutex<Vec<Post>>,
+    #[cfg(test)]
+    posted_signal: Notify,
+    /// Shell text run before each node shell command, such as a `PATH`
+    /// with stand-ins for `gh`.
+    #[cfg(test)]
+    shell_prefix: Mutex<Option<String>>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct Seen {
+    turn: u32,
+    question: Option<u32>,
+}
+
+/// The lifecycle's job runner.
+struct Jobs {
+    queue: mpsc::Sender<Job>,
+    _task: AbortOnDropHandle<()>,
 }
 
 struct Mirror {
@@ -49,10 +109,180 @@ impl Projects {
         lock(&self.sessions).insert((machine, session.to_owned()), worker);
     }
 
-    /// Forgets `worker`: its session and whether it edited a build file.
+    /// Forgets `worker`: its session, whether it edited a build file, what
+    /// of it was handled and its idle close.
     pub(crate) fn untrack(&self, worker: WorkerId) {
         lock(&self.sessions).retain(|_, tracked| *tracked != worker);
         lock(&self.build_edited).remove(&worker);
+        lock(&self.seen).remove(&worker);
+        self.disarm(&Due::Idle(worker));
+    }
+
+    /// Whether `turn` of `worker`'s is new, noting it handled when it is.
+    /// `stored` is how many the store says were heard about.
+    pub(crate) fn take_turn(&self, worker: WorkerId, turn: u32, stored: u32) -> bool {
+        let mut seen = lock(&self.seen);
+        let seen = seen.entry(worker).or_insert(Seen {
+            turn: stored,
+            question: None,
+        });
+        seen.turn = seen.turn.max(stored);
+        let new = turn > seen.turn;
+        if new {
+            seen.turn = turn;
+        }
+        new
+    }
+
+    /// Whether question `id` of `worker`'s is new, noting it handled.
+    pub(crate) fn take_question(&self, worker: WorkerId, id: u32) -> bool {
+        let mut seen = lock(&self.seen);
+        let seen = seen.entry(worker).or_default();
+        let new = seen.question != Some(id);
+        seen.question = Some(id);
+        new
+    }
+
+    pub(crate) fn arm(&self, due: Due, at: DateTime<Utc>) {
+        lock(&self.schedule).arm(due, at);
+        self.armed.notify_one();
+    }
+
+    pub(crate) fn disarm(&self, due: &Due) {
+        lock(&self.schedule).disarm(due);
+    }
+
+    pub(crate) fn next_due(&self) -> Option<DateTime<Utc>> {
+        lock(&self.schedule).next()
+    }
+
+    pub(crate) fn take_due(&self, now: DateTime<Utc>) -> Vec<Due> {
+        lock(&self.schedule).take_due(now)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn armed_at(&self, due: &Due) -> Option<DateTime<Utc>> {
+        lock(&self.schedule).armed_at(due)
+    }
+
+    /// Starts the schedule's runner, once.
+    pub(crate) fn start_timer(&self, app: &Arc<App>) {
+        let mut timer = lock(&self.timer);
+        if timer.is_none() {
+            let task = tokio::spawn(schedule::run(Arc::downgrade(app), self.armed.clone()));
+            *timer = Some(AbortOnDropHandle::new(task));
+        }
+    }
+
+    /// Runs `job` in the background, a bounded number at a time, logging
+    /// its error. It gets the app when it starts, so a waiting job does not
+    /// keep the app alive.
+    pub(crate) fn spawn<F, Fut>(&self, app: &Arc<App>, job: F)
+    where
+        F: FnOnce(Arc<App>) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<()>> + Send + 'static,
+    {
+        let job: Job = Box::new(move |app| Box::pin(job(app)));
+        let mut jobs = lock(&self.jobs);
+        let jobs = jobs.get_or_insert_with(|| {
+            let (queue, waiting) = mpsc::channel(JOBS_QUEUED);
+            let task = tokio::spawn(run_jobs(Arc::downgrade(app), waiting));
+            Jobs {
+                queue,
+                _task: AbortOnDropHandle::new(task),
+            }
+        });
+        if jobs.queue.try_send(job).is_err() {
+            log::warn!("projects: dropped a worker report, too many waiting");
+        }
+    }
+
+    /// Takes a node session's news when the session is a project worker's.
+    pub(crate) fn on_news(
+        &self,
+        app: &Arc<App>,
+        machine: &EndpointId,
+        session: &str,
+        news: &News,
+        waited: bool,
+    ) -> Handled {
+        let Some(worker) = self.worker_of(machine, session) else {
+            return Handled::No;
+        };
+        let news = news.clone();
+        self.spawn(app, move |app| async move {
+            lifecycle::on_news(&app, worker, news, waited).await
+        });
+        Handled::Yes
+    }
+
+    /// `machine` connected again: its workers report again, or are gone.
+    pub(crate) fn reconnected(&self, app: &Arc<App>, user: &Arc<User>, machine: EndpointId) {
+        let user = user.clone();
+        self.spawn(app, move |app| async move {
+            lifecycle::reconnected(&app, &user, machine).await
+        });
+    }
+
+    /// Starts a turn of `chat` on `text`, labelled `label`.
+    pub(crate) fn post(
+        &self,
+        app: &Arc<App>,
+        user: Arc<User>,
+        chat: Uuid,
+        label: &str,
+        text: String,
+    ) {
+        #[cfg(test)]
+        {
+            lock(&self.posted).push(Post {
+                user: user.clone(),
+                chat,
+                label: label.to_owned(),
+                text: text.clone(),
+            });
+            self.posted_signal.notify_waiters();
+        }
+        app.nodes.deliveries.post(
+            app,
+            Post {
+                user,
+                chat,
+                label: label.to_owned(),
+                text,
+            },
+        );
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_shell_prefix(&self, prefix: &str) {
+        *lock(&self.shell_prefix) = Some(prefix.to_owned());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shell_prefix(&self) -> Option<String> {
+        lock(&self.shell_prefix).clone()
+    }
+
+    /// Waits until `done` holds for what was posted, and gives it.
+    #[cfg(test)]
+    pub(crate) async fn posted_until(
+        &self,
+        done: impl Fn(&[(String, String)]) -> bool,
+    ) -> Vec<(String, String)> {
+        loop {
+            let signal = self.posted_signal.notified();
+            tokio::pin!(signal);
+            signal.as_mut().enable();
+            let posted: Vec<(String, String)> = lock(&self.posted)
+                .iter()
+                .map(|post| (post.label.clone(), post.text.clone()))
+                .collect();
+            if done(&posted) {
+                return posted;
+            }
+            signal.await;
+        }
     }
 
     /// Judges what `worker` asks to do, as [`policy::judge`] does, holding
@@ -131,6 +361,25 @@ impl Projects {
             .map(|mirror| mirror.done.clone());
         if let Some(mut done) = done {
             let _ = done.wait_for(|done| *done).await;
+        }
+    }
+}
+
+/// Runs the jobs, at most [`JOBS_RUNNING`] at once.
+async fn run_jobs(app: Weak<App>, mut waiting: mpsc::Receiver<Job>) {
+    let mut running = JoinSet::new();
+    loop {
+        tokio::select! {
+            job = waiting.recv(), if running.len() < JOBS_RUNNING => {
+                let Some(job) = job else { return };
+                let Some(strong) = app.upgrade() else { return };
+                running.spawn(job(strong));
+            }
+            Some(done) = running.join_next() => match done {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => log::warn!("projects: a worker job failed: {error:#}"),
+                Err(error) => log::warn!("projects: a worker job stopped: {error}"),
+            },
         }
     }
 }

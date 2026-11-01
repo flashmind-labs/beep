@@ -3,9 +3,18 @@
 
 use super::{
     model::{
-        InputFile, MachinePath, RepoName, Roles, StartRequest, TaskState, Visibility, WorkerState,
+        InputFile, IssueHost, MachinePath, RepoName, Roles, StartRequest, TaskState, Visibility,
+        WorkerState,
     },
+    turn::{REPLAN_LABEL, WORKER_LABEL},
     worker::{Started, start_task, stop_worker},
+};
+use crate::protocol::node::{
+    LinkRx, LinkTx,
+    agent::{
+        Event as AgentEvent, Request as AgentRequest, SessionInfo, State as AgentState,
+        Status as AgentStatus,
+    },
 };
 use crate::{
     nodes::{self, Online},
@@ -17,7 +26,7 @@ use crate::{
 use beep_node::{
     agents::{AgentKind, Agents},
     files::Folders,
-    link::{Offers, Protocol},
+    link::{Offers, Protocol, Session as LinkSession},
 };
 use flashmind::types::tool::{Tool, ToolContext};
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets, protocol::Router};
@@ -105,11 +114,13 @@ fn repo(tmp: &Path) -> PathBuf {
 /// A node serving a shell, the folder `tmp` and the stand-in agent.
 struct TestNode {
     id: EndpointId,
+    key: SecretKey,
+    name: &'static str,
     online: Online,
     tmp: PathBuf,
     widget: PathBuf,
     _dir: TempDir,
-    _task: JoinHandle<anyhow::Result<()>>,
+    task: JoinHandle<anyhow::Result<()>>,
 }
 
 struct World {
@@ -186,16 +197,59 @@ impl World {
         assert!(online.offers("claude/1"), "{:?}", online.offers);
         TestNode {
             id,
+            key,
+            name,
             online,
             tmp,
             widget,
             _dir: dir,
-            _task: task,
+            task,
         }
+    }
+
+    /// Drops `node`'s connection and connects it again offering `offers`,
+    /// as a node restarted with other sessions would. Waits until the server
+    /// has the new connection.
+    async fn reconnect(&self, node: &mut TestNode, offers: Offers) {
+        node.task.abort();
+        let old = node.online.connection.stable_id();
+        let endpoint = Endpoint::builder(presets::N0)
+            .secret_key(node.key.clone())
+            .bind()
+            .await
+            .expect("the node endpoint binds");
+        let addr = self.router.endpoint().addr();
+        let name = node.name;
+        node.task =
+            tokio::spawn(
+                async move { beep_node::link::connect(&endpoint, addr, name, &offers).await },
+            );
+        let app = &self.harness.app;
+        let id = node.id.to_string();
+        node.online = timeout(LIMIT, async {
+            loop {
+                if let Some(online) = app.nodes.online(&id)
+                    && online.connection.stable_id() != old
+                {
+                    return online;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the node came back");
     }
 
     /// The project with `nodes`' clones as its checkouts, the first home.
     async fn project(&self, nodes: &[&TestNode]) -> ProjectRow {
+        let roles = Roles {
+            issues: None,
+            prs: None,
+        };
+        self.project_with(nodes, &roles).await
+    }
+
+    async fn project_with(&self, nodes: &[&TestNode], roles: &Roles) -> ProjectRow {
         let alice = &self.harness.alice;
         let project = alice
             .ensure_project(&RepoName::parse("acme/widget").expect("a repo"))
@@ -214,12 +268,8 @@ impl World {
                 .await
                 .expect("the checkout");
         }
-        let roles = Roles {
-            issues: None,
-            prs: None,
-        };
         alice
-            .set_project_setup(project.id, &roles, Visibility::Private, "main")
+            .set_project_setup(project.id, roles, Visibility::Private, "main")
             .await
             .expect("the setup");
         alice
@@ -506,4 +556,238 @@ async fn copy_outside_the_checkout_is_refused() {
     assert!(!result.is_success(), "{}", result.output());
     assert!(result.output().contains("outside"), "{}", result.output());
     assert!(!node.tmp.join("out/model.glb").exists());
+}
+
+/// The labels and texts posted to project chats once `done` holds.
+async fn posted_until(
+    world: &World,
+    done: impl Fn(&[(String, String)]) -> bool,
+) -> Vec<(String, String)> {
+    timeout(LIMIT, world.harness.app.projects.posted_until(done))
+        .await
+        .expect("the reports came")
+}
+
+fn count(posted: &[(String, String)], label: &str, holds: &str) -> usize {
+    posted
+        .iter()
+        .filter(|(posted, text)| posted == label && text.contains(holds))
+        .count()
+}
+
+/// A stand-in `gh` in `tmp/bin` that lists one open pull request.
+fn fake_gh(tmp: &Path) -> PathBuf {
+    let bin = tmp.join("bin");
+    fs::create_dir_all(&bin).expect("a folder");
+    let gh = bin.join("gh");
+    let pr = r#"[{"number":7,"url":"https://example.com/acme/widget/pull/7","state":"OPEN","title":"Spin it","body":"Spins the widget."}]"#;
+    let script =
+        format!("#!/bin/sh\ncase \"$1 $2\" in\n\"pr list\") echo '{pr}' ;;\n*) exit 1 ;;\nesac\n");
+    fs::write(&gh, script).expect("the stand-in");
+    let made = Command::new("chmod")
+        .arg("+x")
+        .arg(&gh)
+        .status()
+        .expect("chmod runs");
+    assert!(made.success());
+    bin
+}
+
+#[tokio::test]
+async fn turn_done_moves_to_review_and_reports() {
+    let world = World::new().await;
+    let node = world.node("build box").await;
+    let bin = fake_gh(&node.tmp);
+    world
+        .harness
+        .app
+        .projects
+        .set_shell_prefix(&format!("PATH={}:\"$PATH\"; export PATH", bin.display()));
+    let roles = Roles {
+        issues: None,
+        prs: Some(IssueHost::Github),
+    };
+    let project = world.project_with(&[&node], &roles).await;
+    let tasks = world.tasks(&project, &[new_task("Spin it")]).await;
+    let Started::Running(worker) = world.start(&project, &tasks[0], &claude()).await else {
+        panic!("the worker did not start");
+    };
+    let posted = posted_until(&world, |posted| {
+        count(posted, WORKER_LABEL, "finished turn 1") > 0
+    })
+    .await;
+    assert_eq!(
+        count(&posted, WORKER_LABEL, "finished turn 1"),
+        1,
+        "{posted:?}"
+    );
+    let (_, report) = &posted[0];
+    assert!(
+        report.contains("Pull request: https://example.com/acme/widget/pull/7"),
+        "{report}"
+    );
+    assert!(
+        report.contains("Echo: You are working on one task"),
+        "{report}"
+    );
+    let task = world.task(&tasks[0]).await;
+    assert_eq!(task.state, TaskState::Review);
+    assert_eq!(
+        task.pr_url.as_deref(),
+        Some("https://example.com/acme/widget/pull/7")
+    );
+    let worker = world
+        .harness
+        .alice
+        .project_worker(worker.id)
+        .await
+        .expect("the worker")
+        .expect("it exists");
+    assert_eq!(worker.state, WorkerState::Waiting);
+    assert_eq!(worker.turns_seen, 1);
+}
+
+#[tokio::test]
+async fn inside_edits_are_answered_without_the_user() {
+    let world = World::new().await;
+    let node = world.node("build box").await;
+    let project = world.project(&[&node]).await;
+    let task = NewTask {
+        body: "Please edit notes.txt.".to_owned(),
+        ..new_task("Spin it")
+    };
+    let tasks = world.tasks(&project, &[task]).await;
+    let Started::Running(_) = world.start(&project, &tasks[0], &claude()).await else {
+        panic!("the worker did not start");
+    };
+    // Nothing waits on the session, so its turn comes back as a report.
+    let posted = posted_until(&world, |posted| {
+        count(posted, WORKER_LABEL, "finished turn 1") > 0
+    })
+    .await;
+    assert_eq!(
+        count(&posted, WORKER_LABEL, "Its last message:\nEdited notes.txt"),
+        1,
+        "{posted:?}"
+    );
+    assert!(
+        world
+            .harness
+            .app
+            .subagents
+            .approvals
+            .pending_all("alice")
+            .is_empty(),
+        "a card was shown"
+    );
+    assert_eq!(count(&posted, WORKER_LABEL, "asks"), 0, "{posted:?}");
+}
+
+/// A `claude/1` that only has the session `kept`, which finished a turn
+/// while the server was away.
+struct Restarted {
+    kept: SessionInfo,
+}
+
+impl Protocol for Restarted {
+    fn name(&self) -> &str {
+        "claude/1"
+    }
+
+    fn serve(&self, mut tx: LinkTx, mut rx: LinkRx) -> LinkSession {
+        let kept = self.kept.clone();
+        Box::pin(async move {
+            let Some(AgentRequest::Attach { session }) = rx.recv::<AgentRequest>().await? else {
+                return Ok(());
+            };
+            if session != kept.id {
+                let reason = format!("there is no session {session}");
+                return tx.send(&AgentEvent::Refused { reason }).await;
+            }
+            tx.send(&AgentEvent::Attached {
+                session: Box::new(kept),
+            })
+            .await?;
+            while rx.recv::<AgentRequest>().await?.is_some() {
+                tx.send(&AgentEvent::Ack { error: None }).await?;
+            }
+            Ok(())
+        })
+    }
+}
+
+#[tokio::test]
+async fn reconnect_reattaches_and_fails_lost_sessions() {
+    let world = World::new().await;
+    let mut node = world.node("build box").await;
+    let project = world.project(&[&node]).await;
+    let tasks = world
+        .tasks(&project, &[new_task("Kept"), new_task("Lost")])
+        .await;
+    let mut workers = Vec::new();
+    for task in &tasks {
+        let Started::Running(worker) = world.start(&project, task, &claude()).await else {
+            panic!("the worker did not start");
+        };
+        workers.push(*worker);
+    }
+    posted_until(&world, |posted| {
+        count(posted, WORKER_LABEL, "finished turn 1") == 2
+    })
+    .await;
+    let kept_session = workers[0].session.clone().expect("a session");
+    let lost_session = workers[1].session.clone().expect("a session");
+    let kept = SessionInfo {
+        id: kept_session.clone(),
+        agent: "claude".into(),
+        cwd: workers[0].folder.to_string(),
+        state: AgentState {
+            status: AgentStatus::Idle,
+            ..AgentState::default()
+        },
+        last_message: "Finished while away.".into(),
+        turns: 2,
+        ..SessionInfo::default()
+    };
+    let offers = Offers {
+        agents: Arc::default(),
+        extra: vec![Arc::new(Restarted { kept }) as Arc<dyn Protocol>],
+        provision: None,
+    };
+    world.reconnect(&mut node, offers).await;
+    let posted = posted_until(&world, |posted| {
+        count(posted, REPLAN_LABEL, "is gone") == 1
+            && count(posted, WORKER_LABEL, "Finished while away.") == 1
+    })
+    .await;
+    assert_eq!(
+        count(
+            &posted,
+            REPLAN_LABEL,
+            "The worker for lost on build-box is gone"
+        ),
+        1,
+        "{posted:?}"
+    );
+    let alice = &world.harness.alice;
+    let lost = alice
+        .project_worker(workers[1].id)
+        .await
+        .expect("the worker")
+        .expect("it exists");
+    assert_eq!(lost.state, WorkerState::Failed);
+    assert_eq!(world.task(&tasks[1]).await.state, TaskState::Blocked);
+    let app = &world.harness.app;
+    assert_eq!(app.projects.worker_of(&node.id, &lost_session), None);
+    assert_eq!(
+        app.projects.worker_of(&node.id, &kept_session),
+        Some(workers[0].id)
+    );
+    let kept = alice
+        .project_worker(workers[0].id)
+        .await
+        .expect("the worker")
+        .expect("it exists");
+    assert_eq!(kept.state, WorkerState::Waiting);
+    assert_eq!(kept.turns_seen, 2);
 }

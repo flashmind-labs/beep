@@ -1197,7 +1197,7 @@ impl TasksTool {
         {
             return Ok(Planned::Refused(format!("The merge failed: {why}")));
         }
-        super::finish_task(&tools.user, task).await?;
+        super::finish_task(tools.fleet.as_ref(), &tools.user, project, task).await?;
         Ok(Planned::Done(format!(
             "Merged {url}; {} is done.",
             task.slug

@@ -6,7 +6,7 @@ use crate::{
     projects::{
         fleet,
         gate::Asks,
-        model::{InputFile, StartRequest, WorkerAgent},
+        model::{InputFile, StartRequest, WorkerAgent, WorkerState},
         worker::{
             self, MAX_INPUTS, Placement, Prepared, StartError, Started, copy_inputs, launch,
             prepare,
@@ -299,6 +299,13 @@ impl WorkerTool {
         let Some(online) = self.online(&worker) else {
             return Ok(Planned::Refused(format!("{machine} is offline.")));
         };
+        // Given more to do, it is working again, not idle.
+        if matches!(order, Order::Prompt { .. } | Order::Answer { .. }) {
+            tools
+                .user
+                .set_worker_state(worker.id, WorkerState::Running)
+                .await?;
+        }
         let endpoint = worker.machine.to_string();
         let asker = Asker {
             app: &self.app,
