@@ -7,7 +7,7 @@ use crate::{
 use beep_proto::node::agent;
 use serde::{Deserialize, Serialize};
 use std::{fmt, time::Duration};
-use strum::{Display, EnumString, IntoStaticStr};
+use strum::{Display, EnumString, IntoStaticStr, VariantNames};
 use uuid::Uuid;
 
 /// Most live workers in one project.
@@ -421,16 +421,35 @@ pub(crate) struct InputFile {
 
 /// The coding agent a worker machine runs for a project.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString, IntoStaticStr,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Display,
+    EnumString,
+    IntoStaticStr,
+    VariantNames,
 )]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub(crate) enum WorkerAgent {
     Claude,
     Codex,
+    Gemini,
+    Pi,
+    Flsh,
 }
 
 impl WorkerAgent {
+    /// Whether it puts each action to Beep before it runs it. flsh does
+    /// not, so a flsh worker runs commands nobody judged.
+    pub(crate) fn asks_permission(self) -> bool {
+        super::policy::agent_asks(self.into())
+    }
+
     /// The protocol name a node serves this agent on.
     pub(crate) fn protocol(self) -> String {
         agent::protocol(self.into())
@@ -446,6 +465,22 @@ mod tests {
         assert_eq!("claude".parse(), Ok(WorkerAgent::Claude));
         assert_eq!(WorkerAgent::Codex.to_string(), "codex");
         assert_eq!(WorkerAgent::Codex.protocol(), agent::protocol("codex"));
+    }
+
+    #[test]
+    fn every_agent_a_node_knows_can_work() {
+        for name in ["claude", "codex", "gemini", "pi", "flsh"] {
+            let agent: WorkerAgent = name.parse().expect("a worker agent");
+            assert_eq!(agent.to_string(), name);
+        }
+        assert_eq!(
+            WorkerAgent::VARIANTS,
+            ["claude", "codex", "gemini", "pi", "flsh"]
+        );
+        // flsh runs its tools without asking, so nothing can judge them.
+        assert!(!WorkerAgent::Flsh.asks_permission());
+        assert!(WorkerAgent::Claude.asks_permission());
+        assert!(WorkerAgent::Pi.asks_permission());
     }
 
     #[test]

@@ -14,7 +14,7 @@ use crate::{
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::Value;
-use std::sync::Arc;
+use std::{mem, sync::Arc};
 
 /// What a call asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,10 +111,91 @@ pub(crate) fn runs_host_cli(command: &str) -> bool {
         .any(|word| HOST_CLIS.contains(&word.rsplit('/').next().unwrap_or(word)))
 }
 
-/// The rule slug `exec` runs under: a host client's command is never
-/// allowed always.
-pub(crate) fn exec_slug(command: &str) -> Option<&'static str> {
-    (!runs_host_cli(command)).then_some(EXEC_SLUG)
+/// The rule slug `exec` runs under: a host client's command and a push
+/// that may reach `default_branch` are never allowed always.
+pub(crate) fn exec_slug(command: &str, default_branch: &str) -> Option<&'static str> {
+    (exec_asks(command, default_branch) == Asks::ByLevel).then_some(EXEC_SLUG)
+}
+
+/// What `exec` of `command` asks for.
+fn exec_asks(command: &str, default_branch: &str) -> Asks {
+    if runs_host_cli(command) || pushes_default(command, default_branch) {
+        Asks::Always
+    } else {
+        Asks::ByLevel
+    }
+}
+
+/// Whether `command` runs a `git push` that may update `default_branch`:
+/// one naming it, pushing everything, or naming no branch, which pushes the
+/// current one wherever it is. Quoted text counts too, as in `sh -c`.
+pub(crate) fn pushes_default(command: &str, default_branch: &str) -> bool {
+    shell_segments(command)
+        .iter()
+        .any(|words| push_args(words).is_some_and(|args| push_reaches(args, default_branch)))
+}
+
+/// The words of each simple command in `command`, split at `;`, `|`, `&`,
+/// parentheses, backquotes and newlines; quotes only end words.
+fn shell_segments(command: &str) -> Vec<Vec<&str>> {
+    let mut segments: Vec<Vec<&str>> = Vec::new();
+    let mut current: Vec<&str> = Vec::new();
+    let mut start = None;
+    for (at, c) in command.char_indices() {
+        let breaks = c.is_whitespace() || "'\"{}$".contains(c);
+        let separates = ";|&()`\n".contains(c);
+        if breaks || separates {
+            if let Some(from) = start.take() {
+                current.push(&command[from..at]);
+            }
+            if separates {
+                segments.push(mem::take(&mut current));
+            }
+        } else if start.is_none() {
+            start = Some(at);
+        }
+    }
+    if let Some(from) = start {
+        current.push(&command[from..]);
+    }
+    segments.push(current);
+    segments
+}
+
+/// The arguments after `push` when `words` run `git ... push`.
+fn push_args<'a>(words: &'a [&'a str]) -> Option<&'a [&'a str]> {
+    let git = words
+        .iter()
+        .position(|word| word.rsplit('/').next() == Some("git"))?;
+    let push = git + 1 + words[git + 1..].iter().position(|word| *word == "push")?;
+    Some(&words[push + 1..])
+}
+
+fn push_reaches(args: &[&str], default_branch: &str) -> bool {
+    // Options that take the next word as their value.
+    const VALUED: [&str; 4] = ["-o", "--push-option", "--repo", "--receive-pack"];
+    let mut positional = Vec::new();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match *arg {
+            "--all" | "--mirror" | "--branches" => return true,
+            flag if VALUED.contains(&flag) => {
+                args.next();
+            }
+            flag if flag.starts_with('-') => {}
+            other => positional.push(other),
+        }
+    }
+    let Some((_, refspecs)) = positional.split_first() else {
+        return true;
+    };
+    refspecs.is_empty()
+        || refspecs.iter().any(|refspec| {
+            let target = refspec.rsplit(':').next().unwrap_or(refspec);
+            let target = target.trim_start_matches('+');
+            let target = target.strip_prefix("refs/heads/").unwrap_or(target);
+            target == default_branch || target == "HEAD"
+        })
 }
 
 /// The flags whose value a code host publishes: titles, bodies, comments.
@@ -212,6 +293,8 @@ impl Tool for GatedExec {
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let command = text_arg(&ctx.args, "command");
         let host = runs_host_cli(&command);
+        let project = self.tools.project().await?;
+        let asks = exec_asks(&command, &project.default_branch);
         if host {
             let public_text = self.tools.public_text().await?;
             let mut hits: Vec<String> = Vec::new();
@@ -243,7 +326,6 @@ impl Tool for GatedExec {
             action: "Run a command".into(),
             fields,
         };
-        let asks = if host { Asks::Always } else { Asks::ByLevel };
         gated_run(
             self.exec.as_ref(),
             &self.tools.gate,
@@ -422,11 +504,11 @@ mod tests {
             "(teacli issue create -t x)",
         ] {
             assert!(runs_host_cli(command), "{command}");
-            assert_eq!(exec_slug(command), None);
+            assert_eq!(exec_slug(command, "main"), None);
         }
         for command in ["cargo test", "git push -u origin beep/x", "ls ghost tear"] {
             assert!(!runs_host_cli(command), "{command}");
-            assert_eq!(exec_slug(command), Some("EXEC"));
+            assert_eq!(exec_slug(command, "main"), Some("EXEC"));
         }
     }
 

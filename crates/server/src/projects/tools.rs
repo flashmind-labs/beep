@@ -33,6 +33,7 @@ use flashmind::types::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{fmt::Write, str::FromStr, sync::Arc};
+use strum::VariantNames;
 use uuid::Uuid;
 
 const SETUP: &str = "project_setup";
@@ -67,7 +68,7 @@ pub(crate) struct ProjectTools {
 impl ProjectTools {
     /// The project as it is now: a setup call earlier in the turn may have
     /// changed it.
-    async fn project(&self) -> Result<ProjectRow> {
+    pub(crate) async fn project(&self) -> Result<ProjectRow> {
         self.user
             .project(self.project)
             .await?
@@ -102,7 +103,7 @@ pub(crate) fn saved_as(tool: &str, args: &Value, project: &ProjectRow) -> Option
             _ => None,
         },
         SETUP => (text("action") == Some("checkout")).then_some(CHECKOUT_SLUG),
-        "exec" => gate::exec_slug(text("command").unwrap_or_default()),
+        "exec" => gate::exec_slug(text("command").unwrap_or_default(), &project.default_branch),
         "process" => (text("action") == Some("stop")).then_some(gate::PROCESS_STOP_SLUG),
         _ => None,
     };
@@ -553,7 +554,7 @@ impl Tool for PlanTool {
                             "needs": {"type": "array", "items": {"type": "string", "enum": ["gpu", "cuda", "blender", "unreal", "xcode", "android", "docker"]}},
                             "after": {"type": ["integer", "string"], "description": "An earlier task's number in this plan, or a task's slug."},
                             "machine": {"type": "string", "description": "The machine to run it on, when the user named one."},
-                            "agent": {"type": "string", "enum": ["claude", "codex"]},
+                            "agent": {"type": "string", "enum": WorkerAgent::VARIANTS},
                             "persona": {"type": "string", "description": "A persona from the project's .agents folder."}
                         },
                         "required": ["title", "body"],
@@ -742,7 +743,10 @@ impl PlanTool {
             None => None,
             Some(Ok(agent)) => Some(agent),
             Some(Err(_)) => {
-                return Ok(Err(format!("Task {number}: the agent is claude or codex.")));
+                return Ok(Err(format!(
+                    "Task {number}: the agent is one of {}.",
+                    WorkerAgent::VARIANTS.join(", ")
+                )));
             }
         };
         let machine = match planned.machine.as_deref() {
