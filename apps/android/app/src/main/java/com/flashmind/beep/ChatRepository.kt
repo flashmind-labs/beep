@@ -410,6 +410,7 @@ class ChatRepository(private val storage: LocalStorage) {
         modelChoices.value = null
         update { ChatState() }
         starters.value = emptyList()
+        updates.value = emptyList()
         loadStarters()
         reconnect()
     }
@@ -1173,6 +1174,25 @@ class ChatRepository(private val storage: LocalStorage) {
         if (startersRefreshing.value || starterRefreshWait(starterRefreshes.value, now) > 0) return
         starterRefreshes.value = starterRefreshes.value.filter { now - it < STARTER_REFRESH_WINDOW_MS } + now
         loadStarters(refresh = true)
+    }
+
+    /** What the event triage agent found in the user's apps, newest first, for the Updates card. */
+    val updates = MutableStateFlow<List<com.flashmind.beep.proto.AppUpdate>>(emptyList())
+    private var updatesJob: Job? = null
+
+    /** Asks the server for updates. A server from before them answers with an error, which leaves none. */
+    fun loadUpdates() {
+        if (updatesJob?.isActive == true) return
+        updatesJob = scope.launch {
+            runCatching { api().listUpdates() }.onSuccess { updates.value = it }
+        }
+    }
+
+    /** Takes updates off the card at once and tells the server, which keeps them gone on every device. */
+    fun dismissUpdates(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        updates.value = updates.value.filter { it.id !in ids }
+        scope.launch { runCatching { api().dismissUpdates(ids) } }
     }
 
     /** Takes a used starter off the saved set until the next one loads. */
