@@ -393,3 +393,24 @@ async fn a_folder_swapped_for_an_empty_one_deletes_nothing() {
     assert!(files(&a.folder()).is_empty());
     assert!(!a.folder().join(MARKER).exists());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_node_taken_out_of_a_project_stops_getting_its_changes() {
+    let (a, b) = pair().await;
+    let syncs = a.running().transfers.syncs();
+    eventually("the second node to pull from the first", || {
+        syncs.pulls_served() == 1
+    })
+    .await;
+    // The first node syncs the project with nobody now.
+    let refused = syncs
+        .configure(vec![Project {
+            name: PROJECT.into(),
+            folder: a.folder().to_string_lossy().into_owned(),
+            peers: Vec::new(),
+        }])
+        .await;
+    assert!(refused.is_empty(), "{refused:?}");
+    eventually("the pull to end", || syncs.pulls_served() == 0).await;
+    drop(b);
+}
