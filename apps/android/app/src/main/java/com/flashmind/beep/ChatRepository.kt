@@ -410,6 +410,9 @@ class ChatRepository(private val storage: LocalStorage) {
         modelChoices.value = null
         update { ChatState() }
         starters.value = emptyList()
+        // The old account's list must not land on the new one's card.
+        updatesJob?.cancel()
+        synchronized(dismissedUpdates) { dismissedUpdates.clear() }
         updates.value = emptyList()
         loadStarters()
         reconnect()
