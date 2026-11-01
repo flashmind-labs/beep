@@ -194,6 +194,12 @@ impl Store {
             .bind(endpoint_id)
             .execute(&mut *tx)
             .await?;
+        // Nor one that syncs projects; its peers drop it on the next push.
+        sqlx::query("DELETE FROM project_sync WHERE user_id=$1 AND endpoint_id=$2")
+            .bind(user.as_str())
+            .bind(endpoint_id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -343,6 +349,17 @@ mod tests {
             )
             .await
             .unwrap();
+        store
+            .set_project_sync(
+                &owner,
+                &crate::store::SyncRow {
+                    project: "game".into(),
+                    endpoint: desktop.to_string(),
+                    folder: "/srv/game".into(),
+                },
+            )
+            .await
+            .unwrap();
         assert!(
             store
                 .revoke_key(&owner, &desktop.to_string())
@@ -350,6 +367,8 @@ mod tests {
                 .unwrap()
         );
         assert!(store.nodes(&owner).await.unwrap().is_empty());
+        // Nor one that syncs projects.
+        assert!(store.project_syncs(&owner).await.unwrap().is_empty());
         assert_eq!(store.sign_in(&desktop).await.unwrap(), SignIn::Revoked);
         assert_eq!(
             store.live_keys(&user).await.unwrap(),

@@ -3,8 +3,10 @@
 use super::Reply;
 use crate::{
     instance::Privilege,
+    nodes::{self, TokenRefusal},
     protocol::{
         node::{AppInfo, AppName, Capability, EnvReport, GpuInfo},
+        setup::SetupToken,
         *,
     },
     router::Cx,
@@ -62,6 +64,47 @@ pub(super) async fn list_machine_details(
         .filter(|node| keys.contains(&node.endpoint))
         .map(|node| machine_details(node.endpoint, node.env.unwrap_or_default()))
         .collect())
+}
+
+/// A setup token for a new machine. Admins only, like `list_machines`.
+pub(super) async fn create_node_token(
+    cx: Cx,
+    CreateNodeToken { name }: CreateNodeToken,
+) -> Reply<NodeToken> {
+    match nodes::create_token(&cx.app, &cx.user, name.as_deref()).await {
+        Ok(made) => Ok(NodeToken {
+            token: made.token.to_string(),
+            expires_at: made.expires_at.into(),
+        }),
+        Err(TokenRefusal::NotAllowed) => Err(ApiError::Unauthorized {}),
+        Err(TokenRefusal::Failed(e)) => Err(e.into()),
+        Err(refusal) => Err(ApiError::bad_request(refusal.to_string())),
+    }
+}
+
+/// Only the caller's own tokens.
+pub(super) async fn get_node_token(
+    cx: Cx,
+    GetNodeToken { token }: GetNodeToken,
+) -> Reply<Option<String>> {
+    let token = SetupToken::parse(&token).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    cx.user
+        .node_token_claimer(&token.hash())
+        .await?
+        .ok_or(ApiError::NotFound {})
+}
+
+/// Only the caller's own unused tokens.
+pub(super) async fn revoke_node_token(
+    cx: Cx,
+    RevokeNodeToken { token }: RevokeNodeToken,
+) -> Reply<()> {
+    let token = SetupToken::parse(&token).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    if cx.user.revoke_node_token(&token.hash()).await? {
+        Ok(())
+    } else {
+        Err(ApiError::NotFound {})
+    }
 }
 
 fn machine_details(id: String, env: EnvReport) -> MachineDetails {

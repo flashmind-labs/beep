@@ -1,6 +1,6 @@
 //! The `beep-node` command line.
 
-use beep_node::{agents::Agents, claude::hooks, env, link, local, service, state};
+use beep_node::{agents::Agents, claude::hooks, env, link, local, service, setup, state};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -25,7 +25,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Makes this machine's key and prints a code to link it from the phone.
+    /// Links this machine to the account that made `token` in Beep ("Add a
+    /// machine"), then serves like `run`.
+    Setup {
+        /// The setup token, `bk1-...`.
+        token: String,
+        /// What to call this machine, such as "dev server". Defaults to the
+        /// name given in Beep, else the host name.
+        #[arg(long)]
+        name: Option<String>,
+        /// Stops after linking instead of serving.
+        #[arg(long)]
+        no_run: bool,
+    },
+    /// The old way, kept for older servers: makes this machine's key and
+    /// prints a code to paste into the phone. Prefer `setup`.
     Link {
         /// The Beep server's endpoint id.
         #[arg(long)]
@@ -121,6 +135,22 @@ async fn main() -> Result<()> {
         None => state::default_dir()?,
     };
     match cli.command {
+        Command::Setup {
+            token,
+            name,
+            no_run,
+        } => {
+            let (state, claimed) = setup::setup(&dir, &token, name.as_deref()).await?;
+            if no_run {
+                println!(
+                    "Linked to {}. Start it with `beep-node run`.",
+                    claimed.account
+                );
+                return Ok(());
+            }
+            println!("Linked to {}. Starting.", claimed.account);
+            link::serve(state, cli.workspace.as_deref(), stopped()?).await
+        }
         Command::Link { server, name } => {
             let state = state::State::create(&dir, &server, &name)?;
             link::print_offer(&state)

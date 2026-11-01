@@ -30,9 +30,9 @@ use tokio::task::spawn_blocking;
 /// Which file on which disk, to see that a path still names the file the
 /// walk found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Identity {
-    device: u64,
-    inode: u64,
+pub(crate) struct Identity {
+    pub(crate) device: u64,
+    pub(crate) inode: u64,
 }
 
 impl Identity {
@@ -115,6 +115,10 @@ fn walk(root: &Path) -> Result<Walked> {
                 .push(prefix.trim_end_matches('/').to_owned());
         }
     }
+    ensure!(
+        (walked.entries.len() + walked.empty_folders.len()) as u64 <= MAX_FILES,
+        "the folder holds more than {MAX_FILES} files and folders"
+    );
     walked.entries.sort_by(|a, b| a.name.cmp(&b.name));
     walked.empty_folders.sort();
     Ok(walked)
@@ -130,7 +134,7 @@ pub(super) struct Offered {
 
 /// Fails unless `path` opens, without following a link, as the file
 /// `identity` names.
-fn check_same(path: &Path, identity: Identity) -> Result<()> {
+pub(crate) fn check_same(path: &Path, identity: Identity) -> Result<()> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
