@@ -14,6 +14,23 @@ case "${1:-sim}" in
 esac
 
 cd "$root"
+profile=".dev/android-assets/testing-profile.json"
+node_id="${BEEP_NODE_ID:-}"
+if [ -z "$node_id" ] && [ -f "$profile" ]; then
+  node_id=$(python3 - "$profile" <<'PYTHON'
+import json
+import sys
+
+with open(sys.argv[1]) as source:
+    print(json.load(source).get("node_id", ""))
+PYTHON
+)
+fi
+if ! [[ "$node_id" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo 'Set BEEP_NODE_ID in .env to the server node ID, or run just bake-profile.' >&2
+  exit 1
+fi
+
 # Xcode's environment points cargo at the wrong SDK for host build scripts.
 unset SDKROOT IPHONEOS_DEPLOYMENT_TARGET
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
@@ -26,10 +43,5 @@ cargo run -q -p beep-android --features bindgen --bin uniffi-bindgen -- \
 cat "$out"/*FFI.modulemap > "$out/module.modulemap"
 rm "$out"/*FFI.modulemap
 
-profile=".dev/android-assets/testing-profile.json"
-node_id="${BEEP_NODE_ID:-}"
-if [ -z "$node_id" ] && [ -f "$profile" ]; then
-  node_id=$(sed -n 's/.*"node_id":"\([0-9a-f]*\)".*/\1/p' "$profile")
-fi
 printf 'enum BeepConfig {\n    static let nodeId = "%s"\n}\n' "$node_id" > "$out/BeepConfig.swift"
 echo "Built $target, node ID ${node_id:0:12}..."
