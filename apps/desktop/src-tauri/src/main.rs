@@ -93,7 +93,7 @@ fn main() {
             WindowEvent::Focused(false)
                 if window.label() == bar::LABEL && window.is_visible().unwrap_or(false) =>
             {
-                let _ = window.hide();
+                bar::hide(window.app_handle());
                 if let Some(voice) = window.app_handle().try_state::<Arc<Voice>>()
                     && voice.is_live()
                 {

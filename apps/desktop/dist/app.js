@@ -4213,10 +4213,19 @@ function drawMachines() {
 const AG = {
   hosts: null, sessions: [], error: "", busy: false,
   form: { prompt: "", machine: "auto", agent: null, cwd: "", chat: null },
-  open: null, page: null, why: "", back: "chat", timer: 0, inflight: false, note: "", sel: 0,
+  open: null, page: null, why: "", back: "chat", timer: 0, inflight: null, note: "", sel: 0,
+  // Polling: what the last answer looked like, when it last changed,
+  // whether it stopped for quiet, and the question an answer is going to.
+  sig: "", changed: 0, paused: false, answering: null, barHidden: false,
 };
 /// How often the session view asks for its session while on screen.
 const AGENT_POLL_MS = 1500;
+/// A quiet session (idle, or started outside Beep) unchanged this long is
+/// asked every `AGENT_SLOW_MS`, and after `AGENT_PAUSE_AFTER` no more.
+const AGENT_SLOW_AFTER = 2 * 60_000;
+const AGENT_SLOW_MS = 10_000;
+const AGENT_PAUSE_AFTER = 5 * 60_000;
+const AGENT_ACTIVE = new Set(["asking", "working", "running", "starting"]);
 const AGENT_LAST = 60;
 const AGENT_KINDS = {
   claude: { ini: "CC", name: "Claude Code", cls: "claude" },
@@ -4376,32 +4385,76 @@ function openAgent(s, { why = "", back: from } = {}) {
   AG.why = why;
   AG.back = from;
   AG.note = "";
+  AG.sig = "";
+  AG.changed = Date.now();
+  AG.paused = false;
+  AG.answering = null;
   drawAgentFrame();
   pollAgent();
 }
 
 const isOpen = o => S.view === "agent" && AG.open && o === AG.open;
 
-/// Asks for the open session, then again after `AGENT_POLL_MS` while it
-/// stays on screen. Never two calls at once.
+/// Whether the session view can be seen: the window is not hidden, and
+/// the bar, when this is the bar, is up.
+const agentOnScreen = () => document.visibilityState === "visible" && !AG.barHidden;
+
+/// How long until the open session is asked again, or null to stop: an
+/// ended session, or a quiet one that has not changed for a while.
+function agentDelay() {
+  const s = AG.page?.session;
+  if (!s || s.status === "ended") return null;
+  if (!s.external && AGENT_ACTIVE.has(s.status)) return AGENT_POLL_MS;
+  const still = Date.now() - AG.changed;
+  if (still >= AGENT_PAUSE_AFTER) return null;
+  return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
+}
+
+/// Asks for the open session, then again after `agentDelay()` while it
+/// stays on screen. Never two calls at once for one session.
 async function pollAgent() {
   clearTimeout(AG.timer);
   const o = AG.open;
-  if (!isOpen(o) || AG.inflight) return;
-  if (document.visibilityState === "visible") {
-    AG.inflight = true;
-    try {
-      const page = await invoke("agent_view", { machineId: o.machine_id, agent: o.agent, session: o.session, last: AGENT_LAST });
-      if (isOpen(o)) { AG.page = page; AG.note = AG.note === "gone" ? "" : AG.note; drawAgentBody(); }
-    } catch (e) {
-      if (isOpen(o)) { AG.note = /not found/i.test(String(e)) ? "gone" : String(e); drawAgentBody(); }
-    } finally {
-      AG.inflight = false;
+  if (!isOpen(o) || AG.inflight === o || !agentOnScreen()) return;
+  AG.inflight = o;
+  try {
+    const page = await invoke("agent_view", { machineId: o.machine_id, agent: o.agent, session: o.session, last: AGENT_LAST });
+    if (isOpen(o)) {
+      const sig = JSON.stringify(page);
+      if (sig !== AG.sig) { AG.sig = sig; AG.changed = Date.now(); }
+      if (page.session.question?.id !== AG.answering) AG.answering = null;
+      AG.page = page;
+      AG.note = AG.note === "gone" ? "" : AG.note;
+      drawAgentBody();
     }
+  } catch (e) {
+    if (isOpen(o)) { AG.note = /not found/i.test(String(e)) ? "gone" : String(e); drawAgentBody(); }
+  } finally {
+    if (AG.inflight === o) AG.inflight = null;
   }
-  if (isOpen(o) && AG.page?.session.status !== "ended") AG.timer = setTimeout(pollAgent, AGENT_POLL_MS);
+  // Another session opened while this one was asked: follow that one.
+  if (AG.open !== o) { if (isOpen(AG.open) && !AG.inflight) pollAgent(); return; }
+  if (!isOpen(o) || !agentOnScreen()) return;
+  const delay = agentDelay();
+  const paused = delay === null && AG.page?.session.status !== "ended";
+  if (paused !== AG.paused) { AG.paused = paused; drawAgentBody(); }
+  if (delay !== null) AG.timer = setTimeout(pollAgent, delay);
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.view === "agent") pollAgent(); });
+
+/// Follows the open session again after a pause or a message.
+function resumeAgent() {
+  AG.changed = Date.now();
+  AG.paused = false;
+  pollAgent();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") { if (S.view === "agent") pollAgent(); } else clearTimeout(AG.timer);
+});
+if (!PANE) {
+  listen("bar-hidden", () => { AG.barHidden = true; clearTimeout(AG.timer); });
+  listen("bar-shown", () => { AG.barHidden = false; if (S.view === "agent") pollAgent(); });
+}
 
 function agentHints() {
   const s = AG.page?.session, q = s?.question;
@@ -4427,6 +4480,7 @@ function drawAgentFrame() {
     if (S.view !== "agent") return;
     const opt = e.target.closest("[data-agopt]");
     if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
+    if (e.target.closest("#agresume")) return resumeAgent();
     if (e.target.closest("#agstop")) return steerAgent({ cancel: null });
     if (e.target.closest("#agclose")) return steerAgent({ close: null });
   };
@@ -4449,7 +4503,7 @@ function drawAgentBody() {
   const mark = x => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
   const doing = s.doing && s.status !== "ended" ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${esc(s.doing)}</div>` : "";
   const question = q ? `<div class="q"><b style="font-weight:600">${esc(q.text)}</b>${q.detail ? `<code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(q.detail)}</code>` : ""}
-      <div class="dups">${q.options.map((o, i) => `<button class="dbtn${o.allow && i === q.options.findIndex(x => x.allow) ? " pri" : !o.allow && i === q.options.findIndex(x => !x.allow) ? " warn" : ""}" data-agopt="${i}">${esc(o.name)}${o.allow && i === q.options.findIndex(x => x.allow) ? `<kbd>⌘${ICON.ret}</kbd>` : !o.allow && i === q.options.findIndex(x => !x.allow) ? "<kbd>⌘D</kbd>" : ""}</button>`).join("")}</div></div>` : "";
+      <div class="dups">${q.options.map((o, i) => `<button class="dbtn${o.allow && i === q.options.findIndex(x => x.allow) ? " pri" : !o.allow && i === q.options.findIndex(x => !x.allow) ? " warn" : ""}" data-agopt="${i}"${q.id === AG.answering ? " disabled" : ""}>${esc(o.name)}${o.allow && i === q.options.findIndex(x => x.allow) ? `<kbd>⌘${ICON.ret}</kbd>` : !o.allow && i === q.options.findIndex(x => !x.allow) ? "<kbd>⌘D</kbd>" : ""}</button>`).join("")}</div></div>` : "";
   const plan = p.plan.length ? `<div class="sec">Plan</div><div class="plan">${p.plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
   const files = p.files.length ? `<div class="sec">Files changed</div><div class="files">${p.files.slice(-12).map(f => `<span><b>${esc(f)}</b></span>`).join("")}${p.files.length > 12 ? `<span style="color:var(--muted)">and ${p.files.length - 12} more</span>` : ""}</div>` : "";
   const queued = p.queued ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${p.queued === 1 ? "1 message waits" : `${p.queued} messages wait`} for the turn to end</div>` : "";
@@ -4462,7 +4516,8 @@ function drawAgentBody() {
   const err = p.error ? `<div class="derr">${esc(p.error)}</div>` : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
-  b.innerHTML = why + card + entries + err + note;
+  const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
+  b.innerHTML = why + card + entries + err + note + paused;
   const hint = bar.querySelector(":scope > .dhints");
   if (hint) hint.replaceWith(h(agentHints()));
   const field = $("#agfield");
@@ -4470,18 +4525,26 @@ function drawAgentBody() {
   if (b.stuck !== false) b.scrollTop = b.scrollHeight;
 }
 
+/// Answers the open question once: its buttons stay disabled, and a poll
+/// that still shows it does not bring them back, until the node moves on.
 async function answerAgentQuestion(i) {
   const o = AG.open, q = AG.page?.session.question, opt = q?.options[i];
-  if (!opt) return;
-  AG.page.session.question = null;
-  AG.page.session.status = "working";
+  if (!opt || AG.answering === q.id) return;
+  AG.answering = q.id;
   drawAgentBody();
   try {
     await invoke("center_answer_agent", { machineId: o.machine_id, agent: o.agent, session: o.session, question: q.id, reply: opt.id });
+    if (isOpen(o) && AG.page.session.question?.id === q.id) {
+      AG.page.session.question = null;
+      AG.page.session.status = "working";
+    }
   } catch (e) {
-    if (isOpen(o)) { AG.note = /^conflict/i.test(String(e)) ? "" : String(e); drawAgentBody(); }
+    // A conflict means it was answered already, so it stays answered.
+    const conflict = /^conflict/i.test(String(e));
+    if (!conflict && AG.answering === q.id) AG.answering = null;
+    if (isOpen(o)) AG.note = conflict ? "" : String(e);
   }
-  if (isOpen(o)) pollAgent();
+  if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
 }
 /// The first option of the open question that allows, or that does not.
 function answerFirst(allow) {
@@ -4500,7 +4563,7 @@ async function steerAgent(steer) {
   } catch (e) {
     AG.note = String(e).replace(/^bad request: /, "");
   }
-  if (isOpen(o)) { drawAgentBody(); pollAgent(); }
+  if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
 }
 
 function sendAgentMessage() {
