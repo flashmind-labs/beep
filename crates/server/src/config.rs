@@ -12,7 +12,7 @@ use crate::{
     agents::{AgentConfig, AgentId},
     events::EventsConfig,
     instance::InstanceConfig,
-    research::ResearchConfig,
+    research::{ResearchConfig, RoleModel},
     voice::VoiceConfig,
     watchers::WatchersConfig,
 };
@@ -43,6 +43,9 @@ pub struct Config {
     pub agents: HashMap<AgentId, AgentConfig>,
     /// The models research roles run on. Research is off without it.
     pub research: Option<ResearchConfig>,
+    /// The model project chats plan on. Without it they plan on the chat's
+    /// default.
+    pub project: Option<ProjectConfig>,
     /// Endpoint ids of the users who get admin features.
     #[serde(default)]
     pub admins: Vec<EndpointId>,
@@ -104,6 +107,15 @@ pub struct Config {
     /// `timeout_secs`.
     #[serde(default)]
     pub watchers: WatchersConfig,
+}
+
+/// The config's `[project]`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectConfig {
+    /// What a project chat's planning turns (a new request, a re-plan) run
+    /// on. Routine turns run on the chat's default. It must be offered.
+    pub planner: RoleModel,
 }
 
 /// A token-based APNs key from the Apple Developer account.

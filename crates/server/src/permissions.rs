@@ -6,9 +6,12 @@
 use crate::{
     apps::{
         CATALOG, CatalogApp, catalog_app, custom_mcp::PREFIX as ADDED_PREFIX, mcp::FASTMAIL_TOOLS,
+        read,
     },
     grants::RoutineGrants,
-    protocol::{AppAction, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel},
+    protocol::{
+        AppAction, AppKind, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel,
+    },
     store::AppPermissionRow,
     user::User,
 };
@@ -67,6 +70,23 @@ const ACTING_HINTS: &[&str] = &["createHint", "destructiveHint"];
 pub(crate) fn hinted_to_act(tags: &[String]) -> bool {
     tags.iter().any(|tag| ACTING_HINTS.contains(&tag.as_str()))
 }
+
+/// The project agent's own tools, which ask or refuse through the project
+/// gate (`crate::projects::gate`) rather than `guard`: `Acts::Never` keeps
+/// `guard` and `actions_since` off them. It is outside `CATALOG`, so it is
+/// not listed as an app to connect; `kind` means nothing for it.
+pub(crate) const PROJECT_APP: CatalogApp = CatalogApp {
+    slug: "project",
+    name: "Project",
+    description: "The project agent's tasks and machines",
+    kind: AppKind::Composio {},
+    tools: &[
+        read("PROJECT_SETUP"),
+        read("PROJECT_PLAN"),
+        read("PROJECT_TASKS"),
+        read("PROJECT_WORKER"),
+    ],
+};
 
 /// A tool's name as rules keep it. Composio's tool wrappers lowercase the
 /// slug, so `outlook_reply_email` is `OUTLOOK_REPLY_EMAIL`.
@@ -131,9 +151,16 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
         let slug = format!("{ADDED_PREFIX}{}", server.to_ascii_lowercase());
         return Some((ToolApp::Added(slug), Acts::Always));
     }
-    let name = tool.strip_prefix("FASTMAIL_")?.to_lowercase();
-    let &(_, acts) = FASTMAIL_TOOLS.iter().find(|(known, _)| *known == name)?;
-    Some((ToolApp::Catalog(catalog_app("fastmail")?), acts))
+    if let Some(name) = tool.strip_prefix("FASTMAIL_") {
+        let name = name.to_lowercase();
+        let &(_, acts) = FASTMAIL_TOOLS.iter().find(|(known, _)| *known == name)?;
+        return Some((ToolApp::Catalog(catalog_app("fastmail")?), acts));
+    }
+    let picked = PROJECT_APP
+        .tools
+        .iter()
+        .find(|picked| picked.slug == tool)?;
+    Some((ToolApp::Catalog(&PROJECT_APP), picked.acts))
 }
 
 /// The catalog app of `tool` and whether a call with `args` acts, for a
@@ -155,8 +182,17 @@ pub(crate) fn approval_for(app: &ToolApp, tool: &str, args: &Value) -> Approval 
     }
 }
 
-/// The tools of `app` that can act, by the name the agent calls them.
+/// The tools of `app` that can act, by the name the agent calls them. The
+/// project's tools all count: its gate asks for them, so each can be
+/// allowed always.
 fn action_tools(app: &CatalogApp) -> Vec<String> {
+    if app.slug == PROJECT_APP.slug {
+        return app
+            .tools
+            .iter()
+            .map(|picked| picked.slug.to_owned())
+            .collect();
+    }
     if app.slug == "fastmail" {
         return FASTMAIL_TOOLS
             .iter()
@@ -224,14 +260,14 @@ impl Rules {
     }
 
     /// The level of `app`.
-    fn level(&self, app: &str) -> PermissionLevel {
+    pub(crate) fn level(&self, app: &str) -> PermissionLevel {
         self.0
             .get(app)
             .map_or(Rule::default().level, |rule| rule.level)
     }
 
     /// Whether `tool` of `app` runs without asking under ask first.
-    fn allows(&self, app: &str, tool: &str) -> bool {
+    pub(crate) fn allows(&self, app: &str, tool: &str) -> bool {
         self.0
             .get(app)
             .is_some_and(|rule| rule.allowed.contains(tool))
@@ -1241,6 +1277,21 @@ mod tests {
             classify("outlook_query_emails", &none).unwrap().1,
             Acts::Never
         );
+    }
+
+    #[test]
+    fn project_tools_are_known_and_can_be_allowed_always() {
+        let (app, acts) = lookup("project_plan").unwrap();
+        assert_eq!((app.slug(), acts), ("project", Acts::Never));
+        assert_eq!(app.name(), "Project");
+        assert!(lookup("PROJECT_WORKER").is_some());
+        assert!(lookup("PROJECT_OTHER").is_none());
+        let saved = row(
+            &PROJECT_APP,
+            PermissionLevel::Ask {},
+            vec!["PROJECT_PLAN".into(), "GMAIL_SEND_EMAIL".into()],
+        );
+        assert_eq!(saved.allowed, ["PROJECT_PLAN"]);
     }
 
     #[test]

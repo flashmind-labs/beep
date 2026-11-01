@@ -19,7 +19,10 @@ use crate::{
     },
     permissions::Rules,
     places::PlaceEvent,
-    projects::model::{ProjectId, RepoName, TaskId, WorkerId},
+    projects::model::{
+        IssueHost, IssueRef, MachinePath, ProjectId, RepoName, Roles, StartRequest, TaskId,
+        TaskState, Visibility, WorkerId, WorkerState,
+    },
     protocol::{
         Cron, FilePart, ImageRef, Memory, RouteCard, Run, SentFiles, SentImages, Session,
         ToolLabel, TurnSources, UpdatePage, Upload, WebSource, node::EnvReport,
@@ -27,14 +30,15 @@ use crate::{
     research::pdf::{self, Paper, Pdf},
     starters::Cached,
     store::{
-        Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CopiedShare, CreateRun,
-        Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite, Join,
-        JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow,
-        Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode,
-        NewPicture, NewPlace, NewPlaceRoutine, NewWorker, NodeRow, PicturesOf, PlaceRoutine,
-        Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow, RunStatus,
-        SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, StartRefused, Store,
-        StoredContext, StoredMessage, TaskRow, TurnAgentRow, TurnRecord, TurnsToDelete, WorkerRow,
+        Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CheckoutRow, CopiedShare,
+        CreateRun, Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite,
+        Join, JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow,
+        MemoryRow, Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode,
+        NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewWorker, NodeRow, PicturesOf,
+        PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow,
+        RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, StartRefused,
+        Store, StoredContext, StoredMessage, TaskRow, TurnAgentRow, TurnRecord, TurnsToDelete,
+        WorkerRow,
     },
 };
 use anyhow::Result;
@@ -1332,6 +1336,112 @@ impl User {
 
     pub(crate) async fn project_worker(&self, id: WorkerId) -> Result<Option<WorkerRow>> {
         self.store.worker(&self.key, id).await
+    }
+
+    // The calls below take a project or task id the caller already read
+    // through one of the user's own lookups above.
+
+    pub(crate) async fn checkouts(&self, project: ProjectId) -> Result<Vec<CheckoutRow>> {
+        self.store.checkouts(project).await
+    }
+
+    pub(crate) async fn add_checkout(
+        &self,
+        project: ProjectId,
+        checkout: &CheckoutRow,
+    ) -> Result<()> {
+        self.store.add_checkout(project, checkout).await
+    }
+
+    pub(crate) async fn set_home(
+        &self,
+        project: ProjectId,
+        machine: &EndpointId,
+        path: &MachinePath,
+    ) -> Result<()> {
+        self.store.set_home(project, machine, path).await
+    }
+
+    pub(crate) async fn set_pin(&self, project: ProjectId, pin: Option<&EndpointId>) -> Result<()> {
+        self.store.set_pin(project, pin).await
+    }
+
+    pub(crate) async fn set_project_setup(
+        &self,
+        project: ProjectId,
+        roles: &Roles,
+        visibility: Visibility,
+        default_branch: &str,
+    ) -> Result<()> {
+        self.store
+            .set_project_setup(project, roles, visibility, default_branch)
+            .await
+    }
+
+    pub(crate) async fn create_tasks(
+        &self,
+        project: ProjectId,
+        tasks: &[NewTask],
+    ) -> Result<Vec<TaskRow>> {
+        self.store.create_tasks(project, tasks).await
+    }
+
+    pub(crate) async fn project_tasks(&self, project: ProjectId) -> Result<Vec<TaskRow>> {
+        self.store.tasks(project).await
+    }
+
+    pub(crate) async fn task_by_slug(
+        &self,
+        project: ProjectId,
+        slug: &str,
+    ) -> Result<Option<TaskRow>> {
+        self.store.task_by_slug(project, slug).await
+    }
+
+    pub(crate) async fn set_task_state(&self, task: TaskId, state: TaskState) -> Result<()> {
+        self.store.set_task_state(task, state).await
+    }
+
+    pub(crate) async fn set_task_issue(
+        &self,
+        task: TaskId,
+        host: &IssueHost,
+        issue: &IssueRef,
+    ) -> Result<()> {
+        self.store.set_task_issue(task, host, issue).await
+    }
+
+    pub(crate) async fn set_task_start(
+        &self,
+        task: TaskId,
+        start: Option<&StartRequest>,
+    ) -> Result<()> {
+        self.store.set_task_start(task, start).await
+    }
+
+    pub(crate) async fn set_task_pr(&self, task: TaskId, url: &str) -> Result<()> {
+        self.store.set_task_pr(task, url).await
+    }
+
+    pub(crate) async fn set_task_after(&self, task: TaskId, after: Option<TaskId>) -> Result<()> {
+        self.store.set_task_after(task, after).await
+    }
+
+    pub(crate) async fn update_task_text(
+        &self,
+        task: TaskId,
+        title: Option<&str>,
+        body: Option<&str>,
+    ) -> Result<()> {
+        self.store.update_task_text(task, title, body).await
+    }
+
+    pub(crate) async fn set_worker_state(
+        &self,
+        worker: WorkerId,
+        state: WorkerState,
+    ) -> Result<bool> {
+        self.store.set_worker_state(worker, state).await
     }
 }
 

@@ -22,6 +22,11 @@ use crate::{
     memories::{Exchange, Turn},
     metering,
     permissions::{self, ApprovalPayload, Approved, Rules},
+    projects::{
+        self,
+        gate::ProjectGate,
+        turn::{self as project_turn, TurnKind},
+    },
     protocol::{ApprovalDecision, AutoPick, Run, RunEvent, Usage},
     repeat::{self, RepeatGuard},
     sources::ReplySources,
@@ -104,6 +109,13 @@ impl App {
             Some(config) => user.research_in(chat).await?.map(|row| (row, config)),
             None => None,
         };
+        // A project chat runs as the project's agent, on its own prompt and
+        // tools. Without machines it is a plain chat.
+        let project = if self.allows(Privilege::Nodes, user) {
+            user.project_in(chat).await?
+        } else {
+            None
+        };
         // The model runs on the context, which may be compacted. The apps
         // read the turn's steps, saved as messages when it ends.
         let mut conversation = user
@@ -130,7 +142,7 @@ impl App {
         let one_off = message.model.is_some() || message.thinking.is_some();
         // The picks ask a model, so a stop does not wait for them.
         let picking = async {
-            if research.is_some() {
+            if research.is_some() || project.is_some() {
                 return (None, None);
             }
             // With agents on, every chat turn runs as one: Jev picks it, and a
@@ -176,9 +188,10 @@ impl App {
         // Always set the server-owned prompt, including when loading an older
         // conversation. It stays the same per agent and user so the provider
         // can cache it: only the user's languages are added.
-        let prompt = match &research {
-            Some(_) => research::LEAD_PROMPT,
-            None => turn_agent
+        let prompt = match (&research, &project) {
+            (Some(_), _) => research::LEAD_PROMPT,
+            (None, Some(_)) => project_turn::PROJECT_PROMPT,
+            (None, None) => turn_agent
                 .as_ref()
                 .map_or(AgentId::General, |turn| turn.agent.id)
                 .prompt(),
@@ -191,11 +204,22 @@ impl App {
                 prompt.to_owned()
             }
         });
-        let (model, thinking) = match (&auto, &research) {
-            (Some(auto), _) => (auto.model.clone(), auto.thinking),
-            (None, Some((_, config))) if !one_off => {
+        // A project's planning turns run on its planner, routine ones on the
+        // chat's default.
+        let planner = match (&project, self.models.project()) {
+            (Some(_), Some(config))
+                if !one_off && project_turn::turn_kind(message) == TurnKind::Planning =>
+            {
+                Some(&config.planner)
+            }
+            _ => None,
+        };
+        let (model, thinking) = match (&auto, &research, planner) {
+            (Some(auto), ..) => (auto.model.clone(), auto.thinking),
+            (None, Some((_, config)), _) if !one_off => {
                 (config.lead.model.clone(), config.lead.thinking)
             }
+            (None, None, Some(planner)) => (planner.model.clone(), planner.thinking),
             _ => (
                 match message.model.clone() {
                     Some(model) => model,
@@ -282,7 +306,10 @@ impl App {
         }
         let use_machines = self.allows(Privilege::Nodes, user) && !untrusted;
         let workspace = use_machines.then(|| Workspace::find(self, user)).flatten();
-        if use_machines {
+        // A project chat gets the project's tools in their place, below,
+        // once the rules are loaded.
+        let project = project.filter(|_| use_machines);
+        if use_machines && project.is_none() {
             tools::machines::register(&mut registry, self, user, chat);
         }
         if events::enabled(self, user) {
@@ -378,6 +405,14 @@ impl App {
                 approved: approved.0.clone(),
             }));
         }
+        if let Some(project) = &project {
+            let gate = Arc::new(ProjectGate::new(
+                rules.clone(),
+                approved.0.clone(),
+                project.visibility,
+            ));
+            projects::tools::register(&mut registry, self, user, project, chat, gate);
+        }
         for tool in permissions::guard(
             tools,
             rules,
@@ -390,6 +425,8 @@ impl App {
         let refusals = repeat::guard_tool_calls(&mut registry);
         let kind = if research.is_some() {
             "research"
+        } else if project.is_some() {
+            "project"
         } else if is_cron {
             "routine"
         } else if background {
@@ -469,6 +506,18 @@ impl App {
         };
         if let Some((row, config)) = &research {
             let block = self.research_context(row, config).await?;
+            context = Some(match context {
+                Some(context) => format!("{context}\n{block}"),
+                None => block,
+            });
+        }
+        if let Some(project) = &project {
+            let Some(block) = cancel
+                .run_until_cancelled(project_turn::start(self, user, project))
+                .await
+            else {
+                return self.stopped_early(user, run, live).await;
+            };
             context = Some(match context {
                 Some(context) => format!("{context}\n{block}"),
                 None => block,
