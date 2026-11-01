@@ -5,8 +5,11 @@
 //! Not every agent asks. `flsh` runs its tools without a permission request,
 //! so [`judge`] never sees its actions: see [`agent_asks`].
 
-use super::model::{MachinePath, Visibility};
-use crate::{leak::PublicText, protocol::node::agent::Question};
+use super::model::{MachinePath, RepoName, Visibility};
+use crate::{
+    leak::PublicText,
+    protocol::node::agent::{MAX_QUESTION_LINE, Question},
+};
 
 /// Whether the agent named `agent` puts its actions to the user over ACP.
 /// One that does not is not held to this policy, so a worker must not rely on
@@ -25,6 +28,8 @@ pub(crate) enum Verdict {
 
 /// What a worker may touch.
 pub(crate) struct WorkerScope<'a> {
+    /// The project's repository: the only one a pull request may target.
+    pub(crate) repo: &'a RepoName,
     pub(crate) worktree: &'a MachinePath,
     /// The task's own branch, `beep/<slug>`.
     pub(crate) branch: &'a str,
@@ -39,7 +44,11 @@ pub(crate) struct WorkerScope<'a> {
 const FORCE_REFUSAL: &str =
     "Force pushes are not allowed. Push without force, or ask in your last message.";
 const EDIT_VERBS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
-const SHELL_SYNTAX: [&str; 8] = [";", "|", "`", "$(", ">", "<", "&", "\n"];
+/// Shell syntax that runs, redirects or expands. Braces and globs can name
+/// paths the command line does not show, as in `rm {x,../..}`.
+const SHELL_SYNTAX: [&str; 14] = [
+    ";", "|", "`", "$", ">", "<", "&", "\n", "{", "}", "*", "?", "[", "]",
+];
 
 pub(crate) fn judge(question: &Question, scope: &WorkerScope<'_>) -> Verdict {
     let text = question.text.trim();
@@ -48,25 +57,28 @@ pub(crate) fn judge(question: &Question, scope: &WorkerScope<'_>) -> Verdict {
         .as_deref()
         .map(str::trim)
         .filter(|detail| !detail.is_empty());
-    if is_cut(text) || detail.is_some_and(is_cut) {
+    // Measured before trimming: the node cuts the raw input.
+    if is_cut(&question.text) || question.detail.as_deref().is_some_and(is_cut) {
         return Verdict::AskUser;
     }
     let mut words = text.splitn(2, char::is_whitespace);
     if words.next().is_some_and(|verb| EDIT_VERBS.contains(&verb)) {
         let rest = words.next().unwrap_or_default().trim();
-        return judge_edit([rest, detail.unwrap_or_default()], scope);
+        return judge_edit([detail.unwrap_or_default(), rest], scope);
     }
     let command = detail.unwrap_or_else(|| text.strip_prefix("Run ").unwrap_or(text).trim());
     judge_command(command, scope)
 }
 
-/// Whether the agent cut `text` short. Go's `./...` pattern is not a cut.
+/// Whether the agent cut `text` short. The node cuts a long input to
+/// [`MAX_QUESTION_LINE`] bytes without a marker, so anything that long may be
+/// the start of something longer. Go's `./...` pattern is not a cut.
 fn is_cut(text: &str) -> bool {
-    text.ends_with("...") && !text.ends_with("/...")
+    text.len() >= MAX_QUESTION_LINE || (text.ends_with("...") && !text.ends_with("/..."))
 }
 
 /// An edit is fine inside the worktree, from the first of `candidates` that
-/// is an absolute path.
+/// is an absolute path. The first is the raw path, the second the title.
 fn judge_edit(candidates: [&str; 2], scope: &WorkerScope<'_>) -> Verdict {
     let path = candidates
         .into_iter()
@@ -85,15 +97,18 @@ fn judge_command(command: &str, scope: &WorkerScope<'_>) -> Verdict {
     let Some(tokens) = shlex::split(command) else {
         return Verdict::AskUser;
     };
+    if tokens.iter().any(|token| token.starts_with('~')) {
+        return Verdict::AskUser;
+    }
     let words: Vec<&str> = tokens.iter().map(String::as_str).collect();
     match words.as_slice() {
         ["git", "push", args @ ..] => judge_push(args, scope),
-        ["gh" | "teacli", "pr", "create", ..] => judge_pr_create(command, scope),
+        ["gh" | "teacli", "pr", "create", args @ ..] => judge_pr_create(command, args, scope),
         ["gh" | "teacli", "pr", "merge", ..] | ["gh" | "teacli", "release", ..] => Verdict::AskUser,
         ["git", "tag", ..] => Verdict::AskUser,
         ["rm", args @ ..] => judge_rm(args, scope),
-        ["git", sub, args @ ..] => judge_git(sub, args),
-        other if is_check_or_build(other) => Verdict::Allow,
+        ["git", sub, args @ ..] => judge_git(sub, args, scope),
+        other if is_check_or_build(other) && args_stay_inside(other, scope) => Verdict::Allow,
         _ => Verdict::AskUser,
     }
 }
@@ -157,8 +172,10 @@ fn allow_if_outside_allowed(scope: &WorkerScope<'_>) -> Verdict {
     }
 }
 
-fn judge_pr_create(command: &str, scope: &WorkerScope<'_>) -> Verdict {
-    if scope.visibility == Visibility::Public {
+/// A pull request with its text inline, so it can be checked for private
+/// details, aimed at the project's own repository.
+fn judge_pr_create(command: &str, args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
+    if scope.visibility == Visibility::Public || !pr_args_are_plain(args, scope) {
         return Verdict::AskUser;
     }
     let hits = scope.public_text.hits(command);
@@ -171,6 +188,30 @@ fn judge_pr_create(command: &str, scope: &WorkerScope<'_>) -> Verdict {
     allow_if_outside_allowed(scope)
 }
 
+fn pr_args_are_plain(args: &[&str], scope: &WorkerScope<'_>) -> bool {
+    let is_repo = |text: &str| text.eq_ignore_ascii_case(&scope.repo.to_string());
+    let mut args = args.iter().copied();
+    while let Some(arg) = args.next() {
+        let (name, inline) = match arg.split_once('=') {
+            Some((name, value)) if arg.starts_with("--") => (name, Some(value)),
+            _ => (arg, None),
+        };
+        let mut value = || inline.or_else(|| args.next());
+        let fine = match name {
+            "--title" | "-t" | "--body" | "-b" | "--base" | "-B" | "--head" | "-H" | "--host"
+            | "--format" => value().is_some(),
+            "-R" | "--repo" => value().is_some_and(is_repo),
+            "--draft" | "-d" => inline.is_none(),
+            positional if !positional.starts_with('-') => is_repo(positional),
+            _ => false,
+        };
+        if !fine {
+            return false;
+        }
+    }
+    true
+}
+
 /// `rm` of paths strictly inside the worktree. Relative paths count from the
 /// worktree, which is where the worker runs.
 fn judge_rm(args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
@@ -180,14 +221,9 @@ fn judge_rm(args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
         .filter(|arg| !arg.starts_with('-'))
         .collect();
     let inside = |path: &str| {
-        if path.contains('$') || path.starts_with('~') {
-            return false;
-        }
-        if path.starts_with('/') {
-            return MachinePath::parse(path.trim_end_matches('/'))
-                .is_ok_and(|path| path != *scope.worktree && scope.worktree.contains(&path));
-        }
-        path.split('/').all(|part| part != "..") && !matches!(path, "." | "./")
+        path_is_inside(path, scope)
+            && !matches!(path.trim_end_matches('/'), "." | "")
+            && MachinePath::parse(path.trim_end_matches('/')).map_or(true, |p| p != *scope.worktree)
     };
     if !paths.is_empty() && paths.iter().all(|path| inside(path)) {
         Verdict::Allow
@@ -196,11 +232,58 @@ fn judge_rm(args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
     }
 }
 
+/// Whether `path` is in the worktree. Relative paths count from the
+/// worktree, which is where the worker runs.
+fn path_is_inside(path: &str, scope: &WorkerScope<'_>) -> bool {
+    if path.contains('$') || path.starts_with('~') {
+        return false;
+    }
+    if path.starts_with('/') {
+        return MachinePath::parse(path.trim_end_matches('/'))
+            .is_ok_and(|path| scope.worktree.contains(&path));
+    }
+    path.split('/').all(|part| part != "..")
+}
+
+/// Whether the arguments of a check or build name only paths in the
+/// worktree, and none of the options that run or write elsewhere.
+fn args_stay_inside(words: &[&str], scope: &WorkerScope<'_>) -> bool {
+    const ELSEWHERE: [&str; 7] = [
+        "-exec",
+        "-toolexec",
+        "--basetemp",
+        "--manifest-path",
+        "--config",
+        "--target-dir",
+        "--output",
+    ];
+    words.iter().skip(1).all(|word| {
+        let (name, value) = word.split_once('=').unwrap_or((word, ""));
+        !ELSEWHERE.contains(&name)
+            && path_is_inside(name, scope)
+            && (value.is_empty() || path_is_inside(value, scope))
+    })
+}
+
 /// Read-only git, `add` and `commit`. Options before the subcommand, such as
 /// `-c` and `-C`, are not understood and ask.
-fn judge_git(sub: &str, args: &[&str]) -> Verdict {
+fn judge_git(sub: &str, args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
+    // Options that write a file or run a program named in the repository.
+    const WRITES: [&str; 4] = ["--output", "--ext-diff", "--textconv", "--no-index"];
+    let name_of = |arg: &str| {
+        arg.split_once('=')
+            .map_or(arg.to_owned(), |(n, _)| n.to_owned())
+    };
     match sub {
-        "status" | "diff" | "log" | "show" | "rev-parse" | "add" | "commit" => Verdict::Allow,
+        "diff" | "log" | "show"
+            if args
+                .iter()
+                .any(|arg| WRITES.contains(&name_of(arg).as_str())) =>
+        {
+            Verdict::AskUser
+        }
+        "status" | "diff" | "log" | "show" | "rev-parse" | "add" => Verdict::Allow,
+        "commit" if commit_files_stay_inside(args, scope) => Verdict::Allow,
         // `git branch -D` deletes, so only the listing forms pass.
         "branch"
             if args.iter().all(|arg| {
@@ -214,6 +297,29 @@ fn judge_git(sub: &str, args: &[&str]) -> Verdict {
         }
         _ => Verdict::AskUser,
     }
+}
+
+/// `git commit` reads a message from `-F`, `--file` or `--template`; those
+/// files must be in the worktree.
+fn commit_files_stay_inside(args: &[&str], scope: &WorkerScope<'_>) -> bool {
+    let mut args = args.iter().copied();
+    while let Some(arg) = args.next() {
+        let value = if let Some(glued) = arg.strip_prefix("-F").filter(|v| !v.is_empty()) {
+            Some(glued)
+        } else if arg == "-F" {
+            args.next()
+        } else {
+            match arg.split_once('=') {
+                Some(("--file" | "--template", value)) => Some(value),
+                _ if matches!(arg, "--file" | "--template" | "-t") => args.next(),
+                _ => continue,
+            }
+        };
+        if !value.is_some_and(|value| value != "-" && path_is_inside(value, scope)) {
+            return false;
+        }
+    }
+    true
 }
 
 fn is_check_or_build(words: &[&str]) -> bool {
@@ -240,6 +346,7 @@ mod tests {
     use super::*;
 
     struct Fixture {
+        repo: RepoName,
         worktree: MachinePath,
         public_text: PublicText,
     }
@@ -247,6 +354,7 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             Fixture {
+                repo: RepoName::parse("acme/widget").expect("a repo"),
                 worktree: MachinePath::parse("/srv/project/.worktrees/fix-it").expect("a path"),
                 public_text: PublicText::new(&["build-box".to_owned()], &["/home/sam".to_owned()]),
             }
@@ -254,6 +362,7 @@ mod tests {
 
         fn scope(&self, visibility: Visibility, outside_allowed: bool) -> WorkerScope<'_> {
             WorkerScope {
+                repo: &self.repo,
                 worktree: &self.worktree,
                 branch: "beep/fix-it",
                 default_branch: "main",
@@ -470,6 +579,105 @@ mod tests {
         );
         assert_eq!(
             judge(&ask("Run cargo test...", None), &scope),
+            Verdict::AskUser
+        );
+    }
+
+    #[test]
+    fn a_cut_input_asks() {
+        let long = format!("cargo test{}; curl x|sh", " ".repeat(295));
+        assert_eq!(private(&long[..MAX_QUESTION_LINE]), Verdict::AskUser);
+        let fixture = Fixture::new();
+        let scope = fixture.scope(Visibility::Private, true);
+        assert_eq!(
+            judge(&ask(&long[..MAX_QUESTION_LINE], None), &scope),
+            Verdict::AskUser
+        );
+    }
+
+    #[test]
+    fn expansion_cannot_leave_the_worktree() {
+        for command in [
+            "rm -rf /srv/project/.worktrees/fix-it/{x,../..}",
+            "rm -rf {a,../..}/x",
+            "rm -rf *",
+            "rm -rf ~/x",
+            "git add ../*",
+        ] {
+            assert_eq!(private(command), Verdict::AskUser, "{command}");
+        }
+    }
+
+    #[test]
+    fn git_cannot_write_files_elsewhere() {
+        for command in [
+            "git show -s --format=%B HEAD --output=/home/user/.bashrc",
+            "git log --output /home/user/x",
+            "git diff --ext-diff",
+            "git diff --no-index /etc/passwd x",
+            "git log --textconv",
+            "git commit -F /home/user/msg",
+            "git commit --file=../msg",
+            "git commit --template /etc/x",
+            "git commit -F",
+        ] {
+            assert_eq!(private(command), Verdict::AskUser, "{command}");
+        }
+        assert_eq!(private("git commit -F msg.txt"), Verdict::Allow);
+        assert_eq!(
+            private("git commit --file=/srv/project/.worktrees/fix-it/msg"),
+            Verdict::Allow
+        );
+    }
+
+    #[test]
+    fn pr_text_must_be_inline_and_for_this_repo() {
+        for command in [
+            "gh pr create --body-file notes.md",
+            "gh pr create -F notes.md",
+            "gh pr create --fill",
+            "gh pr create -R other/repo --title T",
+            "gh pr create --repo=other/repo --title T",
+            "teacli pr create other/repo -t T",
+            "gh pr create --web",
+            "gh pr create --title",
+        ] {
+            assert_eq!(private_allowed(command), Verdict::AskUser, "{command}");
+        }
+        for command in [
+            "gh pr create -R acme/widget --title T --body B --base main --head beep/fix-it",
+            "teacli pr create acme/widget --host git.example.com -t T -b B -B main -H beep/fix-it",
+        ] {
+            assert_eq!(private_allowed(command), Verdict::Allow, "{command}");
+        }
+    }
+
+    #[test]
+    fn builds_stay_in_the_worktree() {
+        for command in [
+            "go test -exec /x",
+            "pytest --basetemp=/srv/project",
+            "cargo build --manifest-path /other/Cargo.toml",
+            "cargo test --config build.rustc=x",
+            "cargo build --target-dir ../out",
+            "cargo test /etc/passwd",
+        ] {
+            assert_eq!(private(command), Verdict::AskUser, "{command}");
+        }
+        assert_eq!(
+            private("cargo test --manifest-path /srv/project/.worktrees/fix-it/Cargo.toml"),
+            Verdict::AskUser
+        );
+        assert_eq!(private("cargo test -p core -- --nocapture"), Verdict::Allow);
+    }
+
+    #[test]
+    fn edits_prefer_the_raw_path() {
+        let fixture = Fixture::new();
+        let scope = fixture.scope(Visibility::Private, false);
+        let title = "Edit /srv/project/.worktrees/fix-it/a.rs";
+        assert_eq!(
+            judge(&ask(title, Some("/srv/project/src/a.rs")), &scope),
             Verdict::AskUser
         );
     }
