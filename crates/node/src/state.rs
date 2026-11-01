@@ -147,11 +147,8 @@ fn read_key(dir: &Path) -> Result<Option<SecretKey>> {
 
 /// Writes a file only its owner can read.
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    use std::{fs::OpenOptions, io::Write, os::unix::fs::OpenOptionsExt};
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
+    use std::{fs::OpenOptions, io::Write};
+    let mut file = crate::fsat::private(OpenOptions::new().write(true).create_new(true))
         .open(path)
         .with_context(|| format!("creating {}", path.display()))?;
     file.write_all(bytes)?;

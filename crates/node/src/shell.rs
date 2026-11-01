@@ -1,9 +1,9 @@
-//! `shell/1` sessions: one bash per stream, kept between commands so `cd`
-//! and `export` carry over.
+//! `shell/1` sessions: one bash per stream (PowerShell on Windows), kept
+//! between commands so `cd` and `export` carry over.
 
 use crate::{
     lines::read_piece,
-    process::{GroupLeader, STOP_GRACE},
+    process::{GroupLeader, STOP_GRACE, own_group},
     provision::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result};
@@ -23,6 +23,10 @@ use tokio::{
 };
 
 pub use beep_proto::node::shell::PROTOCOL;
+
+#[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
+mod powershell;
 
 /// The most output one command sends; the rest is dropped.
 const MAX_OUTPUT: usize = 1024 * 1024;
@@ -156,19 +160,17 @@ struct Shell {
 
 impl Shell {
     async fn start() -> Result<Self> {
-        let program = if which::which("bash").is_ok() {
-            "bash"
-        } else {
-            "sh"
-        };
+        let program = program();
         let mut command = Command::new(program);
+        #[cfg(windows)]
+        command.args(powershell::session_args());
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            // Its own process group, so stopping it stops what it started.
-            .process_group(0)
             .kill_on_drop(true);
+        // Its own process group, so stopping it stops what it started.
+        own_group(&mut command);
         if let Some(home) = dirs::home_dir() {
             command.current_dir(home);
         }
@@ -178,7 +180,7 @@ impl Shell {
             .with_context(|| format!("starting {program}"))?;
         let mut stdin = child.stdin.take().context("the shell has no stdin")?;
         let stdout = child.stdout.take().context("the shell has no stdout")?;
-        stdin.write_all(b"exec 2>&1\n").await?;
+        stdin.write_all(setup().as_bytes()).await?;
         Ok(Self {
             child: GroupLeader::new(child),
             stdin,
@@ -213,6 +215,11 @@ impl Shell {
                 });
             }
             let text = String::from_utf8_lossy(&line);
+            // PowerShell ends its lines with CRLF.
+            let text = match text.strip_suffix("\r\n") {
+                Some(bare) if cfg!(windows) => format!("{bare}\n").into(),
+                _ => text,
+            };
             if let Some((exit_code, cwd)) = parse_mark(&text, &self.mark) {
                 out.push(held.strip_suffix('\n').unwrap_or(&held)).await?;
                 return Ok(End::Finished { exit_code, cwd });
@@ -223,10 +230,56 @@ impl Shell {
     }
 }
 
-/// What the shell is sent for one command. `eval` keeps a syntax error in
+/// The shell that runs commands: bash, else sh; PowerShell on Windows.
+#[cfg(not(windows))]
+fn program() -> &'static str {
+    if which::which("bash").is_ok() {
+        "bash"
+    } else {
+        "sh"
+    }
+}
+
+#[cfg(windows)]
+fn program() -> &'static str {
+    powershell::program()
+}
+
+/// The command that runs `script` once in the shell, stderr merged into
+/// stdout, and the shell's name.
+pub(crate) fn one_shot(script: &str) -> (&'static str, Command) {
+    let program = program();
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    command
+        .args(powershell::one_shot_args())
+        .env(powershell::SCRIPT_VAR, script);
+    #[cfg(not(windows))]
+    command.arg("-c").arg(format!("exec 2>&1\n{script}"));
+    (program, command)
+}
+
+/// What a new shell is sent first.
+fn setup() -> String {
+    #[cfg(windows)]
+    return powershell::session_setup();
+    #[cfg(not(windows))]
+    "exec 2>&1\n".to_owned()
+}
+
+/// What the shell is sent for one command.
+fn script(command: &str, mark: &str) -> String {
+    #[cfg(windows)]
+    return powershell::script(command, mark);
+    #[cfg(not(windows))]
+    sh_script(command, mark)
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+/// What sh is sent for one command. `eval` keeps a syntax error in
 /// `command` from leaving the shell waiting for more input, and stdin is
 /// empty so a command that reads it does not eat the next one.
-fn script(command: &str, mark: &str) -> String {
+fn sh_script(command: &str, mark: &str) -> String {
     let quoted = command.replace('\'', r"'\''");
     format!(
         "{{ eval '{quoted}'\n}} < /dev/null\nprintf '\\n%s %d %s\\n' '{mark}' \"$?\" \"$PWD\"\n"
@@ -343,6 +396,50 @@ mod tests {
         (sent.concat(), end)
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn powershell_keeps_its_folder_and_variables() {
+        let mut shell = Shell::start().await.unwrap();
+        let (out, end) = run(
+            &mut shell,
+            "Set-Location C:\\; $greeting = 'hi'; 'it''s set'",
+        )
+        .await;
+        assert_eq!(out, "it's set\n");
+        assert!(
+            matches!(end, End::Finished { exit_code: 0, ref cwd } if cwd == "C:\\"),
+            "{out}"
+        );
+        let (out, end) = run(
+            &mut shell,
+            "$greeting; cmd /c \"echo oops 1>&2\"; Get-Item nowhere",
+        )
+        .await;
+        assert!(out.starts_with("hi\n"), "{out}");
+        assert!(out.contains("oops"), "stderr is merged: {out}");
+        assert!(out.contains("nowhere"), "errors are merged: {out}");
+        assert!(
+            matches!(end, End::Finished { exit_code: 1, .. }),
+            "an error fails it"
+        );
+        let (_, end) = run(&mut shell, "cmd /c exit 4").await;
+        assert!(
+            matches!(end, End::Finished { exit_code: 4, .. }),
+            "a program's code"
+        );
+        let (out, end) = run(&mut shell, "echo 'unclosed").await;
+        assert!(
+            matches!(end, End::Finished { exit_code, .. } if exit_code != 0),
+            "a syntax error fails the command, not the shell: {out}"
+        );
+        let (_, end) = run(&mut shell, "exit 3").await;
+        assert!(
+            matches!(end, End::ShellEnded { exit_code: Some(3) }),
+            "exit keeps its code"
+        );
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn the_shell_keeps_its_folder_and_variables() {
         let mut shell = Shell::start().await.unwrap();
@@ -371,7 +468,7 @@ mod tests {
 
     #[test]
     fn quotes_in_a_command_survive_eval() {
-        let script = script("echo 'a b'", "__m__");
+        let script = sh_script("echo 'a b'", "__m__");
         assert!(script.starts_with("{ eval 'echo '\\''a b'\\'''\n} < /dev/null\n"));
     }
 }
