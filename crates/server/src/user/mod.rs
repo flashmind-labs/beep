@@ -1518,6 +1518,33 @@ impl User {
         self.store.set_worker_state(worker, state).await
     }
 
+    pub(crate) async fn worker_turn(
+        &self,
+        worker: WorkerId,
+        turns: u32,
+        last_output: &str,
+        at: DateTime<Utc>,
+    ) -> Result<()> {
+        self.store.worker_turn(worker, turns, last_output, at).await
+    }
+
+    pub(crate) async fn set_worker_asking(&self, worker: WorkerId, asking: bool) -> Result<()> {
+        self.store.set_worker_asking(worker, asking).await
+    }
+
+    pub(crate) async fn set_pr_seen(&self, task: TaskId, fingerprint: &str) -> Result<()> {
+        self.store.set_pr_seen(task, fingerprint).await
+    }
+
+    /// The project's live workers and those that ended since `since`.
+    pub(crate) async fn project_workers(
+        &self,
+        project: ProjectId,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<WorkerRow>> {
+        self.store.workers(project, since).await
+    }
+
     pub(crate) async fn set_worker_session(&self, worker: WorkerId, session: &str) -> Result<()> {
         self.store.set_worker_session(worker, session).await
     }

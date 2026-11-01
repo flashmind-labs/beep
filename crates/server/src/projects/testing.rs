@@ -5,11 +5,16 @@ use super::{
     Projects,
     commands::{CommandOutput, Shell},
     fleet::{Fleet, Machine},
-    model::WorkerAgent,
+    model::{StartRequest, TaskSlug, WorkerAgent},
+    worker::{StartError, Started},
 };
-use crate::protocol::node::{
-    Capability,
-    files::{FileEntry, FileKind, Reply, Request},
+use crate::{
+    protocol::node::{
+        Capability,
+        agent::{Question, Request as AgentRequest, SessionInfo},
+        files::{FileEntry, FileKind, Reply, Request},
+    },
+    store::{ProjectRow, TaskRow, WorkerRow},
 };
 use anyhow::{Result, bail};
 use async_trait::async_trait;
@@ -25,6 +30,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
+use uuid::Uuid;
 
 /// A shell that records each command and answers the first rule whose text
 /// the command holds, else exits 0 printing nothing.
@@ -124,6 +130,22 @@ impl Shell for FakeShell {
     }
 }
 
+/// A shell that runs `prefix` before each command, so a test can put
+/// stand-ins on a node's `PATH` without changing the process environment.
+pub(crate) struct Prefixed {
+    pub(crate) prefix: String,
+    pub(crate) shell: Arc<dyn Shell>,
+}
+
+#[async_trait]
+impl Shell for Prefixed {
+    async fn run(&self, command: &str, limit: Duration) -> Result<CommandOutput> {
+        self.shell
+            .run(&format!("{}\n{command}", self.prefix), limit)
+            .await
+    }
+}
+
 /// A tool that counts its calls and answers "ran".
 pub(crate) struct RecordingTool {
     pub(crate) name: &'static str,
@@ -177,6 +199,46 @@ pub(crate) struct FakeFleet {
     pub(crate) projects: Projects,
     /// The sessions closed, by machine.
     pub(crate) closed: Mutex<Vec<(EndpointId, String)>>,
+    /// The turns posted, by label.
+    pub(crate) posted: Mutex<Vec<(String, String)>>,
+    /// The tasks started, which all queue.
+    pub(crate) started: Mutex<Vec<TaskSlug>>,
+    /// What went to sessions.
+    pub(crate) sent: Mutex<Vec<AgentRequest>>,
+    /// The questions put to the user.
+    pub(crate) asked: Mutex<Vec<Question>>,
+}
+
+fn take<T: Clone>(list: &Mutex<Vec<T>>) -> Vec<T> {
+    list.lock().unwrap_or_else(PoisonError::into_inner).clone()
+}
+
+fn push<T>(list: &Mutex<Vec<T>>, item: T) {
+    list.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(item);
+}
+
+impl FakeFleet {
+    pub(crate) fn posts(&self) -> Vec<(String, String)> {
+        take(&self.posted)
+    }
+
+    pub(crate) fn starts(&self) -> Vec<TaskSlug> {
+        take(&self.started)
+    }
+
+    pub(crate) fn sends(&self) -> Vec<AgentRequest> {
+        take(&self.sent)
+    }
+
+    pub(crate) fn questions(&self) -> Vec<Question> {
+        take(&self.asked)
+    }
+
+    pub(crate) fn closes(&self) -> Vec<(EndpointId, String)> {
+        take(&self.closed)
+    }
 }
 
 impl FakeFleet {
@@ -266,10 +328,41 @@ impl Fleet for FakeFleet {
         _agent: WorkerAgent,
         session: &str,
     ) -> Result<()> {
-        self.closed
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push((*machine, session.to_owned()));
+        push(&self.closed, (*machine, session.to_owned()));
         Ok(())
+    }
+
+    fn post(&self, _chat: Uuid, label: &str, text: String) {
+        push(&self.posted, (label.to_owned(), text));
+    }
+
+    async fn start_task(
+        &self,
+        _project: &ProjectRow,
+        task: &TaskRow,
+        _request: &StartRequest,
+    ) -> Result<Started, StartError> {
+        push(&self.started, task.slug.clone());
+        Ok(Started::Queued("the fake fleet starts nothing".to_owned()))
+    }
+
+    async fn send_session(&self, _worker: &WorkerRow, request: AgentRequest) -> Result<()> {
+        push(&self.sent, request);
+        Ok(())
+    }
+
+    async fn ask_user(
+        &self,
+        _worker: &WorkerRow,
+        _task: &TaskRow,
+        _chat: Uuid,
+        question: Question,
+    ) -> Result<()> {
+        push(&self.asked, question);
+        Ok(())
+    }
+
+    async fn attach(&self, _worker: &WorkerRow, _chat: Uuid) -> Result<SessionInfo> {
+        bail!("the fake fleet has no sessions")
     }
 }

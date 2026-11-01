@@ -3,22 +3,25 @@
 //! Projects: a folder of work with its own agent, whose personas live in
 //! Markdown files next to the code.
 
-use crate::{store::TaskRow, user::User};
-use anyhow::Result;
-use model::TaskState;
+use crate::app::App;
+use std::sync::Arc;
 
+pub(crate) use lifecycle::finish_task;
+pub(crate) use service::Handled;
 pub use service::Projects;
 
 mod commands;
 pub(crate) mod fleet;
 pub(crate) mod gate;
 pub(crate) mod issues;
+pub(crate) mod lifecycle;
 pub(crate) mod model;
 #[cfg(test)]
 mod node_tests;
 mod personas;
 pub(crate) mod place;
 pub(crate) mod policy;
+mod schedule;
 mod service;
 #[cfg(test)]
 mod testing;
@@ -26,8 +29,10 @@ pub(crate) mod tools;
 pub(crate) mod turn;
 pub(crate) mod worker;
 
-/// Marks a task done once its pull request merged. Closing its issue and
-/// removing its worktree come with the worker lifecycle.
-pub(crate) async fn finish_task(user: &User, task: &TaskRow) -> Result<()> {
-    user.set_task_state(task.id, TaskState::Done).await
+/// Starts following project workers: fails the ones a restart left
+/// starting, arms the pending checks and idle closes, and runs the timer.
+pub fn start(app: Arc<App>) {
+    app.projects.start_timer(&app);
+    app.projects
+        .spawn(&app, |app| async move { lifecycle::startup(&app).await });
 }

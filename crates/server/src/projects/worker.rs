@@ -7,6 +7,7 @@ use super::{
     },
     fleet::{self, Fleet, Machine, NodeFleet},
     issues::{HOST_LIMIT, run_host},
+    lifecycle,
     model::{
         InputFile, IssueHost, IssueRef, MachinePath, RepoName, StartRequest, TaskSlug, TaskState,
         WorkerAgent, WorkerState,
@@ -399,6 +400,8 @@ pub(crate) async fn launch(
     user.set_worker_state(worker.id, WorkerState::Running)
         .await?;
     let chat = user.ensure_project_agent(project.id).await?;
+    // Tracked before it reports to anyone, so its news reaches the project.
+    app.projects.track(placement.machine, &session, worker.id);
     online.report_to(
         &session,
         Follower {
@@ -408,11 +411,21 @@ pub(crate) async fn launch(
             agent: placement.agent.to_string(),
         },
     );
-    app.projects.track(placement.machine, &session, worker.id);
     user.set_task_state(task.id, TaskState::Running).await?;
     user.set_task_branch(task.id, &task.slug.branch()).await?;
     relabel_running(app, user, project, task).await;
     user.set_task_start(task.id, None).await?;
+    // What the session did before it was tracked, such as a first question.
+    match online.agent_session(placement.agent.into(), &session).await {
+        Ok(link) => {
+            let info = link.now().info;
+            let id = worker.id;
+            app.projects.spawn(app, move |app| async move {
+                lifecycle::caught_up(&app, id, info).await
+            });
+        }
+        Err(error) => log::warn!("projects: unable to read a new worker's session: {error:#}"),
+    }
     let worker = user.project_worker(worker.id).await?.unwrap_or(worker);
     Ok(Started::Running(Box::new(worker)))
 }
@@ -639,6 +652,8 @@ pub(crate) async fn stop_worker_on(
     let Some(current) = user.project_worker(worker.id).await? else {
         return Ok(());
     };
+    // Forgotten first, so the end its session reports is not news.
+    fleet.projects().untrack(current.id);
     if current.state.is_live() {
         if let Some(session) = &current.session
             && let Err(error) = fleet
@@ -656,7 +671,6 @@ pub(crate) async fn stop_worker_on(
             user.set_task_state(task.id, TaskState::Blocked).await?;
         }
     }
-    fleet.projects().untrack(current.id);
     Ok(())
 }
 

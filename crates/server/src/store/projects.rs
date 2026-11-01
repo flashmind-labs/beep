@@ -993,6 +993,52 @@ impl Store {
         Ok(failed)
     }
 
+    /// The user id of the project's owner.
+    pub(crate) async fn project_owner(&self, project: ProjectId) -> Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT user_id FROM projects WHERE id=$1")
+                .bind(project.0)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
+    /// The user id of the worker's owner.
+    pub(crate) async fn worker_owner(&self, worker: WorkerId) -> Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT user_id FROM project_workers WHERE id=$1")
+                .bind(worker.0)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
+    /// Every project, of any user, with a task the check timer looks at.
+    pub(crate) async fn projects_wanting_checks(&self) -> Result<Vec<ProjectId>> {
+        let states: Vec<&str> = [TaskState::Running, TaskState::Review]
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        let ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT DISTINCT project_id FROM project_tasks WHERE state = ANY($1)",
+        )
+        .bind(&states)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(ids.into_iter().map(ProjectId).collect())
+    }
+
+    /// Every waiting worker, of any user.
+    pub(crate) async fn waiting_workers(&self) -> Result<Vec<WorkerRow>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {WORKER_COLUMNS} FROM project_workers w WHERE w.state=$1"
+        ))
+        .bind(<&str>::from(WorkerState::Waiting))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(worker_from).collect()
+    }
+
     pub(crate) async fn open_counts(&self, project: ProjectId) -> Result<OpenCounts> {
         let closed: Vec<&str> = [TaskState::Done, TaskState::Dropped]
             .into_iter()

@@ -166,7 +166,8 @@ async fn read_watch(
                 if let Some(follower) = app.nodes.follows.follower(node, &activity.session) {
                     let text = report(&follower.node, &follower.agent, &activity);
                     let post = Post {
-                        follower,
+                        user: follower.user,
+                        chat: follower.chat,
                         label: LABEL.to_owned(),
                         text,
                     };

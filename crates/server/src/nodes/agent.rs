@@ -8,12 +8,12 @@
 //! that chat when a turn ends or it asks something while no call waits for
 //! it (see `wake`).
 
-use super::{Follower, Online};
+use super::{Ask, Follower, Online};
 use crate::{
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
         agent::{
-            self, Entry, Event, ExternalSession, Request, SESSIONS_PROTOCOL, SessionInfo,
+            self, Entry, Event, ExternalSession, Question, Request, SESSIONS_PROTOCOL, SessionInfo,
             SessionsReply, SessionsRequest, Status, StopReason,
         },
         link,
@@ -34,7 +34,9 @@ use tokio::{
     time::timeout,
 };
 use tokio_util::task::AbortOnDropHandle;
-use wake::{News, Reporter};
+use wake::Reporter;
+
+pub(crate) use wake::News;
 
 mod wake;
 
@@ -158,6 +160,20 @@ struct LinkOrder {
 impl AgentLink {
     pub fn now(&self) -> Watched {
         self.state.borrow().clone()
+    }
+
+    /// The card for the session's open `question`, for `follower`'s chat,
+    /// naming the project `task` it works on.
+    pub(crate) fn ask(&self, follower: Follower, question: Question, task: String) -> Ask {
+        let session = self.state.borrow().info.id.clone();
+        wake::ask_card(
+            &self.state,
+            &self.orders,
+            session,
+            follower,
+            question,
+            Some(task),
+        )
     }
 
     fn is_lost(&self) -> bool {
@@ -296,6 +312,7 @@ impl Online {
         let reporter = Reporter {
             app: self.app.clone(),
             links: Arc::downgrade(&self.agents),
+            machine: self.connection.remote_id(),
             session: id.clone(),
             agent: agent.to_owned(),
             waiting: waiting.clone(),
@@ -459,7 +476,7 @@ fn apply(watched: &mut Watched, event: Event) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::node::agent::{AnswerOption, OptionKind, Question, State};
+    use crate::protocol::node::agent::{AnswerOption, OptionKind, State};
 
     fn question(id: u32) -> Question {
         Question {
@@ -563,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn only_turn_ends_and_questions_are_news() {
+    fn turn_ends_questions_and_ends_are_news() {
         assert!(
             News::of(&Event::Question {
                 question: question(1)
@@ -576,9 +593,15 @@ mod tests {
             last_message: String::new(),
         };
         assert!(News::of(&done).is_some());
-        assert!(
+        assert!(matches!(
             News::of(&Event::Ended {
                 reason: "closed".into()
+            }),
+            Some(News::Ended { .. })
+        ));
+        assert!(
+            News::of(&Event::State {
+                state: State::default()
             })
             .is_none()
         );

@@ -4,18 +4,19 @@
 use super::{
     Projects,
     commands::Shell,
-    model::{MachinePath, WorkerAgent},
+    model::{MachinePath, StartRequest, WorkerAgent},
+    worker::{self, StartError, Started},
 };
 use crate::{
     app::App,
     leak::PublicText,
-    nodes::{Online, SHELL},
+    nodes::{Follower, Online, SHELL},
     protocol::node::{
         Capability,
-        agent::Request as AgentRequest,
+        agent::{OptionKind, Question, Request as AgentRequest, SessionInfo},
         files::{Reply, Request},
     },
-    store::{CheckoutRow, ProjectRow},
+    store::{CheckoutRow, ProjectRow, TaskRow, WorkerRow},
     tools::machines::command_name,
     user::User,
 };
@@ -23,6 +24,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use iroh::EndpointId;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// One of the user's machines.
 #[derive(Debug, Clone)]
@@ -59,6 +61,33 @@ pub(crate) trait Fleet: Send + Sync {
         agent: WorkerAgent,
         session: &str,
     ) -> Result<()>;
+
+    /// Starts a turn of the project chat `chat` on `text`, labelled `label`.
+    fn post(&self, chat: Uuid, label: &str, text: String);
+
+    /// Starts `task` as `request` asks.
+    async fn start_task(
+        &self,
+        project: &ProjectRow,
+        task: &TaskRow,
+        request: &StartRequest,
+    ) -> Result<Started, StartError>;
+
+    /// Sends `request` to the worker's session.
+    async fn send_session(&self, worker: &WorkerRow, request: AgentRequest) -> Result<()>;
+
+    /// Puts the worker's `question` to the user as a card of `chat`.
+    async fn ask_user(
+        &self,
+        worker: &WorkerRow,
+        task: &TaskRow,
+        chat: Uuid,
+        question: Question,
+    ) -> Result<()>;
+
+    /// Follows the worker's session again, reporting to `chat`, and says
+    /// where it stands. Fails when the machine no longer has it.
+    async fn attach(&self, worker: &WorkerRow, chat: Uuid) -> Result<SessionInfo>;
 }
 
 /// The nodes the user has connected to the server.
@@ -104,9 +133,15 @@ impl Fleet for NodeFleet {
     }
 
     fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>> {
-        self.online(machine)
-            .filter(|online| online.offers(SHELL))
-            .map(|online| Arc::new(online) as Arc<dyn Shell>)
+        let online = self.online(machine).filter(|online| online.offers(SHELL))?;
+        #[cfg(test)]
+        if let Some(prefix) = self.app.projects.shell_prefix() {
+            return Some(Arc::new(super::testing::Prefixed {
+                prefix,
+                shell: Arc::new(online),
+            }));
+        }
+        Some(Arc::new(online))
     }
 
     async fn files(&self, machine: &EndpointId, request: &Request) -> Result<Reply> {
@@ -135,6 +170,97 @@ impl Fleet for NodeFleet {
             log::warn!("projects: unable to cancel a worker's turn: {error:#}");
         }
         link.send(AgentRequest::Close {}).await
+    }
+
+    fn post(&self, chat: Uuid, label: &str, text: String) {
+        self.app
+            .projects
+            .post(&self.app, self.user.clone(), chat, label, text);
+    }
+
+    async fn start_task(
+        &self,
+        project: &ProjectRow,
+        task: &TaskRow,
+        request: &StartRequest,
+    ) -> Result<Started, StartError> {
+        worker::start_task(&self.app, &self.user, project, task, request).await
+    }
+
+    async fn send_session(&self, worker: &WorkerRow, request: AgentRequest) -> Result<()> {
+        let (online, session) = self.session_of(worker)?;
+        let link = online.agent_session(worker.agent.into(), session).await?;
+        link.send(request).await
+    }
+
+    async fn ask_user(
+        &self,
+        worker: &WorkerRow,
+        task: &TaskRow,
+        chat: Uuid,
+        question: Question,
+    ) -> Result<()> {
+        let (online, session) = self.session_of(worker)?;
+        let link = online.agent_session(worker.agent.into(), session).await?;
+        let follower = self.follower(worker, chat).await?;
+        let mut ask = link.ask(
+            follower,
+            question.clone(),
+            format!("{}: {}", task.slug, task.title),
+        );
+        // Answering ends the wait, and an allowed build lets the next run.
+        let send = ask.answer;
+        let user = self.user.clone();
+        let app = Arc::downgrade(&self.app);
+        let id = worker.id;
+        ask.answer = Box::new(move |request| {
+            Box::pin(async move {
+                let allowed = matches!(&request, AgentRequest::Answer { reply, .. }
+                    if question.options.iter().any(|option| &option.id == reply
+                        && matches!(option.kind, OptionKind::AllowOnce | OptionKind::AllowAlways)));
+                send(request).await;
+                if let Err(error) = user.set_worker_asking(id, false).await {
+                    log::warn!("projects: unable to note an answered question: {error:#}");
+                }
+                if allowed && let Some(app) = app.upgrade() {
+                    app.projects.allowed(id, &question);
+                }
+            })
+        });
+        self.app.nodes.deliveries.ask(&self.app, ask);
+        Ok(())
+    }
+
+    async fn attach(&self, worker: &WorkerRow, chat: Uuid) -> Result<SessionInfo> {
+        let (online, session) = self.session_of(worker)?;
+        let link = online.agent_session(worker.agent.into(), session).await?;
+        online.report_to(session, self.follower(worker, chat).await?);
+        Ok(link.now().info)
+    }
+}
+
+impl NodeFleet {
+    /// The worker's machine, while online, and its session.
+    fn session_of<'a>(&self, worker: &'a WorkerRow) -> Result<(Online, &'a str)> {
+        let online = self
+            .online(&worker.machine)
+            .ok_or_else(|| anyhow!("the machine is offline"))?;
+        let session = worker
+            .session
+            .as_deref()
+            .ok_or_else(|| anyhow!("the worker has no session yet"))?;
+        Ok((online, session))
+    }
+
+    /// Who the worker's session reports to.
+    async fn follower(&self, worker: &WorkerRow, chat: Uuid) -> Result<Follower> {
+        let machines = self.machines().await?;
+        Ok(Follower {
+            user: self.user.clone(),
+            chat,
+            node: name_of(&machines, &worker.machine),
+            agent: worker.agent.to_string(),
+        })
     }
 }
 
