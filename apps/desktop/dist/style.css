@@ -570,11 +570,15 @@ button.dachip:hover { border-color: #3A4A41 }
    frame of its own. The transcript is a 700px column, and the chat's prompt
    is a card under it with the hints below. */
 .dbar[data-mode="window"] { height: 100%; background: transparent; border: 0; border-radius: 0; box-shadow: none }
-.dbar[data-mode="window"] > .dbody { padding: 16px max(26px, calc((100% - 656px) / 2)) 10px max(22px, calc((100% - 656px) / 2)) }
-.dbar[data-mode="window"] > .dthumbs { order: 1; padding: 0 17px 8px }
-.dbar[data-mode="window"] > .dinput.dgrow { order: 1; margin: 0 16px 14px; padding: 8px 10px 8px 14px; border: 1px solid var(--border); border-radius: 12px;
+/* The chat, the prompt and its hints share one centred column. */
+.dbar[data-mode="window"] { --col: max(16px, calc((100% - 720px) / 2)) }
+.dbar[data-mode="window"] > .dbody { padding: 16px calc(var(--col) + 10px) 10px calc(var(--col) + 6px) }
+/* The window keeps an empty chat's body as the space that holds the prompt at the bottom. */
+.dbar[data-mode="window"] > .dbody:empty { display: flex }
+.dbar[data-mode="window"] > .dthumbs { order: 1; padding: 0 calc(var(--col) + 1px) 8px }
+.dbar[data-mode="window"] > .dinput.dgrow { order: 1; margin: 0 var(--col) 14px; padding: 8px 10px 8px 14px; border: 1px solid var(--border); border-radius: 12px;
   background: rgba(26, 35, 30, .92); font-size: 14px; line-height: 22px }
-.dbar[data-mode="window"] > .dhints { order: 2; justify-content: center; gap: 4px 14px; margin: -6px 16px 10px; padding: 0; border-top: 0; background: transparent; color: var(--dim) }
+.dbar[data-mode="window"] > .dhints { order: 2; justify-content: center; gap: 4px 14px; margin: -6px var(--col) 10px; padding: 0; border-top: 0; background: transparent; color: var(--dim) }
 .dbar[data-mode="window"] > .dhints .dmodel { margin-left: 0 }
 .dbar[data-mode="window"] > .dlatest { bottom: 110px }
 
