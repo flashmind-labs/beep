@@ -34,14 +34,14 @@ use std::{
 const PARTIAL_START: &str = ".beep-";
 const PARTIAL_END: &str = ".partial";
 
-const DIR_FLAGS: OFlags = OFlags::RDONLY
+pub(crate) const DIR_FLAGS: OFlags = OFlags::RDONLY
     .union(OFlags::DIRECTORY)
     .union(OFlags::NOFOLLOW)
     .union(OFlags::CLOEXEC);
 
 /// `name` when it is one plain path part, as a file or folder name the
 /// source gave.
-pub(super) fn plain_name(name: &str) -> Result<&str> {
+pub(crate) fn plain_name(name: &str) -> Result<&str> {
     let mut parts = Path::new(name).components();
     match (parts.next(), parts.next()) {
         (Some(Component::Normal(part)), None) if part.as_bytes() == name.as_bytes() => Ok(name),
@@ -51,7 +51,7 @@ pub(super) fn plain_name(name: &str) -> Result<&str> {
 
 /// `path` as a relative path of plain parts, as a folder's entries name
 /// their files.
-pub(super) fn relative_path(path: &str) -> Result<PathBuf> {
+pub(crate) fn relative_path(path: &str) -> Result<PathBuf> {
     ensure!(!path.is_empty(), "a folder entry has no name");
     let mut out = PathBuf::new();
     for part in Path::new(path).components() {
@@ -69,29 +69,33 @@ pub(super) fn relative_path(path: &str) -> Result<PathBuf> {
 
 /// A target folder, held open.
 #[derive(Debug)]
-pub(super) struct Folder {
+pub(crate) struct Folder {
     fd: OwnedFd,
     /// Its path when it was opened, for messages and the result.
     path: PathBuf,
 }
 
 impl Folder {
-    #[cfg(test)]
-    pub(super) fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 
+    /// The open folder, which writes are made relative to.
+    pub(crate) fn fd(&self) -> &OwnedFd {
+        &self.fd
+    }
+
     /// Bytes free on its disk, and the disk's id.
-    pub(super) fn space(&self) -> Result<Space> {
+    pub(crate) fn space(&self) -> Result<Space> {
         space_of(&self.fd).with_context(|| format!("reading free space at {}", self.path.display()))
     }
 }
 
 /// Free bytes on a disk, and which disk it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Space {
-    pub(super) free: u64,
-    pub(super) device: u64,
+pub(crate) struct Space {
+    pub(crate) free: u64,
+    pub(crate) device: u64,
 }
 
 fn space_of(fd: &OwnedFd) -> io::Result<Space> {
@@ -106,7 +110,7 @@ fn space_of(fd: &OwnedFd) -> io::Result<Space> {
 }
 
 /// Free bytes on the disk that holds `dir`.
-pub(super) fn space_at(dir: &Path) -> Result<Space> {
+pub(crate) fn space_at(dir: &Path) -> Result<Space> {
     let fd = rustix::fs::open(dir, DIR_FLAGS, Mode::empty())
         .with_context(|| format!("opening {}", dir.display()))?;
     space_of(&fd).with_context(|| format!("reading free space at {}", dir.display()))
@@ -114,7 +118,7 @@ pub(super) fn space_at(dir: &Path) -> Result<Space> {
 
 /// Opens the folder a fetch writes into: absolute, existing, a folder, and
 /// reached from its shared folder through plain folders only.
-pub(super) fn open_target(folders: &Folders, folder: &str) -> Result<Folder> {
+pub(crate) fn open_target(folders: &Folders, folder: &str) -> Result<Folder> {
     ensure!(
         Path::new(folder).is_absolute(),
         "the target folder {folder:?} is not an absolute path"
@@ -151,7 +155,7 @@ fn make_dir_at(dir: &OwnedFd, name: &OsStr) -> io::Result<OwnedFd> {
 
 /// The folder at `path` under `dir`, each part made if missing; `dir`
 /// itself for an empty path.
-pub(super) fn make_dirs_at(dir: &OwnedFd, path: &Path) -> io::Result<OwnedFd> {
+pub(crate) fn make_dirs_at(dir: &OwnedFd, path: &Path) -> io::Result<OwnedFd> {
     let mut current = dir.try_clone()?;
     for part in path.components() {
         current = make_dir_at(&current, part.as_os_str())?;
@@ -160,7 +164,7 @@ pub(super) fn make_dirs_at(dir: &OwnedFd, path: &Path) -> io::Result<OwnedFd> {
 }
 
 /// A new file `name` in `dir`; it never replaces one or follows a link.
-pub(super) fn create_file_at(dir: &OwnedFd, name: &OsStr, executable: bool) -> io::Result<File> {
+pub(crate) fn create_file_at(dir: &OwnedFd, name: &OsStr, executable: bool) -> io::Result<File> {
     let flags = OFlags::WRONLY
         .union(OFlags::CREATE)
         .union(OFlags::EXCL)
@@ -254,7 +258,7 @@ fn remove_tree_at(dir: &OwnedFd, name: &OsStr) -> io::Result<()> {
 /// Moves the item `name` out of `partial` into its target folder as
 /// `name`, or the first free numbered name after it, and gives where it
 /// landed.
-pub(super) fn place(partial: &Partial, name: &str, kind: ContentKind) -> Result<PathBuf> {
+pub(crate) fn place(partial: &Partial, name: &str, kind: ContentKind) -> Result<PathBuf> {
     let target = &partial.target;
     for n in 1..=MAX_SUFFIX {
         let numbered = numbered(name, kind, n);
@@ -283,19 +287,19 @@ pub(super) fn place(partial: &Partial, name: &str, kind: ContentKind) -> Result<
 /// The partial folders being written, one file each under `dir` holding
 /// the folder's path, so a node that was killed removes them next start.
 #[derive(Debug, Clone)]
-pub(super) struct Journal {
+pub(crate) struct Journal {
     dir: PathBuf,
 }
 
 impl Journal {
-    pub(super) fn open(dir: PathBuf) -> Result<Self> {
+    pub(crate) fn open(dir: PathBuf) -> Result<Self> {
         fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
         Ok(Self { dir })
     }
 
     /// Removes the partial folders a stopped node left, and their entries.
     /// An entry that cannot be read is logged and left.
-    pub(super) fn sweep(&self) -> Result<()> {
+    pub(crate) fn sweep(&self) -> Result<()> {
         for entry in fs::read_dir(&self.dir)? {
             let entry = match entry {
                 Ok(entry) => entry.path(),
@@ -337,7 +341,7 @@ impl Journal {
     }
 
     /// Makes a hidden partial folder in `target`.
-    pub(super) fn start(&self, target: Arc<Folder>) -> Result<Partial> {
+    pub(crate) fn start(&self, target: Arc<Folder>) -> Result<Partial> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -376,7 +380,7 @@ impl Journal {
 /// what it holds unless `finish` was called; dropping it without `remove`
 /// (the session was aborted) removes it in the background.
 #[derive(Debug)]
-pub(super) struct Partial {
+pub(crate) struct Partial {
     target: Arc<Folder>,
     name: String,
     fd: OwnedFd,
@@ -386,12 +390,12 @@ pub(super) struct Partial {
 
 impl Partial {
     /// The open partial folder, which the item is written into.
-    pub(super) fn dir(&self) -> &OwnedFd {
+    pub(crate) fn dir(&self) -> &OwnedFd {
         &self.fd
     }
 
     /// Forgets the folder once its item was moved out; it is empty.
-    pub(super) fn finish(mut self) -> Result<()> {
+    pub(crate) fn finish(mut self) -> Result<()> {
         self.done = true;
         unlinkat(&self.target.fd, self.name.as_str(), AtFlags::REMOVEDIR)
             .map_err(io::Error::from)
@@ -400,7 +404,7 @@ impl Partial {
     }
 
     /// Removes the folder and everything written into it.
-    pub(super) fn remove(mut self) -> Result<()> {
+    pub(crate) fn remove(mut self) -> Result<()> {
         self.done = true;
         remove_partial(&self.target, &self.name, &self.entry)
     }

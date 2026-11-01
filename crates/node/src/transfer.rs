@@ -6,6 +6,7 @@
 use crate::{
     files::Folders,
     link::{Protocol, Session},
+    sync::{self, PeerHandler, Syncs},
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
@@ -33,9 +34,9 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::AbortOnDropHandle};
 
 mod fetch;
-mod grants;
-mod offer;
-mod place;
+pub(crate) mod grants;
+pub(crate) mod offer;
+pub(crate) mod place;
 
 use grants::Grants;
 use place::{Folder, Journal, Room};
@@ -124,16 +125,18 @@ struct Inner {
     /// The free space running fetches hold.
     room: Arc<Room>,
     running: Arc<Semaphore>,
+    syncs: Syncs,
     // Dropping the router stops serving blobs; the handle ends the task
     // that answers its events.
-    _router: Router,
+    router: Router,
     _events: AbortOnDropHandle<()>,
 }
 
 impl Transfers {
     /// Opens the store in `dir`, removes partial transfers a stopped node
-    /// left, and serves the blobs protocol on `endpoint`, which must not
-    /// serve other protocols through a router of its own.
+    /// left, starts the synced projects kept in `dir/sync`, and serves the
+    /// blobs and sync protocols on `endpoint`, which must not serve other
+    /// protocols through a router of its own.
     pub async fn start(endpoint: &Endpoint, dir: &Path, folders: Folders) -> Result<Self> {
         let collect = Arc::new(Notify::new());
         let mut options = Options::new(dir);
@@ -149,10 +152,30 @@ impl Transfers {
         let journal = Journal::open(dir.join("partial"))?;
         let sweeping = journal.clone();
         spawn_blocking(move || sweeping.sweep()).await??;
+        let room: Arc<Room> = Arc::default();
+        let syncs = Syncs::start(
+            sync::Parts {
+                endpoint: endpoint.clone(),
+                store: store.clone(),
+                store_dir: dir.to_owned(),
+                journal: journal.clone(),
+                room: room.clone(),
+            },
+            folders.clone(),
+            dir.join("sync"),
+        )
+        .await?;
         let grants = Arc::new(Grants::default());
+        grants.set_access(syncs.access());
         let (events, events_task) = grants::events(grants.clone());
         let router = Router::builder(endpoint.clone())
             .accept(iroh_blobs::ALPN, BlobsProtocol::new(&store, Some(events)))
+            .accept(
+                sync::ALPN,
+                PeerHandler {
+                    syncs: syncs.clone(),
+                },
+            )
             .spawn();
         Ok(Self {
             inner: Arc::new(Inner {
@@ -163,12 +186,34 @@ impl Transfers {
                 folders,
                 grants,
                 journal,
-                room: Arc::default(),
+                room,
                 running: Arc::new(Semaphore::new(MAX_RUNNING)),
-                _router: router,
+                syncs,
+                router,
                 _events: events_task,
             }),
         })
+    }
+
+    /// The synced projects, served to the server as `sync/1`.
+    pub fn syncs(&self) -> Syncs {
+        self.inner.syncs.clone()
+    }
+
+    /// Stops the synced projects, saving their state, stops serving, and
+    /// closes the store, so it can be opened again.
+    pub async fn shutdown(&self) -> Result<()> {
+        self.inner.syncs.shutdown().await;
+        self.inner
+            .router
+            .shutdown()
+            .await
+            .context("stopping the blobs protocol")?;
+        // The store stops without answering, so its reply channel closes.
+        if let Err(e) = self.inner.store.shutdown().await {
+            log::debug!("the blob store stopped: {e}");
+        }
+        Ok(())
     }
 }
 
