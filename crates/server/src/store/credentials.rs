@@ -9,7 +9,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
-use sqlx::{Row, postgres::PgRow};
+use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -215,6 +215,52 @@ impl Store {
         }
         Ok(out)
     }
+}
+
+/// Seals the credentials of `source` again for `target`, before an account
+/// merge moves them: what is sealed names its user. One that does not open
+/// is left as it is, unreadable either way.
+pub(super) async fn reseal_for(
+    tx: &mut PgConnection,
+    key: &CredentialKey,
+    source: &str,
+    target: &str,
+) -> Result<()> {
+    let rows = sqlx::query(
+        "SELECT id, kind, provider, host_url, secret FROM credentials WHERE user_id=$1",
+    )
+    .bind(source)
+    .fetch_all(&mut *tx)
+    .await?;
+    for row in &rows {
+        let id: String = row.try_get("id")?;
+        let sealed: Vec<u8> = row.try_get("secret")?;
+        let resealed = slot_from(row).and_then(|slot| {
+            let from = Owner {
+                user: source,
+                slot: &slot,
+                id: &id,
+            };
+            let secret = key.open(&from, &sealed)?;
+            let to = Owner {
+                user: target,
+                slot: &slot,
+                id: &id,
+            };
+            key.seal(&to, &secret)
+        });
+        match resealed {
+            Ok(resealed) => {
+                sqlx::query("UPDATE credentials SET secret=$2 WHERE id=$1")
+                    .bind(&id)
+                    .bind(resealed)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            Err(e) => log::warn!("credential {id} not resealed for the merge: {e:#}"),
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
