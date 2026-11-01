@@ -31,6 +31,8 @@ use std::{
 
 /// Most argument fields shown on an approval, and the longest value.
 const MAX_FIELDS: usize = 8;
+/// Most records an approval names, each with its own few fields.
+const MAX_RECORDS: usize = 12;
 const MAX_VALUE_CHARS: usize = 600;
 
 /// Whether a tool call acts, rather than only reads.
@@ -495,7 +497,7 @@ pub(crate) fn waiting_approval(conversation: &Conversation) -> Option<HistoryEnt
         approval: Approval {
             app: app.name(),
             action: action_name(&app, ToolSlug::new(&call.name).as_str()),
-            fields: fields.into_iter().take(MAX_FIELDS).collect(),
+            fields,
         },
         query_id: call.id,
     })
@@ -552,8 +554,8 @@ fn records(call: &ToolCall, conversation: &Conversation) -> Vec<ApprovalField> {
         .collect();
     ids.into_iter()
         .filter_map(|id| results.iter().find_map(|result| find_record(result, id)))
+        .take(MAX_RECORDS)
         .flat_map(|record| record_fields(record, call))
-        .take(MAX_FIELDS)
         .collect()
 }
 
@@ -709,7 +711,7 @@ pub(crate) async fn read_back(user: &User, call: &ToolCall) -> Vec<ApprovalField
             Err(error) => log::debug!("approval: unable to read {}: {error:#}", lookup.read),
         }
     }
-    shown.into_iter().take(MAX_FIELDS).collect()
+    shown
 }
 
 /// The arguments for each read `lookup` makes for a call with `args`: one,
@@ -1445,6 +1447,45 @@ mod tests {
             [("Subject", "New listings"), ("From", "alerts@example.com")]
         );
         assert_eq!(describe_records("trash", &conversation).len(), 2);
+    }
+
+    #[test]
+    fn a_batch_card_names_every_record_it_acts_on() {
+        let mut conversation = Conversation::new();
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![ToolCall {
+                id: "find".into(),
+                name: "gmail_fetch_emails".into(),
+                arguments: json!({"query": "is:unread"}),
+            }],
+            None,
+        ));
+        let ids: Vec<String> = (1..=6).map(|n| format!("m{n}")).collect();
+        let messages: Vec<Value> = ids
+            .iter()
+            .map(|id| json!({"messageId": id, "subject": format!("Mail {id}"), "sender": "news@example.com"}))
+            .collect();
+        let found = json!({"data": {"messages": messages}});
+        conversation.add(ConversationEntry::tool("find", found.to_string()));
+        conversation.add(ConversationEntry::assistant_with_tool_calls(
+            "",
+            vec![ToolCall {
+                id: "read".into(),
+                name: "gmail_batch_modify_messages".into(),
+                arguments: json!({"messageIds": ids, "removeLabelIds": ["UNREAD"]}),
+            }],
+            None,
+        ));
+        let Some(HistoryEntry::Approval { approval, .. }) = waiting_approval(&conversation) else {
+            panic!("expected the open call's card");
+        };
+        let subjects = approval
+            .fields
+            .iter()
+            .filter(|field| field.label == "Subject")
+            .count();
+        assert_eq!(subjects, 6);
     }
 
     #[test]

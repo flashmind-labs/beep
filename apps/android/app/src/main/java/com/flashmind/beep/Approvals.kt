@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -33,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import com.flashmind.beep.proto.ApprovalField
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -70,17 +76,19 @@ fun ApprovalCard(prompt: ApprovalPrompt, onAnswer: (String) -> Unit, modifier: M
                 }
                 Icon(Icons.Outlined.Shield, null, Modifier.size(18.dp), tint = t.muted)
             }
-            // Many records scroll inside the card, so Deny and Allow stay on screen.
-            if (approval.fields.isNotEmpty()) Column(Modifier.fillMaxWidth().heightIn(max = 280.dp)
+            val split = remember(approval.fields) { ApprovalRecords(approval.fields) }
+            // Long values scroll inside the card, so Deny and Allow stay on screen.
+            if (split.fields.isNotEmpty()) Column(Modifier.fillMaxWidth().heightIn(max = 280.dp)
                 .clip(RoundedCornerShape(Beep.shapes.smallRadius)).background(t.raised)
                 .verticalScroll(rememberScrollState()).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                approval.fields.forEach { field ->
+                split.fields.forEach { field ->
                     Row {
                         Text(field.label, fontSize = 12.sp, color = t.muted, modifier = Modifier.width(76.dp))
                         Text(field.value, fontSize = 13.sp, color = t.ink, lineHeight = 18.sp, modifier = Modifier.weight(1f))
                     }
                 }
             }
+            if (split.records.isNotEmpty()) RecordStrip(split.records)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (grant) Spacer(Modifier.weight(1f))
                 else Row(Modifier.weight(1f).heightIn(min = 40.dp)
@@ -99,10 +107,65 @@ fun ApprovalCard(prompt: ApprovalPrompt, onAnswer: (String) -> Unit, modifier: M
                 }
                 ChunkyButton(onClick = { onAnswer(if (always && !grant) "always" else "allow") }, color = t.accent, contentColor = t.onAccent,
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
-                    Text("Allow", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (split.records.isEmpty()) "Allow" else "Allow all ${split.records.size}",
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 }
             }
         }
+    }
+}
+
+/**
+ * A card's fields split into the call's own and, when it names several records, one group per
+ * record. Each record repeats the same labels ("Subject", "From", "Subject", ...), so the first
+ * label seen twice starts every record.
+ */
+class ApprovalRecords(all: List<ApprovalField>) {
+    val fields: List<ApprovalField>
+    val records: List<List<ApprovalField>>
+
+    init {
+        val seen = mutableSetOf<String>()
+        val repeated = all.firstOrNull { !seen.add(it.label) }?.label
+        val start = all.indexOfFirst { it.label == repeated }
+        if (repeated == null || start < 0) {
+            fields = all
+            records = emptyList()
+        } else {
+            val groups = mutableListOf<MutableList<ApprovalField>>()
+            all.drop(start).forEach { field ->
+                if (field.label == repeated || groups.isEmpty()) groups.add(mutableListOf())
+                groups.last().add(field)
+            }
+            fields = all.take(start)
+            records = groups
+        }
+    }
+}
+
+/** The records a call acts on, one small card each, swiped through sideways. */
+@Composable
+private fun RecordStrip(records: List<List<ApprovalField>>) {
+    val t = Beep.colors
+    val state = rememberLazyListState()
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyRow(state = state, flingBehavior = rememberSnapFlingBehavior(state),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            itemsIndexed(records) { _, record ->
+                Column(Modifier.width(240.dp).clip(RoundedCornerShape(Beep.shapes.smallRadius))
+                    .background(t.raised).padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    record.firstOrNull()?.let {
+                        Text(it.value, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = t.ink, lineHeight = 18.sp,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    record.drop(1).forEach {
+                        Text(it.value, fontSize = 12.sp, color = t.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        Text("Swipe to see all ${records.size}", fontSize = 12.sp, color = t.muted)
     }
 }
 
