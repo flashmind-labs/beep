@@ -102,10 +102,18 @@ pub async fn rerun_prompt(
     beep.rerun(session, index, pick, on_event).await
 }
 
-/// Answers an approval card, from the bar or the orb, and streams the run
-/// it resumes into `on_event`.
+/// An approval card that was answered, for every webview to drop.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ApprovalAnswered {
+    session: String,
+    query_id: String,
+}
+
+/// Answers an approval card, from the bar, the orb or the command center,
+/// and streams the run it resumes into `on_event`.
 #[tauri::command]
 pub async fn answer_approval(
+    app: AppHandle,
     beep: Service<'_>,
     voice: State<'_, Arc<Voice>>,
     session: String,
@@ -116,6 +124,14 @@ pub async fn answer_approval(
     let run = beep
         .approve(&session, query_id.clone(), decision.into())
         .await?;
+    // Every webview showing the card drops it.
+    let answered = ApprovalAnswered {
+        session: session.clone(),
+        query_id: query_id.clone(),
+    };
+    if let Err(e) = app.emit("approval-answered", answered) {
+        log::warn!("telling the windows an approval was answered: {e}");
+    }
     // Whichever of the bar and the orb answered, the other drops its card,
     // and live mode reads the rest of the reply out when it waits on it.
     let news = voice.answered(Answered {
