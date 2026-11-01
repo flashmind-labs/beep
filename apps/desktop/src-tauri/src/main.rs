@@ -51,7 +51,7 @@ use tauri::{
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
 };
-use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_notification::NotificationExt;
 use voice::Voice;
@@ -59,6 +59,8 @@ use voice::Voice;
 /// The server's node id, baked in by build.rs.
 const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
 const TRAY: &str = "beep";
+/// Passed to Beep when it starts as a login item, so it stays in the tray.
+const LOGIN_ARG: &str = "--login";
 /// Chats listed under Recent in the tray menu.
 const RECENT: usize = 5;
 /// Menu ids of Recent's items start with this, then the session id.
@@ -80,7 +82,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
-            None,
+            Some(vec![LOGIN_ARG]),
         ))
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| match event {
@@ -234,11 +236,23 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("the app failed to start")
         .run(|app, event| {
-            // However Beep quits, a downloaded update is installed for next time.
-            if let RunEvent::Exit = event {
-                update::install(app);
-                // Background tasks the agent started here end with the app.
-                beep_node::kill_tasks();
+            match event {
+                // However Beep quits, a downloaded update is installed for next time.
+                RunEvent::Exit => {
+                    update::install(app);
+                    // Background tasks the agent started here end with the app.
+                    beep_node::kill_tasks();
+                }
+                // Opening Beep again while it runs shows the window.
+                #[cfg(target_os = "macos")]
+                RunEvent::Reopen { .. } => {
+                    if app.state::<Arc<Beep>>().link_state() == LinkState::Linked
+                        && let Err(e) = center::open(app)
+                    {
+                        log::warn!("opening the window: {e}");
+                    }
+                }
+                _ => {}
             }
         });
 }
@@ -311,8 +325,27 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     // First launch, or a link still to finish: show the code.
     if beep.link_state() != LinkState::Linked {
         bar::show(&handle, Some("link"));
+    } else if !std::env::args().any(|arg| arg == LOGIN_ARG) {
+        // Opened by the user, not as a login item: show the window.
+        center::open(&handle)?;
     }
+    refresh_login_item(&handle);
     Ok(())
+}
+
+/// Login items made before they carried `LOGIN_ARG` open the window at
+/// login; enabling again rewrites them with it.
+fn refresh_login_item(app: &AppHandle) {
+    let manager = app.autolaunch();
+    match manager.is_enabled() {
+        Ok(true) => {
+            if let Err(e) = manager.enable() {
+                log::warn!("refreshing the login item: {e}");
+            }
+        }
+        Ok(false) => {}
+        Err(e) => log::warn!("reading the login item: {e}"),
+    }
 }
 
 /// The server pushes notices to every key on the account. The first one
@@ -418,16 +451,16 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::new(app)?;
     menu.append(&MenuItem::with_id(
         app,
-        "open-bar",
+        "open-center",
         "Open Beep",
         true,
         None::<&str>,
     )?)?;
     menu.append(&MenuItem::with_id(
         app,
-        "open-center",
-        "Open Beep window",
-        link == LinkState::Linked,
+        "open-bar",
+        "Quick chat",
+        true,
         None::<&str>,
     )?)?;
     // A menu shortcut cannot show a double tap, so it gets a line of its own.
@@ -576,6 +609,10 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
     }
     match event.id().as_ref() {
         "open-bar" => bar::show(app, Some("tray")),
+        // Before linking, the bar shows the code to link with.
+        "open-center" if app.state::<Arc<Beep>>().link_state() != LinkState::Linked => {
+            bar::show(app, Some("link"))
+        }
         "open-center" => {
             if let Err(e) = center::open(app) {
                 log::warn!("opening the command center: {e}");
