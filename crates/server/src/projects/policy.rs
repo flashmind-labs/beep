@@ -64,30 +64,48 @@ pub(crate) fn judge(question: &Question, scope: &WorkerScope<'_>) -> Verdict {
     let mut words = text.splitn(2, char::is_whitespace);
     if words.next().is_some_and(|verb| EDIT_VERBS.contains(&verb)) {
         let rest = words.next().unwrap_or_default().trim();
-        return judge_edit([detail.unwrap_or_default(), rest], scope);
+        return judge_edit(detail, rest, scope);
     }
     let command = detail.unwrap_or_else(|| text.strip_prefix("Run ").unwrap_or(text).trim());
     judge_command(command, scope)
 }
 
+/// The longest UTF-8 character: a cut at a character boundary can leave this
+/// many bytes less than the limit.
+const UTF8_CHAR: usize = 4;
+
 /// Whether the agent cut `text` short. The node cuts a long input to
 /// [`MAX_QUESTION_LINE`] bytes without a marker, so anything that long may be
-/// the start of something longer. Go's `./...` pattern is not a cut.
+/// the start of something longer, give or take the last character. Go's `./...` pattern is not a cut.
 fn is_cut(text: &str) -> bool {
-    text.len() >= MAX_QUESTION_LINE || (text.ends_with("...") && !text.ends_with("/..."))
+    text.len() > MAX_QUESTION_LINE - UTF8_CHAR || (text.ends_with("...") && !text.ends_with("/..."))
 }
 
-/// An edit is fine inside the worktree, from the first of `candidates` that
-/// is an absolute path. The first is the raw path, the second the title.
-fn judge_edit(candidates: [&str; 2], scope: &WorkerScope<'_>) -> Verdict {
-    let path = candidates
-        .into_iter()
-        .find(|candidate| candidate.starts_with('/'))
-        .and_then(|candidate| MachinePath::parse(candidate).ok());
+/// An edit is fine inside the worktree and outside any `.git`. The raw path
+/// in `detail` is judged alone, relative to the worktree; without one, the
+/// title must name an absolute path.
+fn judge_edit(detail: Option<&str>, title_rest: &str, scope: &WorkerScope<'_>) -> Verdict {
+    let path = match detail {
+        Some(detail) if detail.starts_with('/') => MachinePath::parse(detail).ok(),
+        Some(detail) if path_is_inside(detail, scope) && !detail.starts_with(['{', '[', '"']) => {
+            Some(scope.worktree.join(detail))
+        }
+        Some(_) => None,
+        None if title_rest.starts_with('/') => MachinePath::parse(title_rest).ok(),
+        None => None,
+    };
     match path {
-        Some(path) if scope.worktree.contains(&path) => Verdict::Allow,
+        Some(path) if scope.worktree.contains(&path) && !has_git_part(path.as_str()) => {
+            Verdict::Allow
+        }
         _ => Verdict::AskUser,
     }
+}
+
+/// Whether `path` has a `.git` part: a repository's own files can name a
+/// config that git runs.
+fn has_git_part(path: &str) -> bool {
+    path.split('/').any(|part| part == ".git")
 }
 
 fn judge_command(command: &str, scope: &WorkerScope<'_>) -> Verdict {
@@ -198,8 +216,9 @@ fn pr_args_are_plain(args: &[&str], scope: &WorkerScope<'_>) -> bool {
         };
         let mut value = || inline.or_else(|| args.next());
         let fine = match name {
-            "--title" | "-t" | "--body" | "-b" | "--base" | "-B" | "--head" | "-H" | "--host"
-            | "--format" => value().is_some(),
+            "--title" | "-t" | "--body" | "-b" | "--base" | "-B" | "--head" | "-H" | "--format" => {
+                value().is_some()
+            }
             "-R" | "--repo" => value().is_some_and(is_repo),
             "--draft" | "-d" => inline.is_none(),
             positional if !positional.starts_with('-') => is_repo(positional),
@@ -235,7 +254,7 @@ fn judge_rm(args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
 /// Whether `path` is in the worktree. Relative paths count from the
 /// worktree, which is where the worker runs.
 fn path_is_inside(path: &str, scope: &WorkerScope<'_>) -> bool {
-    if path.contains('$') || path.starts_with('~') {
+    if path.contains('$') || path.starts_with('~') || has_git_part(path) {
         return false;
     }
     if path.starts_with('/') {
@@ -248,18 +267,20 @@ fn path_is_inside(path: &str, scope: &WorkerScope<'_>) -> bool {
 /// Whether the arguments of a check or build name only paths in the
 /// worktree, and none of the options that run or write elsewhere.
 fn args_stay_inside(words: &[&str], scope: &WorkerScope<'_>) -> bool {
+    // Compared without dashes: Go takes `-exec` and `--exec` alike.
     const ELSEWHERE: [&str; 7] = [
-        "-exec",
-        "-toolexec",
-        "--basetemp",
-        "--manifest-path",
-        "--config",
-        "--target-dir",
-        "--output",
+        "exec",
+        "toolexec",
+        "basetemp",
+        "manifest-path",
+        "config",
+        "target-dir",
+        "output",
     ];
     words.iter().skip(1).all(|word| {
         let (name, value) = word.split_once('=').unwrap_or((word, ""));
-        !ELSEWHERE.contains(&name)
+        let option = name.starts_with('-').then(|| name.trim_start_matches('-'));
+        !option.is_some_and(|option| ELSEWHERE.contains(&option))
             && path_is_inside(name, scope)
             && (value.is_empty() || path_is_inside(value, scope))
     })
@@ -304,16 +325,34 @@ fn judge_git(sub: &str, args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
 fn commit_files_stay_inside(args: &[&str], scope: &WorkerScope<'_>) -> bool {
     let mut args = args.iter().copied();
     while let Some(arg) = args.next() {
-        let value = if let Some(glued) = arg.strip_prefix("-F").filter(|v| !v.is_empty()) {
-            Some(glued)
-        } else if arg == "-F" {
-            args.next()
-        } else {
-            match arg.split_once('=') {
-                Some(("--file" | "--template", value)) => Some(value),
-                _ if matches!(arg, "--file" | "--template" | "-t") => args.next(),
-                _ => continue,
+        let value = if let Some(long) = arg.strip_prefix("--") {
+            // Git accepts any unambiguous prefix of a long option.
+            let (name, inline) = match long.split_once('=') {
+                Some((name, value)) => (name, Some(value)),
+                None => (long, None),
+            };
+            let abbreviates = |full: &str| !name.is_empty() && full.starts_with(name);
+            if !(abbreviates("file") || abbreviates("template")) {
+                continue;
             }
+            inline.or_else(|| args.next())
+        } else if let Some(cluster) = arg.strip_prefix('-') {
+            // In a cluster such as `-sF/path`, an option that takes a value
+            // ends it: `-m` takes a message, `-F` and `-t` a file.
+            let Some(at) = cluster.find(['m', 'C', 'c', 'F', 't']) else {
+                continue;
+            };
+            if matches!(&cluster[at..=at], "m" | "C" | "c") {
+                continue;
+            }
+            let rest = &cluster[at + 1..];
+            if rest.is_empty() {
+                args.next()
+            } else {
+                Some(rest)
+            }
+        } else {
+            continue;
         };
         if !value.is_some_and(|value| value != "-" && path_is_inside(value, scope)) {
             return false;
@@ -641,12 +680,13 @@ mod tests {
             "teacli pr create other/repo -t T",
             "gh pr create --web",
             "gh pr create --title",
+            "teacli pr create acme/widget --host git.example.com -t T",
         ] {
             assert_eq!(private_allowed(command), Verdict::AskUser, "{command}");
         }
         for command in [
             "gh pr create -R acme/widget --title T --body B --base main --head beep/fix-it",
-            "teacli pr create acme/widget --host git.example.com -t T -b B -B main -H beep/fix-it",
+            "teacli pr create acme/widget -t T -b B -B main -H beep/fix-it",
         ] {
             assert_eq!(private_allowed(command), Verdict::Allow, "{command}");
         }
@@ -680,6 +720,86 @@ mod tests {
             judge(&ask(title, Some("/srv/project/src/a.rs")), &scope),
             Verdict::AskUser
         );
+    }
+
+    #[test]
+    fn a_multibyte_cut_still_counts_as_cut() {
+        // The node cuts at a character boundary, so 297 bytes can be a cut.
+        let padded = format!("cargo test{}", " ".repeat(287));
+        assert_eq!(padded.len(), 297);
+        assert_eq!(private(&padded), Verdict::AskUser);
+        assert_eq!(private("cargo test"), Verdict::Allow);
+    }
+
+    #[test]
+    fn commit_options_cannot_be_abbreviated_or_clustered() {
+        for command in [
+            "git commit --fil=/abs/path",
+            "git commit --f=/abs/path",
+            "git commit --te /abs/path",
+            "git commit --t=/abs/path",
+            "git commit -sF/abs/path",
+            "git commit -sF /abs/path",
+            "git commit -t/abs/path",
+            "git commit -st /abs/path",
+        ] {
+            assert_eq!(private(command), Verdict::AskUser, "{command}");
+        }
+        assert_eq!(private("git commit -sF msg.txt"), Verdict::Allow);
+        assert_eq!(private("git commit -am 'Fix the test'"), Verdict::Allow);
+        assert_eq!(private("git commit -mtext"), Verdict::Allow);
+    }
+
+    #[test]
+    fn go_flags_take_two_dashes() {
+        for command in [
+            "go test --exec curl ./...",
+            "go test --exec=curl ./...",
+            "go build --toolexec x",
+            "cargo build --manifest-path=/other/Cargo.toml",
+        ] {
+            assert_eq!(private(command), Verdict::AskUser, "{command}");
+        }
+    }
+
+    #[test]
+    fn a_detail_is_judged_alone() {
+        let fixture = Fixture::new();
+        let scope = fixture.scope(Visibility::Private, false);
+        let title = "Edit /srv/project/.worktrees/fix-it/a.rs";
+        let edit = |detail: &str| judge(&ask(title, Some(detail)), &scope);
+        assert_eq!(edit("src/a.rs"), Verdict::Allow);
+        assert_eq!(edit("../a.rs"), Verdict::AskUser);
+        assert_eq!(edit("src/../../a.rs"), Verdict::AskUser);
+        assert_eq!(edit(r#"{"notebook_path":"/etc/x"}"#), Verdict::AskUser);
+        assert_eq!(edit("/etc/x"), Verdict::AskUser);
+        assert_eq!(
+            edit("/srv/project/.worktrees/fix-it/n.ipynb"),
+            Verdict::Allow
+        );
+    }
+
+    #[test]
+    fn git_internals_ask() {
+        let fixture = Fixture::new();
+        let scope = fixture.scope(Visibility::Private, false);
+        for detail in [
+            "/srv/project/.worktrees/fix-it/.git",
+            "/srv/project/.worktrees/fix-it/.git/config",
+            ".git",
+            "sub/.git/hooks/pre-commit",
+        ] {
+            assert_eq!(
+                judge(&ask("Write file", Some(detail)), &scope),
+                Verdict::AskUser,
+                "{detail}"
+            );
+        }
+        assert_eq!(
+            judge(&ask("Write file", Some(".gitignore")), &scope),
+            Verdict::Allow
+        );
+        assert_eq!(private("rm -rf .git"), Verdict::AskUser);
     }
 
     #[test]
