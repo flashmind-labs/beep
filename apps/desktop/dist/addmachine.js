@@ -1,8 +1,10 @@
-// The "Add a machine" sheet: Beep makes a one-time setup token, the machine
+// The "Add a machine" sheet. First, this Mac in one click: "Use this Mac"
+// turns on Let Beep use this Mac. Below it, for another machine, Beep makes
+// a one-time setup token, the machine
 // claims it with `beep-node setup <token>` and links itself to this
 // account. The sheet waits, asking which machine claimed the token, and flips to Linked
 // by itself. Esc or Cancel closes it and revokes a token nobody used.
-import { INSTALL, START, next, timeLeft, machineById, describeMachine } from "./addmachine-state.js";
+import { INSTALL, START, next, timeLeft, machineById, describeMachine, macOption } from "./addmachine-state.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -11,6 +13,8 @@ const TICK_MS = 1000;
 
 let root = null, sheet = null, state = START;
 let ticker = null, poller = null, back = null, onClose = null;
+// This Mac's mac_control view, and whether the sheet turned it on.
+let mac = null, macAsked = false, macPoller = null;
 
 function el(tag, cls, ...kids) {
   const e = document.createElement(tag);
@@ -59,6 +63,10 @@ export function openAddMachine(options = {}) {
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);
   ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
+  mac = null;
+  macAsked = false;
+  loadMac();
+  macPoller = setInterval(loadMac, POLL_MS);
   start();
 }
 
@@ -68,7 +76,8 @@ export function closeAddMachine() {
   if (state.step === "waiting") invoke("revoke_node_token", { token: state.token }).catch(() => {});
   clearInterval(ticker);
   clearInterval(poller);
-  ticker = poller = null;
+  clearInterval(macPoller);
+  ticker = poller = macPoller = null;
   document.removeEventListener("keydown", onKey, true);
   root.remove();
   root = sheet = null;
@@ -118,6 +127,54 @@ async function poll() {
   }
 }
 
+/// Reads where this Mac stands and redraws its option.
+async function loadMac() {
+  try {
+    const view = await invoke("mac_control");
+    if (!root) return;
+    mac = view;
+  } catch (e) {
+    console.warn("this Mac's state:", e);
+    return;
+  }
+  drawMac();
+}
+
+/// Turns on Let Beep use this Mac.
+async function useThisMac() {
+  macAsked = true;
+  try {
+    mac = await invoke("set_mac_control", { enabled: true });
+  } catch (e) {
+    mac = { ...mac, enabled: true, status: "failed", error: String(e) };
+  }
+  if (root) drawMac();
+}
+
+/// Redraws only the Mac option, so the token lines keep their state.
+function drawMac() {
+  if (!sheet) return;
+  const was = sheet.querySelector(".am-mac");
+  const now = macBlock();
+  if (was && now) was.replaceWith(now);
+  else if (!!was !== !!now) draw();
+}
+
+/// "Use this Mac" and where it stands, above the steps for other machines.
+function macBlock() {
+  if (state.step === "linked") return null;
+  const option = macOption(mac, macAsked);
+  if (!option) return null;
+  const status = option.busy
+    ? el("div", "am-wait", el("span", "dspin"), option.text)
+    : el("div", `am-msg${option.bad ? " bad" : ""}`, option.done ? el("span", "ddot") : null, option.done ? " " : null, option.text);
+  return el("div", "am-mac",
+    el("div", "am-label", "This Mac"),
+    option.button
+      ? el("div", "am-line", el("div", "am-mac-text", option.text), button(option.button, "dbtn pri", useThisMac))
+      : status);
+}
+
 function update(event) {
   const was = state;
   state = next(state, event);
@@ -138,7 +195,9 @@ function tickOnly() {
 
 function draw() {
   const head = el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc"));
-  sheet.replaceChildren(head, ...body());
+  const mine = macBlock();
+  const other = mine && state.step !== "linked" ? el("div", "am-label am-other", "Another machine") : null;
+  sheet.replaceChildren(head, ...[mine, other].filter(Boolean), ...body());
   const first = sheet.querySelector("button");
   if (first && !sheet.contains(document.activeElement)) first.focus();
 }

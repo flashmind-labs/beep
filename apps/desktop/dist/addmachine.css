@@ -16,3 +16,7 @@
 .am-msg.bad { color: var(--err) }
 .dbtn.quiet { background: transparent; border-color: transparent; color: var(--muted) }
 .dbtn.quiet:hover { color: var(--fg); border-color: var(--border) }
+.am-mac { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border) }
+.am-mac .am-line, .am-mac .am-msg { margin-bottom: 0 }
+.am-mac-text { flex: 1; min-width: 0; font-size: 13px }
+.am-other { font-weight: 500; color: var(--fg) }
