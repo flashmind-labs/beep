@@ -139,10 +139,10 @@ mod tests {
 
     #[test]
     fn persona_unknown_engine_fails() {
-        let text = "---\nname: a\ndescription: b\nengine: gemini\n---\nBody\n";
+        let text = "---\nname: a\ndescription: b\nengine: copilot\n---\nBody\n";
         assert!(matches!(
             parse("a.md", text),
-            Err(PersonaFileError::Engine(name)) if name == "gemini"
+            Err(PersonaFileError::Engine(name)) if name == "copilot"
         ));
     }
 

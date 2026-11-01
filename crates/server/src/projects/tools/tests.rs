@@ -506,6 +506,50 @@ async fn host_cli_through_exec_always_asks() {
 }
 
 #[tokio::test]
+async fn pushing_the_default_branch_through_exec_always_asks() {
+    let h = harness(github(), Visibility::Private).await;
+    let inner = Arc::new(RecordingTool::new("exec"));
+    let exec = GatedExec {
+        exec: inner.clone(),
+        tools: h.tools(PermissionLevel::Allow {}, None),
+    };
+    for command in [
+        "git push origin main",
+        "cd /srv/widget && git push -u origin HEAD:main",
+        "git -C /srv/widget push origin beep/x:refs/heads/main",
+        "git push --all",
+        "git push",
+        "sh -c 'git push origin main'",
+    ] {
+        let parked = call(&exec, "c1", json!({ "command": command })).await;
+        assert_eq!(approval(&parked).action, "Run a command", "{command}");
+        assert_eq!(
+            saved_as("exec", &json!({ "command": command }), &h.project),
+            None,
+            "{command}"
+        );
+    }
+    assert_eq!(inner.calls(), 0);
+    // The task's own branch follows the level.
+    let own = call(
+        &exec,
+        "c2",
+        json!({"command": "git push origin beep/fix-it"}),
+    )
+    .await;
+    assert_eq!(own.output(), "ran");
+    assert_eq!(
+        saved_as(
+            "exec",
+            &json!({"command": "git push origin beep/fix-it"}),
+            &h.project
+        )
+        .as_deref(),
+        Some("EXEC")
+    );
+}
+
+#[tokio::test]
 async fn process_stop_asks_first() {
     let h = harness(github(), Visibility::Private).await;
     let inner = Arc::new(RecordingTool::new("process"));

@@ -27,6 +27,7 @@ pub(crate) enum Verdict {
 }
 
 /// What a worker may touch.
+#[derive(Clone, Copy)]
 pub(crate) struct WorkerScope<'a> {
     /// The project's repository: the only one a pull request may target.
     pub(crate) repo: &'a RepoName,
@@ -39,6 +40,9 @@ pub(crate) struct WorkerScope<'a> {
     /// its own branch and open a pull request without asking.
     pub(crate) outside_allowed: bool,
     pub(crate) public_text: &'a PublicText,
+    /// Whether the worker edited a build file since the user last allowed
+    /// a build: the build runs that file, so it asks.
+    pub(crate) build_edited: bool,
 }
 
 const FORCE_REFUSAL: &str =
@@ -51,23 +55,131 @@ const SHELL_SYNTAX: [&str; 14] = [
 ];
 
 pub(crate) fn judge(question: &Question, scope: &WorkerScope<'_>) -> Verdict {
+    // Measured before trimming: the node cuts the raw input.
+    if is_cut(&question.text) || question.detail.as_deref().is_some_and(is_cut) {
+        return Verdict::AskUser;
+    }
+    match action(question) {
+        Action::Edit { detail, title_rest } => judge_edit(detail, title_rest, scope),
+        Action::Command(command) => judge_command(command, scope),
+    }
+}
+
+/// What a question asks to do.
+enum Action<'a> {
+    /// An edit, with the raw path in `detail` or the title after its verb.
+    Edit {
+        detail: Option<&'a str>,
+        title_rest: &'a str,
+    },
+    Command(&'a str),
+}
+
+fn action(question: &Question) -> Action<'_> {
     let text = question.text.trim();
     let detail = question
         .detail
         .as_deref()
         .map(str::trim)
         .filter(|detail| !detail.is_empty());
-    // Measured before trimming: the node cuts the raw input.
-    if is_cut(&question.text) || question.detail.as_deref().is_some_and(is_cut) {
-        return Verdict::AskUser;
-    }
     let mut words = text.splitn(2, char::is_whitespace);
     if words.next().is_some_and(|verb| EDIT_VERBS.contains(&verb)) {
-        let rest = words.next().unwrap_or_default().trim();
-        return judge_edit(detail, rest, scope);
+        let title_rest = words.next().unwrap_or_default().trim();
+        return Action::Edit { detail, title_rest };
     }
-    let command = detail.unwrap_or_else(|| text.strip_prefix("Run ").unwrap_or(text).trim());
-    judge_command(command, scope)
+    Action::Command(detail.unwrap_or_else(|| text.strip_prefix("Run ").unwrap_or(text).trim()))
+}
+
+/// Whether `question` edits a file a build or test runs, such as
+/// `build.rs`, a Makefile or `package.json`, or a git hook.
+pub(crate) fn edits_build_file(question: &Question) -> bool {
+    let Action::Edit { detail, title_rest } = action(question) else {
+        return false;
+    };
+    let path = detail.unwrap_or(title_rest);
+    let parts: Vec<&str> = path
+        .split(['/', '\\'])
+        .filter(|part| !part.is_empty())
+        .collect();
+    let Some(name) = parts.last() else {
+        return false;
+    };
+    let in_hooks = parts[..parts.len() - 1].iter().any(|dir| {
+        let dir = dir.to_ascii_lowercase();
+        HOOK_DIRS.contains(&dir.as_str())
+    });
+    in_hooks || is_build_file(name)
+}
+
+/// Folders whose files git, cargo or a hook manager runs.
+const HOOK_DIRS: [&str; 5] = [".git", ".githooks", ".husky", ".cargo", "git~1"];
+
+/// Files a build or test reads as code or as the list of what to run.
+const BUILD_FILES: [&str; 30] = [
+    "build.rs",
+    "makefile",
+    "gnumakefile",
+    "justfile",
+    ".justfile",
+    "package.json",
+    ".npmrc",
+    ".yarnrc",
+    ".yarnrc.yml",
+    "pnpm-workspace.yaml",
+    "setup.py",
+    "setup.cfg",
+    "pyproject.toml",
+    "conftest.py",
+    "tox.ini",
+    "noxfile.py",
+    "pytest.ini",
+    "cmakelists.txt",
+    "cargo.toml",
+    "rust-toolchain",
+    "rust-toolchain.toml",
+    "gradlew",
+    "gradle.properties",
+    "build.zig",
+    "meson.build",
+    "build.bazel",
+    "workspace",
+    "module.bazel",
+    "rakefile",
+    "go.work",
+];
+/// Endings of build files, as `rules.mk` or `app.gradle.kts`.
+const BUILD_ENDINGS: [&str; 5] = [".mk", ".cmake", ".gradle", ".gradle.kts", ".bzl"];
+/// Script endings of tool configs such as `vite.config.ts`, which the tool
+/// runs as code.
+const CONFIG_SCRIPTS: [&str; 6] = ["js", "ts", "mjs", "cjs", "mts", "cts"];
+
+fn is_build_file(name: &str) -> bool {
+    // Bazel's BUILD; a lowercase `build` is usually a folder or a script.
+    if name == "BUILD" {
+        return true;
+    }
+    let name = name.to_ascii_lowercase();
+    BUILD_FILES.contains(&name.as_str())
+        || BUILD_ENDINGS.iter().any(|ending| name.ends_with(ending))
+        || name
+            .rsplit_once('.')
+            .is_some_and(|(stem, ext)| CONFIG_SCRIPTS.contains(&ext) && stem.ends_with(".config"))
+}
+
+/// Whether `question` runs a build, a test or a git command that runs
+/// hooks: what a build file edit holds back until the user allows it.
+pub(crate) fn runs_build(question: &Question) -> bool {
+    let Action::Command(command) = action(question) else {
+        return false;
+    };
+    shlex::split(command).is_some_and(|tokens| {
+        let words: Vec<&str> = tokens.iter().map(String::as_str).collect();
+        runs_build_words(&words)
+    })
+}
+
+fn runs_build_words(words: &[&str]) -> bool {
+    is_check_or_build(words) || matches!(words, ["git", "commit" | "push", ..])
 }
 
 /// The longest UTF-8 character: a cut at a character boundary can leave this
@@ -85,6 +197,11 @@ fn is_cut(text: &str) -> bool {
 /// in `detail` is judged alone, relative to the worktree; without one, the
 /// title must name an absolute path.
 fn judge_edit(detail: Option<&str>, title_rest: &str, scope: &WorkerScope<'_>) -> Verdict {
+    // A drive letter, an alternate data stream or a Windows separator: the
+    // path may not be where it looks.
+    if detail.unwrap_or(title_rest).contains([':', '\\']) {
+        return Verdict::AskUser;
+    }
     let path = match detail {
         Some(detail) if detail.starts_with('/') => MachinePath::parse(detail).ok(),
         Some(detail) if path_is_inside(detail, scope) && !detail.starts_with(['{', '[', '"']) => {
@@ -114,6 +231,17 @@ fn has_git_part(path: &str) -> bool {
 }
 
 fn judge_command(command: &str, scope: &WorkerScope<'_>) -> Verdict {
+    let verdict = judge_plain_command(command, scope);
+    let held = scope.build_edited
+        && verdict == Verdict::Allow
+        && shlex::split(command).is_some_and(|tokens| {
+            let words: Vec<&str> = tokens.iter().map(String::as_str).collect();
+            runs_build_words(&words)
+        });
+    if held { Verdict::AskUser } else { verdict }
+}
+
+fn judge_plain_command(command: &str, scope: &WorkerScope<'_>) -> Verdict {
     if SHELL_SYNTAX.iter().any(|syntax| command.contains(syntax)) {
         return Verdict::AskUser;
     }
@@ -445,6 +573,7 @@ mod tests {
                 visibility,
                 outside_allowed,
                 public_text: &self.public_text,
+                build_edited: false,
             }
         }
     }
@@ -894,5 +1023,115 @@ mod tests {
             assert!(agent_asks(agent), "{agent}");
         }
         assert!(!agent_asks("flsh"));
+    }
+
+    #[test]
+    fn edit_paths_with_colons_or_backslashes_ask() {
+        let fixture = Fixture::new();
+        let scope = fixture.scope(Visibility::Private, false);
+        for detail in [
+            "src\\lib.rs",
+            "..\\..\\x",
+            "C:/x",
+            "src/a:b",
+            "/srv/project/.worktrees/fix-it/a:b",
+            "/srv/project/.worktrees/fix-it/src\\x",
+        ] {
+            assert_eq!(
+                judge(&ask("Write file", Some(detail)), &scope),
+                Verdict::AskUser,
+                "{detail}"
+            );
+        }
+        assert_eq!(
+            judge(
+                &ask("Edit /srv/project/.worktrees/fix-it/src\\x", None),
+                &scope
+            ),
+            Verdict::AskUser
+        );
+    }
+
+    #[test]
+    fn build_files_are_known() {
+        for path in [
+            "build.rs",
+            "/srv/project/.worktrees/fix-it/crates/x/build.rs",
+            "Makefile",
+            "GNUmakefile",
+            "rules.mk",
+            "justfile",
+            ".justfile",
+            "package.json",
+            "setup.py",
+            "pyproject.toml",
+            "conftest.py",
+            "CMakeLists.txt",
+            "app/build.gradle.kts",
+            "settings.gradle",
+            "Cargo.toml",
+            ".cargo/config.toml",
+            "vite.config.ts",
+            ".git/hooks/pre-commit",
+            ".husky/pre-commit",
+        ] {
+            assert!(edits_build_file(&ask("Write file", Some(path))), "{path}");
+        }
+        assert!(edits_build_file(&ask(
+            "Edit /srv/project/.worktrees/fix-it/Makefile",
+            None
+        )));
+        for path in [
+            "src/lib.rs",
+            "README.md",
+            "build/output.txt",
+            "docs/Makefile.md",
+        ] {
+            assert!(!edits_build_file(&ask("Write file", Some(path))), "{path}");
+        }
+        assert!(!edits_build_file(&ask(
+            "Run a command",
+            Some("cat Cargo.toml")
+        )));
+    }
+
+    #[test]
+    fn builds_after_a_build_file_edit_ask() {
+        let fixture = Fixture::new();
+        let scope = WorkerScope {
+            build_edited: true,
+            ..fixture.scope(Visibility::Private, false)
+        };
+        let run = |command: &str| judge(&ask("Run a command", Some(command)), &scope);
+        for command in ["cargo test", "make", "just test", "pytest -q", "npm test"] {
+            assert_eq!(run(command), Verdict::AskUser, "{command}");
+            assert!(
+                runs_build(&ask("Run a command", Some(command))),
+                "{command}"
+            );
+        }
+        // Everything else is judged as before.
+        assert_eq!(run("git status"), Verdict::Allow);
+        assert!(!runs_build(&ask("Run a command", Some("git status"))));
+        assert_eq!(
+            judge(&ask("Write file", Some("src/lib.rs")), &scope),
+            Verdict::Allow
+        );
+    }
+
+    #[test]
+    fn pushes_to_the_default_branch_always_ask() {
+        for command in [
+            "git push origin main",
+            "git push -u origin main",
+            "git push origin HEAD:main",
+            "git push origin beep/fix-it:refs/heads/main",
+            "git push origin :main",
+            "git push origin beep/fix-it main",
+            "git push origin",
+            "git push",
+        ] {
+            assert_eq!(private_allowed(command), Verdict::AskUser, "{command}");
+        }
     }
 }
