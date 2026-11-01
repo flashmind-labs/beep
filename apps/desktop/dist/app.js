@@ -4970,6 +4970,8 @@ const WINDOW_KEYS = new Set(["k", "m", "j", "l", ","]);
 document.addEventListener("keydown", e => {
   const cmd = e.metaKey;
   if (PANE && !paneMounted) return;
+  // A key meant for the sidebar (Enter on a row) is not the pane's.
+  if (PANE && e.target !== document.body && !bar.contains(e.target)) return;
   if (PANE && cmd && WINDOW_KEYS.has(e.key.toLowerCase())) return;
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (LV.on && liveKeys(e, cmd)) return;

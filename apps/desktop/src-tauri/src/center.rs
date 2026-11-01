@@ -62,6 +62,9 @@ fn frame<R: Runtime>(app: &AppHandle<R>) -> Option<(LogicalPosition<f64>, Logica
 pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     bar::hide(app);
     if let Some(window) = app.get_webview_window(LABEL) {
+        if window.is_minimized()? {
+            window.unminimize()?;
+        }
         window.show()?;
         window.set_focus()?;
         return Ok(());
@@ -547,6 +550,19 @@ impl Shown {
     pub(crate) fn get(&self) -> Showing {
         self.showing().clone()
     }
+
+    /// Forgets the chat and group, when the window closes.
+    pub(crate) fn clear(&self) {
+        *self.showing() = Showing::default();
+    }
+
+    /// Leaves group `id` if the window shows it.
+    pub(crate) fn leave_group(&self, id: &str) {
+        let mut showing = self.showing();
+        if showing.group.as_deref() == Some(id) {
+            showing.group = None;
+        }
+    }
 }
 
 /// A chat a webview opened or left: a session or a group, `None` for none.
@@ -822,6 +838,25 @@ mod tests {
         let bar = Shown::default();
         bar.set_session(Some(session.into()));
         bar
+    }
+
+    #[test]
+    fn closing_the_window_forgets_its_chat() {
+        let shown = Shown::default();
+        shown.set_session(Some("a".into()));
+        shown.set_group(Some("g".into()));
+        shown.clear();
+        assert_eq!(shown.get(), Showing::default());
+    }
+
+    #[test]
+    fn leaving_a_group_clears_only_that_group() {
+        let shown = Shown::default();
+        shown.set_group(Some("g".into()));
+        shown.leave_group("other");
+        assert_eq!(shown.get().group.as_deref(), Some("g"));
+        shown.leave_group("g");
+        assert_eq!(shown.get().group, None);
     }
 
     #[test]

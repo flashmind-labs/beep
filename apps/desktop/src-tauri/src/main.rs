@@ -99,7 +99,14 @@ fn main() {
                     voice.minimize();
                 }
             }
-            WindowEvent::Destroyed => research::closed(window.app_handle(), window.label()),
+            WindowEvent::Destroyed => {
+                if window.label() == center::LABEL {
+                    // Its chat is not on screen any more, so its notices must
+                    // not be held back as seen.
+                    window.app_handle().state::<center::Shown>().clear();
+                }
+                research::closed(window.app_handle(), window.label());
+            }
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
@@ -333,7 +340,9 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         bar::show(&handle, Some("link"));
     } else if !std::env::args().any(|arg| arg == LOGIN_ARG) {
         // Opened by the user, not as a login item: show the window.
-        center::open(&handle)?;
+        if let Err(e) = center::open(&handle) {
+            log::warn!("opening the window at launch: {e}");
+        }
     }
     refresh_login_item(&handle);
     Ok(())

@@ -378,6 +378,7 @@ function drawSide() {
   }
   side.push(h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f))));
   $("#side").replaceChildren(...side);
+  restorePinFocus();
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
 }
@@ -399,15 +400,17 @@ let chatFetch = null;
 /// One fetch feeds both groups, even when both ask at once.
 function fetchChats() {
   if (chatFetch) return chatFetch;
-  const mine = pane().chatRows().then(rows => (chatList = rows)).finally(() => { if (chatFetch === mine) chatFetch = null; });
+  const mine = pane().chatRows().then(rows => {
+    if (chatFetch === mine) chatList = rows;
+    return rows;
+  }).finally(() => { if (chatFetch === mine) chatFetch = null; });
   return chatFetch = mine;
 }
 
 function reloadChats() {
   // A fetch that started before this change may miss it: the next one is new.
   chatFetch = null;
-  reloadGroup("pinned");
-  reloadGroup("chats");
+  return Promise.all([reloadGroup("pinned"), reloadGroup("chats")]);
 }
 
 /// Pinned projects join the Pinned group here once projects can be pinned:
@@ -415,13 +418,24 @@ function reloadChats() {
 /// give `chatRow` and the group's `onPick` a branch for them.
 async function pinnedProjects() { return []; }
 
+/// The chat whose pin button had the keyboard focus before a pin, so the
+/// redrawn row gets it back.
+let pinFocus = null;
+
+function restorePinFocus() {
+  if (pinFocus) document.querySelector(`.cc-chat .pa[data-id="${CSS.escape(pinFocus)}"]`)?.focus();
+}
+
 async function setPinned(c, pinned) {
+  if (document.activeElement?.classList.contains("pa") && document.activeElement.dataset.id === c.id) pinFocus = c.id;
   try {
     await invoke(c.kind === "group" ? "pin_group" : "pin_session", { id: c.id, pinned });
   } catch (e) {
     console.warn("pinning a chat:", e);
   }
-  reloadChats();
+  await reloadChats();
+  restorePinFocus();
+  pinFocus = null;
 }
 
 function chatRow(c) {
@@ -430,6 +444,7 @@ function chatRow(c) {
   const mark = c.kind === "group" ? icon(IC.group) : icon(c.research ? IC.doc : IC.chat);
   const toggle = h("button", "pa", icon(IC.pin));
   toggle.type = "button";
+  toggle.dataset.id = c.id;
   toggle.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
   toggle.addEventListener("click", e => { e.stopPropagation(); setPinned(c, !c.pinned); });
   // Two real buttons in one row, never one inside the other.
@@ -617,6 +632,7 @@ $("#bar").dataset.view = pane()?.current().view ?? "";
 pane()?.onChange(now => {
   if (shown === "pane") {
     if (last.view === "chat" && now.view !== "chat" && now.view !== "group") invoke("new_chat").catch(() => {});
+    if (last.group && !now.group) invoke("close_group").catch(() => {});
   }
   last = now;
   $("#bar").dataset.view = now.view ?? "";
@@ -701,4 +717,5 @@ $("#home-comp").addEventListener("submit", async e => {
   reloadChats();
 });
 
-takePending("home");
+// A reload starts with no chat open, as the window just opened does.
+invoke("new_chat").catch(() => {}).then(() => takePending("home"));
