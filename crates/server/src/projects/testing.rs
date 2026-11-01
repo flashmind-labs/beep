@@ -11,10 +11,15 @@ use crate::protocol::node::{
 };
 use anyhow::{Result, bail};
 use async_trait::async_trait;
+use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use iroh::{EndpointId, SecretKey};
+use serde_json::{Value, json};
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -24,9 +29,15 @@ use std::{
 pub(crate) struct FakeShell {
     ran: Mutex<Vec<String>>,
     rules: Mutex<Vec<(String, CommandOutput)>>,
+    /// Commands holding this text never finish.
+    hangs: Mutex<Option<String>>,
 }
 
 impl FakeShell {
+    pub(crate) fn hang_on(&self, holds: &str) {
+        *self.hangs.lock().unwrap_or_else(PoisonError::into_inner) = Some(holds.to_owned());
+    }
+
     pub(crate) fn answer(&self, holds: &str, code: i32, out: &str) {
         self.rules
             .lock()
@@ -66,6 +77,14 @@ impl Shell for FakeShell {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(command.to_owned());
+        let hangs = self
+            .hangs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if hangs.is_some_and(|holds| command.contains(&holds)) {
+            std::future::pending::<()>().await;
+        }
         let rules = self.rules.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(rules
             .iter()
@@ -77,6 +96,45 @@ impl Shell for FakeShell {
                 },
                 |(_, output)| output.clone(),
             ))
+    }
+}
+
+/// A tool that counts its calls and answers "ran".
+pub(crate) struct RecordingTool {
+    pub(crate) name: &'static str,
+    pub(crate) calls: AtomicUsize,
+}
+
+impl RecordingTool {
+    pub(crate) fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    pub(crate) fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl Tool for RecordingTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn description(&self) -> &str {
+        "records its calls"
+    }
+
+    fn parameters(&self) -> Value {
+        json!({"type": "object"})
+    }
+
+    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(ToolResult::success(ctx.tool_call_id, "ran"))
     }
 }
 

@@ -8,7 +8,7 @@ use super::{
         read_setup,
     },
     fleet::{self, Fleet, Machine, NodeFleet},
-    gate::{Asks, Gate, GatedExec, ProjectGate},
+    gate::{self, Asks, Gate, GatedExec, GatedProcess, ProjectGate},
     issues::{self, HOST_LIMIT, run_host},
     model::{
         IssueHost, MachinePath, ProjectId, StartRequest, TaskId, TaskState, Visibility, WorkerAgent,
@@ -16,6 +16,7 @@ use super::{
 };
 use crate::{
     app::App,
+    leak::PublicText,
     nodes::SHELL,
     permissions::PROJECT_APP,
     protocol::{Approval, ApprovalField, node::Capability},
@@ -38,12 +39,22 @@ const SETUP: &str = "project_setup";
 const PLAN: &str = "project_plan";
 const TASKS: &str = "project_tasks";
 
+/// What each gated action is saved as when the user allows it always.
+const PLAN_SLUG: &str = "PROJECT_PLAN";
+const CHECKOUT_SLUG: &str = "PROJECT_SETUP_CHECKOUT";
+const UPDATE_SLUG: &str = "PROJECT_TASKS_UPDATE";
+const DROP_SLUG: &str = "PROJECT_TASKS_DROP";
+const REOPEN_SLUG: &str = "PROJECT_TASKS_REOPEN";
+/// Never saved: a merge always asks.
+const MERGE_SLUG: &str = "PROJECT_TASKS_MERGE";
+
 /// Most tasks one plan makes.
 const MAX_PLAN: usize = 20;
 /// From this many tasks on, a plan always shows its card first.
 const PLAN_CARD_FROM: usize = 3;
 
 /// What every project tool works with.
+#[derive(Clone)]
 pub(crate) struct ProjectTools {
     pub(crate) fleet: Arc<dyn Fleet>,
     pub(crate) user: Arc<User>,
@@ -61,6 +72,51 @@ impl ProjectTools {
             .project(self.project)
             .await?
             .ok_or_else(|| anyhow::anyhow!("the project is gone"))
+    }
+
+    /// What text bound for the code host must not name: the machines, their
+    /// homes, the project's checkouts and the folders the machines share.
+    pub(crate) async fn public_text(&self) -> Result<PublicText> {
+        let project = self.project().await?;
+        let machines = self.fleet.machines().await?;
+        fleet::project_public_text(self.fleet.as_ref(), &self.user, &project, &machines).await
+    }
+}
+
+/// What "Always" on the card for this call saves, or `None` when the card
+/// always asks (a merge, a big plan, a host command), so nothing is saved.
+pub(crate) fn saved_as(tool: &str, args: &Value, project: &ProjectRow) -> Option<String> {
+    let text = |key: &str| args.get(key).and_then(Value::as_str);
+    let slug = match tool {
+        PLAN => {
+            let n = args
+                .get("tasks")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            (plan_asks(n, project) == Asks::ByLevel).then_some(PLAN_SLUG)
+        }
+        TASKS => match text("action")? {
+            "update" => Some(UPDATE_SLUG),
+            "drop" => Some(DROP_SLUG),
+            "reopen" => Some(REOPEN_SLUG),
+            _ => None,
+        },
+        SETUP => (text("action") == Some("checkout")).then_some(CHECKOUT_SLUG),
+        "exec" => gate::exec_slug(text("command").unwrap_or_default()),
+        "process" => (text("action") == Some("stop")).then_some(gate::PROCESS_STOP_SLUG),
+        _ => None,
+    };
+    slug.map(str::to_owned)
+}
+
+/// Whether a plan of `n` tasks asks by the level or always.
+fn plan_asks(n: usize, project: &ProjectRow) -> Asks {
+    if n >= PLAN_CARD_FROM
+        || (project.visibility == Visibility::Public && project.roles.issues.is_some())
+    {
+        Asks::Always
+    } else {
+        Asks::ByLevel
     }
 }
 
@@ -85,13 +141,16 @@ pub(crate) fn register(
         chat,
         gate: gate.clone(),
     });
+
     registry.register(Arc::new(SetupTool {
         tools: tools.clone(),
     }));
     registry.register(Arc::new(PlanTool {
         tools: tools.clone(),
     }));
-    registry.register(Arc::new(TasksTool { tools }));
+    registry.register(Arc::new(TasksTool {
+        tools: tools.clone(),
+    }));
     let machines = Machines {
         app: app.clone(),
         user: user.clone(),
@@ -106,9 +165,12 @@ pub(crate) fn register(
             exec: Arc::new(ExecTool {
                 machines: machines.clone(),
             }),
+            tools,
+        }));
+        registry.register(Arc::new(GatedProcess {
+            process: Arc::new(ProcessTool { machines }),
             gate,
         }));
-        registry.register(Arc::new(ProcessTool { machines }));
     }
 }
 
@@ -146,7 +208,7 @@ fn card(action: String, fields: Vec<ApprovalField>) -> Approval {
 }
 
 /// The result for a call with private details in its text.
-fn leaked(hits: &[String]) -> String {
+pub(crate) fn leaked(hits: &[String]) -> String {
     format!(
         "Not done: the text names private details: {}. Rewrite it without machine names, user \
          names, home folders, IP addresses or ports, then call again.",
@@ -212,6 +274,27 @@ impl Tool for SetupTool {
             Ok(args) => args,
             Err(error) => return Ok(ToolResult::failure(id, error.to_string())),
         };
+        if let SetupAction::Checkout = args.action {
+            let checkout_card = || {
+                let text = |value: &Option<String>| value.clone().unwrap_or_default();
+                card(
+                    "Add a checkout".to_owned(),
+                    vec![
+                        field("Machine", text(&args.machine)),
+                        field("Path", text(&args.path)),
+                    ],
+                )
+            };
+            let gate = self
+                .tools
+                .gate
+                .check(id, CHECKOUT_SLUG, Asks::ByLevel, checkout_card);
+            match gate {
+                Gate::Run => {}
+                Gate::Refuse(reason) => return Ok(ToolResult::success(id, reason)),
+                Gate::Park(result) => return Ok(result),
+            }
+        }
         let done = match args.action {
             SetupAction::Show => self.show().await?,
             action => self.change(action, &args).await?,
@@ -450,7 +533,8 @@ impl Tool for PlanTool {
          machine must offer (gpu, cuda, blender, unreal, xcode, android, docker). The issue \
          text is public: no machine names, user names, home folders, IP addresses or ports. \
          A plan of 3 or more tasks, and any issue on a public repository, shows the user a \
-         card first. With `start`, each task starts as soon as a machine has room."
+         card first. `start` marks each task to start on a machine; Beep cannot start workers \
+         yet, so they wait until it can."
     }
 
     fn parameters(&self) -> Value {
@@ -529,7 +613,9 @@ impl PlanTool {
                 Err(why) => return Ok(Planned::Refused(why)),
             }
         }
-        let public_text = fleet::public_text(&machines);
+        let public_text =
+            fleet::project_public_text(tools.fleet.as_ref(), &tools.user, &project, &machines)
+                .await?;
         let mut hits: Vec<String> = Vec::new();
         for task in &checked {
             let command = HostCommand::CreateIssue {
@@ -546,13 +632,7 @@ impl PlanTool {
             return Ok(Planned::Refused(leaked(&hits)));
         }
 
-        let asks = if checked.len() >= PLAN_CARD_FROM
-            || (project.visibility == Visibility::Public && project.roles.issues.is_some())
-        {
-            Asks::Always
-        } else {
-            Asks::ByLevel
-        };
+        let asks = plan_asks(checked.len(), &project);
         let plan_card = || {
             let n = checked.len();
             let fields = checked
@@ -576,11 +656,18 @@ impl PlanTool {
                 fields,
             )
         };
-        if let Some(stop) = gated(tools.gate.check(id, PLAN, asks, plan_card)) {
+        if let Some(stop) = gated(tools.gate.check(id, PLAN_SLUG, asks, plan_card)) {
             return Ok(stop);
         }
 
-        let new: Vec<NewTask> = checked.iter().map(|task| task.task.clone()).collect();
+        // The start request is saved with the rows, so a failure makes none.
+        let new: Vec<NewTask> = checked
+            .iter()
+            .map(|task| NewTask {
+                start: args.start.then(|| task.start.clone()),
+                ..task.task.clone()
+            })
+            .collect();
         let made = tools.user.create_tasks(project.id, &new).await?;
         let mut text = String::new();
         let mut failed = Vec::new();
@@ -623,10 +710,10 @@ impl PlanTool {
             );
         }
         if args.start {
-            for (task, row) in checked.iter().zip(&made) {
-                tools.user.set_task_start(row.id, Some(&task.start)).await?;
-            }
-            text.push_str(" Each starts as soon as a machine has room.");
+            text.push_str(
+                " Each is marked to start, but Beep cannot start workers yet: they wait until \
+                 it can.",
+            );
         }
         Ok(Planned::Done(text))
     }
@@ -693,6 +780,7 @@ impl PlanTool {
                 body: planned.body.trim().to_owned(),
                 depends_on,
                 needs,
+                start: None,
             },
             start: StartRequest {
                 machine,
@@ -851,6 +939,24 @@ fn gated(gate: Gate) -> Option<Planned> {
     }
 }
 
+/// Whether `task` already waits for `target`, directly or through others.
+fn waits_on(tasks: &[TaskRow], task: &TaskRow, target: TaskId) -> bool {
+    let mut at = Some(task);
+    // Each task is passed at most once, so a loop already saved ends too.
+    for _ in 0..=tasks.len() {
+        let Some(current) = at else {
+            return false;
+        };
+        if current.id == target {
+            return true;
+        }
+        at = current
+            .depends_on
+            .and_then(|next| tasks.iter().find(|other| other.id == next));
+    }
+    false
+}
+
 /// The number at the end of a pull request's URL.
 fn pr_number(url: &str) -> Option<u64> {
     url.trim_end_matches('/').rsplit('/').next()?.parse().ok()
@@ -885,19 +991,25 @@ impl TasksTool {
                 ));
             }
             Some(slug) => match tasks.iter().find(|other| other.slug.as_str() == slug) {
+                Some(other) if waits_on(tasks, other, task.id) => {
+                    return Ok(Planned::Refused(format!(
+                        "{} cannot wait for {slug}: {slug} already waits for it, so neither \
+                         would start.",
+                        task.slug
+                    )));
+                }
                 Some(other) => Some(Some(other.id)),
                 None => return Ok(Planned::Refused(format!("There is no task {slug}."))),
             },
         };
         let new_title = title.unwrap_or(&task.title);
         let new_body = body.unwrap_or(&task.body);
-        let machines = tools.fleet.machines().await?;
         let hits = HostCommand::EditIssue {
             number: 0,
             title: new_title,
             body: new_body,
         }
-        .leaks(&fleet::public_text(&machines));
+        .leaks(&tools.public_text().await?);
         if !hits.is_empty() {
             return Ok(Planned::Refused(leaked(&hits)));
         }
@@ -917,7 +1029,11 @@ impl TasksTool {
             }
             card("Update task".to_owned(), fields)
         };
-        if let Some(stop) = gated(tools.gate.check(id, TASKS, Asks::ByLevel, update_card)) {
+        if let Some(stop) = gated(
+            tools
+                .gate
+                .check(id, UPDATE_SLUG, Asks::ByLevel, update_card),
+        ) {
             return Ok(stop);
         }
         tools.user.update_task_text(task.id, title, body).await?;
@@ -954,7 +1070,7 @@ impl TasksTool {
                 vec![field("Task", format!("{}: {}", task.slug, task.title))],
             )
         };
-        if let Some(stop) = gated(tools.gate.check(id, TASKS, Asks::ByLevel, drop_card)) {
+        if let Some(stop) = gated(tools.gate.check(id, DROP_SLUG, Asks::ByLevel, drop_card)) {
             return Ok(stop);
         }
         tools
@@ -996,7 +1112,11 @@ impl TasksTool {
                 vec![field("Task", format!("{}: {}", task.slug, task.title))],
             )
         };
-        if let Some(stop) = gated(tools.gate.check(id, TASKS, Asks::ByLevel, reopen_card)) {
+        if let Some(stop) = gated(
+            tools
+                .gate
+                .check(id, REOPEN_SLUG, Asks::ByLevel, reopen_card),
+        ) {
             return Ok(stop);
         }
         tools
@@ -1058,7 +1178,7 @@ impl TasksTool {
             }
             card("Merge pull request".to_owned(), fields)
         };
-        if let Some(stop) = gated(tools.gate.check(id, TASKS, Asks::Always, merge_card)) {
+        if let Some(stop) = gated(tools.gate.check(id, MERGE_SLUG, Asks::Always, merge_card)) {
             return Ok(stop);
         }
         if let Err(why) = self

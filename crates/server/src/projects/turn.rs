@@ -51,6 +51,9 @@ pub(crate) fn turn_kind(message: &Message) -> TurnKind {
     }
 }
 
+/// How long filing missed issues may hold up the start of a turn.
+const MIRROR_BUDGET: Duration = Duration::from_secs(30);
+
 /// The start of each project turn: files the issues earlier tries missed,
 /// then gives the context block.
 pub(crate) async fn start(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
@@ -58,12 +61,27 @@ pub(crate) async fn start(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow
         app: app.clone(),
         user: user.clone(),
     };
-    match issues::mirror_missing(&fleet, user, project).await {
-        Ok(0) => {}
-        Ok(filed) => log::info!("projects: filed {filed} missing issues"),
-        Err(error) => log::warn!("projects: unable to file missing issues: {error:#}"),
+    start_with(&fleet, user, project, MIRROR_BUDGET).await
+}
+
+/// `start` on `fleet`, filing missed issues for at most `budget`. Those it
+/// does not get to are tried on a later turn.
+pub(crate) async fn start_with(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    budget: Duration,
+) -> String {
+    match timeout(budget, issues::mirror_missing(fleet, user, project)).await {
+        Ok(Ok(0)) => {}
+        Ok(Ok(filed)) => log::info!("projects: filed {filed} missing issues"),
+        Ok(Err(error)) => log::warn!("projects: unable to file missing issues: {error:#}"),
+        Err(_) => log::warn!(
+            "projects: filing missing issues took over {}s; the rest wait for a later turn",
+            budget.as_secs()
+        ),
     }
-    context_with(&fleet, user, project).await
+    context_with(fleet, user, project).await
 }
 
 /// What the agent is told about its project each turn.
@@ -481,6 +499,7 @@ mod tests {
                 body: String::new(),
                 depends_on: None,
                 needs: Vec::new(),
+                start: None,
             }],
         )
         .await
@@ -496,6 +515,53 @@ mod tests {
         );
         assert!(ctx.contains("- gpu-box: /srv/widget (home)"), "{ctx}");
         assert_eq!(shell.ran_with("issue list").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn filing_missing_issues_is_bounded() {
+        let db = TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+        let mut fleet = FakeFleet::default();
+        let (home, shell) = fleet.add(1, "build-box", &[], "/srv");
+        shell.hang_on("issue create");
+        let project = user
+            .ensure_project(&RepoName::parse("acme/widget").unwrap())
+            .await
+            .unwrap();
+        user.add_checkout(
+            project.id,
+            &CheckoutRow {
+                machine: home,
+                path: MachinePath::parse("/srv/widget").unwrap(),
+                home: true,
+            },
+        )
+        .await
+        .unwrap();
+        let roles = crate::projects::model::Roles {
+            issues: Some(IssueHost::Github),
+            prs: None,
+        };
+        user.set_project_setup(project.id, &roles, Visibility::Private, "main")
+            .await
+            .unwrap();
+        user.create_tasks(
+            project.id,
+            &[NewTask {
+                title: "Fix the build".into(),
+                body: String::new(),
+                depends_on: None,
+                needs: Vec::new(),
+                start: None,
+            }],
+        )
+        .await
+        .unwrap();
+        let project = user.project(project.id).await.unwrap().unwrap();
+        // The host never answers; the turn still gets its context.
+        let ctx = start_with(&fleet, &user, &project, Duration::from_millis(100)).await;
+        assert!(ctx.contains("fix-the-build: planned"), "{ctx}");
+        assert_eq!(shell.ran_with("issue create").len(), 1);
     }
 
     #[tokio::test]

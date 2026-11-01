@@ -103,7 +103,8 @@ pub(crate) async fn mirror_missing(
     let home = fleet::home_shell(fleet, user, project)
         .await
         .map_err(|why| anyhow!(why))?;
-    let public_text = fleet::public_text(&fleet.machines().await?);
+    let machines = fleet.machines().await?;
+    let public_text = fleet::project_public_text(fleet, user, project, &machines).await?;
     let mut filed = 0;
     for task in missing {
         if !task_leaks(&public_text, &task).is_empty() {
@@ -137,6 +138,7 @@ mod tests {
             body: "Make it pass.".into(),
             depends_on: None,
             needs: Vec::new(),
+            start: None,
         }
     }
 
