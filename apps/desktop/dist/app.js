@@ -4339,8 +4339,8 @@ const AG = {
   // whether it stopped for quiet, and the question an answer is going to.
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   // Images pasted or dropped into the session's field, the error from the
-  // last one, and whether the server turned images down as too new for it.
-  att: [], attError: "", noImages: false,
+  // last one, and the session the server turned images down for.
+  att: [], attError: "", noImages: null,
 };
 /// What a coding agent takes with a message, as the server checks it.
 const AGENT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -4525,6 +4525,7 @@ function openAgent(s, { why = "", back: from } = {}) {
   AG.answering = null;
   AG.att = [];
   AG.attError = "";
+  AG.noImages = null;
   drawAgentFrame();
   pollAgent();
 }
@@ -4592,11 +4593,15 @@ if (!PANE) {
   listen("bar-shown", () => { AG.barHidden = false; if (S.view === "agent") pollAgent(); });
 }
 
+/// Whether the server turned images down for the open session.
+const noAgentImages = () => AG.noImages != null && AG.noImages === AG.open?.session;
+
 function agentHints() {
   const s = AG.page?.session, q = s?.question;
   if (q) return hints([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
   if (s?.external || s?.status === "ended") return hints([["esc", "back"]]);
-  const paste = AG.att.length ? [["⌘V", "paste an image"]] : [];
+  // Once one is attached its chip says enough.
+  const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
   return hints([...paste, [ICON.ret, "send"], ["⌘.", "stop the turn"], ["esc", "back"]]);
 }
 
@@ -4623,7 +4628,7 @@ function agentAttachError(text) {
 /// Adds pasted or dropped images to the session's next message, refusing
 /// what the agent cannot take rather than shrinking or dropping it.
 async function agentAttach(files) {
-  if (AG.noImages) return agentAttachError("This Beep server does not take images yet.");
+  if (noAgentImages()) return agentAttachError("This Beep server does not take images yet.");
   for (const f of [...files]) {
     if (!AGENT_IMAGE_TYPES.includes(f.type)) { agentAttachError(`${f.name || "That file"} is not a PNG, JPEG, GIF or WebP image`); continue; }
     if (AG.att.length >= AGENT_MAX_IMAGES) { agentAttachError(`Up to ${AGENT_MAX_IMAGES} images in one message`); break; }
@@ -4810,13 +4815,16 @@ async function sendAgentMessage() {
   AG.att = [];
   drawAgentAttached();
   keepAgentPics(o, images);
-  AG.page.entries.push({ kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") });
+  const page = AG.page, mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
+  page.entries.push(mine);
   drawAgentBody();
   const sent = await steerAgent({ prompt: { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } });
   if (sent || !isOpen(o)) return;
   // Nothing went: the message and its images wait in the field again.
-  if (/does not take images yet/.test(AG.note)) AG.noImages = true;
-  AG.page.entries.pop();
+  if (/does not take images yet/.test(AG.note)) AG.noImages = o.session;
+  // A poll may have drawn more since: take out this message, not the last.
+  const at = page.entries.indexOf(mine);
+  if (at >= 0) page.entries.splice(at, 1);
   const field = $("#agmsg");
   if (field && !field.value) field.value = text;
   AG.att = images;
