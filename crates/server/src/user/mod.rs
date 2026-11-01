@@ -32,7 +32,7 @@ use crate::{
         Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode,
         NewPicture, NewPlace, NewPlaceRoutine, NodeRow, PicturesOf, PlaceRoutine, Posted,
         ProfileNote, ProfileRead, PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share,
-        SkillOwner, SkillPatch, SkillRow, Store, StoredContext, StoredMessage, TurnRecord,
+        SkillOwner, SkillPatch, SkillRow, Store, StoredContext, StoredMessage, SyncRow, TurnRecord,
         TurnsToDelete,
     },
 };
@@ -925,6 +925,32 @@ impl User {
 
     pub async fn nodes(&self) -> Result<Vec<NodeRow>> {
         self.store.nodes(&self.key).await
+    }
+
+    /// The machines that sync each project, by project.
+    pub async fn project_syncs(&self) -> Result<Vec<SyncRow>> {
+        self.store.project_syncs(&self.key).await
+    }
+
+    /// Syncs a project on a machine, in a folder.
+    pub async fn set_project_sync(&self, row: &SyncRow) -> Result<()> {
+        self.store.set_project_sync(&self.key, row).await
+    }
+
+    /// Stops syncing `project` on `endpoint`; `false` when it did not.
+    pub async fn remove_project_sync(&self, project: &str, endpoint: &str) -> Result<bool> {
+        self.store
+            .remove_project_sync(&self.key, project, endpoint)
+            .await
+    }
+
+    pub async fn pinned_projects(&self) -> Result<Vec<String>> {
+        self.store.pinned_projects(&self.key).await
+    }
+
+    /// Pins `project`, which stops it on every machine, or unpins it.
+    pub async fn pin_project(&self, project: &str, pinned: bool) -> Result<()> {
+        self.store.pin_project(&self.key, project, pinned).await
     }
 
     /// The account's primary key, then the keys linked to it.

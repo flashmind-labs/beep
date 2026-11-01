@@ -4,7 +4,7 @@
 
 use iroh::EndpointId;
 use iroh_blobs::{
-    BlobFormat, HashAndFormat,
+    BlobFormat, Hash, HashAndFormat,
     protocol::GetRequest,
     provider::events::{
         AbortReason, ConnectMode, EventMask, EventSender, ObserveMode, ProviderMessage,
@@ -13,16 +13,33 @@ use iroh_blobs::{
 };
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    fmt,
+    sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
 };
 use tokio_util::task::AbortOnDropHandle;
 
 /// How many provider events wait for the handler.
 const EVENT_QUEUE: usize = 32;
 
-#[derive(Debug, Default)]
+/// Who may fetch beyond the open offers: the peers of a synced project,
+/// for the files this node holds of it.
+pub(crate) trait Access: Send + Sync {
+    fn may_connect(&self, peer: &EndpointId) -> bool;
+    fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool;
+}
+
+#[derive(Default)]
 pub(crate) struct Grants {
     inner: Mutex<Inner>,
+    access: OnceLock<Arc<dyn Access>>,
+}
+
+impl fmt::Debug for Grants {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Grants")
+            .field("inner", &self.inner)
+            .finish()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -69,10 +86,22 @@ impl Grants {
         }
     }
 
+    /// Lets `access` admit peers beside the open offers. Set once.
+    pub(crate) fn set_access(&self, access: Arc<dyn Access>) {
+        if self.access.set(access).is_err() {
+            log::warn!("blob access was set twice; the first stays");
+        }
+    }
+
     fn connect(&self, connection: u64, peer: Option<EndpointId>) -> Result<(), AbortReason> {
+        let synced = peer.is_some_and(|peer| {
+            self.access
+                .get()
+                .is_some_and(|access| access.may_connect(&peer))
+        });
         let mut inner = self.lock();
         match peer {
-            Some(peer) if inner.grants.values().any(|grant| grant.peer == peer) => {
+            Some(peer) if synced || inner.grants.values().any(|grant| grant.peer == peer) => {
                 inner.connections.insert(connection, peer);
                 Ok(())
             }
@@ -97,7 +126,14 @@ impl Grants {
                 && grant.content.hash == request.hash
                 && (grant.content.format == BlobFormat::HashSeq || request.ranges.is_blob())
         });
-        if allowed {
+        let synced = || {
+            request.ranges.is_blob()
+                && self
+                    .access
+                    .get()
+                    .is_some_and(|access| access.may_get(peer, &request.hash))
+        };
+        if allowed || synced() {
             Ok(())
         } else {
             Err(AbortReason::Permission)
@@ -155,7 +191,6 @@ pub(crate) fn events(grants: Arc<Grants>) -> (EventSender, AbortOnDropHandle<()>
 mod tests {
     use super::*;
     use iroh::SecretKey;
-    use iroh_blobs::Hash;
 
     #[test]
     fn only_the_granted_peer_gets_the_granted_root() {
@@ -187,5 +222,34 @@ mod tests {
         assert!(grants.connect(4, Some(peer)).is_err());
         grants.closed(3);
         assert!(grants.get(3, &GetRequest::all(folder)).is_err());
+    }
+
+    struct Member(EndpointId, Hash);
+
+    impl Access for Member {
+        fn may_connect(&self, peer: &EndpointId) -> bool {
+            *peer == self.0
+        }
+        fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
+            *peer == self.0 && *hash == self.1
+        }
+    }
+
+    #[test]
+    fn a_synced_peer_gets_only_the_project_blobs_and_only_raw() {
+        let grants = Arc::new(Grants::default());
+        let member = SecretKey::generate().public();
+        let stranger = SecretKey::generate().public();
+        let file = Hash::new(b"synced");
+        grants.set_access(Arc::new(Member(member, file)));
+        assert!(grants.connect(1, Some(stranger)).is_err());
+        assert!(grants.connect(2, Some(member)).is_ok());
+        assert!(grants.get(2, &GetRequest::blob(file)).is_ok());
+        assert!(grants.get(2, &GetRequest::all(file)).is_err());
+        assert!(
+            grants
+                .get(2, &GetRequest::blob(Hash::new(b"other")))
+                .is_err()
+        );
     }
 }

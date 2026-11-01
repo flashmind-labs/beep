@@ -2,6 +2,7 @@
 
 use super::{Reply, found};
 use crate::{
+    nodes::push_sync,
     protocol::*,
     push::CLOSE_REVOKED,
     router::Cx,
@@ -88,6 +89,10 @@ pub(super) async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> 
     cx.user.changed("");
     cx.pusher.forget(key);
     cx.app.nodes.forget(&key, CLOSE_REVOKED);
+    // The machines that synced projects with it stop pulling from it.
+    if let Err(e) = push_sync(&cx.app.nodes, &cx.user, None).await {
+        log::warn!("sync lists not sent after a removed device: {e:#}");
+    }
     Ok(())
 }
 

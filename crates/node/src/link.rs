@@ -92,11 +92,16 @@ pub async fn serve(
         .and_then(|dir| dir.canonicalize().ok())
         .filter(|dir| folders.first() == Some(dir.as_path()))
         .map(|dir| dir.to_string_lossy().into_owned());
+    let mut started = None;
     if !folders.is_empty() {
         // Transfers reach the same folders; without its store the node
         // still serves the rest.
         match Transfers::start(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
-            Ok(transfers) => offers.extra.push(Arc::new(transfers)),
+            Ok(transfers) => {
+                offers.extra.push(Arc::new(transfers.syncs()));
+                offers.extra.push(Arc::new(transfers.clone()));
+                started = Some(transfers);
+            }
             Err(e) => log::warn!("not offering transfers: {e:#}"),
         }
         offers.extra.push(Arc::new(folders));
@@ -134,6 +139,11 @@ pub async fn serve(
     }
     log::info!("stopping the agent sessions");
     offers.agents.shutdown().await;
+    if let Some(transfers) = started
+        && let Err(e) = transfers.shutdown().await
+    {
+        log::warn!("transfers did not stop cleanly: {e:#}");
+    }
     Ok(())
 }
 
