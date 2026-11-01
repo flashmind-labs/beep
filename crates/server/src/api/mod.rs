@@ -242,9 +242,6 @@ async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> {
     }
     check_images(&req.images)?;
     check_files(&req.files)?;
-    if (req.model.is_some() || req.thinking.is_some()) && !cx.app.models.is_admin(cx.user.id()) {
-        return Err(ApiError::Unauthorized {});
-    }
     let model = match &req.model {
         Some(id) => Some(cx.app.models.find(id).ok_or(ApiError::NotFound {})?.clone()),
         None => None,

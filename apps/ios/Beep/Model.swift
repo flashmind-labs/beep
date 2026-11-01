@@ -1608,9 +1608,6 @@ final class AppModel {
     /// The machines running beep-node on the account. Admins only.
     func machines() async throws -> [Machine] { try await api().listMachines() }
 
-    /// The server sends model choices only to admins.
-    var isAdmin: Bool { models?.choices.isEmpty == false }
-
     func memoryReads() async -> [MemoryRead] { (try? await api().listMemoryReads()) ?? [] }
     func updateMemory(_ id: String, _ content: String) async throws { try await api().updateMemory(id: id, content: content) }
     func deleteMemory(_ id: String) async throws { try await api().deleteMemory(id: id) }

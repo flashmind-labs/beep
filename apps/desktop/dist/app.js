@@ -602,7 +602,7 @@ function newTurn(question, images, files) {
 /// later line, such as Jev's pick, replaces it.
 function ranOn(turn, model, thinking) {
   if (!model) return;
-  const line = isAdmin()
+  const line = canPickModel()
     ? (thinking ? `${modelName(model)} · ${thinking}` : modelName(model))
     : thinking;
   if (!line) return;
@@ -857,7 +857,7 @@ async function send(message) {
   // Without Auto every prompt runs on the chosen model; with it, Jev's pick
   // arrives as an event.
   const m = MODELS.info;
-  if (m && !m.auto && isAdmin()) ranOn(turn, m.selected, m.thinking);
+  if (m && !m.auto && canPickModel()) ranOn(turn, m.selected, m.thinking);
   reply(turn).innerHTML = '<span class="caret"></span>';
   const e = entry(id);
   e.body = body();
@@ -3522,7 +3522,8 @@ function routeClick(e) {
 const MODELS = { info: null, sel: 0, agents: false, list: [] };
 const THINKING = ["off", "low", "medium", "high"];
 
-function isAdmin() { return !!MODELS.info?.choices.length; }
+/// Whether the server offers model choices (every user once it lists them).
+function canPickModel() { return !!MODELS.info?.choices.length; }
 async function loadModels() {
   try {
     MODELS.info = await invoke("get_models");
@@ -3530,7 +3531,7 @@ async function loadModels() {
     return;
   }
   refreshHints();
-  if (!isAdmin()) return;
+  if (!canPickModel()) return;
   try {
     const agents = await invoke("get_agents");
     MODELS.agents = agents.enabled;
@@ -3633,7 +3634,7 @@ function modelKeys(e) {
 function replyActs(turn) {
   turn.querySelector(".dreplyacts")?.remove();
   const text = turn.querySelector(".reply")?.innerText.trim();
-  const rerun = isAdmin() && turn.user;
+  const rerun = canPickModel() && turn.user;
   if (!text && !rerun && !turn.agent) return;
   const agent = turn.agent ? `<span class="dagent" title="The agent that answered">${esc(turn.agent)}</span>` : "";
   const row = h(`<div class="dreplyacts">${text ? `<button class="dcopy" data-act="copyReply">${COPY_ICON}Copy</button>` : ""}${rerun ? `<span class="drerun"><button class="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded="false">${PLAY_ICON}Rerun<span class="dchev">${ICON.chev}</span></button></span>` : ""}${agent}</div>`);
@@ -5799,7 +5800,7 @@ document.addEventListener("keydown", e => {
   if (cmd && key === "k") { e.preventDefault(); return S.view === "chats" ? null : renderChats(); }
   if (cmd && key === "i" && (S.view === "group" || S.view === "invite")) { e.preventDefault(); return renderGroupInfo(); }
   if (cmd && e.key === ".") { e.preventDefault(); return stop(); }
-  if (cmd && key === "e" && isAdmin()) { e.preventDefault(); return S.view === "model" ? back() : renderModel(); }
+  if (cmd && key === "e" && canPickModel()) { e.preventDefault(); return S.view === "model" ? back() : renderModel(); }
   if (S.view === "model") return modelKeys(e);
   if (S.view === "chat") {
     if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(e.altKey ? "always" : "allow"); }
