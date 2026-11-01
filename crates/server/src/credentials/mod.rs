@@ -3,6 +3,7 @@
 //! machines (see `Down::Credentials`).
 
 mod check;
+mod net;
 mod seal;
 
 pub use check::{Checked, Checker};
@@ -82,6 +83,12 @@ pub struct ForgejoUrl(Url);
 impl ForgejoUrl {
     pub fn as_str(&self) -> &str {
         self.0.as_str().trim_end_matches('/')
+    }
+
+    /// Whether the server could probe it: every address its host resolves
+    /// to is public. A server on the user's own network is saved unchecked.
+    pub async fn is_public(&self) -> bool {
+        net::resolves_public(&self.0).await
     }
 
     /// Its host, with the port when it has one, such as `git.example.com`.

@@ -1,11 +1,11 @@
 //! Checks a token with its host before it is saved, and learns who it
 //! signs in as.
 
-use super::ForgejoUrl;
-use reqwest::{Client, StatusCode, header};
+use super::{ForgejoUrl, net::PublicOnly};
+use reqwest::{Client, StatusCode, header, redirect::Policy};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 const GITHUB_USER: &str = "https://api.github.com/user";
@@ -39,6 +39,9 @@ impl Checker {
             client: Client::builder()
                 .timeout(TIMEOUT)
                 .user_agent("beep-server")
+                // A redirect could send the token, or the probe, anywhere.
+                .redirect(Policy::none())
+                .dns_resolver(Arc::new(PublicOnly))
                 .build()?,
         })
     }
@@ -97,18 +100,20 @@ impl Checker {
         match reply.json::<UserReply>().await {
             Ok(user) => Checked::Valid { login: user.login },
             Err(_) => Checked::Refused(format!(
-                "{host} did not answer like a GitHub or Forgejo server. Check the URL."
+                "{host} did not take the token. Check the URL and the token."
             )),
         }
     }
 }
 
+/// What the user is told about a refusal. It never carries the host's
+/// status or body: the URL is the user's to type, so the reply could be
+/// anything the server can reach.
 fn refused(host: &str, status: StatusCode) -> Checked {
     Checked::Refused(match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
             format!("{host} refused the token. Check that it is current and has access.")
         }
-        StatusCode::NOT_FOUND => format!("{host} has no API there. Check the URL."),
-        other => format!("{host} answered {other}."),
+        _ => format!("{host} did not take the token. Check the URL and the token."),
     })
 }
