@@ -3,13 +3,21 @@
 //! servers the user set up in `~/.config/teacli/teacli.ini`, readable by
 //! the owner only. A `teacli` shim first on `PATH` points teacli at it.
 
+use crate::fsat;
 use anyhow::{Context, Result};
 use beep_proto::node::ForgejoLogin;
 use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
+};
+
+/// The shim's file name: a batch file on Windows, which finds it by its
+/// extension.
+const SHIM: &str = if cfg!(windows) {
+    "teacli.cmd"
+} else {
+    "teacli"
 };
 
 /// The node's teacli config, under its own folder.
@@ -37,24 +45,23 @@ pub(super) fn configure(
     teacli: Option<&Path>,
 ) -> Result<bool> {
     let config = config_path(dir);
-    let shim = shims_dir(dir).join("teacli");
+    let shim = shims_dir(dir).join(SHIM);
     let Some(teacli) = teacli.filter(|_| !logins.is_empty()) else {
         remove(&shim)?;
         remove(&config)?;
         return Ok(false);
     };
     write_private(&config, render(logins, user_ini).as_bytes())?;
-    let script = format!(
-        "#!/bin/sh\n# Written by beep-node: teacli with the Forgejo servers from Beep.\n\
-         exec {} --config {} \"$@\"\n",
-        quote(&teacli.to_string_lossy()),
-        quote(&config.to_string_lossy()),
-    );
+    let script = if cfg!(windows) {
+        batch_shim(teacli, &config)
+    } else {
+        sh_shim(teacli, &config)
+    };
     let shims = shims_dir(dir);
     fs::create_dir_all(&shims).with_context(|| format!("creating {}", shims.display()))?;
     let partial = shims.join(".teacli.beep");
     fs::write(&partial, script)?;
-    fs::set_permissions(&partial, fs::Permissions::from_mode(0o755))?;
+    fsat::set_mode(&partial, 0o755)?;
     fs::rename(&partial, &shim).with_context(|| format!("writing {}", shim.display()))?;
     Ok(true)
 }
@@ -156,6 +163,28 @@ fn host_of(url: &str) -> String {
     host.replace(':', "-")
 }
 
+/// The shim as a sh script.
+fn sh_shim(teacli: &Path, config: &Path) -> String {
+    format!(
+        "#!/bin/sh\n# Written by beep-node: teacli with the Forgejo servers from Beep.\n\
+         exec {} --config {} \"$@\"\n",
+        quote(&teacli.to_string_lossy()),
+        quote(&config.to_string_lossy()),
+    )
+}
+
+/// The shim as a Windows batch file. A Windows path holds no `"`, and `%`
+/// is doubled so the batch file does not expand it.
+fn batch_shim(teacli: &Path, config: &Path) -> String {
+    let quote = |path: &Path| format!("\"{}\"", path.to_string_lossy().replace('%', "%%"));
+    format!(
+        "@echo off\r\nrem Written by beep-node: teacli with the Forgejo servers from Beep.\r\n\
+         {} --config {} %*\r\n",
+        quote(teacli),
+        quote(config),
+    )
+}
+
 /// `text` in single quotes for sh.
 fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
@@ -166,13 +195,10 @@ fn quote(text: &str) -> String {
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().context("the config has a folder")?;
     fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-    fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    fsat::set_mode(parent, 0o700)?;
     let partial = parent.join(".teacli.ini.beep");
     remove(&partial)?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
+    let mut file = fsat::private(OpenOptions::new().write(true).create_new(true))
         .open(&partial)
         .with_context(|| format!("creating {}", partial.display()))?;
     file.write_all(bytes)?;
@@ -193,6 +219,7 @@ fn remove(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use beep_proto::SecretText;
+    #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
 
     fn login(url: &str, token: &str) -> ForgejoLogin {
@@ -256,16 +283,36 @@ mod tests {
             .unwrap()
         );
         let config = config_path(&dir);
+        #[cfg(unix)]
         assert_eq!(fs::metadata(&config).unwrap().mode() & 0o777, 0o600);
-        let shim = fs::read_to_string(shims_dir(&dir).join("teacli")).unwrap();
-        assert!(
-            shim.contains("exec '/opt/it'\\''s/teacli' --config '"),
-            "{shim}"
-        );
+        let shim = fs::read_to_string(shims_dir(&dir).join(SHIM)).unwrap();
+        if cfg!(windows) {
+            assert!(shim.contains("\"/opt/it's/teacli\" --config \""), "{shim}");
+        } else {
+            assert!(
+                shim.contains("exec '/opt/it'\\''s/teacli' --config '"),
+                "{shim}"
+            );
+        }
 
         assert!(!configure(&dir, &[], None, Some(teacli)).unwrap());
         assert!(!config.exists());
-        assert!(!shims_dir(&dir).join("teacli").exists());
+        assert!(!shims_dir(&dir).join(SHIM).exists());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_windows_shim_passes_its_arguments_on() {
+        let shim = batch_shim(
+            Path::new(r"C:\Tools\100%\teacli.exe"),
+            Path::new(r"C:\Node\teacli\teacli.ini"),
+        );
+        assert!(shim.starts_with("@echo off\r\n"), "{shim}");
+        assert!(
+            shim.ends_with(
+                "\"C:\\Tools\\100%%\\teacli.exe\" --config \"C:\\Node\\teacli\\teacli.ini\" %*\r\n"
+            ),
+            "{shim}"
+        );
     }
 }

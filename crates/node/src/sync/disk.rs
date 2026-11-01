@@ -5,17 +5,15 @@
 //! it merges like any other edit. Everything here blocks.
 
 use super::scan::Stat;
-use crate::transfer::place::{DIR_FLAGS, Folder, make_dirs_at};
-use anyhow::{Context, Result, bail};
-use rustix::{
-    fs::{AtFlags, Mode, OFlags, RenameFlags, openat, renameat, renameat_with, unlinkat},
-    io::Errno,
+use crate::{
+    fsat::{self, Dir},
+    transfer::place::{Folder, make_dirs_at},
 };
+use anyhow::{Context, Result, bail};
 use std::{
     ffi::OsStr,
-    fs::{File, Metadata},
+    fs::File,
     io,
-    os::fd::OwnedFd,
     path::Path,
     time::{Duration, UNIX_EPOCH},
 };
@@ -58,34 +56,20 @@ fn split(path: &str) -> (&Path, &OsStr) {
 }
 
 /// The folder `path` names under `dir`, if it is there.
-fn open_dirs(dir: &OwnedFd, path: &Path) -> io::Result<Option<OwnedFd>> {
+fn open_dirs(dir: &Dir, path: &Path) -> io::Result<Option<Dir>> {
     let mut current = dir.try_clone()?;
     for part in path.components() {
-        current = match openat(&current, part.as_os_str(), DIR_FLAGS, Mode::empty()) {
-            Ok(fd) => fd,
-            Err(Errno::NOENT) => return Ok(None),
-            Err(e) => return Err(e.into()),
+        current = match current.open_dir(part.as_os_str()) {
+            Ok(dir) => dir,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
         };
     }
     Ok(Some(current))
 }
 
-fn metadata_at(dir: &OwnedFd, name: &OsStr) -> io::Result<Option<Metadata>> {
-    let flags = OFlags::RDONLY
-        .union(OFlags::NOFOLLOW)
-        .union(OFlags::NONBLOCK)
-        .union(OFlags::CLOEXEC);
-    match openat(dir, name, flags, Mode::empty()) {
-        Ok(fd) => Ok(Some(File::from(fd).metadata()?)),
-        Err(Errno::NOENT) => Ok(None),
-        // A link.
-        Err(Errno::LOOP | Errno::MLINK) => Err(io::ErrorKind::InvalidInput.into()),
-        Err(e) => Err(e.into()),
-    }
-}
-
-fn found_at(dir: &OwnedFd, name: &OsStr) -> io::Result<Found> {
-    Ok(match metadata_at(dir, name) {
+fn found_at(dir: &Dir, name: &OsStr) -> io::Result<Found> {
+    Ok(match dir.metadata(name) {
         Ok(Some(meta)) if meta.is_file() => Found::File(Stat::of(&meta)),
         Ok(Some(_)) => Found::Other,
         Ok(None) => Found::Missing,
@@ -97,15 +81,11 @@ fn found_at(dir: &OwnedFd, name: &OsStr) -> io::Result<Found> {
 /// What is at `path` in the project folder.
 pub(super) fn look(root: &Folder, path: &str) -> io::Result<Found> {
     let (parent, name) = split(path);
-    match open_dirs(root.fd(), parent) {
+    match open_dirs(root.dir(), parent) {
         Ok(Some(dir)) => found_at(&dir, name),
         Ok(None) => Ok(Found::Missing),
         // A part of the folder is a file or a link.
-        Err(e)
-            if e.raw_os_error() == Some(libc::ENOTDIR) || e.raw_os_error() == Some(libc::ELOOP) =>
-        {
-            Ok(Found::Other)
-        }
+        Err(e) if fsat::not_a_folder(&e) => Ok(Found::Other),
         Err(e) => Err(e),
     }
 }
@@ -113,7 +93,7 @@ pub(super) fn look(root: &Folder, path: &str) -> io::Result<Found> {
 /// A file written into a partial folder, not yet in place.
 pub(super) struct Written<'a> {
     /// The open partial folder.
-    pub(super) dir: &'a OwnedFd,
+    pub(super) dir: &'a Dir,
     /// Its name there.
     pub(super) name: &'a OsStr,
     pub(super) file: File,
@@ -143,20 +123,20 @@ pub(super) fn place(
     drop(file);
     let (parent, name) = split(path);
     let dir =
-        make_dirs_at(root.fd(), parent).with_context(|| format!("making the folder of {path}"))?;
+        make_dirs_at(root.dir(), parent).with_context(|| format!("making the folder of {path}"))?;
     let now = found_at(&dir, name)?;
     if !now.is(expected) {
         // Ours to remove; the file there is left alone.
-        let _ = unlinkat(from, temp, AtFlags::empty());
+        let _ = from.remove_file(temp);
         bail!("{path} changed on this machine; it is merged on the next scan");
     }
     let moved = match expected {
-        None => renameat_with(from, temp, &dir, name, RenameFlags::NOREPLACE),
-        Some(_) => renameat(from, temp, &dir, name),
+        None => fsat::rename_new(from, temp, &dir, name, false),
+        Some(_) => fsat::rename(from, temp, &dir, name),
     };
     if let Err(e) = moved {
-        let _ = unlinkat(from, temp, AtFlags::empty());
-        return Err(io::Error::from(e)).with_context(|| format!("moving {path} into place"));
+        let _ = from.remove_file(temp);
+        return Err(e).with_context(|| format!("moving {path} into place"));
     }
     match found_at(&dir, name)? {
         Found::File(stat) => Ok(stat),
@@ -168,7 +148,7 @@ pub(super) fn place(
 /// empty. `false` when it changed and was left.
 pub(super) fn remove(root: &Folder, path: &str, expected: &Stat) -> Result<bool> {
     let (parent, name) = split(path);
-    let Some(dir) = open_dirs(root.fd(), parent)? else {
+    let Some(dir) = open_dirs(root.dir(), parent)? else {
         return Ok(true);
     };
     match found_at(&dir, name)? {
@@ -176,8 +156,7 @@ pub(super) fn remove(root: &Folder, path: &str, expected: &Stat) -> Result<bool>
         found if !found.is(Some(expected)) => return Ok(false),
         _ => {}
     }
-    unlinkat(&dir, name, AtFlags::empty())
-        .map_err(io::Error::from)
+    dir.remove_file(name)
         .with_context(|| format!("removing {path}"))?;
     remove_empty(root, parent);
     Ok(true)
@@ -186,10 +165,10 @@ pub(super) fn remove(root: &Folder, path: &str, expected: &Stat) -> Result<bool>
 /// Removes `folder` and the folders above it while they are empty.
 fn remove_empty(root: &Folder, mut folder: &Path) {
     while let (Some(parent), Some(name)) = (folder.parent(), folder.file_name()) {
-        let Ok(Some(dir)) = open_dirs(root.fd(), parent) else {
+        let Ok(Some(dir)) = open_dirs(root.dir(), parent) else {
             return;
         };
-        if unlinkat(&dir, name, AtFlags::REMOVEDIR).is_err() {
+        if dir.remove_dir(name).is_err() {
             return;
         }
         folder = parent;
@@ -200,24 +179,17 @@ fn remove_empty(root: &Folder, mut folder: &Path) {
 /// what the moved file looks like, or `None` when it changed.
 pub(super) fn rename(root: &Folder, from: &str, to: &str, expected: &Stat) -> Result<Option<Stat>> {
     let (from_parent, from_name) = split(from);
-    let Some(from_dir) = open_dirs(root.fd(), from_parent)? else {
+    let Some(from_dir) = open_dirs(root.dir(), from_parent)? else {
         return Ok(None);
     };
     if !found_at(&from_dir, from_name)?.is(Some(expected)) {
         return Ok(None);
     }
     let (to_parent, to_name) = split(to);
-    let to_dir =
-        make_dirs_at(root.fd(), to_parent).with_context(|| format!("making the folder of {to}"))?;
-    renameat_with(
-        &from_dir,
-        from_name,
-        &to_dir,
-        to_name,
-        RenameFlags::NOREPLACE,
-    )
-    .map_err(io::Error::from)
-    .with_context(|| format!("moving {from} to {to}"))?;
+    let to_dir = make_dirs_at(root.dir(), to_parent)
+        .with_context(|| format!("making the folder of {to}"))?;
+    fsat::rename_new(&from_dir, from_name, &to_dir, to_name, false)
+        .with_context(|| format!("moving {from} to {to}"))?;
     match found_at(&to_dir, to_name)? {
         Found::File(stat) => Ok(Some(stat)),
         _ => bail!("{to} changed while it was moved"),
@@ -262,10 +234,10 @@ mod tests {
         place(folder, written, path, expected)
     }
 
-    fn temp(dir: &TempDir, data: &str) -> (OwnedFd, File) {
+    fn temp(dir: &TempDir, data: &str) -> (Dir, File) {
         let partial = dir.path().join(".beep-t.partial");
         fs::create_dir_all(&partial).unwrap();
-        let fd = rustix::fs::open(&partial, DIR_FLAGS, Mode::empty()).unwrap();
+        let fd = Dir::open(&partial).unwrap();
         let mut file = create_file_at(&fd, OsStr::new("t"), false).unwrap();
         file.write_all(data.as_bytes()).unwrap();
         (fd, file)
@@ -315,6 +287,7 @@ mod tests {
         assert!(remove(&folder, "gone.txt", &seen).unwrap());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_rename_never_replaces_and_links_are_not_files() {
         let dir = TempDir::new().unwrap();

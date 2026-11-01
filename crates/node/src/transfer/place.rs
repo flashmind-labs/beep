@@ -5,22 +5,17 @@
 //! swapped in during a long download cannot send writes elsewhere.
 //! Everything here blocks: callers run it in `spawn_blocking`.
 
-use crate::files::Folders;
+use crate::{
+    files::Folders,
+    fsat::{self, Dir},
+};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::transfer::{ContentKind, MAX_SUFFIX, numbered};
-use rustix::{
-    fs::{
-        AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, fstat, fstatvfs, linkat, mkdirat,
-        openat, renameat, renameat_with, statat, unlinkat,
-    },
-    io::Errno,
-};
 use std::{
     collections::HashMap,
     ffi::OsStr,
     fs::{self, File},
     io::{self, ErrorKind},
-    os::{fd::OwnedFd, unix::ffi::OsStrExt},
     path::{Component, Path, PathBuf},
     sync::{
         Arc, Mutex, MutexGuard, PoisonError,
@@ -34,17 +29,14 @@ use std::{
 const PARTIAL_START: &str = ".beep-";
 const PARTIAL_END: &str = ".partial";
 
-pub(crate) const DIR_FLAGS: OFlags = OFlags::RDONLY
-    .union(OFlags::DIRECTORY)
-    .union(OFlags::NOFOLLOW)
-    .union(OFlags::CLOEXEC);
+pub(crate) use fsat::Space;
 
 /// `name` when it is one plain path part, as a file or folder name the
 /// source gave.
 pub(crate) fn plain_name(name: &str) -> Result<&str> {
     let mut parts = Path::new(name).components();
     match (parts.next(), parts.next()) {
-        (Some(Component::Normal(part)), None) if part.as_bytes() == name.as_bytes() => Ok(name),
+        (Some(Component::Normal(part)), None) if part == OsStr::new(name) => Ok(name),
         _ => bail!("{name:?} is not a plain file name"),
     }
 }
@@ -70,7 +62,7 @@ pub(crate) fn relative_path(path: &str) -> Result<PathBuf> {
 /// A target folder, held open.
 #[derive(Debug)]
 pub(crate) struct Folder {
-    fd: OwnedFd,
+    dir: Dir,
     /// Its path when it was opened, for messages and the result.
     path: PathBuf,
 }
@@ -81,39 +73,24 @@ impl Folder {
     }
 
     /// The open folder, which writes are made relative to.
-    pub(crate) fn fd(&self) -> &OwnedFd {
-        &self.fd
+    pub(crate) fn dir(&self) -> &Dir {
+        &self.dir
     }
 
     /// Bytes free on its disk, and the disk's id.
     pub(crate) fn space(&self) -> Result<Space> {
-        space_of(&self.fd).with_context(|| format!("reading free space at {}", self.path.display()))
+        self.dir
+            .space()
+            .with_context(|| format!("reading free space at {}", self.path.display()))
     }
-}
-
-/// Free bytes on a disk, and which disk it is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Space {
-    pub(crate) free: u64,
-    pub(crate) device: u64,
-}
-
-fn space_of(fd: &OwnedFd) -> io::Result<Space> {
-    let stats = fstatvfs(fd)?;
-    let device = fstat(fd)?.st_dev;
-    Ok(Space {
-        free: stats.f_bavail.saturating_mul(stats.f_frsize),
-        // Device numbers are unsigned on every platform the node runs on.
-        #[allow(clippy::unnecessary_cast)]
-        device: device as u64,
-    })
 }
 
 /// Free bytes on the disk that holds `dir`.
 pub(crate) fn space_at(dir: &Path) -> Result<Space> {
-    let fd = rustix::fs::open(dir, DIR_FLAGS, Mode::empty())
-        .with_context(|| format!("opening {}", dir.display()))?;
-    space_of(&fd).with_context(|| format!("reading free space at {}", dir.display()))
+    let opened = Dir::open(dir).with_context(|| format!("opening {}", dir.display()))?;
+    opened
+        .space()
+        .with_context(|| format!("reading free space at {}", dir.display()))
 }
 
 /// Opens the folder a fetch writes into: absolute, existing, a folder, and
@@ -127,35 +104,37 @@ pub(crate) fn open_target(folders: &Folders, folder: &str) -> Result<Folder> {
     let root = folders
         .root_of(&resolved)
         .with_context(|| format!("{folder} is outside the shared folders"))?;
-    let mut fd = rustix::fs::open(root, DIR_FLAGS, Mode::empty())
-        .with_context(|| format!("opening {}", root.display()))?;
+    let mut dir = Dir::open(root).with_context(|| format!("opening {}", root.display()))?;
     let rest = resolved.strip_prefix(root)?;
     for part in rest.components() {
-        fd = match openat(&fd, part.as_os_str(), DIR_FLAGS, Mode::empty()) {
-            Ok(fd) => fd,
-            Err(Errno::NOENT) => bail!("the target folder {folder} does not exist"),
-            Err(e) => {
-                return Err(io::Error::from(e))
-                    .with_context(|| format!("{folder} is not a folder"));
+        dir = match dir.open_dir(part.as_os_str()) {
+            Ok(dir) => dir,
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                bail!("the target folder {folder} does not exist")
             }
+            Err(e) => return Err(e).with_context(|| format!("{folder} is not a folder")),
         };
     }
-    Ok(Folder { fd, path: resolved })
+    Ok(Folder {
+        dir,
+        path: resolved,
+    })
 }
 
 /// The folder `name` in `dir`, made if missing, opened without following
 /// a link.
-fn make_dir_at(dir: &OwnedFd, name: &OsStr) -> io::Result<OwnedFd> {
-    match mkdirat(dir, name, Mode::from_raw_mode(0o777)) {
-        Ok(()) | Err(Errno::EXIST) => {}
-        Err(e) => return Err(e.into()),
+fn make_dir_at(dir: &Dir, name: &OsStr) -> io::Result<Dir> {
+    match dir.make_dir(name, false) {
+        Ok(()) => {}
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e),
     }
-    Ok(openat(dir, name, DIR_FLAGS, Mode::empty())?)
+    dir.open_dir(name)
 }
 
 /// The folder at `path` under `dir`, each part made if missing; `dir`
 /// itself for an empty path.
-pub(crate) fn make_dirs_at(dir: &OwnedFd, path: &Path) -> io::Result<OwnedFd> {
+pub(crate) fn make_dirs_at(dir: &Dir, path: &Path) -> io::Result<Dir> {
     let mut current = dir.try_clone()?;
     for part in path.components() {
         current = make_dir_at(&current, part.as_os_str())?;
@@ -164,95 +143,8 @@ pub(crate) fn make_dirs_at(dir: &OwnedFd, path: &Path) -> io::Result<OwnedFd> {
 }
 
 /// A new file `name` in `dir`; it never replaces one or follows a link.
-pub(crate) fn create_file_at(dir: &OwnedFd, name: &OsStr, executable: bool) -> io::Result<File> {
-    let flags = OFlags::WRONLY
-        .union(OFlags::CREATE)
-        .union(OFlags::EXCL)
-        .union(OFlags::NOFOLLOW)
-        .union(OFlags::CLOEXEC);
-    // The umask still applies.
-    let mode = Mode::from_raw_mode(if executable { 0o777 } else { 0o666 });
-    Ok(File::from(openat(dir, name, flags, mode)?))
-}
-
-/// Moves `from` in `from_dir` to `to` in `to_dir` only if nothing is
-/// there; `AlreadyExists` otherwise.
-fn rename_new_at(
-    from_dir: &OwnedFd,
-    from: &OsStr,
-    to_dir: &OwnedFd,
-    to: &OsStr,
-    kind: ContentKind,
-) -> io::Result<()> {
-    let taken = || io::Error::from(ErrorKind::AlreadyExists);
-    match renameat_with(from_dir, from, to_dir, to, RenameFlags::NOREPLACE) {
-        Ok(()) => Ok(()),
-        Err(Errno::EXIST | Errno::NOTEMPTY) => Err(taken()),
-        // The filesystem cannot rename exclusively.
-        Err(Errno::INVAL | Errno::NOSYS | Errno::NOTSUP) => match kind {
-            // A link fails if the name is taken; then the old name goes.
-            ContentKind::File => match linkat(from_dir, from, to_dir, to, AtFlags::empty()) {
-                Ok(()) => Ok(unlinkat(from_dir, from, AtFlags::empty())?),
-                Err(Errno::EXIST) => Err(taken()),
-                Err(e) => Err(e.into()),
-            },
-            // No exclusive way for a folder: check, then rename. Another
-            // writer could slip in between, which only such a filesystem
-            // allows.
-            ContentKind::Folder => {
-                if statat(to_dir, to, AtFlags::SYMLINK_NOFOLLOW).is_ok() {
-                    return Err(taken());
-                }
-                match renameat(from_dir, from, to_dir, to) {
-                    Ok(()) => Ok(()),
-                    Err(Errno::EXIST | Errno::NOTEMPTY) => Err(taken()),
-                    Err(e) => Err(e.into()),
-                }
-            }
-        },
-        Err(e) => Err(e.into()),
-    }
-}
-
-/// Removes `name` in `dir` and everything under it, never following a
-/// link.
-fn remove_tree_at(dir: &OwnedFd, name: &OsStr) -> io::Result<()> {
-    let fd = match openat(dir, name, DIR_FLAGS, Mode::empty()) {
-        Ok(fd) => fd,
-        Err(Errno::NOENT) => return Ok(()),
-        // A file, or a link.
-        Err(Errno::NOTDIR | Errno::LOOP) => return Ok(unlinkat(dir, name, AtFlags::empty())?),
-        Err(e) => return Err(e.into()),
-    };
-    let mut names = Vec::new();
-    for entry in Dir::read_from(&fd)? {
-        let entry = entry?;
-        let entry_name = entry.file_name().to_bytes();
-        if entry_name == b"." || entry_name == b".." {
-            continue;
-        }
-        let is_dir = match entry.file_type() {
-            FileType::Directory => true,
-            FileType::Unknown => statat(&fd, entry.file_name(), AtFlags::SYMLINK_NOFOLLOW)
-                .is_ok_and(|stat| FileType::from_raw_mode(stat.st_mode) == FileType::Directory),
-            _ => false,
-        };
-        names.push((OsStr::from_bytes(entry_name).to_owned(), is_dir));
-    }
-    for (entry, is_dir) in names {
-        if is_dir {
-            remove_tree_at(&fd, &entry)?;
-        } else {
-            match unlinkat(&fd, &entry, AtFlags::empty()) {
-                Ok(()) | Err(Errno::NOENT) => {}
-                Err(e) => return Err(e.into()),
-            }
-        }
-    }
-    match unlinkat(dir, name, AtFlags::REMOVEDIR) {
-        Ok(()) | Err(Errno::NOENT) => Ok(()),
-        Err(e) => Err(e.into()),
-    }
+pub(crate) fn create_file_at(dir: &Dir, name: &OsStr, executable: bool) -> io::Result<File> {
+    dir.create_file(name, executable)
 }
 
 /// Moves the item `name` out of `partial` into its target folder as
@@ -262,12 +154,12 @@ pub(crate) fn place(partial: &Partial, name: &str, kind: ContentKind) -> Result<
     let target = &partial.target;
     for n in 1..=MAX_SUFFIX {
         let numbered = numbered(name, kind, n);
-        match rename_new_at(
-            &partial.fd,
+        match fsat::rename_new(
+            &partial.dir,
             OsStr::new(name),
-            &target.fd,
+            &target.dir,
             OsStr::new(&numbered),
-            kind,
+            kind == ContentKind::Folder,
         ) {
             Ok(()) => return Ok(target.path.join(numbered)),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
@@ -282,6 +174,22 @@ pub(crate) fn place(partial: &Partial, name: &str, kind: ContentKind) -> Result<
         "{name} and {MAX_SUFFIX} numbered names after it are taken in {}",
         target.path.display()
     )
+}
+
+/// The path a journal entry holds, as `start` wrote it.
+#[cfg(unix)]
+fn recorded_path(bytes: Vec<u8>) -> io::Result<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    Ok(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+}
+
+/// The path a journal entry holds, as `start` wrote it. Windows paths the
+/// node makes come from text, so they are UTF-8.
+#[cfg(windows)]
+fn recorded_path(bytes: Vec<u8>) -> io::Result<PathBuf> {
+    String::from_utf8(bytes)
+        .map(PathBuf::from)
+        .map_err(|_| io::Error::from(ErrorKind::InvalidData))
 }
 
 /// The partial folders being written, one file each under `dir` holding
@@ -308,8 +216,8 @@ impl Journal {
                     continue;
                 }
             };
-            let recorded = match fs::read(&entry) {
-                Ok(bytes) => PathBuf::from(OsStr::from_bytes(&bytes)),
+            let recorded = match fs::read(&entry).and_then(recorded_path) {
+                Ok(path) => path,
                 Err(e) => {
                     log::warn!("skipped the journal entry {}: {e}", entry.display());
                     continue;
@@ -353,23 +261,28 @@ impl Journal {
         );
         let name = format!("{PARTIAL_START}{id}{PARTIAL_END}");
         let entry = self.dir.join(&id);
-        fs::write(&entry, target.path.join(&name).as_os_str().as_bytes())
-            .with_context(|| format!("writing {}", entry.display()))?;
-        let made = mkdirat(&target.fd, name.as_str(), Mode::from_raw_mode(0o700))
-            .and_then(|()| openat(&target.fd, name.as_str(), DIR_FLAGS, Mode::empty()));
-        let fd = match made {
-            Ok(fd) => fd,
+        fs::write(
+            &entry,
+            target.path.join(&name).as_os_str().as_encoded_bytes(),
+        )
+        .with_context(|| format!("writing {}", entry.display()))?;
+        let made = target
+            .dir
+            .make_dir(OsStr::new(&name), true)
+            .and_then(|()| target.dir.open_dir(OsStr::new(&name)));
+        let dir = match made {
+            Ok(dir) => dir,
             Err(e) => {
                 // The entry would only make the next start look for nothing.
                 let _ = fs::remove_file(&entry);
-                return Err(io::Error::from(e))
+                return Err(e)
                     .with_context(|| format!("making {}", target.path.join(&name).display()));
             }
         };
         Ok(Partial {
             target,
             name,
-            fd,
+            dir,
             entry,
             done: false,
         })
@@ -383,22 +296,23 @@ impl Journal {
 pub(crate) struct Partial {
     target: Arc<Folder>,
     name: String,
-    fd: OwnedFd,
+    dir: Dir,
     entry: PathBuf,
     done: bool,
 }
 
 impl Partial {
     /// The open partial folder, which the item is written into.
-    pub(crate) fn dir(&self) -> &OwnedFd {
-        &self.fd
+    pub(crate) fn dir(&self) -> &Dir {
+        &self.dir
     }
 
     /// Forgets the folder once its item was moved out; it is empty.
     pub(crate) fn finish(mut self) -> Result<()> {
         self.done = true;
-        unlinkat(&self.target.fd, self.name.as_str(), AtFlags::REMOVEDIR)
-            .map_err(io::Error::from)
+        self.target
+            .dir
+            .remove_dir(OsStr::new(&self.name))
             .with_context(|| format!("removing {}", self.name))?;
         fs::remove_file(&self.entry).with_context(|| format!("removing {}", self.entry.display()))
     }
@@ -411,7 +325,9 @@ impl Partial {
 }
 
 fn remove_partial(target: &Folder, name: &str, entry: &Path) -> Result<()> {
-    remove_tree_at(&target.fd, OsStr::new(name))
+    target
+        .dir
+        .remove_tree(OsStr::new(name))
         .with_context(|| format!("removing {}", target.path.join(name).display()))?;
     fs::remove_file(entry).with_context(|| format!("removing {}", entry.display()))
 }
@@ -594,6 +510,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_target_folder_is_absolute_existing_and_shared() {
         let dir = temp_dir("target");

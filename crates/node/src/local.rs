@@ -3,15 +3,9 @@
 //! share; the node reads it, writes its own key and name back, and the
 //! server links that key to the owner when it connects.
 
-use crate::state::State;
+use crate::{fsat, state::State};
 use anyhow::{Context, Result};
-use std::{
-    fs::{self, Permissions},
-    io,
-    os::unix::fs::PermissionsExt,
-    path::Path,
-    time::Duration,
-};
+use std::{fs, io, path::Path, time::Duration};
 use tokio::time::sleep;
 
 /// Where the server writes its key. Matches the server's `instance` module.
@@ -30,8 +24,7 @@ pub async fn prepare(dir: &Path, link: &Path, name: &str) -> Result<State> {
     let partial = link.join("node.id.partial");
     fs::write(&partial, text).with_context(|| format!("writing {}", partial.display()))?;
     // The server runs as another user; the file only holds a public key.
-    fs::set_permissions(&partial, Permissions::from_mode(0o644))
-        .with_context(|| format!("opening up {}", partial.display()))?;
+    fsat::set_mode(&partial, 0o644).with_context(|| format!("opening up {}", partial.display()))?;
     fs::rename(&partial, link.join(NODE_FILE))
         .with_context(|| format!("writing {}", link.join(NODE_FILE).display()))?;
     log::info!("waiting for the server to link this node to its owner");

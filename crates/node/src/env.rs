@@ -7,7 +7,7 @@ mod gpu;
 use crate::provision::spawn_env::{self, Scope};
 use beep_proto::node::{EnvReport, Login, ToolInfo};
 use std::{env, path::PathBuf, process::Stdio, time::Duration};
-use tokio::{process::Command, time::timeout};
+use tokio::time::timeout;
 
 /// How long one probe command may take.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -86,7 +86,7 @@ pub async fn probe() -> EnvReport {
 
 /// What `program args` printed, stdout then stderr, when it ran in time.
 pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
-    let mut command = Command::new(program);
+    let mut command = crate::process::command(program);
     spawn_env::apply(&mut command, Scope::Probe);
     let run = command
         .args(args)
@@ -107,7 +107,7 @@ fn first_line(text: &str) -> Option<String> {
 /// Whether `tool` is signed in, from its status command: it succeeds only
 /// when signed in, and `account` picks the account from what it printed.
 async fn login(tool: &str, args: &[&str], account: fn(&str) -> Option<String>) -> Login {
-    let mut command = Command::new(tool);
+    let mut command = crate::process::command(tool);
     // With the GitHub token, so `gh auth status` sees the one Beep gave.
     spawn_env::apply(&mut command, Scope::Agent);
     let run = command
