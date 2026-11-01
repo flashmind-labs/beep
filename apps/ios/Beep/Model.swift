@@ -752,14 +752,28 @@ final class AppModel {
         loadingUpdates = true
         defer { loadingUpdates = false }
         guard let fresh = try? await api().listUpdates() else { return }
-        updates = fresh
+        // A list asked for before a dismiss reached the server may still carry it; an id the
+        // server no longer lists is gone there too.
+        dismissedUpdates.formIntersection(fresh.map(\.id))
+        updates = fresh.filter { !dismissedUpdates.contains($0.id) }
     }
+
+    /// Updates dismissed here that a list may still carry, by id.
+    @ObservationIgnored private var dismissedUpdates: Set<Int64> = []
 
     /// Takes updates off the card at once and tells the server, which keeps them gone on every device.
     func dismissUpdates(_ ids: [Int64]) {
         guard !ids.isEmpty else { return }
+        dismissedUpdates.formUnion(ids)
         updates.removeAll { ids.contains($0.id) }
-        Task { _ = try? await api().dismissUpdates(ids: ids) }
+        Task {
+            do {
+                try await api().dismissUpdates(ids: ids)
+            } catch {
+                // Not dismissed after all: the next list shows them again.
+                dismissedUpdates.subtract(ids)
+            }
+        }
     }
 
     // MARK: Runs

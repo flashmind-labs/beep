@@ -1179,20 +1179,34 @@ class ChatRepository(private val storage: LocalStorage) {
     /** What the event triage agent found in the user's apps, newest first, for the Updates card. */
     val updates = MutableStateFlow<List<com.flashmind.beep.proto.AppUpdate>>(emptyList())
     private var updatesJob: Job? = null
+    /** Updates dismissed here that a list asked for before the dismiss may still carry. */
+    private val dismissedUpdates = mutableSetOf<Long>()
 
     /** Asks the server for updates. A server from before them answers with an error, which leaves none. */
     fun loadUpdates() {
         if (updatesJob?.isActive == true) return
         updatesJob = scope.launch {
-            runCatching { api().listUpdates() }.onSuccess { updates.value = it }
+            runCatching { api().listUpdates() }.onSuccess { listed ->
+                updates.value = synchronized(dismissedUpdates) {
+                    // An id the server no longer lists is gone there too.
+                    dismissedUpdates.retainAll(listed.map { it.id }.toSet())
+                    listed.filter { it.id !in dismissedUpdates }
+                }
+            }
         }
     }
 
     /** Takes updates off the card at once and tells the server, which keeps them gone on every device. */
     fun dismissUpdates(ids: List<Long>) {
         if (ids.isEmpty()) return
+        synchronized(dismissedUpdates) { dismissedUpdates.addAll(ids) }
         updates.value = updates.value.filter { it.id !in ids }
-        scope.launch { runCatching { api().dismissUpdates(ids) } }
+        scope.launch {
+            runCatching { api().dismissUpdates(ids) }.onFailure {
+                // Not dismissed after all: the next list shows them again.
+                synchronized(dismissedUpdates) { dismissedUpdates.removeAll(ids.toSet()) }
+            }
+        }
     }
 
     /** Takes a used starter off the saved set until the next one loads. */
