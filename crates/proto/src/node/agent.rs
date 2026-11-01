@@ -35,8 +35,12 @@ pub fn protocol(name: &str) -> String {
 /// The agent a protocol name serves, such as `claude` for `claude/1`.
 pub fn agent_of(protocol: &str) -> Option<&str> {
     let (name, version) = protocol.split_once('/')?;
-    (version == VERSION && !matches!(name, "shell" | "agents" | "desktop" | "files" | "process"))
-        .then_some(name)
+    (version == VERSION
+        && !matches!(
+            name,
+            "shell" | "agents" | "desktop" | "files" | "process" | "sync" | "transfer"
+        ))
+    .then_some(name)
 }
 
 /// What the server sends on an agent stream.
@@ -511,6 +515,8 @@ mod tests {
         assert_eq!(agent_of("shell/1"), None);
         assert_eq!(agent_of("files/1"), None);
         assert_eq!(agent_of("process/1"), None);
+        assert_eq!(agent_of(crate::node::sync::PROTOCOL), None);
+        assert_eq!(agent_of(crate::node::transfer::PROTOCOL), None);
         assert_eq!(agent_of(SESSIONS_PROTOCOL), None);
         assert_eq!(agent_of("claude/2"), None);
     }
