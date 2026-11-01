@@ -10,6 +10,7 @@ pub(crate) mod spawn_env;
 mod teacli;
 mod tools;
 
+use crate::AsyncMutex;
 use anyhow::{Context, Result};
 use beep_proto::node::{ForgejoLogin, MachineCredentials};
 use std::{
@@ -32,6 +33,8 @@ pub struct Provision {
     forgejo: Mutex<Vec<ForgejoLogin>>,
     /// Woken when a tool was installed, so the machine is probed again.
     changed: Notify,
+    /// Held while teacli's config is written, so two writes never mix.
+    teacli: AsyncMutex<()>,
 }
 
 impl Provision {
@@ -42,6 +45,7 @@ impl Provision {
             dir: dir.to_owned(),
             forgejo: Mutex::default(),
             changed: Notify::new(),
+            teacli: AsyncMutex::new(()),
         };
         spawn_env::set_path(vec![provision.bin()]);
         Arc::new(provision)
@@ -51,12 +55,16 @@ impl Provision {
         self.dir.join("bin")
     }
 
-    /// Installs the skills, then each missing tool in turn, in the
+    /// Removes the teacli config a node before this one left, then
+    /// installs the skills, then each missing tool in turn, in the
     /// background. A failure is logged and the node goes on without it.
     /// Dropping the handle stops the work.
     pub fn start(self: &Arc<Self>) -> AbortOnDropHandle<()> {
         let provision = self.clone();
         AbortOnDropHandle::new(tokio::spawn(async move {
+            // Tokens wait for the server: a node that stopped while they
+            // were revoked must not keep using them.
+            provision.configure_teacli().await;
             match spawn_blocking(install_skills).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => log::warn!("agent skills not installed: {e:#}"),
@@ -101,6 +109,17 @@ impl Provision {
         self.configure_teacli().await;
     }
 
+    /// Drops the credentials, from memory and from teacli's config, when
+    /// the server can no longer say they are current.
+    pub async fn forget(&self) {
+        spawn_env::set_vars(Vec::new());
+        self.forgejo
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.configure_teacli().await;
+    }
+
     /// Finishes when a tool was installed since the last call.
     pub async fn changed(&self) {
         self.changed.notified().await;
@@ -109,6 +128,7 @@ impl Provision {
     /// Points teacli at the Forgejo servers, or back at the user's own
     /// config when there are none.
     async fn configure_teacli(&self) {
+        let _writing = self.teacli.lock().await;
         let logins = self
             .forgejo
             .lock()
@@ -159,4 +179,44 @@ fn install_skills() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beep_proto::{SecretText, node::EnvSecret};
+    use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test]
+    async fn forgetting_removes_the_tokens_from_disk() {
+        let _env = spawn_env::TEST_LOCK.lock().await;
+        let dir = tempfile::tempdir().unwrap();
+        let teacli = dir.path().join("bin/teacli");
+        fs::create_dir_all(teacli.parent().unwrap()).unwrap();
+        fs::write(&teacli, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&teacli, fs::Permissions::from_mode(0o755)).unwrap();
+        let provision = Provision::new(dir.path());
+        provision
+            .apply(MachineCredentials {
+                env: vec![EnvSecret {
+                    name: "BEEP_TEST_FORGET".into(),
+                    value: SecretText::new("key"),
+                }],
+                forgejo: vec![ForgejoLogin {
+                    url: "https://git.example.com".into(),
+                    token: SecretText::new("token"),
+                }],
+            })
+            .await;
+        let config = teacli::config_path(dir.path());
+        assert!(config.exists());
+        provision.forget().await;
+        assert!(!config.exists());
+        assert!(!teacli::shims_dir(dir.path()).join("teacli").exists());
+        let mut command = tokio::process::Command::new("sh");
+        command.args(["-c", "printf %s \"$BEEP_TEST_FORGET\""]);
+        spawn_env::apply(&mut command, spawn_env::Scope::Shell);
+        let out = command.output().await.unwrap();
+        assert!(out.stdout.is_empty());
+    }
 }
