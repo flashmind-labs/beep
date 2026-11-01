@@ -116,7 +116,11 @@ pub(super) fn install(dir: &Path, skill: &Skill, installed: &mut Installed) -> R
     };
     let wanted = marked(skill.text);
     match existing {
-        Some(text) if text == wanted => return Ok(Outcome::Current),
+        Some(text) if text == wanted => {
+            // Written by a node from before the record, or the record lost.
+            installed.add(path)?;
+            return Ok(Outcome::Current);
+        }
         Some(text) if !ours_unedited(&text) => return Ok(Outcome::Kept),
         _ => {}
     }
@@ -252,6 +256,24 @@ mod tests {
             Outcome::Kept
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), "my own github skill\n");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_current_file_is_recorded_too() {
+        let dir = temp_dir("current");
+        let path = dir.join("github/SKILL.md");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, marked(SKILL.text)).unwrap();
+        assert_eq!(
+            install(&dir, &SKILL, &mut record(&dir)).unwrap(),
+            Outcome::Current
+        );
+        fs::remove_file(&path).unwrap();
+        assert_eq!(
+            install(&dir, &SKILL, &mut record(&dir)).unwrap(),
+            Outcome::Deleted
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
