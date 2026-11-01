@@ -173,14 +173,27 @@ jobs:
           source-dir: ${{ steps.r2.outputs.files }}
           destination-dir: beep/node/${{ env.VERSION }}
 
-      # After the archives, so install.sh never names a version it cannot fetch.
+      # After the archives, so install.sh never names a version it cannot
+      # fetch. Uploaded with curl rather than the action, which cannot set
+      # Cache-Control: these two change with every release, so the CDN has to
+      # check back each time instead of serving the last version for hours.
       - name: Point install.sh at the release
         if: steps.r2.outputs.files != ''
-        uses: https://github.com/ryand56/r2-upload-action@v1.5
-        with:
-          r2-account-id: ${{ steps.r2.outputs.account }}
-          r2-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.CF_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.CF_BUCKET }}
-          source-dir: ${{ steps.r2.outputs.pointer }}
-          destination-dir: beep/node
+        env:
+          ACCOUNT: ${{ steps.r2.outputs.account }}
+          POINTER: ${{ steps.r2.outputs.pointer }}
+          CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
+          CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+          CF_BUCKET: ${{ secrets.CF_BUCKET }}
+        run: |
+          set -euo pipefail
+          for name in install.sh latest.txt; do
+            file="$POINTER/$name"
+            curl -sSf --retry 3 --aws-sigv4 "aws:amz:auto:s3" \
+              --user "$CF_ACCESS_KEY_ID:$CF_SECRET_ACCESS_KEY" \
+              -H "x-amz-content-sha256: $(sha256sum "$file" | cut -d ' ' -f 1)" \
+              -H "Cache-Control: no-cache" \
+              -H "Content-Type: text/plain; charset=utf-8" \
+              -T "$file" "https://$ACCOUNT.r2.cloudflarestorage.com/$CF_BUCKET/beep/node/$name" > /dev/null
+            echo "Uploaded beep/node/$name"
+          done
