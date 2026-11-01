@@ -35,17 +35,10 @@ One `beep-server` runs the agent and owns the database. Every user gets a
 attachments are saved there. Other machines link as ordinary nodes. The
 server runs no user code. Per-user nodes are set up by hand for now.
 
-Two v2 servers run today, each with its own database and node id:
-
-- The live v2 server is the on-prem bundle (`deploy/onprem/`: server, its own
-  Postgres and the Ubuntu workspace node). Desktop builds for it pass its node
-  id in `BEEP_NODE_ID`. Update its config with `just deploy-onprem-config`.
-- The production server runs on Neon and is what `just deploy-server`
-  targets. It moved from v1 to v2 for good (no rollback to v1). Ask before
-  deploying to it.
-
-Never stop or recreate either one without asking. Run compose for the bundle
-with `-p beep-onprem`: its compose file is named `beep`, the same as v1's.
+The server is the production server on Neon, the target of
+`just deploy-server`. Desktop and iOS builds pass its node id in
+`BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
+without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 
 ## Deploying the server
 
