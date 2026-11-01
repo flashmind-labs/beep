@@ -3,6 +3,9 @@
 const { invoke, Channel } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+import { splitPinned } from "./pinned.js";
+import { initPalette, openPalette } from "./palette.js";
+
 const $ = sel => document.querySelector(sel);
 
 /// An element with `cls`; string children become text, never markup.
@@ -320,15 +323,27 @@ function sideItem(svg, label, count, opts = {}) {
   b.type = "button";
   if (opts.current) b.setAttribute("aria-current", "true");
   if (count) b.append(h("span", `n${opts.hot ? " hot" : ""}`, String(count)));
+  if (opts.kbd) b.append(h("kbd", "", opts.kbd));
   if (opts.on) b.addEventListener("click", opts.on);
   return b;
 }
 
+/// Element Home scrolls to once it has drawn.
+let scrollTarget = null;
+
 function jump(id) {
   go("home");
   const view = $("#view");
-  if (!id) view.scrollTo({ top: 0 });
-  else document.getElementById(id)?.scrollIntoView({ block: "start" });
+  if (!id) return view.scrollTo({ top: 0 });
+  scrollTarget = id;
+  // Home redraws when it mounts, so the target is also applied after that draw.
+  applyScroll();
+}
+
+function applyScroll() {
+  if (!scrollTarget) return;
+  const el = document.getElementById(scrollTarget);
+  if (el) { el.scrollIntoView({ block: "start" }); scrollTarget = null; }
 }
 
 /// What the pane shows, for the sidebar's highlight.
@@ -341,7 +356,7 @@ function drawSide() {
   const head = h("div", "cc-head", "");
   head.setAttribute("data-tauri-drag-region", "");
   const top = h("div", "cc-grp",
-    sideItem(IC.find, "Search", 0, { on: () => go("pane", "chats") }),
+    sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: "⌘K" }),
     sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
   if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { on: () => jump("sec-running") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
@@ -354,7 +369,8 @@ function drawSide() {
       if (g.action) h3.append(g.action());
       grp.append(h3);
     }
-    if (g.empty && !g.items.length) grp.append(h("span", "cc-si none", g.empty));
+    const none = typeof g.empty === "function" ? g.empty() : g.empty;
+    if (none && !g.items.length) grp.append(h("span", "cc-si none", none));
     for (const item of g.items) {
       const el = g.row(item);
       if (g.onPick) el.addEventListener("click", () => g.onPick(item));
@@ -377,13 +393,91 @@ function footer(machines) {
   return [h("span", "", h("span", "ddot"), " ", h("b", "", String(on)), ` of ${plural(machines.length, "machine", "machines")} online`)];
 }
 
-/// The newest chats, the open one highlighted.
+/// Pinned chats and groups, then the newest of the rest, the open one
+/// highlighted.
 const SIDE_CHATS = 12;
 let chatList = [];
+let chatFetch = null;
+
+/// One fetch feeds both groups, even when both ask at once.
+function fetchChats() {
+  if (chatFetch) return chatFetch;
+  const mine = pane().chatRows().then(rows => {
+    if (chatFetch === mine) chatList = rows;
+    return rows;
+  }).finally(() => { if (chatFetch === mine) chatFetch = null; });
+  return chatFetch = mine;
+}
+
+function reloadChats() {
+  // A fetch that started before this change may miss it: the next one is new.
+  chatFetch = null;
+  return Promise.all([reloadGroup("pinned"), reloadGroup("chats")]);
+}
+
+/// Pinned projects join the Pinned group here once projects can be pinned:
+/// return items shaped like chat rows ({ kind: "project", id, title }) and
+/// give `chatRow` and the group's `onPick` a branch for them.
+async function pinnedProjects() { return []; }
+
+/// Gives the pin button of chat `id` the focus again, unless focus has gone
+/// elsewhere meanwhile (a redraw leaves it on the page body).
+function restorePinFocus(id) {
+  const on = document.activeElement;
+  if (on && on !== document.body) return;
+  document.querySelector(`.cc-chat .pa[data-id="${CSS.escape(id)}"]`)?.focus();
+}
+
+async function setPinned(c, pinned) {
+  const active = document.activeElement;
+  const hadFocus = active?.classList.contains("pa") && active.dataset.id === c.id;
+  try {
+    await invoke(c.kind === "group" ? "pin_group" : "pin_session", { id: c.id, pinned });
+  } catch (e) {
+    console.warn("pinning a chat:", e);
+  }
+  await reloadChats();
+  if (hadFocus) restorePinFocus(c.id);
+}
+
+function chatRow(c) {
+  const on = paneOn();
+  const open = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
+  const mark = c.kind === "group" ? icon(IC.group) : icon(c.research ? IC.doc : IC.chat);
+  const toggle = h("button", "pa", icon(IC.pin));
+  toggle.type = "button";
+  toggle.dataset.id = c.id;
+  toggle.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
+  toggle.addEventListener("click", e => { e.stopPropagation(); setPinned(c, !c.pinned); });
+  // Two real buttons in one row, never one inside the other.
+  const openBtn = h("button", "open", mark, h("span", "tt", c.title));
+  openBtn.type = "button";
+  if (open) openBtn.setAttribute("aria-current", "true");
+  return h("div", "cc-si cc-chat", openBtn, toggle);
+}
+
+function pickChat(c) {
+  if (c.kind === "group") return go("pane", { group: { id: c.id } });
+  // A research opens in its own window, as from the bar's list.
+  if (c.research) return invoke("open_research", { session: c.id }).catch(() => go("pane", { chat: { session: c.id } }));
+  go("pane", { chat: { session: c.id } });
+}
+
+registerSidebarGroup("pinned", {
+  order: 2,
+  title: "Pinned",
+  async load() {
+    if (!pane()) return [];
+    return [...splitPinned(await fetchChats(), SIDE_CHATS).pinned, ...await pinnedProjects()];
+  },
+  row: chatRow,
+  onPick: pickChat,
+});
+
 registerSidebarGroup("chats", {
   order: 3,
   title: "Chats",
-  empty: "No chats yet",
+  empty: () => (chatList.length ? "" : "No chats yet"),
   action() {
     const b = h("button", "", icon(IC.plus));
     b.type = "button";
@@ -393,32 +487,18 @@ registerSidebarGroup("chats", {
   },
   async load() {
     if (!pane()) return [];
-    chatList = await pane().chatRows();
-    return chatList.slice(0, SIDE_CHATS);
+    return splitPinned(await fetchChats(), SIDE_CHATS).recent;
   },
-  row(c) {
-    const on = paneOn();
-    const open = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
-    const mark = c.kind === "group" ? icon(IC.group) : c.pinned ? h("span", "pin", icon(IC.pin)) : icon(c.research ? IC.doc : IC.chat);
-    const b = h("button", "cc-si", mark, h("span", "tt", c.title));
-    b.type = "button";
-    if (open) b.setAttribute("aria-current", "true");
-    return b;
-  },
-  onPick(c) {
-    if (c.kind === "group") return go("pane", { group: { id: c.id } });
-    // A research opens in its own window, as from the bar's list.
-    if (c.research) return invoke("open_research", { session: c.id }).catch(() => go("pane", { chat: { session: c.id } }));
-    go("pane", { chat: { session: c.id } });
-  },
+  row: chatRow,
+  onPick: pickChat,
   foot() {
-    if (!this.items?.length) return [];
+    if (!chatList.length) return [];
     return [sideItem(null, "All chats", 0, { cls: "more", current: paneOn().view === "chats", on: () => go("pane", "chats") })];
   },
 });
 
 registerSidebarGroup("views", {
-  order: 4,
+  order: 6,
   title: "Beep",
   load: async () => [
     { view: "memories", label: "Memories", svg: IC.mem },
@@ -486,6 +566,8 @@ function draw() {
   const top = view.scrollTop;
   view.replaceChildren(...page(home));
   view.scrollTop = top;
+  applyScroll();
+  scrollTarget = null;
   $("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
   $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }
@@ -524,20 +606,16 @@ function paneTitle() {
     // A chat just started is not in the list until the server has it.
     return { title: c?.title ?? "New chat", tools: c ? [pinButton(c)] : [] };
   }
-  if (on.group) return { title: chatList.find(x => x.id === on.group)?.title ?? "Group" };
+  if (on.group) {
+    const g = chatList.find(x => x.id === on.group);
+    return { title: g?.title ?? "Group", tools: g ? [pinButton(g)] : [] };
+  }
   const [title, sub] = PANE_TITLES[on.view] ?? ["Beep", ""];
   return { title, sub };
 }
 
 function pinButton(c) {
-  return button(c.pinned ? "Unpin" : "Pin", "", async () => {
-    try {
-      await invoke("pin_session", { id: c.id, pinned: !c.pinned });
-    } catch (e) {
-      console.warn("pinning a chat:", e);
-    }
-    reloadGroup("chats");
-  });
+  return button(c.pinned ? "Unpin" : "Pin", "", () => setPinned(c, !c.pinned));
 }
 
 registerView("pane", {
@@ -560,6 +638,7 @@ $("#bar").dataset.view = pane()?.current().view ?? "";
 pane()?.onChange(now => {
   if (shown === "pane") {
     if (last.view === "chat" && now.view !== "chat" && now.view !== "group") invoke("new_chat").catch(() => {});
+    if (last.group && !now.group) invoke("close_group").catch(() => {});
   }
   last = now;
   $("#bar").dataset.view = now.view ?? "";
@@ -582,10 +661,13 @@ listen("center-open", () => takePending(null));
 
 // ---------- Keys ----------
 
+initPalette({ go, jump, pane, findIcon: IC.find });
+
 document.addEventListener("keydown", e => {
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
-  const to = { k: "chats", m: "memories", j: "routines", l: "skills", ",": "settings" }[key];
+  if (key === "k") { e.preventDefault(); return openPalette(); }
+  const to = { m: "memories", j: "routines", l: "skills", ",": "settings" }[key];
   if (to) { e.preventDefault(); return go("pane", to); }
   if (key === "n" && shown !== "pane") { e.preventDefault(); return go("pane", { chat: { session: null } }); }
 });
@@ -620,7 +702,7 @@ for (const name of ["sessions-changed", "work-question", "work-resolved", "group
   listen(name, () => refresh());
 }
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) {
-  listen(name, () => reloadGroup("chats"));
+  listen(name, () => reloadChats());
 }
 
 $("#home-comp").addEventListener("submit", async e => {
@@ -633,9 +715,12 @@ $("#home-comp").addEventListener("submit", async e => {
   try {
     await pane().compose(prompt);
   } catch (err) {
+    // Back on Home with the prompt as typed, where the error shows.
+    input.value = prompt;
+    go("home");
     note.textContent = failure(err);
   }
-  reloadGroup("chats");
+  reloadChats();
 });
 
 $("#home-agent")?.addEventListener("click", () => {
@@ -644,4 +729,5 @@ $("#home-agent")?.addEventListener("click", () => {
   go("pane", { agentnew: { prompt } });
 });
 
-takePending("home");
+// A reload starts with no chat open, as the window just opened does.
+invoke("new_chat").catch(() => {}).then(() => takePending("home"));

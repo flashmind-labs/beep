@@ -62,6 +62,9 @@ fn frame<R: Runtime>(app: &AppHandle<R>) -> Option<(LogicalPosition<f64>, Logica
 pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     bar::hide(app);
     if let Some(window) = app.get_webview_window(LABEL) {
+        if window.is_minimized()? {
+            window.unminimize()?;
+        }
         window.show()?;
         window.set_focus()?;
         return Ok(());
@@ -292,7 +295,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
 
 /// `None` for a request the server does not know or this account may not
 /// make; any other failure goes to the log.
-fn section<T>(what: &str, result: Result<T>) -> Option<T> {
+pub(crate) fn section<T>(what: &str, result: Result<T>) -> Option<T> {
     match result {
         Ok(listed) => Some(listed),
         Err(e) if is_unsupported(&e) => None,
@@ -547,6 +550,19 @@ impl Shown {
     pub(crate) fn get(&self) -> Showing {
         self.showing().clone()
     }
+
+    /// Forgets the chat and group, when the window closes.
+    pub(crate) fn clear(&self) {
+        *self.showing() = Showing::default();
+    }
+
+    /// Leaves group `id` if the window shows it.
+    pub(crate) fn leave_group(&self, id: &str) {
+        let mut showing = self.showing();
+        if showing.group.as_deref() == Some(id) {
+            showing.group = None;
+        }
+    }
 }
 
 /// A chat a webview opened or left: a session or a group, `None` for none.
@@ -583,8 +599,9 @@ impl Current for Shown {
 }
 
 /// Makes `chat` the holder's current chat. A session, or none, also leaves
-/// the holder's group. A group keeps the session: the bar leaves a group on
-/// every view change and reopens its last chat after.
+/// the holder's group. In the bar a group keeps the session: the bar leaves
+/// a group on every view change and reopens its last chat after. The window
+/// keeps no such chat, so a group it opens replaces its session.
 pub(crate) fn remember(holder: Holder, beep: &Beep, shown: &Shown, chat: Chat) {
     remember_in(holder, beep, shown, chat);
 }
@@ -606,7 +623,12 @@ fn remember_in(holder: Holder, bar: &impl Current, shown: &Shown, chat: Chat) {
             current.set_session(session);
             current.set_group(None);
         }
-        Chat::Group(group) => current.set_group(group),
+        Chat::Group(group) => {
+            if holder == Holder::Center && group.is_some() {
+                current.set_session(None);
+            }
+            current.set_group(group);
+        }
     }
 }
 
@@ -819,6 +841,25 @@ mod tests {
     }
 
     #[test]
+    fn closing_the_window_forgets_its_chat() {
+        let shown = Shown::default();
+        shown.set_session(Some("a".into()));
+        shown.set_group(Some("g".into()));
+        shown.clear();
+        assert_eq!(shown.get(), Showing::default());
+    }
+
+    #[test]
+    fn leaving_a_group_clears_only_that_group() {
+        let shown = Shown::default();
+        shown.set_group(Some("g".into()));
+        shown.leave_group("other");
+        assert_eq!(shown.get().group.as_deref(), Some("g"));
+        shown.leave_group("g");
+        assert_eq!(shown.get().group, None);
+    }
+
+    #[test]
     fn center_label_leaves_bar_chat() {
         let bar = bar_on("a");
         let shown = Shown::default();
@@ -842,9 +883,27 @@ mod tests {
     }
 
     #[test]
-    fn session_leaves_group_and_group_keeps_session() {
+    fn bar_session_leaves_group_and_group_keeps_session() {
+        let bar = bar_on("a");
         let shown = Shown::default();
+        remember_in(Holder::Bar, &bar, &shown, Chat::Group(Some("g".into())));
+        assert_eq!(
+            bar.get(),
+            Showing {
+                session: Some("a".into()),
+                group: Some("g".into()),
+            }
+        );
+        remember_in(Holder::Bar, &bar, &shown, Chat::Group(None));
+        assert_eq!(bar.get().session.as_deref(), Some("a"));
+        remember_in(Holder::Bar, &bar, &shown, Chat::Session(None));
+        assert_eq!(bar.get(), Showing::default());
+    }
+
+    #[test]
+    fn center_group_replaces_its_session() {
         let bar = Shown::default();
+        let shown = Shown::default();
         remember_in(
             Holder::Center,
             &bar,
@@ -855,12 +914,13 @@ mod tests {
         assert_eq!(
             shown.get(),
             Showing {
-                session: Some("a".into()),
+                session: None,
                 group: Some("g".into()),
             }
         );
-        remember_in(Holder::Center, &bar, &shown, Chat::Session(None));
+        remember_in(Holder::Center, &bar, &shown, Chat::Group(None));
         assert_eq!(shown.get(), Showing::default());
+        assert_eq!(bar.get(), Showing::default());
     }
 
     #[test]

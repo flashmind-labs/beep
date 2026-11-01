@@ -17,7 +17,6 @@ pub(crate) use group::group_message;
 
 use crate::{
     AsyncMutex,
-    agents::AgentId,
     apps::{Composio, ComposioSettings},
     compaction::{self, Summarizer},
     decision::DecisionTool,
@@ -208,8 +207,6 @@ pub struct Message {
     pub request_id: Uuid,
     pub message: String,
     pub cron_id: Option<String>,
-    /// The agent a routine runs as: the one that set it up.
-    pub agent: Option<AgentId>,
     /// A routine's label, empty when it has none. Set for routine runs only.
     pub scheduled: Option<String>,
     /// A routine whose reply always reaches the user, as if it had called
@@ -479,14 +476,6 @@ impl App {
                 .instance
                 .as_ref()
                 .is_none_or(|instance| instance.allows(privilege))
-    }
-
-    /// Whether agents are on before anyone changes it: on a single-user
-    /// server whose settings allow them.
-    pub(crate) fn agents_by_default(&self) -> bool {
-        self.instance
-            .as_ref()
-            .is_some_and(|instance| instance.allows(Privilege::Agents))
     }
 
     /// The single-user settings, when the server runs for one owner.

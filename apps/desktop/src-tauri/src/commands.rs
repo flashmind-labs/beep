@@ -431,12 +431,15 @@ pub async fn join_group(
 }
 
 #[tauri::command]
-pub async fn leave_group(beep: Service<'_>, id: String) -> Result<()> {
+pub async fn leave_group(beep: Service<'_>, shown: State<'_, Shown>, id: String) -> Result<()> {
     beep.call(LeaveGroup { id: id.clone() }).await?;
     if let Ok(group) = Uuid::parse_str(&id) {
         beep.chats().forget(group);
     }
-    beep.set_group(None);
+    if beep.group().as_deref() == Some(id.as_str()) {
+        beep.set_group(None);
+    }
+    shown.leave_group(&id);
     Ok(())
 }
 
@@ -840,6 +843,20 @@ impl From<Memory> for MemoryView {
             valid_until: m.valid_until,
             quote: m.quote,
         }
+    }
+}
+
+impl MemoryView {
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) fn content(&self) -> &str {
+        &self.content
+    }
+
+    pub(crate) fn category(&self) -> &str {
+        &self.category
     }
 }
 
