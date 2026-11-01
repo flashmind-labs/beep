@@ -75,8 +75,9 @@ impl Slot {
     }
 }
 
-/// A Forgejo or Gitea server's base URL: http or https, no query or
-/// fragment, no trailing slash. teacli appends `/api/v1/...` to it.
+/// A Forgejo or Gitea server's base URL: https, or http for a host that is
+/// plainly on the user's own network, no query or fragment, no trailing
+/// slash. teacli appends `/api/v1/...` to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForgejoUrl(Url);
 
@@ -112,6 +113,12 @@ impl FromStr for ForgejoUrl {
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
             return Err(SlotError::BadUrl(
                 "The server URL must start with https:// or http://.",
+            ));
+        }
+        if url.scheme() == "http" && !net::is_local_name(&url) {
+            return Err(SlotError::BadUrl(
+                "Use https:// for a server on the internet: over http the token travels \
+                 in the clear.",
             ));
         }
         if !url.username().is_empty() || url.password().is_some() {
@@ -186,9 +193,18 @@ mod tests {
     fn forgejo_urls_are_made_canonical() {
         let url: ForgejoUrl = " https://git.example.com/api/v1/?x=1 ".parse().unwrap();
         assert_eq!(url.as_str(), "https://git.example.com");
-        let url: ForgejoUrl = "http://code.example.org:3000/forge/".parse().unwrap();
-        assert_eq!(url.as_str(), "http://code.example.org:3000/forge");
+        let url: ForgejoUrl = "https://code.example.org:3000/forge/".parse().unwrap();
+        assert_eq!(url.as_str(), "https://code.example.org:3000/forge");
         assert_eq!(url.host(), "code.example.org:3000");
+        let url: ForgejoUrl = "http://forge.local:3000".parse().unwrap();
+        assert_eq!(url.as_str(), "http://forge.local:3000");
+        assert_eq!(
+            "http://git.example.com".parse::<ForgejoUrl>(),
+            Err(SlotError::BadUrl(
+                "Use https:// for a server on the internet: over http the token travels \
+                 in the clear."
+            ))
+        );
         assert!("ftp://git.example.com".parse::<ForgejoUrl>().is_err());
         assert!("git.example.com".parse::<ForgejoUrl>().is_err());
         assert!(
