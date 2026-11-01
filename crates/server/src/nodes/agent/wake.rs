@@ -153,8 +153,10 @@ fn question_report(node: &str, agent: &str, session: &str, question: &Question) 
     let options: Vec<&str> = question.options.iter().map(|o| o.id.as_str()).collect();
     let _ = write!(
         text,
-        "\nThe user has a card to answer it. You can answer instead with {} and the option \
-         as `prompt`; its options are {}. Tell the user briefly what it waits for.",
+        "\nThe user has a card to answer it. When it is clearly within what the user asked, \
+         you can answer instead with {} and the option as `prompt`; its options are {}. Leave \
+         a risky or destructive one, such as a force push, to the user. Tell the user briefly \
+         what it waits for.",
         agent_call(node, agent, "answer", session),
         options.join(", ")
     );
