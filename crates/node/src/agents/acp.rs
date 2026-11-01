@@ -7,12 +7,14 @@ use agent_client_protocol::{
     schema::{
         ProtocolVersion,
         v1::{
-            ContentBlock, Implementation, InitializeRequest, InitializeResponse,
+            ContentBlock, ImageContent, Implementation, InitializeRequest, InitializeResponse,
             PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
             SelectedPermissionOutcome, SessionId, TextContent,
         },
     },
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_proto::Upload;
 use futures::{Sink, Stream, sink, stream};
 use serde::Serialize;
 use std::io;
@@ -59,11 +61,61 @@ pub(super) fn resume_method(initialized: &InitializeResponse) -> Option<ResumeMe
 /// `claude --dangerously-skip-permissions` runs.
 pub(super) const BYPASS_MODE: &str = "bypassPermissions";
 
-pub(super) fn prompt(session: &SessionId, text: &str) -> PromptRequest {
-    PromptRequest::new(
-        session.clone(),
-        vec![ContentBlock::Text(TextContent::new(text))],
-    )
+/// A message for the agent: its text, then any images.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct Prompt {
+    pub(super) text: String,
+    pub(super) images: Vec<Upload>,
+}
+
+impl From<String> for Prompt {
+    fn from(text: String) -> Self {
+        Self {
+            text,
+            images: Vec::new(),
+        }
+    }
+}
+
+impl Prompt {
+    /// How the transcript shows it: the text, then a line per image, such
+    /// as `[image: shot.png]`, which the apps draw as the picture.
+    pub(super) fn shown(&self) -> String {
+        let mut shown = self.text.clone();
+        for image in &self.images {
+            if !shown.is_empty() {
+                shown.push('\n');
+            }
+            let name = if image.name.is_empty() {
+                "image"
+            } else {
+                &image.name
+            };
+            shown.push_str(&format!("[image: {name}]"));
+        }
+        shown
+    }
+}
+
+/// Whether the agent the `initialize` answer describes takes image blocks.
+pub(super) fn takes_images(initialized: &InitializeResponse) -> bool {
+    initialized.agent_capabilities.prompt_capabilities.image
+}
+
+/// `session/prompt` with the text first, then each image as an image block.
+/// Only images go when there is no text.
+pub(super) fn prompt(session: &SessionId, prompt: &Prompt) -> PromptRequest {
+    let mut blocks = Vec::with_capacity(1 + prompt.images.len());
+    if !prompt.text.is_empty() || prompt.images.is_empty() {
+        blocks.push(ContentBlock::Text(TextContent::new(prompt.text.as_str())));
+    }
+    for image in &prompt.images {
+        blocks.push(ContentBlock::Image(ImageContent::new(
+            STANDARD.encode(&image.data),
+            image.mime.as_str(),
+        )));
+    }
+    PromptRequest::new(session.clone(), blocks)
 }
 
 pub(super) fn selected(option: &str) -> RequestPermissionResponse {
@@ -278,6 +330,36 @@ mod tests {
             .await;
         assert_eq!(read, [r#"{"b":1}"#]);
         assert_eq!(reports.recv().await, Some(72));
+    }
+
+    #[test]
+    fn images_follow_the_text_as_image_blocks() {
+        let shot = Upload {
+            name: "shot.png".into(),
+            mime: "image/png".into(),
+            data: vec![0x89, b'P', b'N', b'G'],
+        };
+        let message = Prompt {
+            text: "The button overlaps".into(),
+            images: vec![shot.clone()],
+        };
+        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &message)).unwrap();
+        let blocks = sent["prompt"].as_array().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[0]["text"], "The button overlaps");
+        assert_eq!(blocks[1]["type"], "image");
+        assert_eq!(blocks[1]["mimeType"], "image/png");
+        assert_eq!(blocks[1]["data"], STANDARD.encode(&shot.data));
+        assert_eq!(message.shown(), "The button overlaps\n[image: shot.png]");
+
+        let only = Prompt {
+            text: String::new(),
+            images: vec![shot],
+        };
+        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &only)).unwrap();
+        assert_eq!(sent["prompt"][0]["type"], "image", "no empty text block");
+        assert_eq!(only.shown(), "[image: shot.png]");
     }
 
     #[test]

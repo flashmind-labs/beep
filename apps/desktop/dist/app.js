@@ -1462,6 +1462,11 @@ async function shrinkPic(file) {
 }
 
 document.addEventListener("paste", e => {
+  if (S.view === "agent" && $("#agmsg")) {
+    const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+    if (files.length) { e.preventDefault(); agentAttach(files); }
+    return;
+  }
   if (S.view !== "chat" || !$("#ask")) return;
   const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
   if (files.length) { e.preventDefault(); attach(files); }
@@ -1469,13 +1474,19 @@ document.addEventListener("paste", e => {
 
 // Dropping images and files on the chat attaches them too.
 bar.addEventListener("dragover", e => {
-  if (S.view !== "chat" || !e.dataTransfer?.types.includes("Files")) return;
+  const agent = S.view === "agent" && $("#agmsg");
+  if ((S.view !== "chat" && !agent) || !e.dataTransfer?.types.includes("Files")) return;
   e.preventDefault();
-  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}Drop images or files to ask about them</div>`));
+  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}${agent ? "Drop images to send them to the agent" : "Drop images or files to ask about them"}</div>`));
 });
 bar.addEventListener("dragleave", e => { if (!bar.contains(e.relatedTarget)) $("#ddrop")?.remove(); });
 bar.addEventListener("drop", e => {
   $("#ddrop")?.remove();
+  if (S.view === "agent" && $("#agmsg") && e.dataTransfer?.files.length) {
+    e.preventDefault();
+    agentAttach(e.dataTransfer.files).then(() => $("#agmsg")?.focus());
+    return;
+  }
   if (S.view !== "chat" || !e.dataTransfer?.files.length) return;
   e.preventDefault();
   attach(e.dataTransfer.files).then(() => focusAsk());
@@ -4217,7 +4228,20 @@ const AG = {
   // Polling: what the last answer looked like, when it last changed,
   // whether it stopped for quiet, and the question an answer is going to.
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
+  // Images pasted or dropped into the session's field, the error from the
+  // last one, and whether the server turned images down as too new for it.
+  att: [], attError: "", noImages: false,
 };
+/// What a coding agent takes with a message, as the server checks it.
+const AGENT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const AGENT_MAX_IMAGES = 5;
+const AGENT_MAX_IMAGE = 5 * 1024 * 1024;
+const AGENT_MAX_IMAGES_TOTAL = 7 * 1024 * 1024;
+/// Thumbnails of images sent from here, by session and name, so the
+/// transcript's `[image: name]` lines show the picture.
+const agentPics = new Map();
+const AGENT_PICS_KEPT = 60;
+let pastedCount = 0;
 /// How often the session view asks for its session while on screen.
 const AGENT_POLL_MS = 1500;
 /// A quiet session (idle, or started outside Beep) unchanged this long is
@@ -4389,6 +4413,8 @@ function openAgent(s, { why = "", back: from } = {}) {
   AG.changed = Date.now();
   AG.paused = false;
   AG.answering = null;
+  AG.att = [];
+  AG.attError = "";
   drawAgentFrame();
   pollAgent();
 }
@@ -4460,7 +4486,76 @@ function agentHints() {
   const s = AG.page?.session, q = s?.question;
   if (q) return hints([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
   if (s?.external || s?.status === "ended") return hints([["esc", "back"]]);
-  return hints([[ICON.ret, "send"], ["⌘.", "stop the turn"], ["esc", "back"]]);
+  const paste = AG.att.length ? [["⌘V", "paste an image"]] : [];
+  return hints([...paste, [ICON.ret, "send"], ["⌘.", "stop the turn"], ["esc", "back"]]);
+}
+
+// ----- Images for the agent -----
+
+/// A name for an image, unique among those waiting; a pasted one is
+/// named "Pasted image 1.png" and so on rather than "image.png".
+function agentImageName(f) {
+  const ext = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" }[f.type] || "png";
+  let name = f.name && f.name !== `image.${ext}` && f.name !== "image.png" ? f.name : `Pasted image ${++pastedCount}.${ext}`;
+  const dot = name.lastIndexOf(".");
+  const base = name;
+  for (let n = 2; AG.att.some(a => a.name === name); n++) name = dot > 0 ? `${base.slice(0, dot)} ${n}${base.slice(dot)}` : `${base} ${n}`;
+  return name;
+}
+
+function agentAttachError(text) {
+  AG.attError = text;
+  drawAgentAttached();
+  clearTimeout(AG.attTimer);
+  AG.attTimer = setTimeout(() => { AG.attError = ""; drawAgentAttached(); }, 5000);
+}
+
+/// Adds pasted or dropped images to the session's next message, refusing
+/// what the agent cannot take rather than shrinking or dropping it.
+async function agentAttach(files) {
+  if (AG.noImages) return agentAttachError("This Beep server does not take images yet.");
+  for (const f of [...files]) {
+    if (!AGENT_IMAGE_TYPES.includes(f.type)) { agentAttachError(`${f.name || "That file"} is not a PNG, JPEG, GIF or WebP image`); continue; }
+    if (AG.att.length >= AGENT_MAX_IMAGES) { agentAttachError(`Up to ${AGENT_MAX_IMAGES} images in one message`); break; }
+    if (f.size > AGENT_MAX_IMAGE) { agentAttachError(`${f.name || "That image"} is over ${AGENT_MAX_IMAGE >> 20} MB`); continue; }
+    const used = AG.att.reduce((n, a) => n + a.size, 0);
+    if (used + f.size > AGENT_MAX_IMAGES_TOTAL) { agentAttachError(`Images up to ${AGENT_MAX_IMAGES_TOTAL >> 20} MB in all in one message`); continue; }
+    try {
+      const data = await fileBase64(f);
+      AG.att.push({ name: agentImageName(f), mime: f.type, size: f.size, data, url: `data:${f.type};base64,${data}` });
+    } catch {
+      agentAttachError(`${f.name || "That image"} could not be read`);
+    }
+  }
+  drawAgentAttached();
+}
+
+/// The chips of waiting images above the field, as in the mock.
+function drawAgentAttached() {
+  const field = $("#agfield");
+  if (!field) return;
+  const old = $("#agatt");
+  const el = AG.att.length || AG.attError ? h(`<div class="ag-att" id="agatt">${AG.att.map((a, i) =>
+    `<span class="chip"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button aria-label="Remove ${esc(a.name)}" data-agatt="${i}">${ICON.x}</button></span>`).join("")}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
+  el?.querySelectorAll("[data-agatt]").forEach(b => b.addEventListener("click", () => {
+    AG.att.splice(Number(b.dataset.agatt), 1);
+    drawAgentAttached();
+    $("#agmsg")?.focus();
+  }));
+  if (old) el ? old.replaceWith(el) : old.remove();
+  else if (el) field.before(el);
+  const hint = bar.querySelector(":scope > .dhints");
+  if (hint && S.view === "agent") hint.replaceWith(h(agentHints()));
+}
+
+/// Keeps the thumbnails of images just sent, for the transcript.
+function keepAgentPics(o, images) {
+  for (const a of images) {
+    const key = `${o.session}\n${a.name}`;
+    agentPics.delete(key);
+    agentPics.set(key, a.url);
+  }
+  while (agentPics.size > AGENT_PICS_KEPT) agentPics.delete(agentPics.keys().next().value);
 }
 
 /// The parts that stay while the session updates: the head, the body and the field.
@@ -4471,6 +4566,7 @@ function drawAgentFrame() {
     : `<div class="dinput small" id="agfield"><input id="agmsg" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"><button class="dbtn" id="agstop" aria-label="Stop the turn"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop<kbd>⌘.</kbd></button><button class="dbtn quiet" id="agclose">Close session</button></div>`;
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)">${esc(s.cwd)}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="dbody" id="agbody" style="padding-top:10px"></div>${field}${agentHints()}`;
+  drawAgentAttached();
   const b = $("#agbody");
   b.stuck = true;
   b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; };
@@ -4486,9 +4582,30 @@ function drawAgentFrame() {
   };
 }
 
+/// A user entry's text and the images it carried: the node writes each
+/// as a line `[image: name]` after the text.
+function userImages(text) {
+  const lines = String(text).split("\n"), names = [];
+  while (lines.length) {
+    const m = /^\[image: (.+)\]$/.exec(lines[lines.length - 1]);
+    if (!m) break;
+    names.unshift(m[1]);
+    lines.pop();
+  }
+  return { text: lines.join("\n"), names };
+}
+
 function entryRow(en) {
   const text = esc(en.text);
-  if (en.kind === "user") return `<div class="dcoderen user"><b>You</b><span>${text}</span></div>`;
+  if (en.kind === "user") {
+    const { text: said, names } = userImages(en.text);
+    if (!names.length) return `<div class="dcoderen user"><b>You</b><span>${text}</span></div>`;
+    const pics = names.map(n => {
+      const url = AG.open && agentPics.get(`${AG.open.session}\n${n}`);
+      return url ? `<img class="pic" src="${esc(url)}" alt="${esc(n)}" title="${esc(n)}">` : `<span class="pic none" title="${esc(n)}">${ICON.image}${esc(n)}</span>`;
+    }).join("");
+    return `<div class="dcoderen user"><b>You</b>${said ? `<span>${esc(said)}</span>` : ""}<span class="pics">${pics}</span></div>`;
+  }
   if (en.kind === "agent") return `<div class="dcoderen agent">${text}</div>`;
   if (en.kind === "tool") return `<div class="dcoderen tool">${text}</div>`;
   return `<div class="dcoderen other">${text}</div>`;
@@ -4554,25 +4671,47 @@ function answerFirst(allow) {
   return i >= 0;
 }
 
+/// Sends `steer` to the open session; true when the node took it.
 async function steerAgent(steer) {
   const o = AG.open;
-  if (!o || AG.page?.session.external) return;
+  if (!o || AG.page?.session.external) return false;
+  let ok = false;
   try {
     await invoke("agent_steer", { machineId: o.machine_id, agent: o.agent, session: o.session, steer: "prompt" in steer ? steer : Object.keys(steer)[0] });
     AG.note = "";
+    ok = true;
   } catch (e) {
     AG.note = String(e).replace(/^bad request: /, "");
   }
   if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
+  return ok;
 }
 
-function sendAgentMessage() {
-  const input = $("#agmsg"), text = input?.value.trim();
-  if (!text) return;
+async function sendAgentMessage() {
+  const input = $("#agmsg"), text = input?.value.trim() ?? "", images = AG.att;
+  if (!text && !images.length) return;
+  const o = AG.open;
   input.value = "";
-  AG.page.entries.push({ kind: "user", text });
+  if (!images.length) {
+    AG.page.entries.push({ kind: "user", text });
+    drawAgentBody();
+    return steerAgent({ prompt: { text } });
+  }
+  AG.att = [];
+  drawAgentAttached();
+  keepAgentPics(o, images);
+  AG.page.entries.push({ kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") });
   drawAgentBody();
-  steerAgent({ prompt: { text } });
+  const sent = await steerAgent({ prompt: { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } });
+  if (sent || !isOpen(o)) return;
+  // Nothing went: the message and its images wait in the field again.
+  if (/does not take images yet/.test(AG.note)) AG.noImages = true;
+  AG.page.entries.pop();
+  const field = $("#agmsg");
+  if (field && !field.value) field.value = text;
+  AG.att = images;
+  drawAgentBody();
+  drawAgentAttached();
 }
 
 // ----- Every session -----
