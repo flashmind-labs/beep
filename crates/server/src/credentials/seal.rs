@@ -2,6 +2,7 @@
 //! derived from the server's own secret key, which the server already keeps
 //! in a file of its own, so a copy of the database alone opens nothing.
 
+use super::Slot;
 use anyhow::{Result, anyhow, ensure};
 use chacha20poly1305::{
     ChaCha20Poly1305, Key, KeyInit, Nonce,
@@ -15,6 +16,28 @@ const KEY_CONTEXT: &str = "beep 2026-11-01 credentials at rest";
 const NONCE_LEN: usize = 12;
 /// The Poly1305 tag every sealed value ends with.
 const TAG_LEN: usize = 16;
+
+/// What a sealed value belongs to, bound into it as associated data: a
+/// sealed value copied onto another row, user or slot does not open.
+pub struct Owner<'a> {
+    /// The user's key in the store.
+    pub user: &'a str,
+    pub slot: &'a Slot,
+    /// The credential's row id.
+    pub id: &'a str,
+}
+
+impl Owner<'_> {
+    fn aad(&self) -> Vec<u8> {
+        let slot = match self.slot {
+            Slot::GitHub => "github".to_owned(),
+            Slot::Forgejo(url) => format!("forgejo {url}"),
+            Slot::ApiKey(provider) => format!("api_key {}", provider.slug()),
+        };
+        // NUL never occurs in any of them, so the parts cannot run together.
+        [self.user, &slot, self.id].join("\0").into_bytes()
+    }
+}
 
 /// The key credentials are sealed with.
 pub struct CredentialKey(SecretBox<[u8; 32]>);
@@ -39,10 +62,8 @@ impl CredentialKey {
         ChaCha20Poly1305::new(Key::from_slice(self.0.expose_secret()))
     }
 
-    /// `plain` sealed for the credential `id`: a fresh nonce, then the
-    /// ciphertext. The id is bound in, so a sealed value copied onto
-    /// another row does not open.
-    pub fn seal(&self, id: &str, plain: &SecretString) -> Result<Vec<u8>> {
+    /// `plain` sealed for `owner`: a fresh nonce, then the ciphertext.
+    pub fn seal(&self, owner: &Owner<'_>, plain: &SecretString) -> Result<Vec<u8>> {
         let mut nonce = [0; NONCE_LEN];
         OsRng.fill_bytes(&mut nonce);
         let sealed = self
@@ -51,7 +72,7 @@ impl CredentialKey {
                 Nonce::from_slice(&nonce),
                 Payload {
                     msg: plain.expose_secret().as_bytes(),
-                    aad: id.as_bytes(),
+                    aad: &owner.aad(),
                 },
             )
             .map_err(|_| anyhow!("sealing a credential failed"))?;
@@ -60,8 +81,9 @@ impl CredentialKey {
         Ok(out)
     }
 
-    /// What `seal` sealed for `id`.
-    pub fn open(&self, id: &str, sealed: &[u8]) -> Result<SecretString> {
+    /// What `seal` sealed for `owner`.
+    pub fn open(&self, owner: &Owner<'_>, sealed: &[u8]) -> Result<SecretString> {
+        let id = owner.id;
         ensure!(
             sealed.len() >= NONCE_LEN + TAG_LEN,
             "a sealed credential is too short"
@@ -73,10 +95,12 @@ impl CredentialKey {
                 Nonce::from_slice(nonce),
                 Payload {
                     msg: sealed,
-                    aad: id.as_bytes(),
+                    aad: &owner.aad(),
                 },
             )
-            .map_err(|_| anyhow!("credential {id} was sealed with another key"))?;
+            .map_err(|_| {
+                anyhow!("credential {id} was sealed with another key or for another owner")
+            })?;
         let plain = String::from_utf8(plain).map_err(|_| anyhow!("credential {id} is not text"))?;
         Ok(SecretString::from(plain))
     }
@@ -93,22 +117,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_sealed_value_opens_only_with_its_key_and_id() {
+    fn a_sealed_value_opens_only_with_its_key_and_owner() {
         let server = SecretKey::from_bytes(&[5; 32]);
         let key = CredentialKey::derive(&server);
         let plain = SecretString::from("ghp_example0000");
-        let sealed = key.seal("c1", &plain).unwrap();
+        let owner = |user, slot, id| Owner { user, slot, id };
+        let github = Slot::GitHub;
+        let sealed = key.seal(&owner("alice", &github, "c1"), &plain).unwrap();
         assert!(!sealed.windows(4).any(|w| w == b"0000"));
         assert_eq!(
-            key.open("c1", &sealed).unwrap().expose_secret(),
+            key.open(&owner("alice", &github, "c1"), &sealed)
+                .unwrap()
+                .expose_secret(),
             "ghp_example0000"
         );
         // The same server key derives the same credentials key.
         let again = CredentialKey::derive(&server);
-        assert!(again.open("c1", &sealed).is_ok());
-        assert!(key.open("c2", &sealed).is_err());
-        assert!(CredentialKey::random().open("c1", &sealed).is_err());
-        assert!(key.open("c1", &sealed[..10]).is_err());
+        assert!(again.open(&owner("alice", &github, "c1"), &sealed).is_ok());
+        assert!(key.open(&owner("alice", &github, "c2"), &sealed).is_err());
+        assert!(key.open(&owner("bob", &github, "c1"), &sealed).is_err());
+        let forgejo = Slot::Forgejo("https://git.example.com".parse().unwrap());
+        assert!(key.open(&owner("alice", &forgejo, "c1"), &sealed).is_err());
+        let random = CredentialKey::random();
+        assert!(
+            random
+                .open(&owner("alice", &github, "c1"), &sealed)
+                .is_err()
+        );
+        assert!(
+            key.open(&owner("alice", &github, "c1"), &sealed[..10])
+                .is_err()
+        );
         assert!(!format!("{key:?}").contains('['));
     }
 }
