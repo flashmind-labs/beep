@@ -254,7 +254,9 @@ function hints(items, extra = "") {
   const st = { unlinked: ["off", "Not linked"], revoked: ["bad", "Removed"] }[S.link];
   const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
   // The first two say the most; the rest give way when the row is narrow.
-  return `<div class="dhints">${items.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}${extra}${link}</div>`;
+  // The bar's chat opens in the window from here, before the model.
+  const win = !PANE && S.view === "chat" ? '<button class="win" data-act="openWindow"><kbd>⌘O</kbd>open in window</button>' : "";
+  return `<div class="dhints">${items.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}${win}${extra}${link}</div>`;
 }
 /// The window does not hide and has no live mode, and ⌘K searches there.
 function forPane(items) {
@@ -306,7 +308,7 @@ function drawStop() {
 function renderChat() {
   S.view = "chat";
   bar.innerHTML = `<div class="dinput dgrow"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea><div class="dgrip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the prompt" title="Drag to resize, double-click to reset"></div></div>
-    <div class="dbody" id="body"></div>${PANE ? "" : `<div class="dhand"><button class="dbtn" data-act="openWindow">Open in Beep window<kbd>⌘O</kbd></button></div>`}${chatHints()}`;
+    <div class="dbody" id="body"></div>${chatHints()}`;
   const kept = here()?.body;
   if (kept) $("#body").replaceWith(kept);
   const b = body();

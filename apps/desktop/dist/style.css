@@ -65,6 +65,8 @@ button { font: inherit; color: inherit; cursor: default }
 .dhints { flex: none; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 16px; border-top: 1px solid var(--border); background: rgba(10, 14, 12, .35);
   font-size: 11.5px; color: var(--muted) }
 .dhints span { display: inline-flex; align-items: center; gap: 5px }
+.dhints .win { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; padding: 0; font: inherit; color: inherit; cursor: pointer }
+.dhints .win:hover { color: var(--fg) }
 .dhints .st { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; font: inherit; color: var(--fg) }
 kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 18px; text-align: center; padding: 0 5px; border-radius: 4px; background: var(--elev);
   border: 1px solid var(--border); color: var(--fg); display: inline-flex; align-items: center; gap: 2px; justify-content: center }
@@ -563,8 +565,6 @@ button.dachip:hover { border-color: #3A4A41 }
 .dsrc:hover { color: var(--fg); border-color: #3A4A41 }
 
 /* The bar's row that hands the open chat to the command center window. */
-.dhand { flex: none; display: flex; justify-content: flex-end; padding: 0 16px 8px }
-.dbar:has(#ldock) > .dhand { display: none }
 
 /* The same page as a pane in the command center: it fills its column with no
    frame of its own. The transcript is a 700px column, and the chat's prompt
