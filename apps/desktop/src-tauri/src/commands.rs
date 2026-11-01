@@ -843,6 +843,20 @@ impl From<Memory> for MemoryView {
     }
 }
 
+impl MemoryView {
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) fn content(&self) -> &str {
+        &self.content
+    }
+
+    pub(crate) fn category(&self) -> &str {
+        &self.category
+    }
+}
+
 #[tauri::command]
 pub async fn list_memories(beep: Service<'_>) -> Result<Vec<MemoryView>> {
     let memories = beep.call(ListMemories {}).await?;

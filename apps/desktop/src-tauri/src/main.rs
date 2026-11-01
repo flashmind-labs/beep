@@ -21,6 +21,7 @@ mod machines;
 mod markdown;
 mod news;
 mod orb;
+mod palette;
 mod presence;
 mod products;
 mod research;
@@ -107,6 +108,8 @@ fn main() {
             center::center_answer_agent,
             center::center_open,
             center::center_pending,
+            palette::center_palette,
+            palette::center_find,
             commands::status,
             commands::link_offer,
             commands::send_prompt,
@@ -284,6 +287,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(machine::Machine::default());
     app.manage(center::Shown::default());
     app.manage(center::Pending::default());
+    app.manage(palette::PaletteCache::default());
     app.state::<machine::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
