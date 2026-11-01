@@ -204,6 +204,13 @@ mod tests {
     }
 
     #[test]
+    fn an_agents_key_still_loads() {
+        let instance = Instance::new(config("agents = false"));
+        assert!(instance.allows(Privilege::Events));
+        assert!(instance.allows(Privilege::Nodes));
+    }
+
+    #[test]
     fn the_link_code_names_this_server() {
         let key = SecretKey::generate();
         let now = SystemTime::now();

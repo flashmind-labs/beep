@@ -63,11 +63,11 @@ use tokio::{
 };
 use uuid::Uuid;
 
-/// The longest any run may take. A model stuck repeating itself is stopped
-/// sooner by the repeat guards.
 /// The system prompt of every chat turn.
 const ASSISTANT_PROMPT: &str = include_str!("../../prompts/assistant.md");
 
+/// The longest any run may take. A model stuck repeating itself is stopped
+/// sooner by the repeat guards.
 const MAX_RUN: Duration = Duration::from_secs(15 * 60);
 /// How many times a reply that stopped partway through the user's task is
 /// sent back to keep going.

@@ -219,6 +219,30 @@ mod tests {
     }
 
     #[test]
+    fn a_config_with_agent_tables_still_loads() {
+        let config: Config = toml::from_str(
+            r#"
+            model = "openrouter:z-ai/glm-5.3-flash"
+            model_choices = ["openrouter:openai/gpt-6-luna"]
+
+            [agents.general]
+            name = "General"
+            when = "Anything"
+            model = "openrouter:z-ai/glm-5.3-flash"
+            thinking = "low"
+
+            [agents.shopping]
+            name = "Shopping"
+            when = "Buying things"
+            model = "openrouter:openai/gpt-6-luna"
+            thinking = "medium"
+            "#,
+        )
+        .expect("old agent tables are ignored");
+        assert_eq!(config.model_choices.len(), 1);
+    }
+
+    #[test]
     fn reads_admins_and_model_choices() {
         let admin = SecretKey::generate().public();
         let config: Config = toml::from_str(&format!(
