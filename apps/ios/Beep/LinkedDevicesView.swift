@@ -99,7 +99,8 @@ struct LinkedDevicesView: View {
         do {
             devices = try await model.devices()
             error = ""
-            if model.isAdmin, let list = try? await model.machines() { machines = Set(list.map(\.id)) }
+            // Only admins may list machines; for anyone else this fails and marks none.
+            if let list = try? await model.machines() { machines = Set(list.map(\.id)) }
         } catch {
             self.error = describe(error)
         }

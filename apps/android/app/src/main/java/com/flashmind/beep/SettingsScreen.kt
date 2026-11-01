@@ -100,9 +100,12 @@ fun SettingsScreen(
                 HorizontalDivider(color = Beep.colors.softLine)
                 SettingsRow(Icons.Outlined.Shield, "Routine grants", "What routines may do without asking", onGrants)
                 HorizontalDivider(color = Beep.colors.softLine)
-                // Nodes are for admins for now; the server sends model choices only to them.
-                val models by repository.modelChoices.collectAsState()
-                if (models?.choices?.isNotEmpty() == true) {
+                // Nodes are for admins for now: the row shows once the server lists machines.
+                var machines by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    machines = runCatching { withContext(Dispatchers.IO) { repository.listMachines() } }.isSuccess
+                }
+                if (machines) {
                     SettingsRow(Icons.Outlined.Dns, "Machines", "Where Beep runs commands and coding agents", onMachines)
                     HorizontalDivider(color = Beep.colors.softLine)
                 }

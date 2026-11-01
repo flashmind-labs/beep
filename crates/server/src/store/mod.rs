@@ -350,6 +350,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "credentials",
         include_str!("../../migrations/0058_credentials.sql"),
     ),
+    (
+        59,
+        "auto model set",
+        include_str!("../../migrations/0059_auto_model_set.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them

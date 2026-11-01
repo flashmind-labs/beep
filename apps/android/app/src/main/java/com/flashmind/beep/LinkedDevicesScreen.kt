@@ -100,7 +100,8 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
         runCatching { withContext(Dispatchers.IO) { repository.listDevices() } }
             .onSuccess { devices = it }
             .onFailure { Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
-        if (repository.isAdmin) runCatching { withContext(Dispatchers.IO) { repository.listMachines() } }
+        // Only admins may list machines; for anyone else this fails and marks none.
+        runCatching { withContext(Dispatchers.IO) { repository.listMachines() } }
             .onSuccess { list -> machines = list.map { it.id }.toSet() }
     }
     LaunchedEffect(Unit) { refresh() }
