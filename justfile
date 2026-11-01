@@ -104,10 +104,16 @@ release android="" desktop="" node="":
     android=${android:-$(bump android)}; desktop=${desktop:-$(bump desktop)}
     if [[ -z $node && -n $(latest node) ]]; then node=$(bump node); fi
     tags=("android-v$android" "desktop-v$desktop")
+    if [[ -n $node ]]; then tags+=("node-v$node"); fi
+    # Checked before tagging anything, so a bad version leaves no tags behind.
+    for tag in "${tags[@]}"; do
+        [[ ${tag#*-v} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "$tag: version must be like 1.2.3" >&2; exit 1; }
+        ! git rev-parse -q --verify "refs/tags/$tag" > /dev/null || { echo "$tag already exists" >&2; exit 1; }
+    done
     echo "Releasing Android $android, desktop $desktop${node:+ and node $node}"
     just android-release "$android"
     just desktop-release "$desktop"
-    if [[ -n $node ]]; then just node-release "$node"; tags+=("node-v$node"); fi
+    if [[ -n $node ]]; then just node-release "$node"; fi
     git push origin main "${tags[@]}"
 
 # Deploy the Cloudflare Worker behind https share and invite links. Needs
