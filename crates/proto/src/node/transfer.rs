@@ -40,6 +40,9 @@ pub enum Request {
         size: u64,
         /// An absolute folder that exists.
         folder: String,
+        /// A file that should be executable where it lands.
+        #[serde(default)]
+        executable: bool,
     },
     /// Stops a fetch; the target removes what it wrote and answers
     /// `Cancelled`.
@@ -50,10 +53,13 @@ pub enum Request {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Reply {
-    /// Bytes hashed (source) or downloaded (target) so far.
+    /// Bytes hashed (source), downloaded or written (target) so far. A
+    /// node sends one at least every few seconds while bytes move.
     Progress {
         done: u64,
         total: u64,
+        #[serde(default)]
+        stage: Stage,
     },
     /// The source is ready: the target fetches `content` from `from`.
     Offered {
@@ -65,6 +71,9 @@ pub enum Reply {
         /// Symlinks and special files a folder held that were left out.
         #[serde(default)]
         skipped: u64,
+        /// A file that is executable at the source.
+        #[serde(default)]
+        executable: bool,
     },
     /// The target wrote it: `path` is where it landed.
     Done {
@@ -76,6 +85,40 @@ pub enum Reply {
     Error {
         message: String,
     },
+}
+
+/// What a progress report counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, IntoStaticStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "lowercase")]
+pub enum Stage {
+    /// The source hashing what it offers.
+    Hashing,
+    /// The target downloading into its store.
+    #[default]
+    Downloading,
+    /// The target writing it out into the folder.
+    Writing,
+    /// A stage a newer node reports.
+    #[serde(other)]
+    Other,
+}
+
+/// The name of a folder collection's first entry when it carries a
+/// `Manifest`. It is absolute, so no file in the folder can have it.
+pub const MANIFEST_NAME: &str = "/beep/manifest";
+/// The largest manifest a target reads.
+pub const MAX_MANIFEST: u64 = 8 << 20;
+
+/// What a folder's paths and blobs alone do not say, as msgpack with named
+/// fields. Paths are relative, parts joined with `/`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Manifest {
+    /// Files that are executable at the source.
+    pub executable: Vec<String>,
+    /// Folders that hold no files, at any depth.
+    pub empty_folders: Vec<String>,
 }
 
 /// What a transfer carries: a blob or a collection, by its BLAKE3 root.
@@ -149,6 +192,7 @@ mod tests {
             name: "renders".into(),
             size: 42,
             folder: "/srv/project".into(),
+            executable: true,
         };
         assert_eq!(round_trip(&fetch), fetch);
         let offer = Request::Offer {
@@ -162,6 +206,17 @@ mod tests {
             files: 3,
         };
         assert_eq!(round_trip(&done), done);
+        let progress = Reply::Progress {
+            done: 1,
+            total: 2,
+            stage: Stage::Hashing,
+        };
+        assert_eq!(round_trip(&progress), progress);
+        let manifest = Manifest {
+            executable: vec!["bin/run.sh".into()],
+            empty_folders: vec!["cache".into()],
+        };
+        assert_eq!(round_trip(&manifest), manifest);
         let kind: &'static str = ContentKind::File.into();
         assert_eq!(kind, "file");
     }
@@ -201,7 +256,35 @@ mod tests {
                 size: 1,
                 files: 1,
                 skipped: 0,
+                executable: false,
             }
         );
+    }
+
+    #[test]
+    fn progress_without_a_stage_or_with_a_newer_one_still_reads() {
+        #[derive(Serialize)]
+        enum Older {
+            Progress { done: u64, total: u64 },
+        }
+        let bytes =
+            rmp_serde::to_vec_named(&Older::Progress { done: 1, total: 2 }).expect("encodes");
+        let reply: Reply = rmp_serde::from_slice(&bytes).expect("decodes");
+        assert_eq!(
+            reply,
+            Reply::Progress {
+                done: 1,
+                total: 2,
+                stage: Stage::Downloading,
+            }
+        );
+        #[derive(Serialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Newer {
+            Verifying,
+        }
+        let bytes = rmp_serde::to_vec_named(&Newer::Verifying).expect("encodes");
+        let stage: Stage = rmp_serde::from_slice(&bytes).expect("decodes");
+        assert_eq!(stage, Stage::Other);
     }
 }

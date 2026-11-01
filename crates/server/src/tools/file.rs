@@ -117,6 +117,9 @@ impl SendFileTool {
                 .filter(|v| !v.is_empty())
         };
         let paper = self.paper && ctx.args.get("paper").and_then(Value::as_bool) == Some(true);
+        if let Err(e) = no_old_args(&ctx.args) {
+            return Ok(ToolResult::failure(ctx.tool_call_id, format!("{e:#}")));
+        }
         if let Some(to) = to_machine(&ctx.args) {
             let result = self.copy(&ctx, to).await;
             return Ok(match result {
@@ -327,6 +330,20 @@ impl SendFileTool {
     }
 }
 
+/// Refuses the arguments sending to a machine used to take, so a call
+/// written for them does not quietly do something else.
+fn no_old_args(args: &Value) -> Result<()> {
+    for old in ["dst_path", "overwrite"] {
+        if args.get(old).is_some_and(|value| !value.is_null()) {
+            bail!(
+                "`{old}` is no longer taken: give `dst_folder`, the existing folder on `to` it lands in. \
+                 Nothing is replaced; a taken name gets a number, and the result says where it landed."
+            );
+        }
+    }
+    Ok(())
+}
+
 /// The machine a call copies to, when `to` names one rather than the user.
 fn to_machine(args: &Value) -> Option<&str> {
     args.get("to")
@@ -494,6 +511,14 @@ mod tests {
         assert_eq!(clean_name(".hidden"), "hidden");
         assert_eq!(clean_name("  "), "file");
         assert_eq!(clean_name("Boarding Pass.pdf"), "Boarding Pass.pdf");
+    }
+
+    #[test]
+    fn the_old_destination_arguments_are_refused() {
+        let refused = no_old_args(&json!({"to": "build-box", "path": "a", "dst_path": "/x/a"}));
+        assert!(format!("{:#}", refused.unwrap_err()).contains("`dst_path` is no longer taken"));
+        assert!(no_old_args(&json!({"to": "build-box", "overwrite": true})).is_err());
+        assert!(no_old_args(&json!({"to": "build-box", "path": "a", "dst_folder": "~"})).is_ok());
     }
 
     #[test]

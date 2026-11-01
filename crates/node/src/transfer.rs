@@ -10,20 +10,25 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    transfer::{ContentKind, PROTOCOL, Reply, Request},
+    transfer::{ContentKind, PROTOCOL, Reply, Request, Stage},
 };
 use iroh::{Endpoint, protocol::Router};
 use iroh_blobs::{
     BlobsProtocol, Hash, HashAndFormat,
     store::{
-        GcConfig,
+        GcConfig, ProtectCb, ProtectOutcome,
         fs::{FsStore, options::Options},
     },
 };
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{
-    sync::{OwnedSemaphorePermit, Semaphore},
+    sync::{Notify, OwnedSemaphorePermit, Semaphore},
     task::spawn_blocking,
+    time::{Instant, timeout},
 };
 use tokio_util::{sync::CancellationToken, task::AbortOnDropHandle};
 
@@ -33,12 +38,71 @@ mod offer;
 mod place;
 
 use grants::Grants;
-use place::Journal;
+use place::{Folder, Journal};
 
 /// The most transfers, offers and fetches together, running at once.
 const MAX_RUNNING: usize = 4;
-/// How often blobs no transfer holds any more are dropped from the store.
-const GC_INTERVAL: Duration = Duration::from_secs(5 * 60);
+/// How long the collector, which drops the blobs no transfer holds any
+/// more, waits for a transfer to end before it runs anyway.
+const GC_IDLE: Duration = Duration::from_secs(5 * 60);
+/// How often progress goes out while bytes move.
+const PROGRESS_EVERY: Duration = Duration::from_secs(1);
+
+/// Sends progress for one stage at most every `PROGRESS_EVERY`, so the
+/// server's idle timeouts only fire on a transfer that stopped moving.
+#[derive(Debug)]
+struct Ticker {
+    stage: Stage,
+    total: u64,
+    done: u64,
+    last: Option<Instant>,
+}
+
+impl Ticker {
+    fn new(stage: Stage, total: u64) -> Self {
+        Self {
+            stage,
+            total,
+            done: 0,
+            last: None,
+        }
+    }
+
+    fn done(&self) -> u64 {
+        self.done
+    }
+
+    /// Whether a report is due at `now`; the first one always is.
+    fn due(&self, now: Instant) -> bool {
+        self.last
+            .is_none_or(|last| now.saturating_duration_since(last) >= PROGRESS_EVERY)
+    }
+
+    /// Records `done` and reports it if one is due.
+    async fn tick(&mut self, tx: &mut LinkTx, done: u64) -> Result<()> {
+        self.done = done;
+        if self.due(Instant::now()) {
+            self.send(tx).await?;
+        }
+        Ok(())
+    }
+
+    /// Reports `done` now, as the stage's last report.
+    async fn finish(&mut self, tx: &mut LinkTx, done: u64) -> Result<()> {
+        self.done = done;
+        self.send(tx).await
+    }
+
+    async fn send(&mut self, tx: &mut LinkTx) -> Result<()> {
+        self.last = Some(Instant::now());
+        tx.send(&Reply::Progress {
+            done: self.done.min(self.total),
+            total: self.total,
+            stage: self.stage,
+        })
+        .await
+    }
+}
 
 /// The node's transfers: its store, the grants of its open offers and the
 /// router serving the blobs protocol, all dropped together.
@@ -50,6 +114,10 @@ pub struct Transfers {
 struct Inner {
     endpoint: Endpoint,
     store: FsStore,
+    /// Where the store keeps its data.
+    store_dir: PathBuf,
+    /// Wakes the collector once a transfer ended and its tags are gone.
+    collect: Arc<Notify>,
     folders: Folders,
     grants: Arc<Grants>,
     journal: Journal,
@@ -65,10 +133,13 @@ impl Transfers {
     /// left, and serves the blobs protocol on `endpoint`, which must not
     /// serve other protocols through a router of its own.
     pub async fn start(endpoint: &Endpoint, dir: &Path, folders: Folders) -> Result<Self> {
+        let collect = Arc::new(Notify::new());
         let mut options = Options::new(dir);
         options.gc = Some(GcConfig {
-            interval: GC_INTERVAL,
-            add_protected: None,
+            // The collector checks this often, but waits in `add_protected`
+            // for a transfer to end, so it runs right after each one.
+            interval: Duration::from_secs(1),
+            add_protected: Some(wait_for(collect.clone())),
         });
         let store = FsStore::load_with_opts(dir.join("blobs.db"), options)
             .await
@@ -85,6 +156,8 @@ impl Transfers {
             inner: Arc::new(Inner {
                 endpoint: endpoint.clone(),
                 store,
+                store_dir: dir.to_owned(),
+                collect,
                 folders,
                 grants,
                 journal,
@@ -94,6 +167,19 @@ impl Transfers {
             }),
         })
     }
+}
+
+/// A collector hook that protects nothing extra and returns once `wake`
+/// is notified, or after `GC_IDLE`.
+fn wait_for(wake: Arc<Notify>) -> ProtectCb {
+    Arc::new(move |_live| {
+        let wake = wake.clone();
+        Box::pin(async move {
+            // Both ways it is time to collect.
+            let _ = timeout(GC_IDLE, wake.notified()).await;
+            ProtectOutcome::Continue
+        })
+    })
 }
 
 impl Protocol for Transfers {
@@ -115,16 +201,30 @@ async fn serve(inner: Arc<Inner>, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> 
         let message = format!("busy: {MAX_RUNNING} transfers are running on this machine");
         return tx.send(&Reply::Error { message }).await;
     };
+    let served = serve_request(&inner, permit, request, tx, rx).await;
+    // Its tags are gone: let the collector drop its blobs now.
+    inner.collect.notify_one();
+    served
+}
+
+async fn serve_request(
+    inner: &Inner,
+    permit: OwnedSemaphorePermit,
+    request: Request,
+    mut tx: LinkTx,
+    rx: LinkRx,
+) -> Result<()> {
     match request {
-        Request::Offer { path, peer } => serve_offer(&inner, permit, &path, peer, tx, rx).await,
+        Request::Offer { path, peer } => serve_offer(inner, permit, &path, peer, tx, rx).await,
         Request::Fetch {
             from,
             content,
             name,
-            size,
             folder,
+            executable,
+            ..
         } => {
-            let checked = check_fetch(&inner, &name, &folder).await;
+            let checked = check_fetch(inner, &name, &folder).await;
             let folder = match checked {
                 Ok(folder) => folder,
                 Err(e) => {
@@ -141,10 +241,10 @@ async fn serve(inner: Arc<Inner>, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> 
                 },
                 kind: content.kind,
                 name,
-                size,
                 folder,
+                executable,
             };
-            serve_fetch(&inner, permit, job, tx, rx).await
+            serve_fetch(inner, permit, job, tx, rx).await
         }
         Request::Cancel {} => Ok(()),
         other => {
@@ -154,11 +254,12 @@ async fn serve(inner: Arc<Inner>, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> 
     }
 }
 
-/// The resolved target folder, once the name and folder pass the rules.
-async fn check_fetch(inner: &Inner, name: &str, folder: &str) -> Result<std::path::PathBuf> {
+/// The target folder, open, once the name and folder pass the rules.
+async fn check_fetch(inner: &Inner, name: &str, folder: &str) -> Result<Arc<Folder>> {
     place::plain_name(name)?;
     let (folders, folder) = (inner.folders.clone(), folder.to_owned());
-    spawn_blocking(move || place::target_folder(&folders, &folder)).await?
+    let folder = spawn_blocking(move || place::open_target(&folders, &folder)).await??;
+    Ok(Arc::new(folder))
 }
 
 async fn serve_offer(
@@ -217,6 +318,7 @@ async fn serve_fetch(
     let cx = fetch::Fetcher {
         endpoint: &inner.endpoint,
         store: &inner.store,
+        store_dir: &inner.store_dir,
         journal: &inner.journal,
         cancel: &cancel,
     };
@@ -255,4 +357,19 @@ async fn serve_fetch(
         bail!(e);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_is_due_first_and_then_once_a_second() {
+        let mut ticker = Ticker::new(Stage::Writing, 10);
+        let start = Instant::now();
+        assert!(ticker.due(start));
+        ticker.last = Some(start);
+        assert!(!ticker.due(start + Duration::from_millis(999)));
+        assert!(ticker.due(start + PROGRESS_EVERY));
+    }
 }
