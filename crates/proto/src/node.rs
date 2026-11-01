@@ -13,6 +13,7 @@
 //! `#[serde(default)]`) or a variant, and the other skips what it does not
 //! know.
 
+use crate::SecretText;
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use iroh::endpoint::{RecvStream, SendStream};
@@ -61,6 +62,10 @@ pub struct NodeHello {
     /// server from before tokens closes the connection with "not linked".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup: Option<NodeSetup>,
+    /// The node takes `Down::Credentials`. A node from before it never
+    /// gets the user's credentials.
+    #[serde(default)]
+    pub credentials: bool,
 }
 
 /// What `NodeHello::setup` carries.
@@ -103,6 +108,36 @@ pub enum Down {
         account: String,
         name: String,
     },
+    /// The user's credentials meant for their machines, sent after the
+    /// welcome and again whenever they change, each time in full. Only to
+    /// a node whose hello says it takes them. The node keeps them in
+    /// memory.
+    Credentials(MachineCredentials),
+}
+
+/// What a node uses on the user's behalf.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MachineCredentials {
+    /// Env vars every process the node starts gets, such as `GH_TOKEN`.
+    pub env: Vec<EnvSecret>,
+    /// The Forgejo and Gitea servers teacli signs in to.
+    pub forgejo: Vec<ForgejoLogin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnvSecret {
+    pub name: String,
+    pub value: SecretText,
+}
+
+/// One Forgejo or Gitea server and the token for it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ForgejoLogin {
+    /// Its base URL, such as `https://git.example.com`, without a trailing
+    /// slash.
+    pub url: String,
+    pub token: SecretText,
 }
 
 /// The first message on a session stream: the protocol it speaks.
@@ -368,6 +403,49 @@ mod tests {
         };
         let body = rmp_serde::to_vec_named(&newer).unwrap();
         assert_eq!(rmp_serde::from_slice::<NodeHello>(&body).unwrap(), newer);
+    }
+
+    #[test]
+    fn credentials_round_trip_and_hide_in_debug() {
+        let down = Down::Credentials(MachineCredentials {
+            env: vec![EnvSecret {
+                name: "GH_TOKEN".into(),
+                value: SecretText::new("ghp_hidden9876"),
+            }],
+            forgejo: vec![ForgejoLogin {
+                url: "https://git.example.com".into(),
+                token: SecretText::new("forgejo5555"),
+            }],
+        });
+        let body = rmp_serde::to_vec_named(&down).unwrap();
+        assert_eq!(rmp_serde::from_slice::<Down>(&body).unwrap(), down);
+        let debug = format!("{down:?}");
+        assert!(
+            !debug.contains("9876") && !debug.contains("5555"),
+            "{debug}"
+        );
+    }
+
+    #[test]
+    fn an_older_node_skips_credentials() {
+        // What a node from before `Down::Credentials` knew.
+        #[derive(Debug, Deserialize)]
+        enum OldDown {
+            Welcome {},
+        }
+        let body =
+            rmp_serde::to_vec_named(&Down::Credentials(MachineCredentials::default())).unwrap();
+        assert!(rmp_serde::from_slice::<OldDown>(&body).is_err());
+        let hello = NodeHello {
+            version: "0.1.0".into(),
+            name: "box".into(),
+            offers: vec![],
+            workspace: None,
+            setup: None,
+            credentials: true,
+        };
+        let body = rmp_serde::to_vec_named(&hello).unwrap();
+        assert_eq!(rmp_serde::from_slice::<NodeHello>(&body).unwrap(), hello);
     }
 
     #[test]

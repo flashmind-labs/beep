@@ -977,6 +977,37 @@ impl User {
         self.store.pin_project(&self.key, project, pinned).await
     }
 
+    /// The user's credentials, without their secrets.
+    pub async fn credentials(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<crate::store::CredentialRow>> {
+        self.store.credentials(&self.key, key).await
+    }
+
+    /// Seals and saves a credential, replacing the one in its slot.
+    pub async fn save_credential(
+        &self,
+        key: &crate::credentials::CredentialKey,
+        new: crate::store::NewCredential<'_>,
+    ) -> Result<crate::store::CredentialRow> {
+        self.store.save_credential(&self.key, key, new).await
+    }
+
+    /// `false` when the user has no credential `id`.
+    pub async fn remove_credential(&self, id: &str) -> Result<bool> {
+        self.store.remove_credential(&self.key, id).await
+    }
+
+    /// The user's credentials for their machines, opened.
+    pub async fn machine_credentials(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<crate::protocol::node::MachineCredentials> {
+        let opened = self.store.machine_credentials(&self.key, key).await?;
+        Ok(crate::credentials::for_machines(opened))
+    }
+
     /// The account's primary key, then the keys linked to it.
     pub async fn account_keys(&self) -> Result<Vec<AccountKey>> {
         self.store.account_keys(&self.key).await
