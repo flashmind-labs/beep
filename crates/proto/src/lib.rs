@@ -611,6 +611,19 @@ requests! {
     /// or has no such session, `Conflict` when the session no longer asks
     /// `question`. Admins only.
     132 AnswerAgentQuestion { machine_id: String, agent: String, session: String, question: u32, reply: String } => Call<()>
+    /// The approvals background work waits on in any of the caller's chats,
+    /// oldest first. Answer one with `AnswerApproval`.
+    133 ListPendingApprovals {} => Call<Vec<ChatApproval>>
+}
+
+/// An approval waiting in one chat, as `ListPendingApprovals` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatApproval {
+    pub session_id: Uuid,
+    /// The chat's title; empty when the chat is gone.
+    pub session_title: String,
+    pub pending: PendingApproval,
 }
 
 /// A coding-agent session on one of the user's machines, as
