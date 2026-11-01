@@ -26,6 +26,7 @@ import com.flashmind.beep.proto.JoinPreview
 import com.flashmind.beep.proto.MemoryRead
 import com.flashmind.beep.proto.MemoryScope
 import com.flashmind.beep.proto.Machine
+import com.flashmind.beep.proto.MachineStats
 import com.flashmind.beep.proto.Grant
 import com.flashmind.beep.proto.PendingApproval
 import com.flashmind.beep.proto.Research
@@ -1054,6 +1055,9 @@ class ChatRepository(private val storage: LocalStorage) {
     }
     /** The machines running beep-node on the account. Admins only. */
     suspend fun listMachines(): List<Machine> = api().listMachines()
+    /** Live disk, memory and load by machine id, online machines only. Empty on servers from before stats. */
+    suspend fun machineStats(): Map<String, MachineStats> =
+        try { api().listMachineStats().associateBy { it.id } } catch (e: BeepException) { emptyMap() }
     suspend fun listDevices(): List<LinkedDevice> = api().listDevices()
     suspend fun linkDevice(offerUri: String): LinkedDevice = api().linkDevice(offerUri)
     suspend fun removeDevice(id: String) = api().removeDevice(id)
