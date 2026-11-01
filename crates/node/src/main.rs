@@ -63,7 +63,8 @@ enum Command {
     },
     /// Prints what this machine would report.
     Env,
-    /// Runs the node as a systemd user service (Linux).
+    /// Runs the node in the background as a service: a systemd user unit on
+    /// Linux, a LaunchAgent on macOS.
     Service {
         #[command(subcommand)]
         action: ServiceAction,
@@ -104,9 +105,9 @@ enum HooksAction {
 
 #[derive(Subcommand)]
 enum ServiceAction {
-    /// Writes the unit, enables it and starts it.
+    /// Writes the unit or LaunchAgent, enables it and starts it.
     Install,
-    /// Stops the service and removes the unit.
+    /// Stops the service and removes it.
     Uninstall,
 }
 
@@ -169,7 +170,7 @@ async fn main() -> Result<()> {
         }
         Command::Service {
             action: ServiceAction::Install,
-        } => service::install(&dir),
+        } => service::install(&dir, cli.workspace.as_deref()),
         Command::Service {
             action: ServiceAction::Uninstall,
         } => service::uninstall(),
