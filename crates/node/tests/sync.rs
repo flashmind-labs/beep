@@ -7,7 +7,7 @@
 //! folders with a time limit.
 
 use beep_node::{files::Folders, transfer::Transfers};
-use beep_proto::node::sync::{Project, Rule};
+use beep_proto::node::sync::{Project, Rule, State};
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use std::{
     fs,
@@ -19,6 +19,7 @@ use tokio::time::{sleep, timeout};
 
 const PROJECT: &str = "game";
 const LIMIT: Duration = Duration::from_secs(60);
+const MARKER: &str = ".beep-sync";
 
 /// One node: its key, its state and the folder it shares, which outlive
 /// a restart.
@@ -150,6 +151,9 @@ fn files(dir: &Path) -> Vec<String> {
             let entry = entry.unwrap();
             if entry.file_type().unwrap().is_dir() {
                 stack.push(entry.path());
+            } else if entry.file_name() == MARKER {
+                // What tells the folder from another, never synced.
+                continue;
             } else {
                 let path = entry.path();
                 out.push(
@@ -331,11 +335,10 @@ async fn a_node_restarting_mid_sync_finishes_without_conflicts() {
     }
     assert!(arrived <= count);
     assert!(
-        fs::read_dir(b.folder()).unwrap().all(|e| !e
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".beep-")),
+        fs::read_dir(b.folder()).unwrap().all(|e| {
+            let name = e.unwrap().file_name();
+            name == MARKER || !name.to_string_lossy().starts_with(".beep-")
+        }),
         "no partial folder is left"
     );
     assert!(
@@ -344,4 +347,49 @@ async fn a_node_restarting_mid_sync_finishes_without_conflicts() {
             .is_empty()
     );
     assert_eq!(files(&a.folder()), files(&b.folder()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_swapped_for_an_empty_one_deletes_nothing() {
+    let (mut a, b) = pair().await;
+    write(&a.path("notes.txt"), "keep me");
+    eventually("the file to arrive", || {
+        read(&b.path("notes.txt")).as_deref() == Some(b"keep me".as_slice())
+    })
+    .await;
+    eventually("the first node to settle", || {
+        let status = &a.running().transfers.syncs().status()[0];
+        status.files == 1 && status.pending == 0
+    })
+    .await;
+    assert!(a.folder().join(MARKER).exists());
+
+    // The folder is swapped for an empty one while the node is down, as
+    // an unmounted disk leaves its mount point.
+    a.stop().await;
+    let folder = a.folder();
+    fs::rename(&folder, folder.with_file_name("moved away")).unwrap();
+    fs::create_dir(&folder).unwrap();
+    a.start().await;
+
+    eventually("the first node to refuse the folder", || {
+        let status = a.running().transfers.syncs().status();
+        status.first().is_some_and(|status| {
+            status.state == State::Failed
+                && status
+                    .error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("not mounted"))
+        })
+    })
+    .await;
+    // Nothing was deleted anywhere, and nothing written into the new one.
+    let status = &b.running().transfers.syncs().status()[0];
+    assert_eq!(status.files, 1);
+    assert_eq!(
+        read(&b.path("notes.txt")).as_deref(),
+        Some(b"keep me".as_slice())
+    );
+    assert!(files(&a.folder()).is_empty());
+    assert!(!a.folder().join(MARKER).exists());
 }

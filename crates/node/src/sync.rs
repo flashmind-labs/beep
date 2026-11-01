@@ -38,6 +38,7 @@ mod disk;
 mod map;
 mod peer;
 mod project;
+mod root;
 mod rules;
 mod scan;
 mod watch;

@@ -134,9 +134,14 @@ pub(super) struct Rules {
     beepignore: Option<Gitignore>,
 }
 
-/// Whether `name` is a partial folder or file sync or a transfer writes.
+/// The file that tells a project folder from another (see `root`).
+pub(super) const MARKER: &str = ".beep-sync";
+
+/// Whether `name` is a partial folder or file sync or a transfer writes,
+/// or sync's marker.
 pub(super) fn is_own(name: &str) -> bool {
-    name.starts_with(".beep-") && (name.ends_with(".partial") || name.ends_with(".tmp"))
+    name == MARKER
+        || (name.starts_with(".beep-") && (name.ends_with(".partial") || name.ends_with(".tmp")))
 }
 
 impl Rules {
