@@ -2397,7 +2397,7 @@ const VOICE_NOTES_SAY = {
 };
 function voiceNotesRow(cur) {
   return `<div class="dtoggle"><span><b>Voice notes</b><small>${VOICE_NOTES_SAY[cur] ?? ""}</small></span></div>
-    <div class="dchips" role="radiogroup" aria-label="Voice notes" style="margin:-6px 0 8px">${VOICE_NOTES.map(([k, label]) =>
+    <div class="dchips" role="radiogroup" aria-label="Voice notes" style="margin:6px 0 10px">${VOICE_NOTES.map(([k, label]) =>
       `<button class="dchip" role="radio" aria-checked="${cur === k}" aria-pressed="${cur === k}" data-vn="${k}">${label}</button>`).join("")}</div>`;
 }
 
@@ -2405,7 +2405,7 @@ function voiceNotesRow(cur) {
 function sendRow(onPause) {
   const why = onPause ? "Sends after a short pause. Saying “send” sends at once." : "Pauses never send. Say “send” or “stop” when you are done.";
   return `<div class="dtoggle"><span><b>When I stop talking</b><small>${why}</small></span></div>
-    <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:-6px 0 8px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
+    <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:6px 0 10px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
 }
 
 /// Settings: drawn at once from what this Mac knows (its own settings and
