@@ -191,6 +191,8 @@ final class AppModel {
     /// The server's places; `-places sample` swaps in made up ones.
     @ObservationIgnored lazy var placesStore: any PlacesStore = ServerPlaces { [unowned self] in try self.api() }
     private(set) var starters: [PromptSuggestion] = []
+    /// What the event triage agent found in the user's apps, newest first, for the Updates card.
+    private(set) var updates: [AppUpdate] = []
     private(set) var models: Models?
 
     private var client: BeepClient?
@@ -735,6 +737,21 @@ final class AppModel {
     func loadStarters(refresh: Bool) async {
         guard let fresh = try? await api().suggestPrompts(refresh: refresh) else { return }
         starters = fresh.suggestions
+    }
+
+    // MARK: Updates
+
+    /// A server from before updates answers with an error, which leaves none.
+    func loadUpdates() async {
+        guard let fresh = try? await api().listUpdates() else { return }
+        updates = fresh
+    }
+
+    /// Takes updates off the card at once and tells the server, which keeps them gone on every device.
+    func dismissUpdates(_ ids: [Int64]) {
+        guard !ids.isEmpty else { return }
+        updates.removeAll { ids.contains($0.id) }
+        Task { _ = try? await api().dismissUpdates(ids: ids) }
     }
 
     // MARK: Runs
@@ -1500,6 +1517,7 @@ final class AppModel {
         sessions = []
         groups = []
         starters = []
+        updates = []
         previews = [:]
         ChatPreview.save(previews)
         waitingWork = [:]
