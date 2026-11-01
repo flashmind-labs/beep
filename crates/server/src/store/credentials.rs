@@ -3,7 +3,7 @@
 use super::Store;
 use crate::{
     credentials::{CredentialKey, Opened, Owner, Slot},
-    protocol::ApiProvider,
+    protocol::{ApiProvider, CredentialKind},
     user::UserKey,
 };
 use anyhow::{Context, Result, bail};
@@ -17,13 +17,17 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq)]
 pub struct CredentialRow {
     pub id: String,
-    pub slot: Slot,
+    /// As stored, so a row this server does not understand, such as one a
+    /// newer server saved, still lists.
+    pub kind: CredentialKind,
+    pub env_var: String,
     pub last4: String,
     pub account: Option<String>,
     pub to_machines: bool,
     pub created_at: DateTime<Utc>,
-    /// Its secret no longer opens, such as after the server's key changed.
-    /// The user has to enter it again.
+    /// Its secret no longer opens, such as after the server's key changed,
+    /// or this server does not know its kind. The user has to enter it
+    /// again.
     pub unreadable: bool,
 }
 
@@ -83,10 +87,26 @@ fn slot_from(row: &PgRow) -> Result<Slot> {
     })
 }
 
+/// The row's kind as stored, without checking it.
+fn kind_from(row: &PgRow) -> Result<CredentialKind> {
+    let kind: String = row.try_get("kind")?;
+    Ok(match kind.as_str() {
+        GITHUB => CredentialKind::GitHub {},
+        FORGEJO => CredentialKind::Forgejo {
+            url: row.try_get("host_url")?,
+        },
+        API_KEY => CredentialKind::ApiKey {
+            provider: row.try_get("provider")?,
+        },
+        _ => CredentialKind::ApiKey { provider: kind },
+    })
+}
+
 fn credential_from(row: &PgRow, unreadable: bool) -> Result<CredentialRow> {
     Ok(CredentialRow {
         id: row.try_get("id")?,
-        slot: slot_from(row)?,
+        kind: kind_from(row)?,
+        env_var: row.try_get("env_var")?,
         last4: row.try_get("last4")?,
         account: row.try_get("account")?,
         to_machines: row.try_get("to_machines")?,
@@ -95,7 +115,8 @@ fn credential_from(row: &PgRow, unreadable: bool) -> Result<CredentialRow> {
     })
 }
 
-const SHOWN: &str = "id, kind, provider, host_url, last4, account, to_machines, created_at";
+const SHOWN: &str =
+    "id, kind, provider, host_url, env_var, last4, account, to_machines, created_at";
 
 impl Store {
     /// Seals and saves `new`, replacing the user's credential in its slot.
@@ -160,13 +181,15 @@ impl Store {
             .map(|row| {
                 let id: String = row.try_get("id")?;
                 let sealed: Vec<u8> = row.try_get("secret")?;
-                let slot = slot_from(row)?;
-                let owner = Owner {
-                    user: user.as_str(),
-                    slot: &slot,
-                    id: &id,
-                };
-                credential_from(row, key.open(&owner, &sealed).is_err())
+                let opens = slot_from(row).is_ok_and(|slot| {
+                    let owner = Owner {
+                        user: user.as_str(),
+                        slot: &slot,
+                        id: &id,
+                    };
+                    key.open(&owner, &sealed).is_ok()
+                });
+                credential_from(row, !opens)
             })
             .collect()
     }
@@ -290,7 +313,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(saved.slot, Slot::GitHub);
+        assert_eq!(saved.kind, CredentialKind::GitHub {});
+        assert_eq!(saved.env_var, "GH_TOKEN");
         assert_eq!(saved.account.as_deref(), Some("octocat"));
 
         let (sealed, env_var): (Vec<u8>, String) =
@@ -396,6 +420,23 @@ mod tests {
         let moved = store.credentials(&bob, &key).await.unwrap();
         assert_eq!(moved.len(), 1);
         assert!(moved[0].unreadable);
+
+        // A provider this server does not know, as a newer one saved it,
+        // lists as unreadable without failing the rest.
+        sqlx::query("UPDATE credentials SET provider='newai' WHERE user_id=$1 AND kind='api_key'")
+            .bind(alice.as_str())
+            .execute(&store.pool)
+            .await
+            .unwrap();
+        let listed = store.credentials(&alice, &key).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            listed[0].kind,
+            CredentialKind::ApiKey {
+                provider: "newai".into()
+            }
+        );
+        assert!(listed[0].unreadable);
         assert!(
             store
                 .machine_credentials(&bob, &key)

@@ -99,8 +99,8 @@ async fn check(slot: &Slot, secret: &SecretString) -> Reply<Option<String>> {
 
 fn credential(row: CredentialRow) -> Credential {
     Credential {
-        env_var: row.slot.env_var().unwrap_or_default().to_owned(),
-        kind: row.slot.to_wire(),
+        env_var: row.env_var,
+        kind: row.kind,
         id: row.id,
         last4: row.last4,
         account: row.account,
