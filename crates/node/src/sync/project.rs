@@ -11,10 +11,10 @@
 use super::{
     Parts,
     disk::{self, Found as OnDisk, same},
-    map::{Changes, Entry, FileMeta, Map, Replica, Version, is_conflict},
+    map::{Changes, Entry, FileMeta, Map, Replica, Version, is_conflict, valid_path},
     peer,
     rules::Rules,
-    scan::{self, Found, MAX_BYTES, Stat},
+    scan::{self, Found, MAX_BYTES, MAX_FILES, Stat},
     watch::{Key, Mode, RESCAN, Watcher},
 };
 use crate::transfer::place::{Folder, Partial, Reserved, create_file_at, space_at};
@@ -287,10 +287,15 @@ impl Shared {
     /// Merges what a peer sent, and where it got to.
     pub(super) fn merge_from(&self, peer: &EndpointId, entries: &[Entry], cursor: Cursor) {
         let mut state = self.lock();
-        let mut changed = false;
-        for entry in entries {
-            changed |= !state.saved.map.merge(entry).is_empty();
+        let merged = merge_peer(&mut state.saved.map, entries);
+        if merged.refused > 0 {
+            log::warn!(
+                "{}: left out {} entries from {peer}: bad paths, or past {MAX_FILES} files",
+                self.name,
+                merged.refused
+            );
         }
+        let changed = merged.changed;
         state.saved.cursors.insert(peer.to_string(), cursor);
         state.unsaved = true;
         let seq = state.saved.map.seq();
@@ -696,15 +701,12 @@ impl Task {
     /// wants that content at and that is not on disk.
     fn moves_to(&self, path: &str) -> Option<String> {
         let state = self.shared.lock();
-        let seen = state.saved.seen.get(path)?;
-        state
-            .saved
-            .map
-            .entries()
-            .filter(|entry| entry.path != path)
-            .filter(|entry| entry.file.as_ref().is_some_and(|f| f.hash == seen.hash))
-            .find(|entry| !state.saved.seen.contains_key(&entry.path))
-            .map(|entry| entry.path.clone())
+        let rules = self
+            .shared
+            .rules
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        move_target(&state, &rules, path)
     }
 
     async fn keep_as(&mut self, path: &str, to: &str, expected: Stat) -> Result<()> {
@@ -975,6 +977,54 @@ fn record(state: &mut State, found: &Found, hash: [u8; 32], prior: Option<Seen>)
     );
 }
 
+/// Where the content at `path` should move: a path the list wants that
+/// content at, that is not on disk and that the rules keep.
+fn move_target(state: &State, rules: &Rules, path: &str) -> Option<String> {
+    let seen = state.saved.seen.get(path)?;
+    state
+        .saved
+        .map
+        .entries()
+        .filter(|entry| entry.path != path)
+        .filter(|entry| entry.file.as_ref().is_some_and(|f| f.hash == seen.hash))
+        .filter(|entry| !rules.skips_any(Path::new(&entry.path), false))
+        .find(|entry| !state.saved.seen.contains_key(&entry.path))
+        .map(|entry| entry.path.clone())
+}
+
+/// What merging a peer's entries did.
+#[derive(Debug, PartialEq, Eq)]
+struct Merged {
+    changed: bool,
+    /// Entries left out: a path no peer may name, or a new file past the
+    /// file limit.
+    refused: usize,
+}
+
+/// Merges a peer's `entries` into `map`.
+fn merge_peer(map: &mut Map, entries: &[Entry]) -> Merged {
+    let mut live = map.entries().filter(|entry| entry.file.is_some()).count();
+    let mut merged = Merged {
+        changed: false,
+        refused: 0,
+    };
+    let is_live = |map: &Map, path: &str| map.get(path).is_some_and(|known| known.file.is_some());
+    for entry in entries {
+        let was_live = is_live(map, &entry.path);
+        if !valid_path(&entry.path) || (entry.file.is_some() && !was_live && live >= MAX_FILES) {
+            merged.refused += 1;
+            continue;
+        }
+        for path in map.merge(entry) {
+            merged.changed = true;
+            let now_live = is_live(map, &path);
+            let before = path == entry.path && was_live;
+            live = live + usize::from(now_live) - usize::from(before);
+        }
+    }
+    merged
+}
+
 /// What it takes to bring the folder in line with the list: the paths
 /// whose entry is not what the folder holds, leaving out paths the rules
 /// skip here. Moves to conflict copies come first.
@@ -983,6 +1033,8 @@ fn plan(state: &State, rules: &Rules) -> Vec<Work> {
         .saved
         .map
         .entries()
+        // A list saved before peers' paths were checked may hold others.
+        .filter(|entry| valid_path(&entry.path))
         .filter(|entry| !rules.skips_any(Path::new(&entry.path), false))
         .filter_map(|entry| {
             let seen = state.saved.seen.get(&entry.path);
@@ -1009,5 +1061,124 @@ mod tests {
     #[test]
     fn the_tag_name_is_stable() {
         assert_eq!(tag_name(0xab), "sync/00000000000000ab");
+    }
+
+    fn meta(hash: u8) -> FileMeta {
+        FileMeta {
+            hash: [hash; 32],
+            size: 1,
+            mtime_ms: 1,
+            executable: false,
+        }
+    }
+
+    /// Entries a peer made, one per path.
+    fn from_peer(paths: &[&str], hash: u8) -> Vec<Entry> {
+        let mut peer = Map::new(7);
+        for path in paths {
+            peer.edit(path, &Version::default(), Some(meta(hash)));
+        }
+        peer.since(0, usize::MAX).entries
+    }
+
+    #[test]
+    fn a_peer_cannot_name_paths_outside_the_folder_or_in_git() {
+        let bad = [
+            ".git/hooks/pre-commit",
+            "src/.GIT/config",
+            "../x",
+            "a/../../x",
+            "./a",
+            "/etc/passwd",
+            "",
+            "a/",
+            "a//b",
+            "a\\b",
+            "a\0b",
+            ".beep-1.partial",
+        ];
+        let mut map = Map::new(1);
+        let mut entries = from_peer(&bad, 1);
+        entries.extend(from_peer(&["src/ok.rs"], 2));
+        let merged = merge_peer(&mut map, &entries);
+        assert_eq!(
+            merged,
+            Merged {
+                changed: true,
+                refused: bad.len()
+            }
+        );
+        let paths: Vec<_> = map.entries().map(|entry| entry.path.as_str()).collect();
+        assert_eq!(paths, ["src/ok.rs"]);
+
+        // Sent again, they are refused again and leave nothing to do, so
+        // nothing is retried.
+        let again = merge_peer(&mut map, &entries);
+        assert!(!again.changed);
+        let dir = tempfile::TempDir::new().unwrap();
+        let state = State::new(Saved {
+            map,
+            ..Saved::default()
+        });
+        let work = plan(&state, &Rules::load(dir.path()).unwrap());
+        let paths: Vec<_> = work.iter().map(|work| work.path.as_str()).collect();
+        assert_eq!(paths, ["src/ok.rs"]);
+    }
+
+    #[test]
+    fn a_peer_cannot_grow_the_list_past_the_file_limit() {
+        let mut map = Map::new(1);
+        for n in 0..MAX_FILES {
+            map.edit(&format!("f/{n}"), &Version::default(), Some(meta(1)));
+        }
+        let entries = from_peer(&["new.txt"], 2);
+        assert_eq!(merge_peer(&mut map, &entries).refused, 1);
+        assert!(map.get("new.txt").is_none());
+        // An edit of a file it has is still taken.
+        let mut peer = Map::new(7);
+        let base = map.get("f/0").unwrap().version.clone();
+        peer.edit("f/0", &base, Some(meta(3)));
+        let merged = merge_peer(&mut map, &peer.since(0, 10).entries);
+        assert_eq!(merged.refused, 0);
+        assert_eq!(map.get("f/0").unwrap().file, Some(meta(3)));
+    }
+
+    #[test]
+    fn content_never_moves_into_a_path_the_rules_skip() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::write(dir.path().join("Cargo.toml"), "").unwrap();
+        let rules = Rules::load(dir.path()).unwrap();
+        let mut map = Map::new(1);
+        map.edit("a.bin", &Version::default(), Some(meta(2)));
+        map.edit("target/a.bin", &Version::default(), Some(meta(1)));
+        let stat = Stat {
+            size: 1,
+            mtime_ns: 0,
+            ctime_ns: 0,
+            inode: 1,
+            device: 1,
+            executable: false,
+        };
+        let mut state = State::new(Saved {
+            map,
+            ..Saved::default()
+        });
+        state.set_seen(
+            "a.bin",
+            Seen {
+                stat,
+                hash: [1; 32],
+                version: Version::default(),
+            },
+        );
+        assert_eq!(move_target(&state, &rules, "a.bin"), None);
+        state
+            .saved
+            .map
+            .edit("kept.bin", &Version::default(), Some(meta(1)));
+        assert_eq!(
+            move_target(&state, &rules, "a.bin").as_deref(),
+            Some("kept.bin")
+        );
     }
 }
