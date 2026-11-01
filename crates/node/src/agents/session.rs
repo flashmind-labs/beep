@@ -7,7 +7,10 @@ use super::{
     acp::{self, Line, LineReader, Prompt, ResumeMethod},
     live::{Live, cut},
 };
-use crate::process::{GroupLeader, STOP_GRACE};
+use crate::{
+    process::{GroupLeader, STOP_GRACE},
+    provision::spawn_env::{self, Scope},
+};
 use agent_client_protocol::{
     Agent, Client, ConnectionTo, JsonRpcRequest, Responder, on_receive_notification,
     on_receive_request,
@@ -89,7 +92,9 @@ impl Session {
             prompt,
             resume,
         } = start;
-        let child = Process::new(&kind.program)
+        let mut process = Process::new(&kind.program);
+        spawn_env::apply(&mut process, Scope::Agent);
+        let child = process
             .args(&kind.args)
             .current_dir(cwd)
             .stdin(Stdio::piped())

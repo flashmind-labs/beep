@@ -15,6 +15,7 @@ mod lines;
 pub mod link;
 pub mod local;
 mod process;
+pub mod provision;
 pub mod service;
 pub mod setup;
 mod shell;

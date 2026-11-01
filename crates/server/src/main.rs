@@ -5,6 +5,7 @@ use beep_server::{
     apps::ComposioSettings,
     cache_session::SharedCacheSessions,
     config::{self, Config},
+    credentials::CredentialKey,
     decision::DecisionTool,
     fcm::Firebase,
     instance, memories,
@@ -122,6 +123,7 @@ async fn main() -> Result<()> {
             realtime: realtime(mistral.as_ref(), &config),
             mistral: mistral.map(|m| m as Arc<dyn LlmProvider>),
             instance: config.instance.clone(),
+            credential_key: Some(CredentialKey::derive(&secret_key)),
         },
         models,
     );

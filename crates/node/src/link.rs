@@ -1,7 +1,10 @@
 //! The connection to the server: the link code that joins the account, then
 //! the control stream, kept open and reopened when it drops.
 
-use crate::{agents::Agents, env, files::Folders, shell, state::State, tasks, transfer::Transfers};
+use crate::{
+    agents::Agents, env, files::Folders, provision::Provision, shell, state::State, tasks,
+    transfer::Transfers,
+};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     link::LinkOffer,
@@ -78,9 +81,14 @@ pub async fn serve(
         .await?;
     log::info!("node key {}", endpoint.id());
     // Made once, so agent sessions outlive each connection.
+    // Installs gh, teacli and the agent skills beside serving; the work
+    // stops with the node.
+    let provision = Provision::new(&state.dir);
+    let _provision = provision.start();
     let mut offers = Offers {
         agents: Arc::new(Agents::new(crate::agents::detect(&state.agents))),
         extra: Vec::new(),
+        provision: Some(provision),
     };
     // Files only when the owner shared folders in node.toml, or this node
     // is the user's environment.
@@ -140,6 +148,11 @@ pub async fn serve(
     tokio::select! {
         () = stay => {}
         () = stop => {}
+    }
+    // Stopped, the machine keeps no token: teacli's config, its shim and
+    // the env vars go.
+    if let Some(provision) = &offers.provision {
+        provision.forget().await;
     }
     log::info!("stopping the agent sessions");
     offers.agents.shutdown().await;
@@ -229,6 +242,9 @@ pub struct Offers {
     pub agents: Arc<Agents>,
     /// Protocols the host adds, such as the Mac app's `desktop/1`.
     pub extra: Vec<Arc<dyn Protocol>>,
+    /// Takes the user's credentials and installs the tools they are for.
+    /// Without it the node does not ask for credentials.
+    pub provision: Option<Arc<Provision>>,
 }
 
 impl Offers {
@@ -285,6 +301,7 @@ async fn open_as(
         offers: offers.names(),
         workspace: hello.workspace.map(str::to_owned),
         setup: hello.setup.cloned(),
+        credentials: offers.provision.is_some(),
     })
     .await?;
     let mut claimed = None;
@@ -340,7 +357,13 @@ impl Linked {
             offers,
             claimed: _,
         } = self;
-        serve_linked(&connection, &mut tx, &mut rx, &offers).await
+        let served = serve_linked(&connection, &mut tx, &mut rx, &offers).await;
+        // Revoked or only cut off, the node keeps no token it cannot hear
+        // about being removed; the server sends them again on reconnecting.
+        if let Some(provision) = &offers.provision {
+            provision.forget().await;
+        }
+        served
     }
 }
 
@@ -374,12 +397,20 @@ async fn serve_linked(
                 Err(e) => log::warn!("session task failed: {e}"),
             },
             message = rx.recv::<Down>() => match message {
+                Ok(Some(Down::Credentials(credentials))) => match &offers.provision {
+                    Some(provision) => provision.apply(credentials).await,
+                    None => log::debug!("credentials came to a node that does not take them"),
+                },
                 Ok(Some(message)) => log::debug!("server sent {message:?}"),
                 Ok(None) => return Ok(()),
                 Err(e) if connection.close_reason().is_none() => log::debug!("skipped a message: {e:#}"),
                 Err(e) => return Err(e),
             },
             _ = reprobe.tick(), if probing.is_none() => {
+                probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
+            }
+            // A tool was installed: report it without waiting for the tick.
+            () = tool_changed(offers.provision.as_deref()), if probing.is_none() => {
                 probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
             }
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
@@ -431,6 +462,14 @@ async fn session(send: SendStream, recv: RecvStream, offers: Offers) -> Result<(
                 tx.send(&Opened::Refused { reason }).await
             }
         },
+    }
+}
+
+/// Finishes when `provision` installed a tool; never without one.
+async fn tool_changed(provision: Option<&Provision>) {
+    match provision {
+        Some(provision) => provision.changed().await,
+        None => std::future::pending().await,
     }
 }
 

@@ -33,7 +33,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak},
     time::SystemTime,
 };
-use tokio::time::timeout;
+use tokio::{sync::Notify, time::timeout};
 use tokio_util::task::AbortOnDropHandle;
 
 mod agent;
@@ -79,6 +79,9 @@ pub struct Online {
     shell: Arc<shell::ShellSlot>,
     agents: Arc<agent::AgentLinks>,
     desktop: Arc<desktop::DesktopSlot>,
+    /// Woken when the user's credentials change, for a node that takes
+    /// them.
+    credentials: Option<Arc<Notify>>,
 }
 
 /// The nodes connected now, by key.
@@ -133,6 +136,15 @@ impl Nodes {
     pub fn online(&self, node: &str) -> Option<Online> {
         let id: EndpointId = node.parse().ok()?;
         self.lock().get(&id).cloned()
+    }
+
+    /// Tells the user's nodes that take credentials to fetch them again.
+    pub fn credentials_changed(&self, user: &str) {
+        for online in self.lock().values().filter(|online| online.user == user) {
+            if let Some(changed) = &online.credentials {
+                changed.notify_one();
+            }
+        }
     }
 
     fn insert(&self, node: EndpointId, online: Online) {
@@ -389,6 +401,12 @@ async fn serve(
         hello.offers,
         hello.workspace
     );
+    // Only a node that said it takes credentials gets them; the first
+    // set goes at once.
+    let credentials = hello.credentials.then(|| Arc::new(Notify::new()));
+    if let Some(changed) = &credentials {
+        changed.notify_one();
+    }
     app.nodes.insert(
         endpoint,
         Online {
@@ -401,6 +419,7 @@ async fn serve(
             shell: Arc::default(),
             agents: Arc::default(),
             desktop: Arc::default(),
+            credentials: credentials.clone(),
         },
     );
     app.nodes.follows.reconnected(app, &endpoint.to_string());
@@ -415,21 +434,38 @@ async fn serve(
         }))
     };
     loop {
-        match rx.recv::<Up>().await {
-            Ok(Some(Up::Env(env))) => {
-                // A report that fails to save is not worth dropping the node.
-                if let Err(e) = user.save_node_env(&endpoint, &env).await {
-                    log::warn!("node report not saved; node={endpoint} error={e:#}");
+        tokio::select! {
+            message = rx.recv::<Up>() => match message {
+                Ok(Some(Up::Env(env))) => {
+                    // A report that fails to save is not worth dropping the node.
+                    if let Err(e) = user.save_node_env(&endpoint, &env).await {
+                        log::warn!("node report not saved; node={endpoint} error={e:#}");
+                    }
+                }
+                Ok(Some(other)) => log::debug!("node sent something unhandled: {other:?}"),
+                Ok(None) => return Ok(()),
+                // A message from a newer node this server cannot read yet.
+                Err(e) if connection.close_reason().is_none() => {
+                    log::debug!("node message skipped: {e:#}")
+                }
+                Err(e) => bail!(e),
+            },
+            () = changed(credentials.as_deref()) => {
+                match user.machine_credentials(&app.credential_key).await {
+                    Ok(set) => tx.send(&Down::Credentials(set)).await?,
+                    // The node keeps what it had; the next change tries again.
+                    Err(e) => log::warn!("credentials not sent; node={endpoint} error={e:#}"),
                 }
             }
-            Ok(Some(other)) => log::debug!("node sent something unhandled: {other:?}"),
-            Ok(None) => return Ok(()),
-            // A message from a newer node this server cannot read yet.
-            Err(e) if connection.close_reason().is_none() => {
-                log::debug!("node message skipped: {e:#}")
-            }
-            Err(e) => bail!(e),
         }
+    }
+}
+
+/// Finishes when `notify` is woken; never without one.
+async fn changed(notify: Option<&Notify>) {
+    match notify {
+        Some(notify) => notify.notified().await,
+        None => std::future::pending().await,
     }
 }
 

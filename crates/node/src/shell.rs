@@ -4,6 +4,7 @@
 use crate::{
     lines::read_piece,
     process::{GroupLeader, STOP_GRACE},
+    provision::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -171,6 +172,7 @@ impl Shell {
         if let Some(home) = dirs::home_dir() {
             command.current_dir(home);
         }
+        spawn_env::apply(&mut command, Scope::Shell);
         let mut child = command
             .spawn()
             .with_context(|| format!("starting {program}"))?;
