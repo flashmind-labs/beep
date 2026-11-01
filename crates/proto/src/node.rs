@@ -17,6 +17,7 @@ use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use iroh::endpoint::{RecvStream, SendStream};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use strum::{Display, IntoStaticStr};
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 pub mod agent;
@@ -97,6 +98,121 @@ pub struct EnvReport {
     pub logins: Vec<Login>,
     /// Android virtual devices, when the SDK is installed.
     pub avds: Vec<String>,
+    /// Creative and developer apps installed on the machine.
+    #[serde(default)]
+    pub apps: Vec<AppInfo>,
+    /// The graphics cards the machine has.
+    #[serde(default)]
+    pub gpus: Vec<GpuInfo>,
+}
+
+impl EnvReport {
+    /// What the machine can be asked to do, sorted and without repeats.
+    pub fn capabilities(&self) -> Vec<Capability> {
+        let has_tool = |name: &str| self.tools.iter().any(|tool| tool.name == name);
+        let has_app = |name: AppName| self.apps.iter().any(|app| app.name == name);
+        let mut found = Vec::new();
+        if !self.gpus.is_empty() {
+            found.push(Capability::Gpu);
+        }
+        if self.gpus.iter().any(|gpu| gpu.vendor == GpuVendor::Nvidia) {
+            found.push(Capability::Cuda);
+        }
+        if has_app(AppName::Blender) {
+            found.push(Capability::Blender);
+        }
+        if has_app(AppName::UnrealEngine) {
+            found.push(Capability::Unreal);
+        }
+        if has_tool("xcodebuild") || has_app(AppName::Xcode) {
+            found.push(Capability::Xcode);
+        }
+        if has_tool("adb") || has_app(AppName::AndroidStudio) {
+            found.push(Capability::Android);
+        }
+        if has_tool("docker") {
+            found.push(Capability::Docker);
+        }
+        found.sort();
+        found.dedup();
+        found
+    }
+}
+
+/// An installed app worth knowing about.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppInfo {
+    pub name: AppName,
+    /// Its version, when it could be read.
+    #[serde(default)]
+    pub version: Option<String>,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    Display,
+    IntoStaticStr,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum AppName {
+    Blender,
+    #[strum(serialize = "Unreal Engine")]
+    UnrealEngine,
+    Xcode,
+    #[strum(serialize = "Android Studio")]
+    AndroidStudio,
+    #[strum(serialize = "Docker Desktop")]
+    DockerDesktop,
+    /// An app a newer node reports that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A graphics card.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GpuInfo {
+    pub vendor: GpuVendor,
+    pub model: String,
+    /// Video memory in MB, when known.
+    #[serde(default)]
+    pub vram_mb: Option<u64>,
+    #[serde(default)]
+    pub driver: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, IntoStaticStr)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuVendor {
+    Nvidia,
+    Amd,
+    Intel,
+    Apple,
+    #[serde(other)]
+    Other,
+}
+
+/// What a machine can be asked to do.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, IntoStaticStr,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "lowercase")]
+pub enum Capability {
+    Gpu,
+    Cuda,
+    Blender,
+    Unreal,
+    Xcode,
+    Android,
+    Docker,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -164,11 +280,11 @@ mod tests {
         #[derive(Serialize)]
         struct Newer {
             os: &'static str,
-            gpus: u32,
+            displays: u32,
         }
         let body = rmp_serde::to_vec_named(&Newer {
             os: "linux",
-            gpus: 2,
+            displays: 2,
         })
         .unwrap();
         let report: EnvReport = rmp_serde::from_slice(&body).unwrap();
@@ -212,5 +328,66 @@ mod tests {
         });
         let body = rmp_serde::to_vec_named(&up).unwrap();
         assert_eq!(rmp_serde::from_slice::<Up>(&body).unwrap(), up);
+    }
+
+    #[test]
+    fn capabilities_from_report() {
+        let report = EnvReport {
+            tools: vec![ToolInfo {
+                name: "docker".into(),
+                version: None,
+            }],
+            apps: vec![AppInfo {
+                name: AppName::Blender,
+                version: None,
+            }],
+            gpus: vec![GpuInfo {
+                vendor: GpuVendor::Nvidia,
+                model: "NVIDIA GeForce RTX 4090".into(),
+                vram_mb: Some(24564),
+                driver: None,
+            }],
+            ..EnvReport::default()
+        };
+        assert_eq!(
+            report.capabilities(),
+            [
+                Capability::Gpu,
+                Capability::Cuda,
+                Capability::Blender,
+                Capability::Docker
+            ]
+        );
+        let name: &'static str = Capability::Cuda.into();
+        assert_eq!(name, "cuda");
+        assert_eq!(AppName::UnrealEngine.to_string(), "Unreal Engine");
+    }
+
+    #[test]
+    fn old_report_decodes() {
+        #[derive(Serialize)]
+        struct Older {
+            os: &'static str,
+            tools: Vec<ToolInfo>,
+        }
+        let body = rmp_serde::to_vec_named(&Older {
+            os: "linux",
+            tools: vec![],
+        })
+        .unwrap();
+        let report: EnvReport = rmp_serde::from_slice(&body).unwrap();
+        assert!(report.apps.is_empty());
+        assert!(report.gpus.is_empty());
+    }
+
+    #[test]
+    fn unknown_app_decodes_as_unknown() {
+        #[derive(Serialize)]
+        struct Newer {
+            name: &'static str,
+        }
+        let body = rmp_serde::to_vec_named(&Newer { name: "figma" }).unwrap();
+        let app: AppInfo = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(app.name, AppName::Unknown);
     }
 }
