@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     process::{GroupLeader, STOP_GRACE},
-    provision::spawn_env,
+    provision::spawn_env::{self, Scope},
 };
 use agent_client_protocol::{
     Agent, Client, ConnectionTo, JsonRpcRequest, Responder, on_receive_notification,
@@ -93,7 +93,7 @@ impl Session {
             resume,
         } = start;
         let mut process = Process::new(&kind.program);
-        spawn_env::apply(&mut process);
+        spawn_env::apply(&mut process, Scope::Agent);
         let child = process
             .args(&kind.args)
             .current_dir(cwd)
