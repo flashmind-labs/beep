@@ -55,7 +55,7 @@ detect_target() {
             if [ "$arch" = arm64 ] || [ "$(sysctl -n sysctl.proc_translated 2> /dev/null)" = 1 ]; then
                 echo aarch64-apple-darwin
             else
-                fail "no build for Intel Macs"
+                fail "beep-node runs on Macs with Apple silicon; there is no build for Intel Macs"
             fi
             ;;
         *) fail "no build for $os" ;;
