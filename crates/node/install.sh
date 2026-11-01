@@ -62,6 +62,30 @@ detect_target() {
     esac
 }
 
+# An upgrade over a node that `beep-node setup` already runs as a service:
+# the rename above leaves the old binary running until the service restarts.
+# Succeeds when it restarted one.
+restart_service() {
+    case $(uname -s) in
+        Linux)
+            unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/beep-node.service"
+            [ -f "$unit" ] && grep -qF "$bindir/beep-node" "$unit" || return 1
+            systemctl --user is-active --quiet beep-node.service || return 1
+            systemctl --user restart beep-node.service < /dev/null ||
+                fail "installed, but could not restart the beep-node service; run: systemctl --user restart beep-node"
+            ;;
+        Darwin)
+            plist="$HOME/Library/LaunchAgents/com.flashmind.beep-node.plist"
+            [ -f "$plist" ] && grep -qF "$bindir/beep-node" "$plist" || return 1
+            service="gui/$(id -u)/com.flashmind.beep-node"
+            launchctl print "$service" > /dev/null 2>&1 || return 1
+            launchctl kickstart -k "$service" < /dev/null ||
+                fail "installed, but could not restart the beep-node service; run: launchctl kickstart -k $service"
+            ;;
+        *) return 1 ;;
+    esac
+}
+
 main() {
     target=$(detect_target)
     trap cleanup EXIT
@@ -111,10 +135,16 @@ main() {
             ;;
     esac
 
+    if restart_service; then
+        say "Restarted the beep-node service on the new version."
+        return
+    fi
+
     say ""
-    say "Next, link this machine to Beep: open Add a machine in Beep and run"
+    say "Next, open Add a machine in Beep and run"
     say "  beep-node setup <token>"
-    say "with the token it shows."
+    say "with the token it shows. It links this machine and starts beep-node"
+    say "in the background."
 }
 
 main "$@"
