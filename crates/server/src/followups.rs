@@ -149,7 +149,9 @@ impl<'a> Input<'a> {
             .iter()
             .filter(|entry| entry.timestamp >= turn_from)
             .filter_map(|entry| match &entry.kind {
-                EntryKind::Tool { call_id, output } => Some(ToolOutput {
+                EntryKind::Tool {
+                    call_id, output, ..
+                } => Some(ToolOutput {
                     tool: names.get(call_id.as_str())?,
                     output,
                 }),

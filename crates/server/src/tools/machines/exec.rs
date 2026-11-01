@@ -44,8 +44,8 @@ const DESCRIPTION: &str = "Execute a shell command using bash, or sh if bash is 
     work there. Files the user sends and files apps download are saved in its home folder, and \
     send_file and send_image take paths there.";
 
-pub(super) struct ExecTool {
-    pub(super) machines: Machines,
+pub(crate) struct ExecTool {
+    pub(crate) machines: Machines,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]

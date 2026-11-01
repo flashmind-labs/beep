@@ -188,7 +188,6 @@ fn install_skills(node_dir: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use beep_proto::{SecretText, node::EnvSecret};
-    use std::os::unix::fs::PermissionsExt;
 
     #[tokio::test]
     async fn forgetting_removes_the_tokens_from_disk() {
@@ -197,7 +196,7 @@ mod tests {
         let teacli = dir.path().join("bin/teacli");
         fs::create_dir_all(teacli.parent().unwrap()).unwrap();
         fs::write(&teacli, "#!/bin/sh\n").unwrap();
-        fs::set_permissions(&teacli, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::fsat::set_mode(&teacli, 0o755).unwrap();
         let provision = Provision::new(dir.path());
         provision
             .apply(MachineCredentials {

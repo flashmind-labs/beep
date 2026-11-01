@@ -198,6 +198,11 @@ pub enum PlanStatus {
     Unknown,
 }
 
+/// The longest question `detail` the node sends: it cuts longer inputs
+/// without a marker, so a question this long may be only the start of a
+/// command.
+pub const MAX_QUESTION_LINE: usize = 300;
+
 /// A permission question from the agent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Question {

@@ -10,6 +10,8 @@ import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
 import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "./home.js";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
+import { openImportProject } from "./importproject.js";
+import { mergeProjects, filterProjects } from "./projects-state.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -52,7 +54,8 @@ const CONNECT_STUCK_MS = 15000;
 const CONNECT_RETRY_MS = 3000;
 
 /// `since` is when the window started waiting for its first Home.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now() };
+/// `picked` is the project the Projects page shows, null for all.
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -627,10 +630,11 @@ registerSidebarGroup("views", {
   onPick: v => go("pane", v.view),
 });
 
-function projects(running) {
-  const found = new Map();
-  for (const r of running) if (r.kind === "agent" && base(r.cwd)) found.set(base(r.cwd), (found.get(base(r.cwd)) || 0) + 1);
-  return [...found];
+/// Imported projects merged with the folders agents run in.
+function projectRows() {
+  const home = state.home;
+  if (!home || (!home.running && !home.projects)) return null;
+  return mergeProjects(home.projects, home.running);
 }
 
 /// A small + button for a group's heading or the footer.
@@ -653,35 +657,41 @@ export function openAddMachine() {
   openAddMachineSheet({ onClose: refresh });
 }
 
-/// Opens the projects view. Until there is one, Home's Running section,
-/// where the projects here come from.
-export function openProjects() {
-  jump(state.home?.running?.length ? "sec-running" : null);
+/// Opens the Projects page, filtered to `name` when given.
+export function openProjects(name) {
+  go("projects", { project: name || null });
 }
 
-/// Adds a project. Until projects can be imported, the projects here are the
-/// folders agents run in, so this opens the start form to run one in a folder.
-function addProject() {
-  go("pane", { agentnew: { prompt: "" } });
+/// Opens the Import a project sheet; the project is selected once it is in.
+export function addProject() {
+  openImportProject({
+    machines: state.home?.machines || [],
+    onDone: p => {
+      state.picked = p.name;
+      refresh();
+      openProjects(p.name);
+    },
+  });
 }
 
-// Projects found in what runs, until the project view replaces this group.
-// It shows once Home has loaded, empty or not.
+// Imported projects and the folders agents run in. It shows once Home has
+// loaded, empty or not.
 registerSidebarGroup("projects", {
   order: 5,
   title: "Projects",
   onTitle: () => openProjects(),
-  action: () => plusButton("Start an agent in a project folder", addProject),
+  action: () => plusButton("Import a project", addProject),
   empty: () => emptyRow("No projects yet"),
-  load: async () => state.home?.running ? projects(state.home.running).map(([name, n], i) => ({ name, n, i })) : null,
+  load: async () => projectRows()?.map((p, i) => ({ ...p, i })) ?? null,
   row(p) {
-    const b = sideItem(null, p.name, p.n);
+    const b = sideItem(null, p.name, p.agents, { current: shown === "projects" && state.picked === p.name });
+    b.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
     const sw = h("span", "cc-pdot");
     sw.style.background = PROJECT_COLORS[p.i % PROJECT_COLORS.length];
     b.prepend(sw);
     return b;
   },
-  onPick: () => jump("sec-running"),
+  onPick: p => openProjects(p.name),
 });
 
 // The machines Home lists, each with its online dot. It shows once Home has
@@ -747,6 +757,7 @@ function page(home, wide) {
     needs: () => needsSection(needs),
     updates: () => updatesSection(home.updates),
     coming: () => comingSection(coming),
+    projects: () => projectsSection(projectRows() || []),
   };
   const cols = wide && homeColumns(home);
   if (cols) {
@@ -849,6 +860,85 @@ registerView("home", {
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
   mount() { refresh(); },
 });
+
+// ---------- Projects ----------
+
+function importButton(cls) {
+  const b = button("", cls, addProject);
+  b.append(icon(IC.plus), " Import a project");
+  return b;
+}
+
+/// One project per row: its name and host, where it is on each machine,
+/// the agents running in it and when one last did something.
+function projectTable(rows) {
+  const table = h("div", "cc-mt cc-pt", ...["Project", "Machine and folder", "Agents", "Last activity"].map(t => h("span", "th", t)));
+  for (const p of rows) {
+    const open = h("button", "", h("span", "", p.name));
+    open.type = "button";
+    open.title = p.url || p.name;
+    open.addEventListener("click", () => openProjects(p.name));
+    const name = h("span", "nm", h("b", "", open), h("span", "os", p.imported ? hostOf(p.url) : "From running agents"));
+    name.id = `p-${p.name}`;
+    const where = h("span", "nm", ...p.machines.map(m => {
+      const one = h("span", "os", h("b", "", m.name), ` ${m.folder}`);
+      one.title = `${m.name}: ${m.folder}`;
+      return one;
+    }));
+    if (!p.machines.length) where.append(h("span", "os", "–"));
+    const last = h("span", "num", p.last ? ago(p.last) : "–");
+    table.append(name, where, h("span", "num", p.agents ? String(p.agents) : "–"), last);
+  }
+  return table;
+}
+
+/// "github.com" from a project's web page.
+function hostOf(url) {
+  try { return new URL(url).host; } catch { return ""; }
+}
+
+function drawProjects(el) {
+  const rows = projectRows();
+  const view = h("div", "cc-view");
+  if (!state.home) {
+    view.append(h("div", "cc-panel cc-empty", h("b", "", "Loading projects…")));
+  } else if (!rows || !rows.length) {
+    view.append(h("div", "cc-panel cc-empty",
+      h("b", "", "No projects yet"),
+      h("span", "", "Import a repository from GitHub or your Forgejo server onto one of your machines."),
+      importButton("pri")));
+  } else {
+    const shownRows = filterProjects(rows, state.picked);
+    view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
+  }
+  el.replaceChildren(view);
+}
+
+registerView("projects", {
+  title() {
+    const tools = [importButton("small")];
+    if (state.picked) tools.unshift(button("All projects", "quiet small", () => openProjects()));
+    return { title: state.picked || "Projects", sub: state.picked ? "Project" : "Repositories on your machines", tools };
+  },
+  mount(el, arg) {
+    state.picked = arg?.project || null;
+    drawProjects(el);
+    refresh();
+  },
+});
+
+/// Home's short list of projects: the page has the table.
+function projectsSection(rows) {
+  const more = button("All projects", "quiet small", () => openProjects());
+  const list = rows.slice(0, 6).map(p => line(
+    h("span", "cc-pdot"),
+    p.name,
+    [p.machines.map(m => m.name).join(", "), p.agents ? plural(p.agents, "agent", "agents") : ""].filter(Boolean).join(" · "),
+    [p.last ? ago(p.last) : ""],
+    () => openProjects(p.name)));
+  list.forEach((row, i) => { row.querySelector(".cc-pdot").style.background = PROJECT_COLORS[i % PROJECT_COLORS.length]; });
+  return section("sec-projects-home", "Projects", rows.length, more, h("div", "cc-panel", ...list));
+}
 
 // ---------- Pane ----------
 
@@ -1052,6 +1142,7 @@ async function refresh() {
     loading = false;
   }
   draw();
+  if (shown === "projects") { drawProjects(views.get("projects").el); drawTop(); }
   reloadGroup("projects");
   reloadGroup("machines");
   if (again) { again = false; refresh(); }

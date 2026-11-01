@@ -2,6 +2,7 @@
 //! message searches return a page at a time, and a model that reads one
 //! page as the whole answer reports a partial list as complete.
 
+use flashmind::types::{ContentPart, tool::ToolResult};
 use serde_json::Value;
 
 /// Put before the result, where cutting a long output cannot drop it and
@@ -14,6 +15,36 @@ is partial.\n";
 /// How deep in a result the paging fields are looked for. Composio puts
 /// them under `data`, sometimes one level further down.
 const MAX_DEPTH: usize = 3;
+
+/// Replace the text of a successful result with `rewrite(text)`, keeping
+/// its media parts after it. Does nothing for other results or when
+/// `rewrite` returns `None`.
+pub fn rewrite_text(result: &mut ToolResult, rewrite: impl FnOnce(String) -> Option<String>) {
+    let ToolResult::Success { content, .. } = result else {
+        return;
+    };
+    if !content
+        .iter()
+        .any(|part| matches!(part, ContentPart::Text { .. }))
+    {
+        return;
+    }
+    let text: String = content
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    let Some(new) = rewrite(text.clone()) else {
+        return;
+    };
+    if new == text {
+        return;
+    }
+    content.retain(|part| !matches!(part, ContentPart::Text { .. }));
+    content.insert(0, ContentPart::Text { text: new });
+}
 
 /// `output` with a note in front when it says more results are left.
 pub fn mark(output: String) -> String {
@@ -66,6 +97,61 @@ fn has_more(value: &Value, depth: usize) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn text(text: &str) -> ContentPart {
+        ContentPart::Text { text: text.into() }
+    }
+
+    fn image() -> ContentPart {
+        ContentPart::ImageUrl { url: "u".into() }
+    }
+
+    fn parts(result: &ToolResult) -> Vec<Value> {
+        serde_json::to_value(result.content())
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+
+    fn json_parts(parts: Vec<ContentPart>) -> Vec<Value> {
+        serde_json::to_value(parts)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn rewrite_merges_text_and_keeps_media_after() {
+        let mut result = ToolResult::success_with_content("c", vec![text("a"), image(), text("b")]);
+        rewrite_text(&mut result, |old| Some(old.to_uppercase()));
+        assert_eq!(parts(&result), json_parts(vec![text("AB"), image()]));
+    }
+
+    #[test]
+    fn rewrite_none_or_same_text_is_a_no_op() {
+        let original = vec![text("a"), image(), text("b")];
+        let mut result = ToolResult::success_with_content("c", original.clone());
+        rewrite_text(&mut result, |_| None);
+        assert_eq!(parts(&result), json_parts(original.clone()));
+        rewrite_text(&mut result, |_| Some("ab".into()));
+        assert_eq!(parts(&result), json_parts(original.clone()));
+    }
+
+    #[test]
+    fn rewrite_leaves_failures_alone() {
+        let mut result = ToolResult::failure("c", "bad");
+        rewrite_text(&mut result, |_| Some("changed".into()));
+        assert_eq!(parts(&result), json_parts(vec![text("bad")]));
+    }
+
+    #[test]
+    fn rewrite_leaves_media_only_results_alone() {
+        let mut result = ToolResult::success_with_content("c", vec![image()]);
+        rewrite_text(&mut result, |old| Some(old + "x"));
+        assert_eq!(parts(&result), json_parts(vec![image()]));
+    }
 
     fn marked(value: Value) -> bool {
         mark(value.to_string()).starts_with(MORE)

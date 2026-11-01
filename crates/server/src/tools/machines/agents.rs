@@ -11,11 +11,11 @@ use chrono::Utc;
 use std::{fmt::Write, sync::Arc, time::Duration};
 use uuid::Uuid;
 
-pub(super) const DEFAULT_WAIT_SECS: u64 = 90;
+pub(crate) const DEFAULT_WAIT_SECS: u64 = 90;
 pub(super) const MAX_WAIT_SECS: u64 = 30 * 60;
 /// How long `cancel` and `close` wait for the agent to stop.
 const STOP_WAIT: Duration = Duration::from_secs(10);
-pub(super) const DEFAULT_LAST: u32 = 20;
+pub(crate) const DEFAULT_LAST: u32 = 20;
 /// The longest transcript entry shown.
 const MAX_ENTRY_SHOWN: usize = 2000;
 
@@ -25,12 +25,12 @@ pub(super) const EXTERNAL_AGENT: &str = "claude";
 const EXTERNAL_LISTED: u32 = 15;
 
 /// The chat a command runs in, for following sessions.
-pub(super) struct Asker<'a> {
-    pub(super) app: &'a Arc<App>,
-    pub(super) user: &'a Arc<User>,
-    pub(super) chat: Uuid,
+pub(crate) struct Asker<'a> {
+    pub(crate) app: &'a Arc<App>,
+    pub(crate) user: &'a Arc<User>,
+    pub(crate) chat: Uuid,
     /// The node's key, as the store keeps it.
-    pub(super) endpoint: &'a str,
+    pub(crate) endpoint: &'a str,
 }
 
 impl Asker<'_> {
@@ -47,7 +47,7 @@ impl Asker<'_> {
 
 /// What `code_agent` asks of a session or of the agent.
 #[derive(Debug, PartialEq)]
-pub(super) enum Order {
+pub(crate) enum Order {
     Start {
         cwd: Option<String>,
         prompt: String,
@@ -96,7 +96,7 @@ pub(super) enum Order {
 }
 
 /// Runs one order; the text is the result, the error a failure.
-pub(super) async fn run(
+pub(crate) async fn run(
     online: &Online,
     node: &str,
     agent: &str,
@@ -478,7 +478,8 @@ fn describe(node: &str, agent: &str, watched: &Watched, waited: Option<Duration>
         let _ = writeln!(
             out,
             "Answer with {} and the option as `prompt`. Any other text declines and goes \
-             to the agent as its next prompt.",
+             to the agent as its next prompt. Answer only when it is clearly within what the \
+             user asked; leave a risky or destructive one, such as a force push, to the user.",
             agent_call(node, agent, "answer", id)
         );
     }
@@ -570,7 +571,8 @@ mod tests {
              Options: 1. Allow (allow), 2. Reject (reject)\n\
              Answer with code_agent with action `answer`, agent `claude`, id `a3f9c1` and \
              in `build-box` and the option as `prompt`. Any other text declines and goes \
-             to the agent as its next prompt."
+             to the agent as its next prompt. Answer only when it is clearly within what the \
+             user asked; leave a risky or destructive one, such as a force push, to the user."
         );
     }
 

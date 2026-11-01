@@ -4,11 +4,13 @@
 
 use super::Reply;
 use crate::{
+    app::App,
     protocol::{
         ApiError, CancelWork, ChatApproval, ListPendingApprovals, ListQuestions, ListWork,
         PendingApproval, WorkItem,
     },
     router::Cx,
+    user::User,
 };
 use std::collections::HashMap;
 
@@ -31,12 +33,17 @@ pub(super) async fn list_pending_approvals(
     cx: Cx,
     _: ListPendingApprovals,
 ) -> Reply<Vec<ChatApproval>> {
-    let pending = cx.app.subagents.approvals.pending_all(cx.user.id());
+    pending_approvals(&cx.app, &cx.user).await
+}
+
+/// What background work waits on, then the cards the project chats wait on.
+pub(super) async fn pending_approvals(app: &App, user: &User) -> Reply<Vec<ChatApproval>> {
+    let mut pending = app.subagents.approvals.pending_all(user.id());
+    pending.extend(super::projects::project_cards(user).await?);
     if pending.is_empty() {
         return Ok(Vec::new());
     }
-    let titles: HashMap<String, String> = cx
-        .user
+    let titles: HashMap<String, String> = user
         .sessions()
         .await?
         .into_iter()

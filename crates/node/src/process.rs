@@ -1,33 +1,68 @@
 //! Children that lead their own process group, so stopping one stops
-//! everything it started: the shell's commands, an agent's tools.
+//! everything it started: the shell's commands, an agent's tools. On Unix
+//! the group is a process group; on Windows it is a job object.
 
-use std::{
-    os::fd::{AsFd, OwnedFd},
-    time::Duration,
+use std::{ffi::OsStr, time::Duration};
+use tokio::{
+    process::{Child, Command},
+    time::timeout,
 };
-use tokio::{process::Child, time::timeout};
+
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix as imp;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as imp;
+
+pub(crate) use imp::{Group, Held};
 
 /// How long a child has to exit after SIGTERM before the group is killed.
 pub(crate) const STOP_GRACE: Duration = Duration::from_secs(2);
 
-/// A child that leads its own process group (spawned with
-/// `process_group(0)`). `stop` ends the group gently, then hard; dropping it
-/// without `stop` kills the group at once, since `Drop` cannot wait.
+/// `program` as a command to start. Windows starts only `.exe` files by
+/// bare name, so there it is looked up on `PATH` with every extension
+/// `PATHEXT` lists: npm installs tools such as `npx` and `claude` as `.cmd`
+/// files.
+pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
+    let program = program.as_ref();
+    #[cfg(windows)]
+    if let Ok(found) = which::which(program) {
+        return Command::new(found);
+    }
+    Command::new(program)
+}
+
+/// Makes `command` start in a group of its own, for `GroupLeader`.
+pub(crate) fn own_group(command: &mut Command) -> &mut Command {
+    imp::own_group(command)
+}
+
+/// A child that leads its own group (spawned after `own_group`). `stop`
+/// ends the group gently, then hard; dropping it without `stop` kills the
+/// group at once, since `Drop` cannot wait.
 pub(crate) struct GroupLeader {
     child: Child,
-    /// The group's id, which is the child's pid.
-    group: Option<libc::pid_t>,
+    group: Option<Group>,
 }
 
 impl GroupLeader {
     pub(crate) fn new(child: Child) -> Self {
-        let group = child.id().and_then(|pid| libc::pid_t::try_from(pid).ok());
+        let group = match Group::of(&child) {
+            Ok(group) => group,
+            Err(e) => {
+                log::warn!("could not group a child's processes: {e}");
+                None
+            }
+        };
         Self { child, group }
     }
 
-    /// The group's id.
-    pub(crate) fn group(&self) -> Option<libc::pid_t> {
-        self.group
+    /// The group, to kill it from elsewhere.
+    pub(crate) fn group(&self) -> Option<Group> {
+        self.group.clone()
     }
 
     pub(crate) fn child_mut(&mut self) -> &mut Child {
@@ -37,33 +72,22 @@ impl GroupLeader {
     /// Copies of the read ends of the child's stdout and stderr. Held while
     /// it stops, they keep a write on its way out landing in the pipe after
     /// the readers are gone, rather than killing it with SIGPIPE.
-    pub(crate) fn hold_output(&self) -> Vec<OwnedFd> {
-        let stdout = self.child.stdout.as_ref().map(AsFd::as_fd);
-        let stderr = self.child.stderr.as_ref().map(AsFd::as_fd);
-        stdout
-            .into_iter()
-            .chain(stderr)
-            .filter_map(|fd| match fd.try_clone_to_owned() {
-                Ok(held) => Some(held),
-                Err(e) => {
-                    log::debug!("could not hold a pipe of the child: {e}");
-                    None
-                }
-            })
-            .collect()
+    pub(crate) fn hold_output(&self) -> Vec<Held> {
+        imp::hold_output(&self.child)
     }
 
-    /// Sends SIGTERM to the group, waits up to `grace` for the child to
-    /// exit, then SIGKILLs whatever is left of the group and reaps the
-    /// child, so no zombie remains.
+    /// Asks the group to end, waits up to `grace` for the child to exit,
+    /// then kills whatever is left of the group and reaps the child, so no
+    /// zombie remains. Windows has no gentle way: the group is killed at
+    /// once.
     pub(crate) async fn stop(&mut self, grace: Duration) {
         if self.reaped() {
             return;
         }
-        self.signal(libc::SIGTERM);
+        self.signal(Group::terminate);
         if timeout(grace, self.child.wait()).await.is_err() {
             log::debug!("the process group outlived SIGTERM; killing it");
-            self.signal(libc::SIGKILL);
+            self.signal(Group::kill);
             if let Err(e) = self.child.wait().await {
                 log::warn!("could not reap a stopped child: {e}");
             }
@@ -72,8 +96,8 @@ impl GroupLeader {
         // The child exited, but something it started may still run. POSIX
         // does not reuse a process group's id while the group has members,
         // so this reaches what is left of the group or no one.
-        if let Some(group) = self.group {
-            killpg(group, libc::SIGKILL);
+        if let Some(group) = &self.group {
+            group.kill();
         }
     }
 
@@ -82,13 +106,13 @@ impl GroupLeader {
         self.child.id().is_none()
     }
 
-    /// Sends `signal` to the group while its leader is not yet reaped: until
-    /// then the leader, a zombie at worst, keeps the id from being reused.
-    fn signal(&self, signal: libc::c_int) {
-        if let Some(group) = self.group
+    /// Signals the group while its leader is not yet reaped: until then the
+    /// leader, a zombie at worst, keeps the id from being reused.
+    fn signal(&self, send: fn(&Group)) {
+        if let Some(group) = &self.group
             && !self.reaped()
         {
-            killpg(group, signal);
+            send(group);
         }
     }
 }
@@ -96,23 +120,11 @@ impl GroupLeader {
 impl Drop for GroupLeader {
     fn drop(&mut self) {
         // Only a signal, so it is fine here. After `stop` this sends nothing.
-        self.signal(libc::SIGKILL);
+        self.signal(Group::kill);
     }
 }
 
-pub(crate) fn killpg(group: libc::pid_t, signal: libc::c_int) {
-    // SAFETY: killpg takes two integers and only sends a signal; it reads
-    // and writes no memory of this process.
-    let result = unsafe { libc::killpg(group, signal) };
-    if result != 0 {
-        let error = std::io::Error::last_os_error();
-        if error.raw_os_error() != Some(libc::ESRCH) {
-            log::warn!("could not signal process group {group}: {error}");
-        }
-    }
-}
-
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::{
@@ -192,5 +204,36 @@ mod tests {
         let (leader, mut stdout) = start("sleep 300 & echo ready; wait").await;
         drop(leader);
         wait_closed(&mut stdout).await;
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+
+    #[tokio::test]
+    async fn stopping_a_leader_ends_what_it_started() {
+        // ping inherits stdout, so it reads to its end only once ping is
+        // gone as well as cmd.
+        let mut command = Command::new("cmd");
+        command
+            .args(["/d", "/c", "echo ready& ping -n 300 127.0.0.1"])
+            .stdout(Stdio::piped());
+        let mut child = own_group(&mut command).spawn().expect("cmd starts");
+        let mut stdout = BufReader::new(child.stdout.take().expect("stdout is piped"));
+        let mut leader = GroupLeader::new(child);
+        assert!(leader.group().is_some(), "the child is in a job");
+        let mut line = String::new();
+        stdout.read_line(&mut line).await.expect("cmd writes");
+        assert_eq!(line.trim_end(), "ready");
+        leader.stop(Duration::from_secs(600)).await;
+        assert!(leader.reaped());
+        let mut rest = Vec::new();
+        timeout(Duration::from_secs(20), stdout.read_to_end(&mut rest))
+            .await
+            .expect("the whole job stopped")
+            .expect("stdout reads");
     }
 }

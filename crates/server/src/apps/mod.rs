@@ -60,7 +60,7 @@ pub(crate) struct PickedTool {
 }
 
 /// A tool that only reads.
-const fn read(slug: &'static str) -> PickedTool {
+pub(crate) const fn read(slug: &'static str) -> PickedTool {
     PickedTool {
         slug,
         acts: Acts::Never,

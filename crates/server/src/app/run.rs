@@ -21,6 +21,11 @@ use crate::{
     memories::{Exchange, Turn},
     metering,
     permissions::{self, ApprovalPayload, Approved, Rules},
+    projects::{
+        self,
+        gate::ProjectGate,
+        turn::{self as project_turn, TurnKind},
+    },
     protocol::{ApprovalDecision, AutoPick, Run, RunEvent, Usage},
     repeat::{self, RepeatGuard},
     sources::ReplySources,
@@ -106,6 +111,13 @@ impl App {
             Some(config) => user.research_in(chat).await?.map(|row| (row, config)),
             None => None,
         };
+        // A project chat runs as the project's agent, on its own prompt and
+        // tools. Without machines it is a plain chat.
+        let project = if self.allows(Privilege::Nodes, user) {
+            user.project_in(chat).await?
+        } else {
+            None
+        };
         // The model runs on the context, which may be compacted. The apps
         // read the turn's steps, saved as messages when it ends.
         let mut conversation = user
@@ -131,7 +143,9 @@ impl App {
         let one_off = message.model.is_some() || message.thinking.is_some();
         // The picks ask a model, so a stop does not wait for them.
         let picking = async {
-            if research.is_some() {
+            // A research or project chat runs on its own models, and Auto
+            // does not pick for it.
+            if research.is_some() || project.is_some() {
                 return None;
             }
             // A one-off model or thinking wins over Auto; a resumed
@@ -153,10 +167,7 @@ impl App {
         // Always set the server-owned prompt, including when loading an older
         // conversation. It stays the same per user so the provider can cache
         // it: only the user's languages are added.
-        let prompt = match &research {
-            Some(_) => research::LEAD_PROMPT,
-            None => ASSISTANT_PROMPT,
-        };
+        let prompt = system_prompt(research.is_some(), project.is_some());
         conversation.set_system(match user.spoken_languages().await {
             Ok(Some(languages)) => format!("{prompt}\n\n{}", languages_line(&languages)),
             Ok(None) => prompt.to_owned(),
@@ -165,11 +176,22 @@ impl App {
                 prompt.to_owned()
             }
         });
-        let (model, thinking) = match (&auto, &research) {
-            (Some(auto), _) => (auto.model.clone(), auto.thinking),
-            (None, Some((_, config))) if !one_off => {
+        // A project's planning turns run on its planner, routine ones on the
+        // chat's default.
+        let planner = match (&project, self.models.project()) {
+            (Some(_), Some(config))
+                if !one_off && project_turn::turn_kind(message) == TurnKind::Planning =>
+            {
+                Some(&config.planner)
+            }
+            _ => None,
+        };
+        let (model, thinking) = match (&auto, &research, planner) {
+            (Some(auto), ..) => (auto.model.clone(), auto.thinking),
+            (None, Some((_, config)), _) if !one_off => {
                 (config.lead.model.clone(), config.lead.thinking)
             }
+            (None, None, Some(planner)) => (planner.model.clone(), planner.thinking),
             _ => (
                 match message.model.clone() {
                     Some(model) => model,
@@ -255,7 +277,10 @@ impl App {
         }
         let use_machines = self.allows(Privilege::Nodes, user) && !untrusted;
         let workspace = use_machines.then(|| Workspace::find(self, user)).flatten();
-        if use_machines {
+        // A project chat gets the project's tools in their place, below,
+        // once the rules are loaded.
+        let project = project.filter(|_| use_machines);
+        if use_machines && project.is_none() {
             tools::machines::register(&mut registry, self, user, chat);
         }
         if events::enabled(self, user) {
@@ -277,6 +302,17 @@ impl App {
         }
         // Sending to a machine acts, so it goes under the rules with the
         // app tools below.
+        // In a project chat a copy to a machine lands only in a checkout.
+        let copy_into = match &project {
+            Some(project) => Some(
+                user.checkouts(project.id)
+                    .await?
+                    .into_iter()
+                    .map(|checkout| (checkout.machine, checkout.path))
+                    .collect(),
+            ),
+            None => None,
+        };
         let send_file: Arc<dyn Tool> = Arc::new(tools::SendFileTool {
             user: user.clone(),
             session_id: chat,
@@ -286,6 +322,7 @@ impl App {
                 user: user.clone(),
             }),
             paper: research.is_some(),
+            copy_into,
         });
         registry.register(Arc::new(tools::SendImageTool {
             user: user.clone(),
@@ -302,10 +339,17 @@ impl App {
         // Calls of the last model turn still without a result: the session
         // stopped on the first one to ask the user.
         let open = permissions::open_calls(&conversation);
-        if let Some(answer) = answer
-            && answer.decision == (ApprovalDecision::Always {})
-            && let Some(call) = open.iter().find(|call| call.id == answer.call_id)
-            && let Err(error) = permissions::allow_always(user, &call.name).await
+        // A project chat saves each action on its own, and nothing for a
+        // card that always asks.
+        let saved = answer
+            .filter(|answer| answer.decision == (ApprovalDecision::Always {}))
+            .and_then(|answer| open.iter().find(|call| call.id == answer.call_id))
+            .and_then(|call| match &project {
+                Some(project) => projects::tools::saved_as(&call.name, &call.arguments, project),
+                None => Some(call.name.clone()),
+            });
+        if let Some(slug) = saved
+            && let Err(error) = permissions::allow_always_in(user, &slug, project.is_some()).await
         {
             log::warn!(
                 "permissions: unable to save; run_id={} error={error:#}",
@@ -346,14 +390,18 @@ impl App {
             None => tools,
         };
         tools.push(send_file);
-        // A setup token grants access to the account, so it asks first too.
+        // A setup token grants access to the account, and an import clones
+        // with the user's tokens, so both ask first too.
         if use_machines {
+            let machines = tools::machines::Machines {
+                app: self.clone(),
+                user: user.clone(),
+            };
             tools.push(Arc::new(tools::machines::add::AddMachineTool {
-                machines: tools::machines::Machines {
-                    app: self.clone(),
-                    user: user.clone(),
-                },
+                machines: machines.clone(),
             }));
+            // Cloning writes to a machine with the user's tokens.
+            tools.push(Arc::new(crate::imports::ImportProjectTool { machines }));
         }
         // Grants are asked for where routines are set up. A routine's own
         // run and a turn on untrusted text never ask for one.
@@ -362,6 +410,14 @@ impl App {
                 user: user.clone(),
                 approved: approved.0.clone(),
             }));
+        }
+        if let Some(project) = &project {
+            let gate = Arc::new(ProjectGate::new(
+                rules.clone(),
+                approved.0.clone(),
+                project.visibility,
+            ));
+            projects::tools::register(&mut registry, self, user, project, chat, gate);
         }
         for tool in permissions::guard(
             tools,
@@ -375,6 +431,8 @@ impl App {
         let refusals = repeat::guard_tool_calls(&mut registry);
         let kind = if research.is_some() {
             "research"
+        } else if project.is_some() {
+            "project"
         } else if is_cron {
             "routine"
         } else if background {
@@ -454,6 +512,18 @@ impl App {
         };
         if let Some((row, config)) = &research {
             let block = self.research_context(row, config).await?;
+            context = Some(match context {
+                Some(context) => format!("{context}\n{block}"),
+                None => block,
+            });
+        }
+        if let Some(project) = &project {
+            let Some(block) = cancel
+                .run_until_cancelled(project_turn::start(self, user, project))
+                .await
+            else {
+                return self.stopped_early(user, run, live).await;
+            };
             context = Some(match context {
                 Some(context) => format!("{context}\n{block}"),
                 None => block,
@@ -1196,6 +1266,16 @@ pub(super) fn web_tools(key: &str) -> Vec<Arc<dyn Tool>> {
 
 /// Which languages the user speaks, from their memory, and which of them a
 /// reply is in.
+/// The server-owned system prompt: a research chat's lead, a project chat's
+/// agent, or the assistant.
+fn system_prompt(research: bool, project: bool) -> &'static str {
+    match (research, project) {
+        (true, _) => research::LEAD_PROMPT,
+        (false, true) => project_turn::PROJECT_PROMPT,
+        (false, false) => ASSISTANT_PROMPT,
+    }
+}
+
 fn languages_line(languages: &str) -> String {
     format!(
         "Languages: {languages} Reply in the language of the user's message. When it mixes \
