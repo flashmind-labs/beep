@@ -294,11 +294,11 @@ function sidebar(home) {
     })));
   }
   let foot;
-  if (!machines) foot = [h("b", "", "Machines unavailable"), "Not available for this account or server."];
-  else if (!machines.length) foot = [h("b", "", "No machines"), "Link one to run agents on it."];
+  if (!machines) foot = ["Machines unavailable"];
+  else if (!machines.length) foot = ["No machines linked"];
   else {
     const on = machines.filter(m => m.online).length;
-    foot = [h("span", "", h("span", "ddot"), " ", h("b", "", plural(machines.length, "machine", "machines")), " linked"), `${on} online, ${machines.length - on} offline or asleep`];
+    foot = [h("span", "", h("span", "ddot"), " ", h("b", "", String(on)), ` of ${plural(machines.length, "machine", "machines")} online`)];
   }
   side.push(h("div", "cc-foot", ...foot.map(f => h("span", "", f))));
   return side;
