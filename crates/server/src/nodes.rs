@@ -37,9 +37,11 @@ mod files;
 mod follow;
 mod shell;
 mod tasks;
+pub mod transfer;
 
 pub use crate::protocol::node::{
     NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,
+    transfer::PROTOCOL as TRANSFER,
 };
 pub use agent::{AgentLink, Mark, Watched};
 pub(crate) use deliver::agent_name;
