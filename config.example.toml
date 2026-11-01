@@ -3,7 +3,12 @@ secret_key = ".dev/iroh-key"
 # Postgres with pgvector. Falls back to the DATABASE_URL environment variable.
 # `just test-db` starts one locally.
 database_url = "postgres://beep:beep@127.0.0.1:55432/beep"
-model = "openrouter:z-ai/glm-5.3-flash"
+model = "openrouter:openai/gpt-5.6-luna"
+# Other models users can pick for their own turns.
+# model_choices = ["openrouter:z-ai/glm-5.3-flash", "openrouter:anthropic/claude-sonnet-5.5"]
+# Auto: Jev picks each prompt's thinking on the user's model. Users have it
+# on until they turn it off; without an entry here it is unavailable.
+# auto_models."openrouter:openai/gpt-5.6-luna" = "Every prompt"
 # Describes images for models without vision. Defaults to `model` when it sees images.
 # vision_model = "openrouter:z-ai/glm-5.3-flash"
 provider_key = "sk-or-v1-YOUR-KEY-HERE"
