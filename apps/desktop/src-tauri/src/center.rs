@@ -21,7 +21,7 @@ use std::{
 };
 use tauri::{
     ActivationPolicy, AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State,
-    TitleBarStyle, WebviewUrl, WebviewWindowBuilder, ipc::Channel,
+    TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder, ipc::Channel,
 };
 use tokio::join;
 use uuid::Uuid;
@@ -112,10 +112,7 @@ pub fn center_compose(app: AppHandle, beep: Service<'_>, prompt: String) -> Resu
     let events = Channel::new(|_| Ok(()));
     let beep = beep.inner().clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = beep
-            .send(Some(session.to_string()), sent, Pick::default(), events)
-            .await
-        {
+        if let Err(e) = beep.post(session, sent, Pick::default(), events).await {
             log::warn!("sending a prompt from the command center: {e}");
         }
     });
@@ -579,6 +576,13 @@ pub(crate) fn remember(holder: Holder, beep: &Beep, shown: &Shown, chat: Chat) {
     remember_in(holder, beep, shown, chat);
 }
 
+/// `remember` for the webview a command came from, with the window's
+/// `Shown` from the app's state.
+pub(crate) fn remember_for<R: Runtime>(window: &WebviewWindow<R>, beep: &Beep, chat: Chat) {
+    let shown = window.state::<Shown>();
+    remember(holder(window.label()), beep, &shown, chat);
+}
+
 fn remember_in(holder: Holder, bar: &impl Current, shown: &Shown, chat: Chat) {
     let current: &dyn Current = match holder {
         Holder::Bar => bar,
@@ -844,6 +848,21 @@ mod tests {
         );
         remember_in(Holder::Center, &bar, &shown, Chat::Session(None));
         assert_eq!(shown.get(), Showing::default());
+    }
+
+    #[test]
+    fn center_send_leaves_bar_session() {
+        let bar = bar_on("a");
+        let shown = Shown::default();
+        let sent_to = Uuid::new_v4().to_string();
+        remember_in(
+            Holder::Center,
+            &bar,
+            &shown,
+            Chat::Session(Some(sent_to.clone())),
+        );
+        assert_eq!(bar.get().session.as_deref(), Some("a"));
+        assert_eq!(shown.get().session, Some(sent_to));
     }
 
     #[test]
