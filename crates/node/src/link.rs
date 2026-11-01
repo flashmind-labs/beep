@@ -2,7 +2,7 @@
 //! the control stream, kept open and reopened when it drops.
 
 use crate::{
-    agents::Agents, env, files::Folders, provision::Provision, shell, state::State, tasks,
+    agents::Agents, env, files::Folders, provision::Provision, shell, state::State, stats, tasks,
     transfer::Transfers,
 };
 use anyhow::{Context, Result, bail};
@@ -10,7 +10,7 @@ use beep_proto::{
     link::LinkOffer,
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, NodeSetup,
-        Open, Opened, Up, agent, link,
+        Open, Opened, StatsReport, Up, agent, link,
     },
 };
 use iroh::{
@@ -19,14 +19,14 @@ use iroh::{
 };
 use std::{
     future::Future,
-    path::Path,
+    path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
     time::{Duration, SystemTime},
 };
 use tokio::{
     task::JoinSet,
-    time::{interval, sleep, timeout},
+    time::{MissedTickBehavior, interval, sleep, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -35,6 +35,8 @@ const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LAST_RETRY: Duration = Duration::from_secs(60);
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
+/// How often free disk and memory are sampled.
+const RESAMPLE: Duration = Duration::from_secs(60);
 /// How long the server has to name a session's protocol.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// The most sessions open at once; more are refused.
@@ -265,6 +267,8 @@ pub struct Linked {
     offers: Offers,
     /// What the hello's setup token gave, when it carried one.
     claimed: Option<Claimed>,
+    /// The workspace the hello named, measured first for free disk.
+    workspace: Option<PathBuf>,
 }
 
 /// Connects to `server` and says hello; `Ok` once the server welcomed this
@@ -325,6 +329,7 @@ async fn open_as(
         rx,
         offers: offers.clone(),
         claimed,
+        workspace: hello.workspace.map(PathBuf::from),
     })
 }
 
@@ -356,8 +361,10 @@ impl Linked {
             mut rx,
             offers,
             claimed: _,
+            workspace,
         } = self;
-        let served = serve_linked(&connection, &mut tx, &mut rx, &offers).await;
+        let measured: Vec<PathBuf> = workspace.into_iter().chain(dirs::home_dir()).collect();
+        let served = serve_linked(&connection, &mut tx, &mut rx, &offers, &measured).await;
         // Revoked or only cut off, the node keeps no token it cannot hear
         // about being removed; the server sends them again on reconnecting.
         if let Some(provision) = &offers.provision {
@@ -372,6 +379,7 @@ async fn serve_linked(
     tx: &mut LinkTx,
     rx: &mut LinkRx,
     offers: &Offers,
+    measured: &[PathBuf],
 ) -> Result<()> {
     let mut reported = env::probe().await;
     tx.send(&Up::Env(reported.clone())).await?;
@@ -379,6 +387,10 @@ async fn serve_linked(
     reprobe.tick().await;
     // A probe runs a dozen commands; it runs beside the loop, not in it.
     let mut probing: Option<AbortOnDropHandle<EnvReport>> = None;
+    // The first tick is at once, so stats follow the report.
+    let mut resample = interval(RESAMPLE);
+    resample.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut sampling: Option<AbortOnDropHandle<StatsReport>> = None;
     // Streams end with the connection: dropping the set stops them.
     let mut sessions = JoinSet::new();
     loop {
@@ -412,6 +424,16 @@ async fn serve_linked(
             // A tool was installed: report it without waiting for the tick.
             () = tool_changed(offers.provision.as_deref()), if probing.is_none() => {
                 probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
+            }
+            _ = resample.tick(), if sampling.is_none() => {
+                sampling = Some(AbortOnDropHandle::new(tokio::spawn(stats::sample(measured.to_vec()))));
+            }
+            Some(sampled) = async { sampling.as_mut()?.await.into() }, if sampling.is_some() => {
+                sampling = None;
+                match sampled {
+                    Ok(report) => tx.send(&Up::Stats(report)).await?,
+                    Err(e) => log::warn!("sampling the machine failed: {e}"),
+                }
             }
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
                 probing = None;
