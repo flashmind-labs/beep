@@ -9,8 +9,10 @@ mod clone;
 mod place;
 mod repo;
 mod service;
+mod tool;
 
 pub(crate) use service::{import, imported};
+pub(crate) use tool::ImportProjectTool;
 
 use thiserror::Error;
 

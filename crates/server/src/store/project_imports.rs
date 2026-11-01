@@ -1,5 +1,5 @@
 //! The projects a user imported onto their machines (see
-//! `crate::project_import`).
+//! `crate::imports`).
 
 use super::Store;
 use crate::user::UserKey;

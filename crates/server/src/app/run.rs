@@ -357,9 +357,7 @@ impl App {
                 machines: machines.clone(),
             }));
             // Cloning writes to a machine with the user's tokens.
-            tools.push(Arc::new(tools::machines::import::ImportProjectTool {
-                machines,
-            }));
+            tools.push(Arc::new(crate::imports::ImportProjectTool { machines }));
         }
         // Grants are asked for where routines are set up. A routine's own
         // run and a turn on untrusted text never ask for one.
