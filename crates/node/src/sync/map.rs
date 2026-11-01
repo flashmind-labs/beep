@@ -11,6 +11,7 @@
 //! every node derives the same way, so nodes that make it independently
 //! make the same entry.
 
+use super::rules::is_own;
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BTreeMap, fmt::Write as _};
 
@@ -129,6 +130,24 @@ pub(super) fn conflict_path(path: &str, hash: &[u8; 32]) -> String {
         }
         None => format!("{path} (conflict {tag})"),
     }
+}
+
+/// The longest path a peer may name.
+const MAX_PATH: usize = 4096;
+
+/// Whether a peer may name `path`: plain names joined with `/`, none of
+/// them `.git`, in any case, or a name sync keeps for itself.
+pub(super) fn valid_path(path: &str) -> bool {
+    !path.is_empty()
+        && path.len() <= MAX_PATH
+        && path.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && !part.contains(['\\', '\0'])
+                && !part.eq_ignore_ascii_case(".git")
+                && !is_own(part)
+        })
 }
 
 /// Whether `path` is a conflict copy.
