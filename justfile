@@ -71,19 +71,42 @@ android-release version:
     git tag -a "android-v{{version}}" -m "Beep for Android {{version}}"
     echo "Tagged android-v{{version}}. Publish it with: git push origin main android-v{{version}}"
 
-# Release Android and desktop together and push both tags. Without versions it
-# bumps each app's patch number: `just release`, or `just release 0.2.0 0.4.0`
-# (Android first, then desktop).
-release android="" desktop="":
+# Set beep-node's version, commit it and tag node-v<version>. Pushing the tag
+# makes the node workflow build the Linux and macOS binaries and publish them
+# with install.sh at https://releases.flashmind.com/beep/node/.
+node-release version:
     #!/usr/bin/env bash
     set -euo pipefail
-    bump() { local v; v=$(git tag --list "$1-v*" --sort=-v:refname | head -1); v=${v#"$1-v"}; [[ -n $v ]] || { echo "no $1 tag to bump" >&2; exit 1; }; echo "${v%.*}.$(( ${v##*.} + 1 ))"; }
-    android="{{android}}"; desktop="{{desktop}}"
+    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 1.2.3" >&2; exit 1; }
+    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
+    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
+    ! git rev-parse -q --verify "refs/tags/node-v{{version}}" > /dev/null || { echo "node-v{{version}} already exists" >&2; exit 1; }
+    sed -i.bak '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' crates/node/Cargo.toml && rm crates/node/Cargo.toml.bak
+    cargo update --workspace --offline --quiet
+    # The desktop app embeds the node, so its lockfile names the version too.
+    (cd apps/desktop/src-tauri && cargo update --package beep-node --offline --quiet)
+    git commit --quiet -m "Release beep-node {{version}}" crates/node/Cargo.toml Cargo.lock apps/desktop/src-tauri/Cargo.lock
+    git tag -a "node-v{{version}}" -m "beep-node {{version}}"
+    echo "Tagged node-v{{version}}. Publish it with: git push origin main node-v{{version}}"
+
+# Release Android, desktop and beep-node together and push the tags. Without
+# versions it bumps each app's patch number: `just release`, or
+# `just release 0.2.0 0.4.0 0.1.1` (Android, desktop, then node). The node is
+# left out until its first release has been tagged with `just node-release`.
+release android="" desktop="" node="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    latest() { git tag --list "$1-v*" --sort=-v:refname | head -1; }
+    bump() { local v; v=$(latest "$1"); v=${v#"$1-v"}; [[ -n $v ]] || { echo "no $1 tag to bump" >&2; exit 1; }; echo "${v%.*}.$(( ${v##*.} + 1 ))"; }
+    android="{{android}}"; desktop="{{desktop}}"; node="{{node}}"
     android=${android:-$(bump android)}; desktop=${desktop:-$(bump desktop)}
-    echo "Releasing Android $android and desktop $desktop"
+    if [[ -z $node && -n $(latest node) ]]; then node=$(bump node); fi
+    tags=("android-v$android" "desktop-v$desktop")
+    echo "Releasing Android $android, desktop $desktop${node:+ and node $node}"
     just android-release "$android"
     just desktop-release "$desktop"
-    git push origin main "android-v$android" "desktop-v$desktop"
+    if [[ -n $node ]]; then just node-release "$node"; tags+=("node-v$node"); fi
+    git push origin main "${tags[@]}"
 
 # Deploy the Cloudflare Worker behind https share and invite links. Needs
 # CLOUDFLARE_ACCOUNT_ID in .env: the account that holds flashmind.com.
