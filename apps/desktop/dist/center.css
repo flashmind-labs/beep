@@ -147,9 +147,6 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cwin.resizing { cursor: col-resize; user-select: none }
 
 /* Adding machines and projects: the empty groups' rows, the + buttons. */
-.cc-si.none.add { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.cc-si.none.add .act { color: var(--emerald); margin-left: 3px }
-.cc-si.none.add:hover .act { text-decoration: underline }
 .cc-sec-r { display: flex; align-items: center; gap: 10px }
 .dbtn.small { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 .cc-foot { display: flex; align-items: center; gap: 6px }

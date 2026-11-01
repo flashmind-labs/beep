@@ -563,6 +563,7 @@ registerSidebarGroup("pinned", {
 registerSidebarGroup("chats", {
   order: 3,
   title: "Chats",
+  onTitle: () => go("pane", "chats"),
   empty: () => (chatList.length ? "" : "No chats yet"),
   action() {
     const b = h("button", "", icon(IC.plus));
@@ -577,10 +578,6 @@ registerSidebarGroup("chats", {
   },
   row: chatRow,
   onPick: pickChat,
-  foot() {
-    if (!chatList.length) return [];
-    return [sideItem(null, "All chats", 0, { cls: "more", current: paneOn().view === "chats", on: () => go("pane", "chats") })];
-  },
 });
 
 registerSidebarGroup("views", {
@@ -611,12 +608,9 @@ function plusButton(label, on) {
   return b;
 }
 
-/// An empty group's row: what is missing, and a way to add one.
-function emptyRow(text, on) {
-  const b = h("button", "cc-si none add", `${text} · `, h("span", "act", "Add one"));
-  b.type = "button";
-  b.addEventListener("click", on);
-  return b;
+/// An empty group's row: what is missing. The group's + adds one.
+function emptyRow(text) {
+  return h("div", "cc-si none", text);
 }
 
 /// Opens the Add a machine sheet; Home refreshes once it closes.
@@ -627,7 +621,13 @@ export function openAddMachine() {
 /// Opens the projects view. Until there is one, Home's Running section,
 /// where the projects here come from.
 export function openProjects() {
-  jump("sec-running");
+  jump(state.home?.running?.length ? "sec-running" : null);
+}
+
+/// Adds a project. Until projects can be imported, the projects here are the
+/// folders agents run in, so this opens the start form to run one in a folder.
+function addProject() {
+  go("pane", { agentnew: { prompt: "" } });
 }
 
 // Projects found in what runs, until the project view replaces this group.
@@ -636,8 +636,8 @@ registerSidebarGroup("projects", {
   order: 5,
   title: "Projects",
   onTitle: () => openProjects(),
-  action: () => plusButton("Add a project", openProjects),
-  empty: () => emptyRow("No projects yet", openProjects),
+  action: () => plusButton("Start an agent in a project folder", addProject),
+  empty: () => emptyRow("No projects yet"),
   load: async () => state.home?.running ? projects(state.home.running).map(([name, n], i) => ({ name, n, i })) : null,
   row(p) {
     const b = sideItem(null, p.name, p.n);
@@ -654,8 +654,9 @@ registerSidebarGroup("projects", {
 registerSidebarGroup("machines", {
   order: 5.5,
   title: "Machines",
+  onTitle: () => jump("sec-machines"),
   action: () => plusButton("Add a machine", openAddMachine),
-  empty: () => emptyRow("No machines yet", openAddMachine),
+  empty: () => emptyRow("No machines yet"),
   load: async () => state.home?.machines ?? null,
   row(m) {
     const b = sideItem(null, m.name, m.agents || 0);
