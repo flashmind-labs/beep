@@ -8,7 +8,7 @@ import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
-import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine } from "./home.js";
+import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "./home.js";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 
 const $ = sel => document.querySelector(sel);
@@ -52,7 +52,7 @@ const CONNECT_STUCK_MS = 15000;
 const CONNECT_RETRY_MS = 3000;
 
 /// `since` is when the window started waiting for its first Home.
-const state = { home: null, error: null, outcomes: new Map(), shown: false, since: Date.now() };
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now() };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -150,16 +150,43 @@ function machineTable(machines) {
     if (mem.title) memory.title = mem.title;
     table.append(name, h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–"), can, disk, memory, now);
   }
+  const mac = thisMacRow(state.mac, machines);
+  if (mac) table.append(...thisMacCells(mac));
   return table;
 }
 
+/// This Mac's row while the server does not list it: its state across the
+/// middle columns and, while it is off, Add under Now.
+function thisMacCells(mac) {
+  const name = h("span", "nm off", h("b", "", h("span", "ddot off"), h("span", "", mac.name)), h("span", "os", mac.sub));
+  name.id = "m-this-mac";
+  const st = h("span", `caps mac-state${mac.bad ? " bad" : ""}`, mac.state);
+  st.title = mac.title;
+  const now = h("span", "num", mac.action ? rowButton(mac.action, "pri small", useThisMac) : "–");
+  return [name, st, now];
+}
+
+/// Turns on Let Beep use this Mac, so it joins as a machine.
+async function useThisMac() {
+  try {
+    state.mac = await invoke("set_mac_control", { enabled: true });
+  } catch (e) {
+    console.warn("turning on this Mac:", e);
+  }
+  draw();
+  reloadGroup("machines");
+  // The link takes a moment; Home looks again soon after.
+  for (const ms of [1500, 5000]) setTimeout(refresh, ms);
+}
+
 function machinesSection(machines) {
-  if (!machines.length) {
+  if (!machines.length && !thisMacRow(state.mac, machines)) {
     return section("sec-machines", "Machines", "", addMachineButton("small"),
       h("div", "cc-panel cc-empty", h("b", "", "No machines linked yet"), addMachineButton("pri")));
   }
   const online = machines.filter(m => m.online).length;
-  return section("sec-machines", "Machines", `${online} of ${machines.length} online`, addMachineButton("small"), machineTable(machines));
+  const count = machines.length ? `${online} of ${machines.length} online` : "";
+  return section("sec-machines", "Machines", count, addMachineButton("small"), machineTable(machines));
 }
 
 function offlineNote(machines) {
@@ -665,15 +692,38 @@ registerSidebarGroup("machines", {
   onTitle: () => jump("sec-machines"),
   action: () => plusButton("Add a machine", openAddMachine),
   empty: () => emptyRow("No machines yet"),
-  load: async () => state.home?.machines ?? null,
+  load: async () => {
+    const machines = state.home?.machines;
+    if (!machines) return null;
+    const mac = thisMacRow(state.mac, machines);
+    return mac ? [...machines, { thisMac: mac }] : machines;
+  },
   row(m) {
+    if (m.thisMac) return thisMacItem(m.thisMac);
     const b = sideItem(null, m.name, m.agents || 0);
     b.prepend(dot(m));
     b.title = `${m.name}: ${m.online ? (m.agents ? plural(m.agents, "agent", "agents") + " running" : "online") : "offline"}`;
     return b;
   },
-  onPick: m => jump(`m-${m.id}`),
+  onPick: m => jump(m.thisMac ? "m-this-mac" : `m-${m.id}`),
 });
+
+/// The sidebar's This Mac: its state, or Add while it is off.
+function thisMacItem(mac) {
+  const title = `This Mac: ${mac.title}`;
+  if (mac.action) {
+    // A row with a button in it, never a button inside a button.
+    const row = h("div", "cc-si", h("span", "ddot off"), h("span", "tt", mac.name),
+      rowButton(mac.action, "quiet small mac-add", useThisMac));
+    row.title = title;
+    return row;
+  }
+  const b = sideItem(null, mac.name, 0);
+  b.prepend(h("span", "ddot off"));
+  b.append(h("span", `n mac-state${mac.bad ? " bad" : ""}`, mac.state));
+  b.title = title;
+  return b;
+}
 
 // ---------- Home ----------
 
@@ -986,7 +1036,11 @@ async function refresh() {
   clearTimeout(retryTimer);
   loading = true;
   try {
-    const home = await invoke("center_home");
+    const [home, mac] = await Promise.all([
+      invoke("center_home"),
+      invoke("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
+    ]);
+    state.mac = mac;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
     state.home = home;
     state.error = null;

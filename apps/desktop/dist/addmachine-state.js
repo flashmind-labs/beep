@@ -1,5 +1,6 @@
 // What the "Add a machine" sheet shows, as pure functions so they can be
 // tested without Tauri. addmachine.js draws it and talks to the app.
+import { MAC_NOT_ALLOWED } from "./home.js";
 
 /// The command that puts beep-node on a machine.
 export const INSTALL = "curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh";
@@ -71,4 +72,24 @@ export function describeMachine(machine) {
     if (name && !parts.includes(name)) parts.push(name);
   }
   return parts.join(", ");
+}
+
+/// The sheet's "Use this Mac" option from the app's mac_control view: a
+/// line saying where this Mac stands, and a button while it is off. Null
+/// when there is nothing to offer: no view, the app is not linked, or the
+/// Mac was already a machine when the sheet opened (`asked` is false).
+export function macOption(mac, asked) {
+  if (!mac || mac.status === "unlinked") return null;
+  const name = mac.name || "This Mac";
+  if (!mac.enabled) return { text: `Let Beep run commands and use the screen on ${name}.`, button: "Use this Mac" };
+  switch (mac.status) {
+    case "connected":
+      return asked ? { text: `${name} is linked. It shows under Machines.`, done: true } : null;
+    case "not_allowed":
+      return { text: MAC_NOT_ALLOWED, bad: true };
+    case "failed":
+      return { text: `Couldn't connect: ${mac.error || "unknown error"}. Beep tries again on its own.`, bad: true };
+    default:
+      return { text: `Connecting ${name}`, busy: true };
+  }
 }
