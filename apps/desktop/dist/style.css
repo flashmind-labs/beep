@@ -569,3 +569,25 @@ button.dachip:hover { border-color: #3A4A41 }
 .dbar[data-mode="window"] > .dhints { order: 2; justify-content: center; gap: 4px 14px; margin: -6px 16px 10px; padding: 0; border-top: 0; background: transparent; color: var(--dim) }
 .dbar[data-mode="window"] > .dhints .dmodel { margin-left: 0 }
 .dbar[data-mode="window"] > .dlatest { bottom: 110px }
+
+/* Coding agents: the start form, one session and the list (dAgent in the mock). */
+.dups { display: flex; flex-wrap: wrap; gap: 8px }
+.dstate { font-size: 11px; font-weight: 600; padding: 0 8px; line-height: 19px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); flex: none; white-space: nowrap }
+.dstate.run { border-color: rgba(59, 155, 122, .5); color: var(--emerald) }
+.dstate.ask { border-color: rgba(240, 122, 106, .5); color: var(--coral) }
+.dapp.dcoderav { width: 28px; height: 28px; border-radius: 8px; font-size: 10.5px; background: var(--elev) }
+.dapp.dcoderav.claude { color: #F2A27A } .dapp.dcoderav.codex { color: #9DC3F0 }
+.dcard.dcoder { flex: none; user-select: text }
+.dcoder .row { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px }
+.dcoder .sec { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); padding: 8px 12px 2px }
+.dcoder .plan { display: grid; gap: 2px; padding: 0 12px }
+.dcoder .files { display: grid; gap: 1px; padding: 0 12px; font-family: var(--mono); font-size: 12px }
+.dcoder .files span { display: flex; gap: 10px } .dcoder .files b { flex: 1; font-weight: 400; overflow-wrap: anywhere }
+.dcoder .q { margin: 10px 12px 0; padding: 10px; border-radius: 8px; background: var(--surface); display: grid; gap: 6px; font-size: 13px; line-height: 19px }
+.dcoderlog { display: grid; gap: 8px; font-size: 13.5px; line-height: 20px }
+.dcoderen { white-space: pre-wrap; overflow-wrap: anywhere }
+.dcoderen.user { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--elev) }
+.dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
+.dcoderen.tool { font-family: var(--mono); font-size: 12px; color: var(--muted); padding-left: 10px; border-left: 2px solid var(--border) }
+.dcoderen.other { font-size: 12.5px; color: var(--muted) }
+#agentGo { flex: none; align-self: center; font-size: 12.5px }

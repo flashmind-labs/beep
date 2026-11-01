@@ -572,6 +572,19 @@ mod tests {
     }
 
     #[test]
+    fn pi_and_flsh_are_known() {
+        let known = |name: &str| KNOWN.iter().find(|known| known.name == name);
+        assert!(matches!(
+            known("pi").map(|known| &known.adapter),
+            Some(Adapter::Npm { bin: "pi-acp", .. })
+        ));
+        assert!(matches!(
+            known("flsh").map(|known| &known.adapter),
+            Some(Adapter::Flags(["acp"]))
+        ));
+    }
+
+    #[test]
     fn offers_name_each_agent_and_the_session_list() {
         let agents = Agents::new(vec![AgentKind {
             name: "fake".into(),

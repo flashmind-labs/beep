@@ -106,7 +106,7 @@ fn machine_gpu(gpu: GpuInfo) -> MachineGpu {
     }
 }
 
-fn machine_capability(capability: Capability) -> MachineCapability {
+pub(super) fn machine_capability(capability: Capability) -> MachineCapability {
     match capability {
         Capability::Gpu => MachineCapability::Gpu {},
         Capability::Cuda => MachineCapability::Cuda {},
