@@ -383,8 +383,12 @@ pub struct TaskRow {
 pub struct WorkerRow {
     id: Uuid,
     task_id: Uuid,
+    /// The `Machine::id` it runs on.
+    machine_id: String,
     machine_name: String,
     agent: String,
+    /// The node's id for its coding-agent session, once it has started.
+    session: Option<String>,
     folder: String,
     state: &'static str,
     /// Not ended or failed, so it can be stopped.
@@ -561,8 +565,10 @@ fn project_view(parts: ProjectParts) -> ProjectView {
             live: is_live(w.state),
             id: w.id,
             task_id: w.task_id,
+            machine_id: w.machine_id,
             machine_name: w.machine_name,
             agent: w.agent,
+            session: w.session,
             folder: w.folder,
             state: w.state.into(),
             last_output: w.last_output,
