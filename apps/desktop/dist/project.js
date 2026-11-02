@@ -193,6 +193,28 @@ function card(c, act) {
   return el;
 }
 
+/// The cards the project chat waits on, above the board; null without any.
+export function cardsSection(view, act) {
+  if (!view.cards.length) return null;
+  return section("sec-project-needs", "Needs you", "the project chat waits on these", h("div", "pj-needs", ...view.cards.map(c => card(c, act))));
+}
+
+/// The pull requests the project's tasks opened, each linked, with its
+/// task's state and branch.
+export function prsSection(view, act) {
+  const tasks = view.tasks.filter(t => t.pr_url && t.state !== "dropped");
+  if (!tasks.length) {
+    return section("sec-prs", "Pull requests", "", h("div", "cc-panel cc-empty", h("span", "", "No pull requests yet. A task's worker opens one when its work is ready.")));
+  }
+  const rows = tasks.map(t => {
+    const title = h("span", "t", link(prLabel(t.pr_url), t.pr_url, act.openUrl), " ", t.title);
+    title.title = t.title;
+    return h("div", "pj-task", title, chip(t.state), h("span", "m", t.branch ? h("code", "", t.branch) : null));
+  });
+  const open = tasks.filter(t => t.state !== "done").length;
+  return section("sec-prs", "Pull requests", open ? `${open} open` : "", h("div", "cc-panel", ...rows));
+}
+
 /// The project chat: its last turns, the cards it waits on, and a way to
 /// the whole chat.
 export function chatSection(view, act) {
@@ -211,8 +233,9 @@ export function chatSection(view, act) {
   if (act.sending) body.append(h("span", "pj-quiet", h("span", "dspin"), " The project agent is working"));
   for (const c of view.cards) body.append(card(c, act));
   const all = button("Open the whole chat", "quiet small", act.openChat);
-  const el = section("sec-project-chat", "Project chat", "the project agent", body);
-  el.querySelector(".cc-sec").append(all);
+  const el = section("sec-project-chat", "Project chat", "", body);
+  // The note and the button stay together at the right of the title.
+  el.querySelector(".cc-sec").append(h("span", "cc-sec-r", h("small", "", "the project agent"), all));
   return el;
 }
 

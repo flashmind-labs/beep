@@ -247,6 +247,30 @@ export function openOnLabel(url) {
   return host === "github.com" ? "Open on GitHub" : `Open on ${host}`;
 }
 
+/// When a project was first imported, in words: "today", "yesterday",
+/// "3 days ago", "5 weeks ago". `at` and `now` are in milliseconds.
+export function importedWhen(at, now) {
+  const midnight = ms => new Date(ms).setHours(0, 0, 0, 0);
+  const days = Math.round((midnight(now) - midnight(at)) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  return `${Math.round(days / 7)} weeks ago`;
+}
+
+/// The line under a project's name: its host and when it was imported, or
+/// where it came from when it is not imported. `imported` is the server's
+/// imported rows for every project.
+export function projectLine(project, imported, now) {
+  if (!project) return "";
+  if (!project.imported) return "From running agents";
+  let host = "";
+  try { host = new URL(project.url).host; } catch {}
+  const times = (imported || []).filter(r => r.name === project.name && r.imported_at).map(r => r.imported_at);
+  const when = times.length ? `imported ${importedWhen(Math.min(...times), now)}` : "";
+  return [host, when].filter(Boolean).join(" · ");
+}
+
 /// The rows of a project's "Where it lives": every machine, as
 /// `project_machines` gives them (null from a server too old to say, when
 /// the imported folders are listed), each with `kind`:

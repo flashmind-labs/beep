@@ -12,8 +12,9 @@ import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machin
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote } from "./projects-state.js";
-import { agentFor, tasksSection, workersSection, chatSection, startSection } from "./project.js";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine } from "./projects-state.js";
+import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
+import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -962,20 +963,111 @@ function projectDetail(p) {
   const machines = p.imported ? state.where.get(p.name) : null;
   if (p.imported && machines === undefined) loadWhere(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
+  const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
+  const running = (state.home?.running || []).filter(r => p.machines.some(m => inside(r, m)));
+  if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
+  return [...agentTop(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running), ...agentBottom(p)];
+}
+
+/// "Where it lives": every machine with the project's folder there, or why
+/// there is none.
+function whereSection(p, rows, known) {
   const where = h("div", "cc-mt cc-pt", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
   where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
   for (const m of rows) where.append(...whereRow(p, m));
-  const whereEl = section("sec-where", "Where it lives", rows.filter(m => m.kind === "here").length, null, where);
-  if (machines) whereEl.querySelector("h4").append(h("small", "", `on ${whereCount(rows, true)}`));
-  const out = [whereEl];
-  const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
-  const running = (state.home?.running || []).filter(r => p.machines.some(m => inside(r, m)));
+  const el = section("sec-where", "Where it lives", rows.filter(m => m.kind === "here").length, null, where);
+  if (known) el.querySelector("h4").append(h("small", "", `on ${whereCount(rows, true)}`));
+  return el;
+}
+
+/// The coding agents running in the project's folders now.
+function agentsSection(running) {
   const list = running.length
     ? h("div", "cc-panel", ...running.map(runningRow))
     : h("div", "cc-panel cc-empty", h("span", "", "No agent is working in this project right now."));
-  out.push(section("sec-project-agents", "Agents", running.length || "", null, list));
-  out.push(sessionsSection(p, running));
-  return [...agentTop(p), ...out, ...agentBottom(p)];
+  return section("sec-project-agents", "Agents", running.length || "", null, list);
+}
+
+// ---------- Project board ----------
+
+/// How a project with an agent shows: "board" or "list", kept for next time.
+const LAYOUT_KEY = "beep.center.projectLayout";
+let layout = "board";
+try { layout = localStorage.getItem(LAYOUT_KEY) === "list" ? "list" : "board"; } catch {}
+
+function setLayout(to) {
+  layout = to;
+  pa.tile = null;
+  try { localStorage.setItem(LAYOUT_KEY, to); } catch {}
+  redrawProjects();
+  drawTop();
+}
+
+/// The board shows for an imported project whose agent's view has loaded.
+function boardOn(p) {
+  return layout === "board" && p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
+}
+
+/// Opens tile `key` in place of the board, or goes back with null.
+function openTile(key) {
+  pa.tile = key;
+  redrawProjects();
+  $("#main .cc-view")?.scrollTo({ top: 0 });
+}
+
+/// The board: what the project chat waits on, then a tile per kind of
+/// thing, or one tile's full list once its header is clicked.
+function projectBoard(p, rows, known, running) {
+  const pv = state.pview.get(p.name);
+  const view = pv.view;
+  const sessions = state.sessions.get(p.name);
+  if (sessions === undefined) loadSessions(p.name);
+  const out = [];
+  if (pv.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh the project: ${pv.error}`)));
+  const chat = agentBottom(p)[0];
+  if (pa.tile !== "chat") {
+    const needs = cardsSection(view, chatActs(p));
+    if (needs) out.push(needs);
+  }
+  const full = {
+    tasks: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))],
+    prs: () => [prsSection(view, agentActs)],
+    machines: () => [whereSection(p, rows, known)],
+    agents: () => [agentsSection(running), sessionsSection(p, running)],
+    chat: () => [chat],
+  };
+  if (pa.tile && full[pa.tile]) {
+    out.push(backRow(() => openTile(null)), ...full[pa.tile]());
+    return out;
+  }
+  const past = sessions ? pastSessions(sessions, running) : [];
+  const openUrl = agentActs.openUrl;
+  out.push(h("div", "pb-grid",
+    tile("tasks", "Tasks", taskTile(view.tasks), openTile),
+    tile("prs", "Pull requests", prTile(view.tasks), openTile, { openUrl }),
+    tile("machines", "Machines", machineTile(rows), openTile),
+    tile("agents", "Agents", agentTile(running, past), openTile),
+    chatTile(recentTurns(view.turns, pa.sending?.name === p.name ? pa.sending.text : null), openTile)));
+  return out;
+}
+
+/// What the project chat's cards do, for the board and the chat section.
+function chatActs(p) {
+  const agent = agentFor(state.agents, p.name);
+  return { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) };
+}
+
+/// The Board and List switch in the header of a project with an agent.
+function layoutSwitch() {
+  const seg = h("span", "pb-seg");
+  for (const [key, label] of [["board", "Board"], ["list", "List"]]) {
+    const b = h("button", "", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(layout === key));
+    b.addEventListener("click", () => { if (layout !== key) setLayout(key); });
+    seg.append(b);
+  }
+  return seg;
 }
 
 // ---------- Project agent ----------
@@ -985,7 +1077,8 @@ function projectDetail(p) {
 /// way to the project chat, `starting` the project whose chat is being made
 /// and `startError` why that failed. `remembered` is set once the window
 /// made the project chat its current chat.
-const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), sending: null, starting: null, startError: null, remembered: false };
+/// `tile` is the board tile opened in place of the board, null for the board.
+const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), sending: null, starting: null, startError: null, remembered: false, tile: null };
 
 function redrawProjects() {
   if (shown === "projects") drawProjects(views.get("projects").el);
@@ -1043,9 +1136,8 @@ function agentBottom(p) {
   const view = state.pview.get(p.name)?.view;
   if (!view) return [section("sec-project-chat", "Project chat", "", null, h("div", "cc-panel cc-empty", h("span", "", "Reading the project chat…")))];
   return [chatSection(view, {
-    ...agentActs,
+    ...chatActs(p),
     sending: pa.sending?.name === p.name ? pa.sending.text : null,
-    answer: (c, decision, said) => answerCard(agent, c, decision, said),
     openChat: () => go("pane", { chat: { session: agent.chat_id } }),
   })];
 }
@@ -1153,6 +1245,8 @@ async function loadProjectAgent() {
     agentLoading = false;
   }
   redrawProjects();
+  // The header's Board and List switch shows once the project has an agent.
+  if (shown === "projects") drawTop();
   if (agentAgain) { agentAgain = false; loadProjectAgent(); }
 }
 
@@ -1328,18 +1422,20 @@ function drawProjects(el) {
 
 registerView("projects", {
   title() {
-    const tools = [importButton("small")];
-    if (state.picked) {
-      const p = filterProjects(projectRows() || [], state.picked)[0];
-      if (p?.url) tools.unshift(button(`Open on ${hostOf(p.url) === "github.com" ? "GitHub" : hostOf(p.url)}`, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
-      tools.unshift(button("All projects", "quiet small", () => openProjects()));
-    }
-    return { title: state.picked || "Projects", sub: state.picked ? "Project" : "Repositories on your machines", tools };
+    if (!state.picked) return { title: "Projects", sub: "Repositories on your machines", tools: [importButton("small")] };
+    const p = filterProjects(projectRows() || [], state.picked)[0];
+    const tools = [];
+    if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
+    const label = p?.url ? openOnLabel(p.url) : null;
+    if (label) tools.push(button(label, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
+    tools.push(button("All projects", "quiet small", () => openProjects()));
+    return { title: state.picked, sub: projectLine(p, state.home?.projects, Date.now()), tools };
   },
   mount(el, arg) {
     state.picked = arg?.project || null;
     if (state.picked) { state.sessions.delete(state.picked); state.where.delete(state.picked); }
     pa.startError = null;
+    pa.tile = null;
     drawProjects(el);
     if (!state.picked) loadFound();
     refresh();
@@ -1530,6 +1626,11 @@ initSideResize($(".cwin"), $("#side-grip"));
 initPalette({ go, jump, pane, findIcon: IC.find });
 
 document.addEventListener("keydown", e => {
+  // Esc on an opened board tile goes back to the board.
+  if (e.key === "Escape" && shown === "projects" && pa.tile && !e.defaultPrevented) {
+    e.preventDefault();
+    return openTile(null);
+  }
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
   if (key === "k") { e.preventDefault(); return openPalette(); }
