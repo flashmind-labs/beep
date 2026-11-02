@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "../dist/projects-state.js";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "../dist/projects-state.js";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -181,6 +181,16 @@ test("running agents in a project's folders show under Agents, not Sessions", ()
     { machine_id: "m1", id: "s2", last_activity: 4 },
   ];
   assert.deepEqual(pastSessions(sessions, runningIn(project, running)).map(s => s.id), ["s2", "s0"]);
+});
+
+test("a project's sessions redraw only when a read brings a different list", () => {
+  const shown = [{ machine_id: "m1", id: "s1", last_activity: 4 }];
+  assert.deepEqual(nextSessions(undefined, shown), { list: shown, changed: true });
+  assert.deepEqual(nextSessions(shown, structuredClone(shown)), { list: shown, changed: false });
+  const newer = [{ machine_id: "m1", id: "s1", last_activity: 9 }];
+  assert.deepEqual(nextSessions(shown, newer), { list: newer, changed: true });
+  assert.deepEqual(nextSessions(shown, null), { list: shown, changed: false }, "a failed read keeps the list");
+  assert.deepEqual(nextSessions(undefined, null), { list: [], changed: true });
 });
 
 test("open on names GitHub or the host", () => {
