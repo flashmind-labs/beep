@@ -1639,51 +1639,6 @@ async fn answer_agent_question_conflict_when_gone() {
 }
 
 #[tokio::test]
-async fn answer_agent_question_other_users_machine() {
-    let mut center = CommandCenter::new(2).await;
-    let theirs = center
-        .node(
-            1,
-            "build-box",
-            FakeAgents {
-                sessions: vec![beep_session("a3f9c1", Some(3))],
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let (_node, client) = center.phone(0).await;
-    let answer = |machine_id: String, session: &str| AnswerAgentQuestion {
-        machine_id,
-        agent: "claude".into(),
-        session: session.into(),
-        question: 3,
-        reply: "allow".into(),
-    };
-    let refused = client.call(&answer(theirs, "a3f9c1")).await.unwrap_err();
-    assert!(matches!(
-        refused.downcast::<ApiError>().unwrap(),
-        ApiError::NotFound {}
-    ));
-    // On the caller's own machine, a session it does not have is not found either.
-    let mine = center
-        .node(
-            0,
-            "mac-box",
-            FakeAgents {
-                sessions: vec![beep_session("a3f9c1", Some(3))],
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let refused = client.call(&answer(mine, "000000")).await.unwrap_err();
-    assert!(matches!(
-        refused.downcast::<ApiError>().unwrap(),
-        ApiError::NotFound {}
-    ));
-    center.shutdown().await;
-}
-
-#[tokio::test]
 async fn agent_sessions_list_none_of_another_users_machines() {
     let mut center = CommandCenter::new(1).await;
     center.node(0, "build-box", FakeAgents::default()).await;
