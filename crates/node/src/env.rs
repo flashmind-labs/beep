@@ -5,6 +5,7 @@ mod apps;
 mod gpu;
 
 use crate::provision::spawn_env::{self, Scope};
+use crate::syncthing::Syncthing;
 use beep_proto::node::{EnvReport, Login, ToolInfo};
 use std::{env, path::PathBuf, process::Stdio, time::Duration};
 use tokio::time::timeout;
@@ -93,6 +94,7 @@ pub async fn probe() -> EnvReport {
         avds: avds().await,
         apps: apps::apps().await,
         gpus: gpu::gpus().await,
+        syncthing: Syncthing::local().folders().await,
     }
 }
 
