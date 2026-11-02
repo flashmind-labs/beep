@@ -9,8 +9,7 @@ use std::{
     os::unix::net::UnixStream,
 };
 
-const USAGE: &str =
-    "usage: beep-admin rescan [USER_ID]; socket from BEEP_ADMIN_SOCKET, /data/admin.sock if unset";
+const USAGE: &str = "usage: beep-admin rescan [USER_ID] | split-memories USER_ID; socket from BEEP_ADMIN_SOCKET, /data/admin.sock if unset";
 const DEFAULT_SOCKET: &str = "/data/admin.sock";
 
 fn main() -> Result<()> {

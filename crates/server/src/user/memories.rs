@@ -3,21 +3,46 @@
 use super::User;
 use crate::{
     memories::{
-        CURATE_TIMEOUT, Change, DUPLICATE, Exchange, Hit, LEARN_RULES, LEARN_SYSTEM, LEARN_TIMEOUT,
-        LearnKind, LearnOp, Learned, MAX_CURATED, MAX_SCOPES_PER_SWEEP, NEAR,
+        CURATE_TIMEOUT, Change, CurateOp, DUPLICATE, Exchange, Hit, LEARN_RULES, LEARN_SYSTEM,
+        LEARN_TIMEOUT, LearnKind, LearnOp, Learned, MAX_CURATED, MAX_SCOPES_PER_SWEEP, NEAR,
         READING_LEARN_TIMEOUT, RECALLABLE, Reading, Remembered, Signal, Step, clip, core_ids,
         crowded_scopes, curate_prompt, curate_system, curation_needs, hit, learn_prompt,
         parse_curation, parse_learn_ops, plan_curation, reading_prompt, settle,
     },
     protocol::MemorySource,
     starters::Generator,
-    store::{Fact, MemoryRow, Origin, Scope, Superseded},
+    store::{Fact, MAX_MEMORY_ROWS, MemoryRow, Origin, Scope, Scored, Superseded},
 };
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use chrono::Utc;
 use std::{collections::HashMap, time::Instant};
 
 impl User {
+    /// Memories for automatic prompt context. The store's vector score is
+    /// 1 - L2 distance / 2; embeddings are unit vectors.
+    pub(crate) async fn prompt_memories(&self, query: &str) -> Result<Vec<Scored>> {
+        const MIN_COSINE: f32 = 0.7;
+        const MAX_HITS: usize = 8;
+        const CANDIDATES: usize = 32;
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let threshold = 1.0 - ((1.0 - MIN_COSINE) / 2.0).sqrt();
+        let today = self.today().await;
+        Ok(self
+            .store
+            .similar_memories(&self.key, query, threshold, CANDIDATES)
+            .await?
+            .into_iter()
+            .filter(|found| {
+                !found.row.valid.ended(today)
+                    && found.row.valid.from.is_none_or(|from| from <= today)
+            })
+            .take(MAX_HITS)
+            .collect())
+    }
+
     /// Memories that still hold, ranked against `query`, in `scope` when
     /// given. An empty query lists the most recently changed.
     pub async fn search_memories(
@@ -58,9 +83,8 @@ impl User {
             .collect())
     }
 
-    /// Stores a fact. When it says the same as a memory in the same scope,
-    /// that one is replaced and what it said is kept as its history. One
-    /// that only comes close counts toward curating the scope.
+    /// Stores a fact. Identical text in the same scope is reused; similarity
+    /// alone only signals that the scope may need curation.
     pub async fn remember(&self, fact: Fact<'_>) -> Result<Remembered> {
         let scope = fact.scope.clone().unwrap_or_default();
         let closest = self
@@ -68,7 +92,15 @@ impl User {
             .closest_memory(&self.key, fact.content, &scope, NEAR)
             .await?;
         let close = closest.is_some();
-        if let Some(found) = closest.filter(|found| found.score >= DUPLICATE) {
+        if let Some(found) = closest.filter(|found| {
+            found.score >= DUPLICATE
+                && found
+                    .row
+                    .content
+                    .trim()
+                    .eq_ignore_ascii_case(fact.content.trim())
+                && found.row.valid == fact.valid.unwrap_or_default()
+        }) {
             // The new text replaces the old one whole, days included.
             let replacement = Fact {
                 valid: Some(fact.valid.unwrap_or_default()),
@@ -311,28 +343,106 @@ impl User {
             .filter(|row| row.scope == *scope)
             .take(MAX_CURATED)
             .collect();
-        if rows.len() < 2 {
+        self.curate_rows(generator, scope, rows, false).await
+    }
+
+    /// Reviews every existing memory in bounded batches, applying only splits.
+    pub(crate) async fn split_existing_memories(&self, generator: Generator<'_>) -> Result<usize> {
+        let rows = self.memory_rows().await?;
+        ensure!(
+            rows.len() < MAX_MEMORY_ROWS,
+            "too many memories for a complete split pass"
+        );
+        let mut scopes: HashMap<Scope, Vec<MemoryRow>> = HashMap::new();
+        for row in rows {
+            scopes.entry(row.scope.clone()).or_default().push(row);
+        }
+        let mut changed = 0;
+        for (scope, rows) in scopes {
+            for batch in rows.chunks(20) {
+                changed += self
+                    .curate_rows(generator, &scope, batch.to_vec(), true)
+                    .await?;
+            }
+        }
+        Ok(changed)
+    }
+
+    async fn curate_rows(
+        &self,
+        generator: Generator<'_>,
+        scope: &Scope,
+        rows: Vec<MemoryRow>,
+        split_only: bool,
+    ) -> Result<usize> {
+        if rows.is_empty() {
             return Ok(0);
         }
         let today = self.today().await;
         let attempt = async {
-            let answer = generator
-                .text(&curate_system(scope), curate_prompt(&rows, today))
-                .await?;
+            let mut system = curate_system(scope);
+            if split_only {
+                system.push_str(" This pass only splits memories. Return only split operations, or an empty ops list. Do not merge, update, supersede or forget anything.");
+            }
+            let answer = generator.text(&system, curate_prompt(&rows, today)).await?;
             parse_curation(&answer)
         };
         let curation = tokio::time::timeout(CURATE_TIMEOUT, attempt)
             .await
             .map_err(|_| anyhow::anyhow!("curation timed out"))??;
         let by_id: HashMap<&str, &MemoryRow> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
-        let plan = plan_curation(curation.ops, &by_id, today);
+        let ops = curation
+            .ops
+            .into_iter()
+            .filter(|op| !split_only || matches!(op, CurateOp::Split { .. }))
+            .collect();
+        let plan = plan_curation(ops, &by_id, today);
         let core = curation
             .core
-            .filter(|_| *scope == Scope::User)
+            .filter(|_| !split_only && *scope == Scope::User)
             .map(|core| core_ids(core, &plan, &by_id));
         let mut changed = 0;
         for step in plan {
             match step {
+                Step::Split { id, contents } => {
+                    let Some(row) = by_id.get(id.as_str()) else {
+                        continue;
+                    };
+                    // A quote for the combined memory may contain facts the
+                    // user later deletes separately.
+                    let origin = row.origin.as_ref().map(|origin| Origin {
+                        reference: origin.reference.clone(),
+                        quote: None,
+                    });
+                    // Save the new facts first, so an interrupted split keeps the original.
+                    for content in contents.iter().skip(1) {
+                        self.store
+                            .add_memory(
+                                &self.key,
+                                Fact {
+                                    content,
+                                    category: Some(&row.category),
+                                    source: row.source,
+                                    valid: Some(row.valid),
+                                    origin: origin.clone(),
+                                    scope: Some(row.scope.clone()),
+                                },
+                            )
+                            .await?;
+                        changed += 1;
+                    }
+                    let fact = Fact {
+                        content: &contents[0],
+                        category: Some(&row.category),
+                        source: row.source,
+                        valid: Some(row.valid),
+                        origin,
+                        scope: Some(row.scope.clone()),
+                    };
+                    // Keeping the combined text as history would make a later
+                    // deletion of one split fact leave that fact in history.
+                    changed += usize::from(self.store.update_memory(&self.key, &id, fact).await?);
+                }
                 Step::Forget(id) => {
                     changed += usize::from(self.forget(&id).await?);
                 }
@@ -430,7 +540,10 @@ impl User {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{memories, store::TestDb};
+    use crate::{
+        memories,
+        store::{TestDb, Validity},
+    };
     use async_trait::async_trait;
     use flashmind::types::{
         AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider,
@@ -585,6 +698,129 @@ mod tests {
         "Works remotely for Acme building mobile apps with the design team from Porto every week.";
 
     #[tokio::test]
+    async fn similar_memories_do_not_replace_each_other() {
+        let db = TestDb::new().await.unwrap();
+        let alice = User::for_test(db.store().await.unwrap(), "alice");
+        let first = alice.remember(fact(AT_ACME)).await.unwrap();
+        let second = alice.remember(fact(MOVED)).await.unwrap();
+        assert!(!second.replaced);
+        assert_ne!(first.id, second.id);
+        let rows = alice.memory_rows().await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().any(|row| row.content == AT_ACME));
+        assert!(rows.iter().any(|row| row.content == MOVED));
+    }
+
+    #[tokio::test]
+    async fn automatic_recall_uses_cosine_threshold_and_current_owned_memories() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = User::for_test(store.clone(), "alice");
+        let bob = User::for_test(store, "bob");
+        let today = alice.today().await;
+        let high = alice
+            .store
+            .add_memory(&alice.key, fact("alpha bravo echo golf"))
+            .await
+            .unwrap();
+        alice
+            .store
+            .add_memory(&alice.key, fact("alpha bravo golf charlie"))
+            .await
+            .unwrap();
+        alice
+            .store
+            .add_memory(
+                &alice.key,
+                Fact {
+                    valid: Some(Validity {
+                        from: Some(today.succ_opt().unwrap()),
+                        until: None,
+                    }),
+                    ..fact("alpha bravo echo foxtrot")
+                },
+            )
+            .await
+            .unwrap();
+        alice
+            .store
+            .add_memory(
+                &alice.key,
+                Fact {
+                    valid: Some(Validity {
+                        from: None,
+                        until: Some(today.pred_opt().unwrap()),
+                    }),
+                    ..fact("alpha bravo echo foxtrot")
+                },
+            )
+            .await
+            .unwrap();
+        bob.store
+            .add_memory(&bob.key, fact("alpha bravo echo foxtrot"))
+            .await
+            .unwrap();
+        let found = alice
+            .prompt_memories("alpha bravo echo foxtrot")
+            .await
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].row.id, high);
+        assert!(alice.prompt_memories("  ").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn curation_splits_a_memory_and_preserves_its_metadata() {
+        let db = TestDb::new().await.unwrap();
+        let alice = User::for_test(db.store().await.unwrap(), "alice");
+        let scope = Scope::project("example").unwrap();
+        let origin = Origin {
+            reference: "session-1".into(),
+            quote: Some("two facts".into()),
+        };
+        let id = alice
+            .remember(Fact {
+                content: "The project uses Rust and runs on Linux.",
+                category: Some("work"),
+                source: MemorySource::Learned {},
+                valid: None,
+                origin: Some(origin.clone()),
+                scope: Some(scope.clone()),
+            })
+            .await
+            .unwrap()
+            .id;
+        let answer = Answer(format!(
+            r#"{{"ops":[{{"op":"forget","id":"{id}"}},{{"op":"split","id":"{id}","contents":["The project uses Rust.","The project runs on Linux."]}}]}}"#
+        ));
+        let llm = llm();
+        let generator = Generator {
+            provider: &answer,
+            llm: &llm,
+            user: "alice",
+        };
+        alice.split_existing_memories(generator).await.unwrap();
+        let rows = alice.memory_rows().await.unwrap();
+        assert_eq!(rows.len(), 2);
+        for content in ["The project uses Rust.", "The project runs on Linux."] {
+            let row = rows.iter().find(|row| row.content == content).unwrap();
+            assert_eq!(
+                row.origin.as_ref().map(|origin| origin.reference.as_str()),
+                Some(origin.reference.as_str())
+            );
+            assert!(
+                row.origin
+                    .as_ref()
+                    .is_some_and(|origin| origin.quote.is_none())
+            );
+            assert_eq!(row.scope, scope);
+            assert_eq!(row.category, "work");
+            assert_eq!(row.source, MemorySource::Learned {});
+        }
+        assert!(alice.memory_history(&id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn a_replaced_memory_is_kept_as_hidden_history() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
@@ -596,9 +832,7 @@ mod tests {
             alice.memory_history(&first.id).await.unwrap().is_empty(),
             "the same words change nothing to keep"
         );
-        let moved = alice.remember(fact(MOVED)).await.unwrap();
-        assert!(moved.replaced);
-        assert_eq!(moved.id, first.id);
+        assert!(alice.replace_memory(&first.id, fact(MOVED)).await.unwrap());
 
         let history = alice.memory_history(&first.id).await.unwrap();
         assert_eq!(history.len(), 1);
@@ -647,7 +881,7 @@ mod tests {
         let first = alice.remember(fact(AT_ACME)).await.unwrap();
         for round in 0..8 {
             let text = if round % 2 == 0 { MOVED } else { AT_ACME };
-            alice.remember(fact(text)).await.unwrap();
+            alice.replace_memory(&first.id, fact(text)).await.unwrap();
         }
         assert_eq!(alice.memory_history(&first.id).await.unwrap().len(), 5);
     }

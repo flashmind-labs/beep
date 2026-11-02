@@ -67,6 +67,7 @@ pub use findings::{FindingRow, NewFinding, SeenIn, Sighting};
 pub(crate) use grants::{GrantRow, NewGrant};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub use location::Location;
+pub(crate) use memories::MAX_ROWS as MAX_MEMORY_ROWS;
 pub use memories::{Fact, Scope, Scored, Superseded, WordEmbedder};
 pub use merge::{Invite, Inviter, Merge, MergeInto};
 pub use messages::{Role, Step, StepBody, StoredBody, StoredMessage, TurnRecord};
