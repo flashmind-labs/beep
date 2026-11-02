@@ -8,7 +8,7 @@
 //! session, and a transcript written in the last minutes counts as active.
 
 use super::{procs::Process, transcript};
-use crate::found::{Agent, Seen as Sighting};
+use crate::found::{Agent, Memo, Seen as Sighting};
 use beep_proto::node::agent::{ExternalSession, Presence};
 use serde::Deserialize;
 use std::{
@@ -16,6 +16,7 @@ use std::{
     collections::{HashMap, HashSet},
     env, fs, io,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -30,12 +31,43 @@ const MAX_PID_FILE: u64 = 64 * 1024;
 const MAX_FOLDERS: usize = 1_000;
 /// The most transcript heads read in one folder for where it is.
 const HEADS_PER_FOLDER: usize = 3;
+/// The most transcript summaries kept.
+const MAX_SUMMARIES: usize = 1_000;
 
 /// Where Claude Code keeps its state, `~/.claude` unless
 /// `CLAUDE_CONFIG_DIR` says otherwise.
 #[derive(Debug, Clone)]
 pub(crate) struct Store {
     root: PathBuf,
+    memos: Arc<Memos>,
+}
+
+/// What transcripts said, kept while they are unchanged.
+#[derive(Debug)]
+struct Memos {
+    /// The folder each transcript's head names.
+    cwds: Memo<Option<String>>,
+    summaries: Memo<Summary>,
+}
+
+impl Default for Memos {
+    fn default() -> Self {
+        Self {
+            cwds: Memo::new(MAX_FOLDERS * HEADS_PER_FOLDER * 2),
+            summaries: Memo::new(MAX_SUMMARIES),
+        }
+    }
+}
+
+/// What a transcript says, as a listing shows it.
+#[derive(Debug, Clone)]
+struct Summary {
+    cwd: Option<String>,
+    title: Option<String>,
+    last_prompt: String,
+    last_message: String,
+    /// Unix seconds.
+    started_at: u64,
 }
 
 /// One transcript file.
@@ -75,13 +107,17 @@ impl Store {
             Some(dir) if !dir.is_empty() => PathBuf::from(dir),
             _ => dirs::home_dir()?.join(".claude"),
         };
-        root.join("projects").is_dir().then_some(Self { root })
+        root.join("projects").is_dir().then(|| Self {
+            root,
+            memos: Arc::default(),
+        })
     }
 
     #[cfg(test)]
     pub(super) fn at(root: &Path) -> Self {
         Self {
             root: root.to_owned(),
+            memos: Arc::default(),
         }
     }
 
@@ -195,7 +231,7 @@ pub(super) fn list(
         let newest = newest_in_folder
             .get(folder_of(transcript))
             .is_some_and(|id| *id == transcript.id);
-        sessions.push(describe(transcript, newest, snapshot)?);
+        sessions.push(describe(store, transcript, newest, snapshot)?);
     }
     Ok(sessions)
 }
@@ -213,7 +249,7 @@ pub(super) fn list_ids(
         let newest = newest_in_folder
             .get(folder_of(transcript))
             .is_some_and(|id| *id == transcript.id);
-        sessions.push(describe(transcript, newest, snapshot)?);
+        sessions.push(describe(store, transcript, newest, snapshot)?);
     }
     Ok(sessions)
 }
@@ -235,11 +271,10 @@ pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
     folders.sort_by_key(|transcripts| Reverse(transcripts.first().map(|t| t.modified)));
     let mut out = Vec::new();
     for transcripts in folders.into_iter().take(MAX_FOLDERS) {
-        let Some(cwd) = transcripts
-            .iter()
-            .take(HEADS_PER_FOLDER)
-            .find_map(|t| transcript::head(&t.path).ok()?.cwd)
-        else {
+        let Some(cwd) = transcripts.iter().take(HEADS_PER_FOLDER).find_map(|t| {
+            let read = || transcript::head(&t.path).map(|head| head.cwd);
+            store.memos.cwds.read(&t.path, read).ok()?
+        }) else {
             continue;
         };
         for transcript in transcripts {
@@ -278,18 +313,35 @@ fn newest_by_folder(all: &[Transcript]) -> HashMap<&str, &str> {
     newest
 }
 
-fn describe(
-    transcript: &Transcript,
-    newest_in_folder: bool,
-    snapshot: &Snapshot,
-) -> io::Result<ExternalSession> {
+/// What `transcript` says, read from its tail (and its head for when it
+/// started, when the file system does not say).
+fn summary(transcript: &Transcript) -> io::Result<Summary> {
     let (digest, _) = transcript::digest_tail(&transcript.path, 0)?;
-    let started = transcript
+    let started_at = transcript
         .created
         .map(unix)
         .filter(|at| *at > 0)
         .or(transcript::started_at(&transcript.path)?)
         .unwrap_or(0);
+    Ok(Summary {
+        title: digest.title().map(str::to_owned),
+        last_prompt: digest.prompt().unwrap_or("").to_owned(),
+        last_message: digest.last_message.clone().unwrap_or_default(),
+        cwd: digest.cwd,
+        started_at,
+    })
+}
+
+fn describe(
+    store: &Store,
+    transcript: &Transcript,
+    newest_in_folder: bool,
+    snapshot: &Snapshot,
+) -> io::Result<ExternalSession> {
+    let summary = store
+        .memos
+        .summaries
+        .read(&transcript.path, || summary(transcript))?;
     let found = presence(
         &Seen {
             id: &transcript.id,
@@ -302,14 +354,14 @@ fn describe(
     Ok(ExternalSession {
         id: transcript.id.clone(),
         agent: "claude".to_owned(),
-        cwd: digest.cwd.clone().unwrap_or_default(),
-        title: digest.title().map(str::to_owned),
-        started_at: started,
+        cwd: summary.cwd.unwrap_or_default(),
+        title: summary.title,
+        started_at: summary.started_at,
         last_activity: unix(transcript.modified),
         presence: found.presence,
         pid: found.pid,
-        last_prompt: digest.prompt().unwrap_or("").to_owned(),
-        last_message: digest.last_message.clone().unwrap_or_default(),
+        last_prompt: summary.last_prompt,
+        last_message: summary.last_message,
         taken_over: snapshot.owned.get(&transcript.id).cloned(),
     })
 }
@@ -554,5 +606,42 @@ mod tests {
         assert!(store.find(ID).is_some());
         assert!(store.find("../x").is_none());
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_transcript_is_read_again_only_once_it_changed() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        let project = root.path().join("projects").join("-srv-project");
+        fs::create_dir_all(&project).expect("folders");
+        let path = project.join(format!("{ID}.jsonl"));
+        fs::write(&path, FIXTURE).expect("a transcript");
+        let store = Store::at(root.path());
+        let snapshot = Snapshot::default();
+        let ids = HashSet::from([ID.to_owned()]);
+        let prompt = |store: &Store| {
+            let listed = list_ids(store, &snapshot, &ids).expect("the listing");
+            listed[0].last_prompt.clone()
+        };
+        assert_eq!(prompt(&store), "now run the whole suite");
+
+        // The same length and modification time: taken as unchanged.
+        let modified = fs::metadata(&path)
+            .and_then(|meta| meta.modified())
+            .expect("a modification time");
+        fs::write(&path, FIXTURE.replace("whole suite", "whole thing")).expect("a rewrite");
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .and_then(|file| file.set_modified(modified))
+            .expect("the old time back");
+        assert_eq!(prompt(&store), "now run the whole suite");
+        assert_eq!(
+            prompt(&Store::at(root.path())),
+            "now run the whole thing",
+            "a new store reads the file"
+        );
+
+        fs::write(&path, FIXTURE.replace("whole suite", "net tests")).expect("a change");
+        assert_eq!(prompt(&store), "now run the net tests");
     }
 }
