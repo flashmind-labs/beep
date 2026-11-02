@@ -54,7 +54,7 @@ export function machineById(machines, id) {
 
 const OS_NAMES = { linux: "Linux", macos: "macOS", windows: "Windows" };
 const TOOL_NAMES = {
-  docker: "Docker", claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI",
+  docker: "Docker", claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode",
   xcodebuild: "Xcode", adb: "Android SDK", node: "Node", cargo: "Rust", python3: "Python", go: "Go",
 };
 
