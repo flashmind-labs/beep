@@ -22,11 +22,13 @@ build-android:
 
 # Run the macOS desktop app from source
 desktop-dev:
+    cd apps/desktop && npm ci --silent
     cd apps/desktop/src-tauri && cargo tauri dev
 
 # Build the desktop DMG. Locally it uses thin LTO and parallel codegen, which
 # builds several times faster; the release workflow keeps full LTO.
 desktop-build:
+    cd apps/desktop && npm ci --silent
     cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 CARGO_PROFILE_RELEASE_INCREMENTAL=true cargo tauri build --bundles app
     bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
 
@@ -125,7 +127,8 @@ links-deploy:
 
 # Format, lint and test the desktop app
 desktop-check:
-    cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ../../.. && node --test apps/desktop/tests/*.test.mjs
+    cd apps/desktop && npm ci --silent && npm run build && npm run check
+    cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 
 # Build the iOS app for the simulator (Rust bridge, bindings, Xcode project)
 ios-build:
