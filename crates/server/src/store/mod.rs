@@ -82,7 +82,9 @@ pub(crate) use projects::{
 };
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
-pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
+pub use sessions::{
+    DeletedTurn, FoundSession, QuietSession, SessionRef, StoredContext, TurnsToDelete,
+};
 pub use shares::{CopiedShare, Share};
 pub use skills::{NewSkill, Review, SKILL_LIMIT, SkillOwner, SkillPatch, SkillRow};
 pub use test_db::{TestDb, TestTurn, test_chat, test_steps, test_turn, test_turn_with};

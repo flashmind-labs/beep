@@ -38,6 +38,21 @@ struct Choice {
     sees_images: bool,
 }
 
+#[cfg(test)]
+impl ModelChoices {
+    /// Offers `model` besides the ones already offered.
+    pub(crate) fn offering(mut self, model: Model) -> Self {
+        self.choices.push(Choice {
+            name: model.name().to_owned(),
+            model,
+            input_price: None,
+            output_price: None,
+            sees_images: false,
+        });
+        self
+    }
+}
+
 impl ModelChoices {
     /// Only the default.
     pub fn only(default: Model) -> Self {
@@ -204,6 +219,11 @@ impl ModelChoices {
     /// The provider routing for `model`, when it has its own.
     pub fn routing(&self, model: &Model) -> Option<&ProviderPreferences> {
         self.routing.get(model)
+    }
+
+    /// Every offered model.
+    pub fn all(&self) -> impl Iterator<Item = &Model> {
+        self.choices.iter().map(|choice| &choice.model)
     }
 
     pub fn default_model(&self) -> &Model {
