@@ -67,3 +67,14 @@ export function versionLine(v) {
   if (!v) return "Not saved yet";
   return [`Version ${v.version}`, v.note].filter(Boolean).join(" · ");
 }
+
+/// The "Your instructions" line under How agents see it: which version
+/// agents get and on how many machines, once the files were read.
+export function mineLayer(newest, summary) {
+  if (!newest) return "Nothing saved yet, so agents get only the other layers";
+  const ver = `Version ${newest.version}, between Beep's markers in each agent's file`;
+  if (!summary) return `${ver}. Sync shows which machines have it`;
+  if (!summary.machines) return `${ver}. No machine with a coding agent is online`;
+  if (summary.synced === summary.machines) return `${ver}. On ${summary.machines === 1 ? "your 1 machine" : `all ${summary.machines} machines`}`;
+  return `${ver}. On ${summary.synced} of ${summary.machines} machines; Sync writes the rest`;
+}

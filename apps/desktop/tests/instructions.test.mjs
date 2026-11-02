@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, agentName } from "../dist/instructions-state.js";
+import { sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, agentName, mineLayer } from "../dist/instructions-state.js";
 
 test("an agent file loses Beep's own block when imported", () => {
   const file = "# Mine\n- Run the checks.\n\n<!-- beep:start -->\n- Write plainly.\n<!-- beep:end -->\n\n## After\n";
@@ -36,4 +36,14 @@ test("a machine is synced when every agent file on it is", () => {
   assert.deepEqual(syncSummary(read), { machines: 2, synced: 1 });
   assert.equal(fileState({ synced: false, text: null }).text, "Not written yet");
   assert.equal(fileState({ synced: false, text: "x" }).cls, "warn");
+});
+
+test("the layer for your instructions says which version and where", () => {
+  assert.match(mineLayer(null, null), /Nothing saved yet/);
+  const v = { version: 7 };
+  assert.match(mineLayer(v, null), /^Version 7, .*Sync shows/);
+  assert.match(mineLayer(v, { machines: 0, synced: 0 }), /No machine/);
+  assert.match(mineLayer(v, { machines: 3, synced: 3 }), /On all 3 machines$/);
+  assert.match(mineLayer(v, { machines: 1, synced: 1 }), /On your 1 machine$/);
+  assert.match(mineLayer(v, { machines: 3, synced: 2 }), /On 2 of 3 machines; Sync writes the rest$/);
 });
