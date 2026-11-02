@@ -27,6 +27,7 @@ mod devices;
 mod findings;
 mod grants;
 mod groups;
+mod instructions;
 mod live;
 mod location;
 mod machines;
@@ -218,6 +219,11 @@ pub fn router() -> Router {
         .call(projects::stop_project_worker)
         .call(projects::list_projects)
         .call(projects::list_project_overview)
+        .call(instructions::get_instructions)
+        .call(instructions::save_instructions)
+        .call(instructions::list_instructions_versions)
+        .call(instructions::read_agent_files)
+        .call(instructions::sync_agent_files)
         .call(projects::list_project_issues)
         .call(projects::track_project_issue)
         .call(projects::dismiss_project_issue)

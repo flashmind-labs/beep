@@ -109,6 +109,7 @@ pub(crate) enum CenterTarget {
     Skills,
     Apps,
     Settings,
+    Instructions,
 }
 
 /// The view the window goes to next. It is read once, so a reload does not

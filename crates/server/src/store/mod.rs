@@ -26,7 +26,9 @@ mod grants;
 mod groups;
 mod habits;
 mod instance;
+mod instructions;
 pub(crate) use habits::DuplicateHabit;
+pub(crate) use instructions::{InstructionsRow, Saved};
 mod location;
 mod memories;
 mod merge;
@@ -393,6 +395,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         65,
         "projects on top",
         include_str!("../../migrations/0065_projects_on_top.sql"),
+    ),
+    (
+        66,
+        "instructions",
+        include_str!("../../migrations/0066_instructions.sql"),
     ),
 ];
 

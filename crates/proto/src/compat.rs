@@ -91,6 +91,9 @@ sample_struct! {
     ProjectIssue { number, title, labels, author, opened_at, comments, url }
     ProjectOverview { project_id, name, tasks, workers, latest }
     TaskCounts { planned, running, blocked, review, done }
+    InstructionsVersion { version, text, note, saved_at }
+    MachineAgentFiles { machine_id, machine_name, files, error }
+    AgentFile { agent, path, text, synced }
     IssueStart { agent, node_id }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }

@@ -1030,6 +1030,27 @@ impl User {
         self.store.pin_project(&self.key, project, pinned).await
     }
 
+    /// The newest `limit` versions of the user's instructions, newest
+    /// first.
+    pub(crate) async fn instructions_versions(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<crate::store::InstructionsRow>> {
+        self.store.instructions_versions(&self.key, limit).await
+    }
+
+    /// Saves the user's instructions as the version after `base`.
+    pub(crate) async fn save_instructions(
+        &self,
+        base: Option<u32>,
+        text: &str,
+        note: &str,
+    ) -> Result<crate::store::Saved> {
+        self.store
+            .save_instructions(&self.key, base, text, note)
+            .await
+    }
+
     /// The projects pinned to the top of the sidebar, oldest pin first.
     pub async fn projects_on_top(&self) -> Result<Vec<String>> {
         self.store.projects_on_top(&self.key).await
