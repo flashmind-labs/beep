@@ -117,10 +117,13 @@ fn main() {
                 }
             }
             WindowEvent::Destroyed => {
-                if window.label() == center::LABEL {
+                if center::is_center(window.label()) {
                     // Its chat is not on screen any more, so its notices must
                     // not be held back as seen.
-                    window.app_handle().state::<center::Shown>().clear();
+                    window
+                        .app_handle()
+                        .state::<center::Shown>()
+                        .clear(window.label());
                 }
                 research::closed(window.app_handle(), window.label());
             }
@@ -143,6 +146,8 @@ fn main() {
             center::center_dismiss_updates,
             center::center_open,
             center::center_pending,
+            center::center_open_project_window,
+            center::center_window_project,
             palette::center_palette,
             palette::center_palette_branches,
             palette::center_find,
@@ -501,7 +506,7 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
         {
             let _ = app.emit("work-question", question);
         }
-        let showing = app.state::<center::Shown>().get();
+        let showing = focused_center(&app);
         if center::on_screen(
             &seen(&app, beep.session(), showing.session),
             &notice.session_id,
@@ -545,7 +550,7 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
         return;
     }
     // An approval still notifies: the bar may be on another chat by then.
-    let showing = app.state::<center::Shown>().get();
+    let showing = focused_center(app);
     if center::on_screen(&seen(app, beep.group(), showing.group), &id) && notice.approval.is_none()
     {
         return;
@@ -553,16 +558,25 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
     notify(app, &notice);
 }
 
-/// What is on screen: the bar's chat while the bar is open, the command
-/// center's while its window has focus.
-fn seen(app: &AppHandle, bar: Option<String>, window: Option<String>) -> center::Seen {
+/// What the command center window with focus shows, the main one or a
+/// project's; nothing while none has focus.
+fn focused_center(app: &AppHandle) -> center::Showing {
     let focused = app
-        .get_webview_window(center::LABEL)
-        .and_then(|w| w.is_focused().ok())
-        .unwrap_or(false);
+        .webview_windows()
+        .into_iter()
+        .find(|(label, w)| center::is_center(label) && w.is_focused().unwrap_or(false));
+    match focused {
+        Some((label, _)) => app.state::<center::Shown>().get(&label),
+        None => center::Showing::default(),
+    }
+}
+
+/// What is on screen: the bar's chat while the bar is open, and `window`,
+/// what the focused command center window shows.
+fn seen(app: &AppHandle, bar: Option<String>, window: Option<String>) -> center::Seen {
     center::Seen {
         bar: bar.filter(|_| bar::is_open(app)),
-        window: window.filter(|_| focused),
+        window,
     }
 }
 

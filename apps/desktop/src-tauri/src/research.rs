@@ -130,16 +130,19 @@ fn open_windows<R: Runtime>(app: &AppHandle<R>, closing: Option<&str>) -> usize 
         .count()
 }
 
-/// Whether the command center is open, leaving out `closing`.
+/// Whether a command center window, the main one or a project's, is open,
+/// leaving out `closing`.
 fn center_open<R: Runtime>(app: &AppHandle<R>, closing: &str) -> bool {
-    closing != center::LABEL && app.get_webview_window(center::LABEL).is_some()
+    app.webview_windows()
+        .keys()
+        .any(|label| label != closing && center::is_center(label))
 }
 
-/// Research windows and the command center are ordinary windows: while
-/// one is open Beep sits in the Dock and Cmd-Tab, and goes back to the
-/// menu bar once the last closes.
+/// Research windows and the command center windows are ordinary windows:
+/// while one is open Beep sits in the Dock and Cmd-Tab, and goes back to
+/// the menu bar once the last closes.
 pub fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    if (label.starts_with(PREFIX) || label == center::LABEL)
+    if (label.starts_with(PREFIX) || center::is_center(label))
         && open_windows(app, Some(label)) == 0
         && !center_open(app, label)
         && let Err(e) = app.set_activation_policy(ActivationPolicy::Accessory)
