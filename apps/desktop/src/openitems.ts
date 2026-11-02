@@ -140,7 +140,7 @@ export function itemChips(item: Item & Pick<GitItemRow, "draft" | "assigned">) {
 /// project is imported, the folder on an online machine that has it.
 export function reviewStart(
   item: Pick<GitItemRow, "host" | "url">,
-  project: { machines?: readonly { id: string; folder: string }[] } | null | undefined,
+  project: { name?: string; machines?: readonly { id: string; folder: string }[] } | null | undefined,
   machines: readonly { id: string; online: boolean }[] | null | undefined,
 ) {
   const tool = item.host === "github.com" ? "gh" : "teacli";
@@ -148,7 +148,7 @@ export function reviewStart(
   const online = new Set((machines || []).filter(m => m.online).map(m => m.id));
   const at = project?.machines?.find(m => online.has(m.id) && m.folder) || null;
   const places = (project?.machines || []).filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
-  return { prompt, at: at ? { machine: at.id, cwd: at.folder, places } : null };
+  return { prompt, at: at ? { machine: at.id, cwd: at.folder, places, ...(project?.name ? { project: project.name } : {}) } : null };
 }
 
 /// The first message of the chat Reply opens.

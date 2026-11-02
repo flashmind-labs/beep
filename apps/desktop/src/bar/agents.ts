@@ -1,4 +1,5 @@
-import { drawAgentNew, renderAgentNew, startAgent } from "./agentnew.ts";
+import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
+import type { CheckoutPick } from "./agentpick.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
 import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "./core.ts";
@@ -115,6 +116,18 @@ export interface AgentForm {
   model?: string;
   /// The machine and agent `model` was picked for, as `machine/agent`.
   modelFor?: string;
+  /// The thinking level picked; null for the agent's own.
+  effort?: string | null;
+  /// The project the form was opened from, for its heading.
+  project?: string | null;
+  /// In a checkout: Auto, the checkout, a new worktree or an existing one.
+  checkout?: CheckoutPick;
+  /// The open popover: the harness picker, or the Machine or Folder menu.
+  open?: "pick" | "host" | "folder" | null;
+  /// What the picker's search holds.
+  query?: string;
+  /// Whether the Folder button is a field to type a folder in.
+  typing?: boolean;
 }
 
 /// What `agent_steer` sends: a message, or stop the turn, or close the session.
@@ -765,6 +778,7 @@ export function drawAgents(loading: boolean) {
 export function agentKeys(e: KeyboardEvent, cmd: boolean) {
   if (S.view === "agentnew") {
     if (cmd && e.key === "Enter") { e.preventDefault(); startAgent(); return true; }
+    if (cmd && e.key.toLowerCase() === "m") { e.preventDefault(); togglePicker(); return true; }
     return false;
   }
   if (S.view === "agent") {

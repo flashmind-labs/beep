@@ -1,4 +1,4 @@
-import { renderAgentNew } from "./agentnew.ts";
+import { closeAgentNewMenus, renderAgentNew } from "./agentnew.ts";
 import { agentBack, agentKeys } from "./agents.ts";
 import { A, addServer, drawApps, drawMcpTools, renderApps } from "./apps.ts";
 import { attachedCount, unattach } from "./attach.ts";
@@ -29,6 +29,7 @@ const decision = (e: KeyboardEvent) => e.altKey ? "always" : e.shiftKey ? "sessi
 const backToChat = () => S.session ? openSession(S.session) : renderChat();
 
 export function back() {
+  if (closeAgentNewMenus()) return;
   if (S.view === "agent" || S.view === "agentnew" || S.view === "agents") return agentBack();
   if (S.view === "chats") {
     if (S.chats.mode !== "list") return chatMode("list");
@@ -144,7 +145,9 @@ document.addEventListener("keydown", e => {
   // A key meant for the sidebar (Enter on a row) is not the pane's.
   const t = target(e);
   if (PANE && !cmd && t !== document.body && !bar.contains(t)) return;
-  if (PANE && cmd && WINDOW_KEYS.has(e.key.toLowerCase())) return;
+  // ⌘M picks the model while the start form shows.
+  const formKey = S.view === "agentnew" && e.key.toLowerCase() === "m";
+  if (PANE && cmd && WINDOW_KEYS.has(e.key.toLowerCase()) && !formKey) return;
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (LV.on && liveKeys(e, cmd)) return;
   if (cmd && e.key === "/") { e.preventDefault(); return toggleKeys(); }
