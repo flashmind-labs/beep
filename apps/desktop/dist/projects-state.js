@@ -271,6 +271,22 @@ export function projectLine(project, imported, now) {
   return [host, when].filter(Boolean).join(" · ");
 }
 
+/// The sidebar's project rows grouped by GitHub org or user: an `{ org }`
+/// heading, then that org's projects with `repo` set to the name after the
+/// slash. Projects without an org come last, under no heading. Each keeps
+/// `i`, its place in `rows`, so its colour does not change with grouping.
+export function sideProjects(rows) {
+  const orgs = new Map(), loose = [];
+  (rows || []).forEach((p, i) => {
+    const cut = p.name.indexOf("/");
+    if (cut <= 0) return loose.push({ ...p, i });
+    const org = p.name.slice(0, cut);
+    if (!orgs.has(org)) orgs.set(org, []);
+    orgs.get(org).push({ ...p, i, repo: p.name.slice(cut + 1) });
+  });
+  return [...[...orgs].flatMap(([org, list]) => [{ org }, ...list]), ...loose];
+}
+
 /// The rows of a project's "Where it lives": every machine, as
 /// `project_machines` gives them (null from a server too old to say, when
 /// the imported folders are listed), each with `kind`:
