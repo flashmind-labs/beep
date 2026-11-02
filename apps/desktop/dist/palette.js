@@ -14,7 +14,7 @@ const ICONS = {
   routine: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>',
 };
 
-const GROUPS = { action: "Actions", setting: "Settings", project: "Projects", code: "Projects and code", chat: "Chats", memory: "Memories", routine: "Routines", machine: "Machines" };
+const GROUPS = { action: "Actions", setting: "Settings", project: "Projects", code: "Projects and code", branch: "Projects and code", chat: "Chats", memory: "Memories", routine: "Routines", machine: "Machines" };
 /// Where each action goes: a pane view, or Home.
 const ACTION_VIEWS = { all_chats: "chats", memories: "memories", routines: "routines", skills: "skills", apps: "apps", settings: "settings" };
 
@@ -80,6 +80,11 @@ export function openPalette() {
   // The lists are fetched once, before the first search.
   ready = invoke("center_palette").catch(e => console.warn("loading the palette:", e));
   search("");
+  // Branches are read on the machines, so they come in later.
+  const opened = ready;
+  ready.then(() => invoke("center_palette_branches"))
+    .then(() => { if (ready === opened && query.trim()) search(query); })
+    .catch(e => console.warn("reading branches for the palette:", e));
 }
 
 function close() {
@@ -123,10 +128,10 @@ function draw(q) {
   const rows = [];
   let group = null;
   hits.forEach((hit, i) => {
-    const next = hit.top ? "top" : hit.kind;
+    const next = hit.top ? "top" : GROUPS[hit.kind];
     if (next !== group) {
       group = next;
-      rows.push(el("h5", "", hit.top ? "Top hit" : group === "chat" && !q ? "Recent chats" : GROUPS[group]));
+      rows.push(el("h5", "", hit.top ? "Top hit" : hit.kind === "chat" && !q ? "Recent chats" : group));
     }
     rows.push(row(hit, i, q));
   });
@@ -136,9 +141,9 @@ function draw(q) {
 }
 
 function row(hit, i, q) {
-  const note = hit.detail && ["chat", "routine", "setting", "project", "code"].includes(hit.kind) ? el("small", "", hit.detail) : null;
+  const note = hit.detail && ["chat", "routine", "setting", "project", "code", "branch"].includes(hit.kind) ? el("small", "", hit.detail) : null;
   const side = hit.detail && (hit.kind === "memory" || hit.kind === "machine") ? el("span", "w", hit.detail) : null;
-  const lead = hit.kind === "machine" ? el("span", `ddot${hit.detail === "online" ? "" : " off"}`) : svg(ICONS[hit.kind]);
+  const lead = hit.kind === "machine" ? el("span", `ddot${hit.detail === "online" ? "" : " off"}`) : svg(ICONS[hit.kind === "branch" ? "code" : hit.kind]);
   const b = el("button", "it", lead, el("span", "t", el("span", "", ...marked(hit.title, q)), note), side);
   b.type = "button";
   b.tabIndex = -1;
@@ -179,7 +184,7 @@ function ask_(q) {
 
 function pick(hit) {
   close();
-  const { go, jump, settings, project } = deps;
+  const { go, jump, settings, project, branches } = deps;
   switch (hit.kind) {
     case "action":
       if (hit.id === "new_chat") return go("pane", { chat: { session: null } });
@@ -192,6 +197,8 @@ function pick(hit) {
     case "machine": return jump(`m-${hit.id}`);
     case "setting": return settings(hit.id);
     case "project": return project(hit.id);
+    // The project's Branches list, where its Review button is.
+    case "branch": return branches(hit.id.slice(0, hit.id.indexOf(" ")));
     case "code": return invoke("open_url", { url: hit.id }).catch(e => console.warn("opening a pull request:", e));
   }
 }
