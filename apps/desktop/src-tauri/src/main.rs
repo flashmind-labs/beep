@@ -15,6 +15,7 @@ mod desktop;
 mod devices;
 mod error;
 mod gh_sign_in;
+mod git_items;
 mod grants;
 mod groups;
 mod hotkey;
@@ -185,6 +186,7 @@ fn main() {
             projects::found_projects,
             projects::project_sessions,
             projects::project_machines,
+            git_items::git_items,
             projects::open_folder,
             agents::agent_resume,
             commands::open_file,

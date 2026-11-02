@@ -17,6 +17,7 @@ pub mod fetch;
 pub mod filler;
 pub mod followups;
 pub mod gates;
+pub mod git_items;
 pub mod grants;
 mod guest;
 pub mod images;

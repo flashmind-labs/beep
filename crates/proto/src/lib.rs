@@ -780,6 +780,100 @@ requests! {
     /// machine linked, even one set up again. `NotFound` when the caller
     /// made no such token; `BadRequest` when `token` is not one.
     182 GetNodeToken { token: String } => Call<Option<String>>
+    /// The caller's open pull requests and issues on the git hosts in their
+    /// credentials, newest activity first: the PRs they opened, those
+    /// asking for their review, and the issues they opened or are assigned.
+    /// Read with the saved tokens and kept for a few minutes, so asking
+    /// again soon gives the same list. A host that fails is listed in
+    /// `GitItems::hosts` with why, and the others still come.
+    183 ListGitItems {} => Call<GitItems>
+}
+
+/// What `ListGitItems` found.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitItems {
+    pub items: Vec<GitItem>,
+    /// Every git host in the caller's credentials, whether it answered or
+    /// not. Empty when the caller has none.
+    pub hosts: Vec<GitHost>,
+}
+
+/// One git host `ListGitItems` asked.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitHost {
+    /// `github.com`, or a Forgejo server's host, such as `git.example.com`.
+    pub host: String,
+    pub kind: GitHostKind,
+    /// Who the token signs in as, when known.
+    pub account: Option<String>,
+    /// Why its items are missing, for the user; `None` when it answered.
+    pub error: Option<String>,
+}
+
+wire_enum! {
+    /// What kind of server a git host is.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum GitHostKind {
+        0 GitHub {}
+        1 Forgejo {}
+    }
+}
+
+/// An open pull request or issue, as `ListGitItems` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitItem {
+    /// As `GitHost::host`.
+    pub host: String,
+    /// `org/repo`.
+    pub repo: String,
+    pub number: u64,
+    pub kind: GitItemKind,
+    pub title: String,
+    /// Its web page.
+    pub url: String,
+    pub updated_at: SystemTime,
+    /// The caller opened it.
+    pub authored: bool,
+    /// The caller is assigned to it.
+    pub assigned: bool,
+    /// A pull request that asks for the caller's review.
+    pub review_requested: bool,
+    /// A draft pull request.
+    pub draft: bool,
+    /// How a pull request's reviews stand, where the host says.
+    pub review: GitReview,
+    /// A pull request whose checks fail on its head commit, where the host
+    /// says.
+    pub checks_failing: bool,
+    pub comments: u32,
+}
+
+wire_enum! {
+    /// Whether an item is a pull request or an issue.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum GitItemKind {
+        0 PullRequest {}
+        1 Issue {}
+    }
+}
+
+wire_enum! {
+    /// How a pull request's reviews stand. `None` for an issue, a PR with
+    /// no deciding review yet, or a host that does not say.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum GitReview {
+        0 None {}
+        1 Approved {}
+        2 ChangesRequested {}
+    }
 }
 
 /// A project imported onto one of the caller's machines.
