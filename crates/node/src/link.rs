@@ -2,7 +2,13 @@
 //! the control stream, kept open and reopened when it drops.
 
 use crate::{
-    agents::Agents, env, files::Folders, provision::Provision, shell, state::State, stats, tasks,
+    agents::{AgentKind, Agents},
+    env,
+    files::Folders,
+    provision::Provision,
+    shell,
+    state::State,
+    stats, tasks,
     transfer::Transfers,
 };
 use anyhow::{Context, Result, bail};
@@ -87,11 +93,7 @@ pub async fn serve(
     // stops with the node.
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
-    let mut offers = Offers {
-        agents: Arc::new(Agents::new(crate::agents::detect(&state.agents))),
-        extra: Vec::new(),
-        provision: Some(provision),
-    };
+    let mut offers = Offers::local(&state.agents, provision);
     // Files only when the owner shared folders in node.toml, or this node
     // is the user's environment.
     let shared: Vec<_> = workspace
@@ -250,6 +252,17 @@ pub struct Offers {
 }
 
 impl Offers {
+    /// What every node serves, the CLI and the Mac app alike: the coding
+    /// agents found on the PATH (with `agents` from `node.toml`) and their
+    /// sessions, and `provision`. A host adds its own protocols to `extra`.
+    pub fn local(agents: &[AgentKind], provision: Arc<Provision>) -> Self {
+        Self {
+            agents: Arc::new(Agents::new(crate::agents::detect(agents))),
+            extra: Vec::new(),
+            provision: Some(provision),
+        }
+    }
+
     fn names(&self) -> Vec<String> {
         [shell::PROTOCOL.to_owned(), tasks::PROTOCOL.to_owned()]
             .into_iter()
@@ -497,4 +510,32 @@ async fn tool_changed(provision: Option<&Provision>) {
 
 fn changed(before: &EnvReport, now: &EnvReport) -> bool {
     before != now
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beep_proto::node::agent::SESSIONS_PROTOCOL;
+    use std::collections::BTreeMap;
+
+    /// The Mac app builds its offers the same way, so it serves the agents
+    /// and their sessions too.
+    #[test]
+    fn local_offers_serve_the_agents_and_their_sessions() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let fake = AgentKind {
+            name: "fake".into(),
+            program: "true".into(),
+            args: vec![],
+            env: BTreeMap::new(),
+        };
+        let offers = Offers::local(&[fake], Provision::new(dir.path()));
+        let names = offers.names();
+        assert!(names.iter().any(|name| name == "fake/1"), "{names:?}");
+        assert!(
+            names.iter().any(|name| name == SESSIONS_PROTOCOL),
+            "{names:?}"
+        );
+        assert!(offers.provision.is_some());
+    }
 }
