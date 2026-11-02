@@ -739,7 +739,7 @@ function drawSide() {
   // Running opens the coding agents' list, the full view of Home's section.
   if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
-  const side = [head, h("div", "cc-brand", h("b", "", "Beep")), top];
+  const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
     if (name === "chats" && g.items == null && !home) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
@@ -767,7 +767,15 @@ function drawSide() {
     foot.append(add);
   }
   side.push(foot);
-  $("#side").replaceChildren(...side);
+  // The head stays put under the window buttons; only the list below it
+  // scrolls, and a redraw keeps where it was.
+  const el = $("#side");
+  let list = el.querySelector<HTMLElement>(":scope > .cc-side-list");
+  if (!list) {
+    list = h("div", "cc-side-list");
+    el.replaceChildren(head, list);
+  }
+  list.replaceChildren(...side);
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
 }

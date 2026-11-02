@@ -11,7 +11,8 @@ html, body.cbody { background: var(--ink) }
 .cc-view { user-select: text; cursor: auto }
 .cc-si { cursor: default }
 .cc-row.link { cursor: default }
-.cc-side { display: flex; flex-direction: column; gap: 12px; padding: 10px 8px; min-width: 0; border-right: 1px solid var(--border); background: rgba(10,14,12,.55); overflow-y: auto; scrollbar-width: none; min-height: 0 }
+.cc-side { display: flex; flex-direction: column; padding: 10px 8px 0; min-width: 0; border-right: 1px solid var(--border); background: rgba(10,14,12,.55); overflow: hidden; min-height: 0 }
+.cc-side-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding-bottom: 10px; overflow-y: auto; scrollbar-width: none }
 .cc-brand { display: flex; align-items: center; gap: 9px; padding: 0 6px }
 .cc-brand b { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: -0.03em }
 .cc-grp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px }
