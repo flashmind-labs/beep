@@ -27,6 +27,8 @@ import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { makeThreads, issueTile, threadTile } from "./threads.ts";
+import type { ThreadChatRow } from "./threads.ts";
+import { openLabel, runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
 import type { GitItemRow, GitItemsView } from "./openitems.ts";
 import type { ProjectAgent, ProjectView, TaskRow, WorkerRow } from "./project.ts";
 
@@ -854,15 +856,26 @@ function footer(machines: MachineCard[] | null | undefined): Kid[] {
 const SIDE_CHATS = 5;
 let chatList: ChatItem[] = [];
 let chatFetch: Promise<ChatItem[]> | null = null;
+/// The chats the server last said have a run going on, from any device.
+let serverRunning: string[] = [];
+/// The chats about one pull request or issue, by chat id, read for each
+/// project; null until first read.
+let threadChats: Map<string, ThreadChatEntry> | null = null;
+let threadsLoading: Promise<void> | null = null;
 
 /// One fetch feeds both groups, even when both ask at once.
 function fetchChats() {
   if (chatFetch) return chatFetch;
-  const mine: Promise<ChatItem[]> = pane.chatRows().then(rows => {
-    if (chatFetch === mine) chatList = rows;
+  const mine: Promise<ChatItem[]> = Promise.all([pane.chatRows(), pane.activeRuns()]).then(([rows, runs]) => {
+    if (chatFetch === mine) { chatList = rows; serverRunning = runs; }
     return rows;
   }).finally(() => { if (chatFetch === mine) chatFetch = null; });
   return chatFetch = mine;
+}
+
+/// The chats with a reply coming: run here, or on another device.
+function running() {
+  return runningChats(pane.running(), serverRunning);
 }
 
 function reloadChats() {
@@ -932,17 +945,56 @@ async function setPinned(c: SideChat, pinned: boolean) {
 }
 
 function chatRow(c: SideChat) {
-  if (c.kind === "project") return projectRow(c.project, c.title, true);
+  if (c.kind === "project") return withThreads(projectRow(c.project, c.title, true), c.project.name);
   const on = paneOn();
   const open = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
   const mark = c.kind === "group" ? icon(IC.group) : icon(c.research ? IC.doc : IC.chat);
-  const toggle = pinToggle(c.id, c.pinned, () => setPinned(c, !c.pinned));
+  // A chat still answering shows a spinner where its pin button was.
+  const end = c.kind === "chat" && running().has(c.id) ? runSpin() : pinToggle(c.id, c.pinned, () => setPinned(c, !c.pinned));
   // Two real buttons in one row, never one inside the other.
   const openBtn = h("button", "open", mark, h("span", "tt", c.title));
   openBtn.type = "button";
   openBtn.title = c.title;
   if (open) openBtn.setAttribute("aria-current", "true");
-  return h("div", "cc-si cc-chat", openBtn, toggle);
+  return h("div", "cc-si cc-chat", openBtn, end);
+}
+
+function runSpin() {
+  const spin = h("span", "dspin cc-run");
+  spin.title = "Answering";
+  spin.setAttribute("aria-label", "Answering");
+  return spin;
+}
+
+/// The chats about one pull request or issue each project lists under
+/// it: the open one, the running ones, then the newest.
+const SIDE_THREADS = 3;
+function nestedThreads() {
+  const on = paneOn();
+  const open = on.view === "chat" ? on.session : null;
+  return sideThreads(threadChats?.values() ?? [], chatList.map(c => c.id), open, running(), SIDE_THREADS);
+}
+
+/// Project `name`'s sidebar row `row`, with its thread chats under it.
+function withThreads(row: HTMLElement, name: string) {
+  const threads = nestedThreads().get(name);
+  if (!threads?.length) return row;
+  return h("div", "cc-pjthreads", row, ...threads.map(threadRow));
+}
+
+/// A chat about one pull request or issue, under its project.
+function threadRow(t: ThreadChatEntry) {
+  const on = paneOn();
+  const label = t.title || threadLabel(t.kind, t.number);
+  const openBtn = h("button", "open", h("span", "tt", label));
+  openBtn.type = "button";
+  openBtn.title = `${label} (${t.project})`;
+  if (on.view === "chat" && on.session === t.chat_id) openBtn.setAttribute("aria-current", "true");
+  // The project row's own click opens the project; this one opens the chat.
+  openBtn.addEventListener("click", e => { e.stopPropagation(); go("pane", { chat: { session: t.chat_id } }); });
+  const row = h("div", "cc-si cc-chat cc-thread", openBtn);
+  if (running().has(t.chat_id)) row.append(runSpin());
+  return row;
 }
 
 /// A project's sidebar row, `label` beside its colour, with its pin button.
@@ -1044,7 +1096,9 @@ registerSidebarGroup<SideChat>("chats", {
     return b;
   },
   async load() {
-    return splitPinned(await fetchChats(), SIDE_CHATS).recent;
+    // Chats about one thread are listed under their project.
+    const rows = (await fetchChats()).filter(c => c.pinned || !threadChats?.has(c.id));
+    return splitPinned(rows, SIDE_CHATS).recent;
   },
   row: chatRow,
   onPick: pickChat,
@@ -1177,7 +1231,7 @@ registerSidebarGroup("projects", {
     if (p.org !== undefined) return h("div", "cc-org", `${p.org}/`);
     const row = projectRow(p, p.repo ?? p.name, false);
     if (!p.repo) row.classList.remove("pj-repo");
-    return row;
+    return withThreads(row, p.name);
   },
   onPick: p => { if (!p.org && !p.group) openProjects(p.name); },
 });
@@ -1745,7 +1799,7 @@ const thr = makeThreads({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
   openUrl: (url: string) => agentActs.openUrl(url),
-  openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); },
+  openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
 });
 
@@ -2246,6 +2300,8 @@ function paneTitle(): ViewHead {
     const c = chatList.find(x => x.id === on.session);
     // A chat just started is not in the list until the server has it.
     const at = pane.startedAt();
+    const thread = on.session ? threadChats?.get(on.session) : undefined;
+    if (thread) return threadHead(thread, c);
     return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", tools: c ? [pinButton(c)] : [], scope: scopeTag(on.session) };
   }
   if (on.group) {
@@ -2260,7 +2316,9 @@ function paneTitle(): ViewHead {
 /// Beside a chat's title: the project it belongs to, which opens the
 /// project, or General.
 function scopeTag(session: string | null) {
-  const agent = chatProject(state.agents, session);
+  // A chat about one thread runs as its project's agent too.
+  const thread = session ? threadChats?.get(session) : undefined;
+  const agent = chatProject(state.agents, session) ?? (thread ? { name: thread.project } : null);
   if (!agent) return h("span", "cc-tag", "General");
   const i = (projectRows() || []).findIndex(p => p.name === agent.name);
   const b = h("button", "cc-tag pj-scope", projectDot(i >= 0 ? i : undefined), shortName(agent.name));
@@ -2280,6 +2338,136 @@ async function loadAgents() {
     return;
   }
   if (shown === "pane") drawTop();
+  loadThreadChats();
+}
+
+// ---------- Chats about one thread ----------
+
+
+/// Reads which chats are about one thread, for every project, then
+/// redraws what lists or heads them. A project whose read fails keeps
+/// what was known of it.
+function loadThreadChats() {
+  if (threadsLoading) return threadsLoading;
+  const agents = state.agents || [];
+  const before = threadChats;
+  const mine: Promise<void> = Promise.all(agents.map(a => invoke<ThreadChatRow[] | null>("center_thread_chats", { projectId: a.project_id })
+    .then(rows => (rows || []).map((c): ThreadChatEntry => ({ ...c, project_id: a.project_id, project: a.name })))
+    .catch((e): ThreadChatEntry[] => {
+      console.warn("thread chats:", e);
+      return [...(before?.values() ?? [])].filter(c => c.project_id === a.project_id);
+    })))
+    .then(lists => {
+      threadChats = new Map(lists.flat().map(c => [c.chat_id, c]));
+      reloadChats();
+      reloadGroup("projects");
+      if (shown === "pane") { drawTop(); pane.chatTop(); }
+    })
+    .finally(() => { if (threadsLoading === mine) threadsLoading = null; });
+  return threadsLoading = mine;
+}
+
+/// A thread as `center_thread_view` reads it from its host (ThreadCardRow).
+interface ThreadCardView {
+  kind: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  body: string;
+  needs_reply: boolean;
+  /// `at` in milliseconds since the Unix epoch.
+  comments: { author: string; at: number; body: string }[];
+  earlier: number;
+}
+
+/// The card atop a thread chat: its element, what it last read (null from
+/// a server too old to read one), when, and its error.
+interface ThreadCard {
+  el: HTMLElement;
+  view: ThreadCardView | null | undefined;
+  at: number;
+  error: string;
+  loading: boolean;
+  all: boolean;
+}
+const threadCards = new Map<string, ThreadCard>();
+/// How long a thread card's read serves before the chat reads it again.
+const THREAD_FRESH_MS = 60000;
+/// The comments a thread card shows before "Show all".
+const THREAD_COMMENTS = 3;
+/// The most of one post a card shows before "Show all".
+const THREAD_TEXT = 600;
+
+/// The card atop thread chat `t`, read again when it is stale.
+function threadCard(t: ThreadChatEntry) {
+  let card = threadCards.get(t.chat_id);
+  if (!card) {
+    card = { el: h("div", "th-card"), view: undefined, at: 0, error: "", loading: false, all: false };
+    threadCards.set(t.chat_id, card);
+  }
+  if (!card.loading && Date.now() - card.at > THREAD_FRESH_MS) readThreadCard(t, card);
+  drawThreadCard(t, card);
+  return card.el;
+}
+
+async function readThreadCard(t: ThreadChatEntry, card: ThreadCard) {
+  card.loading = true;
+  try {
+    card.view = await invoke<ThreadCardView | null>("center_thread_view", { projectId: t.project_id, repo: t.repo, number: t.number });
+    card.error = "";
+  } catch (e) {
+    card.error = refusal(e);
+  } finally {
+    card.loading = false;
+    card.at = Date.now();
+  }
+  drawThreadCard(t, card);
+  const on = paneOn();
+  if (on.view === "chat" && on.session === t.chat_id) drawTop();
+}
+
+const clip = (text: string, all: boolean) => all || text.length <= THREAD_TEXT ? text : text.slice(0, THREAD_TEXT).trimEnd() + "...";
+
+function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
+  const v = card.view, label = threadLabel(t.kind, t.number);
+  card.el.hidden = v === null;
+  if (v === undefined) {
+    card.el.replaceChildren(card.error ? h("span", "who", card.error) : h("span", "who", h("span", "dspin"), ` Reading ${label}…`));
+    return;
+  }
+  if (!v) return card.el.replaceChildren();
+  const total = v.earlier + v.comments.length;
+  const where = openLabel(v.url) === "Open on GitHub" ? "On GitHub" : "On its host";
+  const head = h("span", "who", `${where} · ${plural(total, "comment", "comments")}${v.needs_reply ? " · waits on your reply" : ""}`);
+  const post = (author: string, at: number | null, body: string) => {
+    const c = h("div", "c", h("b", "", author), " ", h("span", "who", at ? `${ago(at)} ago` : "opened it"));
+    if (body.trim()) c.append(h("div", "tx", clip(body, card.all)));
+    return c;
+  };
+  const shown = card.all ? v.comments : v.comments.slice(-THREAD_COMMENTS);
+  const hidden = v.comments.length - shown.length;
+  const rows = [post(v.author, null, v.body), ...shown.map(c => post(c.author, c.at, c.body))];
+  const long = [v.body, ...shown.map(c => c.body)].some(b => b.length > THREAD_TEXT);
+  const more: Node[] = hidden > 0 || (long && !card.all)
+    ? [button(hidden > 0 ? `Show ${plural(hidden, "earlier comment", "earlier comments")}` : "Show all", "quiet small", () => { card.all = true; drawThreadCard(t, card); })]
+    : [];
+  if (card.all && v.earlier) more.push(h("span", "who", `${plural(v.earlier, "older comment", "older comments")} on the host`));
+  if (card.error) more.push(h("span", "who", card.error));
+  card.el.replaceChildren(head, ...rows, ...more);
+}
+
+/// A thread chat's header: its title, its project to go back to, whether
+/// it waits on a reply, and a link to the thread.
+function threadHead(t: ThreadChatEntry, c: ChatItem | undefined): ViewHead {
+  const view = threadCards.get(t.chat_id)?.view;
+  const scope = h("span", "th-scope", scopeTag(t.chat_id));
+  if (view?.needs_reply) scope.append(h("span", "pj-st blocked", "needs reply"));
+  const tools: Node[] = [];
+  if (view?.url) tools.push(button(openLabel(view.url), "", () => agentActs.openUrl(view.url)));
+  if (c) tools.push(pinButton(c));
+  const title = view ? `${threadLabel(view.kind, view.number)} ${view.title}`.trim() : (c?.title || t.title || threadLabel(t.kind, t.number));
+  return { title, tools, scope };
 }
 
 function pinButton(c: ChatItem) {
@@ -2445,6 +2633,10 @@ pane.connect({
   },
   newChat: newChatHere,
   goBack: (from: BackTo) => go(from.view, from.arg as ViewArg),
+  chatTop(session) {
+    const t = threadChats?.get(session);
+    return t ? threadCard(t) : null;
+  },
 });
 
 // ---------- Refresh ----------

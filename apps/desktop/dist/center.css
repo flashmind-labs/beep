@@ -484,3 +484,19 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-start { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding-top: 4px }
 .pj-start .lbl { font-size: 11.5px; color: var(--muted) }
 .pj-start .acts { display: flex; gap: 6px; flex-basis: 100% }
+/* A chat still answering: a spinner where the pin button was. */
+.cc-chat > .cc-run { flex: none; width: 10px; height: 10px; margin: 0 10px 0 8px }
+/* Chats about one pull request or issue, under their project. */
+.cc-pjthreads { display: contents }
+.cc-si.cc-chat.cc-thread .open { padding-left: 30px }
+.cc-chat.cc-thread .open .tt { color: var(--muted) }
+.cc-chat.cc-thread:has(.open[aria-current="true"]) .open .tt { color: var(--fg) }
+/* The thread a chat is about, atop it, and its header's tags. */
+.th-scope { display: inline-flex; align-items: center; gap: 6px }
+.th-card { flex: none; display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--elev); font-size: 12.5px; line-height: 18px; user-select: text }
+.th-card[hidden] { display: none }
+.th-card .who { color: var(--muted); font-size: 11.5px; display: inline-flex; align-items: center; gap: 6px }
+.th-card .who .dspin { width: 9px; height: 9px }
+.th-card .c + .c { border-top: 1px solid var(--border); padding-top: 6px }
+.th-card .tx { white-space: pre-wrap; overflow-wrap: anywhere }
+.th-card > .dbtn { justify-self: start }
