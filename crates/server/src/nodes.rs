@@ -433,6 +433,8 @@ async fn serve(
     app.nodes.follows.reconnected(app, &endpoint.to_string());
     // The project workers on the node report again, or are marked gone.
     app.projects.reconnected(app, &user, endpoint);
+    // Checkouts of the user's projects it holds become their folders there.
+    app.checkouts.check(app, &user, &endpoint.to_string());
     // Sends the node its synced projects, and its peers how it is reached
     // now. Ends with the connection.
     let _push = {

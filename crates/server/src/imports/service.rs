@@ -2,6 +2,7 @@
 
 use super::{
     ImportError,
+    checks::{self, Machine, Page},
     clone::{self, Failure, Job, Outcome},
     folder::{self, FolderPath, Seen},
     found::{self, MachineFound},
@@ -12,12 +13,19 @@ use crate::{
     app::App,
     credentials::{ForgejoUrl, Opened, Slot},
     nodes::{Online, SHELL},
-    protocol::{FoundProject, ImportedProject, MachineFolder},
+    protocol::{
+        FoundProject, ImportedProject, MachineFolder, ProjectMachine,
+        node::agent::SESSIONS_PROTOCOL,
+    },
     store::{ImportRow, NewImport, NodeRow},
     user::User,
 };
 use secrecy::{ExposeSecret, SecretString};
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 /// The longest a clone may take.
 const CLONE_LIMIT: Duration = Duration::from_secs(30 * 60);
@@ -83,10 +91,11 @@ async fn choose_machine(
 }
 
 /// Imports `job.repo` onto its machine: clones it there, or finds it
-/// already there, and records it.
+/// already there, and records it. The user's other machines are then
+/// looked through for checkouts of it, in the background.
 pub(crate) async fn import(
-    app: &App,
-    user: &User,
+    app: &Arc<App>,
+    user: &Arc<User>,
     job: Import<'_>,
 ) -> Result<ImportedProject, ImportError> {
     let credentials = user.git_credentials(&app.credential_key).await?;
@@ -131,6 +140,14 @@ pub(crate) async fn import(
         saved.project,
         row.endpoint
     );
+    let others: Vec<String> = user
+        .nodes()
+        .await?
+        .into_iter()
+        .map(|node| node.endpoint)
+        .filter(|endpoint| *endpoint != row.endpoint)
+        .collect();
+    app.checkouts.check_all(app, user, &others);
     Ok(project(saved, row.name, cloned))
 }
 
@@ -268,17 +285,60 @@ pub(crate) async fn found_projects(
     user: &User,
     found: Vec<MachineFound>,
 ) -> anyhow::Result<Vec<FoundProject>> {
-    let servers: Vec<ForgejoUrl> = user
-        .git_credentials(&app.credential_key)
-        .await?
-        .into_iter()
-        .filter_map(|opened| match opened.slot {
-            Slot::Forgejo(url) => Some(url),
-            _ => None,
-        })
-        .collect();
+    let servers = checks::forgejo_servers(app, user).await?;
     let imported = user.imports().await?;
     Ok(found::group(found, &imported, &servers))
+}
+
+/// Every linked machine of the user's as `project`'s page lists it, and
+/// looks started on those online not looked through since it was
+/// imported. `None` when the user has not imported `project`.
+pub(crate) async fn project_machines(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    project: &str,
+) -> anyhow::Result<Option<Vec<ProjectMachine>>> {
+    let rows: Vec<ImportRow> = user
+        .imports()
+        .await?
+        .into_iter()
+        .filter(|row| row.project.eq_ignore_ascii_case(project))
+        .collect();
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let linked: HashSet<String> = user
+        .account_keys()
+        .await?
+        .into_iter()
+        .map(|key| key.endpoint_id)
+        .collect();
+    let nodes: Vec<NodeRow> = user
+        .nodes()
+        .await?
+        .into_iter()
+        .filter(|node| linked.contains(&node.endpoint))
+        .collect();
+    let checked = user.checkout_checks().await?;
+    let listed: Vec<Machine<'_>> = nodes
+        .iter()
+        .map(|row| {
+            let online = app
+                .nodes
+                .online(&row.endpoint)
+                .filter(|online| online.user == user.id());
+            Machine {
+                row,
+                online: online.is_some(),
+                lookable: online.is_some_and(|online| online.offers(SESSIONS_PROTOCOL)),
+                checking: app.checkouts.is_checking(user.id(), &row.endpoint),
+                checked_at: checked.get(&row.endpoint).copied(),
+            }
+        })
+        .collect();
+    let Page { machines, to_check } = checks::machines(&rows, &listed);
+    app.checkouts.check_all(app, user, &to_check);
+    Ok(Some(machines))
 }
 
 /// The user's imported projects on machines still theirs.
