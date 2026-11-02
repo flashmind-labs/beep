@@ -73,6 +73,9 @@ pub struct Pick {
     pub thinking: Option<ReasoningLevel>,
 }
 
+/// Runs coding agents; its result describes a session, which the bar shows
+/// as a card.
+const CODE_AGENT: &str = "code_agent";
 /// Its result lists products, which show as a row of cards.
 const SHOW_PRODUCTS: &str = "show_products";
 /// Its result lists recommendations, which show as a row of cards.
@@ -120,6 +123,9 @@ pub enum BarEvent {
         /// A `show_chart` or `show_stock_chart` result's chart, boxed to
         /// keep the event small.
         chart: Option<Box<Chart>>,
+        /// A `code_agent` result's text, which names the session the bar
+        /// shows a card for.
+        code_agent: Option<String>,
     },
     /// The web pages the reply used, for the chips under it.
     Sources {
@@ -360,6 +366,9 @@ pub struct ToolStep {
     pub chart: Option<Chart>,
     /// A `get_route` call's id, to fetch its transit card with `GetRoute`.
     pub route: Option<String>,
+    /// A `code_agent` result's text, which names the session the bar shows
+    /// a card for.
+    pub code_agent: Option<String>,
 }
 
 /// A file Beep sent in the chat, fetched with `GetFile` when opened.
@@ -1036,6 +1045,7 @@ impl Beep {
                     success,
                     output,
                 } => BarEvent::ToolResult {
+                    code_agent: agent_report(&name, &output, success),
                     file: sent_file(&name, &output),
                     images: sent_images(&name, &output),
                     products: shown_products(&name, &output),
@@ -1133,7 +1143,14 @@ pub fn tool_step(name: &str, call_id: &str, output: &str, success: bool) -> Tool
         products: shown_products(name, output),
         cards: shown_cards(name, output),
         chart: shown_chart(name, output),
+        code_agent: agent_report(name, output, success),
     }
+}
+
+/// The text of a `code_agent` call that went through, or `None` for any
+/// other tool or a failed call.
+fn agent_report(name: &str, output: &str, success: bool) -> Option<String> {
+    (name == CODE_AGENT && success).then(|| output.to_owned())
 }
 
 #[derive(Deserialize)]
