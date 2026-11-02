@@ -5,7 +5,7 @@
 //! a `session_info` line names the session, and the first `message` whose
 //! role is `user` is its first prompt.
 
-use super::{Agent, Seen, first_line, head_lines, newest_files, prompt_title};
+use super::{Agent, Memos, Seen, first_line, head_lines, newest_files, prompt_title};
 use crate::claude::unix_seconds;
 use serde_json::Value;
 use std::{
@@ -26,12 +26,13 @@ pub(super) fn locate() -> Option<PathBuf> {
 }
 
 /// The newest sessions in the sessions folder `root`.
-pub(super) fn sessions(root: &Path) -> Vec<Seen> {
+pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
     let jsonl = |path: &Path| path.extension().is_some_and(|ext| ext == "jsonl");
     newest_files(root, 1, &jsonl)
         .into_iter()
         .filter_map(|(path, at)| {
-            let mut seen = header(&first_line(&path).ok()??)?;
+            let read = || first_line(&path).map(|line| line.as_deref().and_then(header));
+            let mut seen = memos.heads.read(&path, read).ok()??;
             seen.last_activity = at;
             seen.file = Some(path);
             Some(seen)
@@ -125,7 +126,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a temp folder");
         let path = session(root.path(), &[HEADER, MODEL, USER]);
         fs::write(root.path().join("--home-user-proj--/notes.md"), "x").expect("a file");
-        let found = sessions(root.path());
+        let found = sessions(root.path(), &Memos::default());
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].agent, Agent::Pi);
         assert_eq!(found[0].id, ID);
@@ -146,6 +147,6 @@ mod tests {
     fn a_file_without_a_header_is_skipped() {
         let root = tempfile::tempdir().expect("a temp folder");
         session(root.path(), &[MODEL, USER]);
-        assert!(sessions(root.path()).is_empty());
+        assert!(sessions(root.path(), &Memos::default()).is_empty());
     }
 }

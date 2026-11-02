@@ -20,8 +20,8 @@ use beep_server::{
         AgentEntryKind, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
         CreateNodeToken, DeviceKind, GetAgentSession, GetNodeToken, ListAgentHosts,
         ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
-        MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine, RemoveDevice,
-        RevokeNodeToken, StartAgentSession, SteerAgentSession,
+        ListProjectSessions, MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine,
+        RemoveDevice, RevokeNodeToken, StartAgentSession, SteerAgentSession,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -34,7 +34,7 @@ use beep_server::{
         setup::SetupToken,
     },
     push::Pusher,
-    store::{Fact, NewKey, NewNode, Scope, TestDb},
+    store::{Fact, NewImport, NewKey, NewNode, Scope, TestDb},
     transport,
     user::User,
 };
@@ -959,6 +959,9 @@ impl Protocol for FakeSessions {
                             .collect(),
                     }
                 }
+                (SessionsRequest::InFolders { .. }, Some(external)) => SessionsReply::External {
+                    sessions: external.clone(),
+                },
                 _ => SessionsReply::Error {
                     message: "not faked".into(),
                 },
@@ -1254,6 +1257,46 @@ async fn agent_sessions_skip_a_hung_node() {
         .await;
     let (_node, client) = center.phone(0).await;
     let sessions = timeout(Duration::from_secs(5), client.call(&ListAgentSessions {}))
+        .await
+        .expect("a hung node does not hold up the list")
+        .unwrap();
+    let mut names: Vec<&str> = sessions
+        .iter()
+        .map(|session| session.machine_name.as_str())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["build-box", "mac-box"]);
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn project_sessions_skip_a_hung_node() {
+    let mut center = CommandCenter::new(1).await;
+    let mut machines = Vec::new();
+    for (name, hang) in [("build-box", false), ("mac-box", false), ("hung-box", true)] {
+        let fake = FakeAgents {
+            external: Some(vec![external_session(name, Presence::Stopped)]),
+            hang,
+            ..FakeAgents::default()
+        };
+        machines.push(center.node(0, name, fake).await);
+    }
+    for machine in &machines {
+        center.users[0]
+            .save_import(NewImport {
+                project: "org/proj",
+                endpoint: machine,
+                folder: "/srv/project",
+                url: "https://example.com/org/proj",
+            })
+            .await
+            .unwrap();
+    }
+    let (_node, client) = center.phone(0).await;
+    let asked = ListProjectSessions {
+        project: "org/proj".into(),
+    };
+    let sessions = timeout(Duration::from_secs(5), client.call(&asked))
         .await
         .expect("a hung node does not hold up the list")
         .unwrap();

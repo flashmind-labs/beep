@@ -6,15 +6,17 @@
 //! otherwise the first prompt, an `event_msg` of type `user_message` (or an
 //! `item_completed` `UserMessage` in newer versions).
 
-use super::{Agent, Seen, first_line, head_lines, newest_files, prompt_title};
+use super::{Agent, Memos, Seen, first_line, head_lines, newest_files, prompt_title};
 use crate::claude::unix_seconds;
 use serde_json::Value;
 use std::{
     collections::HashMap,
+    convert::Infallible,
     env,
     fs::File,
     io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 /// The longest title index read.
@@ -30,17 +32,21 @@ pub(super) fn locate() -> Option<PathBuf> {
 }
 
 /// The newest sessions under `root`, sub-agents left out.
-pub(super) fn sessions(root: &Path) -> Vec<Seen> {
+pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
     let rollout = |path: &Path| {
         path.file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
     };
-    let names = titles(root);
+    let index = root.join("session_index.jsonl");
+    let Ok(names) = memos
+        .names
+        .read(&index, || Ok::<_, Infallible>(Arc::new(titles(&index))));
     newest_files(&root.join("sessions"), 3, &rollout)
         .into_iter()
         .filter_map(|(path, at)| {
-            let mut seen = header(&first_line(&path).ok()??)?;
+            let read = || first_line(&path).map(|line| line.as_deref().and_then(header));
+            let mut seen = memos.heads.read(&path, read).ok()??;
             seen.last_activity = at;
             seen.title = names.get(&seen.id).cloned();
             seen.file = Some(path);
@@ -78,9 +84,10 @@ fn header(line: &str) -> Option<Seen> {
     })
 }
 
-/// The names the user gave sessions, by id; a later line wins.
-fn titles(root: &Path) -> HashMap<String, String> {
-    let Ok(file) = File::open(root.join("session_index.jsonl")) else {
+/// The names the user gave sessions, by id, from the index at `index`; a
+/// later line wins.
+fn titles(index: &Path) -> HashMap<String, String> {
+    let Ok(file) = File::open(index) else {
         return HashMap::new();
     };
     let mut names = HashMap::new();
@@ -162,7 +169,7 @@ mod tests {
             &[meta("sub", r#"{"subagent":"review"}"#)],
         );
         write(root.path(), "notes.jsonl", &[meta("x", r#""cli""#)]);
-        let found = sessions(root.path());
+        let found = sessions(root.path(), &Memos::default());
         assert_eq!(found.len(), 1, "{found:?}");
         let one = &found[0];
         assert_eq!(one.agent, Agent::Codex);
@@ -189,7 +196,7 @@ mod tests {
             ),
         )
         .expect("an index");
-        let found = sessions(root.path());
+        let found = sessions(root.path(), &Memos::default());
         assert_eq!(found[0].title.as_deref(), Some("Retry flag"));
     }
 

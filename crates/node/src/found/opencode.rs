@@ -10,13 +10,14 @@
 //! `message` whose role is `user`. The database is opened read-only; one
 //! that is locked or of another shape is skipped.
 
-use super::{Agent, MAX_FILES, Seen, prompt_title};
+use super::{Agent, MAX_FILES, Memos, Seen, prompt_title};
 use rusqlite::{Connection, OpenFlags};
 use std::{
     env,
     ffi::OsStr,
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -64,7 +65,7 @@ fn data_dir() -> Option<PathBuf> {
 }
 
 /// The sessions in `root`: a database, or a data folder of them.
-pub(super) fn sessions(root: &Path) -> Vec<Seen> {
+pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
     let databases = if root.is_file() {
         vec![root.to_owned()]
     } else {
@@ -72,8 +73,11 @@ pub(super) fn sessions(root: &Path) -> Vec<Seen> {
     };
     let mut seen = Vec::new();
     for database in databases {
-        match read(&database) {
-            Ok(found) => seen.extend(found),
+        match memos
+            .databases
+            .read_database(&database, || read(&database).map(Arc::new))
+        {
+            Ok(found) => seen.extend(found.iter().cloned()),
             Err(e) => log::debug!(
                 "OpenCode sessions not read; database={} error={e}",
                 database.display()
@@ -193,7 +197,7 @@ pub(super) mod tests {
         let root = tempfile::tempdir().expect("a temp folder");
         database(&root.path().join("opencode.db"));
         fs::write(root.path().join("auth.json"), "{}").expect("a file");
-        let found = sessions(root.path());
+        let found = sessions(root.path(), &Memos::default());
         let ids: Vec<&str> = found.iter().map(|seen| seen.id.as_str()).collect();
         assert_eq!(ids, ["ses_b", "ses_a"], "{found:?}");
         let (named, unnamed) = (&found[0], &found[1]);
@@ -212,11 +216,11 @@ pub(super) mod tests {
         let root = tempfile::tempdir().expect("a temp folder");
         let named = root.path().join("elsewhere.db");
         database(&named);
-        assert_eq!(sessions(&named).len(), 2);
+        assert_eq!(sessions(&named, &Memos::default()).len(), 2);
         let data = root.path().join("data");
         fs::create_dir_all(&data).expect("folders");
         database(&data.join("opencode-dev.db"));
-        assert_eq!(sessions(&data).len(), 2);
+        assert_eq!(sessions(&data, &Memos::default()).len(), 2);
     }
 
     #[test]
@@ -226,6 +230,6 @@ pub(super) mod tests {
         conn.execute_batch("CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT);")
             .expect("the schema");
         drop(conn);
-        assert!(sessions(root.path()).is_empty());
+        assert!(sessions(root.path(), &Memos::default()).is_empty());
     }
 }

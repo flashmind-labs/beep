@@ -12,7 +12,7 @@ import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machin
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.js";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.js";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.js";
 import { outsideThreads, outsideTitle } from "./branchwork.js";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.js";
@@ -841,7 +841,7 @@ export function openProjects(name) {
 /// Opens a project once it is in: Home and the found folders load again.
 function landed(p) {
   state.picked = p.name;
-  state.sessions.delete(p.name);
+  sessionsDue.add(p.name);
   state.where.delete(p.name);
   loadFound();
   refresh();
@@ -1265,7 +1265,7 @@ function projectBoard(p, rows, known, running) {
   const view = pv.view;
   const agent = agentFor(state.agents, p.name);
   const sessions = state.sessions.get(p.name);
-  if (sessions === undefined) loadSessions(p.name);
+  if (sessions === undefined || sessionsDue.has(p.name)) loadSessions(p.name);
   const out = [];
   if (pv.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh the project: ${pv.error}`)));
   const needs = cardsSection(view, chatActs(p));
@@ -1560,7 +1560,7 @@ async function loadWhere(name) {
   state.where.set(name, got);
   const folders = list => (list || []).filter(m => m.folder).map(m => `${m.id} ${m.folder}`).join("\n");
   if (before !== undefined && folders(before) !== folders(got)) {
-    state.sessions.delete(name);
+    sessionsDue.add(name);
     refresh();
   }
   clearTimeout(whereTimer);
@@ -1576,7 +1576,7 @@ async function loadWhere(name) {
 /// first, each resumable; those running now are under Agents.
 function sessionsSection(p, running) {
   const sessions = state.sessions.get(p.name);
-  if (sessions === undefined && p.imported) loadSessions(p.name);
+  if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
   if (!p.imported) body = h("div", "cc-panel cc-empty", h("span", "", "Import this project to see the sessions your agents ran in it."));
   else if (sessions === undefined) body = h("div", "cc-panel cc-empty", h("span", "", "Reading sessions…"));
@@ -1588,6 +1588,7 @@ function sessionsSection(p, running) {
   }
   const el = section("sec-sessions", "Sessions", sessions?.length || "", null, body);
   el.querySelector("h4").append(h("small", "", "from your coding agents in its folders on every machine, newest first"));
+  if (sessions !== undefined && readingSessions.has(p.name)) el.querySelector("h4").append(h("small", "ss-updating", "Updating…"));
   return el;
 }
 
@@ -1604,7 +1605,7 @@ function sessionRow(s) {
       said.textContent = "";
       try {
         const started = await invoke("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id, prompt: null });
-        state.sessions.delete(state.picked);
+        sessionsDue.add(state.picked);
         openAgentRow(started.session);
       } catch (e) {
         act.disabled = false;
@@ -1618,20 +1619,28 @@ function sessionRow(s) {
   return h("div", "pv-row", h("span", "t", s.title || "Untitled session"), h("span", "m", ...meta), h("span", "acts", said, act));
 }
 
-let readingSessions = null;
+/// The projects whose sessions are being read, and those to read again on
+/// the next draw. The last list read stays in `state.sessions` and shows
+/// meanwhile, so an opened project lists its sessions at once.
+const readingSessions = new Set();
+const sessionsDue = new Set();
 async function loadSessions(name) {
-  if (readingSessions === name) return;
-  readingSessions = name;
-  let got = [];
+  if (readingSessions.has(name)) return;
+  readingSessions.add(name);
+  sessionsDue.delete(name);
+  let got = null;
   try {
     got = await invoke("project_sessions", { project: name });
   } catch (e) {
     console.warn("project sessions:", e);
   } finally {
-    readingSessions = null;
+    readingSessions.delete(name);
   }
-  state.sessions.set(name, got);
-  if (shown === "projects" && state.picked === name) drawProjects(views.get("projects").el);
+  const { list, changed } = nextSessions(state.sessions.get(name), got);
+  state.sessions.set(name, list);
+  if (shown !== "projects" || state.picked !== name) return;
+  if (changed) drawProjects(views.get("projects").el);
+  else for (const el of document.querySelectorAll(".ss-updating")) el.remove();
 }
 
 /// The checkouts the machines found that are not projects yet: the first
@@ -1735,7 +1744,7 @@ registerView("projects", {
   },
   mount(el, arg) {
     state.picked = arg?.project || null;
-    if (state.picked) { state.sessions.delete(state.picked); state.where.delete(state.picked); }
+    if (state.picked) { sessionsDue.add(state.picked); state.where.delete(state.picked); }
     pa.tile = null;
     drawProjects(el);
     if (!state.picked) { loadFound(); loadOverview(); }
