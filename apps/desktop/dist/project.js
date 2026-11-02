@@ -10,6 +10,28 @@ export function agentFor(agents, name) {
   return (agents || []).find(a => a.name === name) || null;
 }
 
+/// The project agent whose chat is `session`, or null for a general chat.
+export function chatProject(agents, session) {
+  if (!session) return null;
+  return (agents || []).find(a => a.chat_id === session) || null;
+}
+
+/// "widget" from "acme/widget": the name a chat's header shows.
+export function shortName(name) {
+  const n = String(name || "");
+  return n.slice(n.lastIndexOf("/") + 1) || n;
+}
+
+/// The project ⌘N goes to: the one whose page shows, or whose chat the
+/// pane shows; null starts a general chat. `at` is `{ shown, picked,
+/// view, session }`: the window's view, the picked project and what the
+/// pane shows.
+export function newChatProject(at, agents) {
+  if (at.shown === "projects") return at.picked || null;
+  if (at.shown === "pane" && at.view === "chat") return chatProject(agents, at.session)?.name ?? null;
+  return null;
+}
+
 /// "18 min", "2 h 5 min", "3 d": how long `from` to `to` took.
 export function duration(from, to) {
   const min = Math.max(0, Math.floor((to - from) / 60000));

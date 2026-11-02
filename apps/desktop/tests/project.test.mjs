@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, barPlaceholder, chatStarted } from "../dist/project.js";
+import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "../dist/project.js";
 
 const MIN = 60000;
 
@@ -62,4 +62,29 @@ test("the prompt bar names the project and offers the chat once it has turns", (
   assert.equal(chatStarted([{ role: "scheduled", label: "Nightly" }, { role: "approval", action: "Create 3 tasks" }]), false);
   assert.equal(chatStarted([{ role: "user", text: "Plan the 0.4 release" }]), true);
   assert.equal(chatStarted([{ role: "assistant", html: "<p>Done</p>" }]), true);
+});
+
+test("a chat belongs to the project whose agent chat it is", () => {
+  const agents = [{ name: "acme/widget", chat_id: "c1" }];
+  assert.equal(chatProject(agents, "c1").name, "acme/widget");
+  assert.equal(chatProject(agents, "c2"), null);
+  assert.equal(chatProject(agents, null), null);
+  assert.equal(chatProject(null, "c1"), null);
+});
+
+test("a project's short name is its repo", () => {
+  assert.equal(shortName("acme/widget"), "widget");
+  assert.equal(shortName("widget"), "widget");
+  assert.equal(shortName(""), "");
+});
+
+test("new chat goes to the project on screen, else a general chat", () => {
+  const agents = [{ name: "acme/widget", chat_id: "c1" }];
+  assert.equal(newChatProject({ shown: "projects", picked: "acme/widget" }, agents), "acme/widget");
+  assert.equal(newChatProject({ shown: "projects", picked: null }, agents), null);
+  assert.equal(newChatProject({ shown: "pane", view: "chat", session: "c1" }, agents), "acme/widget");
+  assert.equal(newChatProject({ shown: "pane", view: "chat", session: "c9" }, agents), null);
+  assert.equal(newChatProject({ shown: "pane", view: "chat", session: null }, agents), null);
+  assert.equal(newChatProject({ shown: "pane", view: "memories", session: "c1" }, agents), null);
+  assert.equal(newChatProject({ shown: "home", picked: "acme/widget" }, agents), null);
 });
