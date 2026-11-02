@@ -25,7 +25,8 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use strum::VariantNames;
 
 pub(crate) const WORKER: &str = "project_worker";
-/// What "Always" on a start card saves; a flsh start is never saved.
+/// What "Always" on a start card saves; a flsh or OpenCode start is never
+/// saved.
 pub(super) const START_SLUG: &str = "PROJECT_WORKER_START";
 
 pub(super) struct WorkerTool {
@@ -467,5 +468,22 @@ mod tests {
         assert_eq!(start_saved(&args), None);
         let args = json!({"action": "start", "task": "fix-it"});
         assert_eq!(start_saved(&args), Some(START_SLUG));
+    }
+
+    #[test]
+    fn an_opencode_start_always_asks() {
+        let placement = placement(WorkerAgent::OpenCode);
+        let (asks, card) = start_card(&task(), "build-box", &placement, &[]);
+        assert_eq!(asks, Asks::Always);
+        assert!(
+            card.fields.iter().any(|field| field.label == "Permissions"
+                && field
+                    .value
+                    .starts_with("opencode runs commands without asking")),
+            "{:?}",
+            card.fields
+        );
+        let args = json!({"action": "start", "task": "fix-it", "agent": "opencode"});
+        assert_eq!(start_saved(&args), None);
     }
 }

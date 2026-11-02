@@ -13,10 +13,11 @@ import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
 import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.js";
-import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
+import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart } from "./openitems.js";
+import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted } from "./project.js";
 import { registerInstructions } from "./instructions.js";
 import { makeTerminals, terminalTile } from "./terminals.js";
-import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
+import { tile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -48,6 +49,8 @@ const IC = {
   pin: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3l6 6-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z"/></svg>',
   group: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14a5 5 0 016 5"/></svg>',
   doc: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
+  pr: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6M18 16.8V10a3 3 0 00-3-3h-4M13 4.5L10.5 7 13 9.5"/></svg>',
+  issue: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>',
   rout: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
@@ -65,7 +68,9 @@ const CONNECT_RETRY_MS = 3000;
 /// `sessions` each project's past sessions once read, by name.
 /// `agents` lists the project agents (undefined before, null from a server
 /// without them) and `pview` each one's tasks, workers and chat, by name.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [], top: [], overview: undefined };
+/// `git` is what `git_items` last gave (null before, or from an old
+/// server), and `gitAll` the projects whose open items show in full.
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [], git: null, gitAll: new Set(), top: [], overview: undefined };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -364,6 +369,98 @@ function updateRow(u) {
 function updatesSection(updates) {
   const clear = button("Clear", "quiet small", () => dismissUpdates(updates.map(u => u.id)));
   return section("sec-updates", "Updates", updates.length, clear, h("div", "cc-panel", ...updates.map(updateRow)));
+}
+
+// ---------- Open PRs and issues ----------
+
+function openUrl(url) {
+  invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
+}
+
+/// Review prefills Start a coding agent: in the project's folder on an
+/// online machine when it is imported, else on Auto.
+function reviewItem(item, project) {
+  const start = reviewStart(item, project, state.home?.machines);
+  go("pane", { agentnew: start });
+}
+
+/// Reply opens a new chat with Beep that asks for help with the item; Beep
+/// reads it with its GitHub tools, and posting asks first.
+async function replyItem(item) {
+  go("pane", { chat: { session: null } });
+  try {
+    await pane()?.compose(replyPrompt(item));
+  } catch (e) {
+    console.warn("starting a reply:", e);
+  }
+  reloadChats();
+}
+
+function openItemRow(item, project) {
+  const kindIcon = icon(item.kind === "pull_request" ? IC.pr : IC.issue);
+  const title = h("button", "t", h("span", "num", `#${item.number}`), h("b", "", item.title));
+  title.type = "button";
+  title.title = item.url;
+  const right = [
+    ...itemChips(item).map(c => tag(c.cls, c.text)),
+    h("span", "age", ago(item.updated_at)),
+    item.kind === "pull_request" ? rowButton("Review", "small", () => reviewItem(item, project)) : null,
+    rowButton("Reply", "small", () => replyItem(item)),
+  ];
+  const row = h("div", "cc-row cc-line cc-gr it", h("span", "ic", kindIcon), title, h("span", "r", ...right));
+  row.addEventListener("click", () => openUrl(item.url));
+  return row;
+}
+
+/// One project's row, its counts and its newest items.
+function openProjectRows(p, i) {
+  const counts = [p.prs ? plural(p.prs, "PR", "PRs") : null, p.issues ? plural(p.issues, "issue", "issues") : null]
+    .filter(Boolean).map(t => h("span", "", t));
+  const right = [...counts, p.waiting ? tag("wait", `${p.waiting} waiting on you`) : null, h("span", "age", ago(p.last))];
+  const sub = p.project ? p.host : `${p.host} · not imported`;
+  const head = line(h("span", "cc-pdot"), p.repo, sub, right, () => (p.project ? openProjects(p.project.name) : openUrl(p.url)));
+  head.classList.add("cc-gr");
+  head.querySelector(".cc-pdot").style.background = PROJECT_COLORS[i % PROJECT_COLORS.length];
+  const all = state.gitAll.has(p.key);
+  const rows = [head, ...(all ? p.items : p.items.slice(0, ITEMS_SHOWN)).map(item => openItemRow(item, p.project))];
+  if (p.items.length > ITEMS_SHOWN) {
+    const more = button(all ? "Show fewer" : `Show all ${p.items.length}`, "quiet small", () => {
+      if (all) state.gitAll.delete(p.key); else state.gitAll.add(p.key);
+      draw();
+    });
+    rows.push(h("div", "cc-gr it more", more));
+  }
+  return rows;
+}
+
+/// Open PRs and issues on the user's git hosts, one row per project with
+/// its items under it. A host that failed says why above the rows.
+function gitSection(view) {
+  const projects = projectsWithOpen(view, projectRows() || []);
+  const notes = view.hosts.filter(x => x.error).map(x =>
+    h("div", "cc-note", h("span", "ddot bad"), h("span", "", x.error)));
+  const body = projects.length
+    ? projects.flatMap(openProjectRows)
+    : [h("div", "cc-empty", h("span", "", notes.length ? "Nothing to show from the hosts that answered." : "No open pull requests or issues."))];
+  const total = projects.reduce((n, p) => n + p.items.length, 0);
+  const count = projects.length ? `${total} in ${plural(projects.length, "project", "projects")}` : "";
+  return section("sec-git", openTitle(view.hosts), count, null, h("div", "cc-panel cc-open", ...notes, ...body));
+}
+
+let readingGit = false;
+/// Asks the server for the open items; it keeps them a few minutes, so
+/// this runs less often than Home's refresh.
+async function refreshGit() {
+  if (readingGit) return;
+  readingGit = true;
+  try {
+    state.git = await invoke("git_items");
+  } catch (e) {
+    console.warn("open PRs and issues:", e);
+  } finally {
+    readingGit = false;
+  }
+  if (shown === "home") draw();
 }
 
 // ---------- Views ----------
@@ -896,15 +993,17 @@ function page(home, wide) {
     updates: () => updatesSection(home.updates),
     coming: () => comingSection(coming),
     projects: () => projectsSection(projectRows() || []),
+    git: () => gitSection(state.git),
   };
-  const cols = wide && homeColumns(home);
+  const laid = { ...home, git: state.git };
+  const cols = wide && homeColumns(laid);
   if (cols) {
     const col = keys => h("div", "", ...keys.map(k => make[k]()));
     out.push(h("div", "cc-wide", col(cols.left), col(cols.right)));
     return out;
   }
   if (machines) out.push(make.machines());
-  for (const row of homeRows(home)) {
+  for (const row of homeRows(laid)) {
     out.push(row.length === 2 ? h("div", "cc-cols", ...row.map(k => make[k]())) : make[row[0]]());
   }
   return out;
@@ -996,7 +1095,7 @@ new ResizeObserver(() => {
 registerView("home", {
   el: $("#home-box"),
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
-  mount() { refresh(); },
+  mount() { refresh(); refreshGit(); },
 });
 
 // ---------- Projects ----------
@@ -1103,7 +1202,7 @@ function projectDetail(p) {
   const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter(r => p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
-  return [...agentTop(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running), ...agentBottom(p)];
+  return [...agentTop(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running)];
 }
 
 /// "Where it lives": every machine with the project's folder there, or why
@@ -1162,18 +1261,14 @@ function projectBoard(p, rows, known, running) {
   if (sessions === undefined) loadSessions(p.name);
   const out = [];
   if (pv.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh the project: ${pv.error}`)));
-  const chat = agentBottom(p)[0];
-  if (pa.tile !== "chat") {
-    const needs = cardsSection(view, chatActs(p));
-    if (needs) out.push(needs);
-  }
+  const needs = cardsSection(view, chatActs(p));
+  if (needs) out.push(needs);
   const full = {
     tasks: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))],
     prs: () => [prsSection(view, agentActs)],
     machines: () => [whereSection(p, rows, known)],
     agents: () => [agentsSection(running), sessionsSection(p, running)],
     terminals: () => terms.panel(p.name, rows),
-    chat: () => [chat],
   };
   if (pa.tile && full[pa.tile]) {
     out.push(backRow(() => openTile(null)), ...full[pa.tile]());
@@ -1187,12 +1282,11 @@ function projectBoard(p, rows, known, running) {
     tile("prs", "Pull requests", prTile(view.tasks), openTile, { openUrl }),
     tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile),
     tile("agents", "Agents", agentTile(running, past), openTile),
-    tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile),
-    chatTile(recentTurns(view.turns, pa.sending?.name === p.name ? pa.sending.text : null), openTile)));
+    tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile)));
   return out;
 }
 
-/// What the project chat's cards do, for the board and the chat section.
+/// What the project chat's cards do, on the board and in the list.
 function chatActs(p) {
   const agent = agentFor(state.agents, p.name);
   return { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) };
@@ -1214,15 +1308,13 @@ function layoutSwitch() {
 // ---------- Project agent ----------
 
 /// What the agent sections are doing: `busy` and `errors` by task or worker
-/// id, `outcomes` of answered cards by query id, `sending` the text on its
-/// way to the project chat, `starting` the project whose chat is being made
-/// and `startError` why that failed. `remembered` is set once the window
-/// made the project chat its current chat.
+/// id, `outcomes` of answered cards by query id, and `starting` the project
+/// whose agent the prompt bar is making.
 /// `tile` is the board tile opened in place of the board, null for the board.
+const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), starting: null, tile: null };
+
 /// The project's terminals; the board's tile and its full view.
 const terms = makeTerminals({ invoke, h, button, ago, redraw: () => redrawProjects() });
-
-const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), sending: null, starting: null, startError: null, remembered: false, tile: null };
 
 function redrawProjects() {
   if (shown === "projects") drawProjects(views.get("projects").el);
@@ -1258,50 +1350,18 @@ async function act(id, call) {
   loadProjectAgent();
 }
 
-/// Tasks beside Workers, above the folders, once the project has an agent.
+/// The cards the project chat waits on, then Tasks beside Workers, above
+/// the folders, once the project has an agent.
 function agentTop(p) {
   const view = p.imported ? state.pview.get(p.name)?.view : null;
   if (!view) return [];
   const out = [];
   const error = state.pview.get(p.name)?.error;
   if (error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh the project: ${error}`)));
+  const needs = cardsSection(view, chatActs(p));
+  if (needs) out.push(needs);
   out.push(h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat)));
   return out;
-}
-
-/// The project chat at the bottom, or the call to start it. Nothing from a
-/// server without project agents, or for a project that is not imported.
-function agentBottom(p) {
-  if (!p.imported || !state.agents) return [];
-  const agent = agentFor(state.agents, p.name);
-  if (!agent) {
-    return [startSection({ starting: pa.starting === p.name, error: pa.startError, start: () => startProjectChat(p.name) })];
-  }
-  const view = state.pview.get(p.name)?.view;
-  if (!view) return [section("sec-project-chat", "Project chat", "", null, h("div", "cc-panel cc-empty", h("span", "", "Reading the project chat…")))];
-  return [chatSection(view, {
-    ...chatActs(p),
-    sending: pa.sending?.name === p.name ? pa.sending.text : null,
-    openChat: () => go("pane", { chat: { session: agent.chat_id } }),
-  })];
-}
-
-/// Makes the project's agent and its chat, then shows them.
-async function startProjectChat(name) {
-  if (pa.starting) return;
-  pa.starting = name;
-  pa.startError = null;
-  redrawProjects();
-  try {
-    const agent = await invoke("center_open_project", { name });
-    state.agents = [...(state.agents || []).filter(a => a.name !== agent.name), agent];
-  } catch (e) {
-    pa.startError = failure(e);
-  } finally {
-    pa.starting = null;
-  }
-  redrawProjects();
-  loadProjectAgent();
 }
 
 /// Answers a card of the project chat. The call returns when the run it
@@ -1316,48 +1376,78 @@ function answerCard(agent, c, decision, said) {
   setTimeout(loadProjectAgent, 1500);
 }
 
-/// The composer under a project with an agent; kept across redraws so
-/// what is typed stays.
+/// The prompt bar under an imported project; kept across redraws so what
+/// is typed stays. Sending opens the project chat, where the project agent
+/// plans the work and runs the coding agents; "Open chat" goes there once
+/// the chat has turns.
 const projectComp = (() => {
   const input = h("input");
   input.type = "text";
   input.autocomplete = "off";
   input.spellcheck = false;
-  input.placeholder = "Ask the project agent, or describe new work";
   input.setAttribute("aria-label", "Ask the project agent");
   const note = h("span", "cc-err");
   note.setAttribute("role", "status");
+  const open = h("button", "dbtn quiet small", "Open chat");
+  open.type = "button";
+  open.addEventListener("click", () => {
+    const agent = agentFor(state.agents, state.picked);
+    if (agent) go("pane", { chat: { session: agent.chat_id } });
+  });
   const send = h("button", "dbtn pri", "Send", h("kbd", "", "⏎"));
   send.type = "submit";
-  const form = h("form", "cc-comp", input, note, send);
+  const form = h("form", "cc-comp", input, note, open, send);
   form.addEventListener("submit", e => {
     e.preventDefault();
     sendToProject(input, note);
   });
-  return form;
+  return { form, input, open, send };
 })();
 
+/// Points the prompt bar at project `name`: its placeholder, whether its
+/// chat has turns to open, and whether its agent is being made.
+function drawProjectComp(name) {
+  const c = projectComp;
+  c.input.placeholder = barPlaceholder(name);
+  c.open.hidden = !chatStarted(state.pview.get(name)?.view?.turns);
+  const starting = pa.starting === name;
+  c.send.disabled = starting;
+  c.send.firstChild.textContent = starting ? "Starting" : "Send";
+}
+
+/// Sends the bar's prompt to the picked project's agent, making the agent
+/// first when there is none, and shows the project chat with the reply
+/// streaming.
 async function sendToProject(input, note) {
-  const agent = agentFor(state.agents, state.picked);
+  const name = state.picked;
   const text = input.value.trim();
-  if (!agent || !text || pa.sending) return;
+  if (!name || !text || pa.starting || !pane()) return;
   note.textContent = "";
-  input.value = "";
-  pa.sending = { name: agent.name, text };
-  pa.remembered = true;
-  redrawProjects();
-  // The turn shows once the server has it, before the reply ends.
-  setTimeout(loadProjectAgent, 1500);
-  try {
-    await invoke("center_project_send", { chatId: agent.chat_id, text, onEvent: new Channel() });
-  } catch (e) {
-    if (!input.value) input.value = text;
-    note.textContent = failure(e);
-  } finally {
-    pa.sending = null;
+  let agent = agentFor(state.agents, name);
+  if (!agent) {
+    pa.starting = name;
+    redrawProjects();
+    try {
+      agent = await invoke("center_open_project", { name });
+      state.agents = [...(state.agents || []).filter(a => a.name !== agent.name), agent];
+    } catch (e) {
+      note.textContent = failure(e);
+      return;
+    } finally {
+      pa.starting = null;
+      redrawProjects();
+    }
   }
-  redrawProjects();
-  loadProjectAgent();
+  input.value = "";
+  go("pane", { chat: { session: agent.chat_id } });
+  try {
+    await pane().ask(agent.chat_id, text);
+  } catch (e) {
+    // Back on the project with the prompt as typed, where the error shows.
+    openProjects(name);
+    input.value = text;
+    note.textContent = failure(e);
+  }
   reloadChats();
 }
 
@@ -1459,7 +1549,7 @@ function sessionsSection(p, running) {
     const past = pastSessions(sessions, running);
     body = past.length
       ? h("div", "cc-panel pv-scroll", ...past.map(sessionRow))
-      : h("div", "cc-panel cc-empty", h("span", "", "No sessions from Claude Code, Codex, pi or flsh in these folders yet."));
+      : h("div", "cc-panel cc-empty", h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
   }
   const el = section("sec-sessions", "Sessions", sessions?.length || "", null, body);
   el.querySelector("h4").append(h("small", "", "from your coding agents in its folders on every machine, newest first"));
@@ -1530,6 +1620,7 @@ function hostOf(url) {
 function drawProjects(el) {
   const rows = projectRows();
   const view = h("div", "cc-view");
+  let one = null;
   if (!state.home) {
     view.append(h("div", "cc-panel cc-empty", h("b", "", "Loading projects…")));
   } else if (!rows || !rows.length) {
@@ -1539,7 +1630,7 @@ function drawProjects(el) {
       importButton("pri")));
   } else {
     const shownRows = filterProjects(rows, state.picked);
-    const one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
+    one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
     if (one) view.append(...projectDetail(one));
     else if (!state.picked && state.overview) view.append(...overviewSection(rows));
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
@@ -1549,20 +1640,20 @@ function drawProjects(el) {
   // Only the view is drawn again: the composer keeps what is typed and its
   // focus, and the view keeps its scroll.
   const old = el.querySelector(":scope > .cc-view");
-  const oldChat = old?.querySelector(".pj-chat");
-  // The chat follows its newest turn unless the user scrolled up in it.
-  const follow = !oldChat || oldChat.scrollHeight - oldChat.scrollTop - oldChat.clientHeight < 24;
   if (old) {
     old.replaceWith(view);
     view.scrollTop = old.scrollTop;
   } else {
     el.prepend(view);
   }
-  const chat = view.querySelector(".pj-chat");
-  if (chat) chat.scrollTop = follow ? chat.scrollHeight : oldChat.scrollTop;
-  const withAgent = !!(state.picked && agentFor(state.agents, state.picked));
-  if (withAgent && projectComp.parentNode !== el) el.append(projectComp);
-  if (!withAgent) projectComp.remove();
+  // The bar shows on an imported project once the server is known to run
+  // project agents.
+  if (one?.imported && state.agents) {
+    drawProjectComp(one.name);
+    if (projectComp.form.parentNode !== el) el.append(projectComp.form);
+  } else {
+    projectComp.form.remove();
+  }
 }
 
 registerView("projects", {
@@ -1587,7 +1678,6 @@ registerView("projects", {
   mount(el, arg) {
     state.picked = arg?.project || null;
     if (state.picked) { state.sessions.delete(state.picked); state.where.delete(state.picked); }
-    pa.startError = null;
     pa.tile = null;
     drawProjects(el);
     if (!state.picked) { loadFound(); loadOverview(); }
@@ -1595,8 +1685,6 @@ registerView("projects", {
   },
   unmount() {
     terms.stop();
-    // The project chat stops being this window's chat, so its notices show.
-    if (pa.remembered) { pa.remembered = false; invoke("new_chat").catch(() => {}); }
   },
 });
 
@@ -1855,6 +1943,10 @@ setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 window.addEventListener("focus", refresh);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
 setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 10000);
+// Open PRs and issues: the server keeps them a few minutes, so once a minute
+// on Home is plenty.
+window.addEventListener("focus", () => { if (shown === "home") refreshGit(); });
+setInterval(() => { if (document.visibilityState === "visible" && shown === "home") refreshGit(); }, 60000);
 for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected"]) {
   listen(name, () => refresh());
 }

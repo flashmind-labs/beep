@@ -1,8 +1,8 @@
 //! The git checkouts coding agents worked in, from the sessions Claude
-//! Code, Codex, pi and flsh keep on this machine, for suggesting projects
-//! to import and for listing an imported project's sessions.
+//! Code, Codex, pi, flsh and OpenCode keep on this machine, for suggesting
+//! projects to import and for listing an imported project's sessions.
 //!
-//! Each store is read on its own (`codex`, `pi`, `flsh`; Claude Code's in
+//! Each store is read on its own (`codex`, `pi`, `flsh`, `opencode`; Claude Code's in
 //! `crate::claude`) into `Seen` sessions: the agent, its id, the folder it
 //! ran in and when. Folders are then folded into the checkout that holds
 //! them (`git`), so a session in a subfolder or a worktree counts for the
@@ -23,6 +23,7 @@ use std::{
 mod codex;
 mod flsh;
 mod git;
+mod opencode;
 mod pi;
 
 pub(crate) use git::{Checkout, checkout};
@@ -47,9 +48,18 @@ pub(crate) enum Agent {
     Codex,
     Pi,
     Flsh,
+    OpenCode,
 }
 
 impl Agent {
+    const ALL: [Self; 5] = [
+        Self::Claude,
+        Self::Codex,
+        Self::Pi,
+        Self::Flsh,
+        Self::OpenCode,
+    ];
+
     /// The name the node's agent table uses, such as `claude`.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
@@ -57,13 +67,12 @@ impl Agent {
             Self::Codex => "codex",
             Self::Pi => "pi",
             Self::Flsh => "flsh",
+            Self::OpenCode => "opencode",
         }
     }
 
     pub(crate) fn from_name(name: &str) -> Option<Self> {
-        [Self::Claude, Self::Codex, Self::Pi, Self::Flsh]
-            .into_iter()
-            .find(|agent| agent.as_str() == name)
+        Self::ALL.into_iter().find(|agent| agent.as_str() == name)
     }
 }
 
@@ -84,12 +93,14 @@ pub(crate) struct Seen {
     pub(crate) file: Option<PathBuf>,
 }
 
-/// Where Codex, pi and flsh keep their sessions on this machine.
+/// Where Codex, pi, flsh and OpenCode keep their sessions on this machine.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Stores {
     codex: Option<PathBuf>,
     pi: Option<PathBuf>,
     flsh: Option<PathBuf>,
+    /// OpenCode's database, or its data folder of them.
+    opencode: Option<PathBuf>,
 }
 
 impl Stores {
@@ -99,6 +110,7 @@ impl Stores {
             codex: codex::locate(),
             pi: pi::locate(),
             flsh: flsh::locate(),
+            opencode: opencode::locate(),
         }
     }
 
@@ -114,6 +126,9 @@ impl Stores {
         }
         if let Some(root) = self.flsh.as_deref().filter(|_| wants(Agent::Flsh)) {
             seen.extend(flsh::sessions(root));
+        }
+        if let Some(root) = self.opencode.as_deref().filter(|_| wants(Agent::OpenCode)) {
+            seen.extend(opencode::sessions(root));
         }
         seen
     }
@@ -133,7 +148,14 @@ impl Stores {
             codex: codex.map(Path::to_owned),
             pi: pi.map(Path::to_owned),
             flsh: flsh.map(Path::to_owned),
+            opencode: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_opencode(mut self, opencode: &Path) -> Self {
+        self.opencode = Some(opencode.to_owned());
+        self
     }
 }
 
@@ -238,7 +260,7 @@ pub(crate) fn describe(seen: Seen, now: SystemTime) -> ExternalSession {
         match seen.agent {
             Agent::Codex => codex::title(file),
             Agent::Pi => pi::title(file),
-            Agent::Claude | Agent::Flsh => None,
+            Agent::Claude | Agent::Flsh | Agent::OpenCode => None,
         }
     });
     let quiet = now
@@ -347,9 +369,10 @@ mod tests {
 
     #[test]
     fn agents_read_their_names() {
-        for agent in [Agent::Claude, Agent::Codex, Agent::Pi, Agent::Flsh] {
+        for agent in Agent::ALL {
             assert_eq!(Agent::from_name(agent.as_str()), Some(agent));
         }
+        assert_eq!(Agent::from_name("opencode"), Some(Agent::OpenCode));
         assert_eq!(Agent::from_name("gemini"), None);
     }
 
@@ -459,6 +482,23 @@ mod tests {
         assert_eq!(found.presence, Presence::Recent, "just written");
         assert!(stores.find(Agent::Codex, "p1").is_none());
         assert!(stores.find(Agent::Pi, "p2").is_none());
+    }
+
+    #[test]
+    fn an_opencode_session_is_found_by_its_id() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        opencode::tests::database(&root.path().join("opencode.db"));
+        let stores = Stores::at(None, None, None).with_opencode(root.path());
+        let found = stores.find(Agent::OpenCode, "ses_a").expect("the session");
+        assert_eq!(found.agent, "opencode");
+        assert_eq!(found.cwd, "/home/user/proj");
+        assert_eq!(found.title.as_deref(), Some("Port the tests"));
+        assert_eq!(found.presence, Presence::Stopped);
+        assert!(
+            stores.find(Agent::OpenCode, "ses_c").is_none(),
+            "a subagent's"
+        );
+        assert!(stores.find(Agent::Flsh, "ses_a").is_none());
     }
 
     #[test]

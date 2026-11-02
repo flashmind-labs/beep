@@ -2,8 +2,7 @@
 //!
 //! A memory is one sentence about the user with an id, who it came from, and
 //! the days it holds when it only holds for a while, like a trip. They live in
-//! a flashmind memory store. Memories are told apart by meaning: one that
-//! says the same as an existing memory replaces it. Recall ranks by meaning
+//! a flashmind memory store. Identical memories are reused. Recall ranks by meaning
 //! and shared words, and leaves out facts whose days are over.
 //! Curation also picks the few memories that matter in nearly every chat.
 //! Those and the temporary facts holding today make the profile, which a
@@ -77,7 +76,7 @@ pub(crate) const READING_LEARN_TIMEOUT: Duration = Duration::from_secs(90);
 pub(crate) const CURATE_TIMEOUT: Duration = Duration::from_secs(90);
 // Memory store scores are `1 - distance / 2` over unit vectors, plus up to
 // 0.3 for shared words in a search.
-/// Two texts this close say the same thing (cosine 0.88).
+/// Similarity threshold used when checking for identical memories.
 pub(crate) const DUPLICATE: f32 = 0.755;
 /// How close a memory must be to show up in a `memory` recall (cosine 0.22).
 pub(crate) const RECALLABLE: f32 = 0.375;
@@ -369,7 +368,8 @@ creating an event. When that finishes a task, plan or follow-up a known memory s
 that memory by id, or update it to the lasting fact if one remains. An action alone is not a new fact to add.
 A fact that only holds for a while (a trip, a visit, a stay, an appointment, a temporary job) gets valid_from \
 and/or valid_until as YYYY-MM-DD, worked out from today's date. Lasting facts leave both out.
-Write each memory as one short self-contained sentence about the user in third person that names its subject, \
+Write each memory as one short self-contained sentence about one independently useful fact, in third person \
+that names its subject. Store distinct facts separately, even when they have the same subject, \
 like \"Has a dog named Rex.\" or \"Is in Lisbon at the Harbour Hotel.\", in the language of the user's \
 latest message. Never translate a known memory.
 Reply with only JSON: {\"ops\": [{\"op\": \"add\" | \"update\" | \"forget\", \"id\": string, \"content\": string, \
@@ -531,11 +531,15 @@ const CURATE_RULES: &str = "Source \"user\" means the user said it or asked Beep
 means Beep picked it up from a chat; \"email\" means Beep read it in the user's email; \"slack\" means Beep \
 read it in the user's Slack.
 Clean it up:
-- Merge memories that say the same thing or are parts of one fact into one sentence, keeping every detail. \
-Only merge memories with the same days: a flight and the stay it starts are separate facts.
-- When two memories contradict each other, keep the newer one and supersede the older with it, unless the older \
-was said by the user and the newer was only learned; then merge them into one sentence that keeps the user's version. \
-A superseded memory is kept as the newer one's history; never forget the losing side of a contradiction.
+- Keep one independently useful fact per memory, with enough context to identify its subject. Split a memory \
+that contains distinct facts into separate self-contained sentences. Keep dates and qualifications; only split \
+when all resulting facts have the same days as the original. Do not invent facts.
+- Merge only memories that say the same fact with the same meaning and days. A shared subject or topic is not \
+enough. Keep each distinct detail in its own memory.
+- When two memories clearly contradict each other, keep the newer one and supersede the older with it, unless the older \
+was said by the user and the newer was only learned; then keep both. \
+A superseded memory is kept as the newer one's history; never forget the losing side of a contradiction. \
+Differences in time or context may explain both statements; when unsure, keep both.
 - Forget memories that are trivial, a one-off task, general knowledge rather than about what these memories \
 are about, or a secret such as a password or code. Never forget a memory said by the user unless its days are over.
 - A memory marked over has passed. When it still says something lasting, like a place the user went, \
@@ -557,7 +561,8 @@ const CURATE_REPLY: &str = "Write memories as one short self-contained sentence 
 language it is already in, and write a merge in the language most of its memories are in, English when unsure.
 Reply with only JSON: {\"ops\": [{\"op\": \"merge\", \"ids\": [string], \"content\": string, \
 \"valid_from\": string, \"valid_until\": string} | {\"op\": \"update\", \"id\": string, \"content\": string, \
-\"valid_from\": string, \"valid_until\": string} | {\"op\": \"supersede\", \"id\": string, \"by\": string} | \
+\"valid_from\": string, \"valid_until\": string} | {\"op\": \"split\", \"id\": string, \"contents\": [string]} | \
+{\"op\": \"supersede\", \"id\": string, \"by\": string} | \
 {\"op\": \"forget\", \"id\": string}]}. \
 Leave out days for lasting facts. \
 At most 40 ops, [] when nothing needs doing.";
@@ -689,6 +694,10 @@ pub(crate) fn parse_learn_ops(answer: &str) -> Result<Vec<LearnOp>> {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
 pub(crate) enum CurateOp {
+    Split {
+        id: String,
+        contents: Vec<String>,
+    },
     Merge {
         ids: Vec<String>,
         #[serde(flatten)]
@@ -748,6 +757,7 @@ pub(crate) fn core_ids(
     let mut forgotten = HashSet::new();
     for step in steps {
         match step {
+            Step::Split { .. } => {}
             Step::Forget(id) => {
                 forgotten.insert(id.as_str());
             }
@@ -829,6 +839,8 @@ pub(crate) struct NewText {
 /// One checked curation change.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Step {
+    /// Replaces one memory with independently searchable facts.
+    Split { id: String, contents: Vec<String> },
     /// Deletes a memory: trivia, a one-off or a secret.
     Forget(String),
     /// Keeps `id` as history of `by`, which contradicts and replaces it.
@@ -906,6 +918,21 @@ pub(crate) fn plan_curation(
     };
     for op in ops {
         match op {
+            CurateOp::Split { id, contents } => {
+                let contents: Vec<String> =
+                    contents.into_iter().map(|s| s.trim().to_owned()).collect();
+                if !(2..=5).contains(&contents.len())
+                    || contents
+                        .iter()
+                        .any(|s| s.is_empty() || s.chars().count() > 4000)
+                    || contents.iter().collect::<HashSet<_>>().len() != contents.len()
+                {
+                    continue;
+                }
+                if claim(slice::from_ref(&id)).is_some() {
+                    steps.push(Step::Split { id, contents });
+                }
+            }
             CurateOp::Forget { id } => {
                 let Some(row) = rows.get(id.as_str()) else {
                     continue;
@@ -997,6 +1024,7 @@ fn follow_supersedes(steps: Vec<Step>) -> Vec<Step> {
     let mut merged = HashMap::new();
     for step in &steps {
         match step {
+            Step::Split { .. } => {}
             Step::Forget(id) | Step::Supersede { id, .. } => {
                 gone.insert(id.clone());
             }
@@ -1197,7 +1225,9 @@ mod tests {
             .into_iter()
             .map(|step| match step {
                 Step::Rewrite { fact, .. } => fact.valid,
-                Step::Forget(_) | Step::Supersede { .. } => panic!("unexpected step"),
+                Step::Forget(_) | Step::Supersede { .. } | Step::Split { .. } => {
+                    panic!("unexpected step")
+                }
             })
             .collect();
         assert_eq!(valid, vec![Some(Validity::default()), None]);

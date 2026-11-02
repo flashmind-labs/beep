@@ -1,13 +1,9 @@
 // A project's agent on its page: the Tasks list, the Workers tree and the
-// project chat with its cards, or the call to start that chat. center.js
-// owns the page and its refreshes; this file draws these sections and holds
-// the pure pieces the tests check.
+// cards its chat waits on. The chat itself opens in the pane from the
+// page's prompt bar. center.js owns the page and its refreshes; this file
+// draws these sections and holds the pure pieces the tests check.
 import { agentOf } from "./home.js";
 import { agentLabel } from "./projects-state.js";
-
-/// How many turns of the project chat the page shows; the chat itself has
-/// the rest.
-export const CHAT_TURNS = 12;
 
 /// The project agent for project `name`, or null.
 export function agentFor(agents, name) {
@@ -74,13 +70,15 @@ export function workerLine(w, now) {
   return [agentLabel(w.agent), w.machine_name, workerFolder(w.folder), w.state, took].filter(Boolean).join(" · ");
 }
 
-/// The last `n` turns of the chat, with what is being sent after them
-/// until the chat has it.
-export function recentTurns(turns, sending, n = CHAT_TURNS) {
-  const list = (turns || []).slice(-n);
-  if (!sending) return list;
-  const last = list.filter(t => t.role === "user").pop();
-  return last?.text === sending ? list : [...list, { role: "user", text: sending }];
+/// What the prompt bar under project `name` asks for.
+export function barPlaceholder(name) {
+  return `Ask the project agent about ${name}`;
+}
+
+/// Whether the project chat has anything to open: something said by the
+/// user or the agent.
+export function chatStarted(turns) {
+  return (turns || []).some(t => t.role === "user" || t.role === "assistant");
 }
 
 // ---------- Drawing ----------
@@ -213,39 +211,4 @@ export function prsSection(view, act) {
   });
   const open = tasks.filter(t => t.state !== "done").length;
   return section("sec-prs", "Pull requests", open ? `${open} open` : "", h("div", "cc-panel", ...rows));
-}
-
-/// The project chat: its last turns, the cards it waits on, and a way to
-/// the whole chat.
-export function chatSection(view, act) {
-  const turns = recentTurns(view.turns, act.sending);
-  const body = h("div", "cc-panel pj-chat");
-  if (!turns.length && !view.cards.length) body.append(h("span", "pj-quiet", "Nothing said yet. Ask for work below; the agent plans it into tasks."));
-  for (const t of turns) {
-    if (t.role === "user") body.append(h("div", "dask", t.text));
-    else if (t.role === "assistant") {
-      const said = h("div", "pj-said");
-      said.innerHTML = t.html; // rendered and cleaned by markdown.rs
-      body.append(said);
-    } else if (t.role === "scheduled") body.append(h("span", "pj-quiet", t.label));
-    else if (t.role === "approval") body.append(h("span", "pj-quiet", `Asked: ${t.action}`));
-  }
-  if (act.sending) body.append(h("span", "pj-quiet", h("span", "dspin"), " The project agent is working"));
-  for (const c of view.cards) body.append(card(c, act));
-  const all = button("Open the whole chat", "quiet small", act.openChat);
-  const el = section("sec-project-chat", "Project chat", "", body);
-  // The note and the button stay together at the right of the title.
-  el.querySelector(".cc-sec").append(h("span", "cc-sec-r", h("small", "", "the project agent"), all));
-  return el;
-}
-
-/// The call to start a project chat, for a project without an agent.
-export function startSection(act) {
-  const go = button(act.starting ? "Starting…" : "Start the project chat", "pri", act.start);
-  go.disabled = !!act.starting;
-  return section("sec-project-chat", "Project chat", "no project agent yet", h("div", "cc-panel cc-empty",
-    h("b", "", "Hand the work to a project agent"),
-    h("span", "", "It turns what you ask into tasks, runs each one as a worker on a machine with a checkout, and asks you before anything leaves the project."),
-    go,
-    act.error ? h("span", "cc-err", act.error) : null));
 }

@@ -21,6 +21,41 @@ use tokio::{
 };
 use uuid::Uuid;
 
+#[test]
+fn retrieved_memories_are_transient_developer_entries() {
+    use super::memory_entries;
+    use crate::{
+        protocol::MemorySource,
+        store::{MemoryRow, Scope, Scored, Validity},
+    };
+    use flashmind::core::Conversation;
+
+    let found = Scored {
+        row: MemoryRow {
+            id: "memory-1".into(),
+            content: "Maya manages the design team.".into(),
+            category: "people".into(),
+            source: MemorySource::Learned {},
+            updated_at: "2026-01-01 10:00:00".into(),
+            valid: Validity::default(),
+            origin: None,
+            core: false,
+            scope: Scope::User,
+        },
+        score: 0.8,
+    };
+    let mut chat = Conversation::new();
+    for entry in memory_entries(vec![found]) {
+        assert!(entry.is_memory());
+        assert_eq!(entry.role(), "developer");
+        assert!(entry.content().contains("Maya manages the design team."));
+        chat.add(entry);
+    }
+    assert_eq!(chat.entries().len(), 1);
+    chat.strip_memories();
+    assert!(chat.entries().is_empty());
+}
+
 /// Searches once, then answers. The first search waits for a permit, so the
 /// test can follow the run from its start.
 struct Searcher {

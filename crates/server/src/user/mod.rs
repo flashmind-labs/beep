@@ -1124,6 +1124,14 @@ impl User {
         self.store.remove_credential(&self.key, id).await
     }
 
+    /// The user's git host tokens, opened.
+    pub async fn git_logins(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<crate::store::GitLogin>> {
+        self.store.git_logins(&self.key, key).await
+    }
+
     /// The user's credentials for their machines, opened.
     pub async fn machine_credentials(
         &self,

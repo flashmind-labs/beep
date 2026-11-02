@@ -4,6 +4,7 @@
 //!
 //! `rescan [USER_ID]` reads the connected mailboxes and calendars of every
 //! user, or of one, again from the start and turns them into memories.
+//! `split-memories USER_ID` reviews one user's existing memories in batches.
 
 use super::App;
 use crate::profile;
@@ -63,7 +64,10 @@ async fn answer(app: &Arc<App>, stream: UnixStream) -> Result<()> {
     let reply = match words.as_slice() {
         ["rescan"] => rescan(app, None).await,
         ["rescan", user] => rescan(app, Some(user)).await,
-        _ => Ok(vec!["usage: rescan [USER_ID]".to_owned()]),
+        ["split-memories", user] => split_memories(app, user).await,
+        _ => Ok(vec![
+            "usage: rescan [USER_ID] | split-memories USER_ID".to_owned(),
+        ]),
     };
     let lines = reply.unwrap_or_else(|error| vec![format!("error: {error:#}")]);
     for line in lines {
@@ -71,6 +75,16 @@ async fn answer(app: &Arc<App>, stream: UnixStream) -> Result<()> {
         write.write_all(b"\n").await?;
     }
     Ok(())
+}
+
+async fn split_memories(app: &Arc<App>, id: &str) -> Result<Vec<String>> {
+    let Some(user) = app.users().into_iter().find(|user| user.id() == id) else {
+        return Ok(vec!["no such user".to_owned()]);
+    };
+    let changed = user
+        .split_existing_memories(app.generator(user.id()))
+        .await?;
+    Ok(vec![format!("split memories: {changed} changes")])
 }
 
 async fn rescan(app: &Arc<App>, only: Option<&str>) -> Result<Vec<String>> {

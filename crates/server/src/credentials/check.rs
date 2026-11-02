@@ -36,18 +36,24 @@ pub struct Checker {
     client: Client,
 }
 
+/// A client for calls to a git host with a user's token: it reaches only
+/// public addresses and follows no redirect.
+pub fn host_client() -> anyhow::Result<Client> {
+    Ok(Client::builder()
+        .timeout(TIMEOUT)
+        .user_agent("beep-server")
+        // A redirect could send the token, or the probe, anywhere.
+        .redirect(Policy::none())
+        // A proxy would resolve the name itself, past the resolver.
+        .no_proxy()
+        .dns_resolver(Arc::new(PublicOnly))
+        .build()?)
+}
+
 impl Checker {
     pub fn new() -> anyhow::Result<Self> {
         Ok(Self {
-            client: Client::builder()
-                .timeout(TIMEOUT)
-                .user_agent("beep-server")
-                // A redirect could send the token, or the probe, anywhere.
-                .redirect(Policy::none())
-                // A proxy would resolve the name itself, past the resolver.
-                .no_proxy()
-                .dns_resolver(Arc::new(PublicOnly))
-                .build()?,
+            client: host_client()?,
         })
     }
 

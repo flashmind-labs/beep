@@ -233,6 +233,7 @@ pub(crate) fn agent_name(agent: &str) -> &str {
         "gemini" => "Gemini CLI",
         "pi" => "pi",
         "flsh" => "flsh",
+        "opencode" => "OpenCode",
         other => other,
     }
 }
