@@ -5,6 +5,7 @@
 use super::{Machines, Need, in_parameter};
 use crate::{
     nodes::Exited,
+    permissions::shorten,
     protocol::node::process::{MAX_LINES, Reply, Request},
 };
 use async_trait::async_trait;
@@ -133,8 +134,8 @@ impl Tool for ExecTool {
     fn timeout_secs(&self) -> Option<u64> {
         Some(DEFAULT_LIMIT.as_secs() + 60)
     }
-    fn humanize(&self, _: &Value) -> String {
-        STEP.to_owned()
+    fn humanize(&self, args: &Value) -> String {
+        step(args)
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let args: Args = match serde_json::from_value(ctx.args.clone()) {
@@ -324,9 +325,36 @@ pub(super) fn task_lines(lines: &[String], earlier: bool) -> String {
     out
 }
 
+/// The step's label: "Running" and the command's first line, cut short, so
+/// the chat shows what ran; just `STEP` without one.
+fn step(args: &Value) -> String {
+    let command = args.get("command").and_then(Value::as_str).unwrap_or("");
+    match command.lines().map(str::trim).find(|line| !line.is_empty()) {
+        Some(line) => format!("Running {}", shorten(line, STEP_COMMAND_CHARS)),
+        None => STEP.to_owned(),
+    }
+}
+
+/// The most of a command a step's label shows.
+const STEP_COMMAND_CHARS: usize = 80;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_step_names_the_command() {
+        assert_eq!(
+            step(&json!({ "command": "\n  ssh build-box journalctl -u app\necho done" })),
+            "Running ssh build-box journalctl -u app"
+        );
+        assert_eq!(step(&json!({ "command": "  " })), STEP);
+        let long = "x".repeat(100);
+        assert_eq!(
+            step(&json!({ "command": long })),
+            format!("Running {}...", "x".repeat(80))
+        );
+    }
 
     fn args(value: Value) -> Result<Args, serde_json::Error> {
         serde_json::from_value(value)
